@@ -3,7 +3,7 @@ from .models.Admin_models import Admin
 from .models.signup import Signup
 from . import db
 from .models.emp_detail_models import Employee
-from .models.attendance import Punch
+from .models.attendance import Punch,Location
 from .models.attendance import Punch, LeaveBalance
 from .models.manager_model import ManagerContact
 from .models.news_feed import NewsFeed
@@ -53,13 +53,13 @@ def validate_user():
 
     # ✅ CREATE JWT TOKEN
     access_token = create_access_token(
-        identity=user.id,
+        identity=str(user.id),
         additional_claims={
             "email": user.email,
             "emp_type": user.emp_type
         }
     )
-
+    print("JWT TOKEN:", access_token)
     return jsonify({
         "success": True,
         "token": access_token
@@ -171,11 +171,21 @@ def employee_homepage():
     # ------------------------
     today = date.today()
     punch = None
+    working_hours = None
+
     if employee:
         punch = Punch.query.filter_by(
             admin_id=employee.admin_id,
             punch_date=today
         ).first()
+
+        if punch and punch.punch_in:
+            if punch.punch_out:
+                diff = punch.punch_out - punch.punch_in
+            else:
+                diff = datetime.now() - punch.punch_in
+
+            working_hours = str(diff).split(".")[0]  # HH:MM:SS
 
     # ------------------------
     # ✅ 4. LEAVE BALANCE
@@ -183,73 +193,151 @@ def employee_homepage():
     leave_balance = LeaveBalance.query.filter_by(signup_id=signup.id).first()
 
     # ------------------------
-    # ✅ 5. QUERY NOTIFICATIONS
-    # ------------------------
-    new_queries_count = Query.query.filter_by(
-        emp_type=signup.emp_type,
-        status='New'
-    ).count()
-
-    # ------------------------
     # ✅ 6. MANAGER CONTACT
     # ------------------------
     manager = ManagerContact.query.filter_by(
-        circle_name=signup.circle,
-        user_type=signup.emp_type
-    ).first()
+         circle_name=signup.circle,
+         user_type=signup.emp_type
+     ).first()
+    
+    
 
-    # ------------------------
-    # ✅ 7. NEWS FEED
-    # ------------------------
-    news_feeds = NewsFeed.query.filter(
-        (NewsFeed.circle == signup.circle) | (NewsFeed.circle == 'All'),
-        (NewsFeed.emp_type == signup.emp_type) | (NewsFeed.emp_type == 'All')
-    ).order_by(NewsFeed.created_at.desc()).limit(5).all()
+        
 
-    # ------------------------
-    # ✅ FINAL JSON RESPONSE
-    # ------------------------
+    return jsonify({
+            "success": True,
+
+            "user": {
+                "id": signup.id,
+                "name": signup.first_name,
+                "emp_id": signup.emp_id,
+                "department": signup.emp_type,
+                "circle": signup.circle,
+                "doj": str(signup.doj)
+            },
+
+            "employee": {
+                "admin_id": employee.admin_id if employee else None,
+                "designation": employee.designation if employee else None,
+            },
+
+            "punch": {
+                "punch_in": punch.punch_in if punch else None,
+                "punch_out": punch.punch_out if punch else None,
+                "working_hours": working_hours
+            },
+
+            "leave_balance": {
+                "pl": leave_balance.privilege_leave_balance if leave_balance else 0,
+                "cl": leave_balance.casual_leave_balance if leave_balance else 0
+            },
+            "manager": {
+             "l1": manager.l1_email if manager else None,
+             "l2": manager.l2_email if manager else None,
+             "l3": manager.l3_email if manager else None
+         },
+
+        }), 200
+
+
+
+from datetime import datetime, date
+from math import radians, sin, cos, sqrt, atan2
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    R = 6371000  # meters
+    dLat = radians(lat2 - lat1)
+    dLon = radians(lon2 - lon1)
+    a = sin(dLat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dLon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    return R * c
+
+
+@auth.route('/employee/punch-in', methods=['POST'])
+@jwt_required()
+def punch_in():
+
+    data = request.get_json()
+    user_lat = data.get("lat")
+    user_lon = data.get("lon")
+    is_wfh = data.get("is_wfh", False)
+
+    email = get_jwt().get("email")
+    employee = Employee.query.filter_by(email=email).first()
+
+    if not employee:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    today = date.today()
+
+    existing = Punch.query.filter_by(admin_id=employee.admin_id, punch_date=today).first()
+    if existing:
+        return jsonify({"success": False, "message": "Already punched in today"}), 400
+
+    # ---------- LOCATION VALIDATION ----------
+    if not is_wfh:
+
+        office_location = Location.query.first()  # or based on employee.circle
+        if not office_location:
+            return jsonify({"success": False, "message": "Office location not set"}), 400
+
+        distance = calculate_distance(
+            user_lat, user_lon,
+            office_location.latitude, office_location.longitude
+        )
+
+        if distance > office_location.radius:
+            return jsonify({
+                "success": False,
+                "message": f"Too far from office location ({int(distance)}m > {office_location.radius}m)"
+            }), 403
+
+    # ---------- CREATE NEW PUNCH ----------
+    new_punch = Punch(
+        admin_id=employee.admin_id,
+        punch_in=datetime.now(),
+        punch_date=today,
+        lat=user_lat,
+        lon=user_lon,
+        is_wfh=is_wfh
+    )
+
+    db.session.add(new_punch)
+    db.session.commit()
+
     return jsonify({
         "success": True,
-
-        "user": {
-            "id": signup.id,
-            "name": signup.first_name,
-            "email": signup.email,
-            "emp_type": signup.emp_type,
-            "circle": signup.circle,
-            "doj": str(signup.doj)
-        },
-
-        "employee": {
-            "admin_id": employee.admin_id if employee else None
-        },
-
-        "punch": {
-            "punch_in": punch.punch_in if punch else None,
-            "punch_out": punch.punch_out if punch else None
-        },
-
-        "leave_balance": {
-            "pl": leave_balance.privilege_leave_balance if leave_balance else 0,
-            "cl": leave_balance.casual_leave_balance if leave_balance else 0
-        },
-
-        "notifications": {
-            "new_queries": new_queries_count
-        },
-
-        "manager": {
-            "l1": manager.l1_email if manager else None,
-            "l2": manager.l2_email if manager else None,
-            "l3": manager.l3_email if manager else None
-        },
-
-        "news": [
-            {
-                "title": n.title,
-                "desc": n.description,
-                "date": str(n.created_at)
-            } for n in news_feeds
-        ]
+        "message": "Punched in successfully",
+        "punch_in": str(new_punch.punch_in)
     }), 200
+
+
+
+@auth.route('/employee/punch-out', methods=['POST'])
+@jwt_required()
+def punch_out():
+
+    email = get_jwt().get("email")
+    employee = Employee.query.filter_by(email=email).first()
+
+    today = date.today()
+    punch = Punch.query.filter_by(admin_id=employee.admin_id, punch_date=today).first()
+
+    if not punch or punch.punch_out:
+        return jsonify({"success": False, "message": "Punch-out already done or no punch-in found"}), 400
+
+    punch.punch_out = datetime.now()
+
+    # CALCULATE TOTAL TIME
+    diff = punch.punch_out - punch.punch_in
+    punch.today_work = str(diff).split(".")[0]   # store as "HH:MM:SS"
+
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "message": "Punched out",
+        "punch_out": str(punch.punch_out),
+        "today_work": punch.today_work
+    }), 200
+

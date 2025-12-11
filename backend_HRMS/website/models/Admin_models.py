@@ -2,6 +2,18 @@ from .. import db
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from website.models.family_models import FamilyDetails
+from website.models.emp_detail_models import Employee,Asset
+from website.models.prev_com import PreviousCompany
+from website.models.education import Education, UploadDoc
+from website.models.attendance import LeaveApplication, Punch,WorkFromHomeApplication,Punch,LeaveBalance,Location
+from website.models.news_feed import PaySlip
+from website.models.query import Query, QueryReply  
+from website.models.seperation import Resignation,Noc,Noc_Upload
+from website.models.expense import ExpenseClaimHeader   
+from website.models.Performance import EmployeePerformance
+from website.models.signup import Signup
+from website.models.confirmation_request import ConfirmationRequest
 
 
 class Admin(db.Model, UserMixin):
