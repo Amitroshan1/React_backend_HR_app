@@ -8,7 +8,7 @@ from .models.attendance import Punch, LeaveBalance
 from .models.manager_model import ManagerContact
 from .models.news_feed import NewsFeed
 from .models.query import Query
-
+from .models.education import Education,UploadDoc
 from datetime import datetime
 import requests
 from flask_jwt_extended import create_access_token
@@ -243,6 +243,7 @@ def employee_homepage():
 
 from datetime import datetime, date
 from math import radians, sin, cos, sqrt, atan2
+from .utility import is_on_leave, is_wfh_allowed
 
 def calculate_distance(lat1, lon1, lat2, lon2):
     R = 6371000  # meters
@@ -257,33 +258,67 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 @jwt_required()
 def punch_in():
 
-    data = request.get_json()
+    data = request.get_json() or {}
+
     user_lat = data.get("lat")
     user_lon = data.get("lon")
-    is_wfh = data.get("is_wfh", False)
+    is_wfh = bool(data.get("is_wfh", False))
 
+    # Get logged-in user email from JWT
     email = get_jwt().get("email")
-    employee = Employee.query.filter_by(email=email).first()
+    print(email)
+    employee = Admin.query.filter_by(email=email).first()
 
     if not employee:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
     today = date.today()
 
-    existing = Punch.query.filter_by(admin_id=employee.admin_id, punch_date=today).first()
-    if existing:
-        return jsonify({"success": False, "message": "Already punched in today"}), 400
+    # ❌ Already punched in
+    existing = Punch.query.filter_by(
+        admin_id=employee.id,
+        punch_date=today
+    ).first()
 
-    # ---------- LOCATION VALIDATION ----------
+    if existing and existing.punch_in:
+        return jsonify({
+            "success": False,
+            "message": "Already punched in today"
+        }), 400
+
+    # ❌ On approved leave
+    if is_on_leave(employee.id, today):
+        return jsonify({
+            "success": False,
+            "message": "You are on approved leave today"
+        }), 403
+
+    # ❌ WFH selected but not approved
+    if is_wfh and not is_wfh_allowed(employee.id):
+        return jsonify({
+            "success": False,
+            "message": "WFH mode is not approved for today"
+        }), 403
+
+    # ❌ Location validation (only if NOT WFH)
     if not is_wfh:
+        if user_lat is None or user_lon is None:
+            return jsonify({
+                "success": False,
+                "message": "Location (lat, lon) is required"
+            }), 400
 
         office_location = Location.query.first()  # or based on employee.circle
         if not office_location:
-            return jsonify({"success": False, "message": "Office location not set"}), 400
+            return jsonify({
+                "success": False,
+                "message": "Office location not configured"
+            }), 500
 
         distance = calculate_distance(
             user_lat, user_lon,
-            office_location.latitude, office_location.longitude
+            office_location.latitude,
+            office_location.longitude
         )
 
         if distance > office_location.radius:
@@ -292,23 +327,26 @@ def punch_in():
                 "message": f"Too far from office location ({int(distance)}m > {office_location.radius}m)"
             }), 403
 
-    # ---------- CREATE NEW PUNCH ----------
-    new_punch = Punch(
-        admin_id=employee.admin_id,
-        punch_in=datetime.now(),
-        punch_date=today,
-        lat=user_lat,
-        lon=user_lon,
-        is_wfh=is_wfh
-    )
+    # ✅ CREATE / UPDATE PUNCH
+    if not existing:
+        existing = Punch(
+            admin_id=employee.id,
+            punch_date=today
+        )
 
-    db.session.add(new_punch)
+    existing.punch_in = datetime.now().time()
+    existing.lat = user_lat
+    existing.lon = user_lon
+    existing.is_wfh = is_wfh
+
+    db.session.add(existing)
     db.session.commit()
 
     return jsonify({
         "success": True,
         "message": "Punched in successfully",
-        "punch_in": str(new_punch.punch_in)
+        "punch_in": str(existing.punch_in),
+        "is_wfh": is_wfh
     }), 200
 
 
@@ -340,4 +378,190 @@ def punch_out():
         "punch_out": str(punch.punch_out),
         "today_work": punch.today_work
     }), 200
+
+
+
+@auth.route("/employee", methods=["POST"])
+def create_or_update_employee():
+    data = request.get_json()
+
+    print("\n=== INCOMING JSON ===")
+    print(data)
+
+    if not data:
+        return {"success": False, "message": "Missing JSON body"}, 400
+
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return {"success": False, "message": "admin_id is required"}, 400
+
+    # Check if employee already exists
+    employee = Employee.query.filter_by(admin_id=admin_id).first()
+
+    try:
+        if employee:
+            print("Updating existing employee...")
+
+            # Update fields if present in incoming data
+            for field in [
+                "name", "email", "father_name", "mother_name", "marital_status",
+                "dob", "emp_id", "mobile", "gender", "emergency_mobile",
+                "nationality", "blood_group", "designation",
+                "permanent_address_line1", "permanent_pincode",
+                "permanent_district", "permanent_state",
+                "present_address_line1", "present_pincode",
+                "present_district", "present_state"
+            ]:
+                if field in data:
+                    setattr(employee, field, data[field])
+
+            db.session.commit()
+            return {"success": True, "message": "Employee updated successfully"}, 200
+
+        else:
+            print("Creating new employee...")
+
+            employee = Employee(
+                admin_id=admin_id,
+                name=data["name"],
+                email=data["email"],
+                father_name=data["father_name"],
+                mother_name=data["mother_name"],
+                marital_status=data["marital_status"],
+                dob=data["dob"],
+                emp_id=data["emp_id"],
+                mobile=data["mobile"],
+                gender=data["gender"],
+                emergency_mobile=data["emergency_mobile"],
+                nationality=data["nationality"],
+                blood_group=data["blood_group"],
+                designation=data["designation"],
+
+                permanent_address_line1=data["permanent_address_line1"],
+                permanent_pincode=data["permanent_pincode"],
+                permanent_district=data.get("permanent_district"),
+                permanent_state=data.get("permanent_state"),
+
+                present_address_line1=data["present_address_line1"],
+                present_pincode=data["present_pincode"],
+                present_district=data.get("present_district"),
+                present_state=data.get("present_state"),
+            )
+
+            db.session.add(employee)
+            db.session.commit()
+
+            return {"success": True, "message": "Employee created successfully"}, 201
+
+    except Exception as e:
+        db.session.rollback()
+        print("ERROR:", e)
+        return {"success": False, "message": str(e)}, 500
+
+
+
+
+@auth.route("/education", methods=["POST"])
+def create_or_update_education():
+    data = request.get_json()
+
+    if not data:
+        return {"success": False, "message": "Missing JSON body"}, 400
+
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return {"success": False, "message": "admin_id is required"}, 400
+
+    # Check if education record exists for this admin
+    education = Education.query.filter_by(admin_id=admin_id).first()
+
+    try:
+        # ------------ UPDATE ------------
+        if education:
+            update_fields = [
+                "qualification", "institution", "board",
+                "start", "end", "marks", "doc_file"
+            ]
+
+            for field in update_fields:
+                if field in data:
+                    setattr(education, field, data[field])
+
+            db.session.commit()
+            return {"success": True, "message": "Education updated successfully"}, 200
+
+        # ------------ CREATE ------------
+        education = Education(
+            admin_id=admin_id,
+            qualification=data["qualification"],
+            institution=data["institution"],
+            board=data["board"],
+            start=data["start"],
+            end=data["end"],
+            marks=data["marks"],
+            doc_file=data.get("doc_file")  # optional file path
+        )
+
+        db.session.add(education)
+        db.session.commit()
+        return {"success": True, "message": "Education created successfully"}, 201
+
+    except Exception as e:
+        db.session.rollback()
+        return {"success": False, "message": str(e)}, 500
+
+
+
+@auth.route("/upload-docs", methods=["POST"])
+def save_upload_docs():
+    data = request.get_json()
+
+    if not data:
+        return {"success": False, "message": "Missing JSON body"}, 400
+
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return {"success": False, "message": "admin_id is required"}, 400
+
+    # Check if record exists
+    upload_doc = UploadDoc.query.filter_by(admin_id=admin_id).first()
+
+    try:
+        # ---------------- UPDATE ----------------
+        if upload_doc:
+            update_fields = [
+                "aadhaar_front", "aadhaar_back",
+                "pan_front", "pan_back",
+                "appointment_letter",
+                "passbook_front"
+            ]
+
+            for field in update_fields:
+                if field in data:
+                    setattr(upload_doc, field, data[field])
+
+            db.session.commit()
+            return {"success": True, "message": "Documents updated successfully"}, 200
+
+        # ---------------- CREATE ----------------
+        upload_doc = UploadDoc(
+            admin_id=admin_id,
+            aadhaar_front=data.get("aadhaar_front"),
+            aadhaar_back=data.get("aadhaar_back"),
+            pan_front=data.get("pan_front"),
+            pan_back=data.get("pan_back"),
+            appointment_letter=data.get("appointment_letter"),
+            passbook_front=data.get("passbook_front")
+        )
+
+        db.session.add(upload_doc)
+        db.session.commit()
+        return {"success": True, "message": "Documents saved successfully"}, 201
+
+    except Exception as e:
+        db.session.rollback()
+        print("ERROR:", e)
+        return {"success": False, "message": str(e)}, 500
+
+
 

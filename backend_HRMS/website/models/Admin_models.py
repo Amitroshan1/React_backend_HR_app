@@ -53,8 +53,11 @@ class Admin(db.Model, UserMixin):
     expense_claim_header = db.relationship('ExpenseClaimHeader', back_populates='admin', cascade='all, delete-orphan')
     noc_emp = db.relationship('Noc',back_populates='admin', cascade='all, delete-orphan')
     noc_upload = db.relationship('Noc_Upload',back_populates='admin', cascade='all, delete-orphan')
-    performance = db.relationship('EmployeePerformance',back_populates='admin', cascade='all, delete-orphan')
-    # sessions = db.relationship('Session', back_populates='admin', cascade="all, delete-orphan")
+    performances = db.relationship(
+        'EmployeePerformance',
+        back_populates='admin',
+        cascade='all, delete-orphan'
+    )    # sessions = db.relationship('Session', back_populates='admin', cascade="all, delete-orphan")
 
 
     

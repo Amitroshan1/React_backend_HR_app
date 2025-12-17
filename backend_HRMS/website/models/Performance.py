@@ -2,12 +2,12 @@ from .. import db
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
-
 class EmployeePerformance(db.Model):
     __tablename__ = 'employee_performance'
 
     id = db.Column(db.Integer, primary_key=True)
-    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
+
     employee_name = db.Column(db.String(150), nullable=False)
     month = db.Column(db.String(50), nullable=False)
     achievements = db.Column(db.Text, nullable=False)
@@ -17,8 +17,12 @@ class EmployeePerformance(db.Model):
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     status = db.Column(db.String(20), default='Pending', nullable=False)
 
-    # ✅ Cascade delete review when performance is deleted
-    admin = db.relationship('Admin', backref=db.backref('performances', lazy='dynamic'))
+    # ✅ Proper relationship (NO backref)
+    admin = db.relationship(
+        'Admin',
+        back_populates='performances'
+    )
+
     review = db.relationship(
         'ManagerReview',
         back_populates='performance',

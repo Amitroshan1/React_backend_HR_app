@@ -56,13 +56,13 @@ def create_app():
     # ---------------------------
     from .models.Admin_models import Admin
     from .models.signup import Signup
-    # from .models.attendance import LeaveBalance, LeaveApplication
-    # from .models.manager_model import ManagerContact
-    # from .models.query import Query, QueryReply
-    # from .models.emp_detail_models import Employee
-    # from .models.education import Education, UploadDoc
-    # from .models.family_models import FamilyDetails
-    # from .models.prev_com import PreviousCompany
+    from .models.attendance import LeaveBalance, LeaveApplication
+    from .models.manager_model import ManagerContact
+    from .models.query import Query, QueryReply
+    from .models.emp_detail_models import Employee
+    from .models.education import Education, UploadDoc
+    from .models.family_models import FamilyDetails
+    from .models.prev_com import PreviousCompany
     # from .models.news_feed import NewsFeed, PaySlip
     # from .models.otp import OTP
     # from .models.expense import ExpenseClaimHeader, ExpenseLineItem
@@ -76,7 +76,7 @@ def create_app():
     # Register API Blueprints
     # ---------------------------
     from .auth import auth
-    # from .Amdin_auth import Admin_auth
+    from .leave_attendence import leave
     # from .profile import profile
     # from .hr import hr
     # from .Updatemanager import manager_bp
@@ -87,7 +87,7 @@ def create_app():
     # from .Admin_Access import Admins_access
 
     app.register_blueprint(auth, url_prefix="/api/auth")
-    # app.register_blueprint(Admin_auth, url_prefix="/api/admin")
+    app.register_blueprint(leave, url_prefix="/api/leave")
     # app.register_blueprint(profile, url_prefix="/api/profile")
     # app.register_blueprint(hr, url_prefix="/api/hr")
     # app.register_blueprint(manager_bp, url_prefix="/api/manager")
