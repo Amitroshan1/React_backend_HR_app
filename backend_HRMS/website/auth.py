@@ -1,3 +1,5 @@
+from math import radians, cos, sin, atan2, sqrt
+
 from flask import Blueprint, request, redirect, url_for, current_app, session, jsonify
 from .models.Admin_models import Admin
 from .models.signup import Signup
@@ -11,8 +13,13 @@ from .models.query import Query
 from .models.education import Education,UploadDoc
 from datetime import datetime
 import requests
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+from flask import jsonify
+from datetime import date
+
+from .utility import is_wfh_allowed, is_on_leave
 
 auth = Blueprint('auth', __name__)
 
@@ -64,8 +71,6 @@ def validate_user():
         "success": True,
         "token": access_token
     }), 200
-
-
 
 # ===================================================
 # ✅ 2️⃣ MICROSOFT LOGIN REDIRECT
@@ -139,12 +144,6 @@ def callback():
     frontend_redirect = f"http://localhost:3000/auth/success?token={jwt_token}"
     return redirect(frontend_redirect)
 
-
-
-
-from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
-from flask import jsonify
-from datetime import date
 
 @auth.route('/employee/homepage', methods=['GET'])
 @jwt_required()
@@ -232,18 +231,12 @@ def employee_homepage():
                 "cl": leave_balance.casual_leave_balance if leave_balance else 0
             },
             "manager": {
-             "l1": manager.l1_email if manager else None,
-             "l2": manager.l2_email if manager else None,
-             "l3": manager.l3_email if manager else None
+             "l1": manager.l1_name if manager else None,
+             "l2": manager.l2_name if manager else None,
+             "l3": manager.l3_name if manager else None
          },
 
         }), 200
-
-
-
-from datetime import datetime, date
-from math import radians, sin, cos, sqrt, atan2
-from .utility import is_on_leave, is_wfh_allowed
 
 def calculate_distance(lat1, lon1, lat2, lon2):
     R = 6371000  # meters
