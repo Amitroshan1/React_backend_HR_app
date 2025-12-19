@@ -1,0 +1,401 @@
+/* Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+   /* font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; */
+}
+
+
+/* Main Container & Background */
+.index-container {
+  min-height: 100vh;
+  background: linear-gradient(to bottom, white, hsl(220,20%,97%), hsl(210,30%,96%));
+  position: relative;
+  overflow: hidden;
+}
+
+/* Decorative Background Circles */
+.background-elements {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bg-circle-1 {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 800px;
+  height: 600px;
+  background: linear-gradient(to bottom right, var(--primary)/10, var(--secondary)/5, transparent);
+  border-radius: 50%;
+  filter: blur(3xl);
+}
+
+.bg-circle-2 {
+  position: absolute;
+  top: 33%;
+  right: 0;
+  width: 600px;
+  height: 600px;
+  background: linear-gradient(to bottom left, var(--accent)/10, transparent, transparent);
+  border-radius: 50%;
+  filter: blur(3xl);
+}
+
+/* Main Content */
+.main-content {
+ background: radial-gradient(
+    circle at center,
+    rgba(179, 209, 236, 0.856) 0%,   /* soft blue glow in middle */
+    rgb(255, 255, 255) 70%     /* pure white outside */
+  );
+ 
+   position: relative;
+  z-index: 10;
+  /* max-width: 1200px; */
+  /* margin: 0 auto; */
+  padding: 3rem 1rem 4rem;
+  text-align: center;
+}
+
+/* Hero Section */
+.hero-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  position: relative;
+  transition: transform 0.7s ease;
+  /* flex-direction: column; */
+  /* gap: 2rem;
+  max-width: 960px;
+  margin: 0 auto; */
+}
+.hero-text-block {
+  width: 60%;
+  text-align: center;
+  transition: transform 0.7s ease, opacity 0.7s ease;
+}
+.shift-left .hero-text-block {
+  transform: translateX(-220px);   /* adjust left movement */
+  opacity: 1;
+}
+
+
+/* .hero-text-block {
+  width: 55%;
+  transition: transform 0.7s ease, opacity 0.7s ease;
+} */
+/* .shift-left .hero-text-block {
+  transform: translateX(-80px);
+  opacity: 0.9;
+} */
+/* ================================
+   PERFECT TYPEWRITER TEXT
+================================ */
+.hero-title {
+   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: clamp(2.5rem, 8vw, 7rem); /* Responsive font */
+  font-weight: bold;
+  background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  width: 0ch; /* Animation start */
+}
+
+/* Character count of "Welcome..." = 10 */
+@keyframes typewriter {
+  from { width: 0ch; }
+  to { width: 10ch; }
+}
+
+@keyframes cursorBlink {
+  0%, 50% { border-color: #4f46e5; }
+  51%, 100% { border-color: transparent; }
+}
+
+.animate-typewriter {
+  animation: 
+    typewriter 1.5s steps(10) forwards,
+    cursorBlink 0.7s step-end infinite;
+}
+
+
+/* Subtitle & Description Reveal */
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-reveal {
+  opacity: 0;
+  animation: reveal 1s ease forwards;
+}
+
+/* CTA Fade-In-Up */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  opacity: 0;
+  animation: fadeInUp 1s ease forwards;
+}
+
+/* Hero Subtitle & Description */
+.hero-subtitle {
+  /* font-size: 1.8rem; */
+  font-size: clamp(1.2rem, 3vw, 1.8rem);
+  font-weight: 600;
+  color: rgba(0,0,0,0.9);
+}
+
+.hero-description {
+  /* font-size: 1.4rem; */
+  font-size: clamp(1rem, 2.5vw, 1.4rem);
+  color: rgba(0,0,0,0.7);
+}
+
+/* CTA Section */
+.cta-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  /* font-size: 1rem !important; */
+}
+
+.log-text {
+  font-size: 1.2rem;
+  margin-top: -2rem;
+  font-weight: 500;
+}
+
+.cta-text p {
+  font-weight: 600;
+}
+
+.cta-button {
+  /* background: linear-gradient(to right, var(--primary), var(--secondary), var(--accent)); */
+/* background: linear-gradient(to right, #0072ff, #00c6ff); */
+ background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);  
+color: rgb(255, 255, 255);
+  font-size: 1.1rem;
+  font-weight: 800;
+  width: 19rem;
+  height: 3.8rem;
+  padding: 1rem 3rem;
+  border-radius: 1rem;
+  border: none;
+  /* box-shadow: 0 8px 20px rgba(0,0,0,0.2); */
+  transition: all 0.3s ease;
+}
+
+.cta-button:hover {
+  box-shadow: 0 12px 25px rgba(0,0,0,0.3);
+  transform: scale(1.05);
+   border-radius: 1rem;
+   /* border: 1px solid black ; */
+  /* box-shadow: 0 8px 20px rgba(0,0,0,0.2); */
+}
+
+/* Feature Cards */
+.feature-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 3rem;
+  margin-top: 3rem;
+}
+
+.feature-card {
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(10px);
+  border-radius: 1.5rem;
+  padding: 2rem;
+  text-align: center;
+  box-shadow: 0 4px 10px rgba(90, 86, 86, 0.74);
+  transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 8px 20px rgba(20, 20, 20, 0.671);
+  background: rgba(255,255,255,0.9);
+}
+
+.feature-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  transition: transform 0.3s ease;
+}
+
+.feature-card:hover .feature-icon {
+  transform: scale(1.1);
+}
+
+
+/* 
+.login-text{
+  color: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);;
+} */
+.login-card {
+  width: 400px;
+  padding: 2.2rem;
+  background: white;
+  backdrop-filter: blur(20px);
+  border-radius: 1.5rem;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+
+  position: absolute;
+  right: -450px;         /* Hidden outside screen */
+  top: 2rem;
+  opacity: 0;
+
+  transition: right 0.7s ease, opacity 0.7s ease;
+}
+
+/* When button is clicked */
+.login-card.slide-in {
+  right: 8px;
+top: -20px;
+  opacity: 1;
+}
+
+.login-card input {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  font-size: 1rem;
+}
+
+.login-submit {
+  background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
+  color: white;
+  padding: 0.9rem;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.login-submit:hover {
+  transform: scale(1.05);
+}
+
+.forgot {
+  font-size: 0.9rem;
+  color: #555;
+  text-align: right;
+  cursor: pointer;
+}
+ /* @media (max-width: 900px) {
+  .hero-container {
+    flex-direction: column;
+  }
+
+  .hero-text-block {
+    width: 100%;
+    transform: translateX(0) !important;
+  }
+
+  .login-card {
+    position: relative;
+    right: 0 !important;
+    width: 100%;
+    margin-top: 4rem;
+      box-shadow: 0 4px 10px rgba(90, 86, 86, 0.74);
+  }
+  .log-text {
+  font-size: 0.7rem;
+
+  font-weight: 700;
+}
+
+}  */
+
+.password-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.password-wrapper input {
+  width: 100%;
+  padding-right: 40px;  /* space for eye icon */
+}
+
+.toggle-eye {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  font-size: 1.2rem;
+  user-select: none;
+}
+
+
+
+@media (max-width: 900px) {
+
+  .hero-container {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .hero-text-block {
+    width: 100%;
+    transform: translateX(0) !important;
+    text-align: center;
+  }
+
+  /* LOGIN CARD — DO NOT TAKE SPACE WHEN HIDDEN */
+  .login-card {
+    position: relative;
+    width: 100%;
+    right: auto !important;
+    margin-top: 1.5rem;
+
+    /* ⛔ KEY FIX - Prevent space reservation */
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+
+    transition: all 0.5s ease;
+  }
+
+  /* WHEN OPENED → expand downward */
+  .login-card.slide-in {
+    max-height: 500px;     /* enough height for card */
+    opacity: 1;
+    pointer-events: auto;
+    padding: 2rem;
+    margin-top: 2rem;
+    margin-bottom: 4.5rem;
+  }
+
+  /* EXPLORE BUTTON TEXT SMALLER */
+  .log-text {
+    font-size: 0.9rem;
+    font-weight: 700;
+  }
+
+  /* FEATURE CARDS SHOULD STAY BELOW EXPLORE BUTTON */
+  .feature-cards {
+    margin-top: -3rem !important;
+  }
+}

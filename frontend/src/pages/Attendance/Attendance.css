@@ -1,0 +1,482 @@
+/* src/pages/Attendance/style/Attendance.css - CORRECTED & RESPONSIVE */
+
+.attendance-page-container {
+    padding: 20px;
+    background-color: #f7f9fc;
+    min-height: 100vh;
+}
+
+/* .page-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 25px;
+} */
+
+/* --- SUMMARY CARDS --- */
+.summary-cards-grid {
+    display: grid;
+    /* Default: 4 columns for desktop */
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 30px;
+    /* margin-top: px; */
+   /* User's specific margin preference */
+}
+
+.summary-card {
+    display: flex;
+    align-items: center;
+    background-color: #fff;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s;
+}
+
+.summary-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+}
+
+.summary-icon {
+    font-size: 28px;
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-right: 15px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.blue-card .summary-icon { background-color: #3a8cff; }
+.green-card .summary-icon { background-color: #38b000; }
+.orange-card .summary-icon { background-color: #ff9900; }
+.yellow-card .summary-icon { background-color: #ffcc00; }
+
+.summary-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #333;
+    line-height: 1.2;
+}
+
+.summary-label {
+    font-size: 13px;
+    color: #777;
+    margin-top: 2px;
+}
+
+.summary-subtext {
+    font-size: 11px;
+    font-weight: 500;
+    color: #888;
+    margin-top: 5px;
+}
+
+.icon-flipped {
+    transform: rotate(180deg);
+}
+
+
+/* --- CALENDAR SECTION --- */
+
+.attendance-calendar-card {
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    padding: 25px;
+}
+
+.calendar-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    flex-wrap: wrap; 
+}
+
+.section-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.title-subtext {
+    font-size: 14px;
+    color: #777;
+    flex-basis: 100%;
+    margin-bottom: 15px;
+}
+
+.calendar-controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap; 
+}
+
+.dropdowns-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap; 
+}
+
+.filter-icon-wrapper {
+    background-color: #f0f0f0;
+    padding: 6px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    color: #555;
+    flex-shrink: 0;
+}
+
+/* --- CUSTOM DROPDOWN STYLES (Always opens downwards) --- */
+
+/* REMOVE unused old dropdown styles here: .custom-dropdown, .dropdown-select, .dropdown-arrow */
+
+.custom-dropdown-v2 {
+    position: relative;
+    display: inline-block;
+    z-index: 20; 
+}
+
+.dropdown-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 8px 10px;
+    min-width: 100px; 
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+    font-weight: 500;
+    transition: border-color 0.2s;
+}
+
+.dropdown-toggle:hover {
+    border-color: #a0a0a0;
+}
+
+.dropdown-arrow {
+    margin-left: 10px;
+    transition: transform 0.3s;
+}
+
+.dropdown-arrow.rotate {
+    transform: rotate(180deg);
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: 100%; /* FORCES OPENING DOWNWARDS */
+    left: 0;
+    margin-top: 5px;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    list-style: none;
+    padding: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    min-width: 100%;
+    z-index: 30; /* Higher than the button */
+}
+
+.dropdown-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #333;
+    transition: background-color 0.2s;
+}
+
+.dropdown-item:hover {
+    background-color: #f0f0f0;
+}
+
+.dropdown-item.selected {
+    background-color: #3a8cff;
+    color: white;
+}
+
+
+.print-button {
+    background-color: #3a8cff;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 9px 15px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: background-color 0.2s;
+    flex-shrink: 0;
+}
+
+.print-button:hover {
+    background-color: #2b7ae0;
+}
+
+/* Status Key Styling - Responsive Wrapping */
+.status-key {
+    display: flex;
+    flex-wrap: wrap; 
+    align-items: center;
+    gap: 15px 20px; 
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 20px;
+    padding-top: 5px;
+}
+
+.key-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    /* background-color: white; */
+}
+.status-pending {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+.key-item::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* Status Key Colors */
+.key-item.status-present::before { background-color: #4CAF50; }
+.key-item.status-absent::before { background-color: #F44336; }
+.key-item.status-half-day::before { background-color: #FFC107; }
+.key-item.status-pending::before { background-color: #FF5722; }
+.key-item.status-wfm::before { background-color: #2196F3; }
+.key-item.status-weekend::before { background-color: #BDBDBD; }
+.key-item.status-public-holiday::before { background-color: #FF9800; }
+
+
+/* --- CALENDAR GRID STRUCTURE & STYLING --- */
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px; 
+    border-radius: 5px; /* Use 5px for grid container */
+    overflow: hidden;
+    /* Remove redundant border styles that interfere with the inner cell borders */
+}
+
+.day-name {
+    text-align: center;
+    font-weight: 600;
+    padding: 10px 0;
+    background-color: #f7f7f7; 
+    color: #555;
+    font-size: 14px;
+    border-radius: 5px; /* Ensures headers align neatly */
+    margin-bottom: 5px;
+     margin-right: 5px;
+}
+
+/* Style Weekend Column Headers (Sunday and Saturday) */
+.calendar-grid .day-name:nth-child(1), /* Sunday */
+.calendar-grid .day-name:nth-child(7)  /* Saturday */
+{
+    background-color: #E0E0E0; 
+    font-weight: 700;
+}
+
+.calendar-day-cell {
+    border: 1px solid #eee;
+    /* Use 0px border-radius and margin to create a tight grid look */
+   border-radius: 5px; /* Ensures headers align neatly */
+    margin-bottom: 5px;
+    margin-right: 5px;
+    height: 80px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    background-color: #ffffff; 
+    position: relative;
+    transition: all 0.15s ease-in-out;
+    cursor: pointer;
+}
+
+.calendar-day-cell:hover {
+    box-shadow: inset 0 0 0 2px #3a8cff;
+    z-index: 5;
+}
+
+.day-number {
+    font-size: 18px;
+    font-weight: 700;
+    color: #333;
+}
+
+.day-status-label {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 6px;
+    border-radius: 4px;
+    border: 1px solid rgb(238, 233, 233);
+    margin-top: 5px;
+    color: #333;
+    background-color: rgb(255, 255, 255); /* White background for label text */
+}
+
+
+/* Calendar Cell Colors (Using specific styles provided by user) */
+
+.calendar-day-cell.status-present { background-color: #E8F5E9; border-color: #A5D6A7; }
+.calendar-day-cell.status-present .day-status-label { color: #1B5E20; }
+
+.calendar-day-cell.status-absent { background-color: #FFEBEE; border-color: #EF9A9A; }
+.calendar-day-cell.status-absent .day-status-label { color: #B71C1C; }
+
+.calendar-day-cell.status-half-day { background-color: #ffecb3d0; border-color: #FFD54F; }
+.calendar-day-cell.status-half-day .day-status-label { color: #FF8F00; }
+
+.calendar-day-cell.status-public-holiday { background-color: #FFF3E0; border-color: #FFCC80; }
+.calendar-day-cell.status-public-holiday .day-status-label { color: #E65100; }
+
+.calendar-day-cell.status-pending { background-color: #f9f8fd; border-color: #FFAB91; }
+.calendar-day-cell.status-pending .day-status-label { color: #D84315; }
+
+.calendar-day-cell.status-wfm { background-color: #E3F2FD; border-color: #90CAF9; }
+.calendar-day-cell.status-wfm .day-status-label { color: #0D47A1; }
+
+
+/* Weekend Styling */
+.calendar-day-cell.calendar-day-cell.status-weekend {
+    background-color: #F5F5F5;
+    border-color: #E0E0E0;
+    color: #A0A0A0; 
+}
+
+.calendar-day-cell.status-weekend .day-number,
+.calendar-day-cell.status-public-holiday .day-number {
+    color: #888; 
+}
+
+.calendar-day-cell.status-weekend .day-status-label,
+.calendar-day-cell.status-public-holiday .day-status-label {
+    display: none;
+}
+
+
+/* ======================================================= */
+/* !!! MEDIA QUERIES FOR RESPONSIVENESS (PRODUCTION) !!! */
+/* ======================================================= */
+
+
+/* 1. Tablet View (max-width 1024px) */
+@media (max-width: 1024px) {
+    .summary-cards-grid {
+        /* Change from 4 columns to 2 columns */
+        grid-template-columns: repeat(2, 1fr);
+        gap: 15px;
+        margin-left: 0; 
+    }
+
+    .summary-card {
+        padding: 15px;
+    }
+}
+
+
+/* 2. Mobile View (max-width 600px) */
+@media (max-width: 600px) {
+    .attendance-page-container {
+        padding: 15px;
+    }
+
+    .page-title {
+        font-size: 22px;
+    }
+
+    .summary-cards-grid {
+        /* Change from 2 columns to 1 column */
+        grid-template-columns: 1fr;
+    }
+
+    .calendar-header-row {
+        /* Stack header elements */
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .calendar-controls {
+        /* Ensure controls take full width and stack vertically */
+        width: 100%;
+        flex-direction: column;
+        gap: 15px;
+        margin-top: 10px;
+    }
+
+    .dropdowns-group {
+        width: 100%;
+        justify-content: space-between;
+        /* Allow the dropdowns to take space between filter icon and print button */
+        flex-wrap: wrap; 
+    }
+
+    /* Make the dropdowns expand on mobile */
+    .custom-dropdown-v2 {
+        flex-grow: 1; 
+        /* Ensure both dropdowns fit side-by-side, adjusting for the filter icon */
+        width: calc(50% - 30px); 
+    }
+    
+    .dropdown-toggle {
+        width: 100%;
+    }
+
+    .print-button {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .day-name {
+        padding: 8px 0;
+        font-size: 12px; /* Slightly smaller font for day names */
+    }
+
+    .calendar-day-cell {
+        height: 60px; /* Shorter cells on mobile */
+        padding: 5px;
+    }
+
+    .day-number {
+        font-size: 16px; 
+    }
+
+    .day-status-label {
+        font-size: 9px; 
+        padding: 2px 4px;
+       
+    }
+
+    .status-key {
+        gap: 10px 15px; /* Tighter gap for status key on mobile */
+        font-size: 12px;
+    }
+}
