@@ -22,7 +22,8 @@ class FamilyDetails(db.Model, UserMixin):
     
     admin = db.relationship('Admin', back_populates='family_details')
     
-    
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
     
     
     def __repr__(self):

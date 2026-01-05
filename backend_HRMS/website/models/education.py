@@ -18,6 +18,10 @@ class Education(db.Model, UserMixin):
 
     admin = db.relationship('Admin', back_populates='education_details')
 
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
     def __repr__(self):
         return f'<Education {self.qualification} - {self.institution}>'
 
@@ -49,6 +53,11 @@ class UploadDoc(db.Model, UserMixin):
     # Relationship
     admin = db.relationship('Admin', back_populates='document_details')
 
+
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+    
     def __repr__(self):
         return f'<UploadDoc admin_id={self.admin_id}>'
 

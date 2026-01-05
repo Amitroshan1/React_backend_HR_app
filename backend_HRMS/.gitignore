@@ -7,3 +7,8 @@ __pycache__/
 migrations/
 
 website/static/uploads/
+
+
+# Node
+node_modules/
+frontend/node_modules/

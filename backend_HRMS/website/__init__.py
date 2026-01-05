@@ -77,7 +77,7 @@ def create_app():
     # ---------------------------
     from .auth import auth
     from .leave_attendence import leave
-    # from .profile import profile
+    from .Human_resource import HumanResource
     # from .hr import hr
     # from .Updatemanager import manager_bp
     # from .Aoocunts import Accounts
@@ -88,7 +88,7 @@ def create_app():
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(leave, url_prefix="/api/leave")
-    # app.register_blueprint(profile, url_prefix="/api/profile")
+    app.register_blueprint(HumanResource, url_prefix="/api/HumanResource")
     # app.register_blueprint(hr, url_prefix="/api/hr")
     # app.register_blueprint(manager_bp, url_prefix="/api/manager")
     # app.register_blueprint(Accounts, url_prefix="/api/accounts")

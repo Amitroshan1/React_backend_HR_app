@@ -24,6 +24,10 @@ class Punch(db.Model, UserMixin):
     admin = db.relationship('Admin', back_populates='punch_records')
 
 
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
 class Location(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -66,6 +70,9 @@ class LeaveBalance(db.Model):
         self.privilege_leave_balance = privilege_leave_balance
         self.casual_leave_balance = casual_leave_balance
 
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
 
 
     
@@ -85,6 +92,10 @@ class LeaveApplication(db.Model):
     extra_days=db.Column(db.Float, default=0.0)
 
     admin = db.relationship('Admin', back_populates='leave_applications')
+
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
 
 

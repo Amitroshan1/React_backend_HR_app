@@ -43,6 +43,9 @@ class Employee(db.Model,UserMixin):
     
     # One-to-One relationship with Admin
     admin = db.relationship('Admin', back_populates='employee_details')
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
     
     def __repr__(self):
         return f'<Employee {self.name}>'
@@ -69,3 +72,16 @@ class Asset(db.Model):
     def get_image_files(self):
         """Retrieve image filenames as a list."""
         return self.image_files.split(",") if self.image_files else []
+    
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "issue_date": self.issue_date.isoformat() if self.issue_date else None,
+            "return_date": self.return_date.isoformat() if self.return_date else None,
+            "remark": self.remark,
+            "images": self.get_image_files(),
+            "admin_id": self.admin_id
+        }
+

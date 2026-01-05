@@ -21,5 +21,9 @@ class PreviousCompany(db.Model):
     
     admin = db.relationship('Admin', back_populates='previous_companies')
 
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
     def __repr__(self):
         return f'<PreviousCompany {self.com_name}>'
