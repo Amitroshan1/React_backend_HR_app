@@ -1,13 +1,14 @@
+# apply_leave_api,get_resignation_status,submit_resignation,submit_expense_claim,get_expense_claims,
+# attendance_summary,submit_wfh,get_wfh_applications,
+
+
 from flask import Blueprint, request, current_app, jsonify,json
-from .models.attendance import Punch, WorkFromHomeApplication
+from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance
 from flask_jwt_extended import jwt_required, get_jwt
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
 from .models.seperation import Resignation
-from .models.query import Query, QueryReply
-from .models.signup import Signup
-from .models.manager_model import ManagerContact
-from .email import send_wfh_approval_email_to_managers,send_claim_submission_email
+from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_leave_applied_email
 from . import db
 from flask import jsonify
 from datetime import date, datetime, timedelta
@@ -259,128 +260,6 @@ def get_wfh_applications():
 
 
 
-@leave.route("/queries", methods=["POST"])
-@jwt_required()
-def create_query():
-    email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
-
-    if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
-
-    data = request.form
-    title = data.get("title")
-    query_text = data.get("query_text")
-    emp_type = data.getlist("emp_type")
-
-    if not title or not query_text:
-        return jsonify({
-            "success": False,
-            "message": "Title and query text are required"
-        }), 400
-
-    photo_filename = None
-
-    if "photo" in request.files:
-        file = request.files["photo"]
-
-        if file.filename:
-            if request.content_length and request.content_length > 1048576:
-                return jsonify({
-                    "success": False,
-                    "message": "File size exceeds 1 MB"
-                }), 400
-
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(current_app.config["UPLOAD_FOLDER"], filename))
-            photo_filename = filename
-
-    new_query = Query(
-        admin_id=admin.id,
-        emp_type=", ".join(emp_type),
-        title=title,
-        query_text=query_text,
-        photo=photo_filename
-    )
-
-    db.session.add(new_query)
-    db.session.commit()
-
-    return jsonify({
-        "success": True,
-        "message": "Query created successfully",
-        "query_id": new_query.id
-    }), 201
-
-
-@leave.route("/queries", methods=["GET"])
-@jwt_required()
-def get_queries():
-    email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
-
-    if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
-
-    queries = Query.query.filter_by(
-        admin_id=admin.id
-    ).order_by(Query.created_at.desc()).all()
-
-    return jsonify({
-        "success": True,
-        "queries": [
-            {
-                "id": q.id,
-                "title": q.title,
-                "status": q.status,
-                "created_at": q.created_at.isoformat()
-            }
-            for q in queries
-        ]
-    }), 200
-
-
-@leave.route("/queries/<int:query_id>", methods=["GET"])
-@jwt_required()
-def get_query_chat(query_id):
-    email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
-
-    if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
-
-    query = Query.query.get_or_404(query_id)
-
-    if query.status == "New":
-        query.status = "Open"
-        db.session.commit()
-
-    replies = QueryReply.query.filter_by(
-        query_id=query.id
-    ).order_by(QueryReply.created_at.asc()).all()
-
-    return jsonify({
-        "success": True,
-        "query": {
-            "id": query.id,
-            "title": query.title,
-            "query_text": query.query_text,
-            "status": query.status,
-            "photo": query.photo,
-            "created_at": query.created_at.isoformat()
-        },
-        "replies": [
-            {
-                "id": r.id,
-                "reply_text": r.reply_text,
-                "user_type": r.user_type,
-                "created_at": r.created_at.isoformat()
-            }
-            for r in replies
-        ]
-    }), 200
-
-
 
 @leave.route("/claim-expense", methods=["POST"])
 @jwt_required()
@@ -396,7 +275,38 @@ def submit_expense_claim():
 
     try:
         data = request.form
-        expenses = json.loads(data.get("expenses", "[]"))
+
+        # -------------------------
+        # Parse expenses safely
+        # -------------------------
+        try:
+            expenses = json.loads(data.get("expenses", "[]"))
+            if not isinstance(expenses, list) or not expenses:
+                return jsonify({
+                    "success": False,
+                    "message": "At least one expense item is required"
+                }), 400
+        except json.JSONDecodeError:
+            return jsonify({
+                "success": False,
+                "message": "Invalid expenses JSON"
+            }), 400
+
+        # -------------------------
+        # Parse header dates
+        # -------------------------
+        try:
+            travel_from_date = datetime.strptime(
+                data.get("travel_from_date"), "%Y-%m-%d"
+            ).date()
+            travel_to_date = datetime.strptime(
+                data.get("travel_to_date"), "%Y-%m-%d"
+            ).date()
+        except Exception:
+            return jsonify({
+                "success": False,
+                "message": "Invalid travel date format (YYYY-MM-DD)"
+            }), 400
 
         header = ExpenseClaimHeader(
             admin_id=admin.id,
@@ -406,48 +316,68 @@ def submit_expense_claim():
             email=email,
             project_name=data.get("project_name"),
             country_state=data.get("country_state"),
-            travel_from_date=data.get("travel_from_date"),
-            travel_to_date=data.get("travel_to_date")
+            travel_from_date=travel_from_date,
+            travel_to_date=travel_to_date
         )
 
         db.session.add(header)
         db.session.flush()
 
+        # -------------------------
+        # File upload directory
+        # -------------------------
         upload_folder = os.path.join(
-            current_app.root_path, "static/uploads"
+            current_app.root_path, "static/uploads/expenses"
         )
         os.makedirs(upload_folder, exist_ok=True)
 
         files = request.files.getlist("attachments")
 
+        # -------------------------
+        # Save line items
+        # -------------------------
         for index, exp in enumerate(expenses):
             filename = None
 
             if index < len(files):
                 file = files[index]
-                filename = secure_filename(
-                    f"{data.get('emp_id')}_{index+1}_{file.filename}"
-                )
-                file.save(os.path.join(upload_folder, filename))
+                if file and file.filename:
+                    filename = secure_filename(
+                        f"{data.get('emp_id')}_{header.id}_{index+1}_{file.filename}"
+                    )
+                    file.save(os.path.join(upload_folder, filename))
+
+            try:
+                item_date = datetime.strptime(
+                    exp.get("date"), "%Y-%m-%d"
+                ).date()
+            except Exception:
+                return jsonify({
+                    "success": False,
+                    "message": f"Invalid expense date at item {index + 1}"
+                }), 400
 
             item = ExpenseLineItem(
                 claim_id=header.id,
                 sr_no=exp.get("sr_no"),
-                date=exp.get("date"),
+                date=item_date,
                 purpose=exp.get("purpose"),
                 amount=exp.get("amount"),
                 currency=exp.get("currency"),
                 Attach_file=filename,
-                status=exp.get("status", "Pending")
+                status="Pending"
             )
             db.session.add(item)
 
         db.session.commit()
 
+        # -------------------------
+        # Email (NON-BLOCKING)
+        # -------------------------
         try:
             send_claim_submission_email(header)
         except Exception as e:
-            current_app.logger.warning(f"Email failed: {e}")
+            current_app.logger.warning(f"Expense email failed: {e}")
 
         return jsonify({
             "success": True,
@@ -460,8 +390,9 @@ def submit_expense_claim():
         current_app.logger.error(f"Expense Claim Error: {e}")
         return jsonify({
             "success": False,
-            "message": str(e)
+            "message": "Unable to submit expense claim"
         }), 500
+
 
 
 @leave.route("/claim-expense", methods=["GET"])
@@ -509,15 +440,12 @@ def get_expense_claims():
             for claim in claims
         ]
     }), 200
-
-
-
 @leave.route("/seperation", methods=["POST"])
 @jwt_required()
 def submit_resignation():
     email = get_jwt().get("email")
-
     admin = Admin.query.filter_by(email=email).first()
+
     if not admin:
         return jsonify({
             "success": False,
@@ -525,17 +453,14 @@ def submit_resignation():
         }), 404
 
     # Prevent duplicate resignation
-    existing = Resignation.query.filter_by(
-        admin_id=admin.id
-    ).first()
-
-    if existing:
+    if Resignation.query.filter_by(admin_id=admin.id).first():
         return jsonify({
             "success": False,
             "message": "You have already submitted a resignation request."
         }), 409
 
-    data = request.get_json()
+    data = request.get_json() or {}
+
     resignation_date = data.get("resignation_date")
     reason = data.get("reason")
 
@@ -545,42 +470,34 @@ def submit_resignation():
             "message": "Resignation date and reason are required"
         }), 400
 
-    signup = Signup.query.filter_by(email=email).first()
-    manager = None
-
-    if signup:
-        manager = ManagerContact.query.filter_by(
-            circle_name=signup.circle,
-            user_type=signup.emp_type
-        ).first()
+    try:
+        resignation_date_obj = datetime.strptime(
+            resignation_date, "%Y-%m-%d"
+        ).date()
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Invalid date format. Use YYYY-MM-DD"
+        }), 400
 
     resignation = Resignation(
         admin_id=admin.id,
-        resignation_date=resignation_date,
-        reason=reason
+        resignation_date=resignation_date_obj,
+        reason=reason,
+        status="Pending"
     )
 
-    # Send email BEFORE DB commit
     try:
-        success, message = send_claim_submission_email(
-            admin,
-            resignation,
-            signup,
-            manager
-        )
-
-        if not success:
-            return jsonify({
-                "success": False,
-                "message": message
-            }), 500
-
         db.session.add(resignation)
         db.session.commit()
 
+        # 🔔 Email (NON-BLOCKING)
+        success, _ = send_resignation_email(admin, resignation)
+
         return jsonify({
             "success": True,
-            "message": "Resignation submitted successfully"
+            "message": "Resignation submitted successfully",
+            "email_sent": success
         }), 201
 
     except Exception as e:
@@ -590,6 +507,7 @@ def submit_resignation():
             "success": False,
             "message": "Unable to submit resignation. Please try again later."
         }), 500
+
 
 
 @leave.route("/seperation", methods=["GET"])
@@ -603,8 +521,6 @@ def get_resignation_status():
             "success": False,
             "message": "Employee not found"
         }), 404
-
-    signup = Signup.query.filter_by(email=email).first()
 
     resignation = Resignation.query.filter_by(
         admin_id=admin.id
@@ -627,9 +543,206 @@ def get_resignation_status():
         "already_submitted": False,
         "today": date.today().isoformat(),
         "employee": {
-            "name": admin.name,
+            "name": admin.first_name,
             "email": admin.email,
-            "circle": signup.circle if signup else None,
-            "emp_type": signup.emp_type if signup else None
+            "circle": admin.circle,
+            "emp_type": admin.emp_type
         }
     }), 200
+
+
+
+@leave.route("/apply", methods=["POST"])
+@jwt_required()
+def apply_leave_api():
+    email = get_jwt().get("email")
+
+    # -------------------------
+    # Fetch employee from Admin
+    # -------------------------
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
+
+    leave_balance = LeaveBalance.query.filter_by(
+        admin_id=admin.id
+    ).first()
+
+    if not leave_balance:
+        return jsonify({
+            "success": False,
+            "message": "Leave balance not configured"
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+
+    # -------------------------
+    # Validate dates
+    # -------------------------
+    try:
+        start_date = datetime.strptime(
+            data.get("start_date"), "%Y-%m-%d"
+        ).date()
+        end_date = datetime.strptime(
+            data.get("end_date"), "%Y-%m-%d"
+        ).date()
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid date format. Use YYYY-MM-DD"
+        }), 400
+
+    if end_date < start_date:
+        return jsonify({
+            "success": False,
+            "message": "End date cannot be before start date"
+        }), 400
+
+    leave_type = data.get("leave_type")
+    reason = data.get("reason")
+
+    if not leave_type or not reason:
+        return jsonify({
+            "success": False,
+            "message": "leave_type and reason are required"
+        }), 400
+
+    # -------------------------
+    # 🚫 DUPLICATE / SAME DATE CHECK
+    # -------------------------
+    overlapping_leave = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin.id,
+        LeaveApplication.status.in_(["Pending", "Approved"]),
+        LeaveApplication.start_date <= end_date,
+        LeaveApplication.end_date >= start_date
+    ).first()
+
+    if overlapping_leave:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Leave already applied from "
+                f"{overlapping_leave.start_date} to "
+                f"{overlapping_leave.end_date} "
+                f"(Status: {overlapping_leave.status})"
+            )
+        }), 409
+
+    # -------------------------
+    # Leave calculations
+    # -------------------------
+    leave_days = (end_date - start_date).days + 1
+    deducted_days = 0.0
+    extra_days = 0.0
+
+    # Privilege Leave
+    if leave_type == "Privilege Leave":
+        if leave_days > leave_balance.privilege_leave_balance:
+            extra_days = leave_days - leave_balance.privilege_leave_balance
+            deducted_days = leave_balance.privilege_leave_balance
+            leave_balance.privilege_leave_balance = 0
+        else:
+            deducted_days = leave_days
+            leave_balance.privilege_leave_balance -= leave_days
+
+    # Casual Leave
+    elif leave_type == "Casual Leave":
+        if leave_days > 2:
+            return jsonify({
+                "success": False,
+                "message": "Casual Leave cannot exceed 2 days"
+            }), 400
+
+        if leave_days > leave_balance.casual_leave_balance:
+            return jsonify({
+                "success": False,
+                "message": "Insufficient Casual Leave balance"
+            }), 400
+
+        deducted_days = leave_days
+        leave_balance.casual_leave_balance -= leave_days
+
+    # Half Day Leave
+    elif leave_type == "Half Day Leave":
+        if leave_days > 1:
+            return jsonify({
+                "success": False,
+                "message": "Half Day Leave can only be applied for one day"
+            }), 400
+
+        leave_days = 0.5
+        deducted_days = 0.5
+
+        if leave_balance.casual_leave_balance >= 0.5:
+            leave_balance.casual_leave_balance -= 0.5
+        elif leave_balance.privilege_leave_balance >= 0.5:
+            leave_balance.privilege_leave_balance -= 0.5
+        else:
+            extra_days = 0.5
+
+    # Compensatory Leave
+    elif leave_type == "Compensatory Leave":
+        if leave_balance.compensatory_leave_balance <= 0:
+            return jsonify({
+                "success": False,
+                "message": "No Compensatory Leave balance available"
+            }), 400
+
+        if leave_days > 2:
+            return jsonify({
+                "success": False,
+                "message": "Maximum 2 Compensatory Leave days allowed"
+            }), 400
+
+        if leave_days > leave_balance.compensatory_leave_balance:
+            return jsonify({
+                "success": False,
+                "message": "Insufficient Compensatory Leave balance"
+            }), 400
+
+        deducted_days = leave_days
+        leave_balance.compensatory_leave_balance -= leave_days
+
+    else:
+        return jsonify({
+            "success": False,
+            "message": "Invalid leave type"
+        }), 400
+
+    # -------------------------
+    # Save leave application
+    # -------------------------
+    leave_application = LeaveApplication(
+        admin_id=admin.id,
+        leave_type=leave_type,
+        reason=reason,
+        start_date=start_date,
+        end_date=end_date,
+        status="Pending",
+        deducted_days=deducted_days,
+        extra_days=extra_days
+    )
+
+    try:
+        db.session.add(leave_application)
+        db.session.commit()
+        send_leave_applied_email(admin, leave_application)
+        return jsonify({
+            "success": True,
+            "message": "Leave applied successfully",
+            "leave_id": leave_application.id,
+            "deducted_days": deducted_days,
+            "extra_days": extra_days
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Leave Apply Error: {e}")
+        return jsonify({
+            "success": False,
+            "message": "Unable to apply leave"
+        }), 500
+

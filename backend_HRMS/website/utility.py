@@ -4,7 +4,7 @@ from io import BytesIO
 import xlsxwriter
 import pandas as pd
 from .models.attendance import Punch
-from .models.signup import Signup
+
 from .models.Admin_models import Admin
 
 
@@ -45,7 +45,6 @@ def _empty_summary():
 
 from datetime import datetime, date, timedelta
 import calendar
-
 def calculate_month_summary(admin_id, year, month):
     """
     Returns complete monthly summary:
@@ -81,12 +80,18 @@ def calculate_month_summary(admin_id, year, month):
 
     admin = Admin.query.get(admin_id)
     if not admin:
-        return _empty_summary()
+        return {
+            "actual_fri_hours": 0,
+            "actual_sat_hours": 0,
+            "expected_fri_hours": 0,
+            "expected_sat_hours": 0,
+            "leave_days": 0,
+            "extra_days": 0,
+            "working_days_final": 0,
+        }
 
-    signup = Signup.query.filter_by(email=admin.email).first()
-    emp_type = signup.emp_type if signup else ""
+    emp_type = admin.emp_type or ""
 
-    # ---------------- PREP MAPS ----------------
     punch_map = {p.punch_date: p for p in punches}
 
     # ---------------- WORK HOURS ----------------
@@ -105,8 +110,7 @@ def calculate_month_summary(admin_id, year, month):
 
     for p in punches:
         if p.today_work:
-            tw = p.today_work
-            secs = tw.hour * 3600 + tw.minute * 60 + getattr(tw, "second", 0)
+            secs = p.today_work.hour * 3600 + p.today_work.minute * 60
         else:
             secs = calc_work(p.punch_in, p.punch_out)
 
@@ -127,11 +131,7 @@ def calculate_month_summary(admin_id, year, month):
         le = min(lv.end_date, month_end)
         if le >= ls:
             leave_days += (le - ls).days + 1
-
-        try:
-            extra_days += float(lv.extra_days or 0)
-        except (TypeError, ValueError):
-            pass
+        extra_days += float(lv.extra_days or 0)
 
     # ---------------- WORKING DAYS ----------------
     working_days = 0.0
@@ -140,39 +140,33 @@ def calculate_month_summary(admin_id, year, month):
         the_day = date(year, month, d)
         weekday = the_day.weekday()
 
-        is_weekend = weekday in (5, 6)
-        is_sunday = weekday == 6
-
         punch = punch_map.get(the_day)
-        punch_value = 0.0
-
-        if punch:
-            if punch.punch_in and punch.punch_out:
-                punch_value = 1
-            elif punch.punch_in or punch.punch_out:
-                punch_value = 0.5
+        punch_value = (
+            1 if punch and punch.punch_in and punch.punch_out
+            else 0.5 if punch and (punch.punch_in or punch.punch_out)
+            else 0
+        )
 
         leave_for_day = any(
             lv.start_date <= the_day <= lv.end_date for lv in leaves
         )
 
         if emp_type in ("Engineering", "Software Development"):
-            if is_weekend:
+            if weekday in (5, 6):
                 working_days += 1
             elif punch_value or leave_for_day:
                 working_days += punch_value or 1
         else:
-            if is_sunday:
+            if weekday == 6:
                 working_days += 1
-            elif weekday == 5:  # Saturday
+            elif weekday == 5:
                 if punch_value or leave_for_day:
                     working_days += punch_value or 1
-            else:  # Mon–Fri
+            else:
                 if punch_value or leave_for_day:
                     working_days += punch_value or 1
 
-    working_days = max(0, working_days - extra_days)
-    working_days_final = round(working_days, 1)
+    working_days_final = round(max(0, working_days - extra_days), 1)
 
     # ---------------- EXPECTED HOURS ----------------
     total_mon_fri = sum(
@@ -247,20 +241,13 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
     for p in punches:
         punch_map.setdefault(p.admin_id, {})[p.punch_date.day] = p
 
-    # Fetch signup data
-    emails = [a.email for a in admins]
-    signups = Signup.query.filter(Signup.email.in_(emails)).all()
-
-    emp_ids = {s.email: s.emp_id for s in signups}
-    emp_names = {s.email: s.first_name for s in signups}
-
     row = 2
 
     for admin in admins:
         worksheet.write(row, 0, "Emp ID:", bold_fmt)
-        worksheet.write(row, 1, emp_ids.get(admin.email, "N/A"))
+        worksheet.write(row, 1, admin.emp_id)
         worksheet.write(row, 3, "Emp Name:", bold_fmt)
-        worksheet.write(row, 4, emp_names.get(admin.email, admin.first_name))
+        worksheet.write(row, 4, admin.first_name)
         row += 1
 
         in_times, out_times, totals = [], [], []
@@ -320,15 +307,19 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
         row += 1
 
         worksheet.write(row, 0, f"Total Working Hours ({mlabel}) excluding Saturday:", blue_fmt)
-        worksheet.write(row, 1,
-                        f'{stats["actual_fri_hours"]} hrs (Expected: {stats["expected_fri_hours"]} hrs)',
-                        blue_fmt)
+        worksheet.write(
+            row, 1,
+            f'{stats["actual_fri_hours"]} hrs (Expected: {stats["expected_fri_hours"]} hrs)',
+            blue_fmt
+        )
         row += 1
 
         worksheet.write(row, 0, f"Total Working Hours ({mlabel}) including Saturday:", blue_fmt)
-        worksheet.write(row, 1,
-                        f'{stats["actual_sat_hours"]} hrs (Expected: {stats["expected_sat_hours"]} hrs)',
-                        blue_fmt)
+        worksheet.write(
+            row, 1,
+            f'{stats["actual_sat_hours"]} hrs (Expected: {stats["expected_sat_hours"]} hrs)',
+            blue_fmt
+        )
         row += 2
 
     worksheet.set_column(0, 0, 15)
@@ -364,172 +355,4 @@ def send_excel_file(
         as_attachment=True,
         download_name=download_name
     )
-
-
-
-
-from datetime import datetime, date, timedelta
-import calendar
-
-from . import db
-from .models.attendance import Punch, LeaveApplication
-from .models.Admin_models import Admin
-from .models.signup import Signup
-
-
-def _empty_summary():
-    return {
-        "actual_fri_hours": 0,
-        "actual_sat_hours": 0,
-        "expected_fri_hours": 0,
-        "expected_sat_hours": 0,
-        "leave_days": 0,
-        "extra_days": 0,
-        "working_days_final": 0,
-    }
-
-
-def calculate_month_summary(admin_id, year, month):
-    """
-    Returns monthly attendance summary for an employee
-    """
-
-    # ---------- SAFE MONTH ----------
-    try:
-        num_days = calendar.monthrange(year, month)[1]
-    except ValueError:
-        today = date.today()
-        year, month = today.year, today.month
-        num_days = calendar.monthrange(year, month)[1]
-
-    month_start = date(year, month, 1)
-    month_end = date(year, month, num_days)
-
-    admin = Admin.query.get(admin_id)
-    if not admin:
-        return _empty_summary()
-
-    signup = Signup.query.filter_by(email=admin.email).first()
-    emp_type = signup.emp_type if signup else ""
-
-    # ---------- FETCH DATA ----------
-    punches = Punch.query.filter(
-        Punch.admin_id == admin_id,
-        Punch.punch_date.between(month_start, month_end)
-    ).all()
-
-    leaves = LeaveApplication.query.filter(
-        LeaveApplication.admin_id == admin_id,
-        LeaveApplication.status == "Approved",
-        LeaveApplication.start_date <= month_end,
-        LeaveApplication.end_date >= month_start
-    ).all()
-
-    punch_map = {p.punch_date: p for p in punches}
-
-    # ---------- WORK HOURS ----------
-    actual_fri_seconds = 0
-    actual_sat_seconds = 0
-
-    def calc_work(p_in, p_out):
-        if not p_in or not p_out:
-            return 0
-        base = date(2000, 1, 1)
-        start = datetime.combine(base, p_in)
-        end = datetime.combine(base, p_out)
-        if end < start:
-            end += timedelta(days=1)
-        return int((end - start).total_seconds())
-
-    for p in punches:
-        if p.today_work:
-            tw = p.today_work
-            secs = tw.hour * 3600 + tw.minute * 60 + getattr(tw, "second", 0)
-        else:
-            secs = calc_work(p.punch_in, p.punch_out)
-
-        weekday = p.punch_date.weekday()
-        if weekday not in (5, 6):   # Mon–Fri
-            actual_fri_seconds += secs
-        if weekday != 6:            # Mon–Sat
-            actual_sat_seconds += secs
-
-    # ---------- LEAVES ----------
-    leave_days = 0
-    extra_days = 0.0
-
-    for lv in leaves:
-        ls = max(lv.start_date, month_start)
-        le = min(lv.end_date, month_end)
-        if le >= ls:
-            leave_days += (le - ls).days + 1
-
-        try:
-            extra_days += float(lv.extra_days or 0)
-        except (TypeError, ValueError):
-            pass
-
-    # ---------- WORKING DAYS ----------
-    working_days = 0.0
-
-    for d in range(1, num_days + 1):
-        current_day = date(year, month, d)
-        weekday = current_day.weekday()
-
-        is_weekend = weekday in (5, 6)
-        is_sunday = weekday == 6
-
-        punch = punch_map.get(current_day)
-        punch_value = 0
-
-        if punch:
-            if punch.punch_in and punch.punch_out:
-                punch_value = 1
-            elif punch.punch_in or punch.punch_out:
-                punch_value = 0.5
-
-        leave_for_day = any(
-            lv.start_date <= current_day <= lv.end_date
-            for lv in leaves
-        )
-
-        if emp_type in ("Engineering", "Software Development"):
-            if is_weekend:
-                working_days += 1
-            elif punch_value or leave_for_day:
-                working_days += punch_value or 1
-        else:
-            if is_sunday:
-                working_days += 1
-            elif weekday == 5:
-                if punch_value or leave_for_day:
-                    working_days += punch_value or 1
-            else:
-                if punch_value or leave_for_day:
-                    working_days += punch_value or 1
-
-    working_days = max(0, working_days - extra_days)
-    working_days_final = round(working_days, 1)
-
-    # ---------- EXPECTED HOURS ----------
-    total_mon_fri = sum(
-        1 for d in range(1, num_days + 1)
-        if date(year, month, d).weekday() not in (5, 6)
-    )
-
-    total_mon_sat = sum(
-        1 for d in range(1, num_days + 1)
-        if date(year, month, d).weekday() != 6
-    )
-
-    return {
-        "actual_fri_hours": round(actual_fri_seconds / 3600, 1),
-        "actual_sat_hours": round(actual_sat_seconds / 3600, 1),
-        "expected_fri_hours": round(total_mon_fri * 8.5, 1),
-        "expected_sat_hours": round(total_mon_sat * 8.5, 1),
-        "leave_days": leave_days,
-        "extra_days": round(extra_days, 1),
-        "working_days_final": working_days_final,
-    }
-
 

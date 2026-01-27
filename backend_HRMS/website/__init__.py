@@ -33,14 +33,17 @@ def create_app():
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret-key")
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 86400  # 1 day
 
-    # OAuth2 config (Microsoft)
-    app.config['OAUTH2_CLIENT_ID'] = os.getenv("OAUTH2_CLIENT_ID")
-    app.config['OAUTH2_CLIENT_SECRET'] = os.getenv("OAUTH2_CLIENT_SECRET")
-    app.config['OAUTH2_REDIRECT_URI'] = os.getenv("OAUTH2_REDIRECT_URI")
+    app.config["BASE_URL"] = os.getenv(
+        "BASE_URL",
+        "http://127.0.0.1:5000"
+    )
 
-    app.config['MICROSOFT_AUTH_URL'] = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-    app.config['MICROSOFT_TOKEN_URL'] = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-    app.config['MICROSOFT_USER_INFO_URL'] = "https://graph.microsoft.com/v1.0/me"
+    app.config["ZEPTO_API_KEY"] = os.getenv("ZEPTO_API_KEY")
+    app.config["ZEPTO_SENDER_EMAIL"] = os.getenv("ZEPTO_SENDER_EMAIL")
+    app.config["ZEPTO_SENDER_NAME"] = os.getenv("ZEPTO_SENDER_NAME")
+    app.config["ZEPTO_BASE_URL"] = os.getenv("ZEPTO_BASE_URL")
+    app.config["ZEPTO_CC_HR"] = os.getenv("ZEPTO_CC_HR")
+    app.config["ZEPTO_CC_ACCOUNT"] = os.getenv("ZEPTO_CC_ACCOUNT")
 
     # Enable CORS for React frontend
     CORS(app, supports_credentials=True)
@@ -55,9 +58,8 @@ def create_app():
     # Import Models
     # ---------------------------
     from .models.Admin_models import Admin
-    from .models.signup import Signup
+    
     from .models.attendance import LeaveBalance, LeaveApplication
-    from .models.manager_model import ManagerContact
     from .models.query import Query, QueryReply
     from .models.emp_detail_models import Employee
     from .models.education import Education, UploadDoc
@@ -77,10 +79,10 @@ def create_app():
     # ---------------------------
     from .auth import auth
     from .leave_attendence import leave
-    from .Human_resource import HumanResource
-    # from .hr import hr
+    from .Human_resource import hr
+    from .query import query
     # from .Updatemanager import manager_bp
-    # from .Aoocunts import Accounts
+    from .Accounts import Accounts
     # from .auth_helper import auth_helper
     # from .otp import forgot_password
     # from .offboard import offboard
@@ -88,11 +90,9 @@ def create_app():
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(leave, url_prefix="/api/leave")
-    app.register_blueprint(HumanResource, url_prefix="/api/HumanResource")
-    # app.register_blueprint(hr, url_prefix="/api/hr")
-    # app.register_blueprint(manager_bp, url_prefix="/api/manager")
-    # app.register_blueprint(Accounts, url_prefix="/api/accounts")
-    # app.register_blueprint(auth_helper, url_prefix="/api/helper")
+    app.register_blueprint(hr, url_prefix="/api/HumanResource")
+    app.register_blueprint(Accounts, url_prefix="/api/accounts")
+    app.register_blueprint(query, url_prefix="/api/query")
     # app.register_blueprint(forgot_password, url_prefix="/api/otp")
     # app.register_blueprint(offboard, url_prefix="/api/offboard")
     # app.register_blueprint(Admins_access, url_prefix="/api/access")

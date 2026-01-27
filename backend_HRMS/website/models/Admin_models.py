@@ -12,28 +12,33 @@ from website.models.query import Query, QueryReply
 from website.models.seperation import Resignation,Noc,Noc_Upload
 from website.models.expense import ExpenseClaimHeader   
 from website.models.Performance import EmployeePerformance
-from website.models.signup import Signup
-from website.models.confirmation_request import ConfirmationRequest
+
 
 
 class Admin(db.Model, UserMixin):
     __tablename__ = 'admins'
 
     id = db.Column(db.Integer, primary_key=True)
+
+    # --- Identity / Auth ---
     email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(350), nullable=False)
+
+    # --- Basic Profile ---
     first_name = db.Column(db.String(150), nullable=False)
+    user_name = db.Column(db.String(120), unique=True, nullable=False)
+    mobile = db.Column(db.String(15), unique=True, nullable=False)
+
+    # --- Employee Info ---
+    emp_id = db.Column(db.String(10), unique=True, nullable=False)
+    doj = db.Column(db.Date, nullable=False)
+    emp_type = db.Column(db.String(50), nullable=False, default='employee')
+    circle = db.Column(db.String(50), nullable=True)
+
+    # --- System Flags ---
     
-
-    # OAuth2-specific fields
-    oauth_provider = db.Column(db.String(50), nullable=False, default='microsoft')
-    oauth_id = db.Column(db.String(255), unique=True, nullable=False)  # Stores the unique Microsoft ID
-    oauth_token = db.Column(db.Text, nullable=True)  # Access token
-    oauth_refresh_token = db.Column(db.Text, nullable=True)  # Refresh token
-    oauth_token_expiry = db.Column(db.DateTime, nullable=True)  # Token expiration time
-
-   
-
-
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
 
    
 
@@ -57,30 +62,50 @@ class Admin(db.Model, UserMixin):
         'EmployeePerformance',
         back_populates='admin',
         cascade='all, delete-orphan'
-    )    # sessions = db.relationship('Session', back_populates='admin', cascade="all, delete-orphan")
+    )   
+    leave_balance = db.relationship(
+    'LeaveBalance',
+    back_populates='admin',
+    uselist=False,
+    cascade="all, delete-orphan"
+)
+
+     # Password helpers
+    def set_password(self, password):
+        self.password = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password, password)
 
 
-    
-     # Check if the OAuth2 token is valid
-    def is_oauth_token_valid(self):
-        return self.oauth_token_expiry and self.oauth_token_expiry > datetime.now()
-    
 
 
+class EmployeeArchive(db.Model):
+    __tablename__ = "employee_archive"
 
+    id = db.Column(db.Integer, primary_key=True)
 
+    # Original admin reference (optional)
+    admin_id = db.Column(db.Integer, nullable=True)
 
+    # Basic identity
+    full_name = db.Column(db.String(150), nullable=False)
+    emp_id = db.Column(db.String(20), nullable=True)
 
+    # Contact (personal, not official)
+    personal_email = db.Column(db.String(120), nullable=True)
+    mobile = db.Column(db.String(15), nullable=True)
 
-# class Session(db.Model):
-#     __tablename__ = 'session'
+    # Employment details
+    circle = db.Column(db.String(50))
+    emp_type = db.Column(db.String(50))
+    doj = db.Column(db.Date)
+    dol = db.Column(db.Date)  # Date of leaving
 
-#     session_id = db.Column(db.String(255), primary_key=True)
-#     admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)  # Link to Admins
-#     data = db.Column(db.Text, nullable=False)
-#     expiry = db.Column(db.DateTime, nullable=False)
+    # Exit info
+    exit_reason = db.Column(db.Text)
+    exit_type = db.Column(db.String(30))  # Resigned / Terminated / Absconded
+    exit_initiated_by = db.Column(db.String(50))  # HR / System
 
-#     admin = db.relationship('Admin', back_populates='sessions')
-
-#     def __repr__(self):
-#         return f"<Session(session_id={self.session_id}, admin_id={self.admin_id}, expiry={self.expiry})>"
+    # Metadata
+    archived_at = db.Column(db.DateTime, default=db.func.now())

@@ -37,24 +37,31 @@ class Location(db.Model):
 
 
 
-
 class LeaveBalance(db.Model):
     __tablename__ = 'leave_balances'
 
     id = db.Column(db.Integer, primary_key=True)
-    
-    # Foreign keys for Signup and Admin
-    signup_id = db.Column(db.Integer, db.ForeignKey('signups.id', ondelete="CASCADE"), unique=True, nullable=False)
-    
+
+    # One-to-One with Admin
+    admin_id = db.Column(
+        db.Integer,
+        db.ForeignKey('admins.id', ondelete="CASCADE"),
+        unique=True,
+        nullable=False
+    )
+
     privilege_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
     casual_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
     compensatory_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
+
     last_updated = db.Column(db.Date, nullable=True)
-    # Relationships
-    signup = db.relationship('Signup', back_populates='leave_balance')
 
+    # Relationship
+    admin = db.relationship('Admin', back_populates='leave_balance')
 
-
+    # -------------------------
+    # Business logic
+    # -------------------------
     def restore_leave(self, leave_type, days):
         if leave_type == 'Privilege Leave':
             self.privilege_leave_balance += days
@@ -62,17 +69,9 @@ class LeaveBalance(db.Model):
             self.casual_leave_balance += days
         elif leave_type == 'Half Day Leave':
             self.casual_leave_balance += 0.5
-    
-    def __init__(self, signup_id, admin_id=None, privilege_leave_balance=0.0, casual_leave_balance=0.0, **kwargs):
-        super().__init__(**kwargs)
-        self.signup_id = signup_id
-        self.admin_id = admin_id
-        self.privilege_leave_balance = privilege_leave_balance
-        self.casual_leave_balance = casual_leave_balance
 
     def to_dict(self):
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
-
 
 
     

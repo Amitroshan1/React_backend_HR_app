@@ -1,11 +1,18 @@
+# signup_api, hr_dashboard_api, search_employees,
+# download_excel_hr_api, display_details_api,get_employee
+# assign_asset, update_asset_api, search_employee_api,
+# get_employee_api, update_employee_api, delete_employee_api
+# Employee_exit,list_employee_archive
+
+
 from flask import Blueprint, request, current_app, jsonify,json
 from flask_jwt_extended import jwt_required, get_jwt
-from .models.signup import Signup
-from .models.Admin_models import Admin
+from .email import send_email_via_zeptomail,send_welcome_email
+from .models.Admin_models import Admin,EmployeeArchive
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
-from .email import asset_email,update_asset_email
+from .email import update_asset_email,send_asset_assigned_email
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
@@ -21,6 +28,128 @@ from werkzeug.utils import secure_filename
 hr = Blueprint('HumanResource', __name__)
 
 
+
+
+
+
+
+@hr.route("/signup", methods=["POST"])
+def signup_api():
+    data = request.get_json() or {}
+
+    required_fields = [
+        "email",
+        "password",
+        "first_name",
+        "user_name",
+        "mobile",
+        "emp_id",
+        "doj",
+        "emp_type",
+        "circle"
+    ]
+
+    missing = [f for f in required_fields if not data.get(f)]
+    if missing:
+        return jsonify({
+            "success": False,
+            "message": f"Missing fields: {', '.join(missing)}"
+        }), 400
+
+    # -------------------------
+    # Uniqueness checks
+    # -------------------------
+    if Admin.query.filter_by(email=data["email"]).first():
+        return jsonify({
+            "success": False,
+            "message": "Email already registered"
+        }), 409
+
+    if Admin.query.filter_by(emp_id=data["emp_id"]).first():
+        return jsonify({
+            "success": False,
+            "message": "Employee ID already exists"
+        }), 409
+
+    if Admin.query.filter_by(mobile=data["mobile"]).first():
+        return jsonify({
+            "success": False,
+            "message": "Mobile number already exists"
+        }), 409
+
+    try:
+        doj = datetime.fromisoformat(data["doj"]).date()
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Invalid DOJ format. Use YYYY-MM-DD"
+        }), 400
+
+    # -------------------------
+    # Create Admin
+    # -------------------------
+    admin = Admin(
+        email=data["email"],
+        first_name=data["first_name"],
+        user_name=data["user_name"],
+        mobile=data["mobile"],
+        emp_id=data["emp_id"],
+        doj=doj,
+        emp_type=data["emp_type"],
+        circle=data["circle"],
+        is_active=True
+    )
+
+    admin.set_password(data["password"])
+
+    try:
+        db.session.add(admin)
+        db.session.flush()  # get admin.id
+
+        # -------------------------
+        # Initialize Leave Balance
+        # -------------------------
+        leave_balance = LeaveBalance(
+            admin_id=admin.id,
+            privilege_leave_balance=0.0,
+            casual_leave_balance=0.0,
+            compensatory_leave_balance=0.0
+        )
+
+        db.session.add(leave_balance)
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Signup DB Error: {e}")
+        return jsonify({
+            "success": False,
+            "message": "Unable to register employee"
+        }), 500
+
+    # -------------------------
+    # Send Welcome Email (NON-BLOCKING)
+    # -------------------------
+    
+
+# after db.session.commit()
+    send_welcome_email(admin,data)
+
+    return jsonify({
+        "success": True,
+        "message": "Employee registered successfully",
+        "employee": {
+            "id": admin.id,
+            "email": admin.email,
+            "emp_id": admin.emp_id,
+            "name": admin.first_name,
+            "emp_type": admin.emp_type,
+            "circle": admin.circle
+        }
+    }), 201
+
+
+
 @hr.route("/dashboard", methods=["GET"])
 @jwt_required()
 def hr_dashboard_api():
@@ -28,10 +157,10 @@ def hr_dashboard_api():
     current_day = today.day
     current_month = today.month
 
-    # 1️⃣ Work Anniversaries (Signup DOJ)
-    employees_with_anniversaries = Signup.query.filter(
-        db.extract("month", Signup.doj) == current_month,
-        db.extract("day", Signup.doj) == current_day
+    # 1️⃣ Work Anniversaries (Admin DOJ)
+    employees_with_anniversaries = Admin.query.filter(
+        db.extract("month", Admin.doj) == current_month,
+        db.extract("day", Admin.doj) == current_day
     ).all()
 
     # 2️⃣ Birthdays (Employee DOB)
@@ -41,12 +170,12 @@ def hr_dashboard_api():
     ).all()
 
     # 3️⃣ Total Employees
-    total_employees = Signup.query.count()
+    total_employees = Admin.query.count()
 
     # 4️⃣ New Joinees (last 30 days)
     thirty_days_ago = today - timedelta(days=30)
-    new_joinees_count = Signup.query.filter(
-        Signup.doj >= thirty_days_ago
+    new_joinees_count = Admin.query.filter(
+        Admin.doj >= thirty_days_ago
     ).count()
 
     # 5️⃣ Today's Punch-in Count
@@ -83,8 +212,6 @@ def hr_dashboard_api():
     }), 200
 
 
-
-
 @hr.route("/search", methods=["GET"])
 @jwt_required()
 def search_employees():
@@ -97,32 +224,17 @@ def search_employees():
             "message": "circle and emp_type are required"
         }), 400
 
-    # Step 1: Filter Signup by circle & emp_type
-    signups = Signup.query.filter_by(
+    admins = Admin.query.filter_by(
         circle=circle,
         emp_type=emp_type
-    ).all()
-
-    if not signups:
-        return jsonify({
-            "success": False,
-            "message": "No matching employees found"
-        }), 404
-
-    emails = [s.email for s in signups]
-
-    # Step 2: Get Admin records using emails
-    admins = Admin.query.filter(
-        Admin.email.in_(emails)
     ).all()
 
     if not admins:
         return jsonify({
             "success": False,
-            "message": "No matching admin records found"
+            "message": "No matching employees found"
         }), 404
 
-    # Step 3: Return React-ready response
     return jsonify({
         "success": True,
         "circle": circle,
@@ -137,9 +249,6 @@ def search_employees():
             for admin in admins
         ]
     }), 200
-
-
-
 @hr.route("/download-excel", methods=["GET"])
 @jwt_required()
 def download_excel_hr_api():
@@ -153,32 +262,19 @@ def download_excel_hr_api():
             "message": "circle and emp_type are required"
         }), 400
 
-    # Step 1: Fetch employees from Signup
-    signups = Signup.query.filter_by(
+    # Step 1: Fetch employees directly from Admin
+    admins = Admin.query.filter_by(
         circle=circle,
         emp_type=emp_type
-    ).all()
-
-    if not signups:
-        return jsonify({
-            "success": False,
-            "message": "No employees found"
-        }), 404
-
-    emails = [s.email for s in signups]
-
-    # Step 2: Fetch Admin records
-    admins = Admin.query.filter(
-        Admin.email.in_(emails)
     ).all()
 
     if not admins:
         return jsonify({
             "success": False,
-            "message": "No admin records found"
+            "message": "No employees found"
         }), 404
 
-    # Step 3: Resolve month
+    # Step 2: Resolve month
     if month_str:
         try:
             year, month = map(int, month_str.split("-"))
@@ -191,7 +287,7 @@ def download_excel_hr_api():
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
         year, month = now.year, now.month
 
-    # Step 4: Generate Excel
+    # Step 3: Generate Excel
     output = generate_attendance_excel(
         admins=admins,
         emp_type=emp_type,
@@ -206,13 +302,14 @@ def download_excel_hr_api():
         f"{calendar.month_name[month]}_{year}.xlsx"
     )
 
-    # Step 5: Return file
+    # Step 4: Return file
     return send_excel_file(
         output,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         download_name=filename,
         as_attachment=True
     )
+
 
 
 
@@ -393,30 +490,40 @@ def update_employee_api(emp_id):
         "employee": emp.to_dict()
     }), 200
 
-
 @hr.route("/leave-balance/<int:employee_id>", methods=["GET"])
 @jwt_required()
 def get_leave_balance(employee_id):
-    employee = Signup.query.get(employee_id)
-    leave_balance = LeaveBalance.query.filter_by(signup_id=employee_id).first()
+    # employee_id = Admin.id
+    admin = Admin.query.get(employee_id)
 
-    if not employee or not leave_balance:
+    if not admin:
         return jsonify({
             "success": False,
-            "message": "Employee or leave balance not found"
+            "message": "Employee not found"
+        }), 404
+
+    leave_balance = LeaveBalance.query.filter_by(
+        admin_id=admin.id
+    ).first()
+
+    if not leave_balance:
+        return jsonify({
+            "success": False,
+            "message": "Leave balance not found"
         }), 404
 
     return jsonify({
         "success": True,
         "employee": {
-            "id": employee.id,
-            "emp_id": employee.emp_id,
-            "name": employee.first_name,
-            "email": employee.email
+            "id": admin.id,
+            "emp_id": admin.emp_id,
+            "name": admin.first_name,
+            "email": admin.email
         },
         "leave_balance": {
             "privilege_leave_balance": leave_balance.privilege_leave_balance,
-            "casual_leave_balance": leave_balance.casual_leave_balance
+            "casual_leave_balance": leave_balance.casual_leave_balance,
+            "compensatory_leave_balance": leave_balance.compensatory_leave_balance
         }
     }), 200
 
@@ -503,6 +610,7 @@ def add_news_feed_api():
         }
     }), 201
 
+
 @hr.route("/employee/search", methods=["GET"])
 @jwt_required()
 def search_employee_api_for_asset():
@@ -514,27 +622,27 @@ def search_employee_api_for_asset():
             "message": "emp_id is required"
         }), 400
 
-    employee = Signup.query.filter_by(emp_id=emp_id).first()
-    if not employee:
+    # Admin is the source of truth
+    admin = Admin.query.filter_by(emp_id=emp_id).first()
+
+    if not admin:
         return jsonify({
             "success": False,
             "message": "Employee not found"
         }), 404
 
-    admin = Admin.query.filter_by(email=employee.email).first()
-
     return jsonify({
         "success": True,
         "employee": {
-            "signup_id": employee.id,
-            "admin_id": admin.id if admin else None,
-            "name": employee.first_name,
-            "emp_id": employee.emp_id,
-            "email": employee.email,
-            "circle": employee.circle,
-            "emp_type": employee.emp_type
+            "admin_id": admin.id,
+            "name": admin.first_name,
+            "emp_id": admin.emp_id,
+            "email": admin.email,
+            "circle": admin.circle,
+            "emp_type": admin.emp_type
         }
     }), 200
+
 
 @hr.route("/employee/<int:admin_id>/assets", methods=["GET"])
 @jwt_required()
@@ -557,47 +665,77 @@ def get_employee_assets(admin_id):
 
 
 
-@hr.route("/employee/<int:admin_id>/assets", methods=["POST"])
-@jwt_required()
-def add_asset_api(admin_id):
-    employee = Admin.query.get(admin_id)
-    if not employee:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
+@hr.route("/assign-asset", methods=["POST"])
+def assign_asset():
+    admin_id = request.form.get("admin_id")
+    name = request.form.get("name")
+    description = request.form.get("description")
+    remark = request.form.get("remark")
 
-    data = request.form
-    uploaded_filenames = []
+    if not admin_id or not name:
+        return jsonify({
+            "success": False,
+            "message": "admin_id and asset name are required"
+        }), 400
 
-    if "images" in request.files:
-        for file in request.files.getlist("images"):
-            if file and file.filename:
-                filename = secure_filename(file.filename)
-                upload_dir = current_app.config["UPLOAD_FOLDER"]
-                os.makedirs(upload_dir, exist_ok=True)
-                file.save(os.path.join(upload_dir, filename))
-                uploaded_filenames.append(filename)
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
 
-    asset = Asset(
-        name=data.get("name"),
-        description=data.get("description"),
-        admin_id=admin_id,
-        issue_date=data.get("issue_date"),
-        return_date=data.get("return_date") or None,
-        remark=data.get("remark")
+    # -------------------------
+    # Handle multiple images
+    # -------------------------
+    uploaded_files = request.files.getlist("images")
+    image_paths = []
+
+    upload_base = f"assets/{admin.emp_id}"
+    upload_dir = os.path.join(
+        current_app.root_path, "static", "uploads", upload_base
     )
+    os.makedirs(upload_dir, exist_ok=True)
 
-    asset.set_image_files(uploaded_filenames)
+    for file in uploaded_files:
+        if file and file.filename:
+            filename = secure_filename(file.filename)
+            save_path = os.path.join(upload_dir, filename)
+            file.save(save_path)
 
-    db.session.add(asset)
-    db.session.commit()
+            image_paths.append(f"{upload_base}/{filename}")
 
-    # Email
-    asset_email(employee.email, employee.first_name)
+    try:
+        asset = Asset(
+            name=name,
+            description=description,
+            remark=remark,
+            admin_id=admin.id,
+            image_files=",".join(image_paths),
+            issue_date=date.today()
+        )
+
+        db.session.add(asset)
+        db.session.commit()
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Asset assign error: {e}")
+        return jsonify({
+            "success": False,
+            "message": "Unable to assign asset"
+        }), 500
+
+    # -------------------------
+    # Send email (NON-BLOCKING)
+    # -------------------------
+    send_asset_assigned_email(admin, asset)
 
     return jsonify({
         "success": True,
-        "message": "Asset added successfully",
-        "asset": asset.to_dict()
+        "message": "Asset assigned successfully"
     }), 201
+
 
 
 @hr.route("/assets/<int:asset_id>", methods=["PUT"])
@@ -605,30 +743,70 @@ def add_asset_api(admin_id):
 def update_asset_api(asset_id):
     asset = Asset.query.get(asset_id)
     if not asset:
-        return jsonify({"success": False, "message": "Asset not found"}), 404
+        return jsonify({
+            "success": False,
+            "message": "Asset not found"
+        }), 404
 
     data = request.form
+
+    # Existing images
     uploaded_filenames = asset.get_image_files() or []
 
+    # -------------------------
+    # Handle new images
+    # -------------------------
     if "images" in request.files:
+        upload_base = f"assets/{asset.admin.emp_id}"
+        upload_dir = os.path.join(
+            current_app.root_path,
+            "static", "uploads",
+            upload_base
+        )
+        os.makedirs(upload_dir, exist_ok=True)
+
         for file in request.files.getlist("images"):
             if file and file.filename:
                 filename = secure_filename(file.filename)
-                upload_dir = current_app.config["UPLOAD_FOLDER"]
-                os.makedirs(upload_dir, exist_ok=True)
                 file.save(os.path.join(upload_dir, filename))
-                uploaded_filenames.append(filename)
+                uploaded_filenames.append(f"{upload_base}/{filename}")
 
+    # -------------------------
+    # Update fields
+    # -------------------------
     asset.name = data.get("name", asset.name)
     asset.description = data.get("description", asset.description)
-    asset.issue_date = data.get("issue_date", asset.issue_date)
-    asset.return_date = data.get("return_date") or None
     asset.remark = data.get("remark", asset.remark)
+
+    # Dates (safe parsing)
+    if data.get("issue_date"):
+        asset.issue_date = datetime.fromisoformat(
+            data.get("issue_date")
+        ).date()
+
+    if data.get("return_date"):
+        asset.return_date = datetime.fromisoformat(
+            data.get("return_date")
+        ).date()
+    else:
+        asset.return_date = None
+
     asset.set_image_files(uploaded_filenames)
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Asset update failed: {e}")
+        return jsonify({
+            "success": False,
+            "message": "Unable to update asset"
+        }), 500
 
-    update_asset_email(asset.admin.email, asset.admin.first_name)
+    # -------------------------
+    # Email (reuse SAME function)
+    # -------------------------
+    send_asset_assigned_email(asset.admin, asset)
 
     return jsonify({
         "success": True,
@@ -637,9 +815,9 @@ def update_asset_api(asset_id):
     }), 200
 
 
-@hr.route("/signup/search", methods=["GET"])
+@hr.route("/employee/search", methods=["GET"])
 @jwt_required()
-def search_signup_api():
+def search_employee_api():
     emp_type = request.args.get("emp_type")
     circle = request.args.get("circle")
 
@@ -649,7 +827,7 @@ def search_signup_api():
             "message": "emp_type and circle are required"
         }), 400
 
-    employees = Signup.query.filter_by(
+    employees = Admin.query.filter_by(
         emp_type=emp_type,
         circle=circle
     ).all()
@@ -673,12 +851,12 @@ def search_signup_api():
     }), 200
 
 
-@hr.route("/signup/<string:email>", methods=["GET"])
+@hr.route("/employee/<string:email>", methods=["GET"])
 @jwt_required()
-def get_signup_api(email):
-    employee = Signup.query.filter_by(email=email).first()
+def get_employee_api(email):
+    admin = Admin.query.filter_by(email=email).first()
 
-    if not employee:
+    if not admin:
         return jsonify({
             "success": False,
             "message": "Employee not found"
@@ -687,45 +865,43 @@ def get_signup_api(email):
     return jsonify({
         "success": True,
         "employee": {
-            "email": employee.email,
-            "user_name": employee.user_name,
-            "first_name": employee.first_name,
-            "emp_id": employee.emp_id,
-            "mobile": employee.mobile,
-            "doj": employee.doj.isoformat() if employee.doj else None,
-            "circle": employee.circle,
-            "emp_type": employee.emp_type
+            "email": admin.email,
+            "user_name": admin.user_name,
+            "first_name": admin.first_name,
+            "emp_id": admin.emp_id,
+            "mobile": admin.mobile,
+            "doj": admin.doj.isoformat() if admin.doj else None,
+            "circle": admin.circle,
+            "emp_type": admin.emp_type
         }
     }), 200
 
 
-
-@hr.route("/signup/<string:email>", methods=["PUT"])
+@hr.route("/employee/<string:email>", methods=["PUT"], endpoint="hr_update_employee")
 @jwt_required()
-def update_signup_api(email):
-    employee = Signup.query.filter_by(email=email).first()
+def update_employee_api(email):
+    admin = Admin.query.filter_by(email=email).first()
 
-    if not employee:
+    if not admin:
         return jsonify({
             "success": False,
             "message": "Employee not found"
         }), 404
 
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    # Update fields safely
-    employee.user_name = data.get("user_name", employee.user_name)
-    employee.first_name = data.get("first_name", employee.first_name)
-    employee.emp_id = data.get("emp_id", employee.emp_id)
-    employee.mobile = data.get("mobile", employee.mobile)
-    employee.circle = data.get("circle", employee.circle)
-    employee.emp_type = data.get("emp_type", employee.emp_type)
+    admin.user_name = data.get("user_name", admin.user_name)
+    admin.first_name = data.get("first_name", admin.first_name)
+    admin.emp_id = data.get("emp_id", admin.emp_id)
+    admin.mobile = data.get("mobile", admin.mobile)
+    admin.circle = data.get("circle", admin.circle)
+    admin.emp_type = data.get("emp_type", admin.emp_type)
 
     if "doj" in data:
-        employee.doj = datetime.fromisoformat(data["doj"]).date()
+        admin.doj = datetime.fromisoformat(data["doj"]).date()
 
     if data.get("password"):
-        employee.password = generate_password_hash(data["password"])
+        admin.set_password(data["password"])
 
     db.session.commit()
 
@@ -734,119 +910,4 @@ def update_signup_api(email):
         "message": "Employee record updated successfully"
     }), 200
 
-
-
-@hr.route("/signup/<string:email>", methods=["DELETE"])
-@jwt_required()
-def delete_signup_api(email):
-    employee = Signup.query.filter_by(email=email).first()
-
-    if not employee:
-        return jsonify({
-            "success": False,
-            "message": "Employee not found"
-        }), 404
-
-    db.session.delete(employee)
-    db.session.commit()
-
-    return jsonify({
-        "success": True,
-        "message": f"Employee {email} deleted successfully"
-    }), 200
-
-
-# @hr.route("/confirmation-requests", methods=["GET"])
-# @jwt_required()
-# def list_hr_confirmation_requests():
-#     jwt_email = get_jwt().get("email")
-
-#     hr_user = Signup.query.filter_by(email=jwt_email).first()
-#     if not hr_user or hr_user.emp_type != "Human Resource":
-#         return jsonify({
-#             "success": False,
-#             "message": "Access denied. HR only."
-#         }), 403
-
-#     requests = (
-#         HRConfirmationRequest.query
-#         .order_by(HRConfirmationRequest.created_at.desc())
-#         .all()
-#     )
-
-#     return jsonify({
-#         "success": True,
-#         "count": len(requests),
-#         "requests": [
-#             {
-#                 "id": r.id,
-#                 "employee_id": r.employee_id,
-#                 "status": r.status,
-#                 "manager_review": r.manager_review,
-#                 "created_at": r.created_at.isoformat()
-#             }
-#             for r in requests
-#         ]
-#     }), 200
-
-
-# @hr.route("/confirmation-requests/<int:request_id>", methods=["PUT"])
-# @jwt_required()
-# def update_hr_confirmation_request_api(request_id):
-#     jwt_email = get_jwt().get("email")
-
-#     hr_user = Signup.query.filter_by(email=jwt_email).first()
-#     if not hr_user or hr_user.emp_type != "Human Resource":
-#         return jsonify({
-#             "success": False,
-#             "message": "Access denied. HR only."
-#         }), 403
-
-#     req = HRConfirmationRequest.query.get(request_id)
-#     if not req:
-#         return jsonify({
-#             "success": False,
-#             "message": "Confirmation request not found"
-#         }), 404
-
-#     data = request.get_json()
-#     action = data.get("action")
-#     review = data.get("review")
-
-#     if action == "approve":
-#         req.status = "Approved"
-#     elif action == "reject":
-#         req.status = "Rejected"
-#     else:
-#         return jsonify({
-#             "success": False,
-#             "message": "Invalid action. Use approve or reject."
-#         }), 400
-
-#     req.manager_review = review
-#     db.session.commit()
-
-#     # Notify employee
-#     employee = Signup.query.get(req.employee_id)
-#     if employee:
-#         subject = f"Confirmation Status: {req.status}"
-#         body = f"""
-#         <p>Dear {employee.first_name},</p>
-#         <p>Your employment confirmation has been reviewed.</p>
-#         <p><strong>Status:</strong> {req.status}</p>
-#         <p><strong>HR Comments:</strong> {review or 'No comments provided'}</p>
-#         <p>Regards,<br><strong>HR Team</strong></p>
-#         """
-
-#         verify_oauth2_and_send_email(
-#             user_email=jwt_email,
-#             subject=subject,
-#             body=body,
-#             recipient_email=employee.email
-#         )
-
-#     return jsonify({
-#         "success": True,
-#         "message": f"Request {req.status.lower()} successfully"
-#     }), 200
 
