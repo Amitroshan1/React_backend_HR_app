@@ -1,4 +1,5 @@
-# signup_api, hr_dashboard_api, search_employees,
+# signup_api,reset_password, hr_dashboard_api, mark_employee_exit,employee_archive_list,
+# get_archived_employee_profile,search_employees,
 # download_excel_hr_api, display_details_api,get_employee
 # assign_asset, update_asset_api, search_employee_api,
 # get_employee_api, update_employee_api, delete_employee_api
@@ -8,11 +9,12 @@
 from flask import Blueprint, request, current_app, jsonify,json
 from flask_jwt_extended import jwt_required, get_jwt
 from .email import send_email_via_zeptomail,send_welcome_email
-from .models.Admin_models import Admin,EmployeeArchive
+from .models.Admin_models import Admin,EmployeeArchive,AuditLog
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
-from .email import update_asset_email,send_asset_assigned_email
+from flask_login import current_user
+from .email import update_asset_email,send_asset_assigned_email,send_password_set_email
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
@@ -28,18 +30,31 @@ from werkzeug.utils import secure_filename
 hr = Blueprint('HumanResource', __name__)
 
 
+from functools import wraps
+from flask_jwt_extended import get_jwt, jwt_required
+from flask import jsonify
 
-
-
+def hr_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        claims = get_jwt()
+        if claims.get("emp_type") != "Human Resource":
+            return jsonify({
+                "success": False,
+                "message": "HR access required"
+            }), 403
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 @hr.route("/signup", methods=["POST"])
+@jwt_required()
+@hr_required
 def signup_api():
     data = request.get_json() or {}
 
     required_fields = [
         "email",
-        "password",
         "first_name",
         "user_name",
         "mobile",
@@ -57,97 +72,154 @@ def signup_api():
         }), 400
 
     # -------------------------
-    # Uniqueness checks
+    # DOJ validation
     # -------------------------
-    if Admin.query.filter_by(email=data["email"]).first():
-        return jsonify({
-            "success": False,
-            "message": "Email already registered"
-        }), 409
-
-    if Admin.query.filter_by(emp_id=data["emp_id"]).first():
-        return jsonify({
-            "success": False,
-            "message": "Employee ID already exists"
-        }), 409
-
-    if Admin.query.filter_by(mobile=data["mobile"]).first():
-        return jsonify({
-            "success": False,
-            "message": "Mobile number already exists"
-        }), 409
-
     try:
         doj = datetime.fromisoformat(data["doj"]).date()
     except ValueError:
         return jsonify({
             "success": False,
-            "message": "Invalid DOJ format. Use YYYY-MM-DD"
+            "message": "Invalid DOJ format (YYYY-MM-DD)"
         }), 400
 
-    # -------------------------
-    # Create Admin
-    # -------------------------
-    admin = Admin(
-        email=data["email"],
-        first_name=data["first_name"],
-        user_name=data["user_name"],
-        mobile=data["mobile"],
-        emp_id=data["emp_id"],
-        doj=doj,
-        emp_type=data["emp_type"],
-        circle=data["circle"],
-        is_active=True
-    )
-
-    admin.set_password(data["password"])
+    hr_email = get_jwt().get("email")
 
     try:
-        db.session.add(admin)
-        db.session.flush()  # get admin.id
+        admin = Admin.query.filter_by(email=data["email"]).first()
 
-        # -------------------------
-        # Initialize Leave Balance
-        # -------------------------
-        leave_balance = LeaveBalance(
-            admin_id=admin.id,
-            privilege_leave_balance=0.0,
-            casual_leave_balance=0.0,
-            compensatory_leave_balance=0.0
+        # ======================================================
+        # CASE 1: Existing user (OAuth / partial record)
+        # ======================================================
+        if admin:
+            if admin.password:
+                return jsonify({
+                    "success": False,
+                    "message": "User already fully registered"
+                }), 409
+
+            # Upgrade existing user
+            admin.first_name = data["first_name"]
+            admin.user_name = data["user_name"]
+            admin.mobile = data["mobile"]
+            admin.emp_id = data["emp_id"]
+            admin.doj = doj
+            admin.emp_type = data["emp_type"]
+            admin.circle = data["circle"]
+            admin.is_active = True
+            admin.is_exited = False
+
+            # Password logic
+            if data.get("password"):
+                admin.set_password(data["password"])
+            else:
+                send_password_set_email(admin)
+
+            action = "UPGRADE_EXISTING_USER"
+
+        # ======================================================
+        # CASE 2: Brand new employee
+        # ======================================================
+        else:
+            admin = Admin(
+                email=data["email"],
+                first_name=data["first_name"],
+                user_name=data["user_name"],
+                mobile=data["mobile"],
+                emp_id=data["emp_id"],
+                doj=doj,
+                emp_type=data["emp_type"],
+                circle=data["circle"],
+                is_active=True,
+                is_exited=False
+            )
+
+            # Password logic
+            if data.get("password"):
+                admin.set_password(data["password"])
+            else:
+                send_password_set_email(admin)
+
+            db.session.add(admin)
+            db.session.flush()  # get admin.id
+
+            # Initialize leave balance
+            leave_balance = LeaveBalance(
+                admin_id=admin.id,
+                privilege_leave_balance=0.0,
+                casual_leave_balance=0.0,
+                compensatory_leave_balance=0.0
+            )
+            db.session.add(leave_balance)
+
+            action = "CREATE_NEW_EMPLOYEE"
+
+        # ======================================================
+        # AUDIT LOG
+        # ======================================================
+        audit = AuditLog(
+            action=action,
+            performed_by=hr_email,
+            target_email=admin.email,
+            metadata={
+                "emp_id": admin.emp_id,
+                "emp_type": admin.emp_type,
+                "circle": admin.circle
+            }
         )
+        db.session.add(audit)
 
-        db.session.add(leave_balance)
         db.session.commit()
+
+        send_welcome_email(admin, data)
+
+        return jsonify({
+            "success": True,
+            "message": "Employee onboarded successfully",
+            "employee_id": admin.id,
+            "action": action
+        }), 201
 
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Signup DB Error: {e}")
+        current_app.logger.error(f"Signup error: {e}")
         return jsonify({
             "success": False,
-            "message": "Unable to register employee"
+            "message": "Unable to onboard employee"
         }), 500
 
     # -------------------------
     # Send Welcome Email (NON-BLOCKING)
-    # -------------------------
-    
 
-# after db.session.commit()
-    send_welcome_email(admin,data)
+
+@hr.route("/reset-password", methods=["POST"])
+@jwt_required()
+def reset_password():
+
+    user = current_user
+    data = request.get_json() or {}
+
+    password = data.get("password")
+    confirm_password = data.get("confirm_password")
+
+    if not password or not confirm_password:
+        return jsonify({
+            "success": False,
+            "message": "Password and confirm password are required"
+        }), 400
+
+    if password != confirm_password:
+        return jsonify({
+            "success": False,
+            "message": "Passwords do not match"
+        }), 400
+
+    user.set_password(password)
+    db.session.commit()
 
     return jsonify({
         "success": True,
-        "message": "Employee registered successfully",
-        "employee": {
-            "id": admin.id,
-            "email": admin.email,
-            "emp_id": admin.emp_id,
-            "name": admin.first_name,
-            "emp_type": admin.emp_type,
-            "circle": admin.circle
-        }
-    }), 201
-
+        "message": "Password updated successfully"
+    }), 200
 
 
 @hr.route("/dashboard", methods=["GET"])
@@ -210,6 +282,243 @@ def hr_dashboard_api():
             for e in employees_with_birthdays
         ]
     }), 200
+
+
+
+# --------------------------------------------------
+# MARK EMPLOYEE AS EXITED
+# --------------------------------------------------
+@hr.route("/mark-exit", methods=["POST"])
+@jwt_required()
+@hr_required
+def mark_employee_exit():
+    data = request.get_json() or {}
+
+    email = data.get("employee_email")
+    exit_type = data.get("exit_type")
+    exit_reason = data.get("exit_reason")
+    exit_date_str = data.get("exit_date")
+
+    if not email or not exit_type or not exit_date_str:
+        return jsonify({
+            "success": False,
+            "message": "employee_email, exit_type and exit_date are required"
+        }), 400
+
+    try:
+        exit_date = datetime.fromisoformat(exit_date_str).date()
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Invalid exit_date format (YYYY-MM-DD)"
+        }), 400
+
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
+
+    if admin.is_exited:
+        return jsonify({
+            "success": False,
+            "message": "Employee already marked as exited"
+        }), 409
+
+    try:
+        # --------------------------------------------------
+        # MARK EXIT
+        # --------------------------------------------------
+        admin.is_active = False
+        admin.is_exited = True
+        admin.exit_date = exit_date
+        admin.exit_type = exit_type
+        admin.exit_reason = exit_reason
+
+        # --------------------------------------------------
+        # AUDIT LOG
+        # --------------------------------------------------
+        hr_email = get_jwt().get("email")
+
+        audit = AuditLog(
+            action="EMPLOYEE_EXITED",
+            performed_by=hr_email,
+            target_email=admin.email,
+            metadata={
+                "emp_id": admin.emp_id,
+                "exit_type": exit_type,
+                "exit_date": exit_date.isoformat()
+            }
+        )
+        db.session.add(audit)
+
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Employee marked as exited successfully",
+            "employee_id": admin.id
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Exit error: {e}")
+        return jsonify({
+            "success": False,
+            "message": "Unable to mark employee exit"
+        }), 500
+    
+
+
+@hr.route("/employee-archive", methods=["GET"])
+@jwt_required()
+@hr_required
+def employee_archive_list():
+    """
+    Returns list of exited employees (archive)
+    HR only
+    """
+
+    try:
+        exited_employees = (
+            Admin.query
+            .filter(Admin.is_exited == True)
+            .order_by(Admin.exit_date.desc().nullslast())
+            .all()
+        )
+
+        employees = []
+        for emp in exited_employees:
+            employees.append({
+                "admin_id": emp.id,
+                "name": emp.first_name,
+                "email": emp.email,
+                "mobile": emp.mobile,
+                "emp_id": emp.emp_id,
+                "exit_date": emp.exit_date.isoformat() if emp.exit_date else None,
+                "exit_type": emp.exit_type
+            })
+
+        return jsonify({
+            "success": True,
+            "count": len(employees),
+            "employees": employees
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": "Failed to load employee archive",
+            "error": str(e)
+        }), 500
+
+
+
+
+
+@hr.route("/archive/employee/<int:employee_id>", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_archived_employee_profile(employee_id):
+
+    admin = Admin.query.get(employee_id)
+
+    if not admin or not admin.is_exited:
+        return jsonify({
+            "success": False,
+            "message": "Archived employee not found"
+        }), 404
+
+    # ---------------- BASIC PROFILE ----------------
+    basic = {
+        "id": admin.id,
+        "name": admin.first_name,
+        "email": admin.email,
+        "mobile": admin.mobile,
+        "username": admin.user_name
+    }
+
+    # ---------------- EMPLOYMENT ----------------
+    employment = {
+        "emp_id": admin.emp_id,
+        "circle": admin.circle,
+        "emp_type": admin.emp_type,
+        "doj": admin.doj.isoformat() if admin.doj else None
+    }
+
+    # ---------------- EXIT INFO ----------------
+    exit_info = {
+        "exit_date": admin.exit_date.isoformat() if admin.exit_date else None,
+        "exit_type": admin.exit_type,
+        "exit_reason": admin.exit_reason
+    }
+
+    # ---------------- FAMILY ----------------
+    family = [{
+        "name": f.name,
+        "relation": f.relation,
+        "dob": f.dob.isoformat() if f.dob else None
+    } for f in admin.family_details]
+
+    # ---------------- DOCUMENTS ----------------
+    documents = [{
+        "doc_type": d.doc_type,
+        "file": d.file_path,
+        "uploaded_at": d.created_at.isoformat()
+    } for d in admin.document_details]
+
+    # ---------------- EDUCATION ----------------
+    education = [{
+        "degree": e.degree,
+        "institute": e.institute,
+        "year": e.year
+    } for e in admin.education_details]
+
+    # ---------------- LEAVES ----------------
+    leaves = [{
+        "type": l.leave_type,
+        "start": l.start_date.isoformat(),
+        "end": l.end_date.isoformat(),
+        "status": l.status
+    } for l in admin.leave_applications]
+
+    # ---------------- ASSETS ----------------
+    assets = [{
+        "asset_name": a.asset_name,
+        "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None
+    } for a in admin.assets]
+
+    # ---------------- PERFORMANCE ----------------
+    performance = [{
+        "cycle": p.cycle,
+        "rating": p.rating,
+        "remarks": p.remarks
+    } for p in admin.performances]
+
+    # ---------------- QUERIES ----------------
+    queries = [{
+        "title": q.title,
+        "status": q.status,
+        "created_at": q.created_at.isoformat()
+    } for q in admin.queries]
+
+    return jsonify({
+        "success": True,
+        "employee": {
+            "basic": basic,
+            "employment": employment,
+            "exit": exit_info,
+            "family": family,
+            "documents": documents,
+            "education": education,
+            "leaves": leaves,
+            "assets": assets,
+            "performance": performance,
+            "queries": queries
+        }
+    }), 200
+
 
 
 @hr.route("/search", methods=["GET"])

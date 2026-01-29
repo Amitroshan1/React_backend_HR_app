@@ -1,4 +1,4 @@
-# apply_leave_api,get_resignation_status,submit_resignation,submit_expense_claim,get_expense_claims,
+# leave_page_summary,apply_leave_api,get_resignation_status,submit_resignation,submit_expense_claim,get_expense_claims,
 # attendance_summary,submit_wfh,get_wfh_applications,
 
 
@@ -173,6 +173,257 @@ def attendance_summary():
         # 🔹 NEW calendar data
         "calendar": calendar_data
     }), 200
+
+
+
+@leave.route("/LeaveDetails", methods=["GET"])
+@jwt_required()
+def leave_page_summary():
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
+
+    # -------- FETCH LEAVE BALANCE --------
+    leave_balance = LeaveBalance.query.filter_by(
+        admin_id=admin.id
+    ).first()
+
+    total_pl = leave_balance.pl if leave_balance else 0.0
+    total_cl = leave_balance.cl if leave_balance else 0.0
+    total_compoff = leave_balance.compoff if leave_balance else 0.0
+
+    # -------- FETCH ALL LEAVE APPLICATIONS --------
+    leave_applications = LeaveApplication.query.filter_by(
+        admin_id=admin.id
+    ).order_by(LeaveApplication.created_at.desc()).all()
+
+    applications = []
+
+    for leave in leave_applications:
+        applications.append({
+            "id": leave.id,
+            "leave_type": leave.leave_type,
+            "reason": leave.reason,
+            "start_date": leave.start_date.strftime("%Y-%m-%d"),
+            "end_date": leave.end_date.strftime("%Y-%m-%d"),
+            "status": leave.status,
+            "deducted_days": leave.deducted_days,
+            "extra_days": leave.extra_days,
+            "created_at": leave.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        })
+
+    return jsonify({
+        "success": True,
+        "summary": {
+            "PL": total_pl,
+            "CL": total_cl,
+            "COMPOFF": total_compoff
+        },
+        "applications": applications
+    }), 200
+
+
+
+
+
+@leave.route("/apply", methods=["POST"])
+@jwt_required()
+def apply_leave_api():
+    email = get_jwt().get("email")
+
+    # -------------------------
+    # Fetch employee from Admin
+    # -------------------------
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
+
+    leave_balance = LeaveBalance.query.filter_by(
+        admin_id=admin.id
+    ).first()
+
+    if not leave_balance:
+        return jsonify({
+            "success": False,
+            "message": "Leave balance not configured"
+        }), 400
+
+    data = request.get_json(silent=True) or {}
+
+    # -------------------------
+    # Validate dates
+    # -------------------------
+    try:
+        start_date = datetime.strptime(
+            data.get("start_date"), "%Y-%m-%d"
+        ).date()
+        end_date = datetime.strptime(
+            data.get("end_date"), "%Y-%m-%d"
+        ).date()
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Invalid date format. Use YYYY-MM-DD"
+        }), 400
+
+    if end_date < start_date:
+        return jsonify({
+            "success": False,
+            "message": "End date cannot be before start date"
+        }), 400
+
+    leave_type = data.get("leave_type")
+    reason = data.get("reason")
+
+    if not leave_type or not reason:
+        return jsonify({
+            "success": False,
+            "message": "leave_type and reason are required"
+        }), 400
+
+    # -------------------------
+    # 🚫 DUPLICATE / SAME DATE CHECK
+    # -------------------------
+    overlapping_leave = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin.id,
+        LeaveApplication.status.in_(["Pending", "Approved"]),
+        LeaveApplication.start_date <= end_date,
+        LeaveApplication.end_date >= start_date
+    ).first()
+
+    if overlapping_leave:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Leave already applied from "
+                f"{overlapping_leave.start_date} to "
+                f"{overlapping_leave.end_date} "
+                f"(Status: {overlapping_leave.status})"
+            )
+        }), 409
+
+    # -------------------------
+    # Leave calculations
+    # -------------------------
+    leave_days = (end_date - start_date).days + 1
+    deducted_days = 0.0
+    extra_days = 0.0
+
+    # Privilege Leave
+    if leave_type == "Privilege Leave":
+        if leave_days > leave_balance.privilege_leave_balance:
+            extra_days = leave_days - leave_balance.privilege_leave_balance
+            deducted_days = leave_balance.privilege_leave_balance
+            leave_balance.privilege_leave_balance = 0
+        else:
+            deducted_days = leave_days
+            leave_balance.privilege_leave_balance -= leave_days
+
+    # Casual Leave
+    elif leave_type == "Casual Leave":
+        if leave_days > 2:
+            return jsonify({
+                "success": False,
+                "message": "Casual Leave cannot exceed 2 days"
+            }), 400
+
+        if leave_days > leave_balance.casual_leave_balance:
+            return jsonify({
+                "success": False,
+                "message": "Insufficient Casual Leave balance"
+            }), 400
+
+        deducted_days = leave_days
+        leave_balance.casual_leave_balance -= leave_days
+
+    # Half Day Leave
+    elif leave_type == "Half Day Leave":
+        if leave_days > 1:
+            return jsonify({
+                "success": False,
+                "message": "Half Day Leave can only be applied for one day"
+            }), 400
+
+        leave_days = 0.5
+        deducted_days = 0.5
+
+        if leave_balance.casual_leave_balance >= 0.5:
+            leave_balance.casual_leave_balance -= 0.5
+        elif leave_balance.privilege_leave_balance >= 0.5:
+            leave_balance.privilege_leave_balance -= 0.5
+        else:
+            extra_days = 0.5
+
+    # Compensatory Leave
+    elif leave_type == "Compensatory Leave":
+        if leave_balance.compensatory_leave_balance <= 0:
+            return jsonify({
+                "success": False,
+                "message": "No Compensatory Leave balance available"
+            }), 400
+
+        if leave_days > 2:
+            return jsonify({
+                "success": False,
+                "message": "Maximum 2 Compensatory Leave days allowed"
+            }), 400
+
+        if leave_days > leave_balance.compensatory_leave_balance:
+            return jsonify({
+                "success": False,
+                "message": "Insufficient Compensatory Leave balance"
+            }), 400
+
+        deducted_days = leave_days
+        leave_balance.compensatory_leave_balance -= leave_days
+
+    else:
+        return jsonify({
+            "success": False,
+            "message": "Invalid leave type"
+        }), 400
+
+    # -------------------------
+    # Save leave application
+    # -------------------------
+    leave_application = LeaveApplication(
+        admin_id=admin.id,
+        leave_type=leave_type,
+        reason=reason,
+        start_date=start_date,
+        end_date=end_date,
+        status="Pending",
+        deducted_days=deducted_days,
+        extra_days=extra_days
+    )
+
+    try:
+        db.session.add(leave_application)
+        db.session.commit()
+        send_leave_applied_email(admin, leave_application)
+        return jsonify({
+            "success": True,
+            "message": "Leave applied successfully",
+            "leave_id": leave_application.id,
+            "deducted_days": deducted_days,
+            "extra_days": extra_days
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Leave Apply Error: {e}")
+        return jsonify({
+            "success": False,
+            "message": "Unable to apply leave"
+        }), 500
 
 
 
@@ -549,200 +800,4 @@ def get_resignation_status():
             "emp_type": admin.emp_type
         }
     }), 200
-
-
-
-@leave.route("/apply", methods=["POST"])
-@jwt_required()
-def apply_leave_api():
-    email = get_jwt().get("email")
-
-    # -------------------------
-    # Fetch employee from Admin
-    # -------------------------
-    admin = Admin.query.filter_by(email=email).first()
-    if not admin:
-        return jsonify({
-            "success": False,
-            "message": "Employee not found"
-        }), 404
-
-    leave_balance = LeaveBalance.query.filter_by(
-        admin_id=admin.id
-    ).first()
-
-    if not leave_balance:
-        return jsonify({
-            "success": False,
-            "message": "Leave balance not configured"
-        }), 400
-
-    data = request.get_json(silent=True) or {}
-
-    # -------------------------
-    # Validate dates
-    # -------------------------
-    try:
-        start_date = datetime.strptime(
-            data.get("start_date"), "%Y-%m-%d"
-        ).date()
-        end_date = datetime.strptime(
-            data.get("end_date"), "%Y-%m-%d"
-        ).date()
-    except Exception:
-        return jsonify({
-            "success": False,
-            "message": "Invalid date format. Use YYYY-MM-DD"
-        }), 400
-
-    if end_date < start_date:
-        return jsonify({
-            "success": False,
-            "message": "End date cannot be before start date"
-        }), 400
-
-    leave_type = data.get("leave_type")
-    reason = data.get("reason")
-
-    if not leave_type or not reason:
-        return jsonify({
-            "success": False,
-            "message": "leave_type and reason are required"
-        }), 400
-
-    # -------------------------
-    # 🚫 DUPLICATE / SAME DATE CHECK
-    # -------------------------
-    overlapping_leave = LeaveApplication.query.filter(
-        LeaveApplication.admin_id == admin.id,
-        LeaveApplication.status.in_(["Pending", "Approved"]),
-        LeaveApplication.start_date <= end_date,
-        LeaveApplication.end_date >= start_date
-    ).first()
-
-    if overlapping_leave:
-        return jsonify({
-            "success": False,
-            "message": (
-                f"Leave already applied from "
-                f"{overlapping_leave.start_date} to "
-                f"{overlapping_leave.end_date} "
-                f"(Status: {overlapping_leave.status})"
-            )
-        }), 409
-
-    # -------------------------
-    # Leave calculations
-    # -------------------------
-    leave_days = (end_date - start_date).days + 1
-    deducted_days = 0.0
-    extra_days = 0.0
-
-    # Privilege Leave
-    if leave_type == "Privilege Leave":
-        if leave_days > leave_balance.privilege_leave_balance:
-            extra_days = leave_days - leave_balance.privilege_leave_balance
-            deducted_days = leave_balance.privilege_leave_balance
-            leave_balance.privilege_leave_balance = 0
-        else:
-            deducted_days = leave_days
-            leave_balance.privilege_leave_balance -= leave_days
-
-    # Casual Leave
-    elif leave_type == "Casual Leave":
-        if leave_days > 2:
-            return jsonify({
-                "success": False,
-                "message": "Casual Leave cannot exceed 2 days"
-            }), 400
-
-        if leave_days > leave_balance.casual_leave_balance:
-            return jsonify({
-                "success": False,
-                "message": "Insufficient Casual Leave balance"
-            }), 400
-
-        deducted_days = leave_days
-        leave_balance.casual_leave_balance -= leave_days
-
-    # Half Day Leave
-    elif leave_type == "Half Day Leave":
-        if leave_days > 1:
-            return jsonify({
-                "success": False,
-                "message": "Half Day Leave can only be applied for one day"
-            }), 400
-
-        leave_days = 0.5
-        deducted_days = 0.5
-
-        if leave_balance.casual_leave_balance >= 0.5:
-            leave_balance.casual_leave_balance -= 0.5
-        elif leave_balance.privilege_leave_balance >= 0.5:
-            leave_balance.privilege_leave_balance -= 0.5
-        else:
-            extra_days = 0.5
-
-    # Compensatory Leave
-    elif leave_type == "Compensatory Leave":
-        if leave_balance.compensatory_leave_balance <= 0:
-            return jsonify({
-                "success": False,
-                "message": "No Compensatory Leave balance available"
-            }), 400
-
-        if leave_days > 2:
-            return jsonify({
-                "success": False,
-                "message": "Maximum 2 Compensatory Leave days allowed"
-            }), 400
-
-        if leave_days > leave_balance.compensatory_leave_balance:
-            return jsonify({
-                "success": False,
-                "message": "Insufficient Compensatory Leave balance"
-            }), 400
-
-        deducted_days = leave_days
-        leave_balance.compensatory_leave_balance -= leave_days
-
-    else:
-        return jsonify({
-            "success": False,
-            "message": "Invalid leave type"
-        }), 400
-
-    # -------------------------
-    # Save leave application
-    # -------------------------
-    leave_application = LeaveApplication(
-        admin_id=admin.id,
-        leave_type=leave_type,
-        reason=reason,
-        start_date=start_date,
-        end_date=end_date,
-        status="Pending",
-        deducted_days=deducted_days,
-        extra_days=extra_days
-    )
-
-    try:
-        db.session.add(leave_application)
-        db.session.commit()
-        send_leave_applied_email(admin, leave_application)
-        return jsonify({
-            "success": True,
-            "message": "Leave applied successfully",
-            "leave_id": leave_application.id,
-            "deducted_days": deducted_days,
-            "extra_days": extra_days
-        }), 201
-
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Leave Apply Error: {e}")
-        return jsonify({
-            "success": False,
-            "message": "Unable to apply leave"
-        }), 500
 

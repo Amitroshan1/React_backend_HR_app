@@ -989,3 +989,25 @@ def send_leave_applied_email(admin, leave):
             f"Leave email failed for {admin.email}: {e}"
         )
         return False
+
+
+
+def send_password_set_email(admin):
+    reset_link = f"{current_app.config['BASE_URL']}/set-password?email={admin.email}"
+
+    subject = "Set your HRMS password"
+    body = f"""
+    <p>Hello {admin.first_name},</p>
+
+    <p>Your HRMS account has been upgraded.</p>
+
+    <p>Please set your password using the link below:</p>
+
+    <p><a href="{reset_link}">Set Password</a></p>
+
+    <br>
+    <p>Regards,<br>HR Team</p>
+    """
+
+    # replace with your actual mail sender
+    current_app.logger.info(f"Password set email sent to {admin.email}")
