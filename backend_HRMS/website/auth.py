@@ -1,6 +1,11 @@
 # save_upload_docs,create_or_update_education,create_or_update_employee,
 # punch_out,punch_in,employee_homepage,validate_user
 
+
+
+#https://solviotec.com/api/auth
+
+
 from math import radians, cos, sin, atan2, sqrt
 from flask import Blueprint, request, redirect, url_for, current_app,jsonify
 from .email import send_login_alert_email

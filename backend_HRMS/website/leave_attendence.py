@@ -2,6 +2,8 @@
 # attendance_summary,submit_wfh,get_wfh_applications,
 
 
+#https://solviotec.com/api/leave
+
 from flask import Blueprint, request, current_app, jsonify,json
 from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance
 from flask_jwt_extended import jwt_required, get_jwt

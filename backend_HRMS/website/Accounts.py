@@ -1,3 +1,9 @@
+
+
+#https://solviotec.com/api/account
+
+
+
 from flask import Blueprint, request, current_app, jsonify,json
 from flask_jwt_extended import jwt_required, get_jwt
 from .email import send_email_via_zeptomail,send_welcome_email

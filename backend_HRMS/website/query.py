@@ -2,6 +2,9 @@
 # search_managers_api,get_manager_contact_api,upsert_manager_contact_api
 
 
+#https://solviotec.com/api/query
+
+
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt
