@@ -1,0 +1,77 @@
+/* .leave-page-wrapper {
+    background-color: #f8fafc;
+    min-height: 100vh;
+    font-family: 'Inter', sans-serif;
+}
+
+
+.page-top-header {
+    background: white;
+    padding: 0.8rem 2.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+} */
+
+.header-titles h1 { font-size: 1.4rem; margin: 0; color: #1e293b; }
+.header-titles p { font-size: 0.85rem; color: #64748b; margin: 0; }
+
+.header-right-tools { display: flex; align-items: center; gap: 2rem; }
+.search-input-box { background: #f1f5f9; padding: 0.5rem 1rem; border-radius: 8px; display: flex; align-items: center; gap: 0.5rem; }
+.search-input-box input { border: none; background: transparent; outline: none; width: 150px; }
+
+.user-profile-pill { display: flex; align-items: center; gap: 0.6rem; background: #3b82f6; color: white; padding: 6px 15px; border-radius: 25px; font-size: 0.8rem; }
+
+/* Filter Box (Light Blue Background) */
+.leave-content-area { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
+.back-to-updates-btn { display: flex; align-items: center; gap: 0.5rem; background: white; border: 1px solid #e2e8f0; padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; margin-bottom: 1.5rem; margin-top: 5.5rem;}
+
+.leave-search-filter-box {
+    background: #ffffff; /* Light blue from image */
+    padding: 1.5rem;
+    border-radius: 12px;
+    border: 1px solid #b3e5fc;
+    margin-bottom: 2rem;
+}
+
+.filter-inner-grid { display: flex; gap: 1.5rem; align-items: flex-end; }
+.filter-column { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.filter-column label { font-weight: 600; font-size: 0.85rem; color: #334155; }
+.filter-column select { padding: 0.75rem; border-radius: 8px; border: 1px solid #cbd5e1; background: white; }
+
+.execute-search-btn { background: #3b82f6; color: white; border: none; padding: 0.75rem 2.2rem; border-radius: 8px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+
+/* Cyan Table */
+.leave-table-wrapper { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.leave-data-table { width: 100%; border-collapse: collapse; }
+.leave-data-table th { background: #e06c00; color: white; text-align: left; padding: 14px; font-weight: 600; }
+.leave-data-table td { padding: 16px 14px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+.view-balance-link { color: #8f8100; background: transparent; border: none; cursor: pointer; text-decoration: none; font-weight: 500; font-size: 0.9rem; }
+.view-balance-link:hover { text-decoration: underline; }
+
+/* Edit View Overlay Style (Image 45a824) */
+.leave-edit-container {
+    height: calc(100vh - 100px);
+    margin-top: 4rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* background: #ffffff; Matches the background in image 2 */
+}
+
+.balance-form-card {
+    background: white;
+    padding: 3rem;
+    border-radius: 15px;
+    width: 480px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+}
+
+.leave-field { margin-bottom: 1.8rem; }
+.leave-field label { display: block; margin-bottom: 10px; font-weight: 600; color: #1e293b; }
+.leave-field input { width: 100%; padding: 0.9rem; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; font-size: 1rem; }
+
+.leave-form-footer { display: flex; gap: 1rem; margin-top: 2.5rem; }
+.btn-save-update { background: #3b82f6; color: white; border: none; padding: 0.8rem 1.8rem; border-radius: 8px; flex: 1; cursor: pointer; font-weight: 600; }
+.btn-cancel-list { background: #5a6b7d; color: white; border: none; padding: 0.8rem 1.8rem; border-radius: 8px; flex: 2; cursor: pointer; font-weight: 600; }

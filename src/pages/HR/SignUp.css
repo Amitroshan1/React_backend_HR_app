@@ -1,0 +1,219 @@
+/* Container & Layout */
+.signup-page-container {
+  /* background-color: #f8fafc; */
+  min-height: 100vh;
+  width: 100%;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Header Styling */
+.signup-header {
+  background: white;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-left h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.header-left p {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.search-bar-container {
+  display: flex;
+  align-items: center;
+  background: #f1f5f9;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.search-bar-container:focus-within {
+  border-color: #3b82f6;
+  background: white;
+}
+
+.search-bar-container input {
+  border: none;
+  background: transparent;
+  outline: none;
+  margin-left: 0.5rem;
+  width: 150px;
+}
+
+/* Content Area */
+.signup-content-wrapper {
+  max-width: 1000px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.btn-back-updates {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 1.5rem;
+  transition: all 0.2s;
+  color: #475569;
+  margin-top: 6rem;
+}
+
+.btn-back-updates:hover {
+  background: #f1f5f9;
+}
+
+/* Card Styling */
+.signup-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  padding: 2.5rem;
+}
+
+.card-header {
+  margin-bottom: 2rem;
+}
+
+.card-header h2 {
+  font-size: 1.25rem;
+  color: #1e293b;
+  margin-bottom: 0.5rem;
+}
+
+/* Form Grid - Production Responsive Logic */
+.signup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr); /* 2 columns for Desktop */
+  gap: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.form-group input, 
+.form-group select {
+  padding: 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  width: 100%;
+  box-sizing: border-box; /* Crucial for padding */
+}
+
+.form-group input:focus {
+  border-color: #3b82f6;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Submit Action */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.btn-create-account {
+  background-color: #2563eb;
+  color: white;
+  border: none;
+  padding: 0.8rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  width: auto;
+}
+
+.btn-create-account:hover {
+  background-color: #1d4ed8;
+}
+
+/* ---------------------------------------------------
+   MEDIA QUERIES FOR FULL RESPONSIVENESS
+--------------------------------------------------- */
+
+/* Tablet View (up to 768px) */
+@media (max-width: 768px) {
+  .signup-header {
+    padding: 1rem;
+  }
+  
+  .search-bar-container {
+    display: none; /* Hide search on mobile header to save space */
+  }
+
+  .signup-card {
+    padding: 1.5rem;
+  }
+}
+
+/* Mobile Phone View (up to 600px) */
+@media (max-width: 600px) {
+  .form-row {
+    grid-template-columns: 1fr; /* Force 1 column on Mobile */
+    gap: 1rem;
+  }
+
+  .header-left h1 {
+    font-size: 1.2rem;
+  }
+
+  .signup-content-wrapper {
+    margin: 1rem auto;
+  }
+
+  .btn-create-account {
+    width: 100%; /* Full width button on Mobile */
+  }
+
+  .card-header h2 {
+    font-size: 1.1rem;
+  }
+}
+
+/* Extra Small Screens */
+@media (max-width: 380px) {
+  .header-icons .user-info {
+    display: none; /* Hide names on very small screens */
+  }
+}

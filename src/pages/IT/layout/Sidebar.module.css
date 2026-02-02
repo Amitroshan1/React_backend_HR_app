@@ -1,0 +1,6 @@
+.sidebar { width: var(--sidebar-width); background: var(--bg-sidebar); height: 100vh; position: fixed; display: flex; flex-direction: column; }
+.logo { padding: 2rem; color: white; font-weight: 800; font-size: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.nav { flex: 1; padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 8px; }
+.item { display: flex; align-items: center; gap: 12px; padding: 12px; color: #94a3b8; border-radius: 8px; cursor: pointer; }
+.active { background: rgba(255,255,255,0.1); color: white; }
+.logout { padding: 1.5rem; color: #f87171; display: flex; align-items: center; gap: 10px; cursor: pointer; }

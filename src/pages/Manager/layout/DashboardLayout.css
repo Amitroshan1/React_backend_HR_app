@@ -1,0 +1,51 @@
+/* src/layout/DashboardLayout.css */
+.dashboard-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: #f9fafb;
+}
+
+.main-content {
+  flex: 1;
+  padding: 2rem;
+  transition: margin-left 0.3s ease;
+  position: relative;
+}
+
+.mobile-menu-btn {
+  display: none;
+  position: absolute;
+  top: 1.5rem;
+  left: 1.5rem;
+  font-size: 1.8rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  z-index: 1001;
+}
+
+.overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  .mobile-menu-btn {
+    display: block;
+  }
+
+  .main-content {
+    padding: 1.5rem;
+    padding-top: 5rem; /* Space for hamburger */
+  }
+}
+
+@media (max-width: 768px) {
+  .overlay.active {
+    display: block;
+  }
+}

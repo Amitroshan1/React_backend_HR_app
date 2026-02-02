@@ -1,0 +1,132 @@
+.container {
+  animation: slideUp 0.3s ease-out;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 1.5rem;
+}
+
+.contentHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 2rem;
+}
+
+.title { font-size: 1.75rem; color: #1e293b; font-weight: 800; }
+.subtitle { color: #64748b; font-size: 0.95rem; }
+
+.addBtn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tableWrapper {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+  overflow: hidden;
+}
+
+.tableControls {
+  padding: 1.5rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 8px 15px;
+  border-radius: 10px;
+  width: 320px;
+}
+
+.searchBox input {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.userTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.userTable th {
+  background: #f8fafc;
+  text-align: left;
+  padding: 12px 24px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.userTable td {
+  padding: 16px 24px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  background: #e0f2fe;
+  color: #0369a1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: 700;
+}
+
+.userName { font-weight: 600; color: #1e293b; }
+.userEmail { font-size: 0.8rem; color: #64748b; }
+.actions { display: flex; gap: 10px; justify-content: center; }
+
+.iconBtn {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 6px;
+  border-radius: 6px;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}

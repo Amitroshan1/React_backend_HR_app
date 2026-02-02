@@ -1,0 +1,6 @@
+.card { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+.header { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; }
+.list { display: flex; flex-direction: column; gap: 1.2rem; }
+.labels { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 500; margin-bottom: 6px; }
+.progressBg { background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden; }
+.progressBar { background: var(--primary); height: 100%; border-radius: 4px; transition: width 1s ease-in-out; }

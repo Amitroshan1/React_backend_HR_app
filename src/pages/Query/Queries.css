@@ -1,0 +1,263 @@
+:root {
+  --brand-blue: #2563eb;
+  --brand-hover: #1d4ed8;
+  --bg-light: #f8fafc;
+  --border-color: #e2e8f0;
+  --text-dark: #1e293b;
+  --text-muted: #64748b;
+}
+
+.queries-main-wrapper {
+  padding: 2rem;
+  background-color: var(--bg-light);
+  min-height: 100vh;
+  font-family: 'Inter', sans-serif;
+}
+
+.queries-stack {
+  max-width: 1000px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem; /* Separates form from table */
+}
+
+/* Common Card Style */
+.query-glass-card, .chat-window-card {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.card-header-main {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.card-header-main h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Form Styles */
+.form-padding { padding: 1.5rem; }
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1rem; }
+.input-box { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.input-box label { font-size: 0.85rem; font-weight: 500; color: var(--text-dark); }
+
+input, select, textarea {
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.submit-btn {
+  background: var(--brand-blue);
+  color: white;
+  padding: 0.75rem 2rem;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* CHAT INTERFACE - THE FIX */
+.chat-window-card {
+  height: 550px; /* Fixed height so it doesn't expand forever */
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-nav-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  background: #fdfdfd;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-scroller {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  background: #fcfcfc;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.chat-row { display: flex; width: 100%; }
+.chat-row.user { justify-content: flex-end; }
+.chat-bubble {
+  max-width: 75%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.user .chat-bubble {
+  background: var(--brand-blue);
+  color: white;
+  border-bottom-right-radius: 2px;
+}
+
+.department .chat-bubble {
+  background: #f1f5f9;
+  color: var(--text-dark);
+  border-bottom-left-radius: 2px;
+}
+
+.chat-time {
+  font-size: 0.65rem;
+  display: block;
+  margin-top: 4px;
+  opacity: 0.8;
+}
+
+.chat-footer-input {
+  padding: 1rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: 10px;
+  background: white;
+}
+
+.chat-footer-input input { flex: 1; outline: none; border-color: var(--border-color); }
+
+.chat-send-btn {
+  background: var(--brand-blue);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0 15px;
+  cursor: pointer;
+}
+
+/* TABLE STYLES */
+.table-responsive-box { overflow-x: auto; }
+.custom-table { width: 100%; border-collapse: collapse; }
+.custom-table th {
+  text-align: left;
+  padding: 1rem 1.5rem;
+  background: #f8fafc;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.custom-table td {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.table-cell-info { display: flex; flex-direction: column; }
+.table-title { font-weight: 500; color: var(--text-dark); }
+.table-dept { font-size: 0.8rem; color: var(--text-muted); }
+.table-date { font-size: 0.85rem; color: var(--text-dark); }
+
+.badge-status {
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.badge-status.pending { background: #f1f5f9; color: #64748b; }
+.badge-status.in-progress { background: #fff7ed; color: #c2410c; }
+
+.table-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: white;
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.table-chat-btn:hover { background: #eff6ff; }
+
+/* Mobile Adjustments */
+@media (max-width: 640px) {
+  .form-grid-2 { grid-template-columns: 1fr; gap: 0; }
+  .queries-main-wrapper { padding: 1rem; }
+}
+
+
+
+
+
+
+
+
+
+
+.q-page { background: #f8fafc; min-height: 100vh; padding: 2rem 1rem; font-family: 'Inter', sans-serif; }
+.q-container { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem;margin-top: 4rem }
+.q-card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); overflow: hidden; }
+
+/* Header */
+.q-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 10px; }
+.q-header h2 { font-size: 1.1rem; font-weight: 600; margin: 0; color: #1e293b; }
+
+/* Form Layout - FIXED */
+.q-form { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+.q-row { display: flex; gap: 1.5rem; }
+.q-group { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; }
+.q-group label { font-size: 0.85rem; font-weight: 600; color: #475569; }
+.q-group input, .q-group select, .q-group textarea {
+    width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; outline: none; box-sizing: border-box;
+}
+
+.q-btn-primary { background: #2563eb; color: white; padding: 0.75rem; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+
+/* Chat Window */
+.q-chat-container { height: 500px; display: flex; flex-direction: column; }
+.q-chat-header { padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #fdfdfd;}
+.q-chat-messages { flex: 1; overflow-y: auto; padding: 1.5rem; background: #f8fafc; display: flex; flex-direction: column; gap: 1rem; }
+.q-msg { display: flex; width: 100%; }
+.q-msg.user { justify-content: flex-end; }
+.q-bubble { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 0.9rem; position: relative; }
+.user .q-bubble { background: #2563eb; color: white; border-bottom-right-radius: 2px; }
+.department .q-bubble { background: #e2e8f0; color: #1e293b; border-bottom-left-radius: 2px; }
+.q-time { display: block; font-size: 0.65rem; margin-top: 4px; opacity: 0.7; }
+.q-chat-input { padding: 1rem; border-top: 1px solid #e2e8f0; display: flex; gap: 10px; }
+.q-chat-input input { flex: 1; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; outline: none; }
+
+/* Table Styling - FIXED */
+.q-table-wrapper { overflow-x: auto; width: 100%; }
+.q-table { width: 100%; border-collapse: collapse; min-width: 800px; table-layout: fixed; }
+.q-table th { background: #f1f5f9; text-align: left; padding: 1rem; font-size: 0.75rem; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; }
+.q-table td { padding: 1rem; border-top: 1px solid #f1f5f9; font-size: 0.9rem; vertical-align: middle; word-wrap: break-word; }
+
+.cell-main { display: flex; flex-direction: column; }
+.cell-main strong { color: #1e293b; }
+.cell-main small { color: #94a3b8; }
+
+.status-tag { padding: 4px 10px; border-radius: 99px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+.status-tag.pending { background: #fef3c7; color: #92400e; }
+.status-tag.resolved { background: #dcfce7; color: #166534; }
+
+.done-btn { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-size: 0.8rem; }
+.chat-link { color: #2563eb; background: none; border: none; cursor: pointer; font-weight: 600; text-decoration: underline; }
+
+.spin { animation: rotate 1s linear infinite; }
+@keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+@media (max-width: 768px) {
+    .q-row { flex-direction: column; gap: 1rem; }
+}

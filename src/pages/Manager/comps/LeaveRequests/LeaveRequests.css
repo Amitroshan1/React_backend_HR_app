@@ -1,0 +1,64 @@
+.leave-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.08);
+}
+
+.leave-card .sub {
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 12px;
+}
+
+.leave-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 12px;
+}
+
+.leave-head {
+  display: flex;
+  justify-content: space-between;
+}
+
+.leave-head span {
+  font-size: 12px;
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.type {
+  color: #2563eb;
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+.reason {
+  font-size: 13px;
+  color: #475569;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.approve {
+  flex: 1;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.reject {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 10px;
+}

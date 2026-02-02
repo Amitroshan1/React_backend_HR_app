@@ -1,0 +1,80 @@
+.container {
+  padding: 1rem;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.backBtn {
+  background: none; border: none; color: #3b82f6;
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; cursor: pointer; margin-bottom: 1.5rem;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.primaryBtn {
+  background: #2563eb; color: white; border: none;
+  padding: 12px 20px; border-radius: 10px;
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.card, .tableCard {
+  background: white; border: 1px solid #e2e8f0;
+  border-radius: 16px; padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+}
+
+.tableResponsive {
+  width: 100%;
+  overflow-x: auto; /* Handles small screens */
+  margin-top: 1rem;
+}
+
+.table { width: 100%; border-collapse: collapse; min-width: 500px; }
+.table th { text-align: left; padding: 12px; background: #f8fafc; font-size: 0.75rem; color: #64748b; }
+.table td { padding: 14px 12px; border-top: 1px solid #f1f5f9; font-size: 0.85rem; }
+
+/* Mobile Adjustments */
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .primaryBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .statsGrid {
+    grid-template-columns: 1fr; /* Stacks cards vertically */
+  }
+}
+
+@media (max-width: 480px) {
+  .container { padding: 0.5rem; }
+  .card { padding: 1rem; }
+  .header h2 { font-size: 1.4rem; }
+}
+
+.usageBar { height: 10px; background: #f1f5f9; border-radius: 5px; overflow: hidden; margin: 10px 0; }
+.usageFill { height: 100%; background: #3b82f6; }
+.statusDone { background: #dcfce7; color: #15803d; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; }
+.spin { animation: spin 1s linear infinite; }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

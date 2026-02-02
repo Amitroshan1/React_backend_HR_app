@@ -1,0 +1,93 @@
+/* Add this to App.css or a new ManagerPanel.css */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+/* Make it stack on tablet/mobile */
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* StatsCards already responsive if using grid */
+.stats-cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+/* src/pages/ManagerPanel.css */
+
+.manager-panel-container {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* This creates the side-by-side parallel layout */
+.dashboard-main-grid {
+  display: flex;
+  gap: 24px;             /* Space between the two main boxes */
+  align-items: stretch;  /* Keeps the box heights aligned */
+}
+
+/* The Team Members box takes the remaining width */
+.left-column {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The Sidebar maintains a fixed professional width */
+.right-sidebar {
+  width: 350px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;             /* Space between Leave and Sprint boxes */
+}
+/* Ensure the Team Members card matches the sidebar height */
+.team-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* Important for parallel alignment */
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f1f5f9;
+}
+
+/* This pushes the pagination to the bottom */
+.team-list {
+  flex: 1; 
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Match the row style from your image */
+.member-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f8fafc;
+}
+/* Forces the Team Members area to look like a distinct parallel box */
+.team-card {
+    background: #ffffff !important;
+    border-radius: 12px !important;
+    padding: 24px !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+    border: 1px solid #edf2f7 !important;
+    width: 100%;
+}
+
+/* Ensures the list fills space so the box doesn't shrink */
+.team-list {
+    margin-top: 20px;
+    min-height: 500px; /* Optional: matches sidebar height roughly */
+}

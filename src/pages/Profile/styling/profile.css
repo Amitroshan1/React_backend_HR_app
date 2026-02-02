@@ -1,0 +1,922 @@
+/* =========================================================
+   0. DESIGN TOKENS (Production Standard)
+========================================================= */
+:root {
+    --bg-page: #f7f9fb;
+    --bg-card: #ffffff;
+
+    --color-primary: #2563eb;
+    --color-primary-hover: #1d4ed8;
+    --color-success: #16a34a;
+    --color-success-hover: #15803d;
+    --color-danger: #dc2626;
+
+    --text-primary: #111827;
+    --text-secondary: #4b5563;
+    --text-muted: #6b7280;
+
+    --border-light: #e5e7eb;
+
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.10);
+
+    --transition-fast: 0.2s ease;
+}
+
+/* =========================================================
+   1. MAIN LAYOUT & GRID
+========================================================= */
+.profile-container {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 35px; /* spacing between left & right panels */
+    padding: 32px;
+    min-height: 100vh;
+    background-color: var(--bg-page);
+}
+
+.profile-left,
+.profile-right {
+    display: flex;
+    flex-direction: column;
+    gap: 30px; /* MAIN spacing between cards */
+}
+
+.right {
+    text-align: right;
+    margin-top: 32px;
+}
+
+/* =========================================================
+   2. CARD BASE
+========================================================= */
+.card {
+    background-color: var(--bg-card);
+    padding: 24px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    /* width: 19.5rem;
+    height: 20rem;    */
+    transition: box-shadow 200ms ease, transform 200ms ease;
+}
+
+@media (hover: hover) {
+    .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+    }
+}
+
+/* =========================================================
+   3. BUTTONS
+========================================================= */
+.edit-btn,
+.save-btn {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 18px;
+    border-radius: var(--radius-md);
+    border: none;
+    cursor: pointer;
+    transition: background-color var(--transition-fast),
+                transform var(--transition-fast);
+}
+
+.edit-btn {
+    background-color: var(--color-primary);
+    color: #ffffff;
+}
+
+.edit-btn:hover {
+    background-color: var(--color-primary-hover);
+    transform: translateY(-1px);
+}
+
+.save-btn {
+    background-color: var(--color-success);
+    color: #ffffff;
+}
+
+.save-btn:hover {
+    background-color: var(--color-success-hover);
+    transform: translateY(-1px);
+}
+
+/* =========================================================
+   4. PROFILE CARD
+========================================================= */
+.profile-card {
+    text-align: center;
+}
+
+.avatar {
+    width: 25px;
+    height: 140px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 18px;
+    font-size: 40px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.badge {
+    display: inline-block;
+    background-color: #e0ecff;
+    color: var(--color-primary);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.contact-info h3 {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+/* =========================================================
+   5. ACCORDION (FIGMA-ACCURATE + SPACING)
+========================================================= */
+.accordion-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition:
+        box-shadow 240ms cubic-bezier(0.4, 0, 0.2, 1),
+        border-color 200ms ease,
+        transform 200ms ease;
+    animation: cardFadeIn 260ms ease;
+}
+
+/* spacing between accordion cards */
+.accordion-card + .accordion-card {
+    margin-top: 24px;
+}
+
+@media (hover: hover) {
+    .accordion-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 28px rgba(0,0,0,0.14);
+    }
+}
+
+.accordion-card.expanded {
+    border-color: var(--color-primary);
+    box-shadow: 0 12px 34px rgba(37, 99, 235, 0.22);
+}
+
+.accordion-header {
+    padding: 18px 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    background-color: #ffffff;
+    transition: background-color 180ms ease;
+}
+
+.accordion-header:hover {
+    background-color: #f8fafc;
+}
+
+/* Smooth open / close */
+.accordion-content {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-8px);
+    overflow: hidden;
+    padding: 0 22px;
+
+    transition:
+        max-height 320ms cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 220ms ease,
+        transform 220ms ease,
+        padding 200ms ease;
+}
+
+.accordion-card.expanded .accordion-content {
+    max-height: 1600px;
+    opacity: 1;
+    transform: translateY(0);
+    padding: 22px;
+}
+
+/* =========================================================
+   6. FORM INPUTS – PREMIUM
+========================================================= */
+.input-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.input-box label {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.input-box input,
+.input-box select,
+.input-box textarea {
+    width: 100%;
+    padding: 11px 14px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+
+    background-color: #ffffff;
+    border: 1.5px solid var(--border-light);
+    border-radius: var(--radius-md);
+
+    transition:
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        background-color 180ms ease;
+}
+
+.input-box input::placeholder,
+.input-box textarea::placeholder {
+    color: #9ca3af;
+}
+
+@media (hover: hover) {
+    .input-box input:hover,
+    .input-box select:hover,
+    .input-box textarea:hover {
+        border-color: #c7d2fe;
+        background-color: #fcfdff;
+    }
+}
+
+.input-box input:focus,
+.input-box select:focus,
+.input-box textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow:
+        0 0 0 1px var(--color-primary),
+        0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+.input-box textarea {
+    min-height: 96px;
+    resize: vertical;
+}
+
+.input-box select {
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #6b7280 50%),
+        linear-gradient(135deg, #6b7280 50%, transparent 50%);
+    background-position:
+        calc(100% - 18px) 50%,
+        calc(100% - 13px) 50%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 38px;
+}
+
+.input-error {
+    border-color: var(--color-danger) !important;
+    box-shadow:
+        0 0 0 1px var(--color-danger),
+        0 4px 10px rgba(220, 38, 38, 0.15);
+}
+
+.error-text {
+    font-size: 12px;
+    color: var(--color-danger);
+}
+
+/* =========================================================
+   7. VIEW MODE INFO
+========================================================= */
+.info-box .label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.info-box .value {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+/* =========================================================
+   8. GRID UTILITIES
+========================================================= */
+.grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px 16px;
+}
+
+.grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px 24px;
+}
+
+.full {
+    grid-column: span 3;
+}
+
+/* =========================================================
+   9. RESPONSIVE
+========================================================= */
+@media (max-width: 900px) {
+    .profile-container {
+        grid-template-columns: 1fr;
+        padding: 20px;
+    }
+
+    .profile-left,
+    .profile-right {
+        gap: 20px;
+    }
+
+    .grid-2,
+    .grid-3 {
+        grid-template-columns: 1fr;
+    }
+
+    .full {
+        grid-column: span 1;
+    }
+
+    .right {
+        text-align: center;
+    }
+}
+/* =========================================================
+   AVATAR ACTIONS
+========================================================= */
+.avatar-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.danger-btn {
+    background-color: #fee2e2;
+    color: #dc2626;
+    border: none;
+    padding: 8px 14px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.danger-btn:hover {
+    background-color: #fecaca;
+}
+
+.secondary-btn {
+    background-color: #f3f4f6;
+    color: #111827;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* =========================================================
+   CROP MODAL
+========================================================= */
+.crop-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+}
+
+.crop-modal {
+    background: white;
+    width: 360px;
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.3);
+    animation: scaleIn 200ms ease;
+}
+
+.crop-modal h3 {
+    font-size: 18px;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.crop-area {
+    position: relative;
+    width: 100%;
+    height: 260px;
+    background: #000;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.crop-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+@keyframes scaleIn {
+    from {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+.profile-avatar-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.avatar-wrapper {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  cursor: pointer;
+}
+
+.avatar-wrapper .avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--color-primary);
+  transition: transform 0.2s ease;
+}
+
+.avatar-wrapper:hover .avatar {
+  transform: scale(1.05);
+}
+
+.avatar-overlay {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  text-align: center;
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  font-size: 14px;
+  padding: 6px 0;
+  border-radius: 0 0 50% 50%;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.avatar-wrapper:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.avatar-editor-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* =========================================================
+   FLOATING LABELS (COMPATIBLE WITH EXISTING DESIGN)
+========================================================= */
+
+.form-group {
+    position: relative;
+    margin-bottom: 6px;
+}
+
+.form-group .form-control {
+    height: 46px;
+    padding: 18px 14px 6px;
+    border-radius: var(--radius-md);
+    border: 1.5px solid var(--border-light);
+    background-color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.form-group .input-label {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    color: var(--text-muted);
+    background: #ffffff;
+    padding: 0 6px;
+    pointer-events: none;
+    transition: all 200ms ease;
+}
+
+.form-group .form-control:focus + .input-label,
+.form-group .label-float {
+    top: -7px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-primary);
+}
+
+.form-group .form-control:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow:
+        0 0 0 1px var(--color-primary),
+        0 6px 14px rgba(37, 99, 235, 0.18);
+}
+
+/* =========================================================
+   ERROR STATE (SHAKE + RED GLOW)
+========================================================= */
+
+.form-group.has-error .form-control {
+    border-color: var(--color-danger) !important;
+    box-shadow:
+        0 0 0 1px var(--color-danger),
+        0 6px 14px rgba(220, 38, 38, 0.18);
+    animation: inputShake 0.3s ease;
+}
+
+.form-group.has-error .input-label {
+    color: var(--color-danger);
+}
+
+.error-message {
+    font-size: 12px;
+    color: var(--color-danger);
+    margin-top: 4px;
+}
+
+@keyframes inputShake {
+    0% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    50% { transform: translateX(4px); }
+    75% { transform: translateX(-3px); }
+    100% { transform: translateX(0); }
+}
+
+/* =========================================================
+   EDIT / VIEW MODE TRANSITION
+========================================================= */
+
+.personal-info-body {
+    animation: fadeSlideIn 260ms ease;
+}
+
+@keyframes fadeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* =========================================================
+   LABEL FONT SIZE IMPROVEMENT
+========================================================= */
+
+/* Default (label inside input) */
+.form-group .input-label {
+    font-size: 15px;          /* ⬆ bigger & readable */
+    font-weight: 500;
+}
+
+/* Floating state (on focus / value) */
+.form-group .form-control:focus + .input-label,
+.form-group .label-float {
+    font-size: 15px;        /* slightly smaller, still readable */
+    font-weight: 600;
+}
+/* Add Education Details Box */
+.add-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 50px;
+    border: 2px dashed #2563eb; /* primary color */
+    border-radius: var(--radius-md);
+    margin-top: 16px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    color: #2563eb;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.add-section:hover {
+    background-color: #f0f7ff;
+    border-color: #1d4ed8;
+}
+
+/* =========================================================
+   10. PROFILE PAGE LAYOUT (EDIT & VIEW MODES)
+========================================================= */
+
+.profile-page-container {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 16px 24px;
+    box-sizing: border-box;
+    background-color: var(--bg-page);
+    animation: pageFadeIn 320ms ease-out;
+}
+
+.profile-content-wrapper {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    transition: padding 200ms ease, gap 200ms ease;
+}
+
+.progress-column {
+    flex: 0 0 280px;
+}
+
+.sections-column {
+    flex: 1;
+    min-width: 0;
+}
+
+.profile-view-wrapper {
+    flex-wrap: wrap;
+}
+
+/* Compact cards for extra info / metrics */
+.mini-stat-card {
+    background-color: var(--bg-card);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 14px 16px;
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition:
+        transform 180ms ease,
+        box-shadow 180ms ease,
+        background-color 180ms ease;
+}
+
+.mini-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.18);
+    background-color: #ffffff;
+}
+
+.mini-stat-card-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+/* Edit mode header row: progress + two summary cards */
+.edit-header-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 260px) repeat(2, minmax(0, 1fr));
+    gap: 24px;
+    align-items: stretch;
+    margin-bottom: 12px;
+}
+
+.edit-progress-card {
+    background-color: var(--bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 16px;
+    transition:
+        transform 180ms ease,
+        box-shadow 180ms ease,
+        background-color 180ms ease;
+}
+
+.edit-progress-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.18);
+    background-color: #ffffff;
+}
+
+/* Education section layout */
+.education-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px 24px;
+}
+
+.education-qualification {
+    grid-column: span 3;
+}
+
+.education-date-row {
+    display: flex;
+    gap: 12px;
+}
+
+.education-select {
+    width: 100%;
+    padding: 11px 14px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background-color: #ffffff;
+    border: 1.5px solid var(--border-light);
+    border-radius: var(--radius-md);
+    transition:
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        background-color 180ms ease;
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #6b7280 50%),
+        linear-gradient(135deg, #6b7280 50%, transparent 50%);
+    background-position:
+        calc(100% - 18px) 50%,
+        calc(100% - 13px) 50%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 38px;
+}
+
+.education-select:hover {
+    border-color: #c7d2fe;
+    background-color: #fcfdff;
+}
+
+.education-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow:
+        0 0 0 1px var(--color-primary),
+        0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+@keyframes pageFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes cardFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Animated buttons used inside sections / header */
+.entry-save-btn,
+.entry-undo-btn,
+.discard-btn,
+.done-btn {
+    transition:
+        transform 150ms ease,
+        box-shadow 150ms ease,
+        background-color 150ms ease,
+        border-color 150ms ease;
+}
+
+.entry-save-btn:hover,
+.done-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+}
+
+.entry-undo-btn:hover,
+.discard-btn:hover {
+    transform: translateY(-1px);
+}
+
+.entry-save-btn:active,
+.done-btn:active,
+.entry-undo-btn:active,
+.discard-btn:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* Animated file upload preview row */
+.file-upload-box input[type="file"] {
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.file-upload-box input[type="file"]:hover {
+    border-color: #93c5fd;
+    background-color: #eff6ff;
+}
+
+.file-upload-preview-row {
+    transition:
+        transform 160ms ease,
+        box-shadow 160ms ease,
+        background-color 160ms ease,
+        border-color 160ms ease;
+}
+
+.file-upload-preview-row:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
+    background-color: #eef2ff;
+    border-color: #6366f1;
+}
+
+/* =========================================================
+   11. RESPONSIVE TWEAKS
+========================================================= */
+
+@media (max-width: 1024px) {
+    .profile-page-container {
+        padding: 12px 16px;
+    }
+
+    .profile-content-wrapper {
+        gap: 20px;
+    }
+}
+
+@media (max-width: 900px) {
+    .profile-content-wrapper {
+        flex-direction: column;
+        padding: 8px 0 24px;
+    }
+
+    .progress-column {
+        position: static;
+        width: 100%;
+    }
+
+    .sections-column {
+        width: 100%;
+    }
+
+    .profile-view-wrapper {
+        flex-direction: column;
+    }
+
+    .edit-header-row {
+        grid-template-columns: 1fr;
+    }
+
+    .education-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .education-qualification {
+        grid-column: span 1;
+    }
+
+    .education-date-row {
+        flex-direction: column;
+    }
+
+    .card {
+        width: 100%;
+        height: auto;
+    }
+}

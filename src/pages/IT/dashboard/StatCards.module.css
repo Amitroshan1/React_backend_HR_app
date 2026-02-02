@@ -1,0 +1,49 @@
+/* StatCard.module.css */
+.card {
+  background: #ffffff;
+  border: 1px solid #eef2f6;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  justify-content: space-between; /* Pushes content left, icon right */
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  min-height: 100px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #1e293b;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.subtext {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.iconBox {
+  background: #3b82f6; /* Matching the blue in your screenshot */
+  color: white;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0; /* Prevents icon from squashing */
+}

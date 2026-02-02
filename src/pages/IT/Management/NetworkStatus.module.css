@@ -1,0 +1,83 @@
+.container { animation: slideIn 0.3s ease-out; }
+
+.backBtn {
+  background: none; border: none; color: #3b82f6;
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; cursor: pointer; margin-bottom: 1.5rem;
+}
+
+.header {
+  display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;
+}
+
+.liveIndicator {
+  display: flex; align-items: center; gap: 8px;
+  background: #f0fdf4; color: #15803d;
+  padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700;
+}
+
+.pulse {
+  width: 8px; height: 8px; background: #22c55e; border-radius: 50%;
+  box-shadow: 0 0 0 rgba(34, 197, 94, 0.4);
+  animation: pulseAnim 1.5s infinite;
+}
+
+.topGrid {
+  display: grid; grid-template-columns: 1.5fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;
+}
+
+.card, .nodeWrapper {
+  background: white; border: 1px solid #e2e8f0;
+  border-radius: 16px; padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+}
+
+.cardHead { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; }
+.cardHead h3 { font-size: 1rem; color: #1e293b; font-weight: 700; }
+
+.speedFlex { display: flex; align-items: center; justify-content: space-around; }
+.speedItem { text-align: center; }
+.speedVal { font-size: 2.2rem; font-weight: 800; color: #1e293b; display: block; }
+.speedUnit { font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase; }
+
+.divider { width: 1px; height: 50px; background: #f1f5f9; }
+
+.latencyGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.latBox { background: #f8fafc; padding: 1rem; border-radius: 12px; text-align: center; }
+.latBox strong { font-size: 1.2rem; color: #1e293b; display: block; }
+.latBox p { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
+
+.sectionTitle { margin-bottom: 1.2rem; font-size: 1.1rem; color: #1e293b; }
+.nodeGrid { display: grid; gap: 12px; }
+
+.nodeCard {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1rem; background: #f8fafc; border-radius: 12px; border: 1px solid transparent;
+  transition: 0.2s;
+}
+
+.nodeCard:hover { border-color: #3b82f6; background: white; }
+
+.nodeMain { display: flex; align-items: center; gap: 15px; }
+.nodeIcon { color: #64748b; }
+.nodeMain h4 { font-weight: 700; color: #1e293b; margin: 0; }
+.nodeMain code { font-size: 0.8rem; color: #3b82f6; }
+
+.nodeStats { display: flex; align-items: center; gap: 2rem; }
+.metric { text-align: right; }
+.metric span { font-size: 0.7rem; color: #64748b; display: block; }
+.metric strong { font-size: 0.9rem; color: #1e293b; }
+
+.statusOk { background: #dcfce7; color: #15803d; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
+.statusWarn { background: #fee2e2; color: #b91c1c; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
+
+@keyframes pulseAnim {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

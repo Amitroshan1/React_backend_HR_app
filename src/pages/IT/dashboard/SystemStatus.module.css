@@ -1,0 +1,3 @@
+.card { background: white; padding: 1.5rem; border-radius: 16px; border: 1px solid var(--border); }
+.row { display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #f1f5f9; }
+.row:last-child { border: none; }

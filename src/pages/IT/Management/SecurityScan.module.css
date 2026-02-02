@@ -1,0 +1,66 @@
+.container { animation: fadeIn 0.3s ease-out; }
+
+.backBtn {
+  background: none; border: none; color: #3b82f6;
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 600; cursor: pointer; margin-bottom: 1.5rem;
+}
+
+.header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;
+}
+
+.scanBtn {
+  background: #1e293b; color: white; border: none;
+  padding: 12px 24px; border-radius: 10px;
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 600; cursor: pointer; transition: 0.2s;
+}
+
+.loading svg { animation: spin 1s linear infinite; }
+
+.topGrid {
+  display: grid; grid-template-columns: 1fr 1.5fr; gap: 1.5rem; margin-bottom: 1.5rem;
+}
+
+.card, .logCard {
+  background: white; border: 1px solid #e2e8f0;
+  border-radius: 16px; padding: 1.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+}
+
+.progressRing {
+  width: 150px; height: 150px; border-radius: 50%;
+  margin: 0 auto 1.5rem;
+  background: conic-gradient(#22c55e 94%, #f1f5f9 0);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.scoreText {
+  width: 130px; height: 130px; background: white;
+  border-radius: 50%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+}
+
+.bigNumber { font-size: 2.5rem; font-weight: 800; color: #1e293b; line-height: 1; }
+.scoreLabel { font-size: 0.7rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
+
+.scoreFooter { display: flex; justify-content: space-around; border-top: 1px solid #f1f5f9; padding-top: 1rem; }
+.statusItem { font-size: 0.85rem; font-weight: 600; color: #475569; display: flex; align-items: center; gap: 6px; }
+
+.threatList { display: flex; flex-direction: column; gap: 12px; margin-top: 1rem; }
+.threatItem {
+  display: flex; align-items: center; gap: 15px; padding: 12px; border-radius: 12px;
+}
+
+.high { background: #fee2e2; color: #b91c1c; }
+.low { background: #fef3c7; color: #92400e; }
+
+.logTable { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+.logTable th { text-align: left; background: #f8fafc; padding: 12px; font-size: 0.75rem; color: #64748b; }
+.logTable td { padding: 12px; border-top: 1px solid #f1f5f9; font-size: 0.85rem; }
+
+.success { color: #22c55e; font-weight: 700; }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

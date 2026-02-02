@@ -1,0 +1,149 @@
+/* Core Layout */
+.hr-main-container {
+  padding: 20px;
+  max-width: 1300px;
+  margin: 3rem auto 0;
+  font-family: 'Inter', sans-serif;
+  /* background-color: #f8fafc; */
+  min-height: 100vh;
+}
+
+/* Search/Form Card Styling */
+.hr-search-card {
+  /* background: #f0f9ff;  */
+  border: 1px solid #bae6fd;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.section-title {
+  color: #1e293b;
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  margin-top: 2rem;
+}
+
+.search-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end; /* Keeps button level with inputs */
+}
+
+.input-group {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-group label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.custom-input {
+  height: 45px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background-color: white;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.custom-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Button Styling matching image_4b3f7d */
+.btn-search {
+  height: 45px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-search:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.btn-search:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+/* Table Styling matching image_4988cb */
+.table-responsive {
+  overflow-x: auto;
+  margin-top: 20px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 800px;
+  background: white;
+}
+
+.results-table th {
+  background: #06b6d4; /* Teal color from your CSS */
+  color: white;
+  padding: 14px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.results-table td {
+  padding: 14px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 14px;
+  color: #334155;
+}
+
+.badge-pending {
+  background-color: #fef3c7;
+  color: #d97706;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* --- Production Responsiveness --- */
+@media (max-width: 1024px) {
+  .input-group {
+    min-width: calc(50% - 16px); /* 2 items per row on tablets */
+  }
+}
+
+@media (max-width: 768px) {
+  .hr-main-container { padding: 15px; }
+  
+  .search-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .input-group { 
+    min-width: 100%; 
+  }
+  
+  .btn-search {
+    width: 100%;
+    margin-top: 10px;
+  }
+}
