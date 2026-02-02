@@ -15,6 +15,7 @@
 
 /* --- SUMMARY CARDS --- */
 .summary-cards-grid {
+    margin-top: 5rem;
     display: grid;
     /* Default: 4 columns for desktop */
     grid-template-columns: repeat(4, 1fr);
@@ -25,6 +26,7 @@
 }
 
 .summary-card {
+    /* margin-top: 5rem; */
     display: flex;
     align-items: center;
     background-color: #fff;

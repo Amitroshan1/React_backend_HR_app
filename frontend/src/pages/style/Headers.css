@@ -1,355 +1,278 @@
-/* 
 :root {
-    --sidebar-width: 260px;
-    --sidebar-mini-width: 80px;
+    --primary-blue: #2563eb;
+    --text-dark: #111827;
+    --text-gray: #6b7280;
+    --border-color: #e5e7eb;
+    --white: #ffffff;
+    --bg-hover: #f3f4f6;
+    --danger: #dc2626;
+    --header-height: 80px;
 }
+
 .header-container {
-    position: fixed;
-    top: 0;
-   
-    left: var(--sidebar-width); 
-    right: 0;
-
-    height: 3.8rem;
-    background: rgba(255, 255, 255, 0.95);
-    border-bottom: 1px solid #e5e7eb;
-    padding: 10px 30px; 
-
+    background: var(--white);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 24px;
+    height: var(--header-height);
     display: flex;
-    
-    justify-content: space-between; 
     align-items: center;
-
+    position: sticky;
+    top: 0;
     z-index: 1000;
-    transition: left 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
 }
 
-
-.header-left {
+/* .header-content {
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    height: 100%; 
-    flex-grow: 1; 
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+} */
+ .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    height: 100%; /* Take full height of container */
 }
 
-
-.header-left .welcome-title {
-    font-size: 1.5rem; 
-    color: #343a40; 
+/* Left Section */
+.welcome-title {
+    font-size: 1.25rem;
     font-weight: 700;
+    color: var(--text-dark);
     margin: 0;
-    line-height: 1.1;
 }
 
-.header-left .overview-text {
-    color: #6c757d; 
-    margin: 0;
+.page-heading {
+    color: var(--primary-blue);
+}
+
+.overview-text {
     font-size: 0.85rem;
-    line-height: 1.1;
+    color: var(--text-gray);
+    margin: 2px 0 0 0;
 }
 
+/* Right Section */
 .header-right {
     display: flex;
     align-items: center;
     gap: 20px;
-    flex-shrink: 0; 
 }
 
-
-.notification {
+/* .notification-wrapper {
     position: relative;
     cursor: pointer;
-    padding: 5px; 
+    padding: 8px;
+    border-radius: 50%;
+    transition: background 0.2s;
+} */
+ .notification-wrapper {
+    position: relative;
+    cursor: pointer;
+    padding: 10px; /* Larger hit area */
+    border-radius: 50%;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa; /* Light background to make the black icon pop */
 }
 
+.notification-wrapper:hover {
+    background: var(--bg-hover);
+}
+/* 
 .bell-icon {
-    font-size: 18px;
-    color: #374151;
+    font-size: 1.2rem;
+    color: var(--text-gray);
 }
 
 .badge {
     position: absolute;
-    top: -6px;
-    right: -6px;
-    background: #ef4444;
+    top: 4px;
+    right: 4px;
+    background: var(--danger);
     color: white;
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 50%;
-    font-weight: 600;
-    line-height: 1;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 2px 5px;
+    border-radius: 10px;
+    border: 2px solid white;
+} */
+
+.bell-icon {
+    font-size: 1.4rem; /* Increased size */
+    color: #ff0000; /* Darker color for higher contrast */
+    display: block;
+}
+
+.badge {
+    position: absolute;
+    /* top: 0px; */
+    left: 25px;
+    /* background: #ff4d4f; Bright red for visibility */
+    color: white;
+    font-size: 1px;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 2px solid white;
 }
 
 .divider {
     width: 1px;
-    height: 28px;
-    background: #e5e7eb;
+    height: 30px;
+    background: var(--border-color);
+}
+
+/* User Profile */
+.user-profile-wrapper {
+    position: relative;
 }
 
 .user-profile {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.user-profile:hover {
+    background: var(--bg-hover);
+}
+
+.avatar-container {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
 }
 
 .user-avatar-img {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
 }
 
-.user-info .user-name {
+.user-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-name {
+    font-size: 0.9rem;
     font-weight: 600;
-    font-size: 14px;
-    margin-bottom: 1px;
-    line-height: 1.2;
-    color: #343a40;
-}
-
-.user-info .user-role {
-    font-size: 12px;
-    color: #6b7280;
-    line-height: 1.2;
-}
-
-@media (max-width: 1200px) {
-    .header-container {
-        left: 210px; 
-        padding: 10px 20px;
-    }
-}
-
-@media (max-width: 768px) {
-    .header-container {
-        left: 0; 
-        padding: 10px 15px;
-        height: 50px; 
-    }
-    
-    .header-left {
-        display: none;
-    }
-    
-    .header-right {
-        margin-left: auto;
-        gap: 15px;
-    }
-    
-    .user-profile .user-info {
-        display: none;
-    }
-    
-    .divider {
-        height: 20px; 
-    }
-
-    .user-avatar-img {
-        width: 30px;
-        height: 30px;
-    }
-} */
-
-
-
-
-
-
-
-
-
-
-
-/* --- Headers.css --- */
-:root {
- --sidebar-width: 260px;
- --sidebar-mini-width: 80px;
-}
-.header-container {
- position: fixed;
- top: 0;
-
- /* CRITICAL FIX: Header starts at the left edge (0) */
- left: 0; 
- right: 0;
-
- height: 5rem;
- background: rgba(255, 255, 255, 0.95);
- border-bottom: 1px solid #e5e7eb;
- padding: 10px 30px; 
-
- display: flex;
- 
- justify-content: space-between; 
- align-items: center;
-
- z-index: 1000;
- /* REMOVED: transition: left 0.3s ease; */
-}
-
-
-.header-left {
- display: flex;
- flex-direction: column;
- justify-content: center;
- height: 100%; 
- flex-grow: 1; 
-}
-
-
-.header-left .welcome-title {
- font-size: 1.5rem; 
- color: #343a40; 
- font-weight: 700;
- margin: 0;
- line-height: 1.1;
-}
-
-.header-left .overview-text {
- color: #6c757d; 
- margin: 0;
- font-size: 0.85rem;
- line-height: 1.1;
-}
-
-.header-right {
- display: flex;
- align-items: center;
- gap: 20px;
- flex-shrink: 0; 
-}
-
-
-.notification {
- position: relative;
- cursor: pointer;
- padding: 5px; 
-}
-
-.bell-icon {
- font-size: 18px;
- color: #374151;
-}
-
-.badge {
- position: absolute;
- top: -6px;
- right: -6px;
- background: #ef4444;
- color: white;
- font-size: 11px;
- padding: 2px 6px;
- border-radius: 50%;
- font-weight: 600;
- line-height: 1;
-}
-
-.divider {
- width: 1px;
- height: 28px;
- background: #e5e7eb;
-}
-
-.user-profile {
- display: flex;
- align-items: center;
- gap: 10px;
-}
-
-.user-avatar-img {
- width: 38px;
- height: 38px;
- border-radius: 50%;
- object-fit: cover;
-}
-
-.user-info .user-name {
- font-weight: 600;
- font-size: 14px;
- margin-bottom: 1px;
- line-height: 1.2;
- color: #343a40;
-}
-
-.user-info .user-role {
- font-size: 12px;
- color: #6b7280;
- line-height: 1.2;
-}
-
-/* Remove 1200px media query entirely */
-@media (max-width: 1200px) {
- .header-container {
-  left: 0; /* Ensure full width on desktop/tablet shrink */
-  padding: 10px 20px;
- }
-}
-
-@media (max-width: 768px) {
- .header-container {
-  left: 0; 
-  padding: 10px 15px;
-  height: 50px; 
- }
- 
- .header-left {
-  display: none;
- }
- 
- .header-right {
-  margin-left: auto;
-  gap: 15px;
- }
- 
- .user-profile .user-info {
-  display: none;
- }
- 
- .divider {
-  height: 20px; 
- }
-
- .user-avatar-img {
-  width: 30px;
-  height: 30px;
- }
-}
-
-
-
-/* src/components/Header/style/Headers.css */
-
-/* ... (Your existing styles for .header-container, .header-left, etc.) ... */
-
-
-/* New style for Page Name Titles (when NOT on Dashboard) */
-.header-left .page-title-style {
-    /* Reduce size slightly for a standard page title */
-    font-size: 1.35rem; /* Slightly smaller than 1.5rem */
-    font-weight: 600; /* Often slightly less bold for page titles */
-    line-height: 1.2;
+    color: var(--text-dark);
     margin: 0;
-    
-    /* Ensure only the title is visible, removing the subtitle area */
-    align-self: flex-start; 
 }
 
+.user-role {
+    font-size: 0.75rem;
+    color: var(--text-gray);
+    margin: 0;
+    text-transform: capitalize;
+}
 
-/* Existing Dashboard styles remain: */
-.header-left .welcome-title {
-    font-size: 1.5rem; /* Larger size for the welcome message */
-    color: #343a40; 
+/* Dropdown Card */
+.profile-dropdown-card {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    width: 220px;
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    animation: dropdownFade 0.2s ease-out;
+}
+
+@keyframes dropdownFade {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown-header {
+    padding: 16px;
+    background: #f9fafb;
+}
+
+.d-full-name {
     font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-dark);
     margin: 0;
-    line-height: 1.1;
 }
 
-.header-left .overview-text {
-    color: #6c757d; 
-    margin: 0;
-    font-size: 0.85rem;
-    line-height: 1.1;
+.d-role-label {
+    font-size: 0.8rem;
+    color: var(--text-gray);
+    margin: 4px 0 0 0;
 }
 
-/* ... (Rest of your existing CSS) ... */
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    color: var(--text-dark);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: background 0.2s;
+    border: none;
+    background: none;
+    width: 100%;
+    cursor: pointer;
+}
+
+.dropdown-item:hover {
+    background: var(--bg-hover);
+    color: var(--primary-blue);
+}
+
+.panel-link {
+    background: #eff6ff; /* Light blue tint for the special panel */
+    font-weight: 600;
+}
+
+.logout-btn {
+    color: var(--danger);
+}
+
+.logout-btn:hover {
+    background: #fef2f2;
+    color: var(--danger);
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--border-color);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .hide-mobile {
+        display: none;
+    }
+    
+    .header-container {
+        height: 70px;
+        padding: 0 15px;
+    }
+
+    .welcome-title {
+        font-size: 1.1rem;
+    }
+}

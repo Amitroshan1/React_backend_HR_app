@@ -1,23 +1,10 @@
-// import { Outlet } from "react-router-dom";
-// import { Headers } from "../../pages/Headers";
 
-// export const AppLayout = () => {
-//   return (
-//     <>
-//       <Headers/>
-//       <Outlet />
-//     </>
-//   );
-// };
-
-
-
-// src/components/layout/AppLayout.jsx (This is the file for your Layout)
 
 import { Outlet } from "react-router-dom";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
-import "../../pages/style/Dashboard.css"
+// import "../../pages/style/Dashboard.css"
+import "../../pages/Dashboard/Dashboard.css"
 export const AppLayout = () => {
     const { userData, loadingUser } = useUser();
     
@@ -31,11 +18,12 @@ export const AppLayout = () => {
     
     // Safely get the username for the Headers
     const username = userData.user.name;
-
+// const userRole = userData.user.emp_type;
+const type = userData.user?.emp_type || "Employee";
     return (
         <div>
             {/* The Header now gets the username from the centralized context */}
-            <Headers username={username} /> 
+            <Headers username={username} role={type} /> 
             
             <div className="content-area">
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}

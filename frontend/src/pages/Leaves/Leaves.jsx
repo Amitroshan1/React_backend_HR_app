@@ -246,7 +246,7 @@ export const Leaves= () => {
 
     return (
         <div className="leave-dashboard-container">
-            <h1 className="page-title-leave">Leave Management</h1>
+            {/* <h1 className="page-title-leave">Leave Management</h1> */}
 
             <div className="summary-cards-grid-leave">
                 {stats.map((item, index) => (
@@ -265,7 +265,7 @@ export const Leaves= () => {
                 <div className="requests-header-row">
                     <h2 className="section-title-leave">Leave Requests</h2>
                     <button className="apply-leave-button" onClick={() => setIsModalOpen(true)}>
-                        <FiPlus /> Apply Leave/WFH
+                        <FiPlus /> Apply Leave
                     </button>
                 </div>
                 <div className="leave-table-container">
