@@ -63,6 +63,8 @@ def create_query_api():
 
 
 
+
+
 #for employee to view all queries
 @query.route("/queries/my", methods=["GET"])
 @jwt_required()
@@ -92,6 +94,8 @@ def my_queries():
             } for q in pagination.items
         ]
     }), 200
+
+
 
 
 
@@ -128,6 +132,8 @@ def department_queries():
 
 
 
+
+
 #chat history for a query
 @query.route("/queries/<int:query_id>", methods=["GET"])
 @jwt_required()
@@ -152,6 +158,8 @@ def query_details(query_id):
             } for r in query_obj.replies
         ]
     }), 200
+
+
 
 
 
@@ -194,6 +202,8 @@ def reply_query(query_id):
 
 
 
+
+
 #close a query by employee
 
 @query.route("/queries/<int:query_id>/close", methods=["POST"])
@@ -221,6 +231,9 @@ def close_query_api(query_id):
         "success": True,
         "message": "Query closed and notification sent"
     }), 200
+
+
+
 
 
 @query.route("/api/managers/search", methods=["GET"])

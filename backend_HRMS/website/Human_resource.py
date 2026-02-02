@@ -163,7 +163,7 @@ def signup_api():
             action=action,
             performed_by=hr_email,
             target_email=admin.email,
-            metadata={
+            meta={
                 "emp_id": admin.emp_id,
                 "emp_type": admin.emp_type,
                 "circle": admin.circle
@@ -348,7 +348,7 @@ def mark_employee_exit():
             action="EMPLOYEE_EXITED",
             performed_by=hr_email,
             target_email=admin.email,
-            metadata={
+            meta={
                 "emp_id": admin.emp_id,
                 "exit_type": exit_type,
                 "exit_date": exit_date.isoformat()
