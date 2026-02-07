@@ -16,14 +16,22 @@ export const AppLayout = () => {
         );
     }
     
-    // Safely get the username for the Headers
-    const username = userData.user.name;
-// const userRole = userData.user.emp_type;
-const type = userData.user?.emp_type || "Employee";
+    // Safely get the username and emp_type from admins table data
+    // Backend returns: user.name (from admin.first_name) and user.emp_type (from admin.emp_type)
+    const username = userData.user?.name || userData.user?.first_name || "User";
+    // Get emp_type from admins table (from backend /employee/homepage response)
+    const empType = userData.user?.emp_type || userData.user?.department || "Employee";
+    
+    // Debug logging
+    console.log("AppLayout Debug:", {
+        userData: userData.user,
+        username: username,
+        empType: empType
+    });
     return (
         <div>
             {/* The Header now gets the username from the centralized context */}
-            <Headers username={username} role={type} /> 
+            <Headers username={username} role={empType} /> 
             
             <div className="content-area">
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}

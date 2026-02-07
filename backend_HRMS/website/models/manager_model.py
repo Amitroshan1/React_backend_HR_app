@@ -14,12 +14,14 @@ class ManagerContact(db.Model):
     l1_name = db.Column(db.String(100), nullable=True)
     l1_mobile = db.Column(db.String(15), nullable=True)
     l1_email = db.Column(db.String(100), nullable=True)
-    l2_name = db.Column(db.String(100), nullable=False)
-    l2_mobile = db.Column(db.String(15), nullable=False)
-    l2_email = db.Column(db.String(100), nullable=False)
-    l3_name = db.Column(db.String(100), nullable=False)
-    l3_mobile = db.Column(db.String(15), nullable=False)
-    l3_email = db.Column(db.String(100), nullable=False)
+    l2_name = db.Column(db.String(100), nullable=True)
+    l2_mobile = db.Column(db.String(15), nullable=True)
+    l2_email = db.Column(db.String(100), nullable=True)
+    # Note: Some existing databases may not yet have l3_* columns.
+    # To avoid runtime errors when the DB schema is older, make these optional.
+    l3_name = db.Column(db.String(100), nullable=True)
+    l3_mobile = db.Column(db.String(15), nullable=True)
+    l3_email = db.Column(db.String(100), nullable=True)
 
 
 

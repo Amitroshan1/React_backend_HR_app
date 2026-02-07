@@ -50,9 +50,20 @@ class LeaveBalance(db.Model):
         nullable=False
     )
 
+    # Remaining balances (what's left to use)
     privilege_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
     casual_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
     compensatory_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
+
+    # Total entitlements (fixed total granted)
+    total_privilege_leave = db.Column(db.Float, default=0.0, nullable=False)
+    total_casual_leave = db.Column(db.Float, default=0.0, nullable=False)
+    total_compensatory_leave = db.Column(db.Float, default=0.0, nullable=False)
+
+    # Used amounts (how much has been used from total)
+    used_privilege_leave = db.Column(db.Float, default=0.0, nullable=False)
+    used_casual_leave = db.Column(db.Float, default=0.0, nullable=False)
+    used_comp_leave = db.Column(db.Float, default=0.0, nullable=False)
 
     last_updated = db.Column(db.Date, nullable=True)
 

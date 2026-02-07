@@ -52,7 +52,24 @@ def create_app():
     # ---------------------------
     # Enable CORS
     # ---------------------------
-    CORS(app, supports_credentials=True)
+    # React dev server runs on http://localhost:5173
+    # With supports_credentials=True, you must NOT use wildcard origins.
+    CORS(
+        app,
+        # Allow common React dev ports (5173, 5174, etc.) on localhost during development.
+        # Using a regex here avoids having to update this every time the port changes.
+        resources={
+            r"/api/*": {
+                "origins": [
+                    r"http://localhost:\d+",
+                    r"http://127\.0\.0\.1:\d+",
+                ]
+            }
+        },
+        supports_credentials=True,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    )
 
     # ---------------------------
     # Initialize extensions

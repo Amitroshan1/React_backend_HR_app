@@ -13,10 +13,23 @@ const formatDate = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
-const formatTime = (isoString) => {
-    if (!isoString) return '---';
+const formatTime = (timeString) => {
+    if (!timeString) return '---';
     try {
-        const date = new Date(isoString);
+        // If it's just a time string (HH:MM:SS), format it directly
+        if (typeof timeString === 'string' && timeString.match(/^\d{2}:\d{2}:\d{2}$/)) {
+            const [hours, minutes, seconds] = timeString.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours), parseInt(minutes), parseInt(seconds));
+            return date.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: true 
+            });
+        }
+        // Otherwise, try to parse as full datetime
+        const date = new Date(timeString);
         if (isNaN(date.getTime())) return 'Invalid Time';
         return date.toLocaleTimeString('en-US', { 
             hour: '2-digit', 
@@ -56,14 +69,16 @@ export const Dashboard = () => {
     const [location, setLocation] = useState({ 
         lat: null, 
         lon: null, 
-        error: null 
+        error: null,
+        isAvailable: false,
+        isInRange: false
     });
     const [dynamicData, setDynamicData] = useState({
         user: {},
         employee: {},
         punch: {},
         leave_balance: { pl: 'N/A', cl: 'N/A' },
-        manager: {},
+        managers: {},
     });
     const [punchInDateTime, setPunchInDateTime] = useState(null); 
     const fetchDashboardData = async (showAlert = false) => {
@@ -86,7 +101,7 @@ export const Dashboard = () => {
                     employee: result.employee || {},
                     punch: result.punch || {},
                     leave_balance: result.leave_balance || { pl: 'N/A', cl: 'N/A' },
-                    manager: result.manager || {},
+                    managers: result.managers || {},
                 });
                 if (result.punch.punch_in && !result.punch.punch_out) {
                     setPunchInDateTime(new Date(result.punch.punch_in));
@@ -110,33 +125,48 @@ export const Dashboard = () => {
         loadInitialData();
     }, []);
     useEffect(() => {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setLocation({
-                        lat: position.coords.latitude,
-                        lon: position.coords.longitude,
-                        error: null,
-                    });
-                },
-                (err) => {
-                    console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
-                    setLocation((prev) => ({ 
-                        ...prev, 
-                        error: "Location access denied or unavailable. Punch In requires location." 
-                    }));
-                }
-            );
-        } else {
-            setLocation((prev) => ({ 
-                ...prev, 
-                error: "Geolocation not supported by this browser." 
-            }));
-        }
+        const checkLocation = () => {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        setLocation({
+                            lat: position.coords.latitude,
+                            lon: position.coords.longitude,
+                            error: null,
+                            isAvailable: true,
+                            isInRange: true, // Will be validated on punch-in/out
+                        });
+                    },
+                    (err) => {
+                        console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
+                        setLocation((prev) => ({ 
+                            ...prev, 
+                            error: "Location access denied or unavailable. Punch In/Out requires location.",
+                            isAvailable: false,
+                            isInRange: false
+                        }));
+                    }
+                );
+            } else {
+                setLocation((prev) => ({ 
+                    ...prev, 
+                    error: "Geolocation not supported by this browser.",
+                    isAvailable: false,
+                    isInRange: false
+                }));
+            }
+        };
+        
+        checkLocation();
+        // Update location periodically (every 30 seconds)
+        const locationInterval = setInterval(checkLocation, 30000);
+        
+        return () => clearInterval(locationInterval);
     }, []);
     useEffect(() => {
         let timer;
-        if (punchInDateTime) {
+        // Only start timer if punched in and NOT punched out
+        if (punchInDateTime && !dynamicData.punch.punch_out) {
             timer = setInterval(() => {
                 const now = new Date();
                 const diffMs = now.getTime() - punchInDateTime.getTime();
@@ -149,16 +179,25 @@ export const Dashboard = () => {
                     }
                 }));
             }, 1000); 
+        } else {
+            // Stop timer if punched out
+            setDynamicData(prev => ({
+                ...prev,
+                punch: {
+                    ...prev.punch,
+                    working_hours: prev.punch.working_hours || '0h 00m 00s',
+                }
+            }));
         }
         return () => {
             if (timer) {
                 clearInterval(timer);
             }
         };
-    }, [punchInDateTime]); 
+    }, [punchInDateTime, dynamicData.punch.punch_out]); 
     const handlePunchIn = async () => {
-        if (isPunching || !location.lat) {
-            alert(location.error || "Cannot punch in without location.");
+        if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
+            alert(location.error || "Cannot punch in without location. Please enable location services.");
             return;
         } 
         setIsPunching(true);
@@ -178,7 +217,29 @@ export const Dashboard = () => {
             });
             const result = await response.json();
             if (response.ok && result.success) {
-                const newPunchInTime = new Date(result.punch_in);
+                // Parse punch_in time correctly
+                const punchInTimeStr = result.punch_in;
+                let newPunchInTime;
+                const today = new Date();
+                
+                if (typeof punchInTimeStr === 'string') {
+                    // Backend returns time as "HH:MM:SS" or datetime string
+                    if (punchInTimeStr.includes('T') || punchInTimeStr.includes(' ')) {
+                        // Full datetime string
+                        newPunchInTime = new Date(punchInTimeStr);
+                    } else {
+                        // Just time (HH:MM:SS), combine with today's date
+                        const timeParts = punchInTimeStr.split(':');
+                        const hours = parseInt(timeParts[0]) || 0;
+                        const minutes = parseInt(timeParts[1]) || 0;
+                        const seconds = parseInt(timeParts[2]) || 0;
+                        newPunchInTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 
+                                                   hours, minutes, seconds);
+                    }
+                } else {
+                    newPunchInTime = new Date(punchInTimeStr);
+                }
+                
                 setDynamicData(prev => ({
                     ...prev,
                     punch: {
@@ -189,8 +250,13 @@ export const Dashboard = () => {
                     }
                 }));
                 setPunchInDateTime(newPunchInTime); 
+                await fetchDashboardData(); // Refresh data
                 alert(`Punched In Successfully at ${formatTime(result.punch_in)}!`);
             } else {
+                // If location is out of range, update state
+                if (result.message && result.message.includes("Too far")) {
+                    setLocation(prev => ({ ...prev, isInRange: false }));
+                }
                 alert(`Punch In Failed: ${result.message || 'Server error.'}`);
             }
         } catch (error) {
@@ -201,7 +267,10 @@ export const Dashboard = () => {
         }
     };
     const handlePunchOut = async () => {
-        if (isPunching) return; 
+        if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
+            alert(location.error || "Cannot punch out without location. Please enable location services.");
+            return;
+        } 
         setIsPunching(true);
         const token = localStorage.getItem('token');
         try {
@@ -210,11 +279,15 @@ export const Dashboard = () => {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
-                }
+                },
+                body: JSON.stringify({
+                    lat: location.lat,
+                    lon: location.lon
+                })
             });
             const result = await response.json();
             if (response.ok && result.success) {
-                setPunchInDateTime(null); 
+                setPunchInDateTime(null); // Stop the timer
                 setDynamicData(prev => ({
                     ...prev,
                     punch: {
@@ -223,8 +296,13 @@ export const Dashboard = () => {
                         working_hours: result.today_work || prev.punch.working_hours, 
                     }
                 }));
+                await fetchDashboardData(); // Refresh data
                 alert(`Punched Out Successfully! Total Today's Work: ${result.today_work || 'N/A'}`);
             } else {
+                // If location is out of range, update state
+                if (result.message && result.message.includes("Too far")) {
+                    setLocation(prev => ({ ...prev, isInRange: false }));
+                }
                 alert(`Punch Out Failed: ${result.message || 'Server error.'}`);
             }
         } catch (error) {
@@ -245,13 +323,14 @@ export const Dashboard = () => {
     const todaysDate = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), []);
     const currentStatus = useMemo(() => {
         if (dynamicData.punch.punch_in) {
-            return dynamicData.punch.punch_out ? "Checked Out" : "Checked In";
+            return dynamicData.punch.punch_out ? "Inactive" : "Active";
         }
-        return "Not Checked In";
+        return "Inactive";
     }, [dynamicData.punch.punch_in, dynamicData.punch.punch_out]);
-    const isCheckedIn = currentStatus === 'Checked In';
-    const isCheckedOut = currentStatus === 'Checked Out';
-    const managerName = dynamicData.manager?.l1 || "N/A"; 
+    const isCheckedIn = dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
+    const isCheckedOut = dynamicData.punch.punch_out;
+    const isActive = isCheckedIn;
+    const managerName = dynamicData.managers?.l1?.name || "N/A"; 
     const managerDept = dynamicData.user?.circle || "N/A"; 
     if (loading) return (
         <div className="full-height-center">
@@ -315,35 +394,55 @@ export const Dashboard = () => {
                                 <span className="attendance-date">{todaysDate}</span>
                             </div>
                             <div className="attendance-body">
-                                {location.error && (
-                                    <p className="location-error-message">⚠️ {location.error}</p>
-                                )}
+                                {/* Location Status */}
+                                <div className="location-status-row">
+                                    <p className="label">Location</p>
+                                    <div className="location-status-indicator">
+                                        <span className={`location-status ${location.isAvailable && location.isInRange ? 'on' : 'off'}`}>
+                                            {location.isAvailable && location.isInRange ? 'ON' : 'OFF'}
+                                        </span>
+                                        {location.error && (
+                                            <span className="location-error-text">⚠️ {location.error}</span>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                {/* Check In Time */}
                                 <div className="check-in-time">
                                     <p className="label">Check In Time</p>
-                                    <p className="time-value dashed-separator">{punchInTimeDisplay}</p>
+                                    <p className="time-value dashed-separator">{punchInTimeDisplay || '--:--:--'}</p>
                                 </div>
+                                
+                                {/* Current Status with Active/Inactive and Green Dot */}
                                 <div className="current-status">
                                     <p className="label">Current Status</p>
-                                    <p className={`status-value ${currentStatus.replace(' ', '-').toLowerCase()}`}>
-                                        {currentStatus}
-                                    </p>
+                                    <div className="status-with-indicator">
+                                        <span className={`status-dot ${isActive ? 'active' : 'inactive'}`}></span>
+                                        <p className={`status-value ${isActive ? 'active' : 'inactive'}`}>
+                                            {currentStatus}
+                                        </p>
+                                    </div>
                                 </div>
+                                
+                                {/* Hours Today (Timer) */}
                                 <div className="hours-today">
                                     <p className="label">Hours Today</p>
                                     <p className="time-value">{dynamicData.punch.working_hours || '0h 00m 00s'}</p>
                                 </div>
+                                
+                                {/* Action Buttons */}
                                 <div className="action-buttons">
                                     <button 
                                         className="check-in-btn" 
                                         onClick={handlePunchIn}
-                                        disabled={!!dynamicData.punch.punch_in || isPunching || !!location.error}
-                                >
+                                        disabled={!!dynamicData.punch.punch_in || isPunching || !location.isAvailable || !location.isInRange}
+                                    >
                                         {isPunching && !isCheckedIn ? 'Punching In...' : <><FiCheckCircle /> Punch In</>}
                                     </button>
                                     <button 
                                         className="check-out-btn"
                                         onClick={handlePunchOut}
-                                        disabled={!isCheckedIn || isPunching}
+                                        disabled={!isCheckedIn || isPunching || !location.isAvailable || !location.isInRange}
                                     >
                                         {isPunching && isCheckedIn ? 'Punching Out...' : 'Punch Out'}
                                     </button>

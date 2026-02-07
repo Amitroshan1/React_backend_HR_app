@@ -277,27 +277,166 @@
 }
 
 /* --- RESPONSIVENESS --- */
-@media (max-width: 500px) {
+
+/* Tablet (768px to 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
     .modal-content {
-        padding: 20px;
+        max-width: 500px;
+        padding: 25px;
+    }
+
+    .modal-title {
+        font-size: 20px;
+    }
+}
+
+/* Small Tablet / Large Mobile (601px to 767px) */
+@media (min-width: 601px) and (max-width: 767px) {
+    .modal-content {
+        max-width: 90%;
+        padding: 22px;
+    }
+
+    .modal-title {
+        font-size: 18px;
+    }
+
+    .form-group {
+        margin-bottom: 18px;
     }
 
     .date-inputs {
-        /* Stack date blocks vertically */
+        gap: 12px;
+    }
+}
+
+/* Mobile (max-width 600px) */
+@media (max-width: 600px) {
+    .modal-overlay {
+        padding: 10px;
+        align-items: flex-end; /* Slide up from bottom on mobile */
+    }
+
+    .modal-content {
+        max-width: 100%;
+        max-height: 95vh;
+        padding: 20px;
+        border-radius: 15px 15px 0 0;
+        margin-bottom: 0;
+    }
+
+    .modal-header {
+        padding-bottom: 12px;
+        margin-bottom: 12px;
+    }
+
+    .modal-title {
+        font-size: 18px;
+    }
+
+    .modal-subtext {
+        font-size: 13px;
+        margin-bottom: 18px;
+    }
+
+    .modal-close-button {
+        font-size: 22px;
+    }
+
+    .form-group {
+        margin-bottom: 18px;
+    }
+
+    .form-label {
+        font-size: 12px;
+        margin-bottom: 6px;
+    }
+
+    .date-inputs {
         flex-direction: column;
-        gap: 10px;
+        gap: 12px;
         align-items: stretch;
     }
 
-    /* .date-input-block already handles vertical label/input stacking on all screens */
+    .date-input-block {
+        width: 100%;
+    }
+
+    .date-input {
+        padding: 12px 35px 12px 15px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+
+    .reason-input {
+        padding: 12px;
+        font-size: 16px; /* Prevents zoom on iOS */
+        min-height: 80px;
+    }
+
+    .days-value {
+        font-size: 18px;
+    }
+
+    .dropdown-toggle-modal {
+        padding: 12px 15px;
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+
+    .dropdown-item-modal {
+        padding: 12px 15px;
+        font-size: 15px;
+    }
 
     .modal-footer {
         flex-direction: column-reverse;
         gap: 10px;
+        padding-top: 12px;
+        margin-top: 12px;
     }
     
     .button {
         min-width: 100%;
+        padding: 12px 15px;
+        font-size: 15px;
+    }
+}
+
+/* Extra Small Mobile (max-width 375px) */
+@media (max-width: 375px) {
+    .modal-overlay {
+        padding: 0;
+    }
+
+    .modal-content {
+        padding: 18px;
+        border-radius: 12px 12px 0 0;
+    }
+
+    .modal-title {
+        font-size: 16px;
+    }
+
+    .modal-subtext {
+        font-size: 12px;
+    }
+
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .date-input {
+        padding: 10px 30px 10px 12px;
+        font-size: 14px;
+    }
+
+    .reason-input {
+        padding: 10px;
+        font-size: 14px;
+    }
+
+    .button {
+        padding: 10px 12px;
+        font-size: 14px;
     }
 }
 

@@ -126,11 +126,9 @@ def employee_homepage():
         working_hours = str(diff).split(".")[0]
 
     # ------------------------
-    # 4. LEAVE BALANCE
+    # 4. LEAVE BALANCE + USAGE (from LeaveBalance table)
     # ------------------------
-    leave_balance = LeaveBalance.query.filter_by(
-        admin_id=admin.id
-    ).first()
+    leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
 
     # ------------------------
     # 5. MANAGER DETAILS (ManagerContact)
@@ -179,7 +177,8 @@ def employee_homepage():
             "id": admin.id,
             "name": admin.first_name,
             "emp_id": admin.emp_id,
-            "department": admin.emp_type,
+            "emp_type": admin.emp_type,  # Use emp_type from admins table
+            "department": admin.emp_type,  # Keep for backward compatibility
             "circle": admin.circle,
             "doj": str(admin.doj)
         },
@@ -195,8 +194,20 @@ def employee_homepage():
         },
 
         "leave_balance": {
+            # Remaining balances (what's left to use)
             "pl": leave_balance.privilege_leave_balance if leave_balance else 0,
-            "cl": leave_balance.casual_leave_balance if leave_balance else 0
+            "cl": leave_balance.casual_leave_balance if leave_balance else 0,
+            "comp": leave_balance.compensatory_leave_balance if leave_balance else 0,
+
+            # Total entitlements (fixed total granted - e.g., CL=8, PL=13)
+            "total_pl": leave_balance.total_privilege_leave if leave_balance else 0,
+            "total_cl": leave_balance.total_casual_leave if leave_balance else 0,
+            "total_comp": leave_balance.total_compensatory_leave if leave_balance else 0,
+
+            # Used amounts (how much has been used from total)
+            "used_pl": leave_balance.used_privilege_leave if leave_balance else 0,
+            "used_cl": leave_balance.used_casual_leave if leave_balance else 0,
+            "used_comp": leave_balance.used_comp_leave if leave_balance else 0,
         },
 
         "managers": managers
@@ -313,26 +324,73 @@ def punch_in():
 @jwt_required()
 def punch_out():
 
+    data = request.get_json() or {}
+    
+    user_lat = data.get("lat")
+    user_lon = data.get("lon")
+
+    # Get logged-in user email from JWT
     email = get_jwt().get("email")
-    employee = Employee.query.filter_by(email=email).first()
+    employee = Admin.query.filter_by(email=email).first()
+
+    if not employee:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     today = date.today()
-    punch = Punch.query.filter_by(admin_id=employee.admin_id, punch_date=today).first()
+    punch = Punch.query.filter_by(admin_id=employee.id, punch_date=today).first()
 
-    if not punch or punch.punch_out:
-        return jsonify({"success": False, "message": "Punch-out already done or no punch-in found"}), 400
+    if not punch or not punch.punch_in:
+        return jsonify({"success": False, "message": "No punch-in found for today"}), 400
+    
+    if punch.punch_out:
+        return jsonify({"success": False, "message": "Punch-out already done"}), 400
 
+    # ❌ Location validation (required for punch-out)
+    if user_lat is None or user_lon is None:
+        return jsonify({
+            "success": False,
+            "message": "Location (lat, lon) is required for punch-out"
+        }), 400
+
+    office_location = Location.query.first()
+    if not office_location:
+        return jsonify({
+            "success": False,
+            "message": "Office location not configured"
+        }), 500
+
+    distance = calculate_distance(
+        user_lat, user_lon,
+        office_location.latitude,
+        office_location.longitude
+    )
+
+    if distance > office_location.radius:
+        return jsonify({
+            "success": False,
+            "message": f"Too far from office location ({int(distance)}m > {office_location.radius}m). Cannot punch out."
+        }), 403
+
+    # ✅ UPDATE PUNCH-OUT
     punch.punch_out = datetime.now()
+    punch.lat = user_lat  # Update location on punch-out
+    punch.lon = user_lon
 
     # CALCULATE TOTAL TIME
-    diff = punch.punch_out - punch.punch_in
+    if isinstance(punch.punch_in, datetime):
+        diff = punch.punch_out - punch.punch_in
+    else:
+        # If punch_in is time only, combine with date
+        punch_in_dt = datetime.combine(today, punch.punch_in) if isinstance(punch.punch_in, datetime.time) else punch.punch_in
+        diff = punch.punch_out - punch_in_dt
+    
     punch.today_work = str(diff).split(".")[0]   # store as "HH:MM:SS"
 
     db.session.commit()
 
     return jsonify({
         "success": True,
-        "message": "Punched out",
+        "message": "Punched out successfully",
         "punch_out": str(punch.punch_out),
         "today_work": punch.today_work
     }), 200

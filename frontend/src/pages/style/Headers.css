@@ -242,9 +242,9 @@
     color: var(--primary-blue);
 }
 
+/* Panel link styling - matches Profile item styling */
 .panel-link {
-    background: #eff6ff; /* Light blue tint for the special panel */
-    font-weight: 600;
+    /* Same styling as regular dropdown-item */
 }
 
 .logout-btn {

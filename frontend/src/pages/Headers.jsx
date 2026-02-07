@@ -130,6 +130,8 @@ const getPageInfo = (pathname, firstName) => {
         '/hr': { title: 'HR Panel', subtitle: 'Administration' },
         '/account': { title: 'Accounts Panel', subtitle: 'Financial Management' },
         '/admin': { title: 'Admin Panel', subtitle: 'Admin Management' },
+        '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
+        '/it': { title: 'IT Panel', subtitle: 'IT Management' },
     };
     return pathMap[normalizedPath] || { title: 'Portal', subtitle: '' };
 };
@@ -147,9 +149,53 @@ export const Headers = ({ username, role, profilePic }) => {
 
     const { title, subtitle, isDashboard } = getPageInfo(location.pathname, firstName);
 
-    // Roles that get a special panel in dropdown
-    const specialRoles = ["human resource", "manager", "account", "it", "pmp", "admin"];
-    const isSpecialRole = specialRoles.includes(roleKey);
+    // Map role variations to standardized format and route
+    const getRoleInfo = (role) => {
+        if (!role) return { display: "Employee", route: null, hasPanel: false };
+        
+        const normalized = role.toLowerCase().trim();
+        
+        // Map various role formats to standardized format (from admins.emp_type)
+        const roleMap = {
+            // HR variations
+            "hr": { display: "HR", route: "/hr", hasPanel: true },
+            "human resource": { display: "HR", route: "/hr", hasPanel: true },
+            "human resources": { display: "HR", route: "/hr", hasPanel: true },
+            
+            // Manager variations
+            "manager": { display: "Manager", route: "/manager", hasPanel: true },
+            "managers": { display: "Manager", route: "/manager", hasPanel: true },
+            
+            // Account variations
+            "account": { display: "Account", route: "/account", hasPanel: true },
+            "accounts": { display: "Account", route: "/account", hasPanel: true },
+            "accountant": { display: "Account", route: "/account", hasPanel: true },
+            
+            // IT variations
+            "it": { display: "IT", route: "/it", hasPanel: true },
+            "information technology": { display: "IT", route: "/it", hasPanel: true },
+            
+            // Admin variations
+            "admin": { display: "Admin", route: "/admin", hasPanel: true },
+            "administrator": { display: "Admin", route: "/admin", hasPanel: true },
+            "administration": { display: "Admin", route: "/admin", hasPanel: true },
+        };
+        
+        const result = roleMap[normalized] || { display: rawRole, route: null, hasPanel: false };
+        
+        // Debug logging
+        console.log("Header Role Debug:", {
+            receivedRole: role,
+            normalized: normalized,
+            roleInfo: result,
+            hasPanel: result.hasPanel
+        });
+        
+        return result;
+    };
+
+    const roleInfo = getRoleInfo(rawRole);
+    const isSpecialRole = roleInfo.hasPanel;
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -196,7 +242,7 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                             </div>
                             <div className="user-info hide-mobile">
                                 <p className="user-name">{firstName}</p>
-                                <p className="user-role">{rawRole}</p> 
+                                <p className="user-role">{roleInfo.display || rawRole}</p> 
                             </div>
                             <FaChevronDown className={`dropdown-arrow ${isDropdownOpen ? 'open' : ''}`} />
                         </div>
@@ -205,25 +251,32 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                             <div className="profile-dropdown-card">
                                 <div className="dropdown-header">
                                     <p className="d-full-name">{username || 'Full Name'}</p>
-                                    <p className="d-role-label">{rawRole}</p>
+                                    <p className="d-role-label">{roleInfo.display || rawRole}</p>
                                 </div>
                                 <div className="dropdown-divider"></div>
                                 
+                                {/* Profile - Always shown */}
                                 <Link to="/profile" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
                                     <FaUser className="d-icon" /> <span>Profile</span>
                                 </Link>
 
+                                {/* Role-specific Panel Link - Only shown for HR/Manager/Account/IT/Admin */}
                                 {isSpecialRole && (
-                                    <Link 
-                                        to={roleKey === "human resource" ? "/hr" : `/${roleKey.replace(/\s+/g, '-')}`} 
-                                        className="dropdown-item panel-link"
-                                        onClick={() => setIsDropdownOpen(false)}
-                                    >
-                                        <FaBriefcase className="d-icon" /> <span>{rawRole} Panel</span>
-                                    </Link>
+                                    <>
+                                        <Link 
+                                            to={roleInfo.route}
+                                            className="dropdown-item"
+                                            onClick={() => setIsDropdownOpen(false)}
+                                        >
+                                            <FaBriefcase className="d-icon" /> <span>{roleInfo.display} Panel</span>
+                                        </Link>
+                                    </>
                                 )}
 
+                                {/* Divider before Logout */}
                                 <div className="dropdown-divider"></div>
+                                
+                                {/* Logout - Always shown */}
                                 <button onClick={handleLogout} className="dropdown-item logout-btn">
                                     <FaSignOutAlt className="d-icon" /> <span>Logout</span>
                                 </button>

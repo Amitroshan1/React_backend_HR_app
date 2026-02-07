@@ -7,7 +7,7 @@ export const UserProvider = ({ children }) => {
         user: {},
         employee: {},
         leave_balance: { pl: 'N/A', cl: 'N/A' },
-        manager: {},
+        managers: {},
     });
     const [loadingUser, setLoadingUser] = useState(true);
     const fetchCoreUserData = async () => {
@@ -21,6 +21,11 @@ export const UserProvider = ({ children }) => {
                 method: 'GET',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+            if (response.status === 401) {
+                // Token missing/expired/invalid: clear it so app can re-login cleanly.
+                localStorage.removeItem('token');
+                throw new Error("Unauthorized (token invalid or expired).");
+            }
             if (!response.ok) throw new Error("Failed to fetch user data.");
             const result = await response.json();
             if (result.success) {
@@ -28,7 +33,7 @@ export const UserProvider = ({ children }) => {
                     user: result.user || {},
                     employee: result.employee || {},
                     leave_balance: result.leave_balance || { pl: 'N/A', cl: 'N/A' },
-                    manager: result.manager || {},
+                    managers: result.managers || {},
                 });
             }
         } catch (err) {

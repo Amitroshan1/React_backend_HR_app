@@ -15,6 +15,7 @@ import { Hr } from "./pages/HR/Hr";
 import { Account } from "./pages/Account/Account";
 import {Admin} from "./pages/Admin/Admin";
 import { Manager } from "./pages/Manager/Manager";
+import { ITPanel } from "./pages/IT/ITPanel";
 export const App = () => {
   const router = createBrowserRouter([
 
@@ -38,8 +39,9 @@ export const App = () => {
          { path: "wfh", element: <Wfh /> },
             { path: "account", element: <Account /> },
             { path: "hr", element: <Hr /> },
-            {path: "admin", element:<Admin/>},
-{path:"manager", element:<Manager/>}
+            { path: "admin", element: <Admin/> },
+            { path: "manager", element: <Manager/> },
+            { path: "it", element: <ITPanel/> }
       ]
     }
   ]);

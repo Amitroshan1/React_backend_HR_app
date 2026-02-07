@@ -51,8 +51,8 @@ def hr_required(fn):
 
 
 @hr.route("/signup", methods=["POST"])
-@jwt_required()
-@hr_required
+# @jwt_required()
+# @hr_required
 def signup_api():
     data = request.get_json() or {}
 
@@ -85,7 +85,7 @@ def signup_api():
             "message": "Invalid DOJ format (YYYY-MM-DD)"
         }), 400
 
-    hr_email = get_jwt().get("email")
+    # hr_email = get_jwt().get("email")
 
     try:
         admin = Admin.query.filter_by(email=data["email"]).first()
@@ -139,8 +139,8 @@ def signup_api():
             # Password logic
             if data.get("password"):
                 admin.set_password(data["password"])
-            else:
-                send_password_set_email(admin)
+            # else:
+                # send_password_set_email(admin)
 
             db.session.add(admin)
             db.session.flush()  # get admin.id
@@ -159,21 +159,21 @@ def signup_api():
         # ======================================================
         # AUDIT LOG
         # ======================================================
-        audit = AuditLog(
-            action=action,
-            performed_by=hr_email,
-            target_email=admin.email,
-            meta={
-                "emp_id": admin.emp_id,
-                "emp_type": admin.emp_type,
-                "circle": admin.circle
-            }
-        )
-        db.session.add(audit)
+        # audit = AuditLog(
+        #     action=action,
+        #     performed_by=hr_email,
+        #     target_email=admin.email,
+        #     meta={
+        #         "emp_id": admin.emp_id,
+        #         "emp_type": admin.emp_type,
+        #         "circle": admin.circle
+        #     }
+        # )
+        # db.session.add(audit)
 
         db.session.commit()
 
-        send_welcome_email(admin, data)
+        # send_welcome_email(admin, data)
 
         return jsonify({
             "success": True,

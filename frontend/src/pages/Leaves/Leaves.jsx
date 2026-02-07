@@ -184,64 +184,180 @@
 
 
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { FiBriefcase, FiStar, FiPlus } from 'react-icons/fi';
 import { ApplyLeaveModal } from './ApplyLeaveModal';
 import './Leaves.css';
+import { useUser } from '../../components/layout/UserContext';
 
-// Fixed Entitlements (These would come from an API in the future)
-const ENTITLEMENTS = {
-    casual: 12,
-    privilege: 15
-};
-
-const INITIAL_REQUESTS = [
-    // { type: 'Casual Leave', from: '2024-01-20', to: '2024-01-20', days: 1, reason: 'Personal', status: 'Approved' },
-   
-];
+const API_BASE_URL = "http://localhost:5000/api/leave";
 
 export const Leaves= () => {
-    const [requests, setRequests] = useState(INITIAL_REQUESTS);
+    const { userData, refreshUserData } = useUser();
+    const [requests, setRequests] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [loadingRequests, setLoadingRequests] = useState(true);
 
-    // Dynamic Calculation of Balances
+    // Dynamic Calculation of Balances based on backend leave_balance
     const stats = useMemo(() => {
-        const usedCasual = requests
-            .filter(r => r.type === 'Casual Leave' && r.status !== 'Rejected')
-            .reduce((sum, r) => sum + r.days, 0);
+        const lb = userData.leave_balance || {};
 
-        const usedPrivilege = requests
-            .filter(r => r.type === 'Privilege Leave' && r.status !== 'Rejected')
-            .reduce((sum, r) => sum + r.days, 0);
+        // Remaining/Pending balances from backend (what's left to use)
+        const remainingPl = Number(lb.pl ?? 0);
+        const remainingCl = Number(lb.cl ?? 0);
+        const remainingComp = Number(lb.comp ?? 0);
+
+        // Total entitlements from backend (fixed totals - e.g., CL=8, PL=13)
+        const totalPl = Number(lb.total_pl ?? 0);
+        const totalCl = Number(lb.total_cl ?? 0);
+        const totalComp = Number(lb.total_comp ?? 0);
+
+        // Used values from backend (how much has been used from total)
+        const usedCasual = Number(lb.used_cl ?? 0);
+        const usedPrivilege = Number(lb.used_pl ?? 0);
+        const usedComp = Number(lb.used_comp ?? 0);
 
         return [
             { 
                 type: 'Casual Leave', 
-                value: ENTITLEMENTS.casual - usedCasual, 
-                subtext: `${usedCasual} used this year`, 
+                value: remainingCl,  // Big number: Show remaining/pending (e.g., 5)
+                subtext: `Total ${totalCl}, Used ${usedCasual}`,  // Subtext: Total entitlement (8) and how much used
                 icon: <FiBriefcase />, 
                 colorClass: 'green-card'
             },
             { 
                 type: 'Privilege Leave', 
-                value: ENTITLEMENTS.privilege - usedPrivilege, 
-                subtext: `${usedPrivilege} used this year`, 
+                value: remainingPl,  // Big number: Show remaining/pending (e.g., 11)
+                subtext: `Total ${totalPl}, Used ${usedPrivilege}`,  // Subtext: Total entitlement (13) and how much used
                 icon: <FiStar />, 
                 colorClass: 'blue-card'
+            },
+            {
+                type: 'Compensatory Leave',
+                value: remainingComp,  // Big number: Show remaining/pending
+                subtext: `Total ${totalComp}, Used ${usedComp}`,  // Subtext: Total entitlement and how much used
+                icon: <FiBriefcase />,
+                colorClass: 'orange-card'
             }
         ];
-    }, [requests]);
+    }, [userData.leave_balance]);
 
-    const handleLeaveSubmit = (requestData) => {
-        const newRequest = {
-            type: requestData.leaveType,
-            from: requestData.fromDate,
-            to: requestData.toDate,
-            days: requestData.calculatedDays,
-            reason: requestData.reason,
-            status: 'Pending'
-        };
-        setRequests(prev => [newRequest, ...prev]);
+    // Fetch leave requests from backend
+    const fetchLeaveRequests = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setLoadingRequests(false);
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/LeaveDetails`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("API Error Response:", errorText);
+                throw new Error(`Failed to fetch leave requests: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log("Leave Details API Response:", result); // Debug log
+
+            if (result.success) {
+                if (result.applications && Array.isArray(result.applications)) {
+                    // Transform backend format to frontend format
+                    const formattedRequests = result.applications.map(app => ({
+                        id: app.id,
+                        type: app.leave_type || 'Unknown',
+                        from: app.start_date || '',
+                        to: app.end_date || '',
+                        days: app.deducted_days || 0,
+                        reason: app.reason || '',
+                        status: app.status || 'Pending'
+                    }));
+                    console.log("Formatted Requests:", formattedRequests); // Debug log
+                    setRequests(formattedRequests);
+                } else {
+                    console.warn("No applications array in response:", result);
+                    setRequests([]);
+                }
+            } else {
+                console.error("API returned success=false:", result.message);
+                setRequests([]);
+            }
+        } catch (err) {
+            console.error("Error fetching leave requests:", err);
+            setRequests([]);
+        } finally {
+            setLoadingRequests(false);
+        }
+    };
+
+    // Fetch leave requests on component mount
+    useEffect(() => {
+        fetchLeaveRequests();
+    }, []);
+
+    const handleLeaveSubmit = async (requestData) => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            alert("Please login again");
+            return false; // Return false to prevent modal from closing
+        }
+
+        try {
+            // Map frontend leave types to backend format
+            let backendLeaveType = requestData.leaveType;
+            if (requestData.leaveType === 'Casual Leave' && requestData.calculatedDays === 0.5) {
+                backendLeaveType = 'Half Day Leave';
+            }
+            // Optional Leave is now supported - no special mapping needed
+
+            const requestPayload = {
+                leave_type: backendLeaveType,
+                start_date: requestData.fromDate,
+                end_date: requestData.toDate,
+                reason: requestData.reason
+            };
+            
+            console.log("Submitting leave application:", requestPayload); // Debug log
+            
+            const response = await fetch(`${API_BASE_URL}/apply`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestPayload)
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                alert(result.message || "Failed to apply leave");
+                return false; // Return false to prevent modal from closing
+            }
+
+            if (result.success) {
+                console.log("Leave applied successfully:", result); // Debug log
+                // Refresh leave requests list and user data (to update balances)
+                // Add small delay to ensure DB commit is complete
+                await new Promise(resolve => setTimeout(resolve, 500));
+                await fetchLeaveRequests();
+                await refreshUserData();
+                alert("Leave applied successfully!");
+                return true; // Return true to allow modal to close
+            } else {
+                console.error("Leave application failed:", result); // Debug log
+            }
+            return false;
+        } catch (err) {
+            console.error("Error applying leave:", err);
+            alert("Failed to apply leave. Please try again.");
+            return false; // Return false to prevent modal from closing
+        }
     };
 
     return (
@@ -269,32 +385,44 @@ export const Leaves= () => {
                     </button>
                 </div>
                 <div className="leave-table-container">
-                    <table className="leave-requests-table">
-                        <thead>
-                            <tr>
-                                <th>TYPE</th>
-                                <th>FROM</th>
-                                <th>TO</th>
-                                <th>DAYS</th>
-                                <th>STATUS</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {requests.map((request, index) => (
-                                <tr key={index}>
-                                    <td>{request.type}</td>
-                                    <td>{request.from}</td>
-                                    <td>{request.to}</td>
-                                    <td>{request.days}</td>
-                                    <td>
-                                        <span className={`status-badge status-${request.status.toLowerCase()}`}>
-                                            {request.status}
-                                        </span>
-                                    </td>
+                    {loadingRequests ? (
+                        <p style={{ textAlign: 'center', padding: '20px' }}>Loading leave requests...</p>
+                    ) : requests.length === 0 ? (
+                        <p style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                            No leave requests found. Click "Apply Leave" to submit a new request.
+                        </p>
+                    ) : (
+                        <table className="leave-requests-table">
+                            <thead>
+                                <tr>
+                                    <th>TYPE</th>
+                                    <th>FROM</th>
+                                    <th>TO</th>
+                                    <th>DAYS</th>
+                                    <th>REASON</th>
+                                    <th>STATUS</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {requests.map((request) => (
+                                    <tr key={request.id}>
+                                        <td>{request.type}</td>
+                                        <td>{request.from}</td>
+                                        <td>{request.to}</td>
+                                        <td>{request.days}</td>
+                                        <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {request.reason}
+                                        </td>
+                                        <td>
+                                            <span className={`status-badge status-${request.status.toLowerCase()}`}>
+                                                {request.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             </div>
             

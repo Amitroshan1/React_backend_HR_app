@@ -536,6 +536,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
     const leaveOptions = [
         { label: 'Casual Leave', value: 'Casual Leave', disabled: casualCount >= 2 },
         { label: 'Privilege Leave', value: 'Privilege Leave', disabled: false },
+        { label: 'Compensatory Leave', value: 'Compensatory Leave', disabled: false },
         { label: 'Optional Leave', value: 'Optional Leave', disabled: hasUsedOptional }
     ].map(opt => {
         if (opt.value === 'Optional Leave' && opt.disabled) return "Optional Leave (Already Used)";
@@ -548,11 +549,16 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
 
     // --- Day Calculation ---
     const totalDiff = (fromDate && toDate) ? dayjs(toDate).diff(dayjs(fromDate), 'day') + 1 : 0;
-    const finalDays = (leaveType === 'Casual Leave' && casualLeaveDuration === 'Half Day' && totalDiff === 1) ? 0.5 : (totalDiff > 0 ? totalDiff : 0);
+    let finalDays = (leaveType === 'Casual Leave' && casualLeaveDuration === 'Half Day' && totalDiff === 1) ? 0.5 : (totalDiff > 0 ? totalDiff : 0);
+    
+    // Optional Leave can only be 1 day
+    if (leaveType === 'Optional Leave' && totalDiff > 1) {
+        finalDays = 0; // Will trigger validation error
+    }
 
     if (!isOpen) return null;
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         
         // Prevent submission if logic is bypassed
@@ -561,9 +567,22 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
             return;
         }
 
+        // Validate Optional Leave requirements
+        if (leaveType === 'Optional Leave') {
+            if (!optionalHoliday) {
+                alert("Please select a holiday for Optional Leave.");
+                return;
+            }
+            if (totalDiff > 1) {
+                alert("Optional Leave can only be applied for one day.");
+                return;
+            }
+        }
+
         const finalReason = leaveType === 'Optional Leave' ? `Holiday: ${optionalHoliday}` : reason;
         
-        onSubmit({ 
+        // Call parent onSubmit (which will handle API call)
+        const success = await onSubmit({ 
             leaveType, 
             fromDate, 
             toDate, 
@@ -571,13 +590,16 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
             calculatedDays: finalDays 
         });
         
-        // Reset and close
-        setLeaveType('');
-        setFromDate('');
-        setToDate('');
-        setReason('');
-        setOptionalHoliday('');
-        onClose();
+        // Only reset and close if submission was successful
+        if (success) {
+            setLeaveType('');
+            setCasualLeaveDuration('Full Day');
+            setFromDate('');
+            setToDate('');
+            setReason('');
+            setOptionalHoliday('');
+            onClose();
+        }
     };
 
     return (
@@ -636,7 +658,15 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                             <div className="date-input-block">
                                 <label className="form-label">To Date</label>
                                 <div className="date-input-wrapper">
-                                    <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="date-input" required min={fromDate} />
+                                    <input 
+                                        type="date" 
+                                        value={toDate} 
+                                        onChange={(e) => setToDate(e.target.value)} 
+                                        className="date-input" 
+                                        required 
+                                        min={leaveType === 'Optional Leave' ? fromDate : fromDate}
+                                        max={leaveType === 'Optional Leave' ? fromDate : undefined}
+                                    />
                                     <FiCalendar className="date-icon" />
                                 </div>
                             </div>
@@ -648,17 +678,19 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                         <p className="days-value">{finalDays} Day(s)</p>
                     </div>
 
-                    <div className="form-group">
-                        <label className="form-label">Reason</label>
-                        <textarea
-                            placeholder="Reason for leave..."
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value)}
-                            className="reason-input"
-                            rows="3"
-                            required={leaveType !== 'Optional Leave'}
-                        />
-                    </div>
+                    {leaveType !== 'Optional Leave' && (
+                        <div className="form-group">
+                            <label className="form-label">Reason</label>
+                            <textarea
+                                placeholder="Reason for leave..."
+                                value={reason}
+                                onChange={(e) => setReason(e.target.value)}
+                                className="reason-input"
+                                rows="3"
+                                required
+                            />
+                        </div>
+                    )}
 
                     <div className="modal-footer">
                         <button type="button" className="button button-cancel" onClick={onClose}>Cancel</button>

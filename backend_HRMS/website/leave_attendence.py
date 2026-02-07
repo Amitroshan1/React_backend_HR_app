@@ -195,9 +195,9 @@ def leave_page_summary():
         admin_id=admin.id
     ).first()
 
-    total_pl = leave_balance.pl if leave_balance else 0.0
-    total_cl = leave_balance.cl if leave_balance else 0.0
-    total_compoff = leave_balance.compoff if leave_balance else 0.0
+    total_pl = leave_balance.privilege_leave_balance if leave_balance else 0.0
+    total_cl = leave_balance.casual_leave_balance if leave_balance else 0.0
+    total_compoff = leave_balance.compensatory_leave_balance if leave_balance else 0.0
 
     # -------- FETCH ALL LEAVE APPLICATIONS --------
     leave_applications = LeaveApplication.query.filter_by(
@@ -292,25 +292,42 @@ def apply_leave_api():
         }), 400
 
     # -------------------------
-    # 🚫 DUPLICATE / SAME DATE CHECK
+    # 🚫 OPTIONAL LEAVE: Max 1 per year (check FIRST, before overlapping check)
     # -------------------------
-    overlapping_leave = LeaveApplication.query.filter(
-        LeaveApplication.admin_id == admin.id,
-        LeaveApplication.status.in_(["Pending", "Approved"]),
-        LeaveApplication.start_date <= end_date,
-        LeaveApplication.end_date >= start_date
-    ).first()
+    if leave_type == "Optional Leave":
+        existing_optional = LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin.id,
+            LeaveApplication.leave_type == "Optional Leave",
+            LeaveApplication.status.in_(["Pending", "Approved"])
+        ).first()
 
-    if overlapping_leave:
-        return jsonify({
-            "success": False,
-            "message": (
-                f"Leave already applied from "
-                f"{overlapping_leave.start_date} to "
-                f"{overlapping_leave.end_date} "
-                f"(Status: {overlapping_leave.status})"
-            )
-        }), 409
+        if existing_optional:
+            return jsonify({
+                "success": False,
+                "message": "Optional Leave can only be used once per year. You have already applied for Optional Leave."
+            }), 400
+
+    # -------------------------
+    # 🚫 DUPLICATE / SAME DATE CHECK (skip for Optional Leave - it's a special holiday)
+    # -------------------------
+    if leave_type != "Optional Leave":  # Optional Leave can overlap with other leaves
+        overlapping_leave = LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin.id,
+            LeaveApplication.status.in_(["Pending", "Approved"]),
+            LeaveApplication.start_date <= end_date,
+            LeaveApplication.end_date >= start_date
+        ).first()
+
+        if overlapping_leave:
+            return jsonify({
+                "success": False,
+                "message": (
+                    f"Leave already applied from "
+                    f"{overlapping_leave.start_date} to "
+                    f"{overlapping_leave.end_date} "
+                    f"(Status: {overlapping_leave.status})"
+                )
+            }), 409
 
     # -------------------------
     # Leave calculations
@@ -328,6 +345,8 @@ def apply_leave_api():
         else:
             deducted_days = leave_days
             leave_balance.privilege_leave_balance -= leave_days
+        # Track used leave in DB (so frontend shows "used" after apply)
+        leave_balance.used_privilege_leave += deducted_days
 
     # Casual Leave
     elif leave_type == "Casual Leave":
@@ -345,6 +364,8 @@ def apply_leave_api():
 
         deducted_days = leave_days
         leave_balance.casual_leave_balance -= leave_days
+        # Track used leave in DB (so frontend shows "used" after apply)
+        leave_balance.used_casual_leave += deducted_days
 
     # Half Day Leave
     elif leave_type == "Half Day Leave":
@@ -359,8 +380,10 @@ def apply_leave_api():
 
         if leave_balance.casual_leave_balance >= 0.5:
             leave_balance.casual_leave_balance -= 0.5
+            leave_balance.used_casual_leave += 0.5
         elif leave_balance.privilege_leave_balance >= 0.5:
             leave_balance.privilege_leave_balance -= 0.5
+            leave_balance.used_privilege_leave += 0.5
         else:
             extra_days = 0.5
 
@@ -386,6 +409,23 @@ def apply_leave_api():
 
         deducted_days = leave_days
         leave_balance.compensatory_leave_balance -= leave_days
+        # Track used leave in DB (so frontend shows "used" after apply)
+        leave_balance.used_comp_leave += deducted_days
+
+    # Optional Leave (Optional Holiday) - doesn't deduct from any leave balance
+    elif leave_type == "Optional Leave":
+        # Optional Leave is a special holiday that doesn't count against leave balances
+        # Max 1 per year (enforced by backend validation above)
+        if leave_days > 1:
+            return jsonify({
+                "success": False,
+                "message": "Optional Leave can only be applied for one day"
+            }), 400
+
+        # Optional Leave doesn't deduct from any balance, just records the application
+        # Set deducted_days to 1 (or leave_days) for tracking purposes
+        deducted_days = float(leave_days)
+        extra_days = 0.0
 
     else:
         return jsonify({
@@ -410,21 +450,26 @@ def apply_leave_api():
     try:
         db.session.add(leave_application)
         db.session.commit()
+        
+        # Log for debugging
+        current_app.logger.info(f"Leave application saved: ID={leave_application.id}, Type={leave_type}, Status={leave_application.status}")
+        
         send_leave_applied_email(admin, leave_application)
         return jsonify({
             "success": True,
             "message": "Leave applied successfully",
             "leave_id": leave_application.id,
+            "leave_type": leave_type,
             "deducted_days": deducted_days,
             "extra_days": extra_days
         }), 201
 
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Leave Apply Error: {e}")
+        current_app.logger.error(f"Leave Apply Error: {e}", exc_info=True)
         return jsonify({
             "success": False,
-            "message": "Unable to apply leave"
+            "message": f"Unable to apply leave: {str(e)}"
         }), 500
 
 

@@ -212,45 +212,305 @@
 
 /* --- RESPONSIVENESS --- */
 
-/* Tablet View (max-width 1024px) */
-@media (max-width: 1024px) {
+/* Large Desktop (1441px and above) */
+@media (min-width: 1441px) {
+    .leave-dashboard-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    
+    .summary-cards-grid-leave {
+        gap: 25px;
+    }
+}
+
+/* Desktop (1025px to 1440px) */
+@media (min-width: 1025px) and (max-width: 1440px) {
+    .summary-cards-grid-leave {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+    }
+}
+
+/* Tablet View (768px to 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
+    .leave-dashboard-container {
+        padding: 20px;
+    }
+
     .summary-cards-grid-leave {
         grid-template-columns: repeat(2, 1fr);
         gap: 15px;
+        margin-top: 3rem;
+    }
+
+    .summary-card-leave {
+        padding: 18px;
+    }
+
+    .summary-icon-leave {
+        width: 40px;
+        height: 40px;
+        font-size: 24px;
+    }
+
+    .summary-value-leave {
+        font-size: 20px;
+    }
+
+    .leave-requests-card {
+        padding: 20px;
+    }
+
+    .leave-requests-table {
+        font-size: 13px;
+    }
+
+    .leave-requests-table th,
+    .leave-requests-table td {
+        padding: 10px 12px;
+    }
+}
+
+/* Small Tablet / Large Mobile (601px to 767px) */
+@media (min-width: 601px) and (max-width: 767px) {
+    .leave-dashboard-container {
+        padding: 15px;
+    }
+
+    .summary-cards-grid-leave {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        margin-top: 2rem;
+    }
+
+    .summary-card-leave {
+        padding: 15px;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .summary-icon-leave {
+        margin-right: 0;
+        margin-bottom: 10px;
+        width: 38px;
+        height: 38px;
+        font-size: 22px;
+    }
+
+    .summary-value-leave {
+        font-size: 18px;
+    }
+
+    .summary-label-leave {
+        font-size: 12px;
+    }
+
+    .summary-subtext-leave {
+        font-size: 10px;
+    }
+
+    .section-title-leave {
+        font-size: 18px;
+    }
+
+    .leave-requests-card {
+        padding: 15px;
+    }
+
+    .requests-header-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .apply-leave-button {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+    }
+
+    .leave-requests-table {
+        font-size: 12px;
+        min-width: 500px;
+    }
+
+    .leave-requests-table th,
+    .leave-requests-table td {
+        padding: 8px 10px;
     }
 }
 
 /* Mobile View (max-width 600px) */
 @media (max-width: 600px) {
     .leave-dashboard-container {
-        padding: 15px;
+        padding: 12px;
     }
 
     .page-title-leave {
-        font-size: 22px;
+        font-size: 20px;
+        margin-bottom: 20px;
     }
 
     .summary-cards-grid-leave {
         grid-template-columns: 1fr;
+        gap: 12px;
+        margin-top: 1.5rem;
+        margin-bottom: 20px;
     }
-    
+
+    .summary-card-leave {
+        padding: 15px;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .summary-icon-leave {
+        width: 45px;
+        height: 45px;
+        font-size: 24px;
+        margin-right: 12px;
+        flex-shrink: 0;
+    }
+
+    .summary-content-leave {
+        flex: 1;
+        min-width: 0; /* Allows text to truncate */
+    }
+
+    .summary-value-leave {
+        font-size: 20px;
+        line-height: 1.1;
+    }
+
+    .summary-label-leave {
+        font-size: 12px;
+        margin-top: 2px;
+    }
+
+    .summary-subtext-leave {
+        font-size: 10px;
+        margin-top: 4px;
+        word-break: break-word;
+    }
+
+    .leave-requests-card {
+        padding: 15px;
+        border-radius: 8px;
+    }
+
     .requests-header-row {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
         gap: 15px;
+        margin-bottom: 15px;
+    }
+
+    .section-title-leave {
+        font-size: 18px;
+        margin-bottom: 0;
     }
 
     .apply-leave-button {
         width: 100%;
         justify-content: center;
+        padding: 12px 16px;
+        font-size: 14px;
+        border-radius: 8px;
+    }
+
+    .table-subtext {
+        margin-bottom: 15px;
+        font-size: 13px;
+    }
+
+    /* Make table horizontally scrollable on mobile */
+    .leave-table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 0 -15px;
+        padding: 0 15px;
+    }
+
+    .leave-requests-table {
+        font-size: 12px;
+        min-width: 600px;
+    }
+
+    .leave-requests-table th {
+        font-size: 11px;
+        padding: 10px 8px;
+        white-space: nowrap;
+    }
+
+    .leave-requests-table td {
+        padding: 10px 8px;
+        white-space: nowrap;
+    }
+
+    .leave-requests-table .reason-col {
+        max-width: 150px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .status-badge {
+        font-size: 11px;
+        padding: 4px 8px;
+        white-space: nowrap;
+    }
+}
+
+/* Extra Small Mobile (max-width 375px) */
+@media (max-width: 375px) {
+    .leave-dashboard-container {
+        padding: 10px;
+    }
+
+    .summary-card-leave {
+        padding: 12px;
+    }
+
+    .summary-icon-leave {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+        margin-right: 10px;
+    }
+
+    .summary-value-leave {
+        font-size: 18px;
+    }
+
+    .summary-label-leave {
+        font-size: 11px;
+    }
+
+    .summary-subtext-leave {
+        font-size: 9px;
     }
 
     .leave-requests-card {
-        padding: 15px;
+        padding: 12px;
     }
-    
-    .table-subtext {
-        margin-bottom: 15px;
+
+    .section-title-leave {
+        font-size: 16px;
+    }
+
+    .apply-leave-button {
+        padding: 10px 14px;
+        font-size: 13px;
+    }
+
+    .leave-requests-table {
+        font-size: 11px;
+        min-width: 550px;
+    }
+
+    .leave-requests-table th,
+    .leave-requests-table td {
+        padding: 8px 6px;
     }
 }
 
