@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import './Toast.css';
 
-export const Toast = ({ message, type = 'success', onClose }) => {
+export const Toast = ({ message, type = 'success', onClose, hideIcon, hideClose }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
@@ -12,9 +12,9 @@ export const Toast = ({ message, type = 'success', onClose }) => {
 
   return (
     <div className={`toast toast--${type}`}>
-      <span className="toast__icon">{type === 'success' ? '✅' : '❌'}</span>
+      {!hideIcon && <span className="toast__icon">{type === 'success' ? '✅' : '❌'}</span>}
       <p className="toast__message">{message}</p>
-      <button className="toast__close" onClick={onClose}>&times;</button>
+      {!hideClose && <button className="toast__close" onClick={onClose}>&times;</button>}
     </div>
   );
 };

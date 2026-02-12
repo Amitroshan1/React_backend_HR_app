@@ -1,5 +1,10 @@
 /* src/pages/Attendance/style/Attendance.css - CORRECTED & RESPONSIVE */
 
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .attendance-page-container {
     padding: 20px;
     background-color: #f7f9fc;
@@ -303,6 +308,25 @@
 {
     background-color: #E0E0E0; 
     font-weight: 700;
+}
+
+.calendar-day-cell.status-empty {
+    background-color: #fafafa;
+    cursor: default;
+    pointer-events: none;
+}
+
+.calendar-day-cell.status-empty:hover {
+    box-shadow: none;
+}
+
+.calendar-day-cell.future-blank {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+}
+
+.calendar-day-cell.future-blank .day-number {
+    color: #000000;
 }
 
 .calendar-day-cell {

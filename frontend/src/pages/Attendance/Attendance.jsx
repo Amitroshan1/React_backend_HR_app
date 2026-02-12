@@ -261,36 +261,64 @@
 
 // src/pages/Attendance/Attendance.jsx - CORRECTED WITH CUSTOM DROPDOWN
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { MdOutlineWatchLater } from 'react-icons/md';
-import { FiArrowRight, FiDownload, FiChevronDown, FiCalendar } from 'react-icons/fi';
+import { FiArrowRight, FiDownload, FiChevronDown, FiCalendar, FiRefreshCw } from 'react-icons/fi';
 
 import './Attendance.css';
 
-// --- Placeholder Data Structure (Remains the same) ---
+const API_BASE_URL = "http://localhost:5000/api/leave";
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 const INITIAL_ATTENDANCE_DATA = {
     summary: {
-        presentDays: 18,
-        avgPunchIn: '9:05 AM',
-        avgPunchOut: '6:15 PM',
-        totalHours: '144h',
-        targetHours: '176h',
-        onTimeStatus: 'On Time',
-        overtimeStatus: 'Overtime 2h',
+        presentDays: 0,
+        avgPunchIn: '--:--',
+        avgPunchOut: '--:--',
+        totalHours: '0h',
+        targetHours: '0h',
+        onTimeStatus: '-',
+        overtimeStatus: '-',
     },
-    calendar: [
-        { day: 1, status: 'Hol' }, { day: 2, status: 'Pres' }, { day: 3, status: 'Pres' }, 
-        { day: 4, status: 'Pres' }, { day: 5, status: 'Half' }, { day: 6, status: 'WFM' }, // Changed to WFM for Saturday test
-        { day: 7, status: 'Week' }, { day: 8, status: 'Pres' }, { day: 9, status: 'Pres' }, 
-        { day: 10, status: 'On Leave' }, { day: 11, status: 'Pres' }, { day: 12, status: 'Pres' }, 
-        { day: 13, status: 'WFM' }, { day: 14, status: 'Week' }, { day: 15, status: 'Pres' }, 
-        { day: 16, status: 'Pres' }, { day: 17, status: 'Pend' }, { day: 18, status: 'Pres' }, 
-        { day: 19, status: 'WFM' }, { day: 20, status: 'Pres' }, { day: 21, status: 'Week' }, 
-        { day: 22, status: 'Week' }, { day: 23, status: 'Pres' }, { day: 24, status: 'Pres' }, 
-        { day: 25, status: 'Hol' }, { day: 26, status: 'Pres' }, { day: 27, status: 'Pres' }, 
-        { day: 28, status: 'Week' }, { day: 29, status: 'Week' }, { day: 30, status: 'Pres' }, 
-        { day: 31, status: 'Pres' },
-    ]
+    calendar: []
+};
+
+const formatTimeFromTimedelta = (tdStr) => {
+    if (!tdStr) return '--:--';
+    const s = String(tdStr).trim();
+    const m = s.match(/(\d+):(\d{2})(?::(\d{2}))?/);
+    if (!m) return s;
+    const [, h, min, sec] = m;
+    const hour = parseInt(h, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hr12 = hour % 12 || 12;
+    return `${hr12}:${min} ${ampm}`;
+};
+
+const formatHours = (tdStr) => {
+    if (!tdStr) return '0h';
+    const s = String(tdStr).trim().replace(/^-/, '');
+    const m = s.match(/(\d+):(\d{2})(?::(\d{2}))?/);
+    if (!m) return String(tdStr);
+    const [, h, min] = m;
+    const total = parseInt(h, 10) * 60 + parseInt(min, 10);
+    if (total >= 60) return `${Math.floor(total / 60)}h`;
+    if (total > 0) return `${total}m`;
+    return '0h';
+};
+
+const backendStatusToFrontend = (backendStatus, details = {}) => {
+    if (backendStatus === 'WEEKEND') return 'Week';
+    if (backendStatus === 'LEAVE') return 'On Leave';
+    if (backendStatus === 'LEAVE_PENDING') return 'On Leave'; // Show as leave but could add visual indicator
+    if (backendStatus === 'ABSENT') return 'Abs';
+    if (backendStatus === 'PENDING_PUNCH_OUT') return 'Pend';
+    if (backendStatus === 'HALF_DAY') return 'Half';
+    if (backendStatus === 'WFH_APPROVED') return 'WFM';
+    if (backendStatus === 'WFH_PENDING') return 'WFM'; // Show as WFM but pending approval
+    if (backendStatus === 'PRESENT') return details?.wfh ? 'WFM' : 'Pres';
+    return 'Pres';
 };
 
 // --- Custom Dropdown Component (Ensures options open DOWNWARDS) ---
@@ -345,8 +373,9 @@ const CustomDropdown = ({ options, currentValue, onChange }) => {
 
 // --- Month/Year Selector Component (Now uses CustomDropdown) ---
 const MonthYearSelector = ({ currentMonth, currentYear, setMonth, setYear }) => {
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const years = ['2024', '2025', '2026'];
+    const months = MONTH_NAMES;
+    const currentY = new Date().getFullYear();
+    const years = [String(currentY - 1), String(currentY), String(currentY + 1)];
 
     return (
         <div className="dropdowns-group">
@@ -371,8 +400,11 @@ const MonthYearSelector = ({ currentMonth, currentYear, setMonth, setYear }) => 
 
 
 // --- Calendar Day Cell Component ---
-const CalendarDayCell = ({ day, status }) => {
-    
+const CalendarDayCell = ({ day, status, isFuture }) => {
+    if (status === 'empty' || day == null) {
+        return <div className="calendar-day-cell status-empty" />;
+    }
+
     const statusClassMap = {
         'Pres': 'status-present',
         'Abs': 'status-absent',
@@ -384,44 +416,24 @@ const CalendarDayCell = ({ day, status }) => {
         'WFM': 'status-wfm',
     };
 
-    let calculatedStatus = status;
-    
-    // Day of Week Calculation (0=Sunday, 6=Saturday)
-    const dayOfWeekIndex = (day - 1) % 7; 
-    const isWeekend = dayOfWeekIndex === 0 || dayOfWeekIndex === 6; 
+    const className = statusClassMap[status] || 'status-default';
+    // Add future-blank class for future dates with Abs status
+    const finalClassName = (isFuture && status === 'Abs') 
+        ? `${className} future-blank` 
+        : className;
 
-    if (isWeekend) {
-        // Allow WFM to override the default 'Week' status on SATURDAY (index 6).
-        if (dayOfWeekIndex === 6 && status === 'WFM') { 
-            calculatedStatus = 'WFM';
-        } else if (status !== 'WFM' && status !== 'Hol') {
-            calculatedStatus = 'Week';
-        }
-    }
-    
-    const className = statusClassMap[calculatedStatus] || 'status-default';
-    
-    // Logic for displaying the full text status
-    let displayStatus = calculatedStatus;
-    if (calculatedStatus === 'Pres') {
-        displayStatus = 'Present';
-    } else if (calculatedStatus === 'Pend') {
-        displayStatus = 'Pending';
-    } else if (calculatedStatus === 'Half') {
-        displayStatus = 'Half Day';
-    } else if (calculatedStatus === 'WFM') {
-        displayStatus = 'WFM'; 
-    } else if (calculatedStatus === 'On Leave' || calculatedStatus === 'Abs') {
-        displayStatus = 'On Leave';
-    } else if (calculatedStatus === 'Hol') {
-        displayStatus = 'Holiday';
-    }
-
+    let displayStatus = status;
+    if (status === 'Pres') displayStatus = 'Present';
+    else if (status === 'Pend') displayStatus = 'Pending';
+    else if (status === 'Half') displayStatus = 'Half Day';
+    else if (status === 'WFM') displayStatus = 'WFM';
+    else if (status === 'On Leave' || status === 'Abs') displayStatus = 'On Leave';
+    else if (status === 'Hol') displayStatus = 'Holiday';
 
     return (
-        <div className={`calendar-day-cell ${className}`}>
+        <div className={`calendar-day-cell ${finalClassName}`}>
             <span className="day-number">{day}</span>
-            {((calculatedStatus !== 'Week') && (calculatedStatus !== 'Hol')) && (
+            {(status !== 'Week' && status !== 'Hol' && !(isFuture && status === 'Abs')) && (
                 <span className="day-status-label">{displayStatus}</span>
             )}
         </div>
@@ -431,12 +443,91 @@ const CalendarDayCell = ({ day, status }) => {
 export const Attendance = () => {
     
     const [data, setData] = useState(INITIAL_ATTENDANCE_DATA);
-    const [currentMonth, setCurrentMonth] = useState('December');
-    const [currentYear, setCurrentYear] = useState('2025');
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [currentMonth, setCurrentMonth] = useState(MONTH_NAMES[new Date().getMonth()]);
+    const [currentYear, setCurrentYear] = useState(String(new Date().getFullYear()));
 
-    useEffect(() => {
-        console.log(`Fetching data for ${currentMonth}, ${currentYear}...`);
-    }, [currentMonth, currentYear]);
+  const monthNum = useMemo(() => MONTH_NAMES.indexOf(currentMonth) + 1, [currentMonth]);
+  const yearNum = useMemo(() => parseInt(currentYear, 10), [currentYear]);
+
+  const fetchAttendance = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/attendance/summary?month=${monthNum}&year=${yearNum}`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.message || 'Failed to fetch attendance');
+      }
+      if (json.success && json.calendar) {
+        const firstDay = new Date(yearNum, monthNum - 1, 1);
+        const offset = firstDay.getDay();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const paddedCalendar = [];
+        for (let i = 0; i < offset; i++) {
+          paddedCalendar.push({ day: null, status: 'empty' });
+        }
+        json.calendar.forEach((item) => {
+          const itemDate = new Date(item.date);
+          itemDate.setHours(0, 0, 0, 0);
+          const isFuture = itemDate > today;
+          let status = backendStatusToFrontend(item.status, item.details);
+          // For future dates with ABSENT status, keep as 'Abs' but mark as future
+          paddedCalendar.push({
+            day: item.day,
+            status: status,
+            isFuture: isFuture && item.status === 'ABSENT',
+          });
+        });
+        setData({
+          summary: {
+            presentDays: json.total_present_days ?? 0,
+            avgPunchIn: formatTimeFromTimedelta(json.average_punch_in),
+            avgPunchOut: formatTimeFromTimedelta(json.average_punch_out),
+            totalHours: formatHours(json.actual_work_hours),
+            targetHours: formatHours(json.expected_work_hours),
+            onTimeStatus: json.difference?.startsWith('-') ? 'Late' : 'On Time',
+            overtimeStatus: json.difference ? (json.difference.startsWith('-') ? `Short ${formatHours(json.difference)}` : `Overtime ${formatHours(json.difference)}`) : '-',
+          },
+          calendar: paddedCalendar,
+        });
+      }
+    } catch (err) {
+      setError(err.message);
+      setData(INITIAL_ATTENDANCE_DATA);
+    } finally {
+      setLoading(false);
+    }
+  }, [monthNum, yearNum]);
+
+  useEffect(() => {
+    fetchAttendance();
+  }, [fetchAttendance]);
+
+  useEffect(() => {
+    const handleLeaveApplied = () => {
+      fetchAttendance();
+    };
+    const handleWfhApplied = () => {
+      fetchAttendance();
+    };
+    window.addEventListener('leaveApplied', handleLeaveApplied);
+    window.addEventListener('wfhApplied', handleWfhApplied);
+    return () => {
+      window.removeEventListener('leaveApplied', handleLeaveApplied);
+      window.removeEventListener('wfhApplied', handleWfhApplied);
+    };
+  }, [fetchAttendance]);
 
     const daysOfWeek = useMemo(() => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], []);
 
@@ -451,10 +542,24 @@ export const Attendance = () => {
         </div>
     );
 
+    if (loading) {
+        return (
+            <div className="attendance-page-container">
+                <div className="attendance-loading" style={{ padding: '4rem', textAlign: 'center' }}>
+                    <div className="loader" style={{ width: 40, height: 40, margin: '0 auto' }} />
+                    <p style={{ marginTop: 16, color: '#666' }}>Loading attendance...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="attendance-page-container">
-            
-            {/* <h1 className="page-title">Attendance</h1> */}
+            {error && (
+                <div className="attendance-error" style={{ padding: 12, marginBottom: 20, background: '#fee', borderRadius: 8, color: '#c00' }}>
+                    {error}
+                </div>
+            )}
 
             {/* 1. TOP SUMMARY CARDS */}
             <div className="summary-cards-grid">
@@ -478,6 +583,15 @@ export const Attendance = () => {
                             setYear={setCurrentYear}
                         />
                         
+                        <button 
+                            className="print-button" 
+                            onClick={() => fetchAttendance()}
+                            disabled={loading}
+                            style={{ marginRight: '10px' }}
+                        >
+                            <FiRefreshCw className="icon-white" style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+                            Refresh
+                        </button>
                         <button className="print-button">
                             <FiDownload className="icon-white" />
                             Print to Excel
@@ -502,11 +616,12 @@ export const Attendance = () => {
                         <div key={day} className="day-name">{day}</div>
                     ))}
                     
-                    {data.calendar.map(item => (
+                    {data.calendar.map((item, index) => (
                         <CalendarDayCell 
-                            key={item.day}
+                            key={`calendar-day-${index}-${item.day || 'empty'}`}
                             day={item.day}
                             status={item.status}
+                            isFuture={item.isFuture || false}
                         />
                     ))}
                 </div>

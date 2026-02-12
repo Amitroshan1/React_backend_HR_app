@@ -65,10 +65,38 @@ export const AddressBlock = ({
                             error={errors[`${errorPrefix}Pincode`]}
                             isMandatory
                         />
-                        <Input label="City" name="city" value={data.city} readOnly />
-                        <Input label="State" name="state" value={data.state} readOnly />
-                        <Input label="District" name="district" value={data.district} readOnly />
-                        <Input label="Taluka" name="taluka" value={data.taluka} readOnly />
+                        <Input
+                            label="City"
+                            name="city"
+                            value={data.city}
+                            onChange={(e) => onChange(addressType, e)}
+                            readOnly={!isCurrent && sameAsCurrent}
+                            error={errors[`${errorPrefix}City`]}
+                        />
+                        <Input
+                            label="State"
+                            name="state"
+                            value={data.state}
+                            onChange={(e) => onChange(addressType, e)}
+                            readOnly={!isCurrent && sameAsCurrent}
+                            error={errors[`${errorPrefix}State`]}
+                        />
+                        <Input
+                            label="District"
+                            name="district"
+                            value={data.district}
+                            onChange={(e) => onChange(addressType, e)}
+                            readOnly={!isCurrent && sameAsCurrent}
+                            error={errors[`${errorPrefix}District`]}
+                        />
+                        <Input
+                            label="Taluka"
+                            name="taluka"
+                            value={data.taluka}
+                            onChange={(e) => onChange(addressType, e)}
+                            readOnly={!isCurrent && sameAsCurrent}
+                            error={errors[`${errorPrefix}Taluka`]}
+                        />
                     </div>
                 </div>
             ) : (

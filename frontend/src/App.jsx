@@ -11,6 +11,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { UserProvider } from "./components/layout/UserContext";
 import { Queries } from "./pages/Query/Queries";
 import { Claims } from "./pages/Claims/Claims";
+import { Separation } from "./pages/Separation/Separation";
 import { Hr } from "./pages/HR/Hr";
 import { Account } from "./pages/Account/Account";
 import {Admin} from "./pages/Admin/Admin";
@@ -36,6 +37,7 @@ export const App = () => {
         { path: "profile", element: <Profile /> },
         { path: "queries", element: <Queries /> },
         { path: "claims", element: <Claims /> },
+        { path: "separation", element: <Separation /> },
          { path: "wfh", element: <Wfh /> },
             { path: "account", element: <Account /> },
             { path: "hr", element: <Hr /> },

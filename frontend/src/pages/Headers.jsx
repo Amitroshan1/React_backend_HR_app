@@ -118,7 +118,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase } from "react-icons/fa";
+import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake } from "react-icons/fa";
 import "./style/Headers.css";
 
 const getPageInfo = (pathname, firstName) => {
@@ -272,6 +272,11 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                         </Link>
                                     </>
                                 )}
+
+                                {/* Separation - Always shown */}
+                                <Link to="/separation" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
+                                    <FaHandshake className="d-icon" /> <span>Separation</span>
+                                </Link>
 
                                 {/* Divider before Logout */}
                                 <div className="dropdown-divider"></div>

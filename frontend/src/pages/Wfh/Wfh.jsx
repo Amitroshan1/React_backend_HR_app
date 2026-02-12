@@ -157,18 +157,63 @@
 
 
 
-import React, { useState } from 'react';
-import { Card } from './ui/Card';
+import React, { useState, useEffect } from 'react';
 import { Toast } from './ui/Toast';
 import './Wfh.css';
+
+const API_BASE_URL = "http://localhost:5000/api/leave";
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
 
 export const Wfh = () => {
   const [requests, setRequests] = useState([]);
   const [form, setForm] = useState({ from: '', to: '', reason: '' });
-  const [toast, setToast] = useState({ show: false, message: '' });
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
   const isFormValid = form.from !== '' && form.to !== '' && form.reason.trim().length > 0;
+
+  const fetchWfhRequests = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/wfh`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      let json = {};
+      try {
+        json = await res.json();
+      } catch {
+        throw new Error('Invalid response from server');
+      }
+      if (json.success && json.applications) {
+        setRequests(json.applications);
+      } else {
+        setToast({ show: true, message: json.message || 'Failed to load WFH requests', type: 'error' });
+      }
+    } catch (err) {
+      setToast({ show: true, message: err.message || 'Network error', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWfhRequests();
+  }, []);
 
   const handleFromChange = (e) => {
     const selectedFrom = e.target.value;
@@ -177,20 +222,51 @@ export const Wfh = () => {
     setForm({ ...form, from: selectedFrom, to: updatedTo });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isFormValid) return;
+    if (!isFormValid || submitting) return;
 
-    const newEntry = {
-      ...form,
-      id: Date.now(),
-      appliedOn: new Date().toLocaleDateString(),
-      status: 'Pending'
-    };
-    
-    setRequests([newEntry, ...requests]);
-    setForm({ from: '', to: '', reason: '' });
-    setToast({ show: true, message: 'WFH Request submitted successfully!' });
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setToast({ show: true, message: 'Please log in to submit WFH request', type: 'error' });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/wfh`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          start_date: form.from,
+          end_date: form.to,
+          reason: form.reason.trim()
+        })
+      });
+      let json = {};
+      try {
+        json = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status})`);
+      }
+
+      if (json.success) {
+        setForm({ from: '', to: '', reason: '' });
+        setToast({ show: true, message: 'WFH Request submitted successfully!', type: 'success' });
+        await fetchWfhRequests();
+        // Notify attendance page to refresh
+        window.dispatchEvent(new CustomEvent('wfhApplied'));
+      } else {
+        setToast({ show: true, message: json.message || 'Failed to submit', type: 'error' });
+      }
+    } catch (err) {
+      setToast({ show: true, message: err.message || 'Network error', type: 'error' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -198,7 +274,7 @@ export const Wfh = () => {
       {toast.show && (
         <Toast 
           message={toast.message} 
-          type="success" 
+          type={toast.type || 'success'} 
           onClose={() => setToast({ ...toast, show: false })} 
         />
       )}
@@ -229,7 +305,7 @@ export const Wfh = () => {
               />
             </div>
             <div className="input-group full-width-mobile">
-              <label>Reason for Leave</label>
+              <label>Reason for WFH</label>
               <input 
                 type="text"
                 className="custom-input"
@@ -239,8 +315,8 @@ export const Wfh = () => {
               />
             </div>
             <div className="search-btn-wrapper">
-              <button type="submit" className="btn-search" disabled={!isFormValid}>
-                Submit Request
+              <button type="submit" className="btn-search" disabled={!isFormValid || submitting}>
+                {submitting ? 'Submitting...' : 'Submit Request'}
               </button>
             </div>
           </div>
@@ -261,7 +337,13 @@ export const Wfh = () => {
               </tr>
             </thead>
             <tbody>
-              {requests.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan="5" className="empty-state" style={{ textAlign: 'center', padding: '40px' }}>
+                    Loading...
+                  </td>
+                </tr>
+              ) : requests.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="empty-state" style={{ textAlign: 'center', padding: '40px' }}>
                     No WFH requests found.
@@ -270,12 +352,16 @@ export const Wfh = () => {
               ) : (
                 requests.map(req => (
                   <tr key={req.id}>
-                    <td>{req.from}</td>
-                    <td>{req.to}</td>
+                    <td>{formatDate(req.start_date)}</td>
+                    <td>{formatDate(req.end_date)}</td>
                     <td>{req.reason}</td>
-                    <td>{req.appliedOn}</td>
+                    <td>{formatDate(req.created_at)}</td>
                     <td>
-                      <span className="badge-pending">{req.status}</span>
+                      <span className={['pending','approved','rejected'].includes((req.status || 'pending').toLowerCase()) 
+                        ? `badge-${(req.status || 'pending').toLowerCase()}` 
+                        : 'badge-default'}>
+                        {req.status || 'Pending'}
+                      </span>
                     </td>
                   </tr>
                 ))

@@ -51,8 +51,8 @@ def hr_required(fn):
 
 
 @hr.route("/signup", methods=["POST"])
-# @jwt_required()
-# @hr_required
+@jwt_required()
+@hr_required
 def signup_api():
     data = request.get_json() or {}
 
@@ -78,17 +78,26 @@ def signup_api():
     # DOJ validation
     # -------------------------
     try:
-        doj = datetime.fromisoformat(data["doj"]).date()
-    except ValueError:
+        doj = datetime.fromisoformat(str(data["doj"]).strip()[:10]).date()
+    except (ValueError, TypeError):
         return jsonify({
             "success": False,
             "message": "Invalid DOJ format (YYYY-MM-DD)"
         }), 400
 
-    # hr_email = get_jwt().get("email")
+    # Trim to fit DB column lengths (Admin: mobile=15, emp_id=10)
+    email = str(data["email"]).strip()
+    first_name = str(data["first_name"]).strip()[:150]
+    user_name = str(data["user_name"]).strip()[:120]
+    mobile = str(data["mobile"]).strip().replace(" ", "")[:15]
+    emp_id = str(data["emp_id"]).strip()[:10]
+    emp_type = str(data["emp_type"]).strip()[:50] if data.get("emp_type") else ""
+    circle = str(data["circle"]).strip()[:50] if data.get("circle") else ""
+
+    hr_email = get_jwt().get("email")
 
     try:
-        admin = Admin.query.filter_by(email=data["email"]).first()
+        admin = Admin.query.filter_by(email=email).first()
 
         # ======================================================
         # CASE 1: Existing user (OAuth / partial record)
@@ -101,13 +110,13 @@ def signup_api():
                 }), 409
 
             # Upgrade existing user
-            admin.first_name = data["first_name"]
-            admin.user_name = data["user_name"]
-            admin.mobile = data["mobile"]
-            admin.emp_id = data["emp_id"]
+            admin.first_name = first_name
+            admin.user_name = user_name
+            admin.mobile = mobile
+            admin.emp_id = emp_id
             admin.doj = doj
-            admin.emp_type = data["emp_type"]
-            admin.circle = data["circle"]
+            admin.emp_type = emp_type
+            admin.circle = circle
             admin.is_active = True
             admin.is_exited = False
 
@@ -124,14 +133,14 @@ def signup_api():
         # ======================================================
         else:
             admin = Admin(
-                email=data["email"],
-                first_name=data["first_name"],
-                user_name=data["user_name"],
-                mobile=data["mobile"],
-                emp_id=data["emp_id"],
+                email=email,
+                first_name=first_name,
+                user_name=user_name,
+                mobile=mobile,
+                emp_id=emp_id,
                 doj=doj,
-                emp_type=data["emp_type"],
-                circle=data["circle"],
+                emp_type=emp_type,
+                circle=circle,
                 is_active=True,
                 is_exited=False
             )
@@ -139,8 +148,8 @@ def signup_api():
             # Password logic
             if data.get("password"):
                 admin.set_password(data["password"])
-            # else:
-                # send_password_set_email(admin)
+            else:
+                send_password_set_email(admin)
 
             db.session.add(admin)
             db.session.flush()  # get admin.id
@@ -159,21 +168,19 @@ def signup_api():
         # ======================================================
         # AUDIT LOG
         # ======================================================
-        # audit = AuditLog(
-        #     action=action,
-        #     performed_by=hr_email,
-        #     target_email=admin.email,
-        #     meta={
-        #         "emp_id": admin.emp_id,
-        #         "emp_type": admin.emp_type,
-        #         "circle": admin.circle
-        #     }
-        # )
-        # db.session.add(audit)
+        audit = AuditLog(
+            action=action,
+            performed_by=hr_email,
+            target_email=admin.email
+        )
+        db.session.add(audit)
 
         db.session.commit()
 
-        # send_welcome_email(admin, data)
+        try:
+            send_welcome_email(admin, data)
+        except Exception as mail_err:
+            current_app.logger.warning(f"Welcome email failed (employee still created): {mail_err}")
 
         return jsonify({
             "success": True,
@@ -184,14 +191,17 @@ def signup_api():
 
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Signup error: {e}")
+        current_app.logger.exception("Signup error")
+        err_msg = str(e)
+        if "Duplicate" in err_msg or "unique" in err_msg.lower() or "1062" in err_msg:
+            return jsonify({
+                "success": False,
+                "message": "Email, User name, Mobile or Employee ID already exists. Use different values."
+            }), 409
         return jsonify({
             "success": False,
-            "message": "Unable to onboard employee"
+            "message": err_msg or "Unable to onboard employee"
         }), 500
-
-    # -------------------------
-    # Send Welcome Email (NON-BLOCKING)
 
 
 @hr.route("/reset-password", methods=["POST"])
@@ -259,6 +269,27 @@ def hr_dashboard_api():
         Punch.punch_in.isnot(None)
     ).count()
 
+    anniversaries_list = []
+    for e in employees_with_anniversaries:
+        emp_detail = Employee.query.filter_by(admin_id=e.id).first()
+        anniversaries_list.append({
+            "emp_id": e.emp_id,
+            "name": e.first_name,
+            "email": e.email,
+            "doj": e.doj.isoformat() if e.doj else None,
+            "designation": emp_detail.designation if emp_detail else None
+        })
+
+    birthdays_list = [
+        {
+            "name": e.name,
+            "email": e.email,
+            "dob": e.dob.isoformat() if e.dob else None,
+            "designation": e.designation or None
+        }
+        for e in employees_with_birthdays
+    ]
+
     return jsonify({
         "success": True,
         "date": today.isoformat(),
@@ -267,23 +298,8 @@ def hr_dashboard_api():
             "new_joinees_last_30_days": new_joinees_count,
             "today_punch_in_count": today_punch_count
         },
-        "anniversaries": [
-            {
-                "emp_id": e.emp_id,
-                "name": e.first_name,
-                "email": e.email,
-                "doj": e.doj.isoformat()
-            }
-            for e in employees_with_anniversaries
-        ],
-        "birthdays": [
-            {
-                "name": e.name,
-                "email": e.email,
-                "dob": e.dob.isoformat()
-            }
-            for e in employees_with_birthdays
-        ]
+        "anniversaries": anniversaries_list,
+        "birthdays": birthdays_list
     }), 200
 
 
@@ -347,12 +363,7 @@ def mark_employee_exit():
         audit = AuditLog(
             action="EMPLOYEE_EXITED",
             performed_by=hr_email,
-            target_email=admin.email,
-            meta={
-                "emp_id": admin.emp_id,
-                "exit_type": exit_type,
-                "exit_date": exit_date.isoformat()
-            }
+            target_email=admin.email
         )
         db.session.add(audit)
 
@@ -717,7 +728,7 @@ def display_details_api():
                 "punch_in": punch.punch_in.strftime("%H:%M:%S") if punch and punch.punch_in else "",
                 "punch_out": punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else "",
                 "is_wfh": bool(punch.is_wfh) if punch else False,
-                "today_work": punch.today_work.strftime("%H:%M:%S") if punch and punch.today_work else "",
+                "today_work": str(punch.today_work) if punch and punch.today_work else "",
                 "on_leave": any(
                     lv.start_date <= current_day <= lv.end_date for lv in leaves
                 )

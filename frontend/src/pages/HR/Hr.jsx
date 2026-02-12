@@ -15,17 +15,105 @@ import { AddAssets } from './AddAssets';
 import { AddLocation } from './AddLocation';
 import { AddNoc } from './AddNoc';
 import { ConfirmationRequest } from './ConfirmationRequest';
+
+const HR_API_BASE = 'http://localhost:5000/api/HumanResource';
+
+function formatDateShort(isoDate) {
+  if (!isoDate) return '';
+  const d = new Date(isoDate);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[d.getMonth()]} ${d.getDate()}`;
+}
+
 export const Hr = () => {
   const navigate = useNavigate();
   
-  // View Management: 'main', 'updates', 'signup'
   const [view, setView] = useState('main');
-  
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState('');
   const [selectedEmployeeType, setSelectedEmployeeType] = useState('');
   const [openDropdownId, setOpenDropdownId] = useState(null);
   const dropdownRef = useRef(null);
+
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState(null);
+  const [counts, setCounts] = useState({ total_employees: 0, new_joinees_last_30_days: 0, today_punch_in_count: 0 });
+  const [birthdays, setBirthdays] = useState([]);
+  const [anniversaries, setAnniversaries] = useState([]);
+
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+
+  const [signupForm, setSignupForm] = useState({
+    user_name: '',
+    first_name: '',
+    email: '',
+    emp_id: '',
+    mobile: '',
+    doj: '',
+    emp_type: '',
+    circle: '',
+    password: '',
+    confirmPassword: ''
+  });
+  const [signupSubmitting, setSignupSubmitting] = useState(false);
+  const [signupError, setSignupError] = useState('');
+  const [signupSuccess, setSignupSuccess] = useState(false);
+
+  const handleSignupChange = (e) => {
+    const { name, value } = e.target;
+    setSignupForm(prev => ({ ...prev, [name]: value }));
+    setSignupError('');
+  };
+
+  const handleSignupSubmit = async (e) => {
+    e.preventDefault();
+    setSignupError('');
+    const { user_name, first_name, email, emp_id, mobile, doj, emp_type, circle, password, confirmPassword } = signupForm;
+    if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle) {
+      setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Employee Type, Circle).');
+      return;
+    }
+    if (password && password !== confirmPassword) {
+      setSignupError('Password and Confirm Password do not match.');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setSignupError('Please log in to create an employee account.');
+      return;
+    }
+    setSignupSubmitting(true);
+    try {
+      const res = await fetch(`${HR_API_BASE}/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          user_name: user_name.trim(),
+          first_name: first_name.trim(),
+          email: email.trim(),
+          emp_id: emp_id.trim(),
+          mobile: mobile.trim().replace(/\s/g, ''),
+          doj,
+          emp_type,
+          circle,
+          ...(password?.trim() ? { password: password.trim() } : {})
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setSignupSuccess(true);
+        setSignupForm({ user_name: '', first_name: '', email: '', emp_id: '', mobile: '', doj: '', emp_type: '', circle: '', password: '', confirmPassword: '' });
+      } else {
+        setSignupError(data.message || 'Failed to create account.');
+      }
+    } catch (err) {
+      console.error(err);
+      setSignupError('Network error. Please try again.');
+    } finally {
+      setSignupSubmitting(false);
+    }
+  };
 
   const employeeDetailsOptions = [
     'Family Details', 'Employee Details', 'Document', 
@@ -33,14 +121,10 @@ export const Hr = () => {
     'Leave Details', 'Punch In-Out'
   ];
 
-  const todaysBirthdays = [
-    { name: 'John Smith', date: 'Dec 24', role: 'Software Engineer', designation: 'Senior Developer', email: 'jsmith@saffotech.com' },
-  ];
-
   const stats = [
-    { title: 'Total Employees', value: '248', subtitle: '+12 this month', icon: Users, color: 'blue' },
-    { title: 'New Hires', value: '15', subtitle: 'This quarter', icon: UserPlus, color: 'green' },
-    { title: 'Active Today', value: '186', subtitle: '75% attendance', icon: UserCheck, color: 'purple' },
+    { title: 'Total Employees', value: String(counts.total_employees), subtitle: 'All active', icon: Users, color: 'blue' },
+    { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green' },
+    { title: 'Active Today', value: String(counts.today_punch_in_count), subtitle: 'Punched in today', icon: UserCheck, color: 'purple' },
   ];
 
   const updateOptions = [
@@ -55,19 +139,76 @@ export const Hr = () => {
     { title: 'Confirmation Request', icon: FileText, description: 'Employee confirmations' },
   ];
 
-  const handleSearch = () => {
-    if (selectedCircle && selectedEmployeeType) {
-      setShowSearchResults(true);
-    } else {
+  const handleSearch = async () => {
+    if (!selectedCircle || !selectedEmployeeType) {
       alert("Please select both Circle and Employee Type");
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert("Please log in to search employees.");
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const res = await fetch(
+        `${HR_API_BASE}/search?circle=${encodeURIComponent(selectedCircle)}&emp_type=${encodeURIComponent(selectedEmployeeType)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await res.json();
+      if (res.ok && data.success && data.employees) {
+        setSearchResults(data.employees.map((e) => ({
+          name: e.name,
+          email: e.email,
+          circle: selectedCircle,
+          type: selectedEmployeeType,
+          id: e.id
+        })));
+        setShowSearchResults(true);
+      } else {
+        setSearchResults([]);
+        setShowSearchResults(true);
+        if (!data.success && data.message) alert(data.message);
+      }
+    } catch (err) {
+      console.error(err);
+      setSearchResults([]);
+      setShowSearchResults(true);
+    } finally {
+      setSearchLoading(false);
     }
   };
 
-  const searchResults = [
-    { name: 'Amit', email: 'akumar4@saffotech.com', circle: selectedCircle, type: selectedEmployeeType },
-    { name: 'Neha', email: 'nphatak@saffotech.com', circle: selectedCircle, type: selectedEmployeeType },
-    { name: 'Plasha', email: 'ppal@saffotech.com', circle: selectedCircle, type: selectedEmployeeType },
-  ];
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setDashboardLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${HR_API_BASE}/dashboard`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          if (!cancelled) setDashboardError('Failed to load dashboard');
+          return;
+        }
+        const data = await res.json();
+        if (cancelled || !data.success) return;
+        setCounts(data.counts || {});
+        setBirthdays(data.birthdays || []);
+        setAnniversaries(data.anniversaries || []);
+        setDashboardError(null);
+      } catch (err) {
+        if (!cancelled) setDashboardError('Failed to load dashboard');
+      } finally {
+        if (!cancelled) setDashboardLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -91,8 +232,9 @@ export const Hr = () => {
 
   const handleUpdateCardClick = (title) => {
     if (title === 'Sign Up') {
+      setSignupSuccess(false);
+      setSignupError('');
       setView('signup');
-     
     } 
     else if (title === 'Update_SignUp') {
       setView('update_signup');
@@ -160,54 +302,63 @@ if (view === 'confirmation_request') {
               <h2>Create New Employee Account</h2>
               <p>Fill in the details to register a new employee</p>
             </div>
-<form className="signup-form">
-  <div className="form-row">
-    <div className="form-group">
-      <label>UserName</label>
-      <input type="text" placeholder="Create Unique UserName" />
-    </div>
-    <div className="form-group">
-      <label>Full Name</label>
-      <input type="text" placeholder="Enter your Full Name" />
-    </div>
-  </div>
-
-  <div className="form-row">
-    <div className="form-group">
-      <label>Email</label>
-      <input type="email" placeholder="Enter your Email ID" />
-    </div>
-    <div className="form-group">
-      <label>Employee ID</label>
-      <input type="text" placeholder="Enter your Employee ID" />
-    </div>
-  </div>
-
-
+            {signupSuccess && (
+              <div className="signup-success-msg" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
+                Employee onboarded successfully. You can create another or go back.
+              </div>
+            )}
+            {signupError && (
+              <div className="signup-error-msg" style={{ padding: '12px', marginBottom: '16px', background: '#fef2f2', color: '#b91c1c', borderRadius: '8px' }}>
+                {signupError}
+              </div>
+            )}
+            <form className="signup-form" onSubmit={handleSignupSubmit}>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Mobile Number</label>
-                  <input type="tel" placeholder="Enter your Mobile Number" />
+                  <label>UserName <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <input name="user_name" type="text" placeholder="Create Unique UserName" value={signupForm.user_name} onChange={handleSignupChange} />
                 </div>
                 <div className="form-group">
-                  <label>Date of Joining</label>
-                  <input type="date" />
+                  <label>Full Name <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <input name="first_name" type="text" placeholder="Enter your Full Name" value={signupForm.first_name} onChange={handleSignupChange} />
                 </div>
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Employee Type</label>
-                  <select defaultValue="">
-                    <option value="" disabled>Select Employee Type</option>
+                  <label>Email <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <input name="email" type="email" placeholder="Enter your Email ID" value={signupForm.email} onChange={handleSignupChange} />
+                </div>
+                <div className="form-group">
+                  <label>Employee ID <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <input name="emp_id" type="text" placeholder="Enter your Employee ID" value={signupForm.emp_id} onChange={handleSignupChange} />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Mobile Number <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <input name="mobile" type="tel" placeholder="Enter your Mobile Number" value={signupForm.mobile} onChange={handleSignupChange} />
+                </div>
+                <div className="form-group">
+                  <label>Date of Joining <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <input name="doj" type="date" value={signupForm.doj} onChange={handleSignupChange} />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Employee Type <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <select name="emp_type" value={signupForm.emp_type} onChange={handleSignupChange}>
+                    <option value="">Select Employee Type</option>
                     <option value="Human Resource">Human Resource</option>
                     <option value="Software Developer">Software Developer</option>
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Circle</label>
-                  <select defaultValue="">
-                    <option value="" disabled>Choose Your Circle</option>
+                  <label>Circle <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <select name="circle" value={signupForm.circle} onChange={handleSignupChange}>
+                    <option value="">Choose Your Circle</option>
                     <option value="NHQ">NHQ</option>
                     <option value="Delhi">Delhi</option>
                   </select>
@@ -216,17 +367,19 @@ if (view === 'confirmation_request') {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Password</label>
-                  <input type="password" placeholder="Enter your Password" />
+                  <label>Password (optional)</label>
+                  <input name="password" type="password" placeholder="Leave blank to send set-password email" value={signupForm.password} onChange={handleSignupChange} />
                 </div>
                 <div className="form-group">
                   <label>Confirm Password</label>
-                  <input type="password" placeholder="Confirm your Password" />
+                  <input name="confirmPassword" type="password" placeholder="Confirm your Password" value={signupForm.confirmPassword} onChange={handleSignupChange} />
                 </div>
               </div>
 
               <div className="form-actions">
-                <button type="submit" className="btn-create-account">Create Account</button>
+                <button type="submit" className="btn-create-account" disabled={signupSubmitting}>
+                  {signupSubmitting ? 'Creating...' : 'Create Account'}
+                </button>
               </div>
             </form>
           </div>
@@ -262,26 +415,61 @@ if (view === 'confirmation_request') {
   // VIEW 3: MAIN HR PANEL
   return (
     <div className="hr-main-container">
-      {todaysBirthdays && (
-        <div className="birthday-anniversary-card">
-          <div className="card-icon-wrapper">
-            <div className="icon-circle">
-              <Cake size={24} className="icon-gold" />
+      {dashboardLoading && <p className="hr-loading">Loading dashboard...</p>}
+      {dashboardError && <p className="hr-error">{dashboardError}</p>}
+
+      {!dashboardLoading && (birthdays.length > 0 || anniversaries.length > 0) && (
+        <div className="birthday-anniversary-section">
+          {birthdays.length > 0 && (
+            <div className="birthday-anniversary-card">
+              <div className="card-icon-wrapper">
+                <div className="icon-circle">
+                  <Cake size={24} className="icon-gold" />
+                </div>
+              </div>
+              <div className="card-content-wrapper">
+                <div className="card-header-row">
+                  <span className="emoji-cake">🎂</span>
+                  <h3 className="card-title-text">Birthday (DOB)</h3>
+                </div>
+                {birthdays.map((b, i) => (
+                  <div key={i} className="employee-celebration-block">
+                    <h2 className="employee-name-text">{b.name}</h2>
+                    <div className="employee-details-row">
+                      <span className="detail-item"><strong className="detail-label">Date:</strong> {formatDateShort(b.dob)}</span>
+                      {b.designation && <span className="detail-item"><strong className="detail-label">Designation:</strong> {b.designation}</span>}
+                      <span className="detail-item"><strong className="detail-label">Email:</strong> {b.email}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="card-content-wrapper">
-            <div className="card-header-row">
-              <span className="emoji-cake">🎂</span>
-              <h3 className="card-title-text">Happy Birthday!</h3>
+          )}
+          {anniversaries.length > 0 && (
+            <div className="birthday-anniversary-card anniversary-card">
+              <div className="card-icon-wrapper">
+                <div className="icon-circle">
+                  <Cake size={24} className="icon-gold" />
+                </div>
+              </div>
+              <div className="card-content-wrapper">
+                <div className="card-header-row">
+                  <span className="emoji-cake">🎉</span>
+                  <h3 className="card-title-text">Work Anniversary (DOJ)</h3>
+                </div>
+                {anniversaries.map((a, i) => (
+                  <div key={i} className="employee-celebration-block">
+                    <h2 className="employee-name-text">{a.name}</h2>
+                    <div className="employee-details-row">
+                      <span className="detail-item"><strong className="detail-label">DOJ:</strong> {formatDateShort(a.doj)}</span>
+                      {a.designation && <span className="detail-item"><strong className="detail-label">Designation:</strong> {a.designation}</span>}
+                      <span className="detail-item"><strong className="detail-label">Email:</strong> {a.email}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <h2 className="employee-name-text">John Smith</h2>
-            <div className="employee-details-row">
-              <span className="detail-item"><strong className="detail-label">Date:</strong> Dec 24</span>
-              <span className="detail-item"><strong className="detail-label">Role:</strong> Software Engineer</span>
-              <span className="detail-item"><strong className="detail-label">Designation:</strong> Senior Developer</span>
-              <span className="detail-item"><strong className="detail-label">Email:</strong> jsmith@saffotech.com</span>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -336,8 +524,8 @@ if (view === 'confirmation_request') {
                 </select>
               </div>
               <div className="search-btn-wrapper">
-                <button className="btn-search" onClick={handleSearch}>
-                  {/* <Search size={18} /> <span>Search</span> */} <i class="search-icon"></i> Search
+                <button className="btn-search" onClick={handleSearch} disabled={searchLoading}>
+                  <i className="search-icon"></i> {searchLoading ? 'Searching...' : 'Search'}
                 </button>
               </div>
             </div>

@@ -407,169 +407,207 @@
     color: var(--text-muted);}
 
 .attendance-body {
-
-    display: flex;
-
-    flex-direction: column;
-
-    gap: 15px;
-
-    padding: 15px 0;}
-
-.attendance-body .label {
-
-    font-size: 0.8rem;
-
-    color: var(--text-muted);
-
-    margin-bottom: 5px;}
-
-.attendance-body .time-value {
-
-    font-size: 1.4rem;
-
-    font-weight: 700;
-
-    color: var(--text-dark);
-
-    margin: 0;}
-
-/* Dashed separator below Check In Time */
-
-.dashed-border {
-
-    border-bottom: 2px dashed #999;
-
-    padding-bottom: 2px;
-
-    width: fit-content;}
-
-.current-status {
-
-    flex-grow: 1;
-
-    text-align: center;}
-
-/* Location Status Row */
-.location-status-row {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    width: 100%;
-    margin-bottom: 15px;
+    gap: 20px;
+    padding: 20px 0;
 }
 
-.location-status-indicator {
+/* Top Row: Location + Status */
+.status-row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.location-badge {
     display: flex;
     align-items: center;
     gap: 10px;
 }
 
-.location-status {
-    font-size: 0.9rem;
-    font-weight: 600;
-    padding: 4px 12px;
-    border-radius: 12px;
-    display: inline-block;
+.location-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 500;
 }
 
-.location-status.on {
-    background-color: #28a745;
-    color: white;
-}
-
-.location-status.off {
-    background-color: #dc3545;
-    color: white;
-}
-
-.location-error-text {
-    font-size: 0.75rem;
-    color: #dc3545;
-}
-
-/* Status with Indicator (Active/Inactive with Green Dot) */
-.status-with-indicator {
-    display: flex;
+.location-pill {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    justify-content: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
 }
 
-.status-dot {
-    width: 10px;
-    height: 10px;
+.location-pill .location-dot {
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    display: inline-block;
-    flex-shrink: 0;
+    background: currentColor;
 }
 
-.status-dot.active {
-    background-color: #28a745;
-    box-shadow: 0 0 6px rgba(40, 167, 69, 0.6);
-}
-
-.status-dot.inactive {
-    background-color: #6c757d;
-}
-
-.current-status .status-value.active {
+.location-pill.on {
+    background: rgba(40, 167, 69, 0.15);
     color: #28a745;
 }
 
-.current-status .status-value.inactive {
+.location-pill.off {
+    background: rgba(220, 53, 69, 0.12);
+    color: #dc3545;
+}
+
+/* Main Status Badge */
+.status-badge-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 20px;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.status-badge-main.active {
+    background: linear-gradient(135deg, rgba(40, 167, 69, 0.18) 0%, rgba(40, 167, 69, 0.08) 100%);
+    color: #28a745;
+}
+
+.status-badge-main.inactive {
+    background: rgba(108, 117, 125, 0.12);
     color: #6c757d;
 }
 
-    color: var(--primary-blue);
+.status-pulse-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
 
-    margin: 0;}
+.status-pulse-dot.active {
+    background: #28a745;
+    box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.35);
+}
 
-.hours-today {
+.status-badge-main.inactive .status-pulse-dot {
+    background: #6c757d;
+}
 
-    text-align: right; /* Aligns to the right side of the Hours Today box */}
-
-.action-buttons {
-
+/* Location Error Banner */
+.location-error-banner {
     display: flex;
-
-    gap: 10px;
-
-    justify-content: flex-end;
-
-    flex-shrink: 0;}
-
-.check-in-btn, .check-out-btn {
-
-    padding: 10px 15px;
-
-    border: none;
-
-    border-radius: 5px;
-
-    font-weight: 600;
-
-    cursor: pointer;
-
-    transition: background-color 0.2s;
-
-    display: flex;
-
     align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(220, 53, 69, 0.08);
+    border: 1px solid rgba(220, 53, 69, 0.25);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: #dc3545;
+}
 
-    gap: 5px;}
+/* Stats Grid */
+.status-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
 
-.check-in-btn {
+.status-stat-card {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid #eee;
+}
 
-    background-color: var(--primary-green);
+.status-stat-card.highlight {
+    background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
+    border-color: rgba(0, 123, 255, 0.2);
+}
 
-    color: white;}
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
 
-.check-out-btn {
+.stat-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text-dark);
+}
 
-    background-color: #e9ecef;
+.stat-timer {
+    color: var(--primary-blue);
+    font-variant-numeric: tabular-nums;
+}
 
-    color: var(--text-dark);}
+/* Action Buttons */
+.status-action-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.btn-punch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-punch:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-punch-in {
+    background: linear-gradient(135deg, #28a745 0%, #218838 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.35);
+}
+
+.btn-punch-in:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+}
+
+.btn-punch-out {
+    background: #fff;
+    color: var(--text-dark);
+    border: 2px solid #dee2e6;
+}
+
+.btn-punch-out:hover:not(:disabled) {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+.btn-icon {
+    font-size: 1.1rem;
+}
+
+/* Legacy support */
+.attendance-body .label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; }
+.attendance-body .time-value { font-size: 1.4rem; font-weight: 700; color: var(--text-dark); margin: 0; }
+.dashed-border { border-bottom: 2px dashed #999; padding-bottom: 2px; width: fit-content; }
 
 .quick-actions {
 
@@ -779,7 +817,7 @@
 
         flex-wrap: wrap; }
 
-    .check-in-time, .current-status, .hours-today, .location-status-row, .action-buttons {
+    .status-row-top, .status-stats-grid, .status-action-buttons {
 
         width: 100%;
 
@@ -839,23 +877,31 @@
 
         flex-direction: column;
 
-        align-items: flex-start;
+        align-items: stretch;
 
-        gap: 15px;}
+        gap: 16px;
 
-    .check-in-time, .current-status, .hours-today, .location-status-row, .action-buttons {
+        padding: 16px 0;}
+
+    .status-row-top, .status-stats-grid, .status-action-buttons {
 
         width: 100%;
 
         text-align: left;}
 
-    .hours-today {
+    .status-row-top {
 
-        text-align: left; } 
+        flex-direction: column;
 
-    .action-buttons {justify-content: space-between;}
+        align-items: stretch; }
 
-    .check-in-btn, .check-out-btn {
+    .status-stats-grid {
+
+        grid-template-columns: 1fr; }
+
+    .status-action-buttons { justify-content: space-between; }
+
+    .btn-punch {
 
         flex-grow: 1;}
 

@@ -56,19 +56,20 @@ def create_app():
     # With supports_credentials=True, you must NOT use wildcard origins.
     CORS(
         app,
-        # Allow common React dev ports (5173, 5174, etc.) on localhost during development.
-        # Using a regex here avoids having to update this every time the port changes.
         resources={
             r"/api/*": {
                 "origins": [
-                    r"http://localhost:\d+",
-                    r"http://127\.0\.0\.1:\d+",
+                    "http://localhost:5173",
+                    "http://localhost:3000",
+                    "http://127.0.0.1:5173",
+                    "http://127.0.0.1:3000",
                 ]
             }
         },
         supports_credentials=True,
         allow_headers=["Content-Type", "Authorization"],
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        expose_headers=["Content-Type"],
     )
 
     # ---------------------------

@@ -110,7 +110,12 @@ def calculate_month_summary(admin_id, year, month):
 
     for p in punches:
         if p.today_work:
-            secs = p.today_work.hour * 3600 + p.today_work.minute * 60
+            tw = str(p.today_work)
+            parts = tw.split(":")
+            h = int(parts[0]) if len(parts) > 0 else 0
+            m = int(parts[1]) if len(parts) > 1 else 0
+            s = int(parts[2]) if len(parts) > 2 else 0
+            secs = h * 3600 + m * 60 + s
         else:
             secs = calc_work(p.punch_in, p.punch_out)
 

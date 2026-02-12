@@ -347,6 +347,8 @@ export const Leaves= () => {
                 await new Promise(resolve => setTimeout(resolve, 500));
                 await fetchLeaveRequests();
                 await refreshUserData();
+                // Notify attendance page to refresh
+                window.dispatchEvent(new CustomEvent('leaveApplied'));
                 alert("Leave applied successfully!");
                 return true; // Return true to allow modal to close
             } else {

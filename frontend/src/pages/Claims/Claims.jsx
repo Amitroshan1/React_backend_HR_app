@@ -2,8 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Receipt, Calendar, Plus, FileText, Trash2, CheckCircle } from 'lucide-react';
 import './Claims.css';
 
+const API_BASE_URL = "http://localhost:5000/api/leave";
+
 export const Claims = () => {
-  const [claims, setClaims] = useState([]);
+  const [claims, setClaims] = useState([]); // Local list of expense items to be submitted
+  const [submittedClaims, setSubmittedClaims] = useState([]); // Claims from backend
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
+  const fileInputRefs = useRef({});
+  
   const [claimForm, setClaimForm] = useState({
     employeeName: '',
     designation: '',
@@ -25,42 +34,210 @@ export const Claims = () => {
     setClaimForm((prev) => ({ ...prev, [id]: value }));
   };
 
-  const handleFileChange = (e) => {
-    setClaimForm((prev) => ({ ...prev, attachFile: e.target.files[0] }));
+  const handleFileChange = (e, index) => {
+    const file = e.target.files[0];
+    if (index !== undefined) {
+      // For existing claims in the list
+      const updatedClaims = [...claims];
+      updatedClaims[index].attachFile = file;
+      setClaims(updatedClaims);
+    } else {
+      // For new claim form
+      setClaimForm((prev) => ({ ...prev, attachFile: file }));
+    }
   };
 
-  const handleSubmitClaim = (addMore = false) => {
-    // Basic Validation
-    if (!claimForm.expenseDate || !claimForm.purpose || !claimForm.amount || !claimForm.country) {
-      alert("Please fill in all required expense details");
+  const fetchClaims = async () => {
+    setLoading(true);
+    setError(null);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/claim-expense`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const text = await res.text();
+      let json = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch (e) {
+        throw new Error(`Server error (${res.status}). Check backend logs.`);
+      }
+
+      if (!res.ok) {
+        throw new Error(json.message || 'Failed to fetch claims');
+      }
+
+      if (json.success && json.claims) {
+        // Flatten claims to show all items
+        const allItems = [];
+        json.claims.forEach(claim => {
+          claim.items.forEach((item, idx) => {
+            allItems.push({
+              id: `${claim.id}-${idx}`,
+              claimId: claim.id,
+              sr_no: item.sr_no,
+              country: claim.country_state,
+              date: item.date,
+              purpose: item.purpose,
+              amount: item.amount,
+              currency: item.currency,
+              status: item.status,
+              file: item.file,
+              travelFrom: claim.travel_from_date,
+              travelTo: claim.travel_to_date,
+            });
+          });
+        });
+        setSubmittedClaims(allItems);
+      }
+    } catch (err) {
+      setError(err.message);
+      console.error('Error fetching claims:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchClaims();
+  }, []);
+
+  const handleAddToClaim = () => {
+    // Validation
+    if (!claimForm.expenseDate || !claimForm.purpose || !claimForm.amount) {
+      alert("Please fill in Date, Purpose, and Amount");
       return;
     }
 
     const newClaim = {
       id: Date.now(),
-      country: claimForm.country,
+      sr_no: claims.length + 1,
+      country: claimForm.country || 'N/A',
       date: claimForm.expenseDate,
       purpose: claimForm.purpose,
-      amount: claimForm.amount,
+      amount: parseFloat(claimForm.amount),
       currency: claimForm.currency,
+      attachFile: claimForm.attachFile,
       status: 'pending'
     };
 
     setClaims([...claims, newClaim]);
 
-    if (addMore) {
-      // Reset only the expense-specific fields
-      setClaimForm(prev => ({
-        ...prev,
-        expenseDate: '',
-        purpose: '',
-        amount: '',
-        attachFile: null,
+    // Reset only expense-specific fields
+    setClaimForm(prev => ({
+      ...prev,
+      expenseDate: '',
+      purpose: '',
+      amount: '',
+      attachFile: null,
+    }));
+    
+    // Reset file input
+    if (fileInputRefs.current.newClaim) {
+      fileInputRefs.current.newClaim.value = '';
+    }
+  };
+
+  const handleRemoveClaim = (id) => {
+    setClaims(claims.filter(c => c.id !== id).map((c, idx) => ({ ...c, sr_no: idx + 1 })));
+  };
+
+  const handleSubmitFinalClaim = async () => {
+    // Validation
+    if (claims.length === 0) {
+      alert("Please add at least one expense item");
+      return;
+    }
+
+    if (!claimForm.employeeName || !claimForm.designation || !claimForm.employeeId || 
+        !claimForm.email || !claimForm.projectName || !claimForm.travelFrom || !claimForm.travelTo) {
+      alert("Please fill in all employee and travel details");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert("Please login again");
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      // Prepare FormData
+      const formData = new FormData();
+      
+      // Header fields
+      formData.append('employee_name', claimForm.employeeName);
+      formData.append('designation', claimForm.designation);
+      formData.append('emp_id', claimForm.employeeId);
+      formData.append('email', claimForm.email);
+      formData.append('project_name', claimForm.projectName);
+      formData.append('country_state', claimForm.country || 'N/A');
+      formData.append('travel_from_date', claimForm.travelFrom);
+      formData.append('travel_to_date', claimForm.travelTo);
+
+      // Expenses array
+      const expenses = claims.map(c => ({
+        sr_no: c.sr_no,
+        date: c.date,
+        purpose: c.purpose,
+        amount: c.amount,
+        currency: c.currency
       }));
-    } else {
-      // Full Reset
-      resetForm();
-      alert("Expense claim submitted successfully!");
+      formData.append('expenses', JSON.stringify(expenses));
+
+      // Files
+      claims.forEach(c => {
+        if (c.attachFile) {
+          formData.append('attachments', c.attachFile);
+        }
+      });
+
+      const res = await fetch(`${API_BASE_URL}/claim-expense`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const text = await res.text();
+      let json = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch (e) {
+        throw new Error(`Server error (${res.status}). Check backend logs.`);
+      }
+
+      if (!res.ok) {
+        throw new Error(json.message || 'Failed to submit expense claim');
+      }
+
+      if (json.success) {
+        setSuccessMessage('Expense claim submitted successfully!');
+        resetForm();
+        setClaims([]);
+        await fetchClaims();
+        // Clear file inputs
+        Object.values(fileInputRefs.current).forEach(ref => {
+          if (ref) ref.value = '';
+        });
+      }
+    } catch (err) {
+      setError(err.message);
+      console.error('Error submitting claim:', err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -75,8 +252,28 @@ export const Claims = () => {
 
   const totalAmount = claims.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
+
   return (
     <div className="claims-page-container">
+      {error && (
+        <div className="error-banner" style={{ padding: '12px', marginBottom: '20px', background: '#fee', borderRadius: '8px', color: '#c00' }}>
+          {error}
+        </div>
+      )}
+      {successMessage && (
+        <div className="success-banner" style={{ padding: '12px', marginBottom: '20px', background: '#efe', borderRadius: '8px', color: '#0a0' }}>
+          {successMessage}
+        </div>
+      )}
       {/* <div className="claims-header">
         <h1>Expense Claims</h1>
         <p>Submit and track your expense claims</p>
@@ -165,70 +362,119 @@ export const Claims = () => {
             <div className="form-group">
               <label htmlFor="attachFile">Attach Supporting Receipt</label>
               <div className="file-input-wrapper">
-                <input type="file" id="attachFile" onChange={handleFileChange} />
+                <input 
+                  type="file" 
+                  id="attachFile" 
+                  onChange={handleFileChange}
+                  ref={el => fileInputRefs.current.newClaim = el}
+                />
                 <span className="file-custom-label">
                    {claimForm.attachFile ? claimForm.attachFile.name : 'Choose file...'}
                 </span>
               </div>
             </div>
-            <button className="btn-submit-more" onClick={() => handleSubmitClaim(true)}>
+            <button className="btn-submit-more" onClick={handleAddToClaim}>
               <Plus size={18} /> Add to List
             </button>
           </div>
         </div>
       </div>
 
+      {/* Current Claim Items List */}
+      {claims.length > 0 && (
+        <div className="claims-card table-card">
+          <div className="card-header">
+            <FileText className="icon-primary" />
+            <h3>Current Claim Items ({claims.length})</h3>
+          </div>
+          <div className="table-responsive">
+            <table className="claims-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date</th>
+                  <th>Purpose</th>
+                  <th>Amount</th>
+                  <th>Currency</th>
+                  <th>File</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claims.map((claim, index) => (
+                  <tr key={claim.id}>
+                    <td>{claim.sr_no}</td>
+                    <td>{formatDate(claim.date)}</td>
+                    <td>{claim.purpose}</td>
+                    <td><strong>{claim.amount}</strong></td>
+                    <td>{claim.currency}</td>
+                    <td>{claim.attachFile ? claim.attachFile.name : '-'}</td>
+                    <td>
+                      <button 
+                        className="btn-remove" 
+                        onClick={() => handleRemoveClaim(claim.id)}
+                        style={{ background: '#fee', color: '#c00', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Submitted Claims Table Card */}
       <div className="claims-card table-card">
         <div className="card-header">
           <FileText className="icon-primary" />
-          <h3>Submitted Claims List</h3>
+          <h3>Submitted Claims History</h3>
         </div>
-        <div className="table-responsive">
-          <table className="claims-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Country</th>
-                <th>Date</th>
-                <th>Purpose</th>
-                <th>Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {claims.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: '20px', textAlign: 'center' }}>Loading claims...</div>
+        ) : (
+          <div className="table-responsive">
+            <table className="claims-table">
+              <thead>
                 <tr>
-                  <td colSpan="6" className="table-empty">No claims added yet.</td>
+                  <th>#</th>
+                  <th>Country</th>
+                  <th>Date</th>
+                  <th>Purpose</th>
+                  <th>Amount</th>
+                  <th>Status</th>
                 </tr>
-              ) : (
-                claims.map((claim, index) => (
-                  <tr key={claim.id}>
-                    <td>{index + 1}</td>
-                    <td>{claim.country}</td>
-                    <td>{claim.date}</td>
-                    <td>{claim.purpose}</td>
-                    <td><strong>{claim.amount} {claim.currency}</strong></td>
-                    <td>
-                      <span className={`status-badge ${claim.status}`}>
-                        {claim.status.toUpperCase()}
-                      </span>
-                    </td>
+              </thead>
+              <tbody>
+                {submittedClaims.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="table-empty">No claims submitted yet.</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {/* {claims.length > 0 && (
-          <div className="final-submit-area">
-             <button className="btn-final" onClick={() => handleSubmitClaim(false)}>
-               Submit Final Claim Report
-             </button>
+                ) : (
+                  submittedClaims.map((claim, index) => (
+                    <tr key={claim.id}>
+                      <td>{claim.sr_no}</td>
+                      <td>{claim.country}</td>
+                      <td>{formatDate(claim.date)}</td>
+                      <td>{claim.purpose}</td>
+                      <td><strong>{claim.amount} {claim.currency}</strong></td>
+                      <td>
+                        <span className={`status-badge ${(claim.status || 'pending').toLowerCase()}`}>
+                          {(claim.status || 'Pending').toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        )} */}
+        )}
+      </div>
 
-{claims.length > 0 && (
+      {claims.length > 0 && (
   <div className="summary-section">
     <div className="total-box">
       <div className="total-label">Total Claim Amount</div>
@@ -237,13 +483,16 @@ export const Claims = () => {
       </div>
     </div>
     <div className="final-actions">
-      <button className="btn-final" onClick={() => handleSubmitClaim(false)}>
-        Submit Final Claim Report
+      <button 
+        className="btn-final" 
+        onClick={handleSubmitFinalClaim}
+        disabled={submitting}
+      >
+        {submitting ? 'Submitting...' : 'Submit Final Claim Report'}
       </button>
     </div>
   </div>
 )}
-      </div>
     </div>
   );
 }

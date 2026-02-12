@@ -464,7 +464,7 @@ def send_welcome_email(admin,data):
         <table cellpadding="6" cellspacing="0" border="1">
             <tr><td><strong>Employee ID</strong></td><td>{admin.emp_id}</td></tr>
             <tr><td><strong>Email</strong></td><td>{admin.email}</td></tr>
-            <tr><td><strong>Password</strong></td><td>{data["password"]}</td></tr>
+            <tr><td><strong>Password</strong></td><td>{data.get("password") or "You will receive a separate email to set your password."}</td></tr>
             <tr><td><strong>Department</strong></td><td>{admin.emp_type}</td></tr>
             <tr><td><strong>Circle</strong></td><td>{admin.circle}</td></tr>
             <tr><td><strong>Date of Joining</strong></td><td>{admin.doj}</td></tr>

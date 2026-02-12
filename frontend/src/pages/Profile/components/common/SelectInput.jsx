@@ -9,6 +9,7 @@ export const SelectInput = ({
     onChange,
     options = [],
     error,
+    isMandatory,
     ...rest
 }) => {
     const id = React.useMemo(
@@ -42,6 +43,7 @@ export const SelectInput = ({
                     className={`input-label ${hasValue ? 'label-float' : ''}`}
                 >
                     {label}
+                    {isMandatory && <span className="mandatory-star">*</span>}
                 </label>
             )}
 

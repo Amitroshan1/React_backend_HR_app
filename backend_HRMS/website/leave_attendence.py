@@ -55,6 +55,32 @@ def attendance_summary():
 
     punch_map = {p.punch_date: p for p in punches}
 
+    # Fetch approved and pending leaves
+    leaves = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin.id,
+        LeaveApplication.status.in_(["Approved", "Pending"]),
+        LeaveApplication.start_date <= last_day,
+        LeaveApplication.end_date >= first_day
+    ).all()
+
+    # Fetch approved and pending WFH applications
+    wfh_apps = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin.id,
+        WorkFromHomeApplication.status.in_(["Approved", "Pending"]),
+        WorkFromHomeApplication.start_date <= last_day,
+        WorkFromHomeApplication.end_date >= first_day
+    ).all()
+
+    def is_on_leave(d):
+        # Only check for APPROVED leave - pending leave will not show as "On Leave"
+        return any(lv.start_date <= d <= lv.end_date for lv in leaves if lv.status == "Approved")
+
+    def is_wfh_approved(d):
+        return any(wfh.start_date <= d <= wfh.end_date for wfh in wfh_apps if wfh.status == "Approved")
+
+    def is_wfh_pending(d):
+        return any(wfh.start_date <= d <= wfh.end_date for wfh in wfh_apps if wfh.status == "Pending")
+
     # ---------------- SUMMARY DATA ----------------
     total_present_days = 0
     total_work_seconds = 0
@@ -75,17 +101,13 @@ def attendance_summary():
                 except:
                     pass
 
-            punch_in_seconds.append(
-                p.punch_in.hour * 3600 +
-                p.punch_in.minute * 60 +
-                p.punch_in.second
-            )
+            def _to_seconds(dt):
+                if dt is None:
+                    return 0
+                return getattr(dt, 'hour', 0) * 3600 + getattr(dt, 'minute', 0) * 60 + getattr(dt, 'second', 0)
 
-            punch_out_seconds.append(
-                p.punch_out.hour * 3600 +
-                p.punch_out.minute * 60 +
-                p.punch_out.second
-            )
+            punch_in_seconds.append(_to_seconds(p.punch_in))
+            punch_out_seconds.append(_to_seconds(p.punch_out))
 
     avg_punch_in = (
         str(timedelta(seconds=sum(punch_in_seconds) // len(punch_in_seconds)))
@@ -108,6 +130,7 @@ def attendance_summary():
 
     # ---------------- CALENDAR DATA ----------------
     calendar_data = []
+    today = date.today()
 
     current_day = first_day
     while current_day <= last_day:
@@ -122,17 +145,15 @@ def attendance_summary():
 
         if current_day.weekday() >= 5:
             day_status["status"] = "WEEKEND"
-
         else:
             punch = punch_map.get(current_day)
-
-            if not punch:
-                day_status["status"] = "LEAVE"
-
-            else:
+            is_future = current_day > today
+            
+            # Priority: Punch record > WFH > Leave > Absent
+            if punch:
+                # Has punch record - use punch status
                 if punch.punch_in and not punch.punch_out:
                     day_status["status"] = "PENDING_PUNCH_OUT"
-
                 else:
                     work_seconds = 0
                     if punch.today_work:
@@ -141,20 +162,58 @@ def attendance_summary():
                             work_seconds = h * 3600 + m * 60 + s
                         except:
                             pass
-
                     if work_seconds < (4.5 * 3600):
                         day_status["status"] = "HALF_DAY"
                     else:
                         day_status["status"] = "PRESENT"
-
-                if punch.is_wfh:
+                
+                # Mark WFH if punch has is_wfh or if there's an approved WFH application
+                if punch.is_wfh or is_wfh_approved(current_day):
                     day_status["details"]["wfh"] = True
-
+                # Only show pending WFH for past/current dates
+                if not is_future and is_wfh_pending(current_day):
+                    day_status["details"]["wfh_pending"] = True
+                
+                def _fmt_time(t):
+                    if t is None:
+                        return None
+                    return t.strftime("%H:%M:%S") if hasattr(t, 'strftime') else str(t)
+                
                 day_status["details"].update({
-                    "punch_in": punch.punch_in.strftime("%H:%M:%S") if punch.punch_in else None,
-                    "punch_out": punch.punch_out.strftime("%H:%M:%S") if punch.punch_out else None,
+                    "punch_in": _fmt_time(punch.punch_in),
+                    "punch_out": _fmt_time(punch.punch_out),
                     "work_hours": str(punch.today_work) if punch.today_work else None
                 })
+            
+            # No punch record - check WFH and Leave applications
+            elif is_future:
+                # For future dates, only show APPROVED leave/WFH
+                if is_wfh_approved(current_day):
+                    day_status["status"] = "WFH_APPROVED"
+                    day_status["details"]["wfh"] = True
+                elif is_on_leave(current_day):
+                    day_status["status"] = "LEAVE"
+                else:
+                    # Future dates without approved leave/WFH - keep blank (white background)
+                    day_status["status"] = "ABSENT"
+            
+            else:
+                # Past/current dates - only show APPROVED leave/WFH
+                if is_wfh_approved(current_day):
+                    day_status["status"] = "WFH_APPROVED"
+                    day_status["details"]["wfh"] = True
+                
+                elif is_wfh_pending(current_day):
+                    day_status["status"] = "WFH_PENDING"
+                    day_status["details"]["wfh_pending"] = True
+                
+                elif is_on_leave(current_day):
+                    # Only show approved leave as "LEAVE"
+                    day_status["status"] = "LEAVE"
+                
+                else:
+                    # Pending leave or no leave/WFH - show as ABSENT
+                    day_status["status"] = "ABSENT"
 
         calendar_data.append(day_status)
         current_day += timedelta(days=1)
@@ -486,7 +545,7 @@ def submit_wfh():
             "message": "Employee not found"
         }), 404
 
-    data = request.get_json()
+    data = request.get_json() or {}
 
     start_date = data.get("start_date")
     end_date = data.get("end_date")
@@ -498,11 +557,32 @@ def submit_wfh():
             "message": "Start date, end date and reason are required"
         }), 400
 
+    if not isinstance(reason, str) or not reason.strip():
+        return jsonify({
+            "success": False,
+            "message": "Reason is required"
+        }), 400
+
+    try:
+        start_d = datetime.strptime(str(start_date).strip(), "%Y-%m-%d").date()
+        end_d = datetime.strptime(str(end_date).strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "message": "Invalid date format. Use YYYY-MM-DD"
+        }), 400
+
+    if end_d < start_d:
+        return jsonify({
+            "success": False,
+            "message": "End date must be on or after start date"
+        }), 400
+
     wfh_application = WorkFromHomeApplication(
         admin_id=admin.id,
-        start_date=datetime.strptime(start_date, "%Y-%m-%d").date(),
-        end_date=datetime.strptime(end_date, "%Y-%m-%d").date(),
-        reason=reason,
+        start_date=start_d,
+        end_date=end_d,
+        reason=reason.strip(),
         status="Pending",
         created_at=datetime.now(pytz.timezone("Asia/Kolkata"))
     )
@@ -541,16 +621,19 @@ def get_wfh_applications():
         admin_id=admin.id
     ).order_by(WorkFromHomeApplication.created_at.desc()).all()
 
+    def _iso(d):
+        return d.isoformat() if d and hasattr(d, 'isoformat') else str(d)
+
     return jsonify({
         "success": True,
         "applications": [
             {
                 "id": w.id,
-                "start_date": w.start_date.isoformat(),
-                "end_date": w.end_date.isoformat(),
-                "reason": w.reason,
-                "status": w.status,
-                "created_at": w.created_at.isoformat()
+                "start_date": _iso(w.start_date),
+                "end_date": _iso(w.end_date),
+                "reason": w.reason or "",
+                "status": w.status or "Pending",
+                "created_at": _iso(w.created_at)
             }
             for w in applications
         ]
@@ -811,40 +894,51 @@ def submit_resignation():
 @leave.route("/seperation", methods=["GET"])
 @jwt_required()
 def get_resignation_status():
-    email = get_jwt().get("email")
+    try:
+        claims = get_jwt()
+        email = claims.get("email")
+        if not email:
+            return jsonify({"success": False, "message": "Invalid token"}), 401
 
-    admin = Admin.query.filter_by(email=email).first()
-    if not admin:
-        return jsonify({
-            "success": False,
-            "message": "Employee not found"
-        }), 404
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({
+                "success": False,
+                "message": "Employee not found"
+            }), 404
 
-    resignation = Resignation.query.filter_by(
-        admin_id=admin.id
-    ).first()
+        resignation = Resignation.query.filter_by(admin_id=admin.id).first()
 
-    if resignation:
+        if resignation:
+            applied_on = getattr(resignation, 'applied_on', None)
+            created_at_str = applied_on.isoformat() if applied_on and hasattr(applied_on, 'isoformat') else (str(applied_on) if applied_on else None)
+            return jsonify({
+                "success": True,
+                "already_submitted": True,
+                "resignation": {
+                    "id": resignation.id,
+                    "resignation_date": resignation.resignation_date.isoformat(),
+                    "reason": resignation.reason,
+                    "created_at": created_at_str
+                }
+            }), 200
+
         return jsonify({
             "success": True,
-            "already_submitted": True,
-            "resignation": {
-                "id": resignation.id,
-                "resignation_date": resignation.resignation_date.isoformat(),
-                "reason": resignation.reason,
-                "created_at": resignation.created_at.isoformat()
+            "already_submitted": False,
+            "today": date.today().isoformat(),
+            "employee": {
+                "name": admin.first_name,
+                "email": admin.email,
+                "circle": admin.circle or "",
+                "emp_type": admin.emp_type or ""
             }
         }), 200
 
-    return jsonify({
-        "success": True,
-        "already_submitted": False,
-        "today": date.today().isoformat(),
-        "employee": {
-            "name": admin.first_name,
-            "email": admin.email,
-            "circle": admin.circle,
-            "emp_type": admin.emp_type
-        }
-    }), 200
+    except Exception as e:
+        current_app.logger.exception("get_resignation_status error")
+        return jsonify({
+            "success": False,
+            "message": str(e) or "Failed to fetch resignation status"
+        }), 500
 

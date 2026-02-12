@@ -13,7 +13,7 @@ class Punch(db.Model, UserMixin):
     
     punch_in = db.Column(db.DateTime, nullable=True)
     punch_out = db.Column(db.DateTime, nullable=True)
-    today_work = db.Column(db.Interval, nullable=True) 
+    today_work = db.Column(db.String(20), nullable=True)  # "HH:MM:SS" format
     
 
     is_wfh = db.Column(db.Boolean, default=False)  # ✅ New field to track WFH status

@@ -10,6 +10,8 @@ export const Input = ({
     onChange,
     type = 'text',
     error,
+    isMandatory,
+    helpText,
     ...rest
 }) => {
     const id = React.useMemo(
@@ -22,7 +24,7 @@ export const Input = ({
     return (
         <div className={`form-group floating-field ${error ? 'has-error' : ''}`}>
             
-            {/* Input */}
+            {/* Input - only pass valid DOM attributes */}
             <input
                 id={id}
                 name={name}
@@ -30,7 +32,7 @@ export const Input = ({
                 value={value}
                 onChange={onChange}
                 className="form-control"
-                placeholder=" "   // REQUIRED for floating label
+                placeholder=" "
                 {...rest}
             />
 
@@ -41,11 +43,14 @@ export const Input = ({
                     className={`input-label ${hasValue ? 'label-float' : ''}`}
                 >
                     {label}
-                    {rest.isMandatory && (
+                    {isMandatory && (
                         <span className="mandatory-star">*</span>
                     )}
                 </label>
             )}
+
+            {/* Help text - not a DOM prop */}
+            {helpText && <div className="input-help-text" style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{helpText}</div>}
 
             {/* Error */}
             {error && <div className="error-message">{error}</div>}

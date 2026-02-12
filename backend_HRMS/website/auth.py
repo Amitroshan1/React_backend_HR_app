@@ -6,6 +6,7 @@
 #https://solviotec.com/api/auth
 
 
+import re
 from math import radians, cos, sin, atan2, sqrt
 from flask import Blueprint, request, redirect, url_for, current_app,jsonify
 from .email import send_login_alert_email
@@ -16,13 +17,13 @@ from .models.attendance import Punch,Location,LeaveBalance
 from .models.manager_model import ManagerContact
 from .models.news_feed import NewsFeed
 from .models.query import Query
-from .models.education import Education,UploadDoc
-from datetime import datetime
+from .models.education import Education, UploadDoc
+from .models.prev_com import PreviousCompany
+from datetime import datetime, time, date
 from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from flask import jsonify
-from datetime import date
 from .utility import is_wfh_allowed, is_on_leave
 
 auth = Blueprint('auth', __name__)
@@ -122,8 +123,15 @@ def employee_homepage():
     working_hours = None
     if punch and punch.punch_in:
         end_time = punch.punch_out or datetime.now()
-        diff = end_time - punch.punch_in
-        working_hours = str(diff).split(".")[0]
+        punch_in_dt = punch.punch_in
+        if isinstance(punch.punch_in, time):
+            punch_in_dt = datetime.combine(today, punch.punch_in)
+        elif not isinstance(punch.punch_in, datetime):
+            punch_in_dt = datetime.combine(today, punch.punch_in) if hasattr(punch.punch_in, 'hour') else punch.punch_in
+        diff = end_time - punch_in_dt
+        calculated = str(diff).split(".")[0]
+        normalized = _normalize_working_hours(punch.today_work) if punch.today_work else None
+        working_hours = normalized if normalized else calculated
 
     # ------------------------
     # 4. LEAVE BALANCE + USAGE (from LeaveBalance table)
@@ -188,8 +196,8 @@ def employee_homepage():
         },
 
         "punch": {
-            "punch_in": punch.punch_in if punch else None,
-            "punch_out": punch.punch_out if punch else None,
+            "punch_in": punch.punch_in.isoformat() if punch and punch.punch_in and hasattr(punch.punch_in, 'isoformat') else (str(punch.punch_in) if punch and punch.punch_in else None),
+            "punch_out": punch.punch_out.isoformat() if punch and punch.punch_out and hasattr(punch.punch_out, 'isoformat') else (str(punch.punch_out) if punch and punch.punch_out else None),
             "working_hours": working_hours
         },
 
@@ -214,6 +222,130 @@ def employee_homepage():
     }), 200
 
 
+@auth.route('/employee/profile', methods=['GET'])
+@jwt_required()
+def employee_profile():
+    """Return full profile for the logged-in employee (admin + employee details + education + previous companies + documents)."""
+    try:
+        admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    employee = Employee.query.filter_by(admin_id=admin.id).first()
+    education_list = Education.query.filter_by(admin_id=admin.id).all()
+    prev_companies = PreviousCompany.query.filter_by(admin_id=admin.id).all()
+    upload_doc = UploadDoc.query.filter_by(admin_id=admin.id).first()
+
+    def _date_iso(d):
+        return d.isoformat() if d and hasattr(d, 'isoformat') else (str(d) if d else None)
+
+    profile = {
+        "admin": {
+            "id": admin.id,
+            "first_name": admin.first_name,
+            "user_name": admin.user_name,
+            "email": admin.email,
+            "mobile": admin.mobile,
+            "emp_id": admin.emp_id,
+            "doj": _date_iso(admin.doj),
+            "emp_type": admin.emp_type,
+            "circle": admin.circle or "",
+        },
+        "employee": None,
+        "education": [],
+        "previous_employment": [],
+        "documents": None,
+    }
+
+    if employee:
+        profile["employee"] = {
+            "name": employee.name,
+            "email": employee.email,
+            "father_name": employee.father_name,
+            "mother_name": employee.mother_name,
+            "marital_status": employee.marital_status,
+            "dob": _date_iso(employee.dob),
+            "emp_id": employee.emp_id,
+            "mobile": employee.mobile,
+            "gender": employee.gender,
+            "emergency_mobile": employee.emergency_mobile,
+            "nationality": employee.nationality,
+            "blood_group": employee.blood_group,
+            "designation": employee.designation,
+            "permanent_address_line1": employee.permanent_address_line1,
+            "permanent_pincode": employee.permanent_pincode,
+            "permanent_district": employee.permanent_district or "",
+            "permanent_state": employee.permanent_state or "",
+            "present_address_line1": employee.present_address_line1,
+            "present_pincode": employee.present_pincode,
+            "present_district": employee.present_district or "",
+            "present_state": employee.present_state or "",
+        }
+
+    for edu in education_list:
+        profile["education"].append({
+            "id": edu.id,
+            "qualification": edu.qualification,
+            "institution": edu.institution,
+            "university": (edu.board or ""),
+            "board": edu.board,
+            "start": _date_iso(edu.start),
+            "end": _date_iso(edu.end),
+            "marks": edu.marks,
+            "doc_file": edu.doc_file,
+        })
+
+    for pc in prev_companies:
+        doj = pc.doj
+        dol = pc.dol
+        years = ""
+        if doj and dol and hasattr(doj, 'year') and hasattr(dol, 'year'):
+            delta = (dol - doj).days if hasattr(dol, '__sub__') else 0
+            years = str(round(delta / 365.25, 1)) if delta else ""
+        profile["previous_employment"].append({
+            "id": pc.id,
+            "companyName": pc.com_name,
+            "designation": pc.designation,
+            "doj": _date_iso(pc.doj),
+            "dateOfLeaving": _date_iso(pc.dol),
+            "experienceYears": years,
+            "reason": pc.reason,
+        })
+
+    if upload_doc:
+        profile["documents"] = {
+            "aadhaar_front": upload_doc.aadhaar_front,
+            "aadhaar_back": upload_doc.aadhaar_back,
+            "pan_front": upload_doc.pan_front,
+            "pan_back": upload_doc.pan_back,
+            "appointment_letter": upload_doc.appointment_letter,
+            "passbook_front": upload_doc.passbook_front,
+        }
+
+    return jsonify({"success": True, "profile": profile}), 200
+
+
+def _normalize_working_hours(val):
+    """Convert today_work to HH:MM:SS format. Handles Interval/datetime serialization quirks."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    # Reject datetime-like strings (e.g. "0000-04-22 00:00:00" from Interval)
+    if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+        return None
+    # Accept "HH:MM:SS" or "H:M:S"
+    m = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?$", s)
+    if m:
+        h, mi, sec = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+        return f"{h:02d}:{mi:02d}:{sec:02d}"
+    return None
+
+
 def calculate_distance(lat1, lon1, lat2, lon2):
     R = 6371000  # meters
     dLat = radians(lat2 - lat1)
@@ -221,6 +353,35 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     a = sin(dLat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dLon/2)**2
     c = 2 * atan2(sqrt(a), sqrt(1-a))
     return R * c
+
+
+@auth.route('/employee/location-check', methods=['GET'])
+@jwt_required()
+def location_check():
+    """Check if user's lat/lon is within office range. Used by dashboard for punch-in/out buttons."""
+    lat = request.args.get('lat', type=float)
+    lon = request.args.get('lon', type=float)
+    if lat is None or lon is None:
+        return jsonify({
+            "success": False,
+            "in_range": False,
+            "message": "Latitude and longitude are required"
+        }), 400
+    office = Location.query.first()
+    if not office:
+        return jsonify({
+            "success": True,
+            "in_range": False,
+            "message": "Office location not configured"
+        }), 200
+    distance = calculate_distance(lat, lon, office.latitude, office.longitude)
+    in_range = distance <= office.radius
+    return jsonify({
+        "success": True,
+        "in_range": in_range,
+        "distance_meters": int(distance),
+        "radius_meters": office.radius
+    }), 200
 
 
 @auth.route('/employee/punch-in', methods=['POST'])
@@ -303,7 +464,7 @@ def punch_in():
             punch_date=today
         )
 
-    existing.punch_in = datetime.now().time()
+    existing.punch_in = datetime.now()
     existing.lat = user_lat
     existing.lon = user_lon
     existing.is_wfh = is_wfh
@@ -311,10 +472,11 @@ def punch_in():
     db.session.add(existing)
     db.session.commit()
 
+    punch_in_str = existing.punch_in.isoformat() if hasattr(existing.punch_in, 'isoformat') else str(existing.punch_in)
     return jsonify({
         "success": True,
         "message": "Punched in successfully",
-        "punch_in": str(existing.punch_in),
+        "punch_in": punch_in_str,
         "is_wfh": is_wfh
     }), 200
 
@@ -323,78 +485,82 @@ def punch_in():
 @auth.route('/employee/punch-out', methods=['POST'])
 @jwt_required()
 def punch_out():
+    try:
+        data = request.get_json() or {}
+        
+        user_lat = data.get("lat")
+        user_lon = data.get("lon")
 
-    data = request.get_json() or {}
-    
-    user_lat = data.get("lat")
-    user_lon = data.get("lon")
+        # Get logged-in user email from JWT
+        email = get_jwt().get("email")
+        employee = Admin.query.filter_by(email=email).first()
 
-    # Get logged-in user email from JWT
-    email = get_jwt().get("email")
-    employee = Admin.query.filter_by(email=email).first()
+        if not employee:
+            return jsonify({"success": False, "message": "Employee not found"}), 404
 
-    if not employee:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
+        today = date.today()
+        punch = Punch.query.filter_by(admin_id=employee.id, punch_date=today).first()
 
-    today = date.today()
-    punch = Punch.query.filter_by(admin_id=employee.id, punch_date=today).first()
+        if not punch or not punch.punch_in:
+            return jsonify({"success": False, "message": "No punch-in found for today"}), 400
+        
+        if punch.punch_out:
+            return jsonify({"success": False, "message": "Punch-out already done"}), 400
 
-    if not punch or not punch.punch_in:
-        return jsonify({"success": False, "message": "No punch-in found for today"}), 400
-    
-    if punch.punch_out:
-        return jsonify({"success": False, "message": "Punch-out already done"}), 400
+        if user_lat is None or user_lon is None:
+            return jsonify({
+                "success": False,
+                "message": "Location (lat, lon) is required for punch-out"
+            }), 400
 
-    # ❌ Location validation (required for punch-out)
-    if user_lat is None or user_lon is None:
+        # ✅ UPDATE PUNCH-OUT (allow from any location)
+        punch.punch_out = datetime.now()
+        punch.lat = user_lat  # Update location on punch-out
+        punch.lon = user_lon
+
+        # CALCULATE TOTAL TIME
+        if isinstance(punch.punch_in, datetime):
+            diff = punch.punch_out - punch.punch_in
+        else:
+            # If punch_in is time only, combine with date
+            punch_in_dt = datetime.combine(today, punch.punch_in) if isinstance(punch.punch_in, datetime.time) else punch.punch_in
+            diff = punch.punch_out - punch_in_dt
+        
+        today_work_str = str(diff).split(".")[0]  # "HH:MM:SS"
+        punch.today_work = today_work_str
+
+        db.session.commit()
+
+        punch_out_str = punch.punch_out.isoformat() if hasattr(punch.punch_out, 'isoformat') else str(punch.punch_out)
+        return jsonify({
+            "success": True,
+            "message": "Punched out successfully",
+            "punch_out": punch_out_str,
+            "today_work": today_work_str
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Punch-out error")
         return jsonify({
             "success": False,
-            "message": "Location (lat, lon) is required for punch-out"
-        }), 400
-
-    office_location = Location.query.first()
-    if not office_location:
-        return jsonify({
-            "success": False,
-            "message": "Office location not configured"
+            "message": str(e) or "Punch-out failed"
         }), 500
 
-    distance = calculate_distance(
-        user_lat, user_lon,
-        office_location.latitude,
-        office_location.longitude
-    )
 
-    if distance > office_location.radius:
-        return jsonify({
-            "success": False,
-            "message": f"Too far from office location ({int(distance)}m > {office_location.radius}m). Cannot punch out."
-        }), 403
 
-    # ✅ UPDATE PUNCH-OUT
-    punch.punch_out = datetime.now()
-    punch.lat = user_lat  # Update location on punch-out
-    punch.lon = user_lon
-
-    # CALCULATE TOTAL TIME
-    if isinstance(punch.punch_in, datetime):
-        diff = punch.punch_out - punch.punch_in
-    else:
-        # If punch_in is time only, combine with date
-        punch_in_dt = datetime.combine(today, punch.punch_in) if isinstance(punch.punch_in, datetime.time) else punch.punch_in
-        diff = punch.punch_out - punch_in_dt
-    
-    punch.today_work = str(diff).split(".")[0]   # store as "HH:MM:SS"
-
-    db.session.commit()
-
-    return jsonify({
-        "success": True,
-        "message": "Punched out successfully",
-        "punch_out": str(punch.punch_out),
-        "today_work": punch.today_work
-    }), 200
-
+def _parse_date(value):
+    """Parse string or None to date. Returns None if invalid or empty."""
+    if value is None:
+        return None
+    if hasattr(value, "year"):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
 
 
 @auth.route("/employee", methods=["POST"])
@@ -402,19 +568,30 @@ def create_or_update_employee():
     data = request.get_json()
 
     if not data:
-        return {"success": False, "message": "Missing JSON body"}, 400
+        return jsonify({"success": False, "message": "Missing JSON body"}), 400
 
     admin_id = data.get("admin_id")
     if not admin_id:
-        return {"success": False, "message": "admin_id is required"}, 400
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
 
-    # Check if employee already exists
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "admin_id must be an integer"}), 400
+
     employee = Employee.query.filter_by(admin_id=admin_id).first()
 
     try:
         if employee:
+            required_string_fields = {
+                "name", "email", "father_name", "mother_name", "marital_status",
+                "emp_id", "mobile", "gender", "emergency_mobile", "nationality",
+                "blood_group", "designation",
+                "permanent_address_line1", "permanent_pincode",
+                "present_address_line1", "present_pincode",
+            }
+            optional_address_fields = {"permanent_district", "permanent_state", "present_district", "present_state"}
 
-            # Update fields if present in incoming data
             for field in [
                 "name", "email", "father_name", "mother_name", "marital_status",
                 "dob", "emp_id", "mobile", "gender", "emergency_mobile",
@@ -424,50 +601,107 @@ def create_or_update_employee():
                 "present_address_line1", "present_pincode",
                 "present_district", "present_state"
             ]:
-                if field in data:
-                    setattr(employee, field, data[field])
+                if field not in data:
+                    continue
+                val = data[field]
+                if field == "dob":
+                    parsed = _parse_date(val)
+                    if val is not None and str(val).strip() and parsed is None:
+                        return jsonify({"success": False, "message": "Invalid date of birth format (use YYYY-MM-DD)"}), 400
+                    if parsed is None:
+                        continue
+                    val = parsed
+                elif field in required_string_fields:
+                    s = (val or "").strip() if val is not None else ""
+                    if not s:
+                        continue
+                    if field == "mobile" and len(s) > 20:
+                        s = s[-20:]
+                    elif field == "emergency_mobile" and len(s) > 50:
+                        s = s[-50:]
+                    elif field == "gender" and len(s) > 50:
+                        s = s[:50]
+                    val = s
+                elif field in optional_address_fields:
+                    val = (val or "").strip() if val is not None else None
+                    if val == "":
+                        val = None
+                setattr(employee, field, val)
 
             db.session.commit()
-            return {"success": True, "message": "Employee updated successfully"}, 200
+            return jsonify({"success": True, "message": "Employee updated successfully"}), 200
 
-        else:
+        # Create new employee
+        dob = _parse_date(data.get("dob"))
+        if not dob:
+            return jsonify({"success": False, "message": "Valid date of birth (YYYY-MM-DD) is required"}), 400
 
-            employee = Employee(
-                admin_id=admin_id,
-                name=data["name"],
-                email=data["email"],
-                father_name=data["father_name"],
-                mother_name=data["mother_name"],
-                marital_status=data["marital_status"],
-                dob=data["dob"],
-                emp_id=data["emp_id"],
-                mobile=data["mobile"],
-                gender=data["gender"],
-                emergency_mobile=data["emergency_mobile"],
-                nationality=data["nationality"],
-                blood_group=data["blood_group"],
-                designation=data["designation"],
+        def _str(v, default=""):
+            return (v or default).strip() if v is not None else default
 
-                permanent_address_line1=data["permanent_address_line1"],
-                permanent_pincode=data["permanent_pincode"],
-                permanent_district=data.get("permanent_district"),
-                permanent_state=data.get("permanent_state"),
+        # User-friendly validation messages
+        required = [
+            ("name", "Full name"),
+            ("email", "Email"),
+            ("father_name", "Father's name"),
+            ("mother_name", "Mother's name"),
+            ("emp_id", "Employee ID"),
+            ("mobile", "Mobile number"),
+            ("gender", "Gender"),
+            ("emergency_mobile", "Emergency contact"),
+            ("nationality", "Nationality"),
+            ("blood_group", "Blood group"),
+            ("permanent_address_line1", "Permanent address"),
+            ("permanent_pincode", "Permanent address pincode"),
+            ("present_address_line1", "Current address"),
+            ("present_pincode", "Current address pincode"),
+        ]
+        for key, label in required:
+            if not _str(data.get(key)):
+                return jsonify({"success": False, "message": f"Please fill in: {label}"}), 400
 
-                present_address_line1=data["present_address_line1"],
-                present_pincode=data["present_pincode"],
-                present_district=data.get("present_district"),
-                present_state=data.get("present_state"),
-            )
+        # Designation can be empty on first save; default to "Not Specified"
+        designation_val = _str(data.get("designation")) or "Not Specified"
 
-            db.session.add(employee)
-            db.session.commit()
+        def _mobile(s, max_len=20):
+            s = _str(s)
+            return s[-max_len:] if len(s) > max_len else s
 
-            return {"success": True, "message": "Employee created successfully"}, 201
+        employee = Employee(
+            admin_id=admin_id,
+            name=_str(data.get("name")),
+            email=_str(data.get("email")),
+            father_name=_str(data.get("father_name")),
+            mother_name=_str(data.get("mother_name")),
+            marital_status=_str(data.get("marital_status"), "Single"),
+            dob=dob,
+            emp_id=_str(data.get("emp_id")),
+            mobile=_mobile(data.get("mobile")),
+            gender=_str(data.get("gender"))[:50],
+            emergency_mobile=_mobile(data.get("emergency_mobile"), 50),
+            nationality=_str(data.get("nationality")),
+            blood_group=_str(data.get("blood_group")),
+            designation=designation_val,
+
+            permanent_address_line1=_str(data.get("permanent_address_line1")),
+            permanent_pincode=_str(data.get("permanent_pincode")),
+            permanent_district=data.get("permanent_district") or None,
+            permanent_state=data.get("permanent_state") or None,
+
+            present_address_line1=_str(data.get("present_address_line1")),
+            present_pincode=_str(data.get("present_pincode")),
+            present_district=data.get("present_district") or None,
+            present_state=data.get("present_state") or None,
+        )
+
+        db.session.add(employee)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Employee created successfully"}), 201
 
     except Exception as e:
         db.session.rollback()
-        print("ERROR:", e)
-        return {"success": False, "message": str(e)}, 500
+        logging.exception("Employee create/update error")
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 

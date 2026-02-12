@@ -132,5 +132,4 @@ class AuditLog(db.Model):
     action = db.Column(db.String(100))
     performed_by = db.Column(db.String(120))   # HR email
     target_email = db.Column(db.String(120))   # Employee email
-    meta = db.Column("metadata", db.JSON)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
