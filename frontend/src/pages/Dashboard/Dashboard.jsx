@@ -95,6 +95,17 @@ export const Dashboard = () => {
         isAvailable: false,
         isInRange: false
     });
+    const [geo, setGeo] = useState({
+        zone: "NO_GPS",
+        requiresReason: false,
+        distance: null,
+        radius: null,
+        grace: 100,
+        message: ""
+    });
+    const [reasonModalOpen, setReasonModalOpen] = useState(false);
+    const [geoReason, setGeoReason] = useState("");
+    const [pendingAction, setPendingAction] = useState(null); // "IN" | "OUT"
     const [dynamicData, setDynamicData] = useState({
         user: {},
         employee: {},
@@ -150,15 +161,31 @@ export const Dashboard = () => {
     }, []);
     const validateLocationRange = async (lat, lon) => {
         const token = localStorage.getItem('token');
-        if (!token) return false;
+        if (!token) return { in_range: false, requires_reason: true, zone: "NO_GPS" };
         try {
             const res = await fetch(`${API_BASE_URL}/employee/location-check?lat=${lat}&lon=${lon}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
-            return data.success && data.in_range;
+            setGeo({
+                zone: data.zone || "NO_GPS",
+                requiresReason: !!data.requires_reason,
+                distance: data.distance_meters ?? null,
+                radius: data.radius_meters ?? null,
+                grace: data.grace_meters ?? 100,
+                message: data.message || ""
+            });
+            return data;
         } catch {
-            return false;
+            setGeo({
+                zone: "NO_GPS",
+                requiresReason: true,
+                distance: null,
+                radius: null,
+                grace: 100,
+                message: "Location check failed"
+            });
+            return { in_range: false, requires_reason: true, zone: "NO_GPS" };
         }
     };
 
@@ -169,11 +196,16 @@ export const Dashboard = () => {
                     async (position) => {
                         const lat = position.coords.latitude;
                         const lon = position.coords.longitude;
-                        const inRange = await validateLocationRange(lat, lon);
+                        const locationData = await validateLocationRange(lat, lon);
+                        const inRange = !!locationData?.in_range;
+                        const zone = locationData?.zone || "NO_GPS";
+                        const errorMessage = inRange || zone === "NO_OFFICE_CONFIG"
+                            ? null
+                            : "You are outside office range. Punch In/Out requires a reason.";
                         setLocation({
                             lat,
                             lon,
-                            error: inRange ? null : "You are outside office range. Punch In/Out requires you to be within office premises.",
+                            error: errorMessage,
                             isAvailable: true,
                             isInRange: inRange,
                         });
@@ -235,7 +267,7 @@ export const Dashboard = () => {
             }
         };
     }, [punchInDateTime, dynamicData.punch.punch_out]); 
-    const handlePunchIn = async () => {
+    const handlePunchIn = async (reason = "") => {
         if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
             alert(location.error || "Cannot punch in without location. Please enable location services.");
             return;
@@ -252,7 +284,8 @@ export const Dashboard = () => {
                 body: JSON.stringify({
                     lat: location.lat,
                     lon: location.lon,
-                    is_wfh: false // Assuming office punch-in for now
+                    is_wfh: false, // Assuming office punch-in for now
+                    geo_reason: reason || null
                 })
             });
             const result = await response.json();
@@ -283,7 +316,7 @@ export const Dashboard = () => {
             setIsPunching(false);
         }
     };
-    const handlePunchOut = async () => {
+    const handlePunchOut = async (reason = "") => {
         if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
             alert(location.error || "Cannot punch out without location. Please enable location services.");
             return;
@@ -299,7 +332,8 @@ export const Dashboard = () => {
                 },
                 body: JSON.stringify({
                     lat: location.lat,
-                    lon: location.lon
+                    lon: location.lon,
+                    geo_reason: reason || null
                 })
             });
             const text = await response.text();
@@ -337,6 +371,35 @@ export const Dashboard = () => {
             setIsPunching(false);
         }
     };
+    const onPunchInClick = async () => {
+        if (isPunching || !!dynamicData.punch.punch_in) return;
+        if (geo.requiresReason) {
+            setPendingAction("IN");
+            setReasonModalOpen(true);
+            return;
+        }
+        await handlePunchIn("");
+    };
+    const onPunchOutClick = async () => {
+        if (isPunching || !isCheckedIn) return;
+        if (geo.requiresReason) {
+            setPendingAction("OUT");
+            setReasonModalOpen(true);
+            return;
+        }
+        await handlePunchOut("");
+    };
+    const handleReasonSubmit = async () => {
+        if (geoReason.trim().length < 8) {
+            alert("Please enter at least 8 characters for reason.");
+            return;
+        }
+        if (pendingAction === "IN") await handlePunchIn(geoReason.trim());
+        if (pendingAction === "OUT") await handlePunchOut(geoReason.trim());
+        setReasonModalOpen(false);
+        setGeoReason("");
+        setPendingAction(null);
+    };
     const dojFormatted = useMemo(() => formatDate(dynamicData.user.doj), [dynamicData.user.doj]);
     const experience = useMemo(() => calculateExperience(dynamicData.user.doj), [dynamicData.user.doj]);
     const totalLeave = useMemo(() => {
@@ -363,6 +426,7 @@ export const Dashboard = () => {
         </div>
     );
     return (
+        <>
         <div className="main-layout">
             <div className="content-area">
                 <div className="dashboard-content">
@@ -457,16 +521,16 @@ export const Dashboard = () => {
                                 <div className="status-action-buttons">
                                     <button 
                                         className="btn-punch btn-punch-in" 
-                                        onClick={handlePunchIn}
-                                        disabled={!!dynamicData.punch.punch_in || isPunching || !location.isAvailable || !location.isInRange}
+                                        onClick={onPunchInClick}
+                                        disabled={!!dynamicData.punch.punch_in || isPunching || !location.isAvailable}
                                     >
                                         <FiCheckCircle className="btn-icon" />
                                         {isPunching && !isCheckedIn ? 'Punching In...' : 'Punch In'}
                                     </button>
                                     <button 
                                         className="btn-punch btn-punch-out"
-                                        onClick={handlePunchOut}
-                                        disabled={!isCheckedIn || isPunching || !location.isAvailable || !location.isInRange}
+                                        onClick={onPunchOutClick}
+                                        disabled={!isCheckedIn || isPunching || !location.isAvailable}
                                     >
                                         {isPunching && isCheckedIn ? 'Punching Out...' : 'Punch Out'}
                                     </button>
@@ -591,6 +655,25 @@ export const Dashboard = () => {
                 </div>
             </div>
         </div>
+        {reasonModalOpen && (
+            <div className="geo-modal-overlay">
+                <div className="geo-modal-card">
+                    <h3>Reason Required</h3>
+                    <p>You are outside office range. Please provide a reason to continue.</p>
+                    <textarea
+                        value={geoReason}
+                        onChange={(e) => setGeoReason(e.target.value)}
+                        placeholder="Enter reason..."
+                        rows={4}
+                    />
+                    <div className="geo-modal-actions">
+                        <button onClick={() => setReasonModalOpen(false)}>Cancel</button>
+                        <button onClick={handleReasonSubmit}>Submit</button>
+                    </div>
+                </div>
+            </div>
+        )}
+        </>
     );
 };
 

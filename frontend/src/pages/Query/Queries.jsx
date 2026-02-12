@@ -740,7 +740,7 @@ export const Queries = () => {
             <div className="q-form-container">
               <div className="q-header">
                 <MessageSquarePlus size={20} color="#2563eb" />
-                <h2>Create New Query</h2>
+                <h2>Raise a Query</h2>
               </div>
               {actionError && <div className="q-error">{actionError}</div>}
               <form onSubmit={handleSubmit} className="q-form">

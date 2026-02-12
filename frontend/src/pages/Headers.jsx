@@ -118,7 +118,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake } from "react-icons/fa";
+import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome } from "react-icons/fa";
 import "./style/Headers.css";
 
 const getPageInfo = (pathname, firstName) => {
@@ -127,6 +127,12 @@ const getPageInfo = (pathname, firstName) => {
         '/dashboard': { title: `Welcome, ${firstName}!`, subtitle: "Overview", isDashboard: true },
         '/attendance': { title: 'Attendance', subtitle: 'Manage records' },
         '/leaves': { title: 'Leaves', subtitle: 'Apply/Check balance' },
+        '/queries': { title: 'Raise a Query', subtitle: 'Track and manage your support requests' },
+        '/claims': { title: 'Expense Claims', subtitle: 'Submit and track your claims' },
+        '/separation': { title: 'Separation', subtitle: 'Resignation and clearance process' },
+        '/salary': { title: 'Salary', subtitle: 'Payslips and salary information' },
+        '/profile': { title: 'Profile', subtitle: 'Your personal and employment details' },
+        '/wfh': { title: 'Work From Home', subtitle: 'WFH requests and approvals' },
         '/hr': { title: 'HR Panel', subtitle: 'Administration' },
         '/account': { title: 'Accounts Panel', subtitle: 'Financial Management' },
         '/admin': { title: 'Admin Panel', subtitle: 'Admin Management' },
@@ -217,6 +223,17 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
         <header className="header-container">
             <div className="header-content">
                 <div className="header-left">
+                    {!isDashboard && (
+                        <button
+                            className="home-logo-btn"
+                            onClick={() => navigate('/dashboard')}
+                            title="Go to Dashboard"
+                            aria-label="Go to Dashboard"
+                        >
+                            <FaHome />
+                            <span>Home</span>
+                        </button>
+                    )}
                     <h1 className={`welcome-title ${!isDashboard ? 'page-heading' : ''}`}>{title}</h1>
                     {isDashboard && <p className="overview-text">{subtitle}</p>}
                 </div>

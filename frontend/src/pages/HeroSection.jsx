@@ -182,11 +182,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FiEye, FiEyeOff } from "react-icons/fi";
+import { useUser } from "../components/layout/UserContext";
 
 import "./style/HeroSection.css";
 
 export const HeroSection = () => {
    const navigate = useNavigate();
+   const { refreshUserData } = useUser();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -251,34 +253,33 @@ export const HeroSection = () => {
   }
   setIsSubmitting(true);
 
-  fetch("/api/auth/validate-user", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    identifier: email,
-    password: password,
-  }),
-})
-.then((res) => res.json())
-.then((data) => {
-  console.log(data);
-  if (data.success) {
-    localStorage.setItem("token", data.token);
-    navigate("/dashboard"); // redirect after login
-    setError("");
-  } else {
-    setError(data.message || "Invalid credentials");
+  try {
+    const res = await fetch("/api/auth/validate-user", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        identifier: email,
+        password: password,
+      }),
+    });
+    const data = await res.json();
+    console.log(data);
+    if (data.success) {
+      localStorage.setItem("token", data.token);
+      await refreshUserData();
+      navigate("/dashboard"); // redirect after login
+      setError("");
+    } else {
+      setError(data.message || "Invalid credentials");
+    }
+  } catch (err) {
+    console.error(err);
+    setError("Unable to login. Please try again.");
+  } finally {
+    setIsSubmitting(false);
   }
-})
-.catch((err) => {
-  console.error(err);
-  setError("Unable to login. Please try again.");
-})
-.finally(() => {
-  setIsSubmitting(false);
-});
 
   };
 

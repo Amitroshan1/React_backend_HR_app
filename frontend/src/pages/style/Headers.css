@@ -39,6 +39,32 @@
 }
 
 /* Left Section */
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.home-logo-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--border-color);
+    background: #f8fafc;
+    color: var(--primary-blue);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.home-logo-btn:hover {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+
 .welcome-title {
     font-size: 1.25rem;
     font-weight: 700;
