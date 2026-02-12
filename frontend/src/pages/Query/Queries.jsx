@@ -491,6 +491,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle } from 'lucide-react';
 import './Queries.css';
 
+const API_BASE_URL = '/api/query';
+
 const DEPARTMENTS = [
   { id: 'Human Resource', name: 'Human Resource' },
   { id: 'Accounts', name: 'Accounts' },
@@ -501,72 +503,232 @@ const DEPARTMENTS = [
 export const Queries = () => {
   const [queries, setQueries] = useState([]);
   const [formData, setFormData] = useState({ department: '', title: '', text: '' });
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [chatMessage, setChatMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [actionError, setActionError] = useState('');
   const chatEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeChat?.messages]);
 
-  // Simulated Department Response Logic
-  useEffect(() => {
-    if (activeChat && activeChat.messages.length > 0) {
-      const lastMsg = activeChat.messages[activeChat.messages.length - 1];
-      if (lastMsg.sender === 'user' && activeChat.status !== 'resolved') {
-        const timer = setTimeout(() => {
-          const botMsg = {
-            id: Date.now().toString(),
-            sender: 'department',
-            text: `Hello! The ${activeChat.department} team has received your message. We are looking into it right now.`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          };
-          const updatedQueries = queries.map(q => {
-            if (q.id === activeChat.id) {
-              const updated = { ...q, messages: [...q.messages, botMsg] };
-              setActiveChat(updated);
-              return updated;
-            }
-            return q;
-          });
-          setQueries(updatedQueries);
-        }, 1500);
-        return () => clearTimeout(timer);
-      }
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return '';
+    try {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString();
+    } catch {
+      return String(value);
     }
-  }, [activeChat?.messages]);
+  };
 
-  const handleSubmit = (e) => {
+  const getSummary = (text) => {
+    if (!text) return '';
+    const words = String(text).trim().split(/\s+/).slice(0, 20);
+    return words.join(' ');
+  };
+
+  const getStatusLabel = (status) => {
+    if (status === 'Open') return 'In Progress';
+    if (status === 'Closed') return 'Closed';
+    return 'New';
+  };
+
+  const getStatusRank = (status) => {
+    if (status === 'New') return 0;
+    if (status === 'Open') return 1;
+    return 2;
+  };
+
+  const fetchMyQueries = async () => {
+    setIsLoading(true);
+    setActionError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/queries/my?page=1&limit=50`, {
+        method: 'GET',
+        headers: {
+          ...getAuthHeaders(),
+        }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load queries');
+      }
+      const mapped = (result.queries || []).map(q => ({
+        id: q.id,
+        title: q.title,
+        department: q.department,
+        status: q.status,
+        queryText: q.query_text,
+        createdAtRaw: q.created_at,
+        createdAt: formatDateTime(q.created_at),
+        messages: []
+      }));
+      const sorted = mapped.sort((a, b) => {
+        const rankDiff = getStatusRank(a.status) - getStatusRank(b.status);
+        if (rankDiff !== 0) return rankDiff;
+        return new Date(b.createdAtRaw) - new Date(a.createdAtRaw);
+      });
+      setQueries(sorted);
+    } catch (error) {
+      console.error('Load queries error:', error);
+      setActionError(error.message || 'Unable to load queries');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMyQueries();
+  }, []);
+
+  const handleFileChange = (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) {
+      setSelectedFiles([]);
+      return;
+    }
+    const tooLarge = files.find(file => file.size > MAX_FILE_SIZE_BYTES);
+    if (tooLarge) {
+      setActionError(`${tooLarge.name} exceeds 2MB limit`);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
+    setActionError('');
+    setSelectedFiles(files);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setActionError('');
     setIsSubmitting(true);
-    setTimeout(() => {
-      const newQuery = {
-        id: Date.now().toString(),
-        ...formData,
-        createdAt: new Date().toLocaleDateString(),
-        status: 'pending',
-        isSatisfied: false,
-        messages: [{ id: '1', sender: 'user', text: formData.text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }],
-      };
-      setQueries([newQuery, ...queries]);
+    try {
+      if (selectedFiles.some(file => file.size > MAX_FILE_SIZE_BYTES)) {
+        throw new Error('One or more files exceed 2MB limit');
+      }
+
+      const payload = new FormData();
+      payload.append('title', formData.title);
+      payload.append('department', formData.department);
+      payload.append('query_text', formData.text);
+      selectedFiles.forEach(file => payload.append('files', file));
+
+      const response = await fetch(`${API_BASE_URL}/queries`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+        },
+        body: payload,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to create query');
+      }
+      await fetchMyQueries();
       setFormData({ department: '', title: '', text: '' });
+      setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      console.error('Create query error:', error);
+      setActionError(error.message || 'Unable to create query');
+    } finally {
       setIsSubmitting(false);
-    }, 600);
+    }
   };
 
-  const handleSendMessage = () => {
-    if (!chatMessage.trim()) return;
-    const userMsg = { id: Date.now().toString(), sender: 'user', text: chatMessage, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-    const updated = queries.map(q => q.id === activeChat.id ? { ...q, messages: [...q.messages, userMsg], status: 'in-progress' } : q);
-    setQueries(updated);
-    setActiveChat(updated.find(q => q.id === activeChat.id));
-    setChatMessage('');
+  const openChat = async (queryItem) => {
+    setActionError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/queries/${queryItem.id}`, {
+        method: 'GET',
+        headers: {
+          ...getAuthHeaders(),
+        },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load chat');
+      }
+      const messages = (result.chat_messages || []).map((message, idx) => ({
+        id: `${queryItem.id}-${idx}`,
+        sender: message.user_type === 'EMPLOYEE' ? 'user' : 'department',
+        senderName: message.by,
+        text: message.text,
+        timestamp: formatDateTime(message.created_at),
+      }));
+      const updated = {
+        ...queryItem,
+        status: result.query?.status || queryItem.status,
+        createdAt: formatDateTime(result.query?.created_at || queryItem.createdAt),
+        messages,
+      };
+      setActiveChat(updated);
+      setQueries(prev => prev.map(q => (q.id === updated.id ? updated : q)));
+    } catch (error) {
+      console.error('Open chat error:', error);
+      setActionError(error.message || 'Unable to open chat');
+    }
   };
 
-  const markSatisfied = (id) => {
-    setQueries(queries.map(q => q.id === id ? { ...q, status: 'resolved', isSatisfied: true } : q));
-    if (activeChat?.id === id) setActiveChat(null);
+  const handleSendMessage = async () => {
+    if (!chatMessage.trim() || !activeChat) return;
+    setActionError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/queries/${activeChat.id}/reply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ reply_text: chatMessage }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to send reply');
+      }
+      await openChat(activeChat);
+      setChatMessage('');
+    } catch (error) {
+      console.error('Send reply error:', error);
+      setActionError(error.message || 'Unable to send reply');
+    }
+  };
+
+  const closeQuery = async (id) => {
+    setActionError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/queries/${id}/close`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+        },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to close query');
+      }
+      await fetchMyQueries();
+      if (activeChat?.id === id) setActiveChat(null);
+    } catch (error) {
+      console.error('Close query error:', error);
+      setActionError(error.message || 'Unable to close query');
+    }
   };
 
   return (
@@ -580,6 +742,7 @@ export const Queries = () => {
                 <MessageSquarePlus size={20} color="#2563eb" />
                 <h2>Create New Query</h2>
               </div>
+              {actionError && <div className="q-error">{actionError}</div>}
               <form onSubmit={handleSubmit} className="q-form">
                 <div className="q-row">
                   <div className="q-group">
@@ -598,6 +761,22 @@ export const Queries = () => {
                   <label>Description</label>
                   <textarea rows="3" placeholder="Describe your issue..." value={formData.text} onChange={(e) => setFormData({...formData, text: e.target.value})} required />
                 </div>
+                <div className="q-group">
+                  <label>Attach files (max 2MB each)</label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFileChange}
+                  />
+                  {selectedFiles.length > 0 && (
+                    <div className="q-file-list">
+                      {selectedFiles.map(file => (
+                        <div key={file.name} className="q-file-item">{file.name}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button type="submit" className="q-btn-primary" disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="spin" /> : "Submit Request"}
                 </button>
@@ -615,14 +794,18 @@ export const Queries = () => {
               <div className="q-chat-messages">
                 {activeChat.messages.map(m => (
                   <div key={m.id} className={`q-msg ${m.sender}`}>
-                    <div className="q-bubble">{m.text}<span className="q-time">{m.timestamp}</span></div>
+                    <div className="q-bubble">
+                      <div className="q-sender">{m.senderName}</div>
+                      {m.text}
+                      <span className="q-time">{m.timestamp}</span>
+                    </div>
                   </div>
                 ))}
                 <div ref={chatEndRef} />
               </div>
               <div className="q-chat-input">
-                <input placeholder="Type a message..." value={chatMessage} onChange={(e) => setChatMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} disabled={activeChat.status === 'resolved'} />
-                <button onClick={handleSendMessage} className="q-send" disabled={activeChat.status === 'resolved'}><Send size={18}/></button>
+                <input placeholder="Type a message..." value={chatMessage} onChange={(e) => setChatMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} disabled={activeChat.status === 'Closed'} />
+                <button onClick={handleSendMessage} className="q-send" disabled={activeChat.status === 'Closed'}><Send size={18}/></button>
               </div>
             </div>
           )}
@@ -631,30 +814,35 @@ export const Queries = () => {
         {/* TABLE SECTION */}
         <div className="q-card table-section">
           <div className="q-header"><h2>Your Query History</h2></div>
+          {actionError && <div className="q-error">{actionError}</div>}
           <div className="q-table-wrapper">
             <table className="q-table">
               <thead>
                 <tr>
-                  <th style={{width: '30%'}}>Query Details</th>
-                  <th style={{width: '20%'}}>Submitted</th>
+                  <th style={{width: '25%'}}>Query Details</th>
+                  <th style={{width: '30%'}}>Description</th>
                   <th style={{width: '15%'}}>Status</th>
-                  <th style={{width: '20%'}}>Satisfied?</th>
+                  <th style={{width: '15%'}}>Close</th>
                   <th style={{width: '15%'}}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {queries.length === 0 ? (<tr><td colSpan="5" className="empty">No queries yet.</td></tr>) : (
+                {isLoading ? (
+                  <tr><td colSpan="5" className="empty">Loading...</td></tr>
+                ) : queries.length === 0 ? (
+                  <tr><td colSpan="5" className="empty">No queries yet.</td></tr>
+                ) : (
                   queries.map(q => (
                     <tr key={q.id}>
-                      <td><div className="cell-main"><strong>{q.title}</strong><small>{q.department}</small></div></td>
-                      <td>{q.createdAt}</td>
-                      <td><span className={`status-tag ${q.status}`}>{q.status}</span></td>
+                      <td><div className="cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
+                      <td>{getSummary(q.queryText)}</td>
+                      <td><span className={`status-tag ${q.status}`}>{getStatusLabel(q.status)}</span></td>
                       <td>
-                        {q.status !== 'resolved' ? (
-                          <button className="done-btn" onClick={() => markSatisfied(q.id)}><CheckCircle size={14}/> Mark Done</button>
-                        ) : (<span className="text-success">✅ Satisfied</span>)}
+                        {q.status !== 'Closed' ? (
+                          <button className="done-btn" onClick={() => closeQuery(q.id)}><CheckCircle size={14}/> Close</button>
+                        ) : (<span className="text-success">✅ Closed</span>)}
                       </td>
-                      <td><button onClick={() => setActiveChat(q)} className="chat-link">Chat</button></td>
+                      <td><button onClick={() => openChat(q)} className="chat-link">Chat</button></td>
                     </tr>
                   ))
                 )}

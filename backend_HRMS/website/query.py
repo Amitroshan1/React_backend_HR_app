@@ -11,13 +11,20 @@ from flask_jwt_extended import jwt_required, get_jwt
 from . import db
 from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
-from .email import notify_query_event
+from .email import notify_query_event, send_query_closed_email
 from .models.manager_model import ManagerContact
+from werkzeug.utils import secure_filename
+import json
+import os
+import uuid
 
 
 
 
 query = Blueprint('query', __name__)
+
+MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
+UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
 
 
 
@@ -33,8 +40,7 @@ def create_query_api():
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
 
-    data = request.get_json() or {}
-
+    data = request.form if request.form else (request.get_json() or {})
     title = data.get("title")
     department = data.get("department")
     query_text = data.get("query_text")
@@ -45,11 +51,34 @@ def create_query_api():
             "message": "title, department and query_text are required"
         }), 400
 
+    files = request.files.getlist("files") if request.files else []
+    saved_files = []
+
+    if files:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        for file in files:
+            if not file or not file.filename:
+                continue
+            file.seek(0, os.SEEK_END)
+            size = file.tell()
+            file.seek(0)
+            if size > MAX_FILE_SIZE_BYTES:
+                return jsonify({
+                    "success": False,
+                    "message": f"{file.filename} exceeds 2MB limit"
+                }), 413
+
+            safe_name = secure_filename(file.filename)
+            unique_name = f"{uuid.uuid4().hex}_{safe_name}"
+            file.save(os.path.join(UPLOAD_DIR, unique_name))
+            saved_files.append(unique_name)
+
     query_obj = Query(
         admin_id=admin.id,
         title=title,
         department=department,
-        query_text=query_text
+        query_text=query_text,
+        photo=json.dumps(saved_files) if saved_files else None
     )
 
     db.session.add(query_obj)
@@ -89,6 +118,7 @@ def my_queries():
                 "id": q.id,
                 "title": q.title,
                 "department": q.department,
+                "query_text": q.query_text,
                 "status": q.status,
                 "created_at": q.created_at
             } for q in pagination.items
@@ -104,9 +134,9 @@ def my_queries():
 @jwt_required()
 def department_queries():
     claims = get_jwt()
-    role = claims.get("role")
+    emp_type = claims.get("emp_type")
 
-    if role not in ["HR", "ACCOUNTS"]:
+    if emp_type not in ["Human Resource", "Accounts"]:
         return jsonify({"success": False, "message": "Unauthorized"}), 403
 
     department = request.args.get("department")
@@ -139,6 +169,29 @@ def department_queries():
 @jwt_required()
 def query_details(query_id):
     query_obj = Query.query.get_or_404(query_id)
+    attachments = []
+    if query_obj.photo:
+        try:
+            attachments = json.loads(query_obj.photo)
+        except json.JSONDecodeError:
+            attachments = []
+
+    chat_messages = [
+        {
+            "text": query_obj.query_text,
+            "user_type": "EMPLOYEE",
+            "created_at": query_obj.created_at,
+            "by": query_obj.admin.first_name or query_obj.admin.email
+        }
+    ]
+    chat_messages.extend([
+        {
+            "text": r.reply_text,
+            "user_type": r.user_type,
+            "created_at": r.created_at,
+            "by": r.admin.first_name or r.admin.email
+        } for r in query_obj.replies
+    ])
 
     return jsonify({
         "success": True,
@@ -147,16 +200,10 @@ def query_details(query_id):
             "title": query_obj.title,
             "department": query_obj.department,
             "status": query_obj.status,
-            "created_at": query_obj.created_at
+            "created_at": query_obj.created_at,
+            "attachments": attachments
         },
-        "replies": [
-            {
-                "text": r.reply_text,
-                "user_type": r.user_type,
-                "created_at": r.created_at,
-                "by": r.admin.email
-            } for r in query_obj.replies
-        ]
+        "chat_messages": chat_messages
     }), 200
 
 
@@ -169,7 +216,7 @@ def query_details(query_id):
 def reply_query(query_id):
     claims = get_jwt()
     email = claims.get("email")
-    role = claims.get("role")
+    emp_type = claims.get("emp_type")
 
     admin = Admin.query.filter_by(email=email).first()
     query_obj = Query.query.get_or_404(query_id)
@@ -180,7 +227,7 @@ def reply_query(query_id):
     if not reply_text:
         return jsonify({"success": False, "message": "reply_text required"}), 400
 
-    user_type = "EMPLOYEE" if role == "EMPLOYEE" else "DEPARTMENT"
+    user_type = "EMPLOYEE" if emp_type not in ["Human Resource", "Accounts"] else "DEPARTMENT"
 
     reply = QueryReply(
         query_id=query_id,
@@ -211,9 +258,10 @@ def reply_query(query_id):
 def close_query_api(query_id):
 
     claims = get_jwt()
-    role = claims.get("role")
+    emp_type = claims.get("emp_type")
+    closed_by_email = claims.get("email")
 
-    if role not in ["HR", "ACCOUNTS"]:
+    if emp_type not in ["Human Resource", "Accounts", "Engineering", "IT Department"]:
         return jsonify({
             "success": False,
             "message": "Unauthorized"
@@ -226,6 +274,19 @@ def close_query_api(query_id):
 
     # 🔔 Send compiled chat email
     notify_query_event(query_obj, action="closed")
+    summary_text = " ".join((query_obj.query_text or "").split()[:20])
+    attachments = []
+    if query_obj.photo:
+        try:
+            attachments = json.loads(query_obj.photo)
+        except json.JSONDecodeError:
+            attachments = []
+    send_query_closed_email(
+        query_obj=query_obj,
+        closed_by_email=closed_by_email,
+        summary_text=summary_text,
+        attachments=attachments
+    )
 
     return jsonify({
         "success": True,

@@ -3,26 +3,25 @@ from flask_login import UserMixin
 from datetime import datetime
 
 
-
-
 class Punch(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
-    
+
     admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
     punch_date = db.Column(db.Date, nullable=False)
-    
+
+    # ✅ Store full datetime
     punch_in = db.Column(db.DateTime, nullable=True)
     punch_out = db.Column(db.DateTime, nullable=True)
     today_work = db.Column(db.String(20), nullable=True)  # "HH:MM:SS" format
     
 
-    is_wfh = db.Column(db.Boolean, default=False)  # ✅ New field to track WFH status
-    
-    lat = db.Column(db.Float, nullable=True)  # ✅ Optional: Latitude of punch location
-    lon = db.Column(db.Float, nullable=True)  # ✅ Optional: Longitude of punch location
+    lat = db.Column(db.Float, nullable=True)
+    lon = db.Column(db.Float, nullable=True)
+
+    # ✅ REQUIRED for your route
+    location_status = db.Column(db.String(30), nullable=True)
 
     admin = db.relationship('Admin', back_populates='punch_records')
-
 
     def to_dict(self):
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}

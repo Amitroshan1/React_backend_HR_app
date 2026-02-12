@@ -1,5 +1,5 @@
 import { createContext, useState, useEffect, useContext } from 'react'
-const API_BASE_URL = "http://localhost:5000/api/auth";
+const API_BASE_URL = "/api/auth";
 const UserContext = createContext();
 export const useUser = () => useContext(UserContext);
 export const UserProvider = ({ children }) => {

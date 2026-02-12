@@ -12,7 +12,7 @@ class Query(db.Model):
 
     status = db.Column(db.String(20), default='New')
     created_at = db.Column(db.DateTime, server_default=db.func.now())
-    photo = db.Column(db.String(255))
+    photo = db.Column(db.Text)
 
     # 🔥 FIX HERE (removed backref)
     admin = db.relationship(

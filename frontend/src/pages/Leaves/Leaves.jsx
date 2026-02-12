@@ -190,7 +190,7 @@ import { ApplyLeaveModal } from './ApplyLeaveModal';
 import './Leaves.css';
 import { useUser } from '../../components/layout/UserContext';
 
-const API_BASE_URL = "http://localhost:5000/api/leave";
+const API_BASE_URL = "/api/leave";
 
 export const Leaves= () => {
     const { userData, refreshUserData } = useUser();

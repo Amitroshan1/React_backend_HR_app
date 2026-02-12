@@ -193,6 +193,7 @@ export const HeroSection = () => {
   const [showPassword, setShowPassword] = useState(false);
 
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [animate, setAnimate] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
 
@@ -243,8 +244,14 @@ export const HeroSection = () => {
   }, []);
 
  const handleSubmit = async () => {
-    
-   fetch("http://localhost:5000/api/auth/validate-user", {
+  if (isSubmitting) return;
+  if (!email || !password) {
+    setError("Email and password are required.");
+    return;
+  }
+  setIsSubmitting(true);
+
+  fetch("/api/auth/validate-user", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
@@ -260,11 +267,18 @@ export const HeroSection = () => {
   if (data.success) {
     localStorage.setItem("token", data.token);
     navigate("/dashboard"); // redirect after login
+    setError("");
   } else {
-    alert(data.message);
+    setError(data.message || "Invalid credentials");
   }
 })
-.catch((err) => console.error(err));
+.catch((err) => {
+  console.error(err);
+  setError("Unable to login. Please try again.");
+})
+.finally(() => {
+  setIsSubmitting(false);
+});
 
   };
 

@@ -48,7 +48,7 @@ def validate_user():
 
     identifier = data.get("identifier")
     password = data.get("password")
-
+    print(identifier, password)
     if not identifier or not password:
         return jsonify({
             "success": False,
@@ -75,12 +75,12 @@ def validate_user():
         }
     )
 
-    try:
-        send_login_alert_email(admin)
-    except Exception as e:
-        current_app.logger.warning(
-            f"Login email failed for {admin.email}: {e}"
-        )
+    # try:
+    #     send_login_alert_email(admin)
+    # except Exception as e:
+    #     current_app.logger.warning(
+    #         f"Login email failed for {admin.email}: {e}"
+    #     )
 
     return jsonify({
         "success": True,
@@ -174,7 +174,7 @@ def employee_homepage():
                 "email": manager_contact.l3_email,
                 "mobile": manager_contact.l3_mobile
             }
-
+    print(admin.first_name,)
     # ------------------------
     # RESPONSE
     # ------------------------
@@ -394,9 +394,8 @@ def punch_in():
     user_lon = data.get("lon")
     is_wfh = bool(data.get("is_wfh", False))
 
-    # Get logged-in user email from JWT
+    # Logged-in user
     email = get_jwt().get("email")
-    print(email)
     employee = Admin.query.filter_by(email=email).first()
 
     if not employee:
@@ -404,62 +403,58 @@ def punch_in():
 
     today = date.today()
 
-    # ❌ Already punched in
-    existing = Punch.query.filter_by(
+    # Existing punch
+    punch = Punch.query.filter_by(
         admin_id=employee.id,
         punch_date=today
     ).first()
 
-    if existing and existing.punch_in:
+    if punch and punch.punch_in:
         return jsonify({
             "success": False,
             "message": "Already punched in today"
         }), 400
 
-    # ❌ On approved leave
+    # ❌ Leave check
     if is_on_leave(employee.id, today):
         return jsonify({
             "success": False,
             "message": "You are on approved leave today"
         }), 403
 
-    # ❌ WFH selected but not approved
+    # ❌ WFH not approved
     if is_wfh and not is_wfh_allowed(employee.id):
         return jsonify({
             "success": False,
             "message": "WFH mode is not approved for today"
         }), 403
 
-    # ❌ Location validation (only if NOT WFH)
-    if not is_wfh:
-        if user_lat is None or user_lon is None:
-            return jsonify({
-                "success": False,
-                "message": "Location (lat, lon) is required"
-            }), 400
+    # -------- GEOFENCE CHECK (NON-BLOCKING) --------
+    location_status = "LOCATION_NOT_CAPTURED"
+    warning_message = None
 
-        office_location = Location.query.first()  # or based on employee.circle
-        if not office_location:
-            return jsonify({
-                "success": False,
-                "message": "Office location not configured"
-            }), 500
+    if user_lat is not None and user_lon is not None:
+        office_location = Location.query.first()
+        if office_location:
+            distance = calculate_distance(
+                user_lat, user_lon,
+                office_location.latitude,
+                office_location.longitude
+            )
 
-        distance = calculate_distance(
-            user_lat, user_lon,
-            office_location.latitude,
-            office_location.longitude
-        )
+            if distance <= office_location.radius:
+                location_status = "INSIDE_GEOFENCE"
+            else:
+                location_status = "OUTSIDE_GEOFENCE"
+                if not is_wfh:
+                    warning_message = (
+                        f"Punched in, but you are outside office location "
+                        f"({int(distance)}m > {office_location.radius}m)."
+                    )
 
-        if distance > office_location.radius:
-            return jsonify({
-                "success": False,
-                "message": f"Too far from office location ({int(distance)}m > {office_location.radius}m)"
-            }), 403
-
-    # ✅ CREATE / UPDATE PUNCH
-    if not existing:
-        existing = Punch(
+    # -------- CREATE / UPDATE PUNCH --------
+    if not punch:
+        punch = Punch(
             admin_id=employee.id,
             punch_date=today
         )
@@ -469,7 +464,7 @@ def punch_in():
     existing.lon = user_lon
     existing.is_wfh = is_wfh
 
-    db.session.add(existing)
+    db.session.add(punch)
     db.session.commit()
 
     punch_in_str = existing.punch_in.isoformat() if hasattr(existing.punch_in, 'isoformat') else str(existing.punch_in)

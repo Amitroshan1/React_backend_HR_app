@@ -48,6 +48,10 @@ def create_app():
     app.config["ZEPTO_BASE_URL"] = os.getenv("ZEPTO_BASE_URL")
     app.config["ZEPTO_CC_HR"] = os.getenv("ZEPTO_CC_HR")
     app.config["ZEPTO_CC_ACCOUNT"] = os.getenv("ZEPTO_CC_ACCOUNT")
+    app.config["EMAIL_HR"] = os.getenv("EMAIL_HR")
+    app.config["EMAIL_ACCOUNTS"] = os.getenv("EMAIL_ACCOUNTS")
+    app.config["EMAIL_IT"] = os.getenv("EMAIL_IT")
+    app.config["EMAIL_ADMIN"] = os.getenv("EMAIL_ADMIN")
 
     # ---------------------------
     # Enable CORS

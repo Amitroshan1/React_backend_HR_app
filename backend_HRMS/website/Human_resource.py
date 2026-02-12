@@ -572,6 +572,8 @@ def search_employees():
             for admin in admins
         ]
     }), 200
+
+
 @hr.route("/download-excel", methods=["GET"])
 @jwt_required()
 def download_excel_hr_api():

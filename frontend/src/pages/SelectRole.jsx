@@ -73,7 +73,7 @@ export const SelectRole = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const res = await fetch("http://localhost:5000/select_role", {
+    const res = await fetch("/select_role", {
       method: "POST",
       credentials: "include",
       headers: {

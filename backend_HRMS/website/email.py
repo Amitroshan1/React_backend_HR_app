@@ -5,7 +5,7 @@
 
 from .models.Admin_models import Admin
 from .models.manager_model import ManagerContact
-from flask import current_app,url_for
+from flask import current_app, url_for
 from .models.expense import ExpenseLineItem
 import requests
 from . import db
@@ -113,9 +113,55 @@ def send_login_alert_email(user):
     """
 
     return send_email_via_zeptomail(
+        sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
         subject=subject,
         body=body,
         recipient_email=user.email
+    )
+
+
+def get_department_email(department):
+    department_map = {
+        "Human Resource": current_app.config.get("EMAIL_HR"),
+        "Accounts": current_app.config.get("EMAIL_ACCOUNTS"),
+        "IT Department": current_app.config.get("EMAIL_IT"),
+        "Administration": current_app.config.get("EMAIL_ADMIN"),
+    }
+    return department_map.get(department)
+
+
+def send_query_closed_email(query_obj, closed_by_email, summary_text, attachments=None):
+    recipient_email = get_department_email(query_obj.department)
+    if not recipient_email:
+        current_app.logger.warning(
+            f"No department email configured for query close: {query_obj.department}"
+        )
+        return False, "No department email configured"
+
+    subject = f"Query Closed: {query_obj.title}"
+    attachments = attachments or []
+    attachments_html = ""
+    if attachments:
+        attachments_html = "<ul>" + "".join([f"<li>{name}</li>" for name in attachments]) + "</ul>"
+
+    body = f"""
+    <p>Hello {query_obj.department} team,</p>
+    <p>The following query has been closed:</p>
+    <table border="1" cellpadding="6" cellspacing="0">
+        <tr><td><strong>Query ID</strong></td><td>{query_obj.id}</td></tr>
+        <tr><td><strong>Title</strong></td><td>{query_obj.title}</td></tr>
+        <tr><td><strong>Employee</strong></td><td>{query_obj.admin.email}</td></tr>
+        <tr><td><strong>Closed By</strong></td><td>{closed_by_email}</td></tr>
+        <tr><td><strong>Summary</strong></td><td>{summary_text}</td></tr>
+    </table>
+    {attachments_html}
+    """
+
+    return send_email_via_zeptomail(
+        sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+        subject=subject,
+        body=body,
+        recipient_email=recipient_email
     )
 
 import requests

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
@@ -12,48 +12,130 @@ export const Account = ()  => {
   const [selectedCircle, setSelectedCircle] = useState('');
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [employeesList, setEmployeesList] = useState([]);
+  const [payrollSummary, setPayrollSummary] = useState([]);
+  const [payrollError, setPayrollError] = useState('');
+  const [statsData, setStatsData] = useState({
+    total_employees: 0,
+    employees_paid: 0,
+    payslips_generated: 0,
+    ytd_expenses: 0
+  });
+  const [statsError, setStatsError] = useState('');
   
   // Form States
   const [payslipMonth, setPayslipMonth] = useState('January');
   const [payslipYear, setPayslipYear] = useState('2024');
 
-  const stats = [
-    { title: 'Total Payroll', value: '$2.1M', subtitle: 'This month', icon: <DollarSign size={20} /> },
-    { title: 'Employees Paid', value: '245/248', subtitle: '98.8% processed', icon: <Users size={20} /> },
-    { title: 'Payslips Generated', value: '248', subtitle: 'All generated', icon: <FileText size={20} /> },
-    { title: 'YTD Expenses', value: '$18.5M', subtitle: '+8% from last year', icon: <TrendingUp size={20} /> },
-  ];
+  const API_BASE_URL = '/api/accounts';
 
-  // Mock Data
-  const payrollSummary = [
-    { 
-      department: 'Engineering', employees: 85, amount: '$850,000', status: 'processed',
-      circles: ['NHQ', 'Mumbai', 'Delhi']
-    },
-    { 
-      department: 'HR', employees: 18, amount: '$180,000', status: 'processed',
-      circles: ['NHQ', 'Pune']
-    },
-    { 
-      department: 'Marketing', employees: 35, amount: '$280,000', status: 'pending',
-      circles: ['NHQ', 'Chennai']
+  const formatCurrency = (value) => {
+    try {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
+    } catch {
+      return `$${value || 0}`;
     }
+  };
+
+  const paidRatio = statsData.total_employees
+    ? `${statsData.employees_paid}/${statsData.total_employees}`
+    : `${statsData.employees_paid}`;
+
+  const stats = [
+    { title: 'Total Employees', value: statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
+    { title: 'Employees Paid', value: paidRatio, subtitle: 'Current month', icon: <DollarSign size={20} /> },
+    { title: 'Payslips Generated', value: statsData.payslips_generated, subtitle: 'Current month', icon: <FileText size={20} /> },
+    { title: 'Expense Claims', value: formatCurrency(statsData.ytd_expenses), subtitle: 'YTD total', icon: <TrendingUp size={20} /> },
   ];
 
-  const employeesList = [
-    { id: 'E001', name: 'Rahul Sharma', email: 'rsharma@company.com', workingDays: 22, bank: 'HDFC Bank - ...1234' },
-    { id: 'E002', name: 'Prajukta Podili', email: 'ppodili@company.com', workingDays: 21, bank: 'ICICI Bank - ...5678' },
-  ];
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
 
-  const handleCircleSelect = (dept, circle) => {
+    const loadStats = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/payroll-summary`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || 'Failed to load stats');
+        }
+        setStatsData(result.data || {});
+        setStatsError('');
+      } catch (error) {
+        console.error('Payroll stats error:', error);
+        setStatsError(error.message || 'Unable to load stats');
+      }
+    };
+
+    loadStats();
+  }, []);
+
+  const loadPayrollSummary = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/employee-type-circle-summary`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load payroll summary');
+      }
+      setPayrollSummary(result.data || []);
+      setPayrollError('');
+    } catch (error) {
+      console.error('Payroll summary error:', error);
+      setPayrollError(error.message || 'Unable to load payroll summary');
+    }
+  };
+
+  useEffect(() => {
+    loadPayrollSummary();
+  }, []);
+
+  const handleCircleSelect = async (dept, circle) => {
     setSelectedDept(dept);
     setSelectedCircle(circle);
     setCurrentView('employees');
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/employees-by-type-circle?emp_type=${encodeURIComponent(dept)}&circle=${encodeURIComponent(circle)}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load employees');
+      }
+      const mapped = (result.employees || []).map(emp => ({
+        id: emp.emp_id || emp.id,
+        name: emp.first_name || 'N/A',
+        email: emp.email || 'N/A',
+        workingDays: '-',
+        bank: 'N/A'
+      }));
+      setEmployeesList(mapped);
+    } catch (error) {
+      console.error('Employee list error:', error);
+      setEmployeesList([]);
+    }
   };
 
   const renderMainView = () => (
     <div className="fade-in">
       <div className="hr-stats-grid">
+        {statsError && <div className="q-error">{statsError}</div>}
         {stats.map((stat, i) => (
           <div key={i} className="stat-card">
             <div>
@@ -84,11 +166,15 @@ export const Account = ()  => {
                   <th>Department</th>
                   <th>Circle Selection</th>
                   <th>Employees</th>
-                  <th>Amount</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
+                {payrollError && (
+                  <tr>
+                    <td colSpan="5" className="empty">{payrollError}</td>
+                  </tr>
+                )}
                 {payrollSummary.map((dept) => (
                   <React.Fragment key={dept.department}>
                     <tr>
@@ -108,13 +194,12 @@ export const Account = ()  => {
                           value=""
                         >
                           <option value="" disabled>Select Circle</option>
-                          {dept.circles.map(c => <option key={c} value={c}>{c}</option>)}
+                          {(dept.circles || []).map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                       </td>
                       <td>{dept.employees}</td>
-                      <td className="text-success font-bold">{dept.amount}</td>
                       <td>
-                        <span className={`badge-${dept.status}`}>{dept.status}</span>
+                        <span className="badge-processed">active</span>
                       </td>
                     </tr>
                   </React.Fragment>
