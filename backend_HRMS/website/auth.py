@@ -354,6 +354,20 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     c = 2 * atan2(sqrt(a), sqrt(1-a))
     return R * c
 
+GEOFENCE_GRACE_METERS = 100
+
+def compute_zone(distance, radius, grace=GEOFENCE_GRACE_METERS):
+    if distance is None or radius is None:
+        return "NO_GPS"
+    if distance <= radius:
+        return "INSIDE"
+    if distance <= (radius + grace):
+        return "NEAR"
+    return "OUTSIDE"
+
+def needs_reason_for_zone(zone):
+    return zone in ["OUTSIDE", "NO_GPS"]
+
 
 @auth.route('/employee/location-check', methods=['GET'])
 @jwt_required()
@@ -363,24 +377,38 @@ def location_check():
     lon = request.args.get('lon', type=float)
     if lat is None or lon is None:
         return jsonify({
-            "success": False,
+            "success": True,
+            "zone": "NO_GPS",
             "in_range": False,
-            "message": "Latitude and longitude are required"
-        }), 400
+            "distance_meters": None,
+            "radius_meters": None,
+            "grace_meters": GEOFENCE_GRACE_METERS,
+            "requires_reason": True,
+            "message": "Location not captured"
+        }), 200
     office = Location.query.first()
     if not office:
         return jsonify({
             "success": True,
+            "zone": "NO_OFFICE_CONFIG",
             "in_range": False,
+            "distance_meters": None,
+            "radius_meters": None,
+            "grace_meters": GEOFENCE_GRACE_METERS,
+            "requires_reason": False,
             "message": "Office location not configured"
         }), 200
     distance = calculate_distance(lat, lon, office.latitude, office.longitude)
-    in_range = distance <= office.radius
+    zone = compute_zone(distance, office.radius)
     return jsonify({
         "success": True,
-        "in_range": in_range,
+        "zone": zone,
+        "in_range": zone in ["INSIDE", "NEAR"],
         "distance_meters": int(distance),
-        "radius_meters": office.radius
+        "radius_meters": office.radius,
+        "grace_meters": GEOFENCE_GRACE_METERS,
+        "requires_reason": needs_reason_for_zone(zone),
+        "message": f"{zone} zone"
     }), 200
 
 
@@ -393,6 +421,7 @@ def punch_in():
     user_lat = data.get("lat")
     user_lon = data.get("lon")
     is_wfh = bool(data.get("is_wfh", False))
+    geo_reason = (data.get("geo_reason") or "").strip()
 
     # Logged-in user
     email = get_jwt().get("email")
@@ -429,28 +458,34 @@ def punch_in():
             "message": "WFH mode is not approved for today"
         }), 403
 
-    # -------- GEOFENCE CHECK (NON-BLOCKING) --------
-    location_status = "LOCATION_NOT_CAPTURED"
-    warning_message = None
+    office_location = Location.query.first()
+    zone = "NO_GPS"
+    distance = None
+    if user_lat is not None and user_lon is not None and office_location:
+        distance = calculate_distance(
+            user_lat, user_lon,
+            office_location.latitude,
+            office_location.longitude
+        )
+        zone = compute_zone(distance, office_location.radius)
+    elif office_location is None:
+        zone = "NO_OFFICE_CONFIG"
 
-    if user_lat is not None and user_lon is not None:
-        office_location = Location.query.first()
-        if office_location:
-            distance = calculate_distance(
-                user_lat, user_lon,
-                office_location.latitude,
-                office_location.longitude
-            )
+    if needs_reason_for_zone(zone) and not geo_reason:
+        return jsonify({
+            "success": False,
+            "message": "Reason required for outside/no-gps punch-in",
+            "zone": zone
+        }), 400
 
-            if distance <= office_location.radius:
-                location_status = "INSIDE_GEOFENCE"
-            else:
-                location_status = "OUTSIDE_GEOFENCE"
-                if not is_wfh:
-                    warning_message = (
-                        f"Punched in, but you are outside office location "
-                        f"({int(distance)}m > {office_location.radius}m)."
-                    )
+    status_map = {
+        "INSIDE": "INSIDE_GEOFENCE",
+        "NEAR": "NEAR_GEOFENCE",
+        "OUTSIDE": "OUTSIDE_GEOFENCE_PENDING",
+        "NO_GPS": "LOCATION_NOT_CAPTURED",
+        "NO_OFFICE_CONFIG": "OFFICE_NOT_CONFIGURED"
+    }
+    location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
 
     # -------- CREATE / UPDATE PUNCH --------
     if not punch:
@@ -459,20 +494,25 @@ def punch_in():
             punch_date=today
         )
 
-    existing.punch_in = datetime.now()
-    existing.lat = user_lat
-    existing.lon = user_lon
-    existing.is_wfh = is_wfh
+    punch.punch_in = datetime.now()
+    punch.lat = user_lat
+    punch.lon = user_lon
+    punch.is_wfh = is_wfh
+    punch.location_status = location_status
+
 
     db.session.add(punch)
     db.session.commit()
 
-    punch_in_str = existing.punch_in.isoformat() if hasattr(existing.punch_in, 'isoformat') else str(existing.punch_in)
+    punch_in_str = punch.punch_in.isoformat() if hasattr(punch.punch_in, 'isoformat') else str(punch.punch_in)
     return jsonify({
         "success": True,
-        "message": "Punched in successfully",
+        "message": "Punched in; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched in successfully",
         "punch_in": punch_in_str,
-        "is_wfh": is_wfh
+        "is_wfh": is_wfh,
+        "zone": zone,
+        "location_status": location_status,
+        "needs_review": zone in ["OUTSIDE", "NO_GPS"]
     }), 200
 
 
@@ -485,6 +525,7 @@ def punch_out():
         
         user_lat = data.get("lat")
         user_lon = data.get("lon")
+        geo_reason = (data.get("geo_reason") or "").strip()
 
         # Get logged-in user email from JWT
         email = get_jwt().get("email")
@@ -502,16 +543,39 @@ def punch_out():
         if punch.punch_out:
             return jsonify({"success": False, "message": "Punch-out already done"}), 400
 
-        if user_lat is None or user_lon is None:
+        office_location = Location.query.first()
+        zone = "NO_GPS"
+        if user_lat is not None and user_lon is not None and office_location:
+            distance = calculate_distance(
+                user_lat, user_lon,
+                office_location.latitude,
+                office_location.longitude
+            )
+            zone = compute_zone(distance, office_location.radius)
+        elif office_location is None:
+            zone = "NO_OFFICE_CONFIG"
+
+        if needs_reason_for_zone(zone) and not geo_reason:
             return jsonify({
                 "success": False,
-                "message": "Location (lat, lon) is required for punch-out"
+                "message": "Reason required for outside/no-gps punch-out",
+                "zone": zone
             }), 400
+
+        status_map = {
+            "INSIDE": "INSIDE_GEOFENCE",
+            "NEAR": "NEAR_GEOFENCE",
+            "OUTSIDE": "OUTSIDE_GEOFENCE_PENDING",
+            "NO_GPS": "LOCATION_NOT_CAPTURED",
+            "NO_OFFICE_CONFIG": "OFFICE_NOT_CONFIGURED"
+        }
+        location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
 
         # ✅ UPDATE PUNCH-OUT (allow from any location)
         punch.punch_out = datetime.now()
         punch.lat = user_lat  # Update location on punch-out
         punch.lon = user_lon
+        punch.location_status = location_status
 
         # CALCULATE TOTAL TIME
         if isinstance(punch.punch_in, datetime):
@@ -529,9 +593,12 @@ def punch_out():
         punch_out_str = punch.punch_out.isoformat() if hasattr(punch.punch_out, 'isoformat') else str(punch.punch_out)
         return jsonify({
             "success": True,
-            "message": "Punched out successfully",
+            "message": "Punched out; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched out successfully",
             "punch_out": punch_out_str,
-            "today_work": today_work_str
+            "today_work": today_work_str,
+            "zone": zone,
+            "location_status": location_status,
+            "needs_review": zone in ["OUTSIDE", "NO_GPS"]
         }), 200
     except Exception as e:
         db.session.rollback()
