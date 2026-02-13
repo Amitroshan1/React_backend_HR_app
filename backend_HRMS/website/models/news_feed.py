@@ -34,3 +34,15 @@ class PaySlip(db.Model):
     file_path = db.Column(db.String(255), nullable=False)
 
     admin = db.relationship('Admin', back_populates='payslips')
+
+
+class Form16(db.Model):
+    __tablename__ = 'form16'
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
+    financial_year = db.Column(db.String(20), nullable=False)
+    file_path = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    admin = db.relationship('Admin', back_populates='form16_docs')

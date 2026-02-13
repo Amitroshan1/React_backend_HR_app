@@ -120,6 +120,56 @@ def send_login_alert_email(user):
     )
 
 
+def send_payslip_uploaded_email(admin, month, year):
+    """
+    Notify employee that payslip is uploaded in HRMS portal.
+    Non-blocking helper; returns (success, message).
+    """
+    try:
+        subject = f"Payslip Uploaded - {month} {year}"
+        body = f"""
+        <p>Dear {admin.first_name},</p>
+        <p>Your payslip for <strong>{month} {year}</strong> has been uploaded.</p>
+        <p>Please check it in the HRMS portal.</p>
+        <p>Regards,<br><strong>Accounts Team</strong></p>
+        """
+
+        return send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=admin.email
+        )
+    except Exception as e:
+        current_app.logger.warning(f"Payslip email failed for {admin.email}: {e}")
+        return False, str(e)
+
+
+def send_form16_uploaded_email(admin, financial_year):
+    """
+    Notify employee that Form 16 is uploaded in HRMS portal.
+    Non-blocking helper; returns (success, message).
+    """
+    try:
+        subject = f"Form 16 Uploaded - {financial_year}"
+        body = f"""
+        <p>Dear {admin.first_name},</p>
+        <p>Your Form 16 for <strong>{financial_year}</strong> has been uploaded.</p>
+        <p>Please check it in the HRMS portal.</p>
+        <p>Regards,<br><strong>Accounts Team</strong></p>
+        """
+
+        return send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=admin.email
+        )
+    except Exception as e:
+        current_app.logger.warning(f"Form16 email failed for {admin.email}: {e}")
+        return False, str(e)
+
+
 def get_department_email(department):
     department_map = {
         "Human Resource": current_app.config.get("EMAIL_HR"),

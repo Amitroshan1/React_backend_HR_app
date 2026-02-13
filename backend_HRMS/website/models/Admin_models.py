@@ -7,7 +7,7 @@ from website.models.emp_detail_models import Employee,Asset
 from website.models.prev_com import PreviousCompany
 from website.models.education import Education, UploadDoc
 from website.models.attendance import LeaveApplication, Punch,WorkFromHomeApplication,Punch,LeaveBalance,Location
-from website.models.news_feed import PaySlip
+from website.models.news_feed import PaySlip, Form16
 from website.models.query import Query, QueryReply  
 from website.models.seperation import Resignation,Noc,Noc_Upload
 from website.models.expense import ExpenseClaimHeader   
@@ -65,6 +65,7 @@ class Admin(db.Model, UserMixin):
     punch_records = db.relationship('Punch', back_populates='admin', lazy='dynamic', cascade="all, delete-orphan")
     assets = db.relationship('Asset', back_populates='admin', cascade="all, delete-orphan")
     payslips = db.relationship('PaySlip', back_populates='admin', cascade="all, delete-orphan")
+    form16_docs = db.relationship('Form16', back_populates='admin', cascade="all, delete-orphan")
     queries = db.relationship('Query', back_populates='admin', cascade="all, delete-orphan")
     query_replies = db.relationship('QueryReply', back_populates='admin', cascade="all, delete-orphan")
     work_from_home_applications = db.relationship('WorkFromHomeApplication', back_populates='admin', cascade='all, delete-orphan')
