@@ -11,7 +11,8 @@
 }
 
 .claims-page-container {
-  padding: 2rem;
+  padding: 12px;
+  padding-top: 0;
   background-color: var(--bg-page);
   min-height: 100vh;
   color: var(--text-main);
@@ -35,7 +36,7 @@
 
 /* Card Styling */
 .claims-card {
-  margin-top: 4rem;
+  margin-top: 0;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;

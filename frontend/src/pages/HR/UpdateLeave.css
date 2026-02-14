@@ -53,7 +53,7 @@
 /* Edit View Overlay Style (Image 45a824) */
 .leave-edit-container {
     height: calc(100vh - 100px);
-    margin-top: 4rem;
+    margin-top: 0;
     display: flex;
     justify-content: center;
     align-items: center;

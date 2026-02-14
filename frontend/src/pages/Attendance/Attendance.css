@@ -6,7 +6,7 @@
 }
 
 .attendance-page-container {
-    padding: 20px;
+    padding: 0;
     background-color: #f7f9fc;
     min-height: 100vh;
 }
@@ -20,7 +20,7 @@
 
 /* --- SUMMARY CARDS --- */
 .summary-cards-grid {
-    margin-top: 5rem;
+    margin-top: 0;
     display: grid;
     /* Default: 4 columns for desktop */
     grid-template-columns: repeat(4, 1fr);

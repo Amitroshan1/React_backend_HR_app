@@ -27,7 +27,7 @@
     font-weight: 600;
     cursor: pointer;
     width: fit-content;
-    margin-top: 4rem;
+    margin-top: 0;
     box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
 }
 
