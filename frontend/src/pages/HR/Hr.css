@@ -576,3 +576,188 @@
   transition: transform 0.2s ease;
 }
 
+/* ----- HR Sub-views: Profile, Attendance, Punch Form ----- */
+.hr-sub-page {
+  padding: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.hr-sub-page .hr-card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  margin-top: 12px;
+}
+
+.hr-sub-page .hr-card h2 {
+  margin: 0 0 20px;
+  font-size: 1.25rem;
+  color: #1e293b;
+}
+
+.hr-loading { color: #64748b; margin: 12px 0; }
+.hr-error { color: #b91c1c; margin: 12px 0; }
+.hr-success { color: #166534; margin: 12px 0; }
+
+.hr-sub-page .profile-section {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.hr-sub-page .profile-section h4 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.hr-sub-page .profile-section p { margin: 6px 0; font-size: 14px; }
+
+.btn-edit-profile {
+  margin-top: 16px;
+  padding: 10px 20px;
+  background: #1976d2;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-edit-profile:hover { background: #1565c0; }
+
+.attendance-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.attendance-controls input[type="month"] {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.btn-download-attendance {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #0d9488;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-download-attendance:hover:not(:disabled) { background: #0f766e; }
+.btn-download-attendance:disabled { opacity: 0.7; }
+
+.attendance-table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.hr-attendance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.hr-attendance-table th {
+  background: #f1f5f9;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.hr-attendance-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.punch-form-desc {
+  color: #64748b;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.punch-form .form-group {
+  margin-bottom: 16px;
+}.punch-form .form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.punch-form .form-group input {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  width: 100%;
+  max-width: 200px;
+}
+
+.btn-submit-punch {
+  margin-top: 12px;
+  padding: 10px 24px;
+  background: #1976d2;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-submit-punch:hover:not(:disabled) { background: #1565c0; }
+.btn-submit-punch:disabled { opacity: 0.7; }
+
+/* HR employee profile: education, previous employment, documents */
+.hr-sub-page .profile-sub-item {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.hr-sub-page .profile-sub-item:last-child { margin-bottom: 0; }
+
+.hr-sub-page .doc-link {
+  color: #1976d2;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.hr-sub-page .doc-link:hover { text-decoration: underline; }
+
+.hr-sub-page .documents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.hr-sub-page .doc-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.hr-sub-page .doc-item span { font-weight: 500; font-size: 14px; color: #334155; }
+
+.hr-sub-page .no-docs {
+  color: #64748b;
+  font-size: 14px;
+  margin: 8px 0 0;
+}

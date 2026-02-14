@@ -23,10 +23,12 @@ from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
 from .models.education import UploadDoc, Education
-from .models.attendance import Punch, LeaveApplication,LeaveBalance
+from .models.attendance import Punch, LeaveApplication, LeaveBalance, Location
 from .models.news_feed import NewsFeed
+from .models.seperation import Noc, Noc_Upload, Resignation
 from werkzeug.security import generate_password_hash
 import os
+from urllib.parse import unquote
 from . import db
 from werkzeug.utils import secure_filename
 
@@ -576,6 +578,7 @@ def search_employees():
 
 @hr.route("/download-excel", methods=["GET"])
 @jwt_required()
+@hr_required
 def download_excel_hr_api():
     circle = request.args.get("circle")
     emp_type = request.args.get("emp_type")
@@ -630,9 +633,8 @@ def download_excel_hr_api():
     # Step 4: Return file
     return send_excel_file(
         output,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         download_name=filename,
-        as_attachment=True
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 
@@ -729,7 +731,7 @@ def display_details_api():
                 "date": current_day.isoformat(),
                 "punch_in": punch.punch_in.strftime("%H:%M:%S") if punch and punch.punch_in else "",
                 "punch_out": punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else "",
-                "is_wfh": bool(punch.is_wfh) if punch else False,
+                "is_wfh": bool(getattr(punch, "is_wfh", False)) if punch else False,
                 "today_work": str(punch.today_work) if punch and punch.today_work else "",
                 "on_leave": any(
                     lv.start_date <= current_day <= lv.end_date for lv in leaves
@@ -752,6 +754,215 @@ def display_details_api():
     }), 400
 
 
+# --------------------------------------------------
+# HR: Employee profile by admin_id (view/edit for HR)
+# --------------------------------------------------
+@hr.route("/employee/profile/<int:admin_id>", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_employee_profile_hr(admin_id):
+    """Return full profile for an employee by admin_id. HR only."""
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    employee = Employee.query.filter_by(admin_id=admin_id).first()
+    education_list = Education.query.filter_by(admin_id=admin_id).all()
+    prev_companies = PreviousCompany.query.filter_by(admin_id=admin_id).all()
+    upload_doc = UploadDoc.query.filter_by(admin_id=admin_id).first()
+
+    def _date_iso(d):
+        return d.isoformat() if d and hasattr(d, "isoformat") else (str(d) if d else None)
+
+    profile = {
+        "admin": {
+            "id": admin.id,
+            "first_name": admin.first_name,
+            "user_name": admin.user_name,
+            "email": admin.email,
+            "mobile": admin.mobile,
+            "emp_id": admin.emp_id,
+            "doj": _date_iso(admin.doj),
+            "emp_type": admin.emp_type,
+            "circle": admin.circle or "",
+        },
+        "employee": None,
+        "education": [],
+        "previous_employment": [],
+        "documents": None,
+    }
+    if employee:
+        profile["employee"] = {
+            "name": employee.name,
+            "email": employee.email,
+            "father_name": employee.father_name,
+            "mother_name": employee.mother_name,
+            "marital_status": employee.marital_status,
+            "dob": _date_iso(employee.dob),
+            "emp_id": employee.emp_id,
+            "mobile": employee.mobile,
+            "gender": employee.gender,
+            "emergency_mobile": employee.emergency_mobile,
+            "nationality": employee.nationality,
+            "blood_group": employee.blood_group,
+            "designation": employee.designation,
+            "permanent_address_line1": employee.permanent_address_line1,
+            "permanent_pincode": employee.permanent_pincode,
+            "permanent_district": employee.permanent_district or "",
+            "permanent_state": employee.permanent_state or "",
+            "present_address_line1": employee.present_address_line1,
+            "present_pincode": employee.present_pincode,
+            "present_district": employee.present_district or "",
+            "present_state": employee.present_state or "",
+        }
+    for edu in education_list:
+        profile["education"].append({
+            "id": edu.id,
+            "qualification": edu.qualification,
+            "institution": edu.institution,
+            "university": (edu.board or ""),
+            "board": edu.board,
+            "start": _date_iso(edu.start),
+            "end": _date_iso(edu.end),
+            "marks": edu.marks,
+            "doc_file": edu.doc_file,
+        })
+    for pc in prev_companies:
+        doj, dol = pc.doj, pc.dol
+        years = ""
+        if doj and dol and hasattr(doj, "year") and hasattr(dol, "year"):
+            delta = (dol - doj).days if hasattr(dol, "__sub__") else 0
+            years = str(round(delta / 365.25, 1)) if delta else ""
+        profile["previous_employment"].append({
+            "id": pc.id,
+            "companyName": pc.com_name,
+            "designation": pc.designation,
+            "doj": _date_iso(pc.doj),
+            "dateOfLeaving": _date_iso(pc.dol),
+            "experienceYears": years,
+            "reason": pc.reason,
+        })
+    if upload_doc:
+        profile["documents"] = {
+            "aadhaar_front": upload_doc.aadhaar_front,
+            "aadhaar_back": upload_doc.aadhaar_back,
+            "pan_front": upload_doc.pan_front,
+            "pan_back": upload_doc.pan_back,
+            "appointment_letter": upload_doc.appointment_letter,
+            "passbook_front": upload_doc.passbook_front,
+        }
+    return jsonify({"success": True, "profile": profile}), 200
+
+
+# --------------------------------------------------
+# HR: Download attendance excel for one employee
+# --------------------------------------------------
+@hr.route("/employee/attendance-download/<int:admin_id>", methods=["GET"])
+@jwt_required()
+@hr_required
+def download_employee_attendance(admin_id):
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    month_str = request.args.get("month")
+    if month_str:
+        try:
+            year, month = map(int, month_str.split("-"))
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid month. Use YYYY-MM"}), 400
+    else:
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        year, month = now.year, now.month
+    output = generate_attendance_excel(
+        admins=[admin],
+        emp_type=admin.emp_type or "Employee",
+        circle=admin.circle or "NHQ",
+        year=year,
+        month=month,
+        file_prefix="Employee",
+    )
+    filename = f"Attendance_{admin.emp_id}_{admin.first_name}_{calendar.month_name[month]}_{year}.xlsx"
+    return send_excel_file(
+        output,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+# --------------------------------------------------
+# HR: Create or update punch for an employee (forgot to punch)
+# --------------------------------------------------
+@hr.route("/employee/punch/<int:admin_id>", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_update_employee_punch(admin_id):
+    """Create or update punch in/out for an employee. HR use only."""
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    data = request.get_json() or {}
+    date_str = data.get("date")
+    punch_in_str = data.get("punch_in")
+    punch_out_str = data.get("punch_out")
+    if not date_str:
+        return jsonify({"success": False, "message": "date is required (YYYY-MM-DD)"}), 400
+    try:
+        punch_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid date format"}), 400
+    if not punch_in_str and not punch_out_str:
+        return jsonify({"success": False, "message": "Provide at least punch_in or punch_out"}), 400
+
+    def parse_time(s):
+        if not s:
+            return None
+        s = s.strip()
+        for fmt in ("%H:%M:%S", "%H:%M"):
+            try:
+                return datetime.strptime(s, fmt).time()
+            except ValueError:
+                continue
+        return None
+
+    punch_in_time = parse_time(punch_in_str)
+    punch_out_time = parse_time(punch_out_str)
+
+    punch = Punch.query.filter_by(admin_id=admin_id, punch_date=punch_date).first()
+    if not punch:
+        punch = Punch(admin_id=admin_id, punch_date=punch_date)
+        db.session.add(punch)
+
+    if punch_in_time is not None:
+        punch.punch_in = datetime.combine(punch_date, punch_in_time)
+    if punch_out_time is not None:
+        punch.punch_out = datetime.combine(punch_date, punch_out_time)
+
+    if punch.punch_in and punch.punch_out:
+        start = punch.punch_in
+        end = punch.punch_out
+        diff = end - start
+        total_seconds = int(diff.total_seconds())
+        if total_seconds < 0:
+            total_seconds += 24 * 3600
+        h, r = divmod(total_seconds, 3600)
+        m, s = divmod(r, 60)
+        punch.today_work = f"{h:02d}:{m:02d}:{s:02d}"
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Punch update error: {e}")
+        return jsonify({"success": False, "message": "Failed to save punch"}), 500
+    return jsonify({
+        "success": True,
+        "message": "Punch updated successfully",
+        "punch": {
+            "date": punch_date.isoformat(),
+            "punch_in": punch.punch_in.isoformat() if punch.punch_in else None,
+            "punch_out": punch.punch_out.isoformat() if punch.punch_out else None,
+            "today_work": punch.today_work,
+        },
+    }), 200
 
 
 @hr.route("/employee/<emp_id>", methods=["GET"])
@@ -817,8 +1028,9 @@ def update_employee_api(emp_id):
 
 @hr.route("/leave-balance/<int:employee_id>", methods=["GET"])
 @jwt_required()
+@hr_required
 def get_leave_balance(employee_id):
-    # employee_id = Admin.id
+    """employee_id = Admin.id (admin_id)."""
     admin = Admin.query.get(employee_id)
 
     if not admin:
@@ -855,8 +1067,10 @@ def get_leave_balance(employee_id):
 
 @hr.route("/leave-balance/<int:employee_id>", methods=["PUT"])
 @jwt_required()
+@hr_required
 def update_leave_balance(employee_id):
-    leave_balance = LeaveBalance.query.filter_by(signup_id=employee_id).first()
+    """employee_id = Admin.id (admin_id)."""
+    leave_balance = LeaveBalance.query.filter_by(admin_id=employee_id).first()
 
     if not leave_balance:
         return jsonify({
@@ -864,13 +1078,14 @@ def update_leave_balance(employee_id):
             "message": "Leave balance not found"
         }), 404
 
-    data = request.get_json()
+    data = request.get_json() or {}
 
     if "privilege_leave_balance" in data:
-        leave_balance.privilege_leave_balance = data["privilege_leave_balance"]
-
+        leave_balance.privilege_leave_balance = float(data["privilege_leave_balance"])
     if "casual_leave_balance" in data:
-        leave_balance.casual_leave_balance = data["casual_leave_balance"]
+        leave_balance.casual_leave_balance = float(data["casual_leave_balance"])
+    if "compensatory_leave_balance" in data:
+        leave_balance.compensatory_leave_balance = float(data["compensatory_leave_balance"])
 
     try:
         db.session.commit()
@@ -882,13 +1097,14 @@ def update_leave_balance(employee_id):
         db.session.rollback()
         return jsonify({
             "success": False,
-            "message": f"Database error: {str(e)}"
+            "message": str(e) or "Database error"
         }), 500
     
 
 
 @hr.route("/news-feed", methods=["POST"])
 @jwt_required()
+@hr_required
 def add_news_feed_api():
     data = request.form
 
@@ -908,7 +1124,7 @@ def add_news_feed_api():
         file = request.files["file"]
         if file and file.filename:
             filename = secure_filename(file.filename)
-            upload_dir = current_app.config.get("UPLOAD_FOLDER")
+            upload_dir = current_app.config.get("UPLOAD_FOLDER") or os.path.join(current_app.static_folder or "static", "uploads")
             os.makedirs(upload_dir, exist_ok=True)
             file.save(os.path.join(upload_dir, filename))
 
@@ -936,9 +1152,11 @@ def add_news_feed_api():
     }), 201
 
 
-@hr.route("/employee/search", methods=["GET"])
+@hr.route("/employee/lookup", methods=["GET"])
 @jwt_required()
+@hr_required
 def search_employee_api_for_asset():
+    """Look up a single employee by emp_id (e.g. for asset assignment). Use /employee/search for filter by emp_type and circle."""
     emp_id = request.args.get("emp_id")
 
     if not emp_id:
@@ -971,6 +1189,7 @@ def search_employee_api_for_asset():
 
 @hr.route("/employee/<int:admin_id>/assets", methods=["GET"])
 @jwt_required()
+@hr_required
 def get_employee_assets(admin_id):
     employee = Admin.query.get(admin_id)
     if not employee:
@@ -991,6 +1210,8 @@ def get_employee_assets(admin_id):
 
 
 @hr.route("/assign-asset", methods=["POST"])
+@jwt_required()
+@hr_required
 def assign_asset():
     admin_id = request.form.get("admin_id")
     name = request.form.get("name")
@@ -1140,8 +1361,211 @@ def update_asset_api(asset_id):
     }), 200
 
 
+# --------------------------------------------------
+# LOCATIONS (Office / Punch-in radius)
+# --------------------------------------------------
+@hr.route("/locations", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_locations():
+    locations = Location.query.all()
+    return jsonify({
+        "success": True,
+        "locations": [
+            {
+                "id": loc.id,
+                "name": loc.name,
+                "latitude": loc.latitude,
+                "longitude": loc.longitude,
+                "radius": loc.radius
+            }
+            for loc in locations
+        ]
+    }), 200
+
+
+@hr.route("/locations", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_location():
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    lat = data.get("latitude")
+    lng = data.get("longitude")
+    radius = data.get("radius", 100)
+
+    if not name:
+        return jsonify({"success": False, "message": "Location name is required"}), 400
+    try:
+        lat_f = float(lat) if lat is not None else 0.0
+        lng_f = float(lng) if lng is not None else 0.0
+        radius_f = float(radius) if radius is not None else 100.0
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid latitude, longitude or radius"}), 400
+
+    loc = Location(name=name, latitude=lat_f, longitude=lng_f, radius=radius_f)
+    db.session.add(loc)
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "message": "Location added successfully",
+        "location": {"id": loc.id, "name": loc.name, "latitude": loc.latitude, "longitude": loc.longitude, "radius": loc.radius}
+    }), 201
+
+
+@hr.route("/locations/<int:loc_id>", methods=["DELETE"])
+@jwt_required()
+@hr_required
+def delete_location(loc_id):
+    loc = Location.query.get(loc_id)
+    if not loc:
+        return jsonify({"success": False, "message": "Location not found"}), 404
+    db.session.delete(loc)
+    db.session.commit()
+    return jsonify({"success": True, "message": "Location deleted"}), 200
+
+
+# --------------------------------------------------
+# NOC (No Objection Certificate)
+# Driven by Resignation/Separation: HR sees employees who submitted separation form
+# --------------------------------------------------
+@hr.route("/noc", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_noc():
+    """Return employees who submitted resignation (separation form). HR sees them and takes NOC action."""
+    resignations = (
+        Resignation.query.join(Admin, Resignation.admin_id == Admin.id)
+        .order_by(Resignation.applied_on.desc())
+        .all()
+    )
+    result = []
+    for r in resignations:
+        admin = r.admin
+        noc_rec = Noc.query.filter_by(admin_id=r.admin_id).order_by(Noc.noc_date.desc()).first()
+        has_upload = Noc_Upload.query.filter_by(admin_id=r.admin_id).first() is not None
+        if has_upload:
+            noc_status = "Uploaded"
+        elif noc_rec:
+            noc_status = "Pending"
+        else:
+            noc_status = "No NOC"
+        result.append({
+            "resignation_id": r.id,
+            "admin_id": r.admin_id,
+            "emp_id": admin.emp_id if admin else "N/A",
+            "name": admin.first_name if admin else "N/A",
+            "email": admin.email if admin else None,
+            "resignation_date": r.resignation_date.isoformat() if r.resignation_date else None,
+            "reason": (r.reason or "")[:200],
+            "applied_on": r.applied_on.isoformat() if getattr(r.applied_on, "isoformat", None) else str(r.applied_on),
+            "noc_id": noc_rec.id if noc_rec else None,
+            "noc_date": noc_rec.noc_date.isoformat() if noc_rec and noc_rec.noc_date else None,
+            "noc_status": noc_status,
+        })
+    return jsonify({"success": True, "noc_list": result}), 200
+
+
+@hr.route("/noc", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_noc():
+    data = request.get_json() or {}
+    admin_id = data.get("admin_id")
+    noc_date_str = data.get("noc_date")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    existing = Noc.query.filter_by(admin_id=admin_id).first()
+    if existing:
+        return jsonify({"success": True, "message": "NOC record already exists", "noc": {"id": existing.id}}), 200
+    try:
+        noc_date = datetime.fromisoformat(noc_date_str).date() if noc_date_str else date.today()
+    except (TypeError, ValueError):
+        noc_date = date.today()
+    resignation = Resignation.query.filter_by(admin_id=admin_id).first()
+    if resignation and resignation.resignation_date:
+        noc_date = resignation.resignation_date
+    noc = Noc(admin_id=admin_id, noc_date=noc_date, status="Pending")
+    db.session.add(noc)
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "message": "NOC record created",
+        "noc": {"id": noc.id, "admin_id": noc.admin_id, "noc_date": noc.noc_date.isoformat(), "status": noc.status},
+    }), 201
+
+
+# --------------------------------------------------
+# CONFIRMATION REQUESTS (new joinees needing confirmation)
+# --------------------------------------------------
+@hr.route("/confirmation-requests", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_confirmation_requests():
+    """Return employees who joined in last 6 months (confirmation candidates)."""
+    cutoff = date.today() - timedelta(days=180)
+    employees = Admin.query.filter(
+        Admin.doj >= cutoff,
+        Admin.is_exited == False,
+        Admin.is_active == True,
+    ).order_by(Admin.doj.desc()).all()
+    result = [
+        {
+            "id": a.id,
+            "name": a.first_name,
+            "emp_id": a.emp_id,
+            "email": a.email,
+            "doj": a.doj.isoformat() if a.doj else None,
+            "circle": a.circle,
+            "emp_type": a.emp_type,
+        }
+        for a in employees
+    ]
+    return jsonify({"success": True, "requests": result}), 200
+
+
+@hr.route("/noc/upload", methods=["POST"])
+@jwt_required()
+@hr_required
+def upload_noc():
+    """Upload NOC document. Auto-creates Noc record if employee has Resignation but no Noc yet."""
+    admin_id = request.form.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"success": False, "message": "No file provided"}), 400
+    noc = Noc.query.filter_by(admin_id=admin_id).order_by(Noc.noc_date.desc()).first()
+    if not noc:
+        resignation = Resignation.query.filter_by(admin_id=admin_id).first()
+        noc_date = resignation.resignation_date if resignation and resignation.resignation_date else date.today()
+        noc = Noc(admin_id=admin_id, noc_date=noc_date, status="Pending")
+        db.session.add(noc)
+        db.session.flush()
+    claims = get_jwt()
+    emp_type = claims.get("emp_type") or "Human Resource"
+    upload_dir = os.path.join(current_app.root_path, "static", "uploads", "noc")
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = secure_filename(f"{admin.emp_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}")
+    file_path = os.path.join(upload_dir, filename)
+    file.save(file_path)
+    rel_path = f"noc/{filename}"
+    noc_upload = Noc_Upload(admin_id=admin_id, file_path=rel_path, emp_type_uploader=emp_type)
+    db.session.add(noc_upload)
+    noc.status = "Uploaded"
+    db.session.commit()
+    return jsonify({"success": True, "message": "NOC file uploaded successfully"}), 201
+
+
 @hr.route("/employee/search", methods=["GET"])
 @jwt_required()
+@hr_required
 def search_employee_api():
     emp_type = request.args.get("emp_type")
     circle = request.args.get("circle")
@@ -1162,6 +1586,7 @@ def search_employee_api():
         "count": len(employees),
         "employees": [
             {
+                "id": e.id,
                 "email": e.email,
                 "user_name": e.user_name,
                 "first_name": e.first_name,
@@ -1176,9 +1601,12 @@ def search_employee_api():
     }), 200
 
 
-@hr.route("/employee/<string:email>", methods=["GET"])
+@hr.route("/employee/by-email/<path:email_path>", methods=["GET"])
 @jwt_required()
-def get_employee_api(email):
+@hr_required
+def get_employee_api(email_path):
+    """Get Admin (employee) by email. Uses path so URL-encoded @ and dots are preserved."""
+    email = unquote(email_path).strip()
     admin = Admin.query.filter_by(email=email).first()
 
     if not admin:
@@ -1202,9 +1630,12 @@ def get_employee_api(email):
     }), 200
 
 
-@hr.route("/employee/<string:email>", methods=["PUT"], endpoint="hr_update_employee")
+@hr.route("/employee/by-email/<path:email_path>", methods=["PUT"], endpoint="hr_update_employee")
 @jwt_required()
-def update_employee_api(email):
+@hr_required
+def update_employee_api(email_path):
+    """Update Admin (employee) by email."""
+    email = unquote(email_path).strip()
     admin = Admin.query.filter_by(email=email).first()
 
     if not admin:

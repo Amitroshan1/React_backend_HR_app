@@ -6,9 +6,12 @@
 #https://solviotec.com/api/auth
 
 
+import os
 import re
 from math import radians, cos, sin, atan2, sqrt
-from flask import Blueprint, request, redirect, url_for, current_app,jsonify
+from werkzeug.utils import secure_filename
+from flask import Blueprint, request, redirect, url_for, current_app, jsonify
+from sqlalchemy import func
 from .email import send_login_alert_email
 from .models.Admin_models import Admin
 from . import db
@@ -88,13 +91,37 @@ def validate_user():
     }), 200
 
 
+def _safe_doj(admin):
+    """Return admin.doj as string for JSON; None-safe."""
+    d = getattr(admin, "doj", None)
+    if d is None:
+        return None
+    return d.isoformat() if hasattr(d, "isoformat") else str(d)
+
+
 @auth.route('/employee/homepage', methods=['GET'])
 @jwt_required()
 def employee_homepage():
+    try:
+        return _employee_homepage_impl()
+    except Exception as e:
+        logger.exception("employee_homepage error")
+        return jsonify({
+            "success": False,
+            "message": "Failed to load homepage",
+            "error": str(e) if current_app.debug else None
+        }), 500
 
-    admin_id = get_jwt_identity()
-    claims = get_jwt()
-    email = claims.get("email")
+
+def _employee_homepage_impl():
+    try:
+        raw_id = get_jwt_identity()
+        admin_id = int(raw_id) if raw_id is not None else None
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+
+    if admin_id is None:
+        return jsonify({"success": False, "message": "Invalid token"}), 401
 
     # ------------------------
     # 1. ADMIN DATA
@@ -122,16 +149,19 @@ def employee_homepage():
 
     working_hours = None
     if punch and punch.punch_in:
-        end_time = punch.punch_out or datetime.now()
-        punch_in_dt = punch.punch_in
-        if isinstance(punch.punch_in, time):
-            punch_in_dt = datetime.combine(today, punch.punch_in)
-        elif not isinstance(punch.punch_in, datetime):
-            punch_in_dt = datetime.combine(today, punch.punch_in) if hasattr(punch.punch_in, 'hour') else punch.punch_in
-        diff = end_time - punch_in_dt
-        calculated = str(diff).split(".")[0]
-        normalized = _normalize_working_hours(punch.today_work) if punch.today_work else None
-        working_hours = normalized if normalized else calculated
+        try:
+            end_time = punch.punch_out or datetime.now()
+            punch_in_dt = punch.punch_in
+            if isinstance(punch.punch_in, time):
+                punch_in_dt = datetime.combine(today, punch.punch_in)
+            elif not isinstance(punch.punch_in, datetime):
+                punch_in_dt = datetime.combine(today, punch.punch_in) if hasattr(punch.punch_in, 'hour') else punch.punch_in
+            diff = end_time - punch_in_dt
+            calculated = str(diff).split(".")[0]
+            normalized = _normalize_working_hours(punch.today_work) if punch.today_work else None
+            working_hours = normalized if normalized else calculated
+        except Exception:
+            working_hours = None
 
     # ------------------------
     # 4. LEAVE BALANCE + USAGE (from LeaveBalance table)
@@ -140,86 +170,133 @@ def employee_homepage():
 
     # ------------------------
     # 5. MANAGER DETAILS (ManagerContact)
+    # Look up by (circle, user_type, user_email). Use stripped + case-insensitive match
+    # so DB "NHQ"/"Software Developer" matches admin "nhq"/"software developer".
+    # Fall back to group-level (user_email is None or '') if no employee-specific row.
     # ------------------------
-    manager_contact = ManagerContact.query.filter_by(
-        user_email=admin.email
-    ).first()
-
-    if not manager_contact:
-        manager_contact = ManagerContact.query.filter_by(
-            circle_name=admin.circle,
-            user_type=admin.emp_type
-        ).first()
+    manager_contact = None
+    user_circle = (getattr(admin, "circle", None) or "").strip()
+    user_emp_type = (getattr(admin, "emp_type", None) or "").strip()
+    user_email = (admin.email or "").strip() or None
+    if user_circle and user_emp_type:
+        circle_lower = user_circle.lower()
+        emp_type_lower = user_emp_type.lower()
+        if user_email:
+            # Try employee-specific row first (exact email; circle/type case-insensitive)
+            manager_contact = ManagerContact.query.filter(
+                func.lower(ManagerContact.circle_name) == circle_lower,
+                func.lower(ManagerContact.user_type) == emp_type_lower,
+                ManagerContact.user_email == user_email
+            ).first()
+        if not manager_contact:
+            # Fall back to group-level row (user_email null or empty)
+            manager_contact = ManagerContact.query.filter(
+                func.lower(ManagerContact.circle_name) == circle_lower,
+                func.lower(ManagerContact.user_type) == emp_type_lower,
+                (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
+            ).first()
 
     managers = {}
-
     if manager_contact:
-        if manager_contact.l1_name and manager_contact.l1_email:
-            managers["l1"] = {
-                "name": manager_contact.l1_name,
-                "email": manager_contact.l1_email,
-                "mobile": manager_contact.l1_mobile
-            }
+        def _add_level(key, name_attr, email_attr, mobile_attr):
+            name = getattr(manager_contact, name_attr, None)
+            email = getattr(manager_contact, email_attr, None)
+            if name or email:
+                managers[key] = {
+                    "name": name or "",
+                    "email": email or "",
+                    "mobile": getattr(manager_contact, mobile_attr, None) or ""
+                }
+        _add_level("l1", "l1_name", "l1_email", "l1_mobile")
+        _add_level("l2", "l2_name", "l2_email", "l2_mobile")
+        _add_level("l3", "l3_name", "l3_email", "l3_mobile")
 
-        if manager_contact.l2_name and manager_contact.l2_email:
-            managers["l2"] = {
-                "name": manager_contact.l2_name,
-                "email": manager_contact.l2_email,
-                "mobile": manager_contact.l2_mobile
-            }
-
-        if manager_contact.l3_name and manager_contact.l3_email:
-            managers["l3"] = {
-                "name": manager_contact.l3_name,
-                "email": manager_contact.l3_email,
-                "mobile": manager_contact.l3_mobile
-            }
-    print(admin.first_name,)
     # ------------------------
     # RESPONSE
     # ------------------------
+    def _punch_iso(p, attr):
+        val = getattr(p, attr, None) if p else None
+        if val is None:
+            return None
+        return val.isoformat() if hasattr(val, "isoformat") else str(val)
+
+    # Display name: first_name, else user_name, else email prefix, else "User" (so HR/any user shows in header)
+    _first = (getattr(admin, "first_name", None) or "").strip()
+    _uname = (getattr(admin, "user_name", None) or "").strip()
+    _email = (getattr(admin, "email", None) or "").strip()
+    display_name = _first or _uname or (_email.split("@")[0] if _email else None) or "User"
+
     return jsonify({
         "success": True,
-
         "user": {
             "id": admin.id,
-            "name": admin.first_name,
-            "emp_id": admin.emp_id,
-            "emp_type": admin.emp_type,  # Use emp_type from admins table
-            "department": admin.emp_type,  # Keep for backward compatibility
-            "circle": admin.circle,
-            "doj": str(admin.doj)
+            "name": display_name,
+            "first_name": getattr(admin, "first_name", None),
+            "user_name": getattr(admin, "user_name", None),
+            "email": getattr(admin, "email", None),
+            "emp_id": getattr(admin, "emp_id", None),
+            "emp_type": getattr(admin, "emp_type", None),
+            "department": getattr(admin, "emp_type", None),
+            "circle": getattr(admin, "circle", None),
+            "doj": _safe_doj(admin)
         },
-
         "employee": {
             "designation": employee.designation if employee else None
         },
-
         "punch": {
-            "punch_in": punch.punch_in.isoformat() if punch and punch.punch_in and hasattr(punch.punch_in, 'isoformat') else (str(punch.punch_in) if punch and punch.punch_in else None),
-            "punch_out": punch.punch_out.isoformat() if punch and punch.punch_out and hasattr(punch.punch_out, 'isoformat') else (str(punch.punch_out) if punch and punch.punch_out else None),
+            "punch_in": _punch_iso(punch, "punch_in"),
+            "punch_out": _punch_iso(punch, "punch_out"),
             "working_hours": working_hours
         },
-
         "leave_balance": {
-            # Remaining balances (what's left to use)
             "pl": leave_balance.privilege_leave_balance if leave_balance else 0,
             "cl": leave_balance.casual_leave_balance if leave_balance else 0,
             "comp": leave_balance.compensatory_leave_balance if leave_balance else 0,
-
-            # Total entitlements (fixed total granted - e.g., CL=8, PL=13)
             "total_pl": leave_balance.total_privilege_leave if leave_balance else 0,
             "total_cl": leave_balance.total_casual_leave if leave_balance else 0,
             "total_comp": leave_balance.total_compensatory_leave if leave_balance else 0,
-
-            # Used amounts (how much has been used from total)
             "used_pl": leave_balance.used_privilege_leave if leave_balance else 0,
             "used_cl": leave_balance.used_casual_leave if leave_balance else 0,
             "used_comp": leave_balance.used_comp_leave if leave_balance else 0,
         },
-
         "managers": managers
     }), 200
+
+
+@auth.route("/news-feed", methods=["GET"])
+@jwt_required()
+def get_news_feed():
+    """Return news feed posts for the logged-in employee, filtered by their circle and emp_type."""
+    try:
+        admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    from sqlalchemy import or_
+    user_circle = getattr(admin, "circle", None) or ""
+    user_emp_type = getattr(admin, "emp_type", None) or ""
+
+    posts = NewsFeed.query.filter(
+        or_(NewsFeed.circle == user_circle, NewsFeed.circle == "All"),
+        or_(NewsFeed.emp_type == user_emp_type, NewsFeed.emp_type == "All")
+    ).order_by(NewsFeed.created_at.desc()).limit(50).all()
+
+    items = [
+        {
+            "id": p.id,
+            "title": p.title,
+            "content": p.content,
+            "file_path": p.file_path,
+            "circle": p.circle,
+            "emp_type": p.emp_type,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in posts
+    ]
+    return jsonify({"success": True, "news_feed": items}), 200
 
 
 @auth.route('/employee/profile', methods=['GET'])
@@ -471,19 +548,13 @@ def punch_in():
     elif office_location is None:
         zone = "NO_OFFICE_CONFIG"
 
-    if needs_reason_for_zone(zone) and not geo_reason:
-        return jsonify({
-            "success": False,
-            "message": "Reason required for outside/no-gps punch-in",
-            "zone": zone
-        }), 400
-
+    # Allow punch-in even when outside radius (no reason required)
     status_map = {
-        "INSIDE": "INSIDE_GEOFENCE",
-        "NEAR": "NEAR_GEOFENCE",
-        "OUTSIDE": "OUTSIDE_GEOFENCE_PENDING",
-        "NO_GPS": "LOCATION_NOT_CAPTURED",
-        "NO_OFFICE_CONFIG": "OFFICE_NOT_CONFIGURED"
+        "INSIDE": "inside_geofence",
+        "NEAR": "inside_geofence",
+        "OUTSIDE": "outside_geofence",
+        "NO_GPS": "outside_geofence",
+        "NO_OFFICE_CONFIG": "office_not_configured"
     }
     location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
 
@@ -555,19 +626,13 @@ def punch_out():
         elif office_location is None:
             zone = "NO_OFFICE_CONFIG"
 
-        if needs_reason_for_zone(zone) and not geo_reason:
-            return jsonify({
-                "success": False,
-                "message": "Reason required for outside/no-gps punch-out",
-                "zone": zone
-            }), 400
-
+        # Allow punch-out even when outside radius (no reason required)
         status_map = {
-            "INSIDE": "INSIDE_GEOFENCE",
-            "NEAR": "NEAR_GEOFENCE",
-            "OUTSIDE": "OUTSIDE_GEOFENCE_PENDING",
-            "NO_GPS": "LOCATION_NOT_CAPTURED",
-            "NO_OFFICE_CONFIG": "OFFICE_NOT_CONFIGURED"
+            "INSIDE": "inside_geofence",
+            "NEAR": "inside_geofence",
+            "OUTSIDE": "outside_geofence",
+            "NO_GPS": "outside_geofence",
+            "NO_OFFICE_CONFIG": "office_not_configured"
         }
         location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
 
@@ -819,12 +884,49 @@ def create_or_update_education():
 
 
 
+@auth.route("/upload-profile-file", methods=["POST"])
+@jwt_required()
+def upload_profile_file():
+    """Upload a single profile document (Aadhaar, PAN, etc). Saves to static/uploads/profile/ and returns relative path."""
+    admin_id = request.form.get("admin_id")
+    field = request.form.get("field")  # aadharFront, aadharBack, panFront, panBack, appointmentLetter, passbookFront
+    if not admin_id or not field:
+        return jsonify({"success": False, "message": "admin_id and field are required"}), 400
+
+    # Verify user owns this admin_id (or is HR)
+    try:
+        token_admin_id = int(get_jwt_identity())
+        token_admin = Admin.query.get(token_admin_id)
+        if not token_admin or (token_admin_id != int(admin_id) and (token_admin.emp_type or "").lower() != "human resource"):
+            return jsonify({"success": False, "message": "Unauthorized"}), 403
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"success": False, "message": "No file provided"}), 400
+
+    allowed = ("aadharFront", "aadharBack", "panFront", "panBack", "appointmentLetter", "passbookFront")
+    if field not in allowed:
+        return jsonify({"success": False, "message": "Invalid field"}), 400
+
+    upload_dir = os.path.join(current_app.root_path, "static", "uploads", "profile")
+    os.makedirs(upload_dir, exist_ok=True)
+    ext = os.path.splitext(secure_filename(file.filename))[1] or ".pdf"
+    filename = f"{admin_id}_{field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+    file_path = os.path.join(upload_dir, filename)
+    file.save(file_path)
+    rel_path = f"profile/{filename}"
+    return jsonify({"success": True, "path": rel_path}), 201
+
+
 @auth.route("/upload-docs", methods=["POST"])
+@jwt_required()
 def save_upload_docs():
     data = request.get_json()
 
     if not data:
-        return {"success": False, "message": "Missing JSON body"}, 400
+        return jsonify({"success": False, "message": "Missing JSON body"}), 400
 
     admin_id = data.get("admin_id")
     if not admin_id:

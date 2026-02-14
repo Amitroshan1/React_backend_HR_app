@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_bcrypt import Bcrypt
@@ -75,6 +75,36 @@ def create_app():
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         expose_headers=["Content-Type"],
     )
+
+    _cors_origins = [
+        "http://localhost:5173", "http://localhost:3000",
+        "http://127.0.0.1:5173", "http://127.0.0.1:3000",
+    ]
+
+    def _add_cors_headers(response):
+        origin = None
+        if request:
+            origin = request.origin
+            if not origin and request.referrer and request.referrer.startswith("http"):
+                idx = request.referrer.find("/", 8)
+                origin = request.referrer[:idx] if idx != -1 else request.referrer
+        if not origin or origin not in _cors_origins:
+            origin = _cors_origins[0]  # fallback so 500 responses still get CORS
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        return response
+
+    @app.after_request
+    def after_request_cors(response):
+        return _add_cors_headers(response)
+
+    @app.errorhandler(500)
+    def handle_500(e):
+        response = jsonify(success=False, message="Internal server error")
+        response.status_code = 500
+        return _add_cors_headers(response)
 
     # ---------------------------
     # Initialize extensions

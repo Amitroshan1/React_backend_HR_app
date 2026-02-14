@@ -42,6 +42,11 @@
     margin-bottom: 25px;
     border-bottom: 1px solid #f1f5f9;
     padding-bottom: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 .conf-request-header h3 {
@@ -70,6 +75,54 @@
     color: #64748b;
     font-size: 16px;
     margin: 0;
+}
+
+.conf-subtext { font-size: 14px; margin-top: 8px; }
+
+.conf-loading, .conf-error {
+    padding: 20px;
+    text-align: center;
+    color: #64748b;
+}
+
+.conf-error { color: #b91c1c; }
+
+.btn-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #1976d2;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.btn-refresh:disabled { opacity: 0.7; cursor: not-allowed; }
+
+.conf-table-section {
+    overflow-x: auto;
+}
+
+.conf-request-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.conf-request-table th {
+    background: #1976d2;
+    color: white;
+    padding: 12px;
+    text-align: left;
+    font-size: 13px;
+}
+
+.conf-request-table td {
+    padding: 12px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 14px;
 }
 
 /* Mobile Responsiveness */

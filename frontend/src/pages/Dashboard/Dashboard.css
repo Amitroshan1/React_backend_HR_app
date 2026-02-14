@@ -513,6 +513,58 @@
     color: #dc3545;
 }
 
+/* Geo Reason Box - Inline in Today's Status card (shown when outside office range) */
+.geo-reason-box {
+    background: linear-gradient(135deg, #fffbf0 0%, #fff8e7 100%);
+    border: 1px solid rgba(255, 193, 7, 0.5);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-top: 4px;
+    box-shadow: 0 2px 8px rgba(255, 193, 7, 0.08);
+}
+
+.geo-reason-box__label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #996600;
+    margin-bottom: 10px;
+    letter-spacing: 0.2px;
+}
+
+.geo-reason-box__input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1.5px solid rgba(255, 193, 7, 0.6);
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 80px;
+    background: #fff;
+    color: var(--text-dark);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
+}
+
+.geo-reason-box__input::placeholder {
+    color: #a0a0a0;
+}
+
+.geo-reason-box__input:focus {
+    outline: none;
+    border-color: #f0ad4e;
+    box-shadow: 0 0 0 3px rgba(240, 173, 78, 0.25);
+}
+
+.geo-reason-box__hint {
+    font-size: 0.8rem;
+    color: #996600;
+    margin: 10px 0 0;
+    opacity: 0.9;
+}
+
 /* Stats Grid */
 .status-stats-grid {
     display: grid;
@@ -774,6 +826,63 @@
     border-radius: 5px;
 
     transition: width 0.4s ease-out;}
+
+/* News Feed */
+.news-feed-section {
+    background-color: var(--card-bg);
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: var(--shadow-light);
+    border: 1px solid var(--border-light);
+    height: fit-content;
+}
+.news-feed-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.news-feed-item {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+.news-feed-item:last-child {
+    border-bottom: none;
+}
+.news-feed-title {
+    margin: 0 0 8px 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-dark);
+}
+.news-feed-content {
+    margin: 0 0 8px 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+    white-space: pre-wrap;
+}
+.news-feed-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+.news-feed-date {
+    color: var(--text-muted);
+}
+.news-feed-file {
+    color: var(--primary-blue);
+    text-decoration: none;
+}
+.news-feed-file:hover {
+    text-decoration: underline;
+}
+.news-feed-empty {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
 
 /* Recent Activity */
 

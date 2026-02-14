@@ -75,7 +75,16 @@
     font-weight: 600;
     cursor: pointer;
     margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
+
+.btn-add-blue:disabled { opacity: 0.7; cursor: not-allowed; }
+
+.location-error-msg { color: #b91c1c; font-size: 14px; margin: 8px 0; }
+.location-success-msg { color: #166534; font-size: 14px; margin: 8px 0; }
+.location-loading, .location-empty { color: #64748b; font-size: 14px; margin: 16px 0; }
 
 /* Table Styles - Matches Image */
 .results-section h3 {

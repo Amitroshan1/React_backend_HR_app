@@ -312,6 +312,43 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             worksheet.write(row, 3, "Emp Name:", bold_fmt)
             emp_name = emp_names.get(admin.email, admin.first_name)
             worksheet.write(row, 4, emp_name)
+
+        for d in range(1, num_days + 1):
+            punch = admin_punches.get(d)
+            if punch:
+                in_t = punch.punch_in.strftime("%I:%M %p") if punch.punch_in else ""
+                out_t = punch.punch_out.strftime("%I:%M %p") if punch.punch_out else ""
+
+                total_text = ""
+                if punch.punch_in and punch.punch_out:
+                    pin = punch.punch_in.time() if hasattr(punch.punch_in, 'time') else punch.punch_in
+                    pout = punch.punch_out.time() if hasattr(punch.punch_out, 'time') else punch.punch_out
+                    start = datetime.combine(date(2000, 1, 1), pin)
+                    end = datetime.combine(date(2000, 1, 1), pout)
+                    secs = (end - start).total_seconds()
+                    if secs < 0:
+                        secs += 86400
+                    h, rem = divmod(int(secs), 3600)
+                    m, _ = divmod(rem, 60)
+                    total_text = f"{h} hrs {m} min"
+
+                in_times.append(in_t)
+                out_times.append(out_t)
+                totals.append(total_text)
+            else:
+                in_times.append("")
+                out_times.append("")
+                totals.append("")
+
+        worksheet.write(row, 0, "Days", header_fmt)
+        for col, dval in enumerate(days, start=1):
+            worksheet.write(row, col, dval, header_fmt)
+        row += 1
+
+        for label, data in [("InTime", in_times), ("OutTime", out_times), ("Total", totals)]:
+            worksheet.write(row, 0, label, header_fmt)
+            for col, val in enumerate(data, start=1):
+                worksheet.write(row, col, val, absent_fmt if not val else border_fmt)
             row += 1
 
             # Punch rows

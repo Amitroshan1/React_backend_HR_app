@@ -1,103 +1,113 @@
-// import React from 'react';
-// import { ArrowLeft, Search, MapPin } from 'lucide-react';
-// import './AddLocation.css';
-
-// export const AddLocation = ({ onBack }) => {
-//   return (
-//     <div className="location-page-wrapper">
-//       <div className="location-container">
-//         {/* Back Button Tab */}
-//         <button className="btn-back-tab" onClick={onBack}>
-//           <ArrowLeft size={16} /> Back to Updates
-//         </button>
-
-//         <div className="location-card">
-//           <div className="location-card-header">
-//             <h2>Add Location</h2>
-//             <Search size={20} className="header-icon-blue" />
-//           </div>
-
-//           <form className="location-form" onSubmit={(e) => e.preventDefault()}>
-//             <div className="form-section">
-//               <h3>Office Details</h3>
-              
-//               <div className="input-group">
-//                 <label>Circle / Region</label>
-//                 <select defaultValue="">
-//                   <option value="" disabled>Choose Circle</option>
-//                   <option value="NHQ">NHQ</option>
-//                   <option value="Delhi">Delhi</option>
-//                   <option value="Mumbai">Mumbai</option>
-//                 </select>
-//               </div>
-
-//               <div className="input-group">
-//                 <label>Location Name</label>
-//                 <input type="text" placeholder="e.g. Okhla Phase III" />
-//               </div>
-
-//               <div className="input-group">
-//                 <label>Full Address</label>
-//                 <textarea placeholder="Enter complete office address" rows="3"></textarea>
-//               </div>
-
-//               <div className="input-row">
-//                 <div className="input-group flex-1">
-//                   <label>City</label>
-//                   <input type="text" placeholder="City" />
-//                 </div>
-//                 <div className="input-group flex-1">
-//                   <label>Pincode</label>
-//                   <input type="text" placeholder="Pincode" />
-//                 </div>
-//               </div>
-//             </div>
-
-//             <div className="location-footer">
-//               <button type="submit" className="btn-save-location">
-//                 <MapPin size={18} /> Save Location
-//               </button>
-//             </div>
-//           </form>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import React, { useState } from 'react';
-import { ArrowLeft, Search, PlusCircle } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { ArrowLeft, Search, MapPin } from 'lucide-react';
 import './AddLocation.css';
 
-export const AddLocation = ({ onBack }) => {
-  const [showTable, setShowTable] = useState(false);
+const HR_API_BASE = '/api/HumanResource';
 
-  // Sample data to match the layout of your reference image
-  const locations = [
-    { name: 'ROHINI', lat: '28.1111', long: '77.2222', radius: '300.0' },
-    { name: 'LONI', lat: '28.1541', long: '77.2783', radius: '300.0' },
-    { name: 'REWARI', lat: '28.4842', long: '77.0189', radius: '300.0' },
-  ];
+export const AddLocation = ({ onBack }) => {
+  const [form, setForm] = useState({ name: '', latitude: '', longitude: '', radius: '100' });
+  const [locations, setLocations] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const getAuthHeaders = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, []);
+
+  const fetchLocations = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${HR_API_BASE}/locations`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLocations(data.locations || []);
+      } else {
+        setError(data.message || 'Failed to load locations');
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [getAuthHeaders]);
+
+  useEffect(() => {
+    fetchLocations();
+  }, [fetchLocations]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((p) => ({ ...p, [name]: value }));
+    setError('');
+    setSuccess('');
+  };
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    const name = (form.name || '').trim();
+    if (!name) {
+      setError('Location name is required');
+      return;
+    }
+    setError('');
+    setSuccess('');
+    setSubmitLoading(true);
+    try {
+      const res = await fetch(`${HR_API_BASE}/locations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          name: name,
+          latitude: form.latitude ? parseFloat(form.latitude) : 0,
+          longitude: form.longitude ? parseFloat(form.longitude) : 0,
+          radius: form.radius ? parseFloat(form.radius) : 100,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || 'Failed to add location');
+        return;
+      }
+      setSuccess('Location added successfully');
+      setForm({ name: '', latitude: '', longitude: '', radius: '100' });
+      fetchLocations();
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setSubmitLoading(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this location?')) return;
+    setDeleteLoading(id);
+    setError('');
+    try {
+      const res = await fetch(`${HR_API_BASE}/locations/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || 'Failed to delete');
+        return;
+      }
+      fetchLocations();
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setDeleteLoading(null);
+    }
+  };
 
   return (
     <div className="location-page-wrapper">
       <div className="location-container">
-        {/* Navigation Tab */}
         <button className="btn-back-tab" onClick={onBack}>
           <ArrowLeft size={16} /> Back to Updates
         </button>
@@ -108,35 +118,63 @@ export const AddLocation = ({ onBack }) => {
             <Search size={20} className="header-icon-blue" />
           </div>
 
-          {/* Search/Add Section */}
-          <div className="search-section">
+          <form className="search-section" onSubmit={handleAdd}>
             <div className="input-group">
               <label>Location Name</label>
-              <input type="text" placeholder="Enter location name" />
+              <input
+                type="text"
+                name="name"
+                placeholder="Enter location name"
+                value={form.name}
+                onChange={handleChange}
+              />
             </div>
             <div className="input-row">
               <div className="input-group flex-1">
                 <label>Latitude</label>
-                <input type="text" placeholder="Latitude" />
+                <input
+                  type="text"
+                  name="latitude"
+                  placeholder="Latitude"
+                  value={form.latitude}
+                  onChange={handleChange}
+                />
               </div>
               <div className="input-group flex-1">
                 <label>Longitude</label>
-                <input type="text" placeholder="Longitude" />
+                <input
+                  type="text"
+                  name="longitude"
+                  placeholder="Longitude"
+                  value={form.longitude}
+                  onChange={handleChange}
+                />
               </div>
             </div>
             <div className="input-group">
               <label>Radius (meters)</label>
-              <input type="text" defaultValue="100" />
+              <input
+                type="text"
+                name="radius"
+                placeholder="100"
+                value={form.radius}
+                onChange={handleChange}
+              />
             </div>
-            <button className="btn-add-blue" onClick={() => setShowTable(true)}>
-              Add Location
+            {error && <p className="location-error-msg">{error}</p>}
+            {success && <p className="location-success-msg">{success}</p>}
+            <button type="submit" className="btn-add-blue" disabled={submitLoading}>
+              <MapPin size={18} /> {submitLoading ? 'Adding...' : 'Add Location'}
             </button>
-          </div>
+          </form>
 
-          {/* Table Section (Visible on Search/Add) */}
-          {showTable && (
-            <div className="results-section">
-              <h3>Existing Locations</h3>
+          <div className="results-section">
+            <h3>Existing Locations</h3>
+            {loading ? (
+              <p className="location-loading">Loading...</p>
+            ) : locations.length === 0 ? (
+              <p className="location-empty">No locations added yet.</p>
+            ) : (
               <div className="table-responsive">
                 <table className="location-table">
                   <thead>
@@ -149,25 +187,30 @@ export const AddLocation = ({ onBack }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {locations.map((loc, index) => (
-                      <tr key={index}>
+                    {locations.map((loc) => (
+                      <tr key={loc.id}>
                         <td>{loc.name}</td>
-                        <td>{loc.lat}</td>
-                        <td>{loc.long}</td>
+                        <td>{loc.latitude}</td>
+                        <td>{loc.longitude}</td>
                         <td>{loc.radius}</td>
                         <td>
-                          <button className="btn-delete-red">Delete</button>
+                          <button
+                            className="btn-delete-red"
+                            onClick={() => handleDelete(loc.id)}
+                            disabled={deleteLoading === loc.id}
+                          >
+                            {deleteLoading === loc.id ? 'Deleting...' : 'Delete'}
+                          </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 };
-

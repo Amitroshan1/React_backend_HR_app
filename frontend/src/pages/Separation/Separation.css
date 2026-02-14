@@ -366,6 +366,57 @@
   font-size: 0.875rem;
 }
 
+/* NOC download section (employee sees their NOC here after HR uploads) */
+.separation-page-wrapper .noc-download-section {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.separation-page-wrapper .noc-download-section h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 0.5rem 0;
+}
+
+.separation-page-wrapper .noc-available {
+  font-size: 0.875rem;
+  color: #475569;
+  margin: 0 0 0.75rem 0;
+}
+
+.separation-page-wrapper .noc-pending {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0;
+  font-style: italic;
+}
+
+.separation-page-wrapper .btn-download-noc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #0d9488;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.separation-page-wrapper .btn-download-noc:hover:not(:disabled) {
+  background: #0f766e;
+}
+
+.separation-page-wrapper .btn-download-noc:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 /* ===== LARGE FORM ===== */
 .separation-page-wrapper .large-form {
   max-width: 900px;
