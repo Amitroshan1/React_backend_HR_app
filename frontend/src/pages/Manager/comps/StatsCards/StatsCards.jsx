@@ -1,32 +1,32 @@
 import "./StatsCards.css";
 
-export const StatsCards = ({ onSelect }) => {
+export const StatsCards = ({ onSelect, counts }) => {
   const cards = [
     {
       key: "claims",
       title: "Claim Requests",
-      count: 8,
+      count: counts?.claim ?? 0,
       subtitle: "Pending approvals",
       color: "blue",
     },
     {
       key: "leave",
       title: "Leave Requests",
-      count: 5,
+      count: counts?.leave ?? 0,
       subtitle: "Awaiting response",
       color: "orange",
     },
     {
       key: "wfh",
       title: "Work From Home Requests",
-      count: 4,
+      count: counts?.wfh ?? 0,
       subtitle: "This week",
       color: "green",
     },
     {
       key: "resignation",
       title: "Resignation Requests",
-      count: 1,
+      count: counts?.resignation ?? 0,
       subtitle: "Under review",
       color: "red",
     },

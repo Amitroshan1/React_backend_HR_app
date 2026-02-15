@@ -9,6 +9,7 @@ import {SprintPerformance} from "./comps/SprintPerformance/SprintPerformance";
 import {ClaimRequests} from "./comps/LeaveRequests/ClaimRequests";
 import {WFHRequests} from "./comps/LeaveRequests/WFHRequests";
 import {ResignationRequests} from "./comps/LeaveRequests/ResignationRequests";
+import { fetchPendingCounts } from "./api";
 
 export const Manager = () =>{
   const [activePanel, setActivePanel] = useState("leave");
@@ -16,6 +17,20 @@ export const Manager = () =>{
   const [statusFilter, setStatusFilter] = useState("All"); 
   const location = useLocation();
   const [updateSignal, setUpdateSignal] = useState(null);
+  const [statsCounts, setStatsCounts] = useState({
+    leave: 0,
+    wfh: 0,
+    claim: 0,
+    resignation: 0,
+  });
+  const reloadCounts = async () => {
+    try {
+      const counts = await fetchPendingCounts();
+      setStatsCounts(counts);
+    } catch (error) {
+      console.error("Manager stats count load error:", error);
+    }
+  };
 
   useEffect(() => {
     if (location.state?.updatedId && location.state?.newStatus) {
@@ -26,10 +41,19 @@ export const Manager = () =>{
     }
   }, [location.state]);
 
+  useEffect(() => {
+    reloadCounts();
+  }, []);
+
   const [filters, setFilters] = useState({ circle: "All", type: "All" });
+  const handleCardSelect = (key) => {
+    setActivePanel(key);
+    setStatusFilter("All");
+    setShowFullTable(true);
+  };
 
   const renderRightPanel = (currentFilter = "All") => {
-    const panelProps = { updateSignal, statusFilter: currentFilter };
+    const panelProps = { updateSignal, statusFilter: currentFilter, onRequestUpdated: reloadCounts };
     const normalizedKey = activePanel?.toLowerCase().trim();
     
     switch (normalizedKey) { 
@@ -76,7 +100,7 @@ export const Manager = () =>{
       )}
       
       <div style={{ flex: "0 0 auto", marginBottom: '24px' }}>
-        <StatsCards onSelect={setActivePanel} />
+        <StatsCards onSelect={handleCardSelect} counts={statsCounts} />
       </div>
 
       <div className="main-content-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, flex: 1, minHeight: 0, width: "100%" }}>
@@ -85,16 +109,6 @@ export const Manager = () =>{
         </div>
 
         <div className="right-column-stack" style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", overflow: "hidden" }}>
-          <div className="panel-animate" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}> 
-            {renderRightPanel("Pending")} 
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'center', flex: '0 0 auto' }}>
-            <button onClick={() => setShowFullTable(true)} className="view-more-pill" style={{ padding: "8px 24px", borderRadius: "25px", border: "1px solid #e2e8f0", backgroundColor: "#ffffff", color: "#4f46e5", fontSize: "0.9rem", fontWeight: "600", cursor: "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.05)", display: "flex", alignItems: "center", gap: "8px" }}>
-              View More {activePanel} <span style={{ fontSize: "1.2rem" }}>›</span>
-            </button>
-          </div>
-          
           <div style={{ flex: "0 0 auto" }}>
             <SprintPerformance />
           </div>

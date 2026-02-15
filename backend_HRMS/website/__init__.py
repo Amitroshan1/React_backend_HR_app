@@ -155,11 +155,13 @@ def create_app():
     from .Human_resource import hr
     from .query import query
     from .Accounts import Accounts
+    from .Manager import manager
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(leave, url_prefix="/api/leave")
     app.register_blueprint(hr, url_prefix="/api/HumanResource")
     app.register_blueprint(Accounts, url_prefix="/api/accounts")
     app.register_blueprint(query, url_prefix="/api/query")
+    app.register_blueprint(manager, url_prefix="/api/manager")
 
     return app

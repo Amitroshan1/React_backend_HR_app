@@ -1,0 +1,82 @@
+const API_BASE = "/api/manager";
+
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+const endpointMap = {
+  leave: {
+    list: "/leave-requests",
+    action: (id) => `/leave-requests/${id}/action`,
+  },
+  wfh: {
+    list: "/wfh-requests",
+    action: (id) => `/wfh-requests/${id}/action`,
+  },
+  claim: {
+    list: "/claim-requests",
+    action: (id) => `/claim-requests/${id}/action`,
+  },
+  resignation: {
+    list: "/resignation-requests",
+    action: (id) => `/resignation-requests/${id}/action`,
+  },
+};
+
+export async function fetchManagerRequests(type, statusFilter = "Pending") {
+  const config = endpointMap[type];
+  if (!config) throw new Error(`Unsupported manager request type: ${type}`);
+
+  const params = new URLSearchParams();
+  params.set("status", statusFilter || "Pending");
+
+  const response = await fetch(`${API_BASE}${config.list}?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      ...authHeaders(),
+    },
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load requests");
+  }
+  return result.requests || [];
+}
+
+export async function actOnManagerRequest(type, id, action) {
+  const config = endpointMap[type];
+  if (!config) throw new Error(`Unsupported manager request type: ${type}`);
+
+  const response = await fetch(`${API_BASE}${config.action(id)}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ action }),
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to update request");
+  }
+  return result;
+}
+
+export async function fetchPendingCounts() {
+  const [leave, wfh, claim, resignation] = await Promise.all([
+    fetchManagerRequests("leave", "Pending"),
+    fetchManagerRequests("wfh", "Pending"),
+    fetchManagerRequests("claim", "Pending"),
+    fetchManagerRequests("resignation", "Pending"),
+  ]);
+
+  return {
+    leave: leave.length,
+    wfh: wfh.length,
+    claim: claim.length,
+    resignation: resignation.length,
+  };
+}

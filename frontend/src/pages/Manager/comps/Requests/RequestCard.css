@@ -67,6 +67,37 @@
   background: #e0e7ff;
 }
 
+.request-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-approve-small,
+.btn-reject-small {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-approve-small {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.btn-reject-small {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.btn-approve-small:disabled,
+.btn-reject-small:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
