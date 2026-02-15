@@ -1,7 +1,7 @@
 /* src/pages/Leave/style/LeaveDashboard.css - FULLY RESPONSIVE PRODUCTION CODE */
 
 .leave-dashboard-container {
-    padding: 20px;
+    padding: 0;
     background-color: #f7f9fc;
     min-height: 100vh;
 }
@@ -19,7 +19,7 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 20px;
     margin-bottom: 30px;
-     margin-top: 5rem;
+    margin-top: 0;
 }
 
 .summary-card-leave {
@@ -241,7 +241,7 @@
     .summary-cards-grid-leave {
         grid-template-columns: repeat(2, 1fr);
         gap: 15px;
-        margin-top: 3rem;
+        margin-top: 0;
     }
 
     .summary-card-leave {

@@ -1,3 +1,4 @@
+/* Use global tokens from index.css when available; fallbacks here */
 :root {
     --primary-blue: #2563eb;
     --text-dark: #111827;
@@ -284,18 +285,65 @@
     background: var(--border-color);
 }
 
-/* Responsive Adjustments */
+/* Responsive: same breakpoints as global design system */
 @media (max-width: 768px) {
     .hide-mobile {
-        display: none;
+        display: none !important;
     }
-    
+
     .header-container {
-        height: 70px;
-        padding: 0 15px;
+        height: 64px;
+        padding: 0 16px;
+    }
+
+    .header-content {
+        gap: 8px;
+    }
+
+    .header-left {
+        gap: 8px;
+        min-width: 0;
     }
 
     .welcome-title {
-        font-size: 1.1rem;
+        font-size: 1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 180px;
+    }
+
+    .overview-text {
+        display: none;
+    }
+
+    .home-logo-btn span {
+        display: none;
+    }
+
+    .header-right {
+        gap: 12px;
+    }
+
+    .divider {
+        display: none;
+    }
+
+    .profile-dropdown-card {
+        right: 0;
+        left: auto;
+        min-width: 200px;
+        max-width: calc(100vw - 32px);
+    }
+}
+
+@media (max-width: 576px) {
+    .header-container {
+        padding: 0 12px;
+    }
+
+    .welcome-title {
+        max-width: 140px;
+        font-size: 0.95rem;
     }
 }

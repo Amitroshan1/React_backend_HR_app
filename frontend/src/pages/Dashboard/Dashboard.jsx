@@ -7,7 +7,7 @@ import { GiReceiveMoney } from "react-icons/gi";
 import { TbDeviceLaptop } from "react-icons/tb";
 import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
-const API_BASE_URL = "http://localhost:5000/api/auth";
+const API_BASE_URL = "/api/auth";
 
 const parsePunchInToDate = (val) => {
     if (!val) return null;
@@ -103,9 +103,6 @@ export const Dashboard = () => {
         grace: 100,
         message: ""
     });
-    const [reasonModalOpen, setReasonModalOpen] = useState(false);
-    const [geoReason, setGeoReason] = useState("");
-    const [pendingAction, setPendingAction] = useState(null); // "IN" | "OUT"
     const [dynamicData, setDynamicData] = useState({
         user: {},
         employee: {},
@@ -113,7 +110,8 @@ export const Dashboard = () => {
         leave_balance: { pl: 'N/A', cl: 'N/A' },
         managers: {},
     });
-    const [punchInDateTime, setPunchInDateTime] = useState(null); 
+    const [punchInDateTime, setPunchInDateTime] = useState(null);
+    const [newsFeed, setNewsFeed] = useState([]);
     const fetchDashboardData = async (showAlert = false) => {
         const token = localStorage.getItem('token');
         if (!token) return;
@@ -150,12 +148,28 @@ export const Dashboard = () => {
             console.error("Fetch error:", err);
             if (showAlert) alert(err.message);
         } finally {
-            setLoading(false); 
+            setLoading(false);
+        }
+    };
+    const fetchNewsFeed = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/news-feed`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json();
+            if (data.success && Array.isArray(data.news_feed)) {
+                setNewsFeed(data.news_feed);
+            }
+        } catch {
+            setNewsFeed([]);
         }
     };
     useEffect(() => {
         const loadInitialData = async () => {
             await fetchDashboardData();
+            await fetchNewsFeed();
         };
         loadInitialData();
     }, []);
@@ -373,32 +387,11 @@ export const Dashboard = () => {
     };
     const onPunchInClick = async () => {
         if (isPunching || !!dynamicData.punch.punch_in) return;
-        if (geo.requiresReason) {
-            setPendingAction("IN");
-            setReasonModalOpen(true);
-            return;
-        }
         await handlePunchIn("");
     };
     const onPunchOutClick = async () => {
         if (isPunching || !isCheckedIn) return;
-        if (geo.requiresReason) {
-            setPendingAction("OUT");
-            setReasonModalOpen(true);
-            return;
-        }
         await handlePunchOut("");
-    };
-    const handleReasonSubmit = async () => {
-        if (geoReason.trim().length < 8) {
-            alert("Please enter at least 8 characters for reason.");
-            return;
-        }
-        if (pendingAction === "IN") await handlePunchIn(geoReason.trim());
-        if (pendingAction === "OUT") await handlePunchOut(geoReason.trim());
-        setReasonModalOpen(false);
-        setGeoReason("");
-        setPendingAction(null);
     };
     const dojFormatted = useMemo(() => formatDate(dynamicData.user.doj), [dynamicData.user.doj]);
     const experience = useMemo(() => calculateExperience(dynamicData.user.doj), [dynamicData.user.doj]);
@@ -418,7 +411,9 @@ export const Dashboard = () => {
     const isCheckedIn = dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
     const isCheckedOut = dynamicData.punch.punch_out;
     const isActive = isCheckedIn;
-    const managerName = dynamicData.managers?.l1?.name || "N/A"; 
+    const managerName = [dynamicData.managers?.l2?.name, dynamicData.managers?.l1?.name, dynamicData.managers?.l3?.name]
+        .map((n) => (typeof n === "string" ? n.trim() : n))
+        .find((n) => n) || "N/A";
     const managerDept = dynamicData.user?.circle || "N/A"; 
     if (loading) return (
         <div className="full-height-center">
@@ -609,27 +604,27 @@ export const Dashboard = () => {
                                 <FiChevronRight className="arrow" />
                             </NavLink> */}
                         </div>
-                        <div className="progress-section grid-span-2">
-                            <h2 className="section-title">Monthly Progress</h2>
-                            <p className="subtext">Your attendance this month</p>
-                            <div className="progress-item">
-                                <div className="progress-label">
-                                    <span>Days Worked</span>
-                                    <span>18/22</span> 
-                                </div>
-                                <div className="progress-bar">
-                                    <div className="progress-fill" style={{ width: "82%" }}></div> 
-                                </div>
-                            </div>
-                            <div className="progress-item">
-                                <div className="progress-label">
-                                    <span>Hours Logged</span>
-                                    <span>144/176</span> 
-                                </div>
-                                <div className="progress-bar">
-                                    <div className="progress-fill" style={{ width: "78%" }}></div> 
-                                </div>
-                            </div>
+                        <div className="news-feed-section grid-span-2">
+                            <h2 className="section-title">News Feed</h2>
+                            <p className="subtext">Announcements for your circle and role</p>
+                            {newsFeed.length === 0 ? (
+                                <p className="news-feed-empty">No announcements yet.</p>
+                            ) : (
+                                <ul className="news-feed-list">
+                                    {newsFeed.map((item) => (
+                                        <li key={item.id} className="news-feed-item">
+                                            <h4 className="news-feed-title">{item.title}</h4>
+                                            <p className="news-feed-content">{item.content}</p>
+                                            <div className="news-feed-meta">
+                                                <span className="news-feed-date">{formatDate(item.created_at)}</span>
+                                                {item.file_path && (
+                                                    <a href={`/uploads/${item.file_path}`} target="_blank" rel="noopener noreferrer" className="news-feed-file">Attachment</a>
+                                                )}
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
 
 
@@ -655,24 +650,6 @@ export const Dashboard = () => {
                 </div>
             </div>
         </div>
-        {reasonModalOpen && (
-            <div className="geo-modal-overlay">
-                <div className="geo-modal-card">
-                    <h3>Reason Required</h3>
-                    <p>You are outside office range. Please provide a reason to continue.</p>
-                    <textarea
-                        value={geoReason}
-                        onChange={(e) => setGeoReason(e.target.value)}
-                        placeholder="Enter reason..."
-                        rows={4}
-                    />
-                    <div className="geo-modal-actions">
-                        <button onClick={() => setReasonModalOpen(false)}>Cancel</button>
-                        <button onClick={handleReasonSubmit}>Submit</button>
-                    </div>
-                </div>
-            </div>
-        )}
         </>
     );
 };

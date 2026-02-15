@@ -1280,6 +1280,8 @@ export const Profile = () => {
                     onSave={() => handleSectionSave('documents')}
                     onUndo={() => handleSectionUndo('documents')}
                     errors={errors}
+                    adminId={adminId}
+                    uploadProfileFileUrl={`${API_BASE_URL}/upload-profile-file`}
                 />
                 </div>
             </div>

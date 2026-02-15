@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 
-export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
+export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId, uploadProfileFileUrl }) => {
     const [progress, setProgress] = useState(0);
     const [isUploading, setIsUploading] = useState(false);
+    const [uploadError, setUploadError] = useState('');
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const inputRef = useRef(null);
 
@@ -14,58 +15,71 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
         return '📎';
     };
 
-    const handleActualFileChange = (e) => {
+    const getDisplayName = () => {
+        if (!fileData) return null;
+        if (typeof fileData === 'string') {
+            const parts = fileData.split('/');
+            return parts[parts.length - 1] || 'Document Uploaded';
+        }
+        return fileData.name || 'Document Uploaded';
+    };
+
+    const handleActualFileChange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
+        if (!adminId || !uploadProfileFileUrl) {
+            setUploadError('Profile not loaded. Please refresh and try again.');
+            if (inputRef.current) inputRef.current.value = '';
+            return;
+        }
+
         setIsUploading(true);
-        setProgress(0);
+        setProgress(10);
+        setUploadError('');
 
-        // 1. Simulate Upload Progress
-        const interval = setInterval(() => {
-            setProgress(prev => {
-                if (prev >= 95) {
-                    clearInterval(interval);
-                    return prev;
-                }
-                return prev + 10;
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('admin_id', String(adminId));
+            formData.append('field', name);
+
+            const token = localStorage.getItem('token');
+            const res = await fetch(uploadProfileFileUrl, {
+                method: 'POST',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                body: formData,
             });
-        }, 300);
+            const data = await res.json().catch(() => ({}));
 
-        // 2. Simulate Upload Completion (after a short delay)
-        setTimeout(() => {
-            clearInterval(interval);
-            setProgress(100);
-            setIsUploading(false);
-
-            const newFileData = {
-                name: file.name,
-                type: file.type,
-                size: file.size,
-                url: URL.createObjectURL(file)
-            };
-            onFileChange(name, newFileData);
-
-            if (inputRef.current) {
-                inputRef.current.value = "";
+            if (!res.ok) {
+                setUploadError(data.message || 'Upload failed');
+                return;
             }
-
-        }, 3500);
+            setProgress(100);
+            onFileChange(name, data.path || null);
+        } catch (err) {
+            setUploadError('Network error. Please try again.');
+        } finally {
+            setIsUploading(false);
+            if (inputRef.current) inputRef.current.value = '';
+        }
     };
 
     const handleRemoveFile = (e) => {
-        e.stopPropagation(); // Stop click from propagating to label's input
-        if (fileData && fileData.url) {
+        e.stopPropagation();
+        if (fileData && typeof fileData === 'object' && fileData.url) {
             URL.revokeObjectURL(fileData.url);
         }
         onFileChange(name, null);
         setIsUploading(false);
         setProgress(0);
+        setUploadError('');
         setIsPreviewOpen(false);
-        if (inputRef.current) {
-            inputRef.current.value = "";
-        }
+        if (inputRef.current) inputRef.current.value = '';
     };
+
+    const previewUrl = typeof fileData === 'string' ? `/static/uploads/${fileData}` : (fileData?.url || null);
 
     return (
         <div className="input-box file-upload-box">
@@ -126,15 +140,15 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
                             border: '1px solid #d1d5db',
                             borderRadius: '6px',
                             background: '#f9fafb',
-                            cursor: 'pointer'
+                            cursor: previewUrl ? 'pointer' : 'default'
                         }}
-                        onClick={() => setIsPreviewOpen(true)}
-                        title="Click to preview"
+                        onClick={previewUrl ? () => setIsPreviewOpen(true) : undefined}
+                        title={previewUrl ? 'Click to preview' : undefined}
                     >
                         <span style={{ fontSize: '24px', flexShrink: 0 }}>
-                            {fileData.url && fileData.type && fileData.type.startsWith('image/') ? (
+                            {previewUrl && (typeof fileData === 'object' ? fileData?.type?.startsWith('image/') : /\.(jpe?g|png|gif|webp)$/i.test(String(fileData))) ? (
                                 <img
-                                    src={fileData.url}
+                                    src={previewUrl}
                                     alt="Preview"
                                     style={{
                                         width: '40px',
@@ -144,7 +158,7 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
                                     }}
                                 />
                             ) : (
-                                getFilePreview(fileData)
+                                getFilePreview(typeof fileData === 'object' ? fileData : { name: getDisplayName() })
                             )}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -159,23 +173,20 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
                                     fontWeight: 600
                                 }}
                             >
-                                {fileData.name}
+                                {getDisplayName()}
                             </p>
-                            {fileData.size !== undefined && (
-                                <p
-                                    style={{
-                                        fontSize: '11px',
-                                        color: '#6b7280',
-                                        margin: '2px 0 0'
-                                    }}
-                                >
+                            {typeof fileData === 'object' && fileData?.size !== undefined && (
+                                <p style={{ fontSize: '11px', color: '#6b7280', margin: '2px 0 0' }}>
                                     {(fileData.size / (1024 * 1024)).toFixed(2)} MB
                                 </p>
+                            )}
+                            {typeof fileData === 'string' && (
+                                <a href={previewUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#3b82f6', marginTop: '2px', display: 'inline-block' }}>View</a>
                             )}
                         </div>
                     </div>
 
-                    {isPreviewOpen && fileData.url && (
+                    {isPreviewOpen && previewUrl && (
                         <div
                             className="file-preview-backdrop"
                             style={{
@@ -212,34 +223,22 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
                                         marginBottom: '10px'
                                     }}
                                 >
-                                    <span
-                                        style={{
-                                            fontSize: '14px',
-                                            fontWeight: 600,
-                                            color: '#111827'
-                                        }}
-                                    >
-                                        {fileData.name}
+                                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827' }}>
+                                        {getDisplayName()}
                                     </span>
                                     <button
                                         type="button"
                                         onClick={() => setIsPreviewOpen(false)}
-                                        style={{
-                                            border: 'none',
-                                            background: 'transparent',
-                                            cursor: 'pointer',
-                                            fontSize: '18px',
-                                            lineHeight: 1
-                                        }}
+                                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px', lineHeight: 1 }}
                                     >
                                         ✕
                                     </button>
                                 </div>
 
-                                {fileData.type && fileData.type.startsWith('image/') ? (
+                                {(typeof fileData === 'object' ? fileData?.type?.startsWith('image/') : /\.(jpe?g|png|gif|webp)$/i.test(String(fileData))) ? (
                                     <img
-                                        src={fileData.url}
-                                        alt={fileData.name}
+                                        src={previewUrl}
+                                        alt={getDisplayName()}
                                         style={{
                                             maxWidth: '100%',
                                             maxHeight: '80vh',
@@ -250,8 +249,8 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
                                     />
                                 ) : (
                                     <iframe
-                                        src={fileData.url}
-                                        title={fileData.name}
+                                        src={previewUrl}
+                                        title={getDisplayName()}
                                         style={{
                                             width: '80vw',
                                             maxWidth: '100%',
@@ -267,7 +266,7 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error }) => {
                 </>
             )}
 
-            {error && <p className="error-text">{error}</p>}
+            {(uploadError || error) && <p className="error-text">{uploadError || error}</p>}
         </div>
     );
 }

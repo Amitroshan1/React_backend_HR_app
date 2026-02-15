@@ -21,8 +21,10 @@ export const DocumentUploadSection = ({
     onToggle, 
     onFileChange, 
     onSave,
-    onUndo,      // ✅ NEW
-    errors 
+    onUndo,
+    errors,
+    adminId,
+    uploadProfileFileUrl
 }) => {
     const isEditMode = mode === 'edit';
 
@@ -36,16 +38,17 @@ export const DocumentUploadSection = ({
                     fileData={files[name]}
                     onFileChange={onFileChange}
                     error={errors[name]}
+                    adminId={adminId}
+                    uploadProfileFileUrl={uploadProfileFileUrl}
                 />
             );
         } else {
             const file = files[name];
+            const displayValue = file
+                ? (typeof file === 'string' ? file.split('/').pop() || 'Document Uploaded' : (file.name || 'Document Uploaded'))
+                : 'Not Uploaded';
             return (
-                <Info 
-                    key={name}
-                    label={label} 
-                    value={file ? (file.name || 'Document Uploaded') : 'Not Uploaded'}
-                />
+                <Info key={name} label={label} value={displayValue} />
             );
         }
     };

@@ -80,9 +80,15 @@
   border-radius: 6px;
   cursor: pointer;
   margin-bottom: 1.5rem;
+<<<<<<< HEAD
   transition: all 0.3s ease;
   color: #ffffff;
   margin-top: 2rem;
+=======
+  transition: all 0.2s;
+  color: #475569;
+  margin-top: 0;
+>>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 }
 
 .btn-back-updates:hover {

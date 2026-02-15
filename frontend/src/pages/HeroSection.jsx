@@ -283,6 +283,13 @@ export const HeroSection = () => {
 
   };
 
+  const handleEnterPress = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
 
   return (
     <div className="index-container">
@@ -325,25 +332,26 @@ export const HeroSection = () => {
             <h2 className="login-text">Login</h2>
 
             <input type="email" placeholder="Email"  value={email}
-        onChange={(e) => setEmail(e.target.value)} />
+        onChange={(e) => setEmail(e.target.value)} onKeyDown={handleEnterPress} />
             {/* <input type="password" placeholder="Password"   value={password}
         onChange={(e) => setPassword(e.target.value)}/> */}
          <div className="password-wrapper">
-  <input
-    type={showPassword ? "text" : "password"}
-    placeholder="Password"
-    value={password}
-    onChange={(e) => setPassword(e.target.value)}
-  />
+    <input
+      type={showPassword ? "text" : "password"}
+      placeholder="Password"
+      value={password}
+      onChange={(e) => setPassword(e.target.value)}
+      onKeyDown={handleEnterPress}
+    />
 
-  {/* 👁 Eye Button */}
-    <span className="toggle-eye" onClick={() => setShowPassword(!showPassword)}>
-    {showPassword ? <FiEye size={22} /> : <FiEyeOff size={22} />}
-  </span>
-  {/* <span className="toggle-eye" onClick={() => setShowPassword(!showPassword)}>
-  {showPassword ? <OpenEyeIcon /> : <ClosedEyeIcon />}
-</span> */}
-</div> 
+    {/* 👁 Eye Button */}
+      <span className="toggle-eye" onClick={() => setShowPassword(!showPassword)}>
+      {showPassword ? <FiEye size={22} /> : <FiEyeOff size={22} />}
+    </span>
+    {/* <span className="toggle-eye" onClick={() => setShowPassword(!showPassword)}>
+    {showPassword ? <OpenEyeIcon /> : <ClosedEyeIcon />}
+  </span> */}
+  </div> 
 
   {error && <p style={{ color: "red" }}>{error}</p>}
             <p className="forgot">Forgot Password?</p>

@@ -1,8 +1,8 @@
 /* Core Layout */
 .hr-main-container {
-  padding: 20px;
+  padding: 0;
   max-width: 1300px;
-  margin: 3rem auto 0;
+  margin: 0 auto;
   font-family: 'Inter', sans-serif;
   /* background-color: #f8fafc; */
   min-height: 100vh;

@@ -267,7 +267,7 @@ import { FiArrowRight, FiDownload, FiChevronDown, FiCalendar, FiRefreshCw } from
 
 import './Attendance.css';
 
-const API_BASE_URL = "http://localhost:5000/api/leave";
+const API_BASE_URL = "/api/leave";
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 

@@ -8,6 +8,7 @@
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt
+from sqlalchemy import func
 from . import db
 from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
@@ -351,10 +352,12 @@ def search_managers_api():
 @query.route("/api/managers/contact", methods=["GET"])
 @jwt_required()
 def get_manager_contact_api():
-
-    circle = request.args.get("circle")
-    emp_type = request.args.get("emp_type")
-    user_email = request.args.get("user_email")
+    """Get manager contact for circle + emp_type (+ optional user_email).
+    Tries employee-specific row first; if not found, falls back to group-level (user_email null/empty)
+    so existing names show in Update Manager form. Uses case-insensitive match for circle/user_type."""
+    circle = (request.args.get("circle") or "").strip()
+    emp_type = (request.args.get("emp_type") or "").strip()
+    user_email_param = (request.args.get("user_email") or "").strip() or None
 
     if not circle or not emp_type:
         return jsonify({
@@ -362,11 +365,24 @@ def get_manager_contact_api():
             "message": "circle and emp_type are required"
         }), 400
 
-    contact = ManagerContact.query.filter_by(
-        circle_name=circle,
-        user_type=emp_type,
-        user_email=user_email
-    ).first()
+    circle_lower = circle.lower()
+    emp_type_lower = emp_type.lower()
+    contact = None
+
+    # 1) Try employee-specific row (exact user_email)
+    if user_email_param:
+        contact = ManagerContact.query.filter(
+            func.lower(ManagerContact.circle_name) == circle_lower,
+            func.lower(ManagerContact.user_type) == emp_type_lower,
+            ManagerContact.user_email == user_email_param
+        ).first()
+    # 2) Fall back to group-level (user_email null or '') so form shows existing L1/L2/L3
+    if not contact:
+        contact = ManagerContact.query.filter(
+            func.lower(ManagerContact.circle_name) == circle_lower,
+            func.lower(ManagerContact.user_type) == emp_type_lower,
+            (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
+        ).first()
 
     if not contact:
         return jsonify({
@@ -381,21 +397,21 @@ def get_manager_contact_api():
         "data": {
             "circle_name": contact.circle_name,
             "user_type": contact.user_type,
-            "user_email": contact.user_email,
+            "user_email": contact.user_email or "",
             "l1": {
-                "name": contact.l1_name,
-                "mobile": contact.l1_mobile,
-                "email": contact.l1_email
+                "name": contact.l1_name or "",
+                "mobile": contact.l1_mobile or "",
+                "email": contact.l1_email or ""
             },
             "l2": {
-                "name": contact.l2_name,
-                "mobile": contact.l2_mobile,
-                "email": contact.l2_email
+                "name": contact.l2_name or "",
+                "mobile": contact.l2_mobile or "",
+                "email": contact.l2_email or ""
             },
             "l3": {
-                "name": contact.l3_name,
-                "mobile": contact.l3_mobile,
-                "email": contact.l3_email
+                "name": contact.l3_name or "",
+                "mobile": contact.l3_mobile or "",
+                "email": contact.l3_email or ""
             }
         }
     }), 200
@@ -405,12 +421,14 @@ def get_manager_contact_api():
 @query.route("/api/managers/contact", methods=["POST"])
 @jwt_required()
 def upsert_manager_contact_api():
-
+    """Upsert manager contact. Uses case-insensitive lookup so we update existing row
+    even if case differs; normalizes circle_name/user_type for new rows."""
     data = request.get_json() or {}
 
-    circle = data.get("circle_name")
-    emp_type = data.get("user_type")
-    user_email = data.get("user_email")
+    circle = (data.get("circle_name") or "").strip()
+    emp_type = (data.get("user_type") or "").strip()
+    user_email_raw = data.get("user_email")
+    user_email = (user_email_raw if user_email_raw is not None else "").strip() or None
 
     if not circle or not emp_type:
         return jsonify({
@@ -418,31 +436,42 @@ def upsert_manager_contact_api():
             "message": "circle_name and user_type are required"
         }), 400
 
-    contact = ManagerContact.query.filter_by(
-        circle_name=circle,
-        user_type=emp_type,
-        user_email=user_email
-    ).first()
+    circle_lower = circle.lower()
+    emp_type_lower = emp_type.lower()
+    contact = None
 
-    if not contact:
-        contact = ManagerContact(
-            circle_name=circle,
-            user_type=emp_type,
-            user_email=user_email
-        )
-        db.session.add(contact)
+    if user_email:
+        # Employee-specific: find or create row for this email
+        contact = ManagerContact.query.filter(
+            func.lower(ManagerContact.circle_name) == circle_lower,
+            func.lower(ManagerContact.user_type) == emp_type_lower,
+            ManagerContact.user_email == user_email
+        ).first()
+        if not contact:
+            contact = ManagerContact(circle_name=circle, user_type=emp_type, user_email=user_email)
+            db.session.add(contact)
+    else:
+        # Group-level: find or create row with user_email null/empty
+        contact = ManagerContact.query.filter(
+            func.lower(ManagerContact.circle_name) == circle_lower,
+            func.lower(ManagerContact.user_type) == emp_type_lower,
+            (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
+        ).first()
+        if not contact:
+            contact = ManagerContact(circle_name=circle, user_type=emp_type, user_email=None)
+            db.session.add(contact)
 
-    contact.l1_name = data.get("l1_name")
-    contact.l1_mobile = data.get("l1_mobile")
-    contact.l1_email = data.get("l1_email")
+    contact.l1_name = data.get("l1_name") or None
+    contact.l1_mobile = data.get("l1_mobile") or None
+    contact.l1_email = data.get("l1_email") or None
 
-    contact.l2_name = data.get("l2_name")
-    contact.l2_mobile = data.get("l2_mobile")
-    contact.l2_email = data.get("l2_email")
+    contact.l2_name = data.get("l2_name") or None
+    contact.l2_mobile = data.get("l2_mobile") or None
+    contact.l2_email = data.get("l2_email") or None
 
-    contact.l3_name = data.get("l3_name")
-    contact.l3_mobile = data.get("l3_mobile")
-    contact.l3_email = data.get("l3_email")
+    contact.l3_name = data.get("l3_name") or None
+    contact.l3_mobile = data.get("l3_mobile") or None
+    contact.l3_email = data.get("l3_email") or None
 
     try:
         db.session.commit()

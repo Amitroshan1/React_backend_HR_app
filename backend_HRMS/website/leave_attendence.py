@@ -4,12 +4,12 @@
 
 #https://solviotec.com/api/leave
 
-from flask import Blueprint, request, current_app, jsonify,json
+from flask import Blueprint, request, current_app, jsonify, json, send_file
 from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance
 from flask_jwt_extended import jwt_required, get_jwt
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
-from .models.seperation import Resignation
+from .models.seperation import Resignation, Noc_Upload
 from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_leave_applied_email
 from . import db
 from flask import jsonify
@@ -18,16 +18,24 @@ import calendar
 import os
 from werkzeug.utils import secure_filename
 import pytz
-
+import logging
 
 leave = Blueprint('leave', __name__)
+logger = logging.getLogger(__name__)
 
 
 
 @leave.route("/attendance/summary", methods=["GET"])
 @jwt_required()
 def attendance_summary():
+    try:
+        return _attendance_summary_impl()
+    except Exception:
+        logger.exception("attendance_summary error")
+        return jsonify(success=False, message="Failed to load attendance summary"), 500
 
+
+def _attendance_summary_impl():
     email = get_jwt().get("email")
     admin = Admin.query.filter_by(email=email).first()
 
@@ -168,7 +176,7 @@ def attendance_summary():
                         day_status["status"] = "PRESENT"
                 
                 # Mark WFH if punch has is_wfh or if there's an approved WFH application
-                if punch.is_wfh or is_wfh_approved(current_day):
+                if getattr(punch, "is_wfh", False) or is_wfh_approved(current_day):
                     day_status["details"]["wfh"] = True
                 # Only show pending WFH for past/current dates
                 if not is_future and is_wfh_pending(current_day):
@@ -908,6 +916,7 @@ def get_resignation_status():
             }), 404
 
         resignation = Resignation.query.filter_by(admin_id=admin.id).first()
+        noc_upload = Noc_Upload.query.filter_by(admin_id=admin.id).order_by(Noc_Upload.id.desc()).first()
 
         if resignation:
             applied_on = getattr(resignation, 'applied_on', None)
@@ -920,6 +929,10 @@ def get_resignation_status():
                     "resignation_date": resignation.resignation_date.isoformat(),
                     "reason": resignation.reason,
                     "created_at": created_at_str
+                },
+                "noc": {
+                    "uploaded": noc_upload is not None,
+                    "filename": os.path.basename(noc_upload.file_path) if noc_upload and noc_upload.file_path else None
                 }
             }), 200
 
@@ -941,4 +954,37 @@ def get_resignation_status():
             "success": False,
             "message": str(e) or "Failed to fetch resignation status"
         }), 500
+
+
+@leave.route("/noc-document", methods=["GET"])
+@jwt_required()
+def get_my_noc_document():
+    """Let the logged-in employee download their NOC document (only their own)."""
+    try:
+        claims = get_jwt()
+        email = claims.get("email")
+        if not email:
+            return jsonify({"success": False, "message": "Invalid token"}), 401
+
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({"success": False, "message": "Employee not found"}), 404
+
+        noc_upload = Noc_Upload.query.filter_by(admin_id=admin.id).order_by(Noc_Upload.id.desc()).first()
+        if not noc_upload or not noc_upload.file_path:
+            return jsonify({"success": False, "message": "NOC document not available yet"}), 404
+
+        full_path = os.path.join(current_app.root_path, "static", "uploads", noc_upload.file_path)
+        if not os.path.isfile(full_path):
+            return jsonify({"success": False, "message": "File not found"}), 404
+
+        return send_file(
+            full_path,
+            as_attachment=True,
+            download_name=os.path.basename(noc_upload.file_path),
+            mimetype="application/octet-stream"
+        )
+    except Exception as e:
+        current_app.logger.exception("noc-document download error")
+        return jsonify({"success": False, "message": "Failed to download"}), 500
 

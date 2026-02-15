@@ -1,20 +1,198 @@
-/* *{
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-} */
+/* ============================================
+   GLOBAL DESIGN SYSTEM & RESPONSIVE BASE
+   Shared across all pages for consistent look
+   ============================================ */
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  /* font-family: 'Inter', sans-serif; */
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: #f3f4f6;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f4f7f6;
+  color: #343a40;
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden;
 }
 
 a {
   text-decoration: none;
   color: inherit;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ---- Design tokens (use across all pages) ---- */
+:root {
+  --primary-blue: #2563eb;
+  --primary-blue-hover: #1d4ed8;
+  --primary-green: #28a745;
+  --primary-orange: #ffc107;
+  --primary-sky: #17a2b8;
+  --card-bg: #ffffff;
+  --body-bg: #f4f7f6;
+  --text-dark: #111827;
+  --text-muted: #6b7280;
+  --border-light: #e5e7eb;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --header-height: 80px;
+  --content-max-width: 1400px;
+  --spacing-page: 24px;
+  --breakpoint-sm: 576px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 992px;
+  --breakpoint-xl: 1200px;
+}
+
+/* ---- App content area (used by AppLayout + all pages) ---- */
+.content-area {
+  flex-grow: 1;
+  width: 100%;
+  max-width: 100%;
+  min-height: calc(100vh - var(--header-height));
+  padding: 12px var(--spacing-page) var(--spacing-page);
+  transition: margin-left 0.3s ease;
+}
+
+/* ---- Shared page container (same look on every page) ---- */
+.app-page-container {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: 0 var(--spacing-page);
+}
+
+/* ---- Shared card style ---- */
+.app-card {
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-light);
+  padding: 24px;
+}
+
+/* ---- Shared buttons ---- */
+.app-btn-primary {
+  background: var(--primary-blue);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.app-btn-primary:hover { background: var(--primary-blue-hover); }
+
+.app-btn-outline {
+  background: transparent;
+  color: var(--primary-blue);
+  border: 2px solid var(--primary-blue);
+  padding: 8px 18px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.app-btn-outline:hover { background: rgba(37, 99, 235, 0.08); }
+
+/* ---- Tables: scroll on small screens ---- */
+.app-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.app-table-wrap table {
+  min-width: 500px;
+  width: 100%;
+}
+
+/* ---- Full height loader (consistent across pages) ---- */
+.full-height-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  width: 100%;
+}
+
+/* ========== RESPONSIVE BREAKPOINTS ========== */
+
+@media (max-width: 1200px) {
+  :root {
+    --spacing-page: 20px;
+  }
+  .content-area {
+    padding: 10px 20px 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --header-height: 64px;
+    --spacing-page: 16px;
+  }
+  .content-area {
+    padding: 8px 16px 16px;
+  }
+  .app-page-container {
+    padding: 0 16px;
+  }
+  .app-card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 576px) {
+  :root {
+    --spacing-page: 12px;
+  }
+  .content-area {
+    padding: 6px 12px 12px;
+  }
+  .app-card {
+    padding: 12px;
+  }
+}
+
+/* Shared page containers: same padding/max-width across Leaves, Attendance, Claims, etc. */
+.leave-dashboard-container,
+.attendance-page-container,
+.claims-page-container,
+.separation-container {
+  max-width: var(--content-max-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 768px) {
+  .leave-dashboard-container,
+  .attendance-page-container,
+  .claims-page-container,
+  .separation-container {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 576px) {
+  .leave-dashboard-container,
+  .attendance-page-container,
+  .claims-page-container,
+  .separation-container {
+    padding: 12px;
+  }
 }

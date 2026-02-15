@@ -200,11 +200,20 @@
 
 /* Edit View */
 .leave-edit-container {
+<<<<<<< HEAD
   height: calc(100vh - 100px);
   margin-top: 4rem;
   display: flex;
   justify-content: center;
   align-items: center;
+=======
+    height: calc(100vh - 100px);
+    margin-top: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* background: #ffffff; Matches the background in image 2 */
+>>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 }
 
 .balance-form-card {

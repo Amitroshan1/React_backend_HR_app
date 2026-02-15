@@ -17,8 +17,9 @@ export const AppLayout = () => {
     }
     
     // Safely get the username and emp_type from admins table data
-    // Backend returns: user.name (from admin.first_name) and user.emp_type (from admin.emp_type)
-    const username = userData.user?.name || userData.user?.first_name || "User";
+    // Backend returns: user.name (display name: first_name / user_name / email prefix) and user.emp_type
+    const username = userData.user?.name || userData.user?.first_name || userData.user?.user_name
+        || (userData.user?.email ? userData.user.email.split("@")[0] : null) || "User";
     // Get emp_type from admins table (from backend /employee/homepage response)
     const empType = userData.user?.emp_type || userData.user?.department || "Employee";
     

@@ -18,8 +18,8 @@ class Punch(db.Model, UserMixin):
     lat = db.Column(db.Float, nullable=True)
     lon = db.Column(db.Float, nullable=True)
 
-    # ✅ REQUIRED for your route
-    location_status = db.Column(db.String(30), nullable=True)
+    # Deferred so SELECTs work even if DB table doesn't have this column yet
+    location_status = db.deferred(db.Column(db.String(30), nullable=True))
 
     admin = db.relationship('Admin', back_populates='punch_records')
 

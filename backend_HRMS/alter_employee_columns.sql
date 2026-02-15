@@ -12,3 +12,6 @@ ALTER TABLE employees MODIFY COLUMN emergency_mobile VARCHAR(50) NOT NULL;
 
 -- If audit_logs is missing the meta column (error: Unknown column 'metadata' or 'meta'):
 -- ALTER TABLE audit_logs ADD COLUMN meta JSON NULL;
+
+-- If punch table is missing location_status (error: Unknown column 'punch.location_status'):
+ALTER TABLE punch ADD COLUMN location_status VARCHAR(30) NULL;

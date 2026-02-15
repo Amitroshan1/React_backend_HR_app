@@ -14,11 +14,17 @@ import { UpdateManager } from './UpdateManager';
 import { AddAssets } from './AddAssets';
 import { AddLocation } from './AddLocation';
 import { AddNoc } from './AddNoc';
+<<<<<<< HEAD
 import { ConfirmationRequest } from './ConfirmationRequest'; 
 // New import for Exit Employee
 import ExitEmployee from './ExitEmployee';
 import AddDeptCircle from './AddDeptCircle';
 const HR_API_BASE = 'http://localhost:5000/api/HumanResource';
+=======
+import { ConfirmationRequest } from './ConfirmationRequest';
+
+const HR_API_BASE = '/api/HumanResource';
+>>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 
 function formatDateShort(isoDate) {
   if (!isoDate) return '';
@@ -27,8 +33,284 @@ function formatDateShort(isoDate) {
   return `${months[d.getMonth()]} ${d.getDate()}`;
 }
 
+<<<<<<< HEAD
 
 
+=======
+function getAuthHeaders() {
+  const token = localStorage.getItem('token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// ----- HR Employee Profile view (from Search Employee → Profile) -----
+function HrEmployeeProfileView({ employee, onBack, onEdit }) {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${HR_API_BASE}/employee/profile/${employee.id}`, { headers: getAuthHeaders() });
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && data.success) setProfile(data.profile);
+        else setError(data.message || 'Failed to load profile');
+      } catch (e) {
+        if (!cancelled) setError('Network error');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [employee.id]);
+  const p = profile || {};
+  const admin = p.admin || {};
+  const emp = p.employee || {};
+  const docs = p.documents || {};
+  const education = p.education || [];
+  const previousEmployment = p.previous_employment || [];
+  const docBase = (typeof window !== 'undefined' && window.__BACKEND_STATIC__) ? window.__BACKEND_STATIC__ : '';
+  const docUrl = (path) => (path ? `${docBase}/static/uploads/${path}` : null);
+  return (
+    <div className="hr-sub-page">
+      <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
+      <div className="hr-card">
+        <h2>Profile – {employee.name}</h2>
+        {loading && <p className="hr-loading">Loading...</p>}
+        {error && <p className="hr-error">{error}</p>}
+        {profile && (
+          <>
+            <div className="profile-section">
+              <h4>Basic Info</h4>
+              <p><strong>Name:</strong> {admin.first_name}</p>
+              <p><strong>Email:</strong> {admin.email}</p>
+              <p><strong>Emp ID:</strong> {admin.emp_id}</p>
+              <p><strong>Circle:</strong> {admin.circle}</p>
+              <p><strong>Type:</strong> {admin.emp_type}</p>
+              <p><strong>DOJ:</strong> {admin.doj || 'N/A'}</p>
+            </div>
+            {emp && (
+              <div className="profile-section">
+                <h4>Employee Details</h4>
+                <p><strong>Designation:</strong> {emp.designation || 'N/A'}</p>
+                <p><strong>Mobile:</strong> {emp.mobile || admin.mobile || 'N/A'}</p>
+                <p><strong>Gender:</strong> {emp.gender || 'N/A'}</p>
+                <p><strong>DOB:</strong> {emp.dob || 'N/A'}</p>
+                <p><strong>Permanent Address:</strong> {emp.permanent_address_line1 || 'N/A'} {emp.permanent_pincode && `- ${emp.permanent_pincode}`}</p>
+                <p><strong>Present Address:</strong> {emp.present_address_line1 || 'N/A'} {emp.present_pincode && `- ${emp.present_pincode}`}</p>
+              </div>
+            )}
+            {education.length > 0 && (
+              <div className="profile-section">
+                <h4>Education</h4>
+                {education.map((edu, i) => (
+                  <div key={i} className="profile-sub-item">
+                    <p><strong>{edu.qualification}</strong> – {edu.institution}</p>
+                    <p>{edu.start} to {edu.end} {edu.marks && `• ${edu.marks}`}</p>
+                    {edu.doc_file && (
+                      <a href={docUrl(edu.doc_file)} target="_blank" rel="noopener noreferrer" className="doc-link">View certificate</a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {previousEmployment.length > 0 && (
+              <div className="profile-section">
+                <h4>Previous Employment</h4>
+                {previousEmployment.map((pe, i) => (
+                  <div key={i} className="profile-sub-item">
+                    <p><strong>{pe.companyName}</strong> – {pe.designation}</p>
+                    <p>{pe.doj} to {pe.dateOfLeaving} {pe.experienceYears && `(${pe.experienceYears} yrs)`}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="profile-section">
+              <h4>Documents (uploaded by employee)</h4>
+              <div className="documents-grid">
+                {docs.aadhaar_front && <div className="doc-item"><span>Aadhaar (Front)</span><a href={docUrl(docs.aadhaar_front)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
+                {docs.aadhaar_back && <div className="doc-item"><span>Aadhaar (Back)</span><a href={docUrl(docs.aadhaar_back)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
+                {docs.pan_front && <div className="doc-item"><span>PAN (Front)</span><a href={docUrl(docs.pan_front)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
+                {docs.pan_back && <div className="doc-item"><span>PAN (Back)</span><a href={docUrl(docs.pan_back)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
+                {docs.appointment_letter && <div className="doc-item"><span>Appointment Letter</span><a href={docUrl(docs.appointment_letter)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
+                {docs.passbook_front && <div className="doc-item"><span>Passbook (Front)</span><a href={docUrl(docs.passbook_front)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
+              </div>
+              {!docs.aadhaar_front && !docs.aadhaar_back && !docs.pan_front && !docs.pan_back && !docs.appointment_letter && !docs.passbook_front && (
+                <p className="no-docs">No documents uploaded yet.</p>
+              )}
+            </div>
+            <button type="button" className="btn-edit-profile" onClick={() => onEdit({
+              first_name: admin.first_name,
+              user_name: admin.user_name,
+              email: admin.email,
+              emp_id: admin.emp_id,
+              mobile: admin.mobile || emp?.mobile,
+              doj: admin.doj,
+              emp_type: admin.emp_type,
+              circle: admin.circle,
+            })}>
+              Edit in Update SignUp
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ----- HR Employee Attendance view (from Search Employee → Attendance) -----
+function HrEmployeeAttendanceView({ employee, onBack }) {
+  const [monthYear, setMonthYear] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [attendance, setAttendance] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const [year, month] = monthYear.split('-').map(Number);
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `${HR_API_BASE}/display-details?user_id=${employee.id}&detail_type=Attendance&month=${month}&year=${year}`,
+          { headers: getAuthHeaders() }
+        );
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && data.success) setAttendance(data);
+        else setAttendance(null);
+      } catch {
+        if (!cancelled) setAttendance(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [employee.id, monthYear]);
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const res = await fetch(
+        `${HR_API_BASE}/employee/attendance-download/${employee.id}?month=${monthYear}`,
+        { headers: getAuthHeaders() }
+      );
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Attendance_${(employee.name || 'Employee').replace(/\s+/g, '_')}_${monthYear}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e.message || 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="hr-sub-page">
+      <button type="button" className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
+      <div className="hr-card">
+        <h2>Attendance – {employee.name}</h2>
+        <div className="attendance-controls">
+          <input type="month" value={monthYear} onChange={(e) => setMonthYear(e.target.value)} />
+          <button type="button" className="btn-download-attendance" onClick={handleDownload} disabled={downloading}>
+            <Download size={16} /> {downloading ? 'Downloading...' : 'Download Attendance'}
+          </button>
+        </div>
+        {loading && <p className="hr-loading">Loading...</p>}
+        {attendance && attendance.attendance && (
+          <div className="attendance-table-wrap">
+            <table className="hr-attendance-table">
+              <thead>
+                <tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Work</th></tr>
+              </thead>
+              <tbody>
+                {attendance.attendance.map((row, i) => (
+                  <tr key={i}>
+                    <td>{row.date}</td>
+                    <td>{row.punch_in || '–'}</td>
+                    <td>{row.punch_out || '–'}</td>
+                    <td>{row.today_work || '–'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ----- HR Punch In/Out form (from Search Employee → Punch In/Out) -----
+function HrPunchFormView({ employee, onBack }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+  const [punchIn, setPunchIn] = useState('09:00');
+  const [punchOut, setPunchOut] = useState('18:00');
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await fetch(`${HR_API_BASE}/employee/punch/${employee.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ date, punch_in: punchIn || null, punch_out: punchOut || null }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMessage({ type: 'success', text: 'Punch updated successfully.' });
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Failed to update punch' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Network error' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <div className="hr-sub-page">
+      <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
+      <div className="hr-card">
+        <h2>Update Punch In/Out – {employee.name}</h2>
+        <p className="punch-form-desc">Use this form when an employee forgot to punch in or out. Changes will be saved to the database.</p>
+        <form onSubmit={handleSubmit} className="punch-form">
+          <div className="form-group">
+            <label>Date</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+          </div>
+          <div className="form-group">
+            <label>Punch In (HH:MM)</label>
+            <input type="time" value={punchIn} onChange={(e) => setPunchIn(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label>Punch Out (HH:MM)</label>
+            <input type="time" value={punchOut} onChange={(e) => setPunchOut(e.target.value)} />
+          </div>
+          {message.text && (
+            <p className={message.type === 'success' ? 'hr-success' : 'hr-error'}>{message.text}</p>
+          )}
+          <button type="submit" className="btn-submit-punch" disabled={submitting}>
+            {submitting ? 'Saving...' : 'Save Punch'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+>>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 
 export const Hr = () => {
   const navigate = useNavigate();
@@ -49,6 +331,11 @@ export const Hr = () => {
 
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchDownloadMonth, setSearchDownloadMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [searchDownloading, setSearchDownloading] = useState(false);
 
   const [signupForm, setSignupForm] = useState({
     user_name: '',
@@ -65,6 +352,26 @@ export const Hr = () => {
   const [signupSubmitting, setSignupSubmitting] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [signupEditEmail, setSignupEditEmail] = useState(null); // when set, signup form is in "update" mode
+
+  const openSignupForEdit = (employeeData) => {
+    setSignupForm({
+      user_name: employeeData.user_name || '',
+      first_name: employeeData.first_name || '',
+      email: employeeData.email || '',
+      emp_id: employeeData.emp_id || '',
+      mobile: employeeData.mobile || '',
+      doj: (employeeData.doj || '').slice(0, 10),
+      emp_type: employeeData.emp_type || '',
+      circle: employeeData.circle || '',
+      password: '',
+      confirmPassword: ''
+    });
+    setSignupEditEmail(employeeData.email || null);
+    setSignupSuccess(false);
+    setSignupError('');
+    setView('signup');
+  };
 
   const handleSignupChange = (e) => {
     const { name, value } = e.target;
@@ -91,27 +398,55 @@ export const Hr = () => {
     }
     setSignupSubmitting(true);
     try {
-      const res = await fetch(`${HR_API_BASE}/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          user_name: user_name.trim(),
-          first_name: first_name.trim(),
-          email: email.trim(),
-          emp_id: emp_id.trim(),
-          mobile: mobile.trim().replace(/\s/g, ''),
-          doj,
-          emp_type,
-          circle,
-          ...(password?.trim() ? { password: password.trim() } : {})
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        setSignupSuccess(true);
-        setSignupForm({ user_name: '', first_name: '', email: '', emp_id: '', mobile: '', doj: '', emp_type: '', circle: '', password: '', confirmPassword: '' });
+      if (signupEditEmail) {
+        // Update existing employee
+        const res = await fetch(
+          `${HR_API_BASE}/employee/by-email/${encodeURIComponent(signupEditEmail)}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              user_name: user_name.trim(),
+              first_name: first_name.trim(),
+              emp_id: emp_id.trim(),
+              mobile: mobile.trim().replace(/\s/g, ''),
+              doj,
+              emp_type,
+              circle,
+              ...(password?.trim() ? { password: password.trim() } : {})
+            })
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setSignupSuccess(true);
+        } else {
+          setSignupError(data.message || 'Failed to update employee.');
+        }
       } else {
-        setSignupError(data.message || 'Failed to create account.');
+        // Create new employee
+        const res = await fetch(`${HR_API_BASE}/signup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            user_name: user_name.trim(),
+            first_name: first_name.trim(),
+            email: email.trim(),
+            emp_id: emp_id.trim(),
+            mobile: mobile.trim().replace(/\s/g, ''),
+            doj,
+            emp_type,
+            circle,
+            ...(password?.trim() ? { password: password.trim() } : {})
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setSignupSuccess(true);
+          setSignupForm({ user_name: '', first_name: '', email: '', emp_id: '', mobile: '', doj: '', emp_type: '', circle: '', password: '', confirmPassword: '' });
+        } else {
+          setSignupError(data.message || 'Failed to create account.');
+        }
       }
     } catch (err) {
       console.error(err);
@@ -121,11 +456,9 @@ export const Hr = () => {
     }
   };
 
-  const employeeDetailsOptions = [
-    'Family Details', 'Employee Details', 'Document', 
-    'Previous Company', 'Education', 'Attendance', 
-    'Leave Details', 'Punch In-Out'
-  ];
+  const employeeDetailsOptions = ['Profile', 'Attendance', 'Punch In/Out'];
+
+  const [selectedEmployeeForAction, setSelectedEmployeeForAction] = useState(null);
 
   const stats = [
     { title: 'Total Employees', value: String(counts.total_employees), subtitle: 'All active', icon: Users, color: 'blue' },
@@ -184,6 +517,34 @@ export const Hr = () => {
       setShowSearchResults(true);
     } finally {
       setSearchLoading(false);
+    }
+  };
+
+  const handleDownloadAllFromSearch = async () => {
+    if (!selectedCircle || !selectedEmployeeType) {
+      alert('Please search by Circle and Employee Type first.');
+      return;
+    }
+    setSearchDownloading(true);
+    try {
+      const res = await fetch(
+        `${HR_API_BASE}/download-excel?circle=${encodeURIComponent(selectedCircle)}&emp_type=${encodeURIComponent(selectedEmployeeType)}&month=${searchDownloadMonth}`,
+        { headers: getAuthHeaders() }
+      );
+      if (!res.ok) throw new Error('Download failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Attendance_${selectedCircle}_${selectedEmployeeType.replace(/\s+/g, '_')}_${searchDownloadMonth}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e.message || 'Download failed');
+    } finally {
+      setSearchDownloading(false);
     }
   };
 
@@ -248,16 +609,19 @@ export const Hr = () => {
     setOpenDropdownId(openDropdownId === id ? null : id);
   };
 
-  const handleOptionClick = (option, employeeName) => {
-    console.log(`Updating ${option} for ${employeeName}`);
+  const handleOptionClick = (option, emp) => {
     setOpenDropdownId(null);
-    navigate('/profile'); 
+    setSelectedEmployeeForAction(emp);
+    if (option === 'Profile') setView('employee_profile');
+    else if (option === 'Attendance') setView('employee_attendance');
+    else if (option === 'Punch In/Out') setView('punch_form');
   };
 
   const handleUpdateCardClick = (title) => {
     if (title === 'Sign Up') {
       setSignupSuccess(false);
       setSignupError('');
+      setSignupEditEmail(null);
       setView('signup');
     } 
     else if (title === 'Update_SignUp') {
@@ -289,7 +653,12 @@ else if (title === 'Add Department And Circle') {
     }
   };
 if (view === 'update_signup') {
-    return <UpdateSignUp onBack={() => setView('updates')} />;
+    return (
+      <UpdateSignUp
+        onBack={() => setView('updates')}
+        onOpenSignupForEmployee={openSignupForEdit}
+      />
+    );
   }
 
   if (view === 'newsfeed') {
@@ -339,24 +708,53 @@ return <AddNoc onBack={() => setView('updates')} />;
 if (view === 'confirmation_request') {
   return <ConfirmationRequest onBack={() => setView('updates')} />
 }
-  // VIEW 1: SIGN UP PAGE (Matches Reference Image 1)
+
+  // ----- Search Employee actions: Profile, Attendance, Punch In/Out -----
+  if (view === 'employee_profile' && selectedEmployeeForAction) {
+    return (
+      <HrEmployeeProfileView
+        employee={selectedEmployeeForAction}
+        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+        onEdit={(data) => { openSignupForEdit(data); setView('signup'); }}
+      />
+    );
+  }
+  if (view === 'employee_attendance' && selectedEmployeeForAction) {
+    return (
+      <HrEmployeeAttendanceView
+        employee={selectedEmployeeForAction}
+        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+      />
+    );
+  }
+  if (view === 'punch_form' && selectedEmployeeForAction) {
+    return (
+      <HrPunchFormView
+        employee={selectedEmployeeForAction}
+        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+      />
+    );
+  }
+
+  // VIEW 1: SIGN UP PAGE (create new or update existing)
   if (view === 'signup') {
+    const isEditMode = !!signupEditEmail;
     return (
       <div className="signup-page-container">
 
         <div className="signup-content-wrapper">
-          <button className="btn-back-updates" onClick={() => setView('updates')}>
+          <button className="btn-back-updates" onClick={() => { setSignupEditEmail(null); setView('updates'); }}>
             <ArrowLeft size={16} /> Back to Updates
           </button>
 
           <div className="signup-card">
             <div className="card-header">
-              <h2>Create New Employee Account</h2>
-              <p>Fill in the details to register a new employee</p>
+              <h2>{isEditMode ? 'Update Employee Details' : 'Create New Employee Account'}</h2>
+              <p>{isEditMode ? 'Modify details and save to update the employee record.' : 'Fill in the details to register a new employee'}</p>
             </div>
             {signupSuccess && (
               <div className="signup-success-msg" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
-                Employee onboarded successfully. You can create another or go back.
+                {isEditMode ? 'Employee details updated successfully.' : 'Employee onboarded successfully. You can create another or go back.'}
               </div>
             )} 
             {signupError && (
@@ -379,7 +777,7 @@ if (view === 'confirmation_request') {
               <div className="form-row">
                 <div className="form-group">
                   <label>Email <span style={{ color: '#b91c1c' }}>*</span></label>
-                  <input name="email" type="email" placeholder="Enter your Email ID" value={signupForm.email} onChange={handleSignupChange} />
+                  <input name="email" type="email" placeholder="Enter your Email ID" value={signupForm.email} onChange={handleSignupChange} readOnly={isEditMode} disabled={isEditMode} style={isEditMode ? { opacity: 0.9, cursor: 'not-allowed' } : {}} />
                 </div>
                 <div className="form-group">
                   <label>Employee ID <span style={{ color: '#b91c1c' }}>*</span></label>
@@ -430,7 +828,7 @@ if (view === 'confirmation_request') {
 
               <div className="form-actions">
                 <button type="submit" className="btn-create-account" disabled={signupSubmitting}>
-                  {signupSubmitting ? 'Creating...' : 'Create Account'}
+                  {signupSubmitting ? (signupEditEmail ? 'Updating...' : 'Creating...') : (signupEditEmail ? 'Update Details' : 'Create Account')}
                 </button>
               </div>
             </form>
@@ -615,7 +1013,7 @@ if (view === 'confirmation_request') {
                             {openDropdownId === i && (
                               <div className="dropdown-menu-list">
                                 {employeeDetailsOptions.map((option) => (
-                                  <div key={option} className="dropdown-item" onClick={() => handleOptionClick(option, emp.name)}>
+                                  <div key={option} className="dropdown-item" onClick={() => handleOptionClick(option, emp)}>
                                     {option}
                                   </div>
                                 ))}
@@ -630,8 +1028,11 @@ if (view === 'confirmation_request') {
               </div>
             </div>
             <div className="results-actions">
-              <button className="btn-outline" onClick={() => setShowSearchResults(false)}>Back to Search</button>
-              <button className="btn-success"><Download size={16}/> Download Attendance</button>
+              <button type="button" className="btn-outline" onClick={(e) => { e.preventDefault(); setShowSearchResults(false); }}>Back to Search</button>
+              <input type="month" value={searchDownloadMonth} onChange={(e) => setSearchDownloadMonth(e.target.value)} style={{ marginRight: 8 }} />
+              <button type="button" className="btn-success" onClick={(e) => { e.preventDefault(); handleDownloadAllFromSearch(); }} disabled={searchDownloading}>
+                <Download size={16}/> {searchDownloading ? 'Downloading...' : 'Download Attendance'}
+              </button>
             </div>
           </div>
         )}

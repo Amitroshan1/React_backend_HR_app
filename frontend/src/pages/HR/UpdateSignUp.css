@@ -103,6 +103,7 @@
     border-radius: 6px;
     margin-bottom: 1.5rem;
     cursor: pointer;
+<<<<<<< HEAD
     margin-top: 6rem;
     color: #ffffff;
     transition: all 0.3s ease;
@@ -111,6 +112,9 @@
 .btn-back-nav:hover {
     background: rgba(255,255,255,0.3);
     transform: translateX(-2px);
+=======
+    margin-top: 0;
+>>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 }
 
 .top-nav{
