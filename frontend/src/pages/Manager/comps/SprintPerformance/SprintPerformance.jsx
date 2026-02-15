@@ -1,19 +1,39 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { fetchSprintPerformance } from "../../api";
 import "./SprintPerformance.css";
 
 export const SprintPerformance = () => {
-  // Sample data (you can replace with API data)
-  const sprintData = [
-    { name: "Completed Tasks", value: 75 },
-    { name: "Pending Tasks", value: 20 },
-    { name: "Overdue Tasks", value: 5 },
-  ];
+  const [sprintData, setSprintData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const items = await fetchSprintPerformance();
+        if (cancelled) return;
+        setSprintData(items);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err.message || "Failed to load sprint performance");
+        setSprintData([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="sprint-card">
       <h3>Sprint Performance</h3>
       <div className="progress-list">
-        {sprintData.map((item, index) => (
+        {loading && <p className="sprint-empty-msg">Loading...</p>}
+        {error && !loading && <p className="sprint-empty-msg">{error}</p>}
+        {!loading && !error && sprintData.map((item, index) => (
           <div key={index} className="progress-item">
             <div className="progress-header">
               <span>{item.name}</span>
@@ -27,6 +47,9 @@ export const SprintPerformance = () => {
             </div>
           </div>
         ))}
+        {!loading && !error && sprintData.length === 0 && (
+          <p className="sprint-empty-msg">No sprint data available.</p>
+        )}
       </div>
     </div>
   );

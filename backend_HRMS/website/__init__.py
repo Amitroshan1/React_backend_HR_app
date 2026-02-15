@@ -39,7 +39,7 @@ def create_app():
 
     app.config["BASE_URL"] = os.getenv(
         "BASE_URL",
-        "http://localhost:5173"
+        "https://solviotec.com"
     )
 
     app.config["ZEPTO_API_KEY"] = os.getenv("ZEPTO_API_KEY")
@@ -56,35 +56,37 @@ def create_app():
     # ---------------------------
     # Enable CORS
     # ---------------------------
-    # React dev server runs on http://localhost:5173
-    # With supports_credentials=True, you must NOT use wildcard origins.
+    # Use CORS_ORIGINS in env as comma-separated list for production.
+    raw_cors_origins = os.getenv(
+        "CORS_ORIGINS",
+        ",".join(
+            [
+                "https://solviotec.com",
+                "https://www.solviotec.com",
+                "http://localhost:5173",
+                "http://localhost:3000",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3000",
+            ]
+        ),
+    )
+    _cors_origins = [o.strip() for o in raw_cors_origins.split(",") if o.strip()]
+    if not _cors_origins:
+        _cors_origins = ["https://solviotec.com"]
+
     CORS(
         app,
-        resources={
-            r"/api/*": {
-                "origins": [
-                    "http://localhost:5173",
-                    "http://localhost:3000",
-                    "http://127.0.0.1:5173",
-                    "http://127.0.0.1:3000",
-                ]
-            }
-        },
+        resources={r"/api/*": {"origins": _cors_origins}},
         supports_credentials=True,
         allow_headers=["Content-Type", "Authorization"],
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         expose_headers=["Content-Type"],
     )
 
-    _cors_origins = [
-        "http://localhost:5173", "http://localhost:3000",
-        "http://127.0.0.1:5173", "http://127.0.0.1:3000",
-    ]
-
     def _add_cors_headers(response):
         origin = None
         if request:
-            origin = request.origin
+            origin = request.headers.get("Origin")
             if not origin and request.referrer and request.referrer.startswith("http"):
                 idx = request.referrer.find("/", 8)
                 origin = request.referrer[:idx] if idx != -1 else request.referrer
@@ -127,7 +129,9 @@ def create_app():
     from .models.education import Education, UploadDoc
     from .models.family_models import FamilyDetails
     from .models.prev_com import PreviousCompany
-    from .models.manager_model import ManagerContact
+    from .models.notification import Notification
+    from .models.master_data import MasterData
+
     # ---------------------------
     # Flask-Login user loader
     # ---------------------------
@@ -144,8 +148,9 @@ def create_app():
     # ---------------------------
     # Create tables (DEV ONLY)
     # ---------------------------
-    with app.app_context():
-        db.create_all()
+    if os.getenv("RUN_DB_CREATE_ALL", "0").strip() == "1":
+        with app.app_context():
+            db.create_all()
 
     # ---------------------------
     # Register Blueprints
@@ -155,7 +160,8 @@ def create_app():
     from .Human_resource import hr
     from .query import query
     from .Accounts import Accounts
-    from .manager import manager
+    from .Manager import manager
+    from .notifications import notifications
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(leave, url_prefix="/api/leave")
@@ -163,5 +169,6 @@ def create_app():
     app.register_blueprint(Accounts, url_prefix="/api/accounts")
     app.register_blueprint(query, url_prefix="/api/query")
     app.register_blueprint(manager, url_prefix="/api/manager")
+    app.register_blueprint(notifications, url_prefix="/api/notifications")
 
     return app

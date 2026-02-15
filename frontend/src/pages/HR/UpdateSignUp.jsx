@@ -7,8 +7,11 @@ const API_BASE = '/api/HumanResource';
 const EMP_TYPE_OPTIONS = ['Software Developer', 'Human Resource', 'Accounts', 'Admin'];
 const CIRCLE_OPTIONS = ['NHQ', 'Delhi', 'Mumbai', 'Bangalore', 'Hyderabad'];
 
-export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee }) => {
-  const [filters, setFilters] = useState({ emp_type: 'Software Developer', circle: 'NHQ' });
+export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee, empTypeOptions = EMP_TYPE_OPTIONS, circleOptions = CIRCLE_OPTIONS }) => {
+  const [filters, setFilters] = useState({
+    emp_type: empTypeOptions[0] || EMP_TYPE_OPTIONS[0],
+    circle: circleOptions[0] || CIRCLE_OPTIONS[0],
+  });
   const [employees, setEmployees] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
@@ -45,6 +48,13 @@ export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee }) => {
       setSearchLoading(false);
     }
   }, [filters.emp_type, filters.circle, getAuthHeaders]);
+
+  React.useEffect(() => {
+    setFilters((prev) => ({
+      emp_type: prev.emp_type || empTypeOptions[0] || '',
+      circle: prev.circle || circleOptions[0] || '',
+    }));
+  }, [empTypeOptions, circleOptions]);
 
   const handleViewDetails = useCallback(async (emp) => {
     setDetailError('');
@@ -97,7 +107,7 @@ export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee }) => {
                 value={filters.emp_type}
                 onChange={(e) => setFilters((f) => ({ ...f, emp_type: e.target.value }))}
               >
-                {EMP_TYPE_OPTIONS.map((t) => (
+                {empTypeOptions.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
@@ -108,7 +118,7 @@ export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee }) => {
                 value={filters.circle}
                 onChange={(e) => setFilters((f) => ({ ...f, circle: e.target.value }))}
               >
-                {CIRCLE_OPTIONS.map((c) => (
+                {circleOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>

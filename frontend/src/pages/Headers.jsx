@@ -128,6 +128,7 @@ const getPageInfo = (pathname, firstName) => {
         '/attendance': { title: 'Attendance', subtitle: 'Manage records' },
         '/leaves': { title: 'Leaves', subtitle: 'Apply/Check balance' },
         '/queries': { title: 'Raise a Query', subtitle: 'Track and manage your support requests' },
+        '/queries/inbox': { title: 'Department Query Inbox', subtitle: 'Reply to queries assigned to your department' },
         '/claims': { title: 'Expense Claims', subtitle: 'Submit and track your claims' },
         '/separation': { title: 'Separation', subtitle: 'Resignation and clearance process' },
         '/salary': { title: 'Salary', subtitle: 'Payslips and salary information' },
@@ -144,6 +145,13 @@ const getPageInfo = (pathname, firstName) => {
 
 export const Headers = ({ username, role, profilePic }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [queryUnreadCount, setQueryUnreadCount] = useState(0);
+    const [noticeInfo, setNoticeInfo] = useState({
+        notice_active: false,
+        days_left: 0,
+        can_revoke: false,
+    });
+    const [revokingNotice, setRevokingNotice] = useState(false);
     const dropdownRef = useRef(null);
     const location = useLocation();
     const navigate = useNavigate();
@@ -201,6 +209,7 @@ export const Headers = ({ username, role, profilePic }) => {
     };
 
     const roleInfo = getRoleInfo(rawRole);
+    const isDepartmentRole = ["hr", "account", "accounts", "it", "admin"].includes(roleInfo.display?.toLowerCase());
     const isSpecialRole = roleInfo.hasPanel;
 
     useEffect(() => {
@@ -211,13 +220,122 @@ export const Headers = ({ username, role, profilePic }) => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    useEffect(() => {
+        let isMounted = true;
+        let timerId = null;
+        const token = localStorage.getItem("token");
+
+        const fetchUnreadCount = async () => {
+            if (!token) return;
+            try {
+                const response = await fetch("/api/notifications/unread-count", {
+                    method: "GET",
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                const result = await response.json();
+                if (isMounted && response.ok && result.success) {
+                    setQueryUnreadCount(Number(result.query_unread_count || 0));
+                }
+            } catch (error) {
+                console.error("Notification count error:", error);
+            }
+        };
+
+        fetchUnreadCount();
+        timerId = window.setInterval(fetchUnreadCount, 30000);
+        return () => {
+            isMounted = false;
+            if (timerId) window.clearInterval(timerId);
+        };
+    }, []);
+
+    useEffect(() => {
+        let isMounted = true;
+        let timerId = null;
+        const token = localStorage.getItem("token");
+
+        const fetchNoticeInfo = async () => {
+            if (!token) return;
+            try {
+                const response = await fetch("/api/leave/seperation", {
+                    method: "GET",
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                const result = await response.json();
+                if (isMounted && response.ok && result.success) {
+                    const notice = result.notice || {};
+                    setNoticeInfo({
+                        notice_active: Boolean(notice.notice_active),
+                        days_left: Number(notice.days_left || 0),
+                        can_revoke: Boolean(notice.can_revoke),
+                    });
+                }
+            } catch (error) {
+                console.error("Notice period fetch error:", error);
+            }
+        };
+
+        fetchNoticeInfo();
+        timerId = window.setInterval(fetchNoticeInfo, 60000);
+        return () => {
+            isMounted = false;
+            if (timerId) window.clearInterval(timerId);
+        };
+    }, []);
+
     const handleLogout = () => {
         localStorage.removeItem('token');
+        localStorage.removeItem('lastActivityAt');
         navigate('/');
     };
 
 const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2563eb&color=fff`;
     const userAvatar = profilePic || defaultAvatar;
+
+    const isBellDisabled = queryUnreadCount === 0;
+
+    const handleNotificationClick = () => {
+        if (isBellDisabled) return;
+        if (isDepartmentRole) {
+            navigate("/queries/inbox?from=notification");
+            return;
+        }
+        navigate("/queries?from=notification");
+    };
+
+    const handleRevokeNotice = async () => {
+        if (revokingNotice) return;
+        const token = localStorage.getItem("token");
+        if (!token) return;
+        const ok = window.confirm("Revoke your resignation request?");
+        if (!ok) return;
+
+        setRevokingNotice(true);
+        try {
+            const response = await fetch("/api/leave/seperation/revoke", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || "Failed to revoke resignation");
+            }
+            const notice = result.notice || {};
+            setNoticeInfo({
+                notice_active: Boolean(notice.notice_active),
+                days_left: Number(notice.days_left || 0),
+                can_revoke: Boolean(notice.can_revoke),
+            });
+        } catch (error) {
+            console.error("Revoke resignation error:", error);
+            window.alert(error.message || "Unable to revoke resignation");
+        } finally {
+            setRevokingNotice(false);
+        }
+    };
 
     return (
         <header className="header-container">
@@ -239,9 +357,29 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                 </div>
 
                 <div className="header-right">
-                    <div className="notification-wrapper" title="Notifications">
+                    {noticeInfo.notice_active && (
+                        <div className="notice-chip" title="90-day notice period countdown">
+                            <span className="notice-chip-text">Notice: {noticeInfo.days_left}d left</span>
+                            {noticeInfo.can_revoke && (
+                                <button
+                                    className="notice-revoke-btn"
+                                    onClick={handleRevokeNotice}
+                                    disabled={revokingNotice}
+                                    title="Revoke resignation"
+                                >
+                                    {revokingNotice ? "..." : "Revoke"}
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    <div
+                        className={`notification-wrapper ${isBellDisabled ? "disabled" : ""}`}
+                        title={isBellDisabled ? "No new notifications" : "Notifications"}
+                        onClick={handleNotificationClick}
+                    >
                         <FaBell className="bell-icon" />
-                        <span className="badge">3</span>
+                        {queryUnreadCount > 0 && <span className="badge">{queryUnreadCount > 99 ? "99+" : queryUnreadCount}</span>}
                     </div>
                     
                     <div className="divider"></div>

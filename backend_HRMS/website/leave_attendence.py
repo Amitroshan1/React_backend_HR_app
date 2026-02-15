@@ -23,6 +23,39 @@ import logging
 leave = Blueprint('leave', __name__)
 logger = logging.getLogger(__name__)
 
+NOTICE_PERIOD_DAYS = 90
+
+
+def _is_active_resignation_status(status):
+    return (status or "").strip().lower() in {"pending", "approved"}
+
+
+def _serialize_notice(resignation):
+    if not resignation or not resignation.resignation_date:
+        return {
+            "notice_active": False,
+            "notice_period_days": NOTICE_PERIOD_DAYS,
+            "notice_start_date": None,
+            "notice_end_date": None,
+            "days_left": 0,
+            "can_revoke": False,
+        }
+
+    notice_start = resignation.resignation_date
+    notice_end = notice_start + timedelta(days=NOTICE_PERIOD_DAYS)
+    days_left = max((notice_end - date.today()).days, 0)
+    status = (resignation.status or "").strip()
+    active = _is_active_resignation_status(status) and days_left > 0
+
+    return {
+        "notice_active": active,
+        "notice_period_days": NOTICE_PERIOD_DAYS,
+        "notice_start_date": notice_start.isoformat(),
+        "notice_end_date": notice_end.isoformat(),
+        "days_left": days_left,
+        "can_revoke": _is_active_resignation_status(status),
+    }
+
 
 
 @leave.route("/attendance/summary", methods=["GET"])
@@ -841,8 +874,9 @@ def submit_resignation():
             "message": "Employee not found"
         }), 404
 
-    # Prevent duplicate resignation
-    if Resignation.query.filter_by(admin_id=admin.id).first():
+    # Prevent duplicate active resignation, but allow re-apply after revoke/reject.
+    latest_resignation = Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
+    if latest_resignation and _is_active_resignation_status(latest_resignation.status):
         return jsonify({
             "success": False,
             "message": "You have already submitted a resignation request."
@@ -915,12 +949,13 @@ def get_resignation_status():
                 "message": "Employee not found"
             }), 404
 
-        resignation = Resignation.query.filter_by(admin_id=admin.id).first()
+        resignation = Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
         noc_upload = Noc_Upload.query.filter_by(admin_id=admin.id).order_by(Noc_Upload.id.desc()).first()
 
         if resignation:
             applied_on = getattr(resignation, 'applied_on', None)
             created_at_str = applied_on.isoformat() if applied_on and hasattr(applied_on, 'isoformat') else (str(applied_on) if applied_on else None)
+            notice_info = _serialize_notice(resignation)
             return jsonify({
                 "success": True,
                 "already_submitted": True,
@@ -928,8 +963,10 @@ def get_resignation_status():
                     "id": resignation.id,
                     "resignation_date": resignation.resignation_date.isoformat(),
                     "reason": resignation.reason,
+                    "status": resignation.status,
                     "created_at": created_at_str
                 },
+                "notice": notice_info,
                 "noc": {
                     "uploaded": noc_upload is not None,
                     "filename": os.path.basename(noc_upload.file_path) if noc_upload and noc_upload.file_path else None
@@ -939,6 +976,7 @@ def get_resignation_status():
         return jsonify({
             "success": True,
             "already_submitted": False,
+            "notice": _serialize_notice(None),
             "today": date.today().isoformat(),
             "employee": {
                 "name": admin.first_name,
@@ -954,6 +992,42 @@ def get_resignation_status():
             "success": False,
             "message": str(e) or "Failed to fetch resignation status"
         }), 500
+
+
+@leave.route("/seperation/revoke", methods=["POST"])
+@jwt_required()
+def revoke_resignation():
+    try:
+        claims = get_jwt()
+        email = claims.get("email")
+        if not email:
+            return jsonify({"success": False, "message": "Invalid token"}), 401
+
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({"success": False, "message": "Employee not found"}), 404
+
+        resignation = Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
+        if not resignation:
+            return jsonify({"success": False, "message": "No resignation found"}), 404
+
+        if not _is_active_resignation_status(resignation.status):
+            return jsonify({
+                "success": False,
+                "message": f"Cannot revoke when status is {resignation.status}"
+            }), 400
+
+        resignation.status = "Revoked"
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": "Resignation revoked successfully",
+            "notice": _serialize_notice(resignation),
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("revoke_resignation error")
+        return jsonify({"success": False, "message": str(e) or "Failed to revoke resignation"}), 500
 
 
 @leave.route("/noc-document", methods=["GET"])

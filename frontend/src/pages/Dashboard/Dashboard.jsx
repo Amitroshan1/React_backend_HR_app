@@ -424,7 +424,7 @@ export const Dashboard = () => {
         <>
         <div className="main-layout">
             <div className="content-area">
-                <div className="dashboard-content">
+                <div className="dashboard-content" style={{ paddingTop: "24px" }}>
                     <div className="top-cards-grid">
                         <div className="card top-card simple-card">
                             <div className="card-content-wrapper">

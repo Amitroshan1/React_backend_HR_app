@@ -1,12 +1,57 @@
-
-
-import { Outlet } from "react-router-dom";
+import { useEffect } from "react";
+import { Outlet, useNavigate } from "react-router-dom";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 // import "../../pages/style/Dashboard.css"
 import "../../pages/Dashboard/Dashboard.css"
+
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const ACTIVITY_KEY = "lastActivityAt";
+
 export const AppLayout = () => {
+    const navigate = useNavigate();
     const { userData, loadingUser } = useUser();
+
+    useEffect(() => {
+        const logoutForInactivity = () => {
+            localStorage.setItem("sessionExpired", "1");
+            localStorage.removeItem("token");
+            localStorage.removeItem(ACTIVITY_KEY);
+            navigate("/");
+        };
+
+        const markActivity = () => {
+            if (!localStorage.getItem("token")) return;
+            localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
+        };
+
+        const checkInactivity = () => {
+            const token = localStorage.getItem("token");
+            if (!token) return;
+            const raw = localStorage.getItem(ACTIVITY_KEY);
+            const lastActivity = Number(raw);
+            if (!raw || Number.isNaN(lastActivity) || Date.now() - lastActivity > INACTIVITY_TIMEOUT_MS) {
+                logoutForInactivity();
+            }
+        };
+
+        // Enforce timeout immediately on refresh/open.
+        checkInactivity();
+
+        const activityEvents = ["click", "keydown", "mousemove", "scroll", "touchstart"];
+        activityEvents.forEach((eventName) => {
+            window.addEventListener(eventName, markActivity, { passive: true });
+        });
+
+        const intervalId = window.setInterval(checkInactivity, 15000);
+
+        return () => {
+            activityEvents.forEach((eventName) => {
+                window.removeEventListener(eventName, markActivity);
+            });
+            window.clearInterval(intervalId);
+        };
+    }, [navigate]);
     
     if (loadingUser) {
         return (
@@ -34,7 +79,7 @@ export const AppLayout = () => {
             {/* The Header now gets the username from the centralized context */}
             <Headers username={username} role={empType} /> 
             
-            <div className="content-area">
+            <div className="content-area" style={{ paddingTop: "14px" }}>
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
                 <Outlet />
             </div>

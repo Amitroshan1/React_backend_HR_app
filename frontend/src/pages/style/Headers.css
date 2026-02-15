@@ -90,6 +90,39 @@
     gap: 20px;
 }
 
+.notice-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #f59e0b;
+    background: #fffbeb;
+    color: #92400e;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.notice-chip-text {
+    white-space: nowrap;
+}
+
+.notice-revoke-btn {
+    border: 1px solid #f59e0b;
+    background: #fff;
+    color: #92400e;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+
+.notice-revoke-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
 /* .notification-wrapper {
     position: relative;
     cursor: pointer;
@@ -111,6 +144,15 @@
 
 .notification-wrapper:hover {
     background: var(--bg-hover);
+}
+
+.notification-wrapper.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.notification-wrapper.disabled:hover {
+    background: #f8f9fa;
 }
 /* 
 .bell-icon {
@@ -139,11 +181,11 @@
 
 .badge {
     position: absolute;
-    /* top: 0px; */
+    top: 0px;
     left: 25px;
-    /* background: #ff4d4f; Bright red for visibility */
+    background: #ff4d4f;
     color: white;
-    font-size: 1px;
+    font-size: 10px;
     font-weight: 700;
     min-width: 18px;
     height: 18px;
@@ -323,6 +365,10 @@
 
     .header-right {
         gap: 12px;
+    }
+
+    .notice-chip {
+        display: none;
     }
 
     .divider {

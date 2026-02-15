@@ -8,10 +8,11 @@
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from . import db
 from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
+from .models.notification import Notification
 from .email import notify_query_event, send_query_closed_email
 from .models.manager_model import ManagerContact
 from werkzeug.utils import secure_filename
@@ -26,6 +27,98 @@ query = Blueprint('query', __name__)
 
 MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
+DEPARTMENT_ROLES = {
+    "human resource",
+    "human resources",
+    "hr",
+    "accounts",
+    "it",
+    "it department",
+    "admin",
+    "administration",
+}
+
+
+def _norm(value):
+    return (value or "").strip().lower()
+
+
+def _department_variants(department):
+    d = _norm(department)
+    variants = {d}
+    if d in {"human resource", "human resources", "hr"}:
+        variants.update({"human resource", "human resources", "hr"})
+    elif d in {"it", "it department"}:
+        variants.update({"it", "it department"})
+    elif d in {"admin", "administration"}:
+        variants.update({"admin", "administration"})
+    return list(variants)
+
+
+def _department_recipients(department, exclude_admin_id=None):
+    dept_options = _department_variants(department)
+    filters = [func.lower(func.coalesce(Admin.emp_type, "")) == val for val in dept_options]
+    q = Admin.query.filter(or_(*filters))
+    q = q.filter(or_(Admin.is_exited == False, Admin.is_exited.is_(None)))
+    if exclude_admin_id:
+        q = q.filter(Admin.id != exclude_admin_id)
+    return q.all()
+
+
+def _emp_type_to_department(emp_type):
+    normalized = _norm(emp_type)
+    if normalized in {"human resource", "human resources", "hr"}:
+        return "Human Resource"
+    if normalized in {"it", "it department"}:
+        return "IT Department"
+    if normalized in {"admin", "administration"}:
+        return "Administration"
+    if normalized == "accounts":
+        return "Accounts"
+    return None
+
+
+def _can_access_query(admin, emp_type, query_obj):
+    if not admin:
+        return False
+    if query_obj.admin_id == admin.id:
+        return True
+
+    department = _emp_type_to_department(emp_type)
+    if not department:
+        return False
+    return _norm(query_obj.department) == _norm(department)
+
+
+def _create_notifications_for_admins(admins, title, body, query_id):
+    if not admins:
+        return
+    for recipient in admins:
+        db.session.add(
+            Notification(
+                recipient_admin_id=recipient.id,
+                notif_type="query",
+                title=title,
+                body=body,
+                entity_type="query",
+                entity_id=query_id,
+            )
+        )
+
+
+def _create_query_notification_to_owner(query_obj, title, body, actor_admin_id=None):
+    if actor_admin_id and query_obj.admin_id == actor_admin_id:
+        return
+    db.session.add(
+        Notification(
+            recipient_admin_id=query_obj.admin_id,
+            notif_type="query",
+            title=title,
+            body=body,
+            entity_type="query",
+            entity_id=query_obj.id,
+        )
+    )
 
 
 
@@ -85,6 +178,15 @@ def create_query_api():
     db.session.add(query_obj)
     db.session.commit()
 
+    recipients = _department_recipients(department, exclude_admin_id=admin.id)
+    _create_notifications_for_admins(
+        recipients,
+        title=f"New Query: {title}",
+        body=f"{admin.first_name or admin.email} raised a query for {department}.",
+        query_id=query_obj.id,
+    )
+    db.session.commit()
+
     return jsonify({
         "success": True,
         "message": "Query created successfully",
@@ -137,12 +239,12 @@ def department_queries():
     claims = get_jwt()
     emp_type = claims.get("emp_type")
 
-    if emp_type not in ["Human Resource", "Accounts"]:
+    if _norm(emp_type) not in DEPARTMENT_ROLES:
         return jsonify({"success": False, "message": "Unauthorized"}), 403
 
-    department = request.args.get("department")
+    department = _emp_type_to_department(emp_type)
     if not department:
-        return jsonify({"success": False, "message": "department required"}), 400
+        return jsonify({"success": False, "message": "Unsupported department role"}), 403
 
     queries = Query.query.filter_by(
         department=department
@@ -169,7 +271,14 @@ def department_queries():
 @query.route("/queries/<int:query_id>", methods=["GET"])
 @jwt_required()
 def query_details(query_id):
+    claims = get_jwt()
+    email = claims.get("email")
+    emp_type = claims.get("emp_type")
+    admin = Admin.query.filter_by(email=email).first()
     query_obj = Query.query.get_or_404(query_id)
+    if not _can_access_query(admin, emp_type, query_obj):
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+
     attachments = []
     if query_obj.photo:
         try:
@@ -221,6 +330,8 @@ def reply_query(query_id):
 
     admin = Admin.query.filter_by(email=email).first()
     query_obj = Query.query.get_or_404(query_id)
+    if not _can_access_query(admin, emp_type, query_obj):
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
 
     data = request.get_json() or {}
     reply_text = data.get("reply_text")
@@ -228,7 +339,7 @@ def reply_query(query_id):
     if not reply_text:
         return jsonify({"success": False, "message": "reply_text required"}), 400
 
-    user_type = "EMPLOYEE" if emp_type not in ["Human Resource", "Accounts"] else "DEPARTMENT"
+    user_type = "DEPARTMENT" if _norm(emp_type) in DEPARTMENT_ROLES else "EMPLOYEE"
 
     reply = QueryReply(
         query_id=query_id,
@@ -241,6 +352,23 @@ def reply_query(query_id):
         query_obj.status = "Open"
 
     db.session.add(reply)
+
+    if user_type == "DEPARTMENT":
+        _create_query_notification_to_owner(
+            query_obj=query_obj,
+            title=f"Reply on Query: {query_obj.title}",
+            body=f"{admin.first_name or admin.email} replied to your query.",
+            actor_admin_id=admin.id,
+        )
+    else:
+        recipients = _department_recipients(query_obj.department, exclude_admin_id=admin.id)
+        _create_notifications_for_admins(
+            recipients,
+            title=f"Employee Reply: {query_obj.title}",
+            body=f"{admin.first_name or admin.email} replied on a {query_obj.department} query.",
+            query_id=query_obj.id,
+        )
+
     db.session.commit()
 
     return jsonify({
@@ -261,6 +389,7 @@ def close_query_api(query_id):
     claims = get_jwt()
     emp_type = claims.get("emp_type")
     closed_by_email = claims.get("email")
+    closed_by_admin = Admin.query.filter_by(email=closed_by_email).first()
 
     if emp_type not in ["Human Resource", "Accounts", "Engineering", "IT Department"]:
         return jsonify({
@@ -271,6 +400,14 @@ def close_query_api(query_id):
     query_obj = Query.query.get_or_404(query_id)
 
     query_obj.status = "Closed"
+
+    _create_query_notification_to_owner(
+        query_obj=query_obj,
+        title=f"Query Closed: {query_obj.title}",
+        body=f"Your query has been closed by {closed_by_email}.",
+        actor_admin_id=closed_by_admin.id if closed_by_admin else None,
+    )
+
     db.session.commit()
 
     # 🔔 Send compiled chat email

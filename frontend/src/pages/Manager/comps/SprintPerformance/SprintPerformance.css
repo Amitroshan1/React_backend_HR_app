@@ -68,3 +68,9 @@
 .progress-item:nth-child(3) .progress-fill {
   background-color: #f44336; /* overdue tasks */
 }
+
+.sprint-empty-msg {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}

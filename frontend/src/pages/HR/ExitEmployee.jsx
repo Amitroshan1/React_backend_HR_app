@@ -1,23 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { ArrowLeft, Archive, Search, AlertCircle } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './ExitEmployee.css';
 
-// initial employees (module-level so it's not re-created on every render)
-const initialEmployees = [
-  { id: 1, employeeId: 'EMP001', name: 'Rajesh Kumar', circle: 'Mumbai', employeeType: 'Engineer', email: 'rajesh.kumar@company.com' },
-  { id: 2, employeeId: 'EMP002', name: 'Priya Sharma', circle: 'Delhi', employeeType: 'Accountant', email: 'priya.sharma@company.com' },
-  { id: 3, employeeId: 'EMP003', name: 'Amit Patel', circle: 'Gurugram', employeeType: 'HR', email: 'amit.patel@company.com' },
-  { id: 4, employeeId: 'EMP004', name: 'Sneha Desai', circle: 'Mumbai', employeeType: 'Engineer', email: 'sneha.desai@company.com' },
-  { id: 5, employeeId: 'EMP005', name: 'Vikram Singh', circle: 'Delhi', employeeType: 'Manager', email: 'vikram.singh@company.com' },
-  { id: 6, employeeId: 'EMP006', name: 'Meera Nair', circle: 'Gurugram', employeeType: 'Engineer', email: 'meera.nair@company.com' },
-  { id: 7, employeeId: 'EMP007', name: 'Arjun Reddy', circle: 'Mumbai', employeeType: 'Accountant', email: 'arjun.reddy@company.com' },
-  { id: 8, employeeId: 'EMP008', name: 'Kavita Rao', circle: 'Delhi', employeeType: 'HR', email: 'kavita.rao@company.com' },
-  { id: 9, employeeId: 'EMP009', name: 'Rohit Mehta', circle: 'Gurugram', employeeType: 'Manager', email: 'rohit.mehta@company.com' },
-  { id: 10, employeeId: 'EMP010', name: 'Ananya Iyer', circle: 'Mumbai', employeeType: 'Engineer', email: 'ananya.iyer@company.com' },
-  { id: 11, employeeId: 'EMP011', name: 'Sanjay Gupta', circle: 'Delhi', employeeType: 'Accountant', email: 'sanjay.gupta@company.com' },
-  { id: 12, employeeId: 'EMP012', name: 'Pooja Verma', circle: 'Gurugram', employeeType: 'HR', email: 'pooja.verma@company.com' },
-];
+const HR_API_BASE = '/api/HumanResource';
+const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 const ExitEmployee = ({onBack}) => {
   const navigate = useNavigate();
@@ -42,8 +29,10 @@ const ExitEmployee = ({onBack}) => {
     return () => document.removeEventListener('click', handler);
   }, []);
 
-  const [employees, setEmployees] = useState(initialEmployees);
-  const [filteredEmployees, setFilteredEmployees] = useState(initialEmployees);
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const [employeeType, setEmployeeType] = useState('');
   const [circle, setCircle] = useState('');
@@ -59,9 +48,7 @@ const ExitEmployee = ({onBack}) => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
-
-  const employeeTypes = ['Engineer', 'Accountant', 'HR', 'Manager'];
-  const circles = ['Mumbai', 'Delhi', 'Gurugram'];
+  const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
 
   // Check if email filter is active
   const isEmailFilterActive = email.trim() !== '';
@@ -69,9 +56,65 @@ const ExitEmployee = ({onBack}) => {
   // Check if employeeType or circle filter is active
   const isTypeOrCircleFilterActive = employeeType !== '' || circle !== '';
 
+  const getAuthHeaders = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, []);
+
+  const loadActiveEmployees = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${HR_API_BASE}/employees/active`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.message || 'Failed to load employees');
+        setEmployees([]);
+        return;
+      }
+      const rows = (data.employees || []).map((e) => ({
+        id: e.id,
+        employeeId: e.emp_id || '-',
+        name: e.name || '-',
+        circle: e.circle || '',
+        employeeType: e.emp_type || '',
+        email: e.email || '',
+      }));
+      setEmployees(rows);
+    } catch {
+      setError('Network error while loading employees');
+      setEmployees([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [getAuthHeaders]);
+
   useEffect(() => {
-    filterEmployees();
-  }, [employeeType, circle, email, employees]);
+    loadActiveEmployees();
+  }, [loadActiveEmployees]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${HR_API_BASE}/master/options`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && data.success) {
+          setMasterOptions({
+            departments: data.departments || [],
+            circles: data.circles || [],
+          });
+        }
+      } catch {
+        // no-op, fallback uses employee data values
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [getAuthHeaders]);
 
   // Handle employee data passed from Archive
   useEffect(() => {
@@ -81,29 +124,38 @@ const ExitEmployee = ({onBack}) => {
     }
   }, [employeeFromArchive]);
 
-  const filterEmployees = () => {
+  const filteredEmployees = useMemo(() => {
     let filtered = [...employees];
+    const emailNorm = norm(email);
+    const typeNorm = norm(employeeType);
+    const circleNorm = norm(circle);
 
-    if (email.trim()) {
-      // Email search takes priority and searches exact match
+    if (emailNorm) {
       filtered = filtered.filter(emp =>
-        emp.email.toLowerCase() === email.toLowerCase().trim()
+        norm(emp.email) === emailNorm
       );
-    } else if (employeeType && circle) {
-      // Both filters applied
+    } else if (typeNorm && circleNorm) {
       filtered = filtered.filter(emp =>
-        emp.employeeType === employeeType && emp.circle === circle
+        norm(emp.employeeType).includes(typeNorm) && norm(emp.circle).includes(circleNorm)
       );
-    } else if (employeeType) {
-      // Only employee type filter
-      filtered = filtered.filter(emp => emp.employeeType === employeeType);
-    } else if (circle) {
-      // Only circle filter
-      filtered = filtered.filter(emp => emp.circle === circle);
+    } else if (typeNorm) {
+      filtered = filtered.filter(emp => norm(emp.employeeType).includes(typeNorm));
+    } else if (circleNorm) {
+      filtered = filtered.filter(emp => norm(emp.circle).includes(circleNorm));
     }
 
-    setFilteredEmployees(filtered);
-  };
+    return filtered;
+  }, [employees, email, employeeType, circle]);
+
+  const employeeTypes = useMemo(() => {
+    if (masterOptions.departments.length) return masterOptions.departments;
+    return [...new Set(employees.map((e) => e.employeeType).filter(Boolean))];
+  }, [masterOptions.departments, employees]);
+
+  const circles = useMemo(() => {
+    if (masterOptions.circles.length) return masterOptions.circles;
+    return [...new Set(employees.map((e) => e.circle).filter(Boolean))];
+  }, [masterOptions.circles, employees]);
 
   const handleActionClick = (employee) => {
     setSelectedEmployee(employee);
@@ -111,48 +163,34 @@ const ExitEmployee = ({onBack}) => {
   };
 
   const handleConfirmExit = async () => {
-    if (!selectedEmployee) return;
+    if (!selectedEmployee || submitting) return;
 
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const updatedEmployees = employees.filter(emp => emp.id !== selectedEmployee.id);
-    setEmployees(updatedEmployees);
-
-    // Get current archived employees from localStorage
-    let archivedEmployees = [];
-    const stored = localStorage.getItem('archivedEmployees');
-    if (stored) {
-      try {
-        archivedEmployees = JSON.parse(stored);
-      } catch (error) {
-        console.error('Error parsing archived employees:', error);
-        archivedEmployees = [];
+    setSubmitting(true);
+    setError('');
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const res = await fetch(`${HR_API_BASE}/mark-exit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          employee_email: selectedEmployee.email,
+          exit_type: 'Resigned',
+          exit_reason: 'Exited from HR panel',
+          exit_date: today,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.message || 'Failed to exit employee');
+        return;
       }
-    }
-
-    // Check if employee already exists in archive (prevent duplicates)
-    const employeeExists = archivedEmployees.some(emp => emp.id === selectedEmployee.id);
-    
-    let newArchivedEmployee = null;
-    if (!employeeExists) {
-      newArchivedEmployee = {
-        ...selectedEmployee,
-        exitDate: new Date().toISOString()
-      };
-
-      archivedEmployees.push(newArchivedEmployee);
-    }
-
-    // Save to localStorage
-    localStorage.setItem('archivedEmployees', JSON.stringify(archivedEmployees));
-
-    // Dispatch custom event to notify Archive component to reload
-    if (newArchivedEmployee) {
-      window.dispatchEvent(new CustomEvent('employeeArchived', {
-        detail: { archivedEmployee: newArchivedEmployee }
-      }));
-    } else {
+      setEmployees((prev) => prev.filter((emp) => emp.id !== selectedEmployee.id));
       window.dispatchEvent(new Event('employeeArchived'));
+    } catch {
+      setError('Network error while exiting employee');
+      return;
+    } finally {
+      setSubmitting(false);
     }
 
     setShowConfirm(false);
@@ -219,6 +257,9 @@ const ExitEmployee = ({onBack}) => {
           <h1 className="page-title">Exit Employees</h1>
           <p className="page-subtitle">Manage and archive exited employees</p>
         </div>
+        {error && (
+          <p style={{ color: '#b91c1c', marginBottom: '12px' }}>{error}</p>
+        )}
 
 
         {/* Filters */} 
@@ -416,7 +457,13 @@ const ExitEmployee = ({onBack}) => {
             </thead>
 
             <tbody>
-              {filteredEmployees.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan="6" className="no-data">
+                    Loading employees...
+                  </td>
+                </tr>
+              ) : filteredEmployees.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="no-data">
                     No employees found
@@ -442,6 +489,7 @@ const ExitEmployee = ({onBack}) => {
                       <button
                         className="action-button"
                         onClick={() => handleActionClick(emp)}
+                        disabled={submitting}
                       >
                         Exit Employee
                       </button>
@@ -481,8 +529,9 @@ const ExitEmployee = ({onBack}) => {
               <button
                 className="modal-button confirm-button"
                 onClick={handleConfirmExit}
+                disabled={submitting}
               >
-                Yes
+                {submitting ? 'Please wait...' : 'Yes'}
               </button>
             </div>
 

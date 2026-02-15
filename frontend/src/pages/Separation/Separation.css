@@ -374,6 +374,10 @@
   border-top: 1px solid #e2e8f0;
 }
 
+.separation-page-wrapper .revoke-section {
+  margin-top: 1rem;
+}
+
 .separation-page-wrapper .noc-download-section h4 {
   font-size: 1rem;
   font-weight: 600;

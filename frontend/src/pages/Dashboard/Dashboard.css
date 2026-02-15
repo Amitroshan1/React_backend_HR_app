@@ -697,6 +697,7 @@
   grid-template-columns: repeat(4, 1fr);
 
   gap: 20px;
+  background-color: var(--card-bg);
 }
 
 .grid-span-4 {

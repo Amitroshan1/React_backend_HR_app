@@ -9,6 +9,7 @@ import { Profile } from "./pages/Profile/components/Profile";
 import { AppLayout } from "./components/layout/AppLayout";
 import { UserProvider } from "./components/layout/UserContext";
 import { Queries } from "./pages/Query/Queries";
+import { DepartmentQueryInbox } from "./pages/Query/DepartmentQueryInbox";
 import { Claims } from "./pages/Claims/Claims";
 import { Separation } from "./pages/Separation/Separation";
 import { Hr } from "./pages/HR/Hr";
@@ -46,6 +47,7 @@ export const App = () => {
         { path: "leaves", element: <Leaves /> },
         { path: "profile", element: <Profile /> },
         { path: "queries", element: <Queries /> },
+        { path: "queries/inbox", element: <DepartmentQueryInbox /> },
         { path: "claims", element: <Claims /> },
         { path: "separation", element: <Separation /> },
         { path: "wfh", element: <Wfh /> },

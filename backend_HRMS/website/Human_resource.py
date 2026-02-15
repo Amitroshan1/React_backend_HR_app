@@ -26,6 +26,7 @@ from .models.education import UploadDoc, Education
 from .models.attendance import Punch, LeaveApplication, LeaveBalance, Location
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
+from .models.master_data import MasterData
 from werkzeug.security import generate_password_hash
 import os
 from urllib.parse import unquote
@@ -50,6 +51,163 @@ def hr_required(fn):
             }), 403
         return fn(*args, **kwargs)
     return wrapper
+
+
+MASTER_TYPE_DEPARTMENT = "department"
+MASTER_TYPE_CIRCLE = "circle"
+MASTER_TYPES = {MASTER_TYPE_DEPARTMENT, MASTER_TYPE_CIRCLE}
+
+
+def _clean_master_name(value):
+    return str(value or "").strip()
+
+
+def _master_type_or_400(raw_type):
+    master_type = str(raw_type or "").strip().lower()
+    if master_type not in MASTER_TYPES:
+        return None
+    return master_type
+
+
+def _get_master_values(master_type):
+    rows = (
+        MasterData.query.filter_by(master_type=master_type, is_active=True)
+        .order_by(MasterData.name.asc())
+        .all()
+    )
+    return [row.name for row in rows]
+
+
+def _is_allowed_master_value(master_type, value):
+    val = _clean_master_name(value)
+    if not val:
+        return False
+    count = (
+        MasterData.query.filter(
+            MasterData.master_type == master_type,
+            MasterData.is_active.is_(True),
+            db.func.lower(MasterData.name) == val.lower(),
+        ).count()
+    )
+    return count > 0
+
+
+@hr.route("/master/options", methods=["GET"])
+@jwt_required()
+@hr_required
+def master_options():
+    departments = _get_master_values(MASTER_TYPE_DEPARTMENT)
+    circles = _get_master_values(MASTER_TYPE_CIRCLE)
+    return jsonify(
+        {
+            "success": True,
+            "departments": departments,
+            "circles": circles,
+        }
+    ), 200
+
+
+@hr.route("/master/<string:master_type>", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_master_data(master_type):
+    parsed_type = _master_type_or_400(master_type)
+    if not parsed_type:
+        return jsonify({"success": False, "message": "Invalid master type"}), 400
+
+    rows = (
+        MasterData.query.filter_by(master_type=parsed_type, is_active=True)
+        .order_by(MasterData.name.asc())
+        .all()
+    )
+    return jsonify(
+        {
+            "success": True,
+            "master_type": parsed_type,
+            "items": [{"id": row.id, "name": row.name} for row in rows],
+        }
+    ), 200
+
+
+@hr.route("/master/<string:master_type>", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_master_data(master_type):
+    parsed_type = _master_type_or_400(master_type)
+    if not parsed_type:
+        return jsonify({"success": False, "message": "Invalid master type"}), 400
+
+    data = request.get_json() or {}
+    name = _clean_master_name(data.get("name"))
+    if not name:
+        return jsonify({"success": False, "message": "name is required"}), 400
+
+    existing = MasterData.query.filter(
+        MasterData.master_type == parsed_type,
+        db.func.lower(MasterData.name) == name.lower(),
+    ).first()
+
+    if existing and existing.is_active:
+        return jsonify({"success": False, "message": "Value already exists"}), 409
+
+    if existing and not existing.is_active:
+        existing.is_active = True
+        existing.name = name
+        db.session.commit()
+        return jsonify(
+            {
+                "success": True,
+                "message": "Value restored successfully",
+                "item": {"id": existing.id, "name": existing.name},
+            }
+        ), 200
+
+    row = MasterData(master_type=parsed_type, name=name, is_active=True)
+    db.session.add(row)
+    db.session.commit()
+    return jsonify(
+        {
+            "success": True,
+            "message": "Value added successfully",
+            "item": {"id": row.id, "name": row.name},
+        }
+    ), 201
+
+
+@hr.route("/master/<string:master_type>/<int:item_id>", methods=["DELETE"])
+@jwt_required()
+@hr_required
+def delete_master_data(master_type, item_id):
+    parsed_type = _master_type_or_400(master_type)
+    if not parsed_type:
+        return jsonify({"success": False, "message": "Invalid master type"}), 400
+
+    row = MasterData.query.filter_by(id=item_id, master_type=parsed_type, is_active=True).first()
+    if not row:
+        return jsonify({"success": False, "message": "Item not found"}), 404
+
+    if parsed_type == MASTER_TYPE_DEPARTMENT:
+        in_use = (
+            Admin.query.filter(db.func.lower(db.func.coalesce(Admin.emp_type, "")) == row.name.lower()).count()
+            > 0
+        )
+    else:
+        in_use = (
+            Admin.query.filter(db.func.lower(db.func.coalesce(Admin.circle, "")) == row.name.lower()).count()
+            > 0
+        )
+
+    if in_use:
+        return jsonify(
+            {
+                "success": False,
+                "message": "Cannot delete value because it is in use by existing employees",
+            }
+        ), 409
+
+    row.is_active = False
+    db.session.commit()
+    return jsonify({"success": True, "message": "Value deleted successfully"}), 200
 
 
 @hr.route("/signup", methods=["POST"])
@@ -95,6 +253,18 @@ def signup_api():
     emp_id = str(data["emp_id"]).strip()[:10]
     emp_type = str(data["emp_type"]).strip()[:50] if data.get("emp_type") else ""
     circle = str(data["circle"]).strip()[:50] if data.get("circle") else ""
+
+    if not _is_allowed_master_value(MASTER_TYPE_DEPARTMENT, emp_type):
+        return jsonify({
+            "success": False,
+            "message": "Invalid employee type. Please add it from Add Department first."
+        }), 400
+
+    if not _is_allowed_master_value(MASTER_TYPE_CIRCLE, circle):
+        return jsonify({
+            "success": False,
+            "message": "Invalid circle. Please add it from Add Circle first."
+        }), 400
 
     hr_email = get_jwt().get("email")
 
@@ -309,6 +479,47 @@ def hr_dashboard_api():
 # --------------------------------------------------
 # MARK EMPLOYEE AS EXITED
 # --------------------------------------------------
+@hr.route("/employees/active", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_active_employees():
+    """List active (non-exited) employees for HR Exit flow."""
+    emp_type = (request.args.get("emp_type") or "").strip()
+    circle = (request.args.get("circle") or "").strip()
+    email = (request.args.get("email") or "").strip().lower()
+
+    q = Admin.query.filter(
+        db.func.coalesce(Admin.is_exited, False) == False,
+    )
+
+    if emp_type:
+        q = q.filter(db.func.lower(db.func.coalesce(Admin.emp_type, "")) == emp_type.lower())
+    if circle:
+        q = q.filter(db.func.lower(db.func.coalesce(Admin.circle, "")) == circle.lower())
+    if email:
+        q = q.filter(db.func.lower(db.func.coalesce(Admin.email, "")) == email)
+
+    rows = q.order_by(Admin.first_name.asc(), Admin.id.asc()).all()
+
+    return jsonify(
+        {
+            "success": True,
+            "count": len(rows),
+            "employees": [
+                {
+                    "id": row.id,
+                    "emp_id": row.emp_id,
+                    "name": row.first_name,
+                    "email": row.email,
+                    "circle": row.circle,
+                    "emp_type": row.emp_type,
+                }
+                for row in rows
+            ],
+        }
+    ), 200
+
+
 @hr.route("/mark-exit", methods=["POST"])
 @jwt_required()
 @hr_required
@@ -400,7 +611,10 @@ def employee_archive_list():
         exited_employees = (
             Admin.query
             .filter(Admin.is_exited == True)
-            .order_by(Admin.exit_date.desc().nullslast())
+            .order_by(
+                db.case((Admin.exit_date.is_(None), 1), else_=0),
+                Admin.exit_date.desc()
+            )
             .all()
         )
 
@@ -412,6 +626,8 @@ def employee_archive_list():
                 "email": emp.email,
                 "mobile": emp.mobile,
                 "emp_id": emp.emp_id,
+                "circle": emp.circle,
+                "emp_type": emp.emp_type,
                 "exit_date": emp.exit_date.isoformat() if emp.exit_date else None,
                 "exit_type": emp.exit_type
             })
@@ -1645,6 +1861,22 @@ def update_employee_api(email_path):
         }), 404
 
     data = request.get_json() or {}
+
+    if "emp_type" in data:
+        proposed_emp_type = str(data.get("emp_type") or "").strip()
+        if not proposed_emp_type or not _is_allowed_master_value(MASTER_TYPE_DEPARTMENT, proposed_emp_type):
+            return jsonify({
+                "success": False,
+                "message": "Invalid employee type. Please select a configured department."
+            }), 400
+
+    if "circle" in data:
+        proposed_circle = str(data.get("circle") or "").strip()
+        if not proposed_circle or not _is_allowed_master_value(MASTER_TYPE_CIRCLE, proposed_circle):
+            return jsonify({
+                "success": False,
+                "message": "Invalid circle. Please select a configured circle."
+            }), 400
 
     admin.user_name = data.get("user_name", admin.user_name)
     admin.first_name = data.get("first_name", admin.first_name)

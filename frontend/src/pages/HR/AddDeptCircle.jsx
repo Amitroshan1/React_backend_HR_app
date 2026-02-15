@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, X, ArrowLeft } from 'lucide-react';
 import './AddDeptCircle.css';
+
+const API_BASE = '/api/HumanResource/master';
 
 const AddDeptCircle = ({ onBack }) => {
   const [departments, setDepartments] = useState([]);
@@ -11,38 +13,46 @@ const AddDeptCircle = ({ onBack }) => {
   
   const [deptName, setDeptName] = useState('');
   const [circleName, setCircleName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [savingType, setSavingType] = useState('');
+  const [deletingKey, setDeletingKey] = useState('');
+  const [message, setMessage] = useState({ type: '', text: '' });
 
-  // Load data from localStorage on component mount
-  useEffect(() => {
-    const savedDepartments = localStorage.getItem('departments');
-    const savedCircles = localStorage.getItem('circles');
-    
-    if (savedDepartments) {
-      try {
-        setDepartments(JSON.parse(savedDepartments));
-      } catch (error) {
-        console.error('Error loading departments:', error);
-      }
-    }
-    
-    if (savedCircles) {
-      try {
-        setCircles(JSON.parse(savedCircles));
-      } catch (error) {
-        console.error('Error loading circles:', error);
-      }
-    }
-    
-    // TODO: API call to fetch departments from backend
-    // axios.get('/api/departments')
-    //   .then(response => setDepartments(response.data))
-    //   .catch(error => console.error('Error fetching departments:', error));
-    
-    // TODO: API call to fetch circles from backend
-    // axios.get('/api/circles')
-    //   .then(response => setCircles(response.data))
-    //   .catch(error => console.error('Error fetching circles:', error));
+  const getAuthHeaders = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
+
+  const fetchMasterRows = useCallback(async () => {
+    setLoading(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const [depRes, circleRes] = await Promise.all([
+        fetch(`${API_BASE}/department`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE}/circle`, { headers: getAuthHeaders() }),
+      ]);
+
+      const depData = await depRes.json().catch(() => ({}));
+      const circleData = await circleRes.json().catch(() => ({}));
+
+      if (!depRes.ok || !circleRes.ok) {
+        const errMsg = depData.message || circleData.message || 'Failed to load department/circle data';
+        setMessage({ type: 'error', text: errMsg });
+        return;
+      }
+
+      setDepartments(depData.items || []);
+      setCircles(circleData.items || []);
+    } catch {
+      setMessage({ type: 'error', text: 'Network error while loading data.' });
+    } finally {
+      setLoading(false);
+    }
+  }, [getAuthHeaders]);
+
+  useEffect(() => {
+    fetchMasterRows();
+  }, [fetchMasterRows]);
 
   // Handle Add Department button click
   const handleAddDeptClick = () => {
@@ -59,7 +69,7 @@ const AddDeptCircle = ({ onBack }) => {
   };
 
   // Handle Department form submission
-  const handleDeptSubmit = (e) => {
+  const handleDeptSubmit = async (e) => {
     e.preventDefault();
     
     if (deptName.trim() === '') {
@@ -67,41 +77,32 @@ const AddDeptCircle = ({ onBack }) => {
       return;
     }
 
-    // Check for duplicate
-    if (departments.some(dept => dept.name.toLowerCase() === deptName.trim().toLowerCase())) {
-      alert('This department already exists');
-      return;
+    setSavingType('department');
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await fetch(`${API_BASE}/department`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ name: deptName.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.message || 'Failed to add department' });
+        return;
+      }
+      setDeptName('');
+      setShowDeptForm(false);
+      setMessage({ type: 'success', text: data.message || 'Department added successfully' });
+      await fetchMasterRows();
+    } catch {
+      setMessage({ type: 'error', text: 'Network error while adding department.' });
+    } finally {
+      setSavingType('');
     }
-
-    const newDepartment = {
-      id: Date.now(),
-      name: deptName.trim()
-    };
-
-    const updatedDepartments = [...departments, newDepartment];
-    setDepartments(updatedDepartments);
-    
-    // Save to localStorage
-    localStorage.setItem('departments', JSON.stringify(updatedDepartments));
-    
-    // TODO: API call to save department to backend
-    // axios.post('/api/departments', newDepartment)
-    //   .then(response => {
-    //     console.log('Department saved:', response.data);
-    //   })
-    //   .catch(error => {
-    //     console.error('Error saving department:', error);
-    //     // Rollback on error
-    //     setDepartments(departments);
-    //   });
-
-    // Reset form
-    setDeptName('');
-    setShowDeptForm(false);
   };
 
   // Handle Circle form submission
-  const handleCircleSubmit = (e) => {
+  const handleCircleSubmit = async (e) => {
     e.preventDefault();
     
     if (circleName.trim() === '') {
@@ -109,80 +110,77 @@ const AddDeptCircle = ({ onBack }) => {
       return;
     }
 
-    // Check for duplicate
-    if (circles.some(circle => circle.name.toLowerCase() === circleName.trim().toLowerCase())) {
-      alert('This circle already exists');
-      return;
+    setSavingType('circle');
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await fetch(`${API_BASE}/circle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ name: circleName.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.message || 'Failed to add circle' });
+        return;
+      }
+      setCircleName('');
+      setShowCircleForm(false);
+      setMessage({ type: 'success', text: data.message || 'Circle added successfully' });
+      await fetchMasterRows();
+    } catch {
+      setMessage({ type: 'error', text: 'Network error while adding circle.' });
+    } finally {
+      setSavingType('');
     }
-
-    const newCircle = {
-      id: Date.now(),
-      name: circleName.trim()
-    };
-
-    const updatedCircles = [...circles, newCircle];
-    setCircles(updatedCircles);
-    
-    // Save to localStorage
-    localStorage.setItem('circles', JSON.stringify(updatedCircles));
-    
-    // TODO: API call to save circle to backend
-    // axios.post('/api/circles', newCircle)
-    //   .then(response => {
-    //     console.log('Circle saved:', response.data);
-    //   })
-    //   .catch(error => {
-    //     console.error('Error saving circle:', error);
-    //     // Rollback on error
-    //     setCircles(circles);
-    //   });
-
-    // Reset form
-    setCircleName('');
-    setShowCircleForm(false);
   };
 
   // Handle Department removal
-  const handleRemoveDept = (deptId) => {
+  const handleRemoveDept = async (deptId) => {
     if (window.confirm('Are you sure you want to remove this department?')) {
-      const updatedDepartments = departments.filter(dept => dept.id !== deptId);
-      setDepartments(updatedDepartments);
-      
-      // Update localStorage
-      localStorage.setItem('departments', JSON.stringify(updatedDepartments));
-      
-      // TODO: API call to delete department from backend
-      // axios.delete(`/api/departments/${deptId}`)
-      //   .then(response => {
-      //     console.log('Department deleted:', response.data);
-      //   })
-      //   .catch(error => {
-      //     console.error('Error deleting department:', error);
-      //     // Rollback on error
-      //     setDepartments(departments);
-      //   });
+      setDeletingKey(`department-${deptId}`);
+      setMessage({ type: '', text: '' });
+      try {
+        const res = await fetch(`${API_BASE}/department/${deptId}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setMessage({ type: 'error', text: data.message || 'Failed to delete department' });
+          return;
+        }
+        setMessage({ type: 'success', text: data.message || 'Department deleted successfully' });
+        await fetchMasterRows();
+      } catch {
+        setMessage({ type: 'error', text: 'Network error while deleting department.' });
+      } finally {
+        setDeletingKey('');
+      }
     }
   };
 
   // Handle Circle removal
-  const handleRemoveCircle = (circleId) => {
+  const handleRemoveCircle = async (circleId) => {
     if (window.confirm('Are you sure you want to remove this circle?')) {
-      const updatedCircles = circles.filter(circle => circle.id !== circleId);
-      setCircles(updatedCircles);
-      
-      // Update localStorage
-      localStorage.setItem('circles', JSON.stringify(updatedCircles));
-      
-      // TODO: API call to delete circle from backend
-      // axios.delete(`/api/circles/${circleId}`)
-      //   .then(response => {
-      //     console.log('Circle deleted:', response.data);
-      //   })
-      //   .catch(error => {
-      //     console.error('Error deleting circle:', error);
-      //     // Rollback on error
-      //     setCircles(circles);
-      //   });
+      setDeletingKey(`circle-${circleId}`);
+      setMessage({ type: '', text: '' });
+      try {
+        const res = await fetch(`${API_BASE}/circle/${circleId}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setMessage({ type: 'error', text: data.message || 'Failed to delete circle' });
+          return;
+        }
+        setMessage({ type: 'success', text: data.message || 'Circle deleted successfully' });
+        await fetchMasterRows();
+      } catch {
+        setMessage({ type: 'error', text: 'Network error while deleting circle.' });
+      } finally {
+        setDeletingKey('');
+      }
     }
   };
 
@@ -208,6 +206,11 @@ const AddDeptCircle = ({ onBack }) => {
         <div className="page-header">
           <h1 className="page-heading">Department & Circle Management</h1>
         </div>
+        {message.text && (
+          <div style={{ marginBottom: '12px', padding: '10px 12px', borderRadius: '8px', background: message.type === 'error' ? '#fef2f2' : '#dcfce7', color: message.type === 'error' ? '#b91c1c' : '#166534' }}>
+            {message.text}
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="action-buttons">
@@ -252,8 +255,8 @@ const AddDeptCircle = ({ onBack }) => {
                     autoFocus
                   />
                   <div className="form-actions">
-                    <button type="submit" className="submit-button">
-                      Submit
+                    <button type="submit" className="submit-button" disabled={savingType === 'department'}>
+                      {savingType === 'department' ? 'Submitting...' : 'Submit'}
                     </button>
                     <button 
                       type="button" 
@@ -289,8 +292,8 @@ const AddDeptCircle = ({ onBack }) => {
                     autoFocus
                   />
                   <div className="form-actions">
-                    <button type="submit" className="submit-button">
-                      Submit
+                    <button type="submit" className="submit-button" disabled={savingType === 'circle'}>
+                      {savingType === 'circle' ? 'Submitting...' : 'Submit'}
                     </button>
                     <button 
                       type="button" 
@@ -323,7 +326,13 @@ const AddDeptCircle = ({ onBack }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {departments.length === 0 ? (
+                  {loading ? (
+                    <tr>
+                      <td colSpan="2" className="no-data">
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : departments.length === 0 ? (
                     <tr>
                       <td colSpan="2" className="no-data">
                         No departments added yet
@@ -338,6 +347,7 @@ const AddDeptCircle = ({ onBack }) => {
                             className="remove-button"
                             onClick={() => handleRemoveDept(dept.id)}
                             title="Remove department"
+                            disabled={deletingKey === `department-${dept.id}`}
                           >
                             <Trash2 size={16} />
                           </button>
@@ -365,7 +375,13 @@ const AddDeptCircle = ({ onBack }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {circles.length === 0 ? (
+                  {loading ? (
+                    <tr>
+                      <td colSpan="2" className="no-data">
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : circles.length === 0 ? (
                     <tr>
                       <td colSpan="2" className="no-data">
                         No circles added yet
@@ -380,6 +396,7 @@ const AddDeptCircle = ({ onBack }) => {
                             className="remove-button"
                             onClick={() => handleRemoveCircle(circle.id)}
                             title="Remove circle"
+                            disabled={deletingKey === `circle-${circle.id}`}
                           >
                             <Trash2 size={16} />
                           </button>

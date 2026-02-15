@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import func, or_
+from datetime import date
 
 from . import db
 from .models.Admin_models import Admin
@@ -56,6 +57,11 @@ def _is_manager_for_target(approver_admin, target_admin):
         return False
     if approver_admin.id == target_admin.id:
         return False
+    # Strict scope: manager can only act within own emp_type + circle.
+    if _norm(approver_admin.circle) != _norm(target_admin.circle):
+        return False
+    if _norm(approver_admin.emp_type) != _norm(target_admin.emp_type):
+        return False
 
     contact = _get_contact_for_target(target_admin)
     if not contact:
@@ -75,8 +81,15 @@ def _ensure_manager_user():
     if not admin:
         return None, (jsonify({"success": False, "message": "Unauthorized user"}), 401)
 
+    admin_circle = _norm(admin.circle)
+    admin_type = _norm(admin.emp_type)
+    if not admin_circle or not admin_type:
+        return None, (jsonify({"success": False, "message": "Manager profile missing circle or emp_type"}), 403)
+
     normalized_email = _norm(admin.email)
     has_mapping = ManagerContact.query.filter(
+        func.lower(func.coalesce(ManagerContact.circle_name, "")) == admin_circle,
+        func.lower(func.coalesce(ManagerContact.user_type, "")) == admin_type,
         or_(
             func.lower(func.coalesce(ManagerContact.l1_email, "")) == normalized_email,
             func.lower(func.coalesce(ManagerContact.l2_email, "")) == normalized_email,
@@ -88,6 +101,25 @@ def _ensure_manager_user():
         return None, (jsonify({"success": False, "message": "Manager access required"}), 403)
 
     return admin, None
+
+
+@manager.route("/scope", methods=["GET"])
+@jwt_required()
+def manager_scope():
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    return jsonify(
+        {
+            "success": True,
+            "scope": {
+                "email": admin.email,
+                "circle": admin.circle,
+                "emp_type": admin.emp_type,
+            },
+        }
+    ), 200
 
 
 def _reverse_leave_usage(leave_balance, leave_type, deducted_days):
@@ -396,3 +428,104 @@ def act_on_resignation_request(resignation_id):
     resignation.status = "Approved" if action == "approve" else "Rejected"
     db.session.commit()
     return jsonify({"success": True, "message": f"Resignation request {resignation.status.lower()}"}), 200
+
+
+@manager.route("/team-members", methods=["GET"])
+@jwt_required()
+def list_team_members():
+    manager_admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    manager_circle = _norm(manager_admin.circle)
+    manager_type = _norm(manager_admin.emp_type)
+    req_circle = _norm(request.args.get("circle"))
+    req_type = _norm(request.args.get("emp_type"))
+
+    # If frontend sends filters, enforce they cannot escape manager's own scope.
+    if req_circle and req_circle != "all" and req_circle != manager_circle:
+        return jsonify({"success": True, "members": []}), 200
+    if req_type and req_type != "all" and req_type != manager_type:
+        return jsonify({"success": True, "members": []}), 200
+
+    rows = (
+        Admin.query.filter(
+            func.coalesce(Admin.is_exited, False) == False,
+            func.lower(func.coalesce(Admin.circle, "")) == manager_circle,
+            func.lower(func.coalesce(Admin.emp_type, "")) == manager_type,
+        )
+        .order_by(Admin.first_name.asc(), Admin.id.asc())
+        .all()
+    )
+
+    today = date.today()
+    members = []
+    for row in rows:
+        if row.id == manager_admin.id:
+            continue
+        has_wfh_today = (
+            WorkFromHomeApplication.query.filter(
+                WorkFromHomeApplication.admin_id == row.id,
+                WorkFromHomeApplication.status == "Approved",
+                WorkFromHomeApplication.start_date <= today,
+                WorkFromHomeApplication.end_date >= today,
+            )
+            .first()
+            is not None
+        )
+        members.append(
+            {
+                "id": row.id,
+                "name": row.first_name or "Unknown",
+                "role": row.emp_type or "",
+                "circle": row.circle or "",
+                "status": "WFH" if has_wfh_today else "Present",
+                "perf": 75 if has_wfh_today else 90,
+            }
+        )
+
+    return jsonify({"success": True, "members": members}), 200
+
+
+@manager.route("/sprint-performance", methods=["GET"])
+@jwt_required()
+def sprint_performance():
+    manager_admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    completed = 0
+    pending = 0
+    overdue = 0
+
+    def _tally(status_value):
+        nonlocal completed, pending, overdue
+        s = _norm(status_value)
+        if s == "approved":
+            completed += 1
+        elif s == "pending":
+            pending += 1
+        elif s == "rejected":
+            overdue += 1
+
+    for row in LeaveApplication.query.all():
+        if _is_manager_for_target(manager_admin, row.admin):
+            _tally(row.status)
+    for row in WorkFromHomeApplication.query.all():
+        if _is_manager_for_target(manager_admin, row.admin):
+            _tally(row.status)
+    for row in Resignation.query.all():
+        if _is_manager_for_target(manager_admin, row.admin):
+            _tally(row.status)
+    for row in ExpenseClaimHeader.query.all():
+        if _is_manager_for_target(manager_admin, row.admin):
+            line_items = ExpenseLineItem.query.filter_by(claim_id=row.id).all()
+            _tally(_claim_status(line_items))
+
+    total = max(completed + pending + overdue, 1)
+    items = [
+        {"name": "Completed Tasks", "value": int(round((completed * 100) / total))},
+        {"name": "Pending Tasks", "value": int(round((pending * 100) / total))},
+        {"name": "Overdue Tasks", "value": int(round((overdue * 100) / total))},
+    ]
+    return jsonify({"success": True, "items": items}), 200

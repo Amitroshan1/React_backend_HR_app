@@ -488,6 +488,7 @@
 
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle } from 'lucide-react';
 import './Queries.css';
 
@@ -501,6 +502,7 @@ const DEPARTMENTS = [
 ];
 
 export const Queries = () => {
+  const location = useLocation();
   const [queries, setQueries] = useState([]);
   const [formData, setFormData] = useState({ department: '', title: '', text: '' });
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -593,6 +595,24 @@ export const Queries = () => {
   useEffect(() => {
     fetchMyQueries();
   }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('from') !== 'notification') return;
+
+    fetch('/api/notifications/mark-read', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ all: true, type: 'query' }),
+    }).catch((error) => {
+      console.error('Mark notification read error:', error);
+    });
+  }, [location.search]);
 
   const handleFileChange = (event) => {
     const files = Array.from(event.target.files || []);

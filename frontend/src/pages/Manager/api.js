@@ -80,3 +80,52 @@ export async function fetchPendingCounts() {
     resignation: resignation.length,
   };
 }
+
+export async function fetchTeamMembers(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.circle && filters.circle !== "All") params.set("circle", filters.circle);
+  if (filters.type && filters.type !== "All") params.set("emp_type", filters.type);
+
+  const response = await fetch(`${API_BASE}/team-members?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      ...authHeaders(),
+    },
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load team members");
+  }
+  return result;
+}
+
+export async function fetchSprintPerformance() {
+  const response = await fetch(`${API_BASE}/sprint-performance`, {
+    method: "GET",
+    headers: {
+      ...authHeaders(),
+    },
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load sprint performance");
+  }
+  return result.items || [];
+}
+
+export async function fetchManagerScope() {
+  const response = await fetch(`${API_BASE}/scope`, {
+    method: "GET",
+    headers: {
+      ...authHeaders(),
+    },
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load manager scope");
+  }
+  return result.scope || null;
+}

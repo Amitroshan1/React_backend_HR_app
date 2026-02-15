@@ -8,7 +8,7 @@ import {
     MANDATORY_FILES_LIST,
     simulatePincodeLookup} from '../utils/profileUtils';
 
-const API_BASE_URL = "http://localhost:5000/api/auth";
+const API_BASE_URL = "/api/auth";
 
 const TOAST_DURATION_MS = 3000;
 

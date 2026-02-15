@@ -245,6 +245,15 @@ export const HeroSection = () => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const wasExpired = localStorage.getItem("sessionExpired");
+    if (wasExpired === "1") {
+      setShowLogin(true);
+      setError("Session expired due to inactivity. Please login again.");
+      localStorage.removeItem("sessionExpired");
+    }
+  }, []);
+
  const handleSubmit = async () => {
   if (isSubmitting) return;
   if (!email || !password) {
@@ -268,6 +277,7 @@ export const HeroSection = () => {
     console.log(data);
     if (data.success) {
       localStorage.setItem("token", data.token);
+      localStorage.setItem("lastActivityAt", String(Date.now()));
       await refreshUserData();
       navigate("/dashboard"); // redirect after login
       setError("");

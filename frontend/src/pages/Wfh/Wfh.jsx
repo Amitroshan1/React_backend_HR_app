@@ -161,7 +161,7 @@ import React, { useState, useEffect } from 'react';
 import { Toast } from './ui/Toast';
 import './Wfh.css';
 
-const API_BASE_URL = "http://localhost:5000/api/leave";
+const API_BASE_URL = "/api/leave";
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';

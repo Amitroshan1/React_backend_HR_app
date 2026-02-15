@@ -9,7 +9,7 @@ import {SprintPerformance} from "./comps/SprintPerformance/SprintPerformance";
 import {ClaimRequests} from "./comps/LeaveRequests/ClaimRequests";
 import {WFHRequests} from "./comps/LeaveRequests/WFHRequests";
 import {ResignationRequests} from "./comps/LeaveRequests/ResignationRequests";
-import { fetchPendingCounts } from "./api";
+import { fetchPendingCounts, fetchManagerScope } from "./api";
 
 export const Manager = () =>{
   const [activePanel, setActivePanel] = useState("leave");
@@ -23,6 +23,7 @@ export const Manager = () =>{
     claim: 0,
     resignation: 0,
   });
+  const [scopeInfo, setScopeInfo] = useState(null);
   const reloadCounts = async () => {
     try {
       const counts = await fetchPendingCounts();
@@ -43,6 +44,17 @@ export const Manager = () =>{
 
   useEffect(() => {
     reloadCounts();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const scope = await fetchManagerScope();
+        setScopeInfo(scope);
+      } catch (error) {
+        console.error("Manager scope load error:", error);
+      }
+    })();
   }, []);
 
   const [filters, setFilters] = useState({ circle: "All", type: "All" });
@@ -100,6 +112,11 @@ export const Manager = () =>{
       )}
       
       <div style={{ flex: "0 0 auto", marginBottom: '24px' }}>
+        {scopeInfo && (
+          <div style={{ marginBottom: 10, fontSize: "13px", color: "#475569" }}>
+            Scope: <strong>{scopeInfo.emp_type || "-"}</strong> | <strong>{scopeInfo.circle || "-"}</strong>
+          </div>
+        )}
         <StatsCards onSelect={handleCardSelect} counts={statsCounts} />
       </div>
 

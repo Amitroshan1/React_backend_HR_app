@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Receipt, Calendar, Plus, FileText, Trash2, CheckCircle } from 'lucide-react';
 import './Claims.css';
 
-const API_BASE_URL = "http://localhost:5000/api/leave";
+const API_BASE_URL = "/api/leave";
 
 export const Claims = () => {
   const [claims, setClaims] = useState([]); // Local list of expense items to be submitted

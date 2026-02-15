@@ -42,6 +42,11 @@
   gap: 18px;
 }
 
+.team-empty-msg {
+  font-size: 13px;
+  color: #64748b;
+}
+
 .member-row {
   display: grid;
   grid-template-columns: 40px 1fr 140px auto;

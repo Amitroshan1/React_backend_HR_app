@@ -19,7 +19,7 @@ import { ConfirmationRequest } from './ConfirmationRequest';
 import ExitEmployee from './ExitEmployee';
 import AddDeptCircle from './AddDeptCircle';
 
-const HR_API_BASE = 'http://localhost:5000/api/HumanResource';
+const HR_API_BASE = '/api/HumanResource';
 
 function formatDateShort(isoDate) {
   if (!isoDate) return '';
@@ -326,6 +326,8 @@ export const Hr = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [searchDownloading, setSearchDownloading] = useState(false);
+  const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
+  const [masterLoading, setMasterLoading] = useState(false);
 
   const [signupForm, setSignupForm] = useState({
     user_name: '',
@@ -568,6 +570,38 @@ export const Hr = () => {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      setMasterLoading(true);
+      try {
+        const res = await fetch(`${HR_API_BASE}/master/options`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && data.success) {
+          const departments = data.departments || [];
+          const circles = data.circles || [];
+          setMasterOptions({ departments, circles });
+          setSelectedEmployeeType((prev) => prev || departments[0] || '');
+          setSelectedCircle((prev) => prev || circles[0] || '');
+          setSignupForm((prev) => ({
+            ...prev,
+            emp_type: prev.emp_type || departments[0] || '',
+            circle: prev.circle || circles[0] || '',
+          }));
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (!cancelled) setMasterLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 // }
   
   
@@ -647,6 +681,8 @@ if (view === 'update_signup') {
       <UpdateSignUp
         onBack={() => setView('updates')}
         onOpenSignupForEmployee={openSignupForEdit}
+        empTypeOptions={masterOptions.departments}
+        circleOptions={masterOptions.circles}
       />
     );
   }
@@ -791,16 +827,18 @@ if (view === 'confirmation_request') {
                   <label>Employee Type <span style={{ color: '#b91c1c' }}>*</span></label>
                   <select name="emp_type" value={signupForm.emp_type} onChange={handleSignupChange}>
                     <option value="">Select Employee Type</option>
-                    <option value="Human Resource">Human Resource</option>
-                    <option value="Software Developer">Software Developer</option>
+                    {masterOptions.departments.map((item) => (
+                      <option key={item} value={item}>{item}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="form-group">
                   <label>Circle <span style={{ color: '#b91c1c' }}>*</span></label>
                   <select name="circle" value={signupForm.circle} onChange={handleSignupChange}>
                     <option value="">Choose Your Circle</option>
-                    <option value="NHQ">NHQ</option>
-                    <option value="Delhi">Delhi</option>
+                    {masterOptions.circles.map((item) => (
+                      <option key={item} value={item}>{item}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -952,21 +990,23 @@ if (view === 'confirmation_request') {
                 <label>Circle</label>
                 <select value={selectedCircle} onChange={(e) => setSelectedCircle(e.target.value)}>
                   <option value="">Choose Your Circle</option>
-                  <option value="NHQ">NHQ</option>
-                  <option value="Delhi">Delhi</option>
+                  {masterOptions.circles.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
                 </select>
               </div>
               <div className="input-group">
                 <label>Employee Type</label>
                 <select value={selectedEmployeeType} onChange={(e) => setSelectedEmployeeType(e.target.value)}>
                   <option value="">Select Employee Type</option>
-                  <option value="Human Resource">Human Resource</option>
-                  <option value="Software Developer">Software Developer</option>
+                  {masterOptions.departments.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
                 </select>
               </div>
               <div className="search-btn-wrapper">
-                <button className="btn-search" onClick={handleSearch} disabled={searchLoading}>
-                  <i className="search-icon"></i> {searchLoading ? 'Searching...' : 'Search'}
+                <button className="btn-search" onClick={handleSearch} disabled={searchLoading || masterLoading}>
+                  <i className="search-icon"></i> {searchLoading || masterLoading ? 'Searching...' : 'Search'}
                 </button>
               </div>
             </div>

@@ -24,6 +24,7 @@ export const UserProvider = ({ children }) => {
             if (response.status === 401) {
                 // Token missing/expired/invalid: clear it so app can re-login cleanly.
                 localStorage.removeItem('token');
+                localStorage.removeItem('lastActivityAt');
                 throw new Error("Unauthorized (token invalid or expired).");
             }
             if (!response.ok) throw new Error("Failed to fetch user data.");

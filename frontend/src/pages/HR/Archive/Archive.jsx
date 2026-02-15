@@ -1,12 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, Calendar, ArrowLeft, User, CreditCard, Briefcase, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import './Archive.css';
 
+const HR_API_BASE = '/api/HumanResource';
+
 const ArchiveEmployees = () => {
   const navigate = useNavigate();
   const [archivedEmployees, setArchivedEmployees] = useState([]);
-  const [filteredEmployees, setFilteredEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   
   // Filter states
   const [employeeType, setEmployeeType] = useState('');
@@ -30,8 +33,7 @@ const ArchiveEmployees = () => {
   const hoverCardRef = useRef(null);
   const hoverTimerRef = useRef(null);
   
-  const employeeTypes = ['Engineer', 'Accountant', 'HR', 'Manager'];
-  const circles = ['Mumbai', 'Delhi', 'Gurugram'];
+  const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
   
   // Check if email filter is active
   const isEmailFilterActive = email.trim() !== '';
@@ -39,45 +41,72 @@ const ArchiveEmployees = () => {
   // Check if employeeType or circle filter is active
   const isTypeOrCircleFilterActive = employeeType !== '' || circle !== '';
 
-  // Load archived employees from localStorage
-  useEffect(() => {
-    const loadArchivedEmployees = () => {
-      const archived = localStorage.getItem('archivedEmployees');
-      if (archived) {
-        try {
-          const parsed = JSON.parse(archived);
-          setArchivedEmployees(parsed);
-          setFilteredEmployees(parsed);
-        } catch (error) {
-          console.error('Error loading archived employees:', error);
-          localStorage.setItem('archivedEmployees', JSON.stringify([]));
-          setArchivedEmployees([]);
-          setFilteredEmployees([]);
-        }
-      } else {
-        localStorage.setItem('archivedEmployees', JSON.stringify([]));
-        setArchivedEmployees([]);
-        setFilteredEmployees([]);
-      }
-    };
-    
-    loadArchivedEmployees();
-    
-    window.addEventListener('storage', loadArchivedEmployees);
-    window.addEventListener('employeeArchived', loadArchivedEmployees);
-    
-    return () => {
-      window.removeEventListener('storage', loadArchivedEmployees);
-      window.removeEventListener('employeeArchived', loadArchivedEmployees);
-    };
+  const getAuthHeaders = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 
-  // Filter employees when filters change
-  useEffect(() => {
-    filterEmployees();
-  }, [employeeType, circle, email, archivedEmployees]);
+  const loadArchivedEmployees = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${HR_API_BASE}/employee-archive`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ? `${data.message || 'Failed to load archived employees'} (${data.error})` : (data.message || 'Failed to load archived employees'));
+        setArchivedEmployees([]);
+        return;
+      }
+      const mapped = (data.employees || []).map((emp) => ({
+        id: emp.admin_id,
+        employeeId: emp.emp_id || '-',
+        name: emp.name || '-',
+        circle: emp.circle || '',
+        employeeType: emp.emp_type || '',
+        email: emp.email || '',
+        exitDate: emp.exit_date || null,
+      }));
+      setArchivedEmployees(mapped);
+    } catch {
+      setError('Network error while loading archived employees');
+      setArchivedEmployees([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [getAuthHeaders]);
 
-  const filterEmployees = () => {
+  useEffect(() => {
+    loadArchivedEmployees();
+    window.addEventListener('employeeArchived', loadArchivedEmployees);
+    return () => {
+      window.removeEventListener('employeeArchived', loadArchivedEmployees);
+    };
+  }, [loadArchivedEmployees]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${HR_API_BASE}/master/options`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && data.success) {
+          setMasterOptions({
+            departments: data.departments || [],
+            circles: data.circles || [],
+          });
+        }
+      } catch {
+        // no-op
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [getAuthHeaders]);
+
+  const filteredEmployees = useMemo(() => {
     let filtered = [...archivedEmployees];
 
     if (email.trim()) {
@@ -94,8 +123,18 @@ const ArchiveEmployees = () => {
       filtered = filtered.filter(emp => emp.circle === circle);
     }
 
-    setFilteredEmployees(filtered);
-  };
+    return filtered;
+  }, [archivedEmployees, employeeType, circle, email]);
+
+  const employeeTypes = useMemo(() => {
+    if (masterOptions.departments.length) return masterOptions.departments;
+    return [...new Set(archivedEmployees.map((e) => e.employeeType).filter(Boolean))];
+  }, [masterOptions.departments, archivedEmployees]);
+
+  const circles = useMemo(() => {
+    if (masterOptions.circles.length) return masterOptions.circles;
+    return [...new Set(archivedEmployees.map((e) => e.circle).filter(Boolean))];
+  }, [masterOptions.circles, archivedEmployees]);
 
   // Handle mouse enter on employee field
   const handleMouseEnter = (employee, field, event) => {
@@ -199,6 +238,9 @@ const ArchiveEmployees = () => {
           <h1 className="page-title">Archive Employees</h1>
           <p className="page-subtitle">View exited employees archive</p>
         </div>
+        {error && (
+          <p style={{ color: '#b91c1c', marginBottom: '12px' }}>{error}</p>
+        )}
 
         {/* Filters */}
         <div className="filters-section">
@@ -376,7 +418,13 @@ const ArchiveEmployees = () => {
             </thead>
 
             <tbody>
-              {filteredEmployees.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan="5" className="no-data">
+                    Loading archived employees...
+                  </td>
+                </tr>
+              ) : filteredEmployees.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="no-data">
                     No archived employees found
