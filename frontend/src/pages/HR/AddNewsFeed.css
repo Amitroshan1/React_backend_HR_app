@@ -1,8 +1,10 @@
 .newsfeed-page-container {
-    /* background-color: #f8fafc; */
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     min-height: 100vh;
     font-family: 'Inter', sans-serif;
+    padding: 2rem 0
 }
+
 
 /* Header */
 .newsfeed-header {
@@ -11,9 +13,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid #d1d5db; /* Darker line */
+    
 }
-
 
 
 /* Form Content */
@@ -23,29 +25,40 @@
     padding: 0 1.5rem;
 }
 
-.btn-back-link {
+
+.btan-back-link {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    background: white;
-    border: 1px solid #e2e8f0;
+    background: #64748b;
+    border: 1px solid rgba(255, 255, 255, 0.4);
     padding: 0.5rem 1rem;
     border-radius: 6px;
-    /* margin-bottom: 1.5rem; */
     cursor: pointer;
     font-size: 0.9rem;
-    color: black !important;
+    color: #f8fafc !important; /* Softer white */
     margin-top: 5.5rem;
+    transition: all 0.3s ease;
 }
 
-/* Announcement Card (Matches image_443408.png) */
-.announcement-card {
-    background-color: #ffffff; /* Light blue background for the form area */
-    border-radius: 12px;
-    padding: 2.5rem;
-    border: 1px solid #bbdefb;
-    margin-top:2rem;
+
+.btn-back-link:hover {
+    background: rgba(255, 255, 255, 0.3);
+    color: #ffffff !important;
+    transform: translateX(-3px);
 }
+
+
+/* Announcement Card */
+.announcement-card {
+    background-color: #ffffff;
+    border-radius: 16px;
+    padding: 2.5rem;
+    border: 1px solid #c7d2fe; /* Purple tint border */
+    margin-top: 2rem;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
 
 .newsfeed-form {
     display: flex;
@@ -53,31 +66,56 @@
     gap: 1.2rem;
 }
 
+
 .form-item {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
 }
 
+
 .form-item label {
     font-size: 0.9rem;
     font-weight: 600;
-    color: #334155;
+    color: #1e293b; /* Stronger dark text */
 }
 
-.form-item input, 
-.form-item select, 
+
+.form-item input,
+.form-item select,
 .form-item textarea {
     padding: 0.8rem;
-    border: 1px solid #d3dde9;
+    border: 1px solid #cbd5e1; /* Cleaner border */
     border-radius: 8px;
-    background: #e5e9ee;
+    background: #f9fafb;
     font-size: 0.95rem;
     width: 100%;
+    color: #1f2937; /* Input text color */
+    transition: all 0.3s ease;
 }
 
-.form-item textarea { resize: vertical; }
 
+.form-item input::placeholder,
+.form-item textarea::placeholder {
+    color: #9ca3af;
+}
+
+
+.form-item input:focus,
+.form-item select:focus,
+.form-item textarea:focus {
+    border-color: #6366f1; /* More vibrant purple */
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.25);
+    outline: none;
+}
+
+
+.form-item textarea {
+    resize: vertical;
+}
+
+
+/* File Upload */
 .file-input-wrapper {
     background: white;
     border: 1px solid #cbd5e1;
@@ -85,9 +123,11 @@
     padding: 0.4rem;
 }
 
+
+/* Post Button */
 .btn-post {
-    background-color: #3b82f6;
-    color: white;
+    background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
+    color: #ffffff;
     border: none;
     padding: 0.75rem 2.5rem;
     border-radius: 8px;
@@ -95,15 +135,34 @@
     cursor: pointer;
     margin-top: 1rem;
     width: fit-content;
+    transition: all 0.3s ease;
 }
 
-.btn-post:hover { background-color: #2563eb; }
+
+.btn-post:hover {
+    background: linear-gradient(135deg, #4f46e5 0%, #6d28d9 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+}
+
 
 /* Mobile Responsive */
 @media (max-width: 600px) {
-    .newsfeed-header { padding: 1rem; flex-direction: column; gap: 1rem; }
-    .announcement-card { padding: 1.5rem; }
-    .header-search { width: 100%; }
+    .newsfeed-header {
+        padding: 1rem;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+
+    .announcement-card {
+        padding: 1.5rem;
+    }
+
+
+    .header-search {
+        width: 100%;
+    }
 }
 
 
@@ -112,7 +171,8 @@
     display: none;
 }
 
-/* Style the wrapper to look like a standard input field */
+
+/* File Upload Custom Styling */
 .file-input-wrapper {
     background: white;
     border: 1px solid #cbd5e1;
@@ -120,10 +180,10 @@
     display: flex;
     align-items: center;
     cursor: pointer;
-    overflow: hidden; /* Ensures the button edges stay clean */
+    overflow: hidden;
 }
 
-/* The custom label that acts as the trigger */
+
 .custom-file-upload {
     display: flex;
     align-items: center;
@@ -131,10 +191,10 @@
     cursor: pointer;
 }
 
-/* The "Choose File" button part inside the box */
+
 .choose-btn {
-    background-color: #f1f5f9; /* Light gray background */
-    color: #475569;
+    background: rgba(99,102,241,0.12);
+    color: #4338ca;
     padding: 0.6rem 1rem;
     border-right: 1px solid #cbd5e1;
     font-size: 0.85rem;
@@ -142,13 +202,14 @@
     transition: background 0.2s;
 }
 
+
 .choose-btn:hover {
-    background-color: #e2e8f0;
+    background: rgba(99,102,241,0.22);
 }
 
-/* The "No file chosen" text part */
+
 .file-name {
     padding-left: 1rem;
     font-size: 0.9rem;
-    color: #94a3b8;
+    color: #64748b;
 }

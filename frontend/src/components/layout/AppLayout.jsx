@@ -29,7 +29,7 @@ export const AppLayout = () => {
         empType: empType
     });
     return (
-        <div>
+        <div className="main-layout">
             {/* The Header now gets the username from the centralized context */}
             <Headers username={username} role={empType} /> 
             

@@ -1,5 +1,5 @@
 .assets-page-wrapper {
-    background-color: #e3f2fd; /* Light blue background */
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     min-height: 100vh;
     display: flex;
     justify-content: center;
@@ -20,15 +20,21 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    background: white;
-    color: #1976d2;
-    border: none;
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
     padding: 10px 15px;
     border-radius: 8px 8px 0 0;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+}
+
+.btn-back-link:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateX(-3px);
 }
 
 .assets-card {
@@ -36,7 +42,7 @@
     width: 100%;
     border-radius: 0 12px 12px 12px;
     padding: 40px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
 }
 
 .assets-card-header {
@@ -48,24 +54,25 @@
 
 .assets-card-header h2 {
     font-size: 22px;
-    color: #1e293b;
+    color: #111827;
     margin: 0;
 }
 
 .header-search-icon {
-    color: #1976d2;
+    color: #667eea;
 }
 
-.search-section h3, .employee-details-section h3 {
+.search-section h3, 
+.employee-details-section h3 {
     font-size: 18px;
-    color: #334155;
+    color: #1e293b;
     margin-bottom: 20px;
 }
 
 .search-section label {
     display: block;
     font-size: 14px;
-    color: #64748b;
+    color: #374151;
     margin-bottom: 8px;
 }
 
@@ -78,24 +85,36 @@
 .search-input-group input {
     flex: 1;
     padding: 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #d1d5db;
     border-radius: 6px 0 0 6px;
     outline: none;
+    color: #1f2937;
+}
+
+.search-input-group input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102,126,234,0.2);
 }
 
 .btn-search-blue {
-    background-color: #1976d2;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border: none;
     padding: 0 25px;
     border-radius: 0 6px 6px 0;
     cursor: pointer;
     font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn-search-blue:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.12);
 }
 
 .sub-label {
     font-size: 13px;
-    color: #94a3b8;
+    color: #6b7280;
     margin-top: 5px;
     margin-bottom: 30px;
 }
@@ -105,24 +124,24 @@
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 30px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #d1d5db;
     border-radius: 8px;
     overflow: hidden;
 }
 
 .label-cell {
-    background-color: #1976d2;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     padding: 12px 20px;
     width: 35%;
     font-weight: 500;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid rgba(255,255,255,0.15);
 }
 
 .value-cell {
     padding: 12px 20px;
-    color: #334155;
-    border-bottom: 1px solid #f1f5f9;
+    color: #374151;
+    border-bottom: 1px solid #e5e7eb;
 }
 
 .last-cell {
@@ -135,16 +154,17 @@
 }
 
 .btn-add-asset {
-    background-color: #1976d2;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border: none;
     padding: 12px 40px;
     border-radius: 6px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.3s ease;
 }
 
 .btn-add-asset:hover {
-    background-color: #1565c0;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
 }

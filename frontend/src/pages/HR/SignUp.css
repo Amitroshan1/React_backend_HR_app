@@ -1,6 +1,6 @@
 /* Container & Layout */
 .signup-page-container {
-  /* background-color: #f8fafc; */
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   min-height: 100vh;
   width: 100%;
   font-family: 'Inter', sans-serif;
@@ -13,7 +13,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #d1d5db;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -22,13 +22,13 @@
 .header-left h1 {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #1e293b;
+  color: #111827;
   margin: 0;
 }
 
 .header-left p {
   font-size: 0.875rem;
-  color: #64748b;
+  color: #6b7280;
   margin: 0;
 }
 
@@ -38,18 +38,20 @@
   gap: 1.5rem;
 }
 
+/* Search Bar */
 .search-bar-container {
   display: flex;
   align-items: center;
-  background: #f1f5f9;
+  background: #f9fafb;
   padding: 0.5rem 1rem;
   border-radius: 8px;
-  border: 1px solid transparent;
+  border: 1px solid #d1d5db;
 }
 
 .search-bar-container:focus-within {
-  border-color: #3b82f6;
+  border-color: #667eea;
   background: white;
+  box-shadow: 0 0 0 2px rgba(102,126,234,0.2);
 }
 
 .search-bar-container input {
@@ -58,6 +60,7 @@
   outline: none;
   margin-left: 0.5rem;
   width: 150px;
+  color: #1f2937;
 }
 
 /* Content Area */
@@ -71,26 +74,27 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: white;
-  border: 1px solid #e2e8f0;
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.35);
   padding: 0.6rem 1.2rem;
   border-radius: 6px;
   cursor: pointer;
   margin-bottom: 1.5rem;
-  transition: all 0.2s;
-  color: #475569;
-  margin-top: 6rem;
+  transition: all 0.3s ease;
+  color: #ffffff;
+  margin-top: 2rem;
 }
 
 .btn-back-updates:hover {
-  background: #f1f5f9;
+  background: rgba(255,255,255,0.3);
+  transform: translateX(-2px);
 }
 
 /* Card Styling */
 .signup-card {
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
   padding: 2.5rem;
 }
 
@@ -100,11 +104,11 @@
 
 .card-header h2 {
   font-size: 1.25rem;
-  color: #1e293b;
+  color: #111827;
   margin-bottom: 0.5rem;
 }
 
-/* Form Grid - Production Responsive Logic */
+/* Form Grid */
 .signup-form {
   display: flex;
   flex-direction: column;
@@ -113,7 +117,7 @@
 
 .form-row {
   display: grid;
-  grid-template-columns: repeat(2, 1fr); /* 2 columns for Desktop */
+  grid-template-columns: repeat(2, 1fr);
   gap: 1.5rem;
 }
 
@@ -126,23 +130,27 @@
 .form-group label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #475569;
+  color: #374151;
 }
 
 .form-group input, 
 .form-group select {
   padding: 0.75rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #d1d5db;
   border-radius: 8px;
   font-size: 0.95rem;
   width: 100%;
-  box-sizing: border-box; /* Crucial for padding */
+  box-sizing: border-box;
+  background: #f9fafb;
+  color: #1f2937;
+  transition: all 0.3s ease;
 }
 
-.form-group input:focus {
-  border-color: #3b82f6;
+.form-group input:focus,
+.form-group select:focus {
+  border-color: #667eea;
   outline: none;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 3px rgba(102,126,234,0.2);
 }
 
 /* Submit Action */
@@ -153,33 +161,34 @@
 }
 
 .btn-create-account {
-  background-color: #2563eb;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
   padding: 0.8rem 2rem;
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.3s ease;
   width: auto;
 }
 
 .btn-create-account:hover {
-  background-color: #1d4ed8;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
 }
 
 /* ---------------------------------------------------
-   MEDIA QUERIES FOR FULL RESPONSIVENESS
+   MEDIA QUERIES
 --------------------------------------------------- */
 
-/* Tablet View (up to 768px) */
+/* Tablet */
 @media (max-width: 768px) {
   .signup-header {
     padding: 1rem;
   }
   
   .search-bar-container {
-    display: none; /* Hide search on mobile header to save space */
+    display: none;
   }
 
   .signup-card {
@@ -187,10 +196,10 @@
   }
 }
 
-/* Mobile Phone View (up to 600px) */
+/* Mobile */
 @media (max-width: 600px) {
   .form-row {
-    grid-template-columns: 1fr; /* Force 1 column on Mobile */
+    grid-template-columns: 1fr;
     gap: 1rem;
   }
 
@@ -203,7 +212,7 @@
   }
 
   .btn-create-account {
-    width: 100%; /* Full width button on Mobile */
+    width: 100%;
   }
 
   .card-header h2 {
@@ -211,9 +220,9 @@
   }
 }
 
-/* Extra Small Screens */
+/* Extra Small */
 @media (max-width: 380px) {
   .header-icons .user-info {
-    display: none; /* Hide names on very small screens */
+    display: none;
   }
 }

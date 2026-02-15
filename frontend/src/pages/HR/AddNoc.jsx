@@ -20,7 +20,7 @@ export const AddNoc = ({ onBack }) => {
     <div className="noc-info-wrapper">
       <div className="noc-info-container">
         {/* Top Navigation Tab */}
-        <button className="btn-back-tab" onClick={onBack}>
+        <button className="btan-back-tab" onClick={onBack}>
           <ArrowLeft size={16} /> Back to Updates
         </button>
 

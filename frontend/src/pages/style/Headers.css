@@ -268,10 +268,7 @@
     color: var(--primary-blue);
 }
 
-/* Panel link styling - matches Profile item styling */
-.panel-link {
-    /* Same styling as regular dropdown-item */
-}
+
 
 .logout-btn {
     color: var(--danger);

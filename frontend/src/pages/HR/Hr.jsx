@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, Building, 
@@ -14,8 +14,10 @@ import { UpdateManager } from './UpdateManager';
 import { AddAssets } from './AddAssets';
 import { AddLocation } from './AddLocation';
 import { AddNoc } from './AddNoc';
-import { ConfirmationRequest } from './ConfirmationRequest';
-
+import { ConfirmationRequest } from './ConfirmationRequest'; 
+// New import for Exit Employee
+import ExitEmployee from './ExitEmployee';
+import AddDeptCircle from './AddDeptCircle';
 const HR_API_BASE = 'http://localhost:5000/api/HumanResource';
 
 function formatDateShort(isoDate) {
@@ -25,8 +27,12 @@ function formatDateShort(isoDate) {
   return `${months[d.getMonth()]} ${d.getDate()}`;
 }
 
+
+
+
 export const Hr = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [view, setView] = useState('main');
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -137,6 +143,8 @@ export const Hr = () => {
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'Add NOC', icon: FileCheck, description: 'No Objection Certificate' },
     { title: 'Confirmation Request', icon: FileText, description: 'Employee confirmations' },
+    { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
+    { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
   ];
 
   const handleSearch = async () => {
@@ -209,6 +217,22 @@ export const Hr = () => {
     })();
     return () => { cancelled = true; };
   }, []);
+// }
+  
+  
+     //Added by me 
+    // If navigated here with a `view` in location.state, switch to it (e.g. 'updates')
+    useEffect(() => {
+      if (location && location.state && location.state.view) {
+        setView(location.state.view);
+      }
+    }, [location]);
+
+  // const searchResults = [
+  //   { name: 'Amit', email: 'akumar4@saffotech.com', circle: selectedCircle, type: selectedEmployeeType },
+  //   { name: 'Neha', email: 'nphatak@saffotech.com', circle: selectedCircle, type: selectedEmployeeType },
+  //   { name: 'Plasha', email: 'ppal@saffotech.com', circle: selectedCircle, type: selectedEmployeeType },
+  // ];
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -254,6 +278,12 @@ export const Hr = () => {
   } else if (title === 'Confirmation Request') {
     setView('confirmation_request');
   }
+  else if (title === 'Exit Employee') { //New Condition For Exit Employee
+  setView('exit_employee');
+}
+else if (title === 'Add Department And Circle') {
+  setView('add_dept_circle');
+}
     else {
       console.log(`Navigating to ${title}`);
     }
@@ -279,6 +309,28 @@ if (view === 'add_assets') {
 
 if (view === 'add_location') {
   return <AddLocation onBack={() => setView('updates')} />;
+}
+if (view === 'exit_employee') {  //new condition for exit employee 
+  return <ExitEmployee onBack={() => setView('updates')} />;
+}
+
+if (view === 'add_dept_circle') { //new condition for add department and cir.
+  return <AddDeptCircle onBack={() => setView('updates')} />;
+}
+
+// Simple placeholder view for Add Circle & Employee Type card
+if (view === 'add_circle_type') {
+  return (
+    <div className="add-circle-placeholder">
+      <button className="btn-back-updates" onClick={() => setView('updates')}>
+        <ArrowLeft size={16} /> Back to Updates
+      </button>
+      <div style={{padding:20}}>
+        <h2>Add Circle & Employee Type</h2>
+        <p>This view is a placeholder. Implement the add forms here when ready.</p>
+      </div>
+    </div>
+  );
 }
 if (view === 'add_noc') {
 return <AddNoc onBack={() => setView('updates')} />;
@@ -306,7 +358,7 @@ if (view === 'confirmation_request') {
               <div className="signup-success-msg" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
                 Employee onboarded successfully. You can create another or go back.
               </div>
-            )}
+            )} 
             {signupError && (
               <div className="signup-error-msg" style={{ padding: '12px', marginBottom: '16px', background: '#fef2f2', color: '#b91c1c', borderRadius: '8px' }}>
                 {signupError}
@@ -389,6 +441,7 @@ if (view === 'confirmation_request') {
   }
 
   // VIEW 2: UPDATES GRID
+
   if (view === 'updates') {
     return (
       <div className="hr-main-container">
@@ -584,94 +637,4 @@ if (view === 'confirmation_request') {
         )}
       </div>
     </div>
-  );
-}
-
-
-
-
-
-
-      {/* <div className="hr-search-card">
-        {!showSearchResults ? (
-          <>
-            <h3>Search Employees</h3>
-            <div className="search-controls">
-              <div className="input-group">
-                <label>Circle</label>
-                <select value={selectedCircle} onChange={(e) => setSelectedCircle(e.target.value)}>
-                  <option value="">Choose Your Circle</option>
-                  <option value="NHQ">NHQ</option>
-                  <option value="Delhi">Delhi</option>
-                </select>
-              </div>
-              <div className="input-group">
-                <label>Employee Type</label>
-                <select value={selectedEmployeeType} onChange={(e) => setSelectedEmployeeType(e.target.value)}>
-                  <option value="">Select Employee Type</option>
-                  <option value="Human Resource">Human Resource</option>
-                  <option value="Software Developer">Software Developer</option>
-                </select>
-              </div>
-              <button className="btn-search" onClick={handleSearch}>
-                <Search size={18} /> Search
-              </button>
-            </div>
-          </>
-        ) : (
-          <div className="results-container">
-            <div className="results-header">
-              <h3>Circle: {selectedCircle} | Type: {selectedEmployeeType}</h3>
-            </div>
-            <div className="table-responsive">
-              <table className="results-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Circle</th>
-                    <th>Type</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchResults.map((emp, i) => (
-                    <tr key={i}>
-                      <td>{emp.name}</td>
-                      <td>{emp.email}</td>
-                      <td>{emp.circle}</td>
-                      <td>{emp.type}</td>
-                      <td>
-                        <div className="dropdown-container" ref={dropdownRef}>
-                          <button className="btn-update-toggle" onClick={() => toggleDropdown(i)}>
-                            Update <ChevronDown size={14} className={openDropdownId === i ? 'rotate-180' : ''} />
-                          </button>
-                          {openDropdownId === i && (
-                            <div className="dropdown-menu-list">
-                              {employeeDetailsOptions.map((option) => (
-                                <div key={option} className="dropdown-item" onClick={() => handleOptionClick(option, emp.name)}>
-                                  {option}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="results-actions">
-              <button className="btn-outline" onClick={() => setShowSearchResults(false)}>Back to Search</button>
-              <button className="btn-success"><Download size={16}/> Download Attendance</button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-} */}
-
-
-
+    )};

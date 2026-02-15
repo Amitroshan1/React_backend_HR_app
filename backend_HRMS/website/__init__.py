@@ -39,7 +39,7 @@ def create_app():
 
     app.config["BASE_URL"] = os.getenv(
         "BASE_URL",
-        "http://127.0.0.1:5000"
+        "http://localhost:5173"
     )
 
     app.config["ZEPTO_API_KEY"] = os.getenv("ZEPTO_API_KEY")
@@ -97,7 +97,7 @@ def create_app():
     from .models.education import Education, UploadDoc
     from .models.family_models import FamilyDetails
     from .models.prev_com import PreviousCompany
-
+    from .models.manager_model import ManagerContact
     # ---------------------------
     # Flask-Login user loader
     # ---------------------------

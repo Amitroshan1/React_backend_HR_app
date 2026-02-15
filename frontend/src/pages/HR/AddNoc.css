@@ -1,5 +1,5 @@
-.noc-info-wrapper {
-    background-color: #d1e9ff; /* Specific light blue background */
+/* .noc-info-wrapper {
+    background-color: #d1e9ff; Specific light blue background
     min-height: 100vh;
     display: flex;
     justify-content: center;
@@ -73,7 +73,7 @@
     cursor: pointer;
 }
 
-/* Table Design */
+Table Design
 .table-responsive-container {
     overflow-x: auto;
 }
@@ -84,7 +84,7 @@
 }
 
 .noc-dynamic-table th {
-    background-color: #1976d2; /* Vibrant blue header */
+    background-color: #1976d2; Vibrant blue header
     color: white;
     text-align: left;
     padding: 12px 15px;
@@ -131,7 +131,172 @@
 }
 
 .btn-status-uploaded {
-    background-color: #10b981; /* Green status */
+    background-color: #10b981; Green status
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+Responsive Breakpoints
+@media (max-width: 600px) {
+    .noc-info-card { padding: 15px; }
+    .noc-info-header h2 { font-size: 16px; }
+    .table-input { max-width: 80px; }
+} */ 
+
+
+.noc-info-wrapper {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Inter', sans-serif;
+    padding: 20px;
+}
+
+.noc-info-container {
+    width: 100%;
+    max-width: 850px;
+    display: flex;
+    flex-direction: column;
+}
+
+.btan-back-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #334155;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 12px 20px;
+    border-radius: 10px 10px 0 0;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    width: fit-content;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+}
+
+.noc-info-card {
+    background: white;
+    width: 100%;
+    border-radius: 0 15px 15px 15px;
+    padding: 30px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+
+.noc-info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+}
+
+.noc-info-header h2 {
+    font-size: 20px;
+    color: #111827;
+    letter-spacing: 0.5px;
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header-icon { 
+    color: #667eea; 
+    cursor: pointer; 
+}
+
+.upload-circle {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+}
+
+/* Table Design */
+
+.table-responsive-container {
+    overflow-x: auto;
+}
+
+.noc-dynamic-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.noc-dynamic-table th {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    text-align: left;
+    padding: 12px 15px;
+    font-weight: 500;
+    border-right: 1px solid rgba(255,255,255,0.2);
+}
+
+.noc-dynamic-table th:last-child { 
+    border-right: none; 
+}
+
+.noc-dynamic-table td {
+    padding: 10px 15px;
+    border-bottom: 1px solid #e5e7eb;
+    color: #374151;
+    font-size: 14px;
+}
+
+.name-col { font-weight: 500; }
+
+.row-number { 
+    color: #9ca3af; 
+    margin-right: 10px; 
+    font-weight: 400; 
+}
+
+.table-input {
+    width: 100%;
+    max-width: 120px;
+    padding: 6px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    outline: none;
+}
+
+.table-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102,126,234,0.2);
+}
+
+.btn-choose-file {
+    background-color: rgba(102,126,234,0.1);
+    color: #4f46e5;
+    border: 1px solid rgba(102,126,234,0.3);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.btn-action-upload {
+    background: transparent;
+    border: none;
+    color: #667eea;
+    cursor: pointer;
+}
+
+.btn-status-uploaded {
+    background-color: #10b981;
     color: white;
     border: none;
     padding: 4px 12px;

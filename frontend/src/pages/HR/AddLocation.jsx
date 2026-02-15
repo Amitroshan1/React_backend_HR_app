@@ -98,7 +98,7 @@ export const AddLocation = ({ onBack }) => {
     <div className="location-page-wrapper">
       <div className="location-container">
         {/* Navigation Tab */}
-        <button className="btn-back-tab" onClick={onBack}>
+        <button className="btan-back-tab" onClick={onBack}>
           <ArrowLeft size={16} /> Back to Updates
         </button>
 

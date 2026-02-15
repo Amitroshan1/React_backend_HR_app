@@ -1,4 +1,10 @@
-/* Reset */
+/* Reset & CSS Variables */
+/* :root {
+  --primary: #2563eb;
+  --secondary: #3b82f6;
+  --accent: #10b981;
+} */
+
 * {
   margin: 0;
   padding: 0;

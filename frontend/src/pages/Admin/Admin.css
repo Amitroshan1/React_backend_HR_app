@@ -1,0 +1,231 @@
+/* ===============================
+   Admin Dashboard Styles
+================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+}
+
+body {
+  background: #f5f7fa;
+}
+
+/* ===============================
+   Main Container
+================================ */
+
+.admin-container {
+  padding: 20px 40px;     /* Left Right Gap */
+  max-width: 1200px;      /* Center Width */
+  margin: 0 auto;
+  background: #f5f7fa;
+  min-height: 100vh;
+}
+
+/* ===============================
+   Header
+================================ */
+
+.admin-header {
+  margin-bottom: 20px;
+}
+
+.admin-header h1 {
+  font-size: 26px;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+/* ===============================
+   Filters Section
+================================ */
+
+.filters-section {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+
+  background: #ffffff;
+  padding: 18px 25px;
+  border-radius: 12px;
+
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  margin-bottom: 25px;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #34495e;
+}
+
+.filter-selectt {
+  padding: 7px 12px;
+  border: 1.5px solid #dfe6ee;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  cursor: pointer;
+  min-width: 400px;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+/* ===============================
+   Cards Grid
+================================ */
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); /* Always 3 */
+  gap: 20px;
+}
+
+/* ===============================
+   Stat Card
+================================ */
+
+.stat-card {
+  background: #ffffff;
+
+  padding: 15px;
+  min-height: 140px;
+
+  border-radius: 12px;
+
+  box-shadow: 0 3px 8px rgba(0,0,0,0.08);
+
+  transition: 0.25s;
+  cursor: pointer;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  text-align: center;
+}
+
+.claims-card {
+    border-left: 4px solid #1abc9c;
+    height: fit-content;
+    margin-top: auto;
+} 
+
+.resignation-card {
+    border-left: 4px solid #e74c3c;
+    height: fit-content;
+}
+
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.12);
+}
+
+/* ===============================
+   Card Icon
+================================ */
+
+.card-icon {
+  font-size: 26px;
+
+  width: 45px;
+  height: 45px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 10px;
+
+  background: #f1f3f6;
+  color: #34495e;
+}
+
+/* ===============================
+   Card Text
+================================ */
+
+.card-content h3 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #7f8c8d;
+}
+
+.card-number {
+  font-size: 22px;
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+/* ===============================
+   Card Colors
+================================ */
+
+.employees-card {
+  border-left: 4px solid #3498db;
+}
+
+.leaves-card {
+  border-left: 4px solid #9b59b6;
+}
+
+.queries-card {
+  border-left: 4px solid #f39c12;
+}
+
+.claims-card {
+  border-left: 4px solid #1abc9c;
+}
+
+.resignation-card {
+  border-left: 4px solid #e74c3c;
+}
+
+/* ===============================
+   Responsive Design
+================================ */
+
+@media (max-width: 900px) {
+  .cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .admin-container {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 600px) {
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filters-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .filter-select {
+    width: 100%;
+  }
+}

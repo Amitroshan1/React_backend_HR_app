@@ -56,6 +56,7 @@
 
 
 import { useState } from "react";
+import { Link } from 'react-router-dom';
 import "../styles/Header.css";
 
 export const Header = () => {
@@ -63,14 +64,14 @@ export const Header = () => {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const LinkItem = ({ name, href }) => (
-    <a
-      href={href}
+    <Link
+      to={href}
       className="nav-link"
       onMouseEnter={() => setHoveredLink(name)}
       onMouseLeave={() => setHoveredLink(null)}
     >
       {name}
-    </a>
+    </Link>
   );
 
   const toggleMenu = () => {
@@ -80,9 +81,9 @@ export const Header = () => {
   return (
     <header className="header-container">
       {/* Logo */}
-      <a href="/" className="logo">
+      <Link to="/" className="logo">
         <img src="/images/saffo.jpeg" alt="Company Logo" className="logo-img" />
-      </a>
+      </Link>
 
       {/* Desktop Menu */}
       <nav className="nav-menu">

@@ -8,7 +8,7 @@ export const AddNewsFeed = ({ onBack }) => {
 
       {/* Content Area */}
       <div className="newsfeed-content">
-        <button className="btn-back-link" onClick={onBack}>
+        <button className="btan-back-link" onClick={onBack}>
           <ArrowLeft size={16} /> Back to Updates
         </button>
 
