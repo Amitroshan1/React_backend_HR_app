@@ -95,12 +95,7 @@ export const AddNoc = ({ onBack }) => {
   return (
     <div className="noc-info-wrapper">
       <div className="noc-info-container">
-<<<<<<< HEAD
-        {/* Top Navigation Tab */}
-        <button className="btan-back-tab" onClick={onBack}>
-=======
         <button className="btn-back-tab" onClick={onBack}>
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
           <ArrowLeft size={16} /> Back to Updates
         </button>
 

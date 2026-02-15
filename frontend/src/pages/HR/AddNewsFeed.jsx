@@ -81,11 +81,7 @@ export const AddNewsFeed = ({ onBack }) => {
   return (
     <div className="newsfeed-page-container">
       <div className="newsfeed-content">
-<<<<<<< HEAD
-        <button className="btan-back-link" onClick={onBack}>
-=======
         <button type="button" className="btn-back-link" onClick={onBack}>
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
           <ArrowLeft size={16} /> Back to Updates
         </button>
 

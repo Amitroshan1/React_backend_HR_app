@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -14,17 +15,11 @@ import { UpdateManager } from './UpdateManager';
 import { AddAssets } from './AddAssets';
 import { AddLocation } from './AddLocation';
 import { AddNoc } from './AddNoc';
-<<<<<<< HEAD
 import { ConfirmationRequest } from './ConfirmationRequest'; 
-// New import for Exit Employee
 import ExitEmployee from './ExitEmployee';
 import AddDeptCircle from './AddDeptCircle';
-const HR_API_BASE = 'http://localhost:5000/api/HumanResource';
-=======
-import { ConfirmationRequest } from './ConfirmationRequest';
 
-const HR_API_BASE = '/api/HumanResource';
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
+const HR_API_BASE = 'http://localhost:5000/api/HumanResource';
 
 function formatDateShort(isoDate) {
   if (!isoDate) return '';
@@ -33,10 +28,6 @@ function formatDateShort(isoDate) {
   return `${months[d.getMonth()]} ${d.getDate()}`;
 }
 
-<<<<<<< HEAD
-
-
-=======
 function getAuthHeaders() {
   const token = localStorage.getItem('token');
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -310,7 +301,6 @@ function HrPunchFormView({ employee, onBack }) {
     </div>
   );
 }
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 
 export const Hr = () => {
   const navigate = useNavigate();
@@ -1039,3 +1029,4 @@ if (view === 'confirmation_request') {
       </div>
     </div>
     )};
+
