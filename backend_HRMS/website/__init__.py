@@ -160,7 +160,9 @@ def create_app():
     from .Human_resource import hr
     from .query import query
     from .Accounts import Accounts
-    from .Manager import manager
+    # from .Manager import manager
+    from .manager import manager
+
     from .notifications import notifications
 
     app.register_blueprint(auth, url_prefix="/api/auth")

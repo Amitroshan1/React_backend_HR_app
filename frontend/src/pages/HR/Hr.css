@@ -217,7 +217,7 @@
 .results-table td { padding: 12px; border-bottom: 1px solid #e2e8f0; background: white; font-size: 14px; }
 .btn-update { border: 1px solid #3b82f6; color: #3b82f6; background: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
 
-.results-actions { margin-top: 20px; display: flex; gap: 15px; justify-content: center; }
+.results-actions { margin-top: 20px; display: flex; gap: 15px; justify-content: center; position: relative; z-index: 10; }
 .btn-outline { border: 1px solid #06b6d4; color: #0891b2; background: transparent; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
 .btn-success { background: #c57e22; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
 

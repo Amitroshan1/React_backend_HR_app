@@ -512,6 +512,11 @@ export const Hr = () => {
     }
   };
 
+  const handleBackToSearch = () => {
+    setShowSearchResults(false);
+    setOpenDropdownId(null);
+  };
+
   const handleDownloadAllFromSearch = async () => {
     if (!selectedCircle || !selectedEmployeeType) {
       alert('Please search by Circle and Employee Type first.');
@@ -523,7 +528,10 @@ export const Hr = () => {
         `${HR_API_BASE}/download-excel?circle=${encodeURIComponent(selectedCircle)}&emp_type=${encodeURIComponent(selectedEmployeeType)}&month=${searchDownloadMonth}`,
         { headers: getAuthHeaders() }
       );
-      if (!res.ok) throw new Error('Download failed');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Download failed');
+      }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -621,6 +629,9 @@ export const Hr = () => {
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      // Don't close dropdown when clicking the results action buttons (Back to Search, Download, month input)
+      // so their click handlers can run without being interrupted by a re-render.
+      if (event.target.closest?.('.results-actions')) return;
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setOpenDropdownId(null);
       }
@@ -1058,9 +1069,9 @@ if (view === 'confirmation_request') {
               </div>
             </div>
             <div className="results-actions">
-              <button type="button" className="btn-outline" onClick={(e) => { e.preventDefault(); setShowSearchResults(false); }}>Back to Search</button>
+              <button type="button" className="btn-outline" onClick={(e) => { e.stopPropagation(); handleBackToSearch(); }}>Back to Search</button>
               <input type="month" value={searchDownloadMonth} onChange={(e) => setSearchDownloadMonth(e.target.value)} style={{ marginRight: 8 }} />
-              <button type="button" className="btn-success" onClick={(e) => { e.preventDefault(); handleDownloadAllFromSearch(); }} disabled={searchDownloading}>
+              <button type="button" className="btn-success" onClick={(e) => { e.stopPropagation(); handleDownloadAllFromSearch(); }} disabled={searchDownloading}>
                 <Download size={16}/> {searchDownloading ? 'Downloading...' : 'Download Attendance'}
               </button>
             </div>
@@ -1068,5 +1079,6 @@ if (view === 'confirmation_request') {
         )}
       </div>
     </div>
-    )};
+  );
+}
 

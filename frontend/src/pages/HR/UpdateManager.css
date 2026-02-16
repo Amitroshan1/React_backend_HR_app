@@ -1,52 +1,5 @@
 /* ========== Search view ========== */
 .manager-search-overlay {
-<<<<<<< HEAD
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-family: 'Inter', sans-serif;
-}
-
-.search-manager-card {
-    background: white;
-    padding: 2.5rem;
-    border-radius: 16px;
-    width: 420px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-    position: relative;
-}
-
-.search-manager-card h2 {
-    text-align: center;
-    font-size: 1.5rem;
-    color: #111827;
-    margin-bottom: 2rem;
-}
-
-.search-field-box { 
-    margin-bottom: 1.2rem; 
-}
-
-.search-field-box label { 
-    display: block; 
-    margin-bottom: 6px; 
-    font-weight: 500; 
-    font-size: 0.9rem; 
-    color: #374151; 
-}
-
-.search-field-box select, 
-.search-field-box input {
-    width: 100%;
-    padding: 0.75rem;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    background-color: #f9fafb;
-    color: #1f2937;
-    transition: all 0.3s ease;
-=======
   background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
   min-height: 100vh;
   display: flex;
@@ -118,65 +71,10 @@
   border-radius: 8px;
   background: #fdfdfd;
   font-size: 0.95rem;
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 }
 
 .search-field-box select:focus,
 .search-field-box input:focus {
-<<<<<<< HEAD
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102,126,234,0.2);
-    outline: none;
-}
-
-.btn-execute-search {
-    width: 100%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 0.8rem;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-    margin-top: 1rem;
-    transition: all 0.3s ease;
-}
-
-.btn-execute-search:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-}
-
-
-/* Details Form View */
-.manager-page-container {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
-}
-
-.manager-nav { 
-    padding: 1rem 2rem; 
-    border-bottom: 1px solid #d1d5db; 
-    background: white; 
-}
-
-.btn-back-square { 
-    display: flex; 
-    align-items: center; 
-    gap: 8px; 
-    border: 1px solid #d1d5db; 
-    background: rgba(102,126,234,0.08); 
-    color: #4f46e5;
-    padding: 6px 12px; 
-    border-radius: 4px; 
-    cursor: pointer; 
-    transition: all 0.3s ease;
-}
-
-.btn-back-square:hover {
-    background: rgba(102,126,234,0.15);
-    transform: translateX(-2px);
-=======
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -281,7 +179,6 @@
   border-bottom: 1px solid #e2e8f0;
   background: white;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 }
 
 .btn-back-square {
@@ -305,82 +202,6 @@
 
 /* Center the form on the page */
 .manager-form-wrapper {
-<<<<<<< HEAD
-    display: flex;
-    justify-content: flex-end;
-    padding: 2rem;
-}
-
-.details-sidebar-card {
-    background: #ffffff;
-    width: 450px;
-    padding: 2rem;
-    border-radius: 16px;
-    border: 1px solid #e5e7eb;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-}
-
-.section-divider {
-    font-size: 0.8rem;
-    font-weight: 700;
-    margin: 1.5rem 0 0.8rem 0;
-    color: #6b7280;
-}
-
-.section-divider.highlight-blue { 
-    color: #667eea; 
-}
-
-.form-item-group { 
-    margin-bottom: 1rem; 
-}
-
-.form-item-group label { 
-    font-size: 0.75rem; 
-    font-weight: 600; 
-    color: #1e293b; 
-    margin-bottom: 4px; 
-    display: block; 
-}
-
-.form-item-group input, 
-.form-item-group select {
-    width: 100%;
-    padding: 0.6rem;
-    border-radius: 6px;
-    border: 1px solid #d1d5db;
-    background: #f9fafb;
-    font-size: 0.85rem;
-    color: #1f2937;
-    transition: all 0.3s ease;
-}
-
-.form-item-group input:focus,
-.form-item-group select:focus {
-    border-color: #667eea;
-    box-shadow: 0 0 0 2px rgba(102,126,234,0.2);
-    outline: none;
-}
-
-.btn-manager-submit {
-    width: 100%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 0.75rem;
-    border-radius: 8px;
-    font-weight: 600;
-    margin-top: 1.5rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.btn-manager-submit:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-=======
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -482,7 +303,8 @@
   font-size: 0.9rem;
 }
 
-.form-item-group input:focus {
+.form-item-group input:focus,
+.form-item-group select:focus {
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
@@ -508,5 +330,4 @@
 .btn-manager-submit:disabled {
   opacity: 0.7;
   cursor: not-allowed;
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
 }
