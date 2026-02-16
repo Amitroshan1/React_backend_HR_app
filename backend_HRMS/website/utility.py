@@ -313,7 +313,7 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             emp_name = emp_names.get(admin.email, admin.first_name)
             worksheet.write(row, 4, emp_name)
 
-            admin_punches = punch_map.get(admin.id, {})
+            # Punch rows
             in_times = []
             out_times = []
             totals = []

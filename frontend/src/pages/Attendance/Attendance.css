@@ -257,10 +257,6 @@
     flex-shrink: 0;
     /* background-color: white; */
 }
-.status-pending {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-}
 .key-item::before {
     content: '';
     width: 8px;
@@ -272,11 +268,13 @@
 /* Status Key Colors */
 .key-item.status-present::before { background-color: #4CAF50; }
 .key-item.status-absent::before { background-color: #F44336; }
+.key-item.status-on-leave::before { background-color: #E11D48; }
 .key-item.status-half-day::before { background-color: #FFC107; }
-.key-item.status-pending::before { background-color: #FF5722; }
+.key-item.status-pending::before { background-color: #F97316; }
 .key-item.status-wfm::before { background-color: #2196F3; }
 .key-item.status-weekend::before { background-color: #BDBDBD; }
 .key-item.status-public-holiday::before { background-color: #FF9800; }
+.key-item.status-optional-holiday::before { background-color: #8B5CF6; }
 
 
 /* --- CALENDAR GRID STRUCTURE & STYLING --- */
@@ -369,6 +367,32 @@
     background-color: rgb(255, 255, 255); /* White background for label text */
 }
 
+.day-work-hours {
+    font-size: 10px;
+    font-weight: 600;
+    margin-top: 4px;
+    color: #334155;
+    line-height: 1.1;
+}
+
+.day-status-row {
+    width: 100%;
+    margin-top: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.day-status-row .day-status-label {
+    margin-top: 0;
+}
+
+.day-work-hours-bold {
+    margin-top: 0;
+    font-weight: 700;
+}
+
 
 /* Calendar Cell Colors (Using specific styles provided by user) */
 
@@ -378,14 +402,21 @@
 .calendar-day-cell.status-absent { background-color: #FFEBEE; border-color: #EF9A9A; }
 .calendar-day-cell.status-absent .day-status-label { color: #B71C1C; }
 
+.calendar-day-cell.status-on-leave { background-color: #FFF1F2; border-color: #FDA4AF; }
+.calendar-day-cell.status-on-leave .day-status-label { color: #BE123C; }
+
 .calendar-day-cell.status-half-day { background-color: #ffecb3d0; border-color: #FFD54F; }
 .calendar-day-cell.status-half-day .day-status-label { color: #FF8F00; }
 
 .calendar-day-cell.status-public-holiday { background-color: #FFF3E0; border-color: #FFCC80; }
 .calendar-day-cell.status-public-holiday .day-status-label { color: #E65100; }
 
-.calendar-day-cell.status-pending { background-color: #f9f8fd; border-color: #FFAB91; }
-.calendar-day-cell.status-pending .day-status-label { color: #D84315; }
+.calendar-day-cell.status-optional-holiday { background-color: #F3E8FF; border-color: #C4B5FD; }
+.calendar-day-cell.status-optional-holiday .day-status-label { color: #6D28D9; }
+
+.calendar-day-cell.status-pending { background-color: #ffffff; border-color: #FDBA74; }
+.calendar-day-cell.status-pending .day-status-label { color: #C2410C; }
+.calendar-day-cell.status-pending .day-work-hours { color: #9A3412; }
 
 .calendar-day-cell.status-wfm { background-color: #E3F2FD; border-color: #90CAF9; }
 .calendar-day-cell.status-wfm .day-status-label { color: #0D47A1; }
@@ -403,8 +434,7 @@
     color: #888; 
 }
 
-.calendar-day-cell.status-weekend .day-status-label,
-.calendar-day-cell.status-public-holiday .day-status-label {
+.calendar-day-cell.status-weekend .day-status-label {
     display: none;
 }
 

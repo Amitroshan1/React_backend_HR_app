@@ -18,6 +18,8 @@ import { AddNoc } from './AddNoc';
 import { ConfirmationRequest } from './ConfirmationRequest'; 
 import ExitEmployee from './ExitEmployee';
 import AddDeptCircle from './AddDeptCircle';
+import { LeaveAccrualSummary } from './LeaveAccrualSummary';
+import { HolidayCalendar } from './HolidayCalendar';
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -470,6 +472,8 @@ export const Hr = () => {
     { title: 'Confirmation Request', icon: FileText, description: 'Employee confirmations' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
+    { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
+    { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
   ];
 
   const handleSearch = async () => {
@@ -683,6 +687,12 @@ export const Hr = () => {
 else if (title === 'Add Department And Circle') {
   setView('add_dept_circle');
 }
+else if (title === 'Leave Accrual Monitor') {
+  setView('leave_accrual_monitor');
+}
+else if (title === 'Holiday Calendar') {
+  setView('holiday_calendar');
+}
     else {
       console.log(`Navigating to ${title}`);
     }
@@ -722,6 +732,14 @@ if (view === 'exit_employee') {  //new condition for exit employee
 
 if (view === 'add_dept_circle') { //new condition for add department and cir.
   return <AddDeptCircle onBack={() => setView('updates')} />;
+}
+
+if (view === 'leave_accrual_monitor') {
+  return <LeaveAccrualSummary onBack={() => setView('updates')} />;
+}
+
+if (view === 'holiday_calendar') {
+  return <HolidayCalendar onBack={() => setView('updates')} />;
 }
 
 // Simple placeholder view for Add Circle & Employee Type card

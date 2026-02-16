@@ -1,0 +1,136 @@
+.holiday-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.holiday-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  padding: 20px;
+  margin-top: 12px;
+}
+
+.holiday-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.holiday-header h2 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 1.25rem;
+}
+
+.holiday-header p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.holiday-year-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.holiday-year-input label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.holiday-year-input input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+
+.holiday-msg {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+}
+
+.holiday-error {
+  color: #b91c1c;
+}
+
+.holiday-success {
+  color: #15803d;
+}
+
+.holiday-table-wrap {
+  overflow-x: auto;
+}
+
+.holiday-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+}
+
+.holiday-table th,
+.holiday-table td {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 0.92rem;
+}
+
+.holiday-table th {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 700;
+}
+
+.holiday-empty-cell {
+  text-align: center;
+  color: #64748b;
+}
+
+.holiday-date-input {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+}
+
+.holiday-save-btn {
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.holiday-save-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.holiday-note {
+  margin-top: 14px;
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+@media (max-width: 768px) {
+  .holiday-page {
+    padding: 12px;
+  }
+
+  .holiday-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

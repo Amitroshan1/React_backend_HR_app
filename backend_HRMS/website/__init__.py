@@ -131,6 +131,8 @@ def create_app():
     from .models.prev_com import PreviousCompany
     from .models.notification import Notification
     from .models.master_data import MasterData
+    from .models.leave_accrual_log import LeaveAccrualLog
+    from .models.holiday_calendar import HolidayCalendar
 
     # ---------------------------
     # Flask-Login user loader
@@ -161,9 +163,10 @@ def create_app():
     from .query import query
     from .Accounts import Accounts
     # from .Manager import manager
-    from .manager import manager
+    from .Manager import manager
 
     from .notifications import notifications
+    from .performance_api import performance_api
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(leave, url_prefix="/api/leave")
@@ -172,5 +175,9 @@ def create_app():
     app.register_blueprint(query, url_prefix="/api/query")
     app.register_blueprint(manager, url_prefix="/api/manager")
     app.register_blueprint(notifications, url_prefix="/api/notifications")
+    app.register_blueprint(performance_api, url_prefix="/api/performance")
+
+    from .commands.leave_accrual import register_leave_accrual_command
+    register_leave_accrual_command(app)
 
     return app

@@ -10,7 +10,9 @@ from flask_jwt_extended import jwt_required, get_jwt
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
 from .models.seperation import Resignation, Noc_Upload
+from .models.holiday_calendar import HolidayCalendar
 from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_leave_applied_email
+from .utility import generate_attendance_excel, send_excel_file
 from . import db
 from flask import jsonify
 from datetime import date, datetime, timedelta
@@ -111,6 +113,12 @@ def _attendance_summary_impl():
         WorkFromHomeApplication.start_date <= last_day,
         WorkFromHomeApplication.end_date >= first_day
     ).all()
+    holidays = HolidayCalendar.query.filter(
+        HolidayCalendar.year == selected_year,
+        HolidayCalendar.is_active.is_(True),
+        HolidayCalendar.holiday_date.between(first_day, last_day),
+    ).all()
+    holiday_map = {h.holiday_date: h for h in holidays}
 
     def is_on_leave(d):
         # Only check for APPROVED leave - pending leave will not show as "On Leave"
@@ -184,14 +192,12 @@ def _attendance_summary_impl():
             "details": {}
         }
 
-        if current_day.weekday() >= 5:
-            day_status["status"] = "WEEKEND"
-        else:
-            punch = punch_map.get(current_day)
-            is_future = current_day > today
-            
-            # Priority: Punch record > WFH > Leave > Absent
-            if punch:
+        punch = punch_map.get(current_day)
+        holiday = holiday_map.get(current_day)
+        is_future = current_day > today
+
+        # Priority: Punch record > Holiday > Weekend > WFH/Leave/Absent
+        if punch:
                 # Has punch record - use punch status
                 if punch.punch_in and not punch.punch_out:
                     day_status["status"] = "PENDING_PUNCH_OUT"
@@ -225,9 +231,17 @@ def _attendance_summary_impl():
                     "punch_out": _fmt_time(punch.punch_out),
                     "work_hours": str(punch.today_work) if punch.today_work else None
                 })
-            
-            # No punch record - check WFH and Leave applications
-            elif is_future:
+
+        elif holiday:
+            day_status["status"] = "HOLIDAY_OPTIONAL" if holiday.is_optional else "HOLIDAY"
+            day_status["details"]["holiday_name"] = holiday.holiday_name
+            day_status["details"]["is_optional"] = bool(holiday.is_optional)
+
+        elif current_day.weekday() >= 5:
+            day_status["status"] = "WEEKEND"
+
+        # No punch record - check WFH and Leave applications
+        elif is_future:
                 # For future dates, only show APPROVED leave/WFH
                 if is_wfh_approved(current_day):
                     day_status["status"] = "WFH_APPROVED"
@@ -237,8 +251,7 @@ def _attendance_summary_impl():
                 else:
                     # Future dates without approved leave/WFH - keep blank (white background)
                     day_status["status"] = "ABSENT"
-            
-            else:
+        else:
                 # Past/current dates - only show APPROVED leave/WFH
                 if is_wfh_approved(current_day):
                     day_status["status"] = "WFH_APPROVED"
@@ -275,6 +288,44 @@ def _attendance_summary_impl():
         # 🔹 NEW calendar data
         "calendar": calendar_data
     }), 200
+
+
+@leave.route("/attendance/download", methods=["GET"])
+@jwt_required()
+def download_my_attendance_excel():
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    month_str = (request.args.get("month") or "").strip()
+    if month_str:
+        try:
+            year, month = map(int, month_str.split("-"))
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid month. Use YYYY-MM"}), 400
+    else:
+        now = datetime.now()
+        year, month = now.year, now.month
+
+    if month < 1 or month > 12:
+        return jsonify({"success": False, "message": "Invalid month. Use YYYY-MM"}), 400
+
+    output = generate_attendance_excel(
+        admins=[admin],
+        emp_type=admin.emp_type or "Employee",
+        circle=admin.circle or "NHQ",
+        year=year,
+        month=month,
+        file_prefix="Attendance",
+    )
+    filename = f"Attendance_{admin.emp_id or admin.id}_{calendar.month_name[month]}_{year}.xlsx"
+    return send_excel_file(
+        output,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 

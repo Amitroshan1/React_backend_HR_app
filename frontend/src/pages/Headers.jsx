@@ -118,7 +118,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link, useNavigate } from 'react-router-dom';
-import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome } from "react-icons/fa";
+import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
 
 const getPageInfo = (pathname, firstName) => {
@@ -133,11 +133,14 @@ const getPageInfo = (pathname, firstName) => {
         '/separation': { title: 'Separation', subtitle: 'Resignation and clearance process' },
         '/salary': { title: 'Salary', subtitle: 'Payslips and salary information' },
         '/profile': { title: 'Profile', subtitle: 'Your personal and employment details' },
+        '/holiday-calendar': { title: 'Holiday Calendar', subtitle: 'Company holiday list by year' },
+        '/performance': { title: 'Performance', subtitle: 'Self review and manager feedback' },
         '/wfh': { title: 'Work From Home', subtitle: 'WFH requests and approvals' },
         '/hr': { title: 'HR Panel', subtitle: 'Administration' },
         '/account': { title: 'Accounts Panel', subtitle: 'Financial Management' },
         '/admin': { title: 'Admin Panel', subtitle: 'Admin Management' },
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
+        '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
         '/it': { title: 'IT Panel', subtitle: 'IT Management' },
     };
     return pathMap[normalizedPath] || { title: 'Portal', subtitle: '' };
@@ -429,6 +432,13 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 )}
 
                                 {/* Separation - Always shown */}
+                                <Link to="/performance" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
+                                    <FaChartLine className="d-icon" /> <span>Performance</span>
+                                </Link>
+                                <Link to="/holiday-calendar" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
+                                    <FaCalendarAlt className="d-icon" /> <span>Holiday Calendar</span>
+                                </Link>
+
                                 <Link to="/separation" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
                                     <FaHandshake className="d-icon" /> <span>Separation</span>
                                 </Link>

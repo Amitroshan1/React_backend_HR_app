@@ -29,7 +29,7 @@ export const SprintPerformance = () => {
 
   return (
     <div className="sprint-card">
-      <h3>Sprint Performance</h3>
+      <h3>Performance Review Summary</h3>
       <div className="progress-list">
         {loading && <p className="sprint-empty-msg">Loading...</p>}
         {error && !loading && <p className="sprint-empty-msg">{error}</p>}
@@ -48,7 +48,7 @@ export const SprintPerformance = () => {
           </div>
         ))}
         {!loading && !error && sprintData.length === 0 && (
-          <p className="sprint-empty-msg">No sprint data available.</p>
+          <p className="sprint-empty-msg">No performance data available.</p>
         )}
       </div>
     </div>

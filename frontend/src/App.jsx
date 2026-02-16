@@ -19,6 +19,9 @@ import { Manager } from "./pages/Manager/Manager";
 import { ITPanel } from "./pages/IT/ITPanel";
 import ArchiveEmployees from "./pages/HR/Archive/Archive";
 import ExitEmployee from "./pages/HR/ExitEmployee";
+import { EmployeePerformance } from "./pages/Performance/EmployeePerformance";
+import { ManagerPerformanceReviews } from "./pages/Manager/ManagerPerformanceReviews";
+import { HolidayCalendarUser } from "./pages/Holiday/HolidayCalendarUser";
 
 // Employee Management System Components
 import Employee from "./pages/Admin/Employee";
@@ -51,6 +54,8 @@ export const App = () => {
         { path: "claims", element: <Claims /> },
         { path: "separation", element: <Separation /> },
         { path: "wfh", element: <Wfh /> },
+        { path: "performance", element: <EmployeePerformance /> },
+        { path: "holiday-calendar", element: <HolidayCalendarUser /> },
         { path: "account", element: <Account /> },
         { path: "hr", element: <Hr /> },
         { path: "updates", element: <Hr /> },
@@ -58,6 +63,7 @@ export const App = () => {
         { path: "exit-employees", element: <ExitEmployee /> },
         { path: "admin", element: <Admin /> },
         { path: "manager", element: <Manager /> },
+        { path: "manager/performance-reviews", element: <ManagerPerformanceReviews /> },
         { path: "it", element: <ITPanel /> },
         { path: "employees", element: <Employee /> },
         { path: "employee/:id", element: <EmployeeDetails /> },

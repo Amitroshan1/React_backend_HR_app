@@ -1,0 +1,102 @@
+import { useEffect, useState } from "react";
+import "./HolidayCalendarUser.css";
+
+const API_BASE = "/api/HumanResource";
+
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export const HolidayCalendarUser = () => {
+  const [year] = useState(new Date().getFullYear());
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchHolidays = async (targetYear) => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/holidays/user?year=${targetYear}&auto_seed=1`, {
+        method: "GET",
+        headers: {
+          ...authHeaders(),
+        },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to load holiday list");
+      }
+      setRows(result.holidays || []);
+    } catch (err) {
+      setRows([]);
+      setError(err.message || "Failed to load holiday list");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHolidays(year);
+  }, [year]);
+
+  return (
+    <div className="user-holiday-page">
+      <div className="user-holiday-card">
+        <div className="user-holiday-header">
+          <div>
+            <h2>Holiday Calendar {year}</h2>
+            <p>Company holiday list for updated year {year}.</p>
+          </div>
+        </div>
+
+        {error && <p className="user-holiday-error">{error}</p>}
+
+        <div className="user-holiday-table-wrap">
+          <table className="user-holiday-table">
+            <thead>
+              <tr>
+                <th>SR. NO.</th>
+                <th>DATE</th>
+                <th>DAY</th>
+                <th>HOLIDAYS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan="4" className="user-holiday-empty">
+                    Loading holidays...
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="user-holiday-empty">
+                    No holidays found.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.sr_no}</td>
+                    <td>{row.display_date || "-"}</td>
+                    <td>{row.day || "-"}</td>
+                    <td>
+                      {row.holiday_name}
+                      {row.is_optional ? " (OPTIONAL)" : ""}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="user-holiday-note">
+          <strong>NOTE:</strong> OUT OF 3 OPTIONAL HOLIDAYS, YOU ARE ELIGIBLE TO OPT ANY ONE HOLIDAY.
+        </p>
+      </div>
+    </div>
+  );
+};

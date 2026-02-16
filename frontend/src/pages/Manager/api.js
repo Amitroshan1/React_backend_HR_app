@@ -101,7 +101,7 @@ export async function fetchTeamMembers(filters = {}) {
 }
 
 export async function fetchSprintPerformance() {
-  const response = await fetch(`${API_BASE}/sprint-performance`, {
+  const response = await fetch(`/api/performance/manager/summary`, {
     method: "GET",
     headers: {
       ...authHeaders(),
@@ -110,7 +110,7 @@ export async function fetchSprintPerformance() {
 
   const result = await response.json();
   if (!response.ok || !result.success) {
-    throw new Error(result.message || "Failed to load sprint performance");
+    throw new Error(result.message || "Failed to load performance summary");
   }
   return result.items || [];
 }
@@ -128,4 +128,49 @@ export async function fetchManagerScope() {
     throw new Error(result.message || "Failed to load manager scope");
   }
   return result.scope || null;
+}
+
+export async function fetchManagerPerformanceQueue(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.month) params.set("month", filters.month);
+  if (filters.status && filters.status !== "All") params.set("status", filters.status);
+
+  const query = params.toString();
+  const response = await fetch(
+    `/api/performance/manager/queue${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: {
+        ...authHeaders(),
+      },
+    }
+  );
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load performance queue");
+  }
+  return result.items || [];
+}
+
+export async function submitManagerPerformanceReview(performanceId, payload) {
+  const response = await fetch(`/api/performance/manager/review/${performanceId}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload || {}),
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to submit manager review");
+  }
+  return result.performance || null;
+}
+
+export async function fetchPendingPerformanceReviewsCount() {
+  const items = await fetchManagerPerformanceQueue({ status: "Submitted" });
+  return Array.isArray(items) ? items.length : 0;
 }

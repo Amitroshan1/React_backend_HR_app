@@ -308,8 +308,19 @@ const formatHours = (tdStr) => {
     return '0h';
 };
 
+const formatCalendarWorkHours = (tdStr) => {
+    if (!tdStr) return '';
+    const s = String(tdStr).trim().replace(/^-/, '');
+    const m = s.match(/(\d+):(\d{2})(?::(\d{2}))?/);
+    if (!m) return s;
+    const [, h, min] = m;
+    return `${parseInt(h, 10)}h ${min}m`;
+};
+
 const backendStatusToFrontend = (backendStatus, details = {}) => {
     if (backendStatus === 'WEEKEND') return 'Week';
+    if (backendStatus === 'HOLIDAY') return 'Hol';
+    if (backendStatus === 'HOLIDAY_OPTIONAL') return 'HolOpt';
     if (backendStatus === 'LEAVE') return 'On Leave';
     if (backendStatus === 'LEAVE_PENDING') return 'On Leave'; // Show as leave but could add visual indicator
     if (backendStatus === 'ABSENT') return 'Abs';
@@ -400,7 +411,7 @@ const MonthYearSelector = ({ currentMonth, currentYear, setMonth, setYear }) => 
 
 
 // --- Calendar Day Cell Component ---
-const CalendarDayCell = ({ day, status, isFuture }) => {
+const CalendarDayCell = ({ day, status, isFuture, details = {} }) => {
     if (status === 'empty' || day == null) {
         return <div className="calendar-day-cell status-empty" />;
     }
@@ -408,33 +419,49 @@ const CalendarDayCell = ({ day, status, isFuture }) => {
     const statusClassMap = {
         'Pres': 'status-present',
         'Abs': 'status-absent',
-        'On Leave': 'status-absent',
+        'On Leave': 'status-on-leave',
         'Half': 'status-half-day',
         'Hol': 'status-public-holiday',
+        'HolOpt': 'status-optional-holiday',
         'Week': 'status-weekend',
         'Pend': 'status-pending',
         'WFM': 'status-wfm',
     };
 
-    const className = statusClassMap[status] || 'status-default';
-    // Add future-blank class for future dates with Abs status
-    const finalClassName = (isFuture && status === 'Abs') 
-        ? `${className} future-blank` 
-        : className;
+    const finalClassName = statusClassMap[status] || 'status-default';
 
     let displayStatus = status;
     if (status === 'Pres') displayStatus = 'Present';
-    else if (status === 'Pend') displayStatus = 'Pending';
+    else if (status === 'Pend') displayStatus = 'Pending Punch Out';
     else if (status === 'Half') displayStatus = 'Half Day';
     else if (status === 'WFM') displayStatus = 'WFM';
-    else if (status === 'On Leave' || status === 'Abs') displayStatus = 'On Leave';
-    else if (status === 'Hol') displayStatus = 'Holiday';
+    else if (status === 'On Leave') displayStatus = 'On Leave';
+    else if (status === 'Abs') displayStatus = 'Absent';
+    else if (status === 'Hol') displayStatus = 'Public Holiday';
+    else if (status === 'HolOpt') displayStatus = 'Optional Holiday';
+
+    const showWorkHours = Boolean(details?.punch_in && details?.punch_out && details?.work_hours);
+    const workHoursText = showWorkHours ? formatCalendarWorkHours(details.work_hours) : '';
+    const showStatusLabel = status !== 'Week';
+    const showInlineStatusAndHours = showStatusLabel && showWorkHours;
 
     return (
         <div className={`calendar-day-cell ${finalClassName}`}>
             <span className="day-number">{day}</span>
-            {(status !== 'Week' && status !== 'Hol' && !(isFuture && status === 'Abs')) && (
-                <span className="day-status-label">{displayStatus}</span>
+            {showInlineStatusAndHours ? (
+                <div className="day-status-row">
+                    <span className="day-status-label">{displayStatus}</span>
+                    <span className="day-work-hours day-work-hours-bold">{workHoursText}</span>
+                </div>
+            ) : (
+                <>
+                    {showStatusLabel && (
+                        <span className="day-status-label">{displayStatus}</span>
+                    )}
+                    {showWorkHours && (
+                        <span className="day-work-hours">{workHoursText}</span>
+                    )}
+                </>
             )}
         </div>
     );
@@ -445,6 +472,7 @@ export const Attendance = () => {
     const [data, setData] = useState(INITIAL_ATTENDANCE_DATA);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [downloadingExcel, setDownloadingExcel] = useState(false);
     const [currentMonth, setCurrentMonth] = useState(MONTH_NAMES[new Date().getMonth()]);
     const [currentYear, setCurrentYear] = useState(String(new Date().getFullYear()));
 
@@ -487,6 +515,7 @@ export const Attendance = () => {
             day: item.day,
             status: status,
             isFuture: isFuture && item.status === 'ABSENT',
+            details: item.details || {},
           });
         });
         setData({
@@ -513,6 +542,59 @@ export const Attendance = () => {
   useEffect(() => {
     fetchAttendance();
   }, [fetchAttendance]);
+
+    const handleDownloadExcel = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Please login again to download attendance.');
+            return;
+        }
+        setDownloadingExcel(true);
+        try {
+            const monthParam = `${yearNum}-${String(monthNum).padStart(2, '0')}`;
+            const res = await fetch(
+                `${API_BASE_URL}/attendance/download?month=${monthParam}`,
+                {
+                    method: 'GET',
+                    headers: { Authorization: `Bearer ${token}` },
+                }
+            );
+            if (!res.ok) {
+                let message = 'Download failed';
+                try {
+                    const errData = await res.json();
+                    message = errData.message || message;
+                } catch (_) {
+                    // ignore parse failure
+                }
+                throw new Error(message);
+            }
+
+            const blob = await res.blob();
+            const contentDisposition = res.headers.get('content-disposition') || '';
+            let backendFileName = '';
+            const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+            const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+            if (utf8Match && utf8Match[1]) {
+                backendFileName = decodeURIComponent(utf8Match[1].trim());
+            } else if (asciiMatch && asciiMatch[1]) {
+                backendFileName = asciiMatch[1].trim();
+            }
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = backendFileName || `Attendance_${currentMonth}_${currentYear}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            setError(err.message || 'Download failed');
+        } finally {
+            setDownloadingExcel(false);
+        }
+    };
 
   useEffect(() => {
     const handleLeaveApplied = () => {
@@ -592,9 +674,13 @@ export const Attendance = () => {
                             <FiRefreshCw className="icon-white" style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
                             Refresh
                         </button>
-                        <button className="print-button">
+                        <button
+                            className="print-button"
+                            onClick={handleDownloadExcel}
+                            disabled={downloadingExcel}
+                        >
                             <FiDownload className="icon-white" />
-                            Print to Excel
+                            {downloadingExcel ? 'Downloading...' : 'Print to Excel'}
                         </button>
                     </div>
                 </div>
@@ -602,12 +688,14 @@ export const Attendance = () => {
                 {/* Status Key */}
                 <div className="status-key">
                     <span className="key-item status-present">Present</span>
-                    <span className="key-item status-absent">Absent / On Leave</span>
+                    <span className="key-item status-absent">Absent</span>
+                    <span className="key-item status-on-leave">On Leave</span>
                     <span className="key-item status-half-day">Half Day</span>
                     <span className="key-item status-pending">Pending Punch Out</span>
                     <span className="key-item status-wfm">Work From Home</span>
                     <span className="key-item status-weekend">Weekend</span>
                     <span className="key-item status-public-holiday">Public Holiday</span>
+                    <span className="key-item status-optional-holiday">Optional Holiday</span>
                 </div>
 
                 {/* Calendar Grid */}
@@ -622,6 +710,7 @@ export const Attendance = () => {
                             day={item.day}
                             status={item.status}
                             isFuture={item.isFuture || false}
+                            details={item.details || {}}
                         />
                     ))}
                 </div>

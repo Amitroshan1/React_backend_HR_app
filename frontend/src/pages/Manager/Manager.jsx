@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 // import StatsCards from "../components/StatsCards/StatsCards";
 import {StatsCards} from "./comps/StatsCards/StatsCards";
 import {TeamMembers} from "./comps/TeamMembers/TeamMembers";
@@ -9,9 +9,14 @@ import {SprintPerformance} from "./comps/SprintPerformance/SprintPerformance";
 import {ClaimRequests} from "./comps/LeaveRequests/ClaimRequests";
 import {WFHRequests} from "./comps/LeaveRequests/WFHRequests";
 import {ResignationRequests} from "./comps/LeaveRequests/ResignationRequests";
-import { fetchPendingCounts, fetchManagerScope } from "./api";
+import {
+  fetchPendingCounts,
+  fetchManagerScope,
+  fetchPendingPerformanceReviewsCount,
+} from "./api";
 
 export const Manager = () =>{
+  const navigate = useNavigate();
   const [activePanel, setActivePanel] = useState("leave");
   const [showFullTable, setShowFullTable] = useState(false);
   const [statusFilter, setStatusFilter] = useState("All"); 
@@ -23,6 +28,7 @@ export const Manager = () =>{
     claim: 0,
     resignation: 0,
   });
+  const [pendingPerformanceCount, setPendingPerformanceCount] = useState(0);
   const [scopeInfo, setScopeInfo] = useState(null);
   const reloadCounts = async () => {
     try {
@@ -44,6 +50,30 @@ export const Manager = () =>{
 
   useEffect(() => {
     reloadCounts();
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    let timerId = null;
+
+    const loadPendingPerformanceCount = async () => {
+      try {
+        const count = await fetchPendingPerformanceReviewsCount();
+        if (isMounted) {
+          setPendingPerformanceCount(count);
+        }
+      } catch (error) {
+        console.error("Pending performance count load error:", error);
+      }
+    };
+
+    loadPendingPerformanceCount();
+    timerId = window.setInterval(loadPendingPerformanceCount, 30000);
+
+    return () => {
+      isMounted = false;
+      if (timerId) window.clearInterval(timerId);
+    };
   }, []);
 
   useEffect(() => {
@@ -117,6 +147,42 @@ export const Manager = () =>{
             Scope: <strong>{scopeInfo.emp_type || "-"}</strong> | <strong>{scopeInfo.circle || "-"}</strong>
           </div>
         )}
+        <div style={{ marginBottom: 12 }}>
+          <button
+            onClick={() => navigate("/manager/performance-reviews")}
+            style={{
+              padding: "10px 16px",
+              borderRadius: "10px",
+              border: "1px solid #c7d2fe",
+              background: "#eef2ff",
+              color: "#3730a3",
+              cursor: "pointer",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            Open Performance Review Queue
+            <span
+              style={{
+                minWidth: "22px",
+                height: "22px",
+                borderRadius: "999px",
+                padding: "0 7px",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "12px",
+                fontWeight: 700,
+                background: pendingPerformanceCount > 0 ? "#4f46e5" : "#cbd5e1",
+                color: "#ffffff",
+              }}
+            >
+              {pendingPerformanceCount}
+            </span>
+          </button>
+        </div>
         <StatsCards onSelect={handleCardSelect} counts={statsCounts} />
       </div>
 

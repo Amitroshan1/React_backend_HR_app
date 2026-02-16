@@ -1,0 +1,133 @@
+.performance-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.performance-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+  padding: 20px;
+}
+
+.performance-title {
+  margin: 0;
+  font-size: 1.3rem;
+  color: #111827;
+}
+
+.performance-subtitle {
+  margin: 8px 0 16px;
+  color: #6b7280;
+  font-size: 0.92rem;
+}
+
+.performance-form {
+  display: grid;
+  gap: 14px;
+}
+
+.performance-field {
+  display: grid;
+  gap: 6px;
+}
+
+.performance-field label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.performance-field input,
+.performance-field textarea {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+}
+
+.performance-field textarea {
+  resize: vertical;
+}
+
+.performance-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.performance-submit-btn {
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.performance-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.performance-msg {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.performance-msg.error {
+  color: #b91c1c;
+}
+
+.performance-msg.success {
+  color: #15803d;
+}
+
+.performance-history-title {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.performance-empty {
+  margin: 0;
+  color: #6b7280;
+}
+
+.performance-table-wrap {
+  overflow-x: auto;
+}
+
+.performance-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+
+.performance-table th,
+.performance-table td {
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 8px;
+  font-size: 0.9rem;
+}
+
+.performance-table th {
+  font-weight: 600;
+  color: #374151;
+}
+
+@media (max-width: 768px) {
+  .performance-page {
+    padding: 16px;
+  }
+
+  .performance-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}

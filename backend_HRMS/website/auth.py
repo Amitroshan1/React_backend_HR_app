@@ -42,6 +42,9 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+
+
+
 # ===================================================
 # ✅ 1️⃣ VALIDATE USER (EMAIL/MOBILE + PASSWORD)
 # FINAL URL → POST /api/auth/validate-user
@@ -78,12 +81,12 @@ def validate_user():
         }
     )
 
-    # try:
-    #     send_login_alert_email(admin)
-    # except Exception as e:
-    #     current_app.logger.warning(
-    #         f"Login email failed for {admin.email}: {e}"
-    #     )
+    try:
+        send_login_alert_email(admin)
+    except Exception as e:
+        current_app.logger.warning(
+            f"Login email failed for {admin.email}: {e}"
+        )
 
     return jsonify({
         "success": True,

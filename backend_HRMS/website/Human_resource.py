@@ -27,6 +27,8 @@ from .models.attendance import Punch, LeaveApplication, LeaveBalance, Location
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
 from .models.master_data import MasterData
+from .models.leave_accrual_log import LeaveAccrualLog
+from .models.holiday_calendar import HolidayCalendar
 from werkzeug.security import generate_password_hash
 import os
 from urllib.parse import unquote
@@ -56,6 +58,33 @@ def hr_required(fn):
 MASTER_TYPE_DEPARTMENT = "department"
 MASTER_TYPE_CIRCLE = "circle"
 MASTER_TYPES = {MASTER_TYPE_DEPARTMENT, MASTER_TYPE_CIRCLE}
+
+HOLIDAY_DATE_TEMPLATES = [
+    {"holiday_name": "NEW YEAR DAY", "month": 1, "day": 1, "is_optional": False},
+    {"holiday_name": "REPUBLIC DAY", "month": 1, "day": 26, "is_optional": False},
+    {"holiday_name": "HOLI", "month": 3, "day": 3, "is_optional": False},
+    {"holiday_name": "GUDI PADWA", "month": 3, "day": 19, "is_optional": True},
+    {"holiday_name": "EID", "month": 3, "day": 21, "is_optional": True},
+    {"holiday_name": "MAHARASHTRA DAY", "month": 5, "day": 1, "is_optional": False},
+    {"holiday_name": "INDEPENDENCE DAY", "month": 8, "day": 15, "is_optional": False},
+    {"holiday_name": "GANESH CHATURTHI", "month": 9, "day": 14, "is_optional": False},
+    {"holiday_name": "GANDHI JAYANTI", "month": 10, "day": 2, "is_optional": False},
+    {"holiday_name": "DUSSERA", "month": 10, "day": 20, "is_optional": False},
+    {"holiday_name": "DIWALI", "month": 11, "day": 8, "is_optional": False},
+    {"holiday_name": "GOVARDHAN PUJA", "month": 11, "day": 10, "is_optional": False},
+    {"holiday_name": "BHAUBIJ", "month": 11, "day": 11, "is_optional": False},
+    {"holiday_name": "CHRISTMAS DAY", "month": 12, "day": 25, "is_optional": True},
+]
+
+DAY_NAMES = {
+    0: "MONDAY",
+    1: "TUESDAY",
+    2: "WEDNESDAY",
+    3: "THURSDAY",
+    4: "FRIDAY",
+    5: "SATURDAY",
+    6: "SUNDAY",
+}
 
 
 def _clean_master_name(value):
@@ -90,6 +119,195 @@ def _is_allowed_master_value(master_type, value):
         ).count()
     )
     return count > 0
+
+
+def _parse_year_or_400(value):
+    try:
+        year = int(value)
+    except (TypeError, ValueError):
+        return None
+    if year < 2000 or year > 2100:
+        return None
+    return year
+
+
+def _serialize_holiday(row, sr_no=None):
+    dt = row.holiday_date
+    day_name = DAY_NAMES.get(dt.weekday(), "")
+    return {
+        "id": row.id,
+        "sr_no": sr_no,
+        "year": row.year,
+        "holiday_name": row.holiday_name,
+        "holiday_date": dt.isoformat() if dt else None,
+        "display_date": dt.strftime("%d-%m-%Y") if dt else None,
+        "day": day_name,
+        "is_optional": bool(row.is_optional),
+        "is_active": bool(row.is_active),
+    }
+
+
+def _seed_holidays_for_year(year, overwrite=False):
+    existing = HolidayCalendar.query.filter(HolidayCalendar.year == year).all()
+    if existing and not overwrite:
+        return existing
+
+    if overwrite and existing:
+        HolidayCalendar.query.filter(HolidayCalendar.year == year).delete(synchronize_session=False)
+        db.session.flush()
+
+    rows = []
+    for item in HOLIDAY_DATE_TEMPLATES:
+        rows.append(
+            HolidayCalendar(
+                year=year,
+                holiday_name=item["holiday_name"],
+                holiday_date=date(year, item["month"], item["day"]),
+                is_optional=bool(item["is_optional"]),
+                is_active=True,
+            )
+        )
+    db.session.add_all(rows)
+    db.session.commit()
+    return rows
+
+
+@hr.route("/holidays", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_holidays_for_year():
+    year = _parse_year_or_400(request.args.get("year", date.today().year))
+    if not year:
+        return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
+
+    auto_seed = str(request.args.get("auto_seed", "1")).strip() != "0"
+    rows = (
+        HolidayCalendar.query.filter(
+            HolidayCalendar.year == year,
+            HolidayCalendar.is_active.is_(True),
+        )
+        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+        .all()
+    )
+    if not rows and auto_seed:
+        _seed_holidays_for_year(year, overwrite=False)
+        rows = (
+            HolidayCalendar.query.filter(
+                HolidayCalendar.year == year,
+                HolidayCalendar.is_active.is_(True),
+            )
+            .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+            .all()
+        )
+
+    return jsonify(
+        {
+            "success": True,
+            "year": year,
+            "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
+        }
+    ), 200
+
+
+@hr.route("/holidays/user", methods=["GET"])
+@jwt_required()
+def list_holidays_for_user_view():
+    year = _parse_year_or_400(request.args.get("year", date.today().year))
+    if not year:
+        return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
+
+    auto_seed = str(request.args.get("auto_seed", "1")).strip() != "0"
+    rows = (
+        HolidayCalendar.query.filter(
+            HolidayCalendar.year == year,
+            HolidayCalendar.is_active.is_(True),
+        )
+        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+        .all()
+    )
+    if not rows and auto_seed:
+        _seed_holidays_for_year(year, overwrite=False)
+        rows = (
+            HolidayCalendar.query.filter(
+                HolidayCalendar.year == year,
+                HolidayCalendar.is_active.is_(True),
+            )
+            .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+            .all()
+        )
+
+    return jsonify(
+        {
+            "success": True,
+            "year": year,
+            "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
+        }
+    ), 200
+
+
+@hr.route("/holidays/seed-year", methods=["POST"])
+@jwt_required()
+@hr_required
+def seed_holidays_for_year():
+    data = request.get_json(silent=True) or {}
+    year = _parse_year_or_400(data.get("year"))
+    if not year:
+        return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
+
+    overwrite = bool(data.get("overwrite", False))
+    _seed_holidays_for_year(year, overwrite=overwrite)
+    rows = (
+        HolidayCalendar.query.filter(
+            HolidayCalendar.year == year,
+            HolidayCalendar.is_active.is_(True),
+        )
+        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+        .all()
+    )
+    return jsonify(
+        {
+            "success": True,
+            "message": "Holiday list generated successfully",
+            "year": year,
+            "holidays": [_serialize_holiday(r, idx + 1) for idx, r in enumerate(rows)],
+        }
+    ), 200
+
+
+@hr.route("/holidays/<int:holiday_id>", methods=["PUT"])
+@jwt_required()
+@hr_required
+def update_holiday(holiday_id):
+    row = HolidayCalendar.query.get(holiday_id)
+    if not row:
+        return jsonify({"success": False, "message": "Holiday not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+
+    if "holiday_name" in data:
+        holiday_name = str(data.get("holiday_name") or "").strip()
+        if not holiday_name:
+            return jsonify({"success": False, "message": "holiday_name cannot be empty"}), 400
+        row.holiday_name = holiday_name[:120]
+
+    if "holiday_date" in data:
+        raw_date = str(data.get("holiday_date") or "").strip()
+        try:
+            parsed_date = datetime.fromisoformat(raw_date[:10]).date()
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "message": "holiday_date must be YYYY-MM-DD"}), 400
+        if parsed_date.year != row.year:
+            return jsonify({"success": False, "message": f"holiday_date year must remain {row.year}"}), 400
+        row.holiday_date = parsed_date
+
+    if "is_optional" in data:
+        row.is_optional = bool(data.get("is_optional"))
+
+    if "is_active" in data:
+        row.is_active = bool(data.get("is_active"))
+
+    db.session.commit()
+    return jsonify({"success": True, "holiday": _serialize_holiday(row)}), 200
 
 
 @hr.route("/master/options", methods=["GET"])
@@ -723,9 +941,20 @@ def get_archived_employee_profile(employee_id):
 
     # ---------------- PERFORMANCE ----------------
     performance = [{
-        "cycle": p.cycle,
-        "rating": p.rating,
-        "remarks": p.remarks
+        "id": p.id,
+        "month": p.month,
+        "achievements": p.achievements,
+        "challenges": p.challenges,
+        "goals_next_month": p.goals_next_month,
+        "suggestion_improvement": p.suggestion_improvement,
+        "status": p.status,
+        "submitted_at": p.submitted_at.isoformat() if p.submitted_at else None,
+        "review": {
+            "manager_id": p.review.manager_id,
+            "rating": p.review.rating,
+            "comments": p.review.comments,
+            "reviewed_at": p.review.reviewed_at.isoformat() if p.review.reviewed_at else None
+        } if getattr(p, "review", None) else None
     } for p in admin.performances]
 
     # ---------------- QUERIES ----------------
@@ -1741,6 +1970,99 @@ def list_confirmation_requests():
         for a in employees
     ]
     return jsonify({"success": True, "requests": result}), 200
+
+
+@hr.route("/leave-accrual/summary", methods=["GET"])
+@jwt_required()
+@hr_required
+def leave_accrual_summary():
+    """Quick monitoring endpoint for latest leave accrual runs."""
+    latest_run_date = db.session.query(db.func.max(LeaveAccrualLog.run_date)).scalar()
+    if not latest_run_date:
+        return jsonify(
+            {
+                "success": True,
+                "latest_run_date": None,
+                "latest_run": {
+                    "events_total": 0,
+                    "admins_affected": 0,
+                    "pl_credits": 0,
+                    "cl_credits": 0,
+                    "year_resets": 0,
+                },
+                "recent_runs": [],
+            }
+        ), 200
+
+    run_limit = request.args.get("limit", type=int) or 7
+    run_limit = max(1, min(run_limit, 31))
+
+    def _run_stats_for_date(run_date):
+        events_total = (
+            db.session.query(db.func.count(LeaveAccrualLog.id))
+            .filter(LeaveAccrualLog.run_date == run_date)
+            .scalar()
+            or 0
+        )
+        admins_affected = (
+            db.session.query(db.func.count(db.distinct(LeaveAccrualLog.admin_id)))
+            .filter(LeaveAccrualLog.run_date == run_date)
+            .scalar()
+            or 0
+        )
+        pl_credits = (
+            db.session.query(db.func.count(LeaveAccrualLog.id))
+            .filter(
+                LeaveAccrualLog.run_date == run_date,
+                LeaveAccrualLog.event_key.like("PL%"),
+            )
+            .scalar()
+            or 0
+        )
+        cl_credits = (
+            db.session.query(db.func.count(LeaveAccrualLog.id))
+            .filter(
+                LeaveAccrualLog.run_date == run_date,
+                LeaveAccrualLog.event_key.like("CL%"),
+            )
+            .scalar()
+            or 0
+        )
+        year_resets = (
+            db.session.query(db.func.count(LeaveAccrualLog.id))
+            .filter(
+                LeaveAccrualLog.run_date == run_date,
+                LeaveAccrualLog.event_key.like("YEAR_RESET%"),
+            )
+            .scalar()
+            or 0
+        )
+        return {
+            "run_date": run_date.isoformat(),
+            "events_total": int(events_total),
+            "admins_affected": int(admins_affected),
+            "pl_credits": int(pl_credits),
+            "cl_credits": int(cl_credits),
+            "year_resets": int(year_resets),
+        }
+
+    recent_run_dates = (
+        db.session.query(LeaveAccrualLog.run_date)
+        .distinct()
+        .order_by(LeaveAccrualLog.run_date.desc())
+        .limit(run_limit)
+        .all()
+    )
+    recent_runs = [_run_stats_for_date(row[0]) for row in recent_run_dates if row and row[0]]
+
+    return jsonify(
+        {
+            "success": True,
+            "latest_run_date": latest_run_date.isoformat(),
+            "latest_run": _run_stats_for_date(latest_run_date),
+            "recent_runs": recent_runs,
+        }
+    ), 200
 
 
 @hr.route("/noc/upload", methods=["POST"])
