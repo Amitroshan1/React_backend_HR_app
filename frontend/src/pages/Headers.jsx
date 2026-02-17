@@ -413,11 +413,6 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 </div>
                                 <div className="dropdown-divider"></div>
                                 
-                                {/* Profile - Always shown */}
-                                <Link to="/profile" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
-                                    <FaUser className="d-icon" /> <span>Profile</span>
-                                </Link>
-
                                 {/* Role-specific Panel Link - Only shown for HR/Manager/Account/IT/Admin */}
                                 {isSpecialRole && (
                                     <>
@@ -435,10 +430,6 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 <Link to="/performance" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
                                     <FaChartLine className="d-icon" /> <span>Performance</span>
                                 </Link>
-                                <Link to="/holiday-calendar" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
-                                    <FaCalendarAlt className="d-icon" /> <span>Holiday Calendar</span>
-                                </Link>
-
                                 <Link to="/separation" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
                                     <FaHandshake className="d-icon" /> <span>Separation</span>
                                 </Link>

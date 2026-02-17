@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { NavLink } from 'react-router-dom';
-import {  FiChevronRight,FiCheckCircle, FiUserCheck,FiCalendar,FiBriefcase as FiBriefcaseIcon, FiMessageSquare 
+import {  FiChevronRight,FiCheckCircle, FiUserCheck,FiCalendar,FiBriefcase as FiBriefcaseIcon, FiMessageSquare, FiKey 
 } from "react-icons/fi";
 import { MdOutlineDateRange } from "react-icons/md";
 import { GiReceiveMoney } from "react-icons/gi";
@@ -553,6 +553,16 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                            <NavLink to="/profile" className="action-card nav-link-card"> 
+                                <div className="action-icon-group">
+                                    <IoMdPerson className="action-icon sky" />
+                                    <div>
+                                        <h4>My Profile</h4>
+                                        <p>View and edit your details</p>
+                                    </div>
+                                </div>
+                                <FiChevronRight className="arrow" />
+                            </NavLink>
                             <NavLink to="/wfh" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <TbDeviceLaptop className="action-icon green" />
@@ -589,6 +599,26 @@ export const Dashboard = () => {
                                     <div>
                                         <h4>Claims</h4>
                                         <p>Check claim records</p>
+                                    </div>
+                                </div>
+                                <FiChevronRight className="arrow" />
+                            </NavLink>
+                            <NavLink to="/change-password" className="action-card nav-link-card"> 
+                                <div className="action-icon-group">
+                                    <FiKey className="action-icon blue" />
+                                    <div>
+                                        <h4>Change Password</h4>
+                                        <p>Update your account password</p>
+                                    </div>
+                                </div>
+                                <FiChevronRight className="arrow" />
+                            </NavLink>
+                            <NavLink to="/holiday-calendar" className="action-card nav-link-card"> 
+                                <div className="action-icon-group">
+                                    <FiCalendar className="action-icon sky" />
+                                    <div>
+                                        <h4>Holiday Calendar</h4>
+                                        <p>View upcoming holidays</p>
                                     </div>
                                 </div>
                                 <FiChevronRight className="arrow" />

@@ -300,6 +300,12 @@ export const HeroSection = () => {
     }
   };
 
+  const handleForgotPassword = () => {
+    alert(
+      "If you have forgotten your password, please contact your HR team to reset it.\n\n" +
+      "If you are already logged in, you can change your password from your dashboard (Change Password option)."
+    );
+  };
 
   return (
     <div className="index-container">
@@ -361,12 +367,20 @@ export const HeroSection = () => {
     {/* <span className="toggle-eye" onClick={() => setShowPassword(!showPassword)}>
     {showPassword ? <OpenEyeIcon /> : <ClosedEyeIcon />}
   </span> */}
-  </div> 
+          </div> 
 
-  {error && <p style={{ color: "red" }}>{error}</p>}
-            <p className="forgot">Forgot Password?</p>
+          {error && <p style={{ color: "red" }}>{error}</p>}
+          <p
+            className="forgot"
+            onClick={handleForgotPassword}
+            style={{ cursor: "pointer" }}
+          >
+            Forgot Password?
+          </p>
 
-            <button className="login-submit"  onClick={handleSubmit}>Submit</button>
+          <button className="login-submit" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? "Logging in..." : "Submit"}
+          </button>
           </div>
         </div>
 

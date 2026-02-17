@@ -6,6 +6,7 @@ import { Wfh } from "./pages/Wfh/Wfh";
 import { Salary } from "./pages/Salary/Salary";
 import { Leaves } from "./pages/Leaves/Leaves";
 import { Profile } from "./pages/Profile/components/Profile";
+import ChangePassword from "./pages/Profile/ChangePassword";
 import { AppLayout } from "./components/layout/AppLayout";
 import { UserProvider } from "./components/layout/UserContext";
 import { Queries } from "./pages/Query/Queries";
@@ -49,6 +50,7 @@ export const App = () => {
         { path: "salary", element: <Salary /> },
         { path: "leaves", element: <Leaves /> },
         { path: "profile", element: <Profile /> },
+        { path: "change-password", element: <ChangePassword /> },
         { path: "queries", element: <Queries /> },
         { path: "queries/inbox", element: <DepartmentQueryInbox /> },
         { path: "claims", element: <Claims /> },

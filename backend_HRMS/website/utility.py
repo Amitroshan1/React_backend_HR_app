@@ -318,6 +318,9 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             out_times = []
             totals = []
 
+            # Per-admin punches mapped by day (1..num_days)
+            admin_punches = punch_map.get(admin.id, {})
+
             for d in range(1, num_days + 1):
                 punch = admin_punches.get(d)
                 if punch:
