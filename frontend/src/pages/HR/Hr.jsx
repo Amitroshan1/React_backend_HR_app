@@ -709,14 +709,14 @@ if (view === 'update_signup') {
   }
 
   if (view === 'newsfeed') {
-  return <AddNewsFeed onBack={() => setView('updates')} />;
+  return <AddNewsFeed onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />;
 }
 if (view === 'update_leave'){
-  return <UpdateLeave onBack={() => setView('updates')} />
+  return <UpdateLeave onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />
 }
 
 if (view === 'update_manager') {
-  return <UpdateManager onBack={() => setView('updates')} />;
+  return <UpdateManager onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />;
 }
 
 if (view === 'add_assets') {
@@ -998,7 +998,7 @@ if (view === 'confirmation_request') {
         <div className="stat-card clickable updates-card-theme" onClick={() => setView('updates')}>
           <div className="stat-content">
             <p className="stat-label">Updates</p>
-            <h3 className="stat-value">9</h3>
+            <h3 className="stat-value">{updateOptions.length}</h3>
             <p className="stat-sub">Click to manage</p>
           </div>
           <div className="stat-icon-bg bg-updates">

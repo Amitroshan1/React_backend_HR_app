@@ -493,16 +493,13 @@ import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle } from 
 import './Queries.css';
 
 const API_BASE_URL = '/api/query';
+const MASTER_OPTIONS_API = '/api/auth/master-options';
 
-const DEPARTMENTS = [
-  { id: 'Human Resource', name: 'Human Resource' },
-  { id: 'Accounts', name: 'Accounts' },
-  { id: 'IT Department', name: 'IT Department' },
-  { id: 'Administration', name: 'Administration' }
-];
+const FALLBACK_DEPARTMENTS = ['Human Resource', 'Accounts', 'IT Department', 'Administration'];
 
 export const Queries = () => {
   const location = useLocation();
+  const [departments, setDepartments] = useState(FALLBACK_DEPARTMENTS);
   const [queries, setQueries] = useState([]);
   const [formData, setFormData] = useState({ department: '', title: '', text: '' });
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -515,6 +512,15 @@ export const Queries = () => {
   const fileInputRef = useRef(null);
 
   const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => { if (data.success && data.departments?.length) setDepartments(data.departments); });
+    }
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -769,7 +775,7 @@ export const Queries = () => {
                     <label>Department</label>
                     <select value={formData.department} onChange={(e) => setFormData({...formData, department: e.target.value})} required>
                       <option value="">Select Department</option>
-                      {DEPARTMENTS.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      {departments.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
                   <div className="q-group">

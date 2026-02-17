@@ -1,8 +1,29 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
 import './SignUp.css';
 
+const MASTER_OPTIONS_API = '/api/auth/master-options';
+const FALLBACK_EMP_TYPES = ['Human Resource', 'Software Developer'];
+const FALLBACK_CIRCLES = ['NHQ', 'Mumbai'];
+
 export const SignUp = ({ onBack }) => {
+  const [empTypeOptions, setEmpTypeOptions] = useState(FALLBACK_EMP_TYPES);
+  const [circleOptions, setCircleOptions] = useState(FALLBACK_CIRCLES);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data.success) {
+            if (data.departments?.length) setEmpTypeOptions(data.departments);
+            if (data.circles?.length) setCircleOptions(data.circles);
+          }
+        });
+    }
+  }, []);
+
   return (
     <div className="signup-page-container">
       {/* Header Section */}
@@ -83,16 +104,18 @@ export const SignUp = ({ onBack }) => {
                 <label>Employee Type</label>
                 <select defaultValue="">
                   <option value="" disabled>Select Employee Type</option>
-                  <option value="HR">Human Resource</option>
-                  <option value="Developer">Software Developer</option>
+                  {empTypeOptions.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
                 </select>
               </div>
               <div className="form-group">
                 <label>Circle</label>
                 <select defaultValue="">
                   <option value="" disabled>Choose Your Circle</option>
-                  <option value="NHQ">NHQ</option>
-                  <option value="Mumbai">Mumbai</option>
+                  {circleOptions.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
                 </select>
               </div>
             </div>

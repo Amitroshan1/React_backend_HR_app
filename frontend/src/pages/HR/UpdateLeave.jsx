@@ -1,15 +1,21 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
 import './UpdateLeave.css';
 
 const API_BASE = '/api/HumanResource';
+const MASTER_OPTIONS_API = '/api/auth/master-options';
 
-const EMP_TYPE_OPTIONS = ['Software Developer', 'Human Resource', 'Accounts', 'Admin'];
-const CIRCLE_OPTIONS = ['NHQ', 'Delhi', 'Mumbai', 'Bangalore', 'Hyderabad'];
+const FALLBACK_EMP_TYPES = ['Software Developer', 'Human Resource', 'Accounts', 'Admin'];
+const FALLBACK_CIRCLES = ['NHQ', 'Delhi', 'Mumbai', 'Bangalore', 'Hyderabad'];
 
-export const UpdateLeave = ({ onBack }) => {
+export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circleOptions: propCircleOptions }) => {
+  const [empTypeOptions, setEmpTypeOptions] = useState(propEmpTypeOptions || FALLBACK_EMP_TYPES);
+  const [circleOptions, setCircleOptions] = useState(propCircleOptions || FALLBACK_CIRCLES);
   const [view, setView] = useState('search');
-  const [filters, setFilters] = useState({ emp_type: 'Software Developer', circle: 'NHQ' });
+  const [filters, setFilters] = useState({
+    emp_type: (propEmpTypeOptions && propEmpTypeOptions[0]) || FALLBACK_EMP_TYPES[0],
+    circle: (propCircleOptions && propCircleOptions[0]) || FALLBACK_CIRCLES[0],
+  });
   const [employees, setEmployees] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
@@ -26,6 +32,30 @@ export const UpdateLeave = ({ onBack }) => {
     const token = localStorage.getItem('token');
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
+
+  useEffect(() => {
+    if (propEmpTypeOptions?.length) setEmpTypeOptions(propEmpTypeOptions);
+    else if (!propEmpTypeOptions) {
+      fetch(MASTER_OPTIONS_API, { headers: getAuthHeaders() })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => { if (data.success && data.departments?.length) setEmpTypeOptions(data.departments); });
+    }
+  }, [propEmpTypeOptions, getAuthHeaders]);
+  useEffect(() => {
+    if (propCircleOptions?.length) setCircleOptions(propCircleOptions);
+    else if (!propCircleOptions) {
+      fetch(MASTER_OPTIONS_API, { headers: getAuthHeaders() })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => { if (data.success && data.circles?.length) setCircleOptions(data.circles); });
+    }
+  }, [propCircleOptions, getAuthHeaders]);
+  useEffect(() => {
+    setFilters((prev) => ({
+      ...prev,
+      emp_type: prev.emp_type || empTypeOptions[0] || '',
+      circle: prev.circle || circleOptions[0] || '',
+    }));
+  }, [empTypeOptions, circleOptions]);
 
   const handleSearch = useCallback(async () => {
     setSearchError('');
@@ -221,7 +251,7 @@ export const UpdateLeave = ({ onBack }) => {
                 value={filters.emp_type}
                 onChange={(e) => setFilters((f) => ({ ...f, emp_type: e.target.value }))}
               >
-                {EMP_TYPE_OPTIONS.map((t) => (
+                {empTypeOptions.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
@@ -232,7 +262,7 @@ export const UpdateLeave = ({ onBack }) => {
                 value={filters.circle}
                 onChange={(e) => setFilters((f) => ({ ...f, circle: e.target.value }))}
               >
-                {CIRCLE_OPTIONS.map((c) => (
+                {circleOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>

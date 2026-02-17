@@ -481,7 +481,9 @@ def apply_leave_api():
             }), 409
 
     # -------------------------
-    # Leave calculations
+    # Leave calculations (compute requested vs. payable days)
+    # NOTE: We ONLY adjust LeaveBalance when manager APPROVES.
+    # Here we just compute how many days should be deducted vs. treated as LOP.
     # -------------------------
     leave_days = (end_date - start_date).days + 1
     deducted_days = 0.0
@@ -489,15 +491,13 @@ def apply_leave_api():
 
     # Privilege Leave
     if leave_type == "Privilege Leave":
-        if leave_days > leave_balance.privilege_leave_balance:
-            extra_days = leave_days - leave_balance.privilege_leave_balance
-            deducted_days = leave_balance.privilege_leave_balance
-            leave_balance.privilege_leave_balance = 0
+        available = float(leave_balance.privilege_leave_balance or 0.0)
+        if leave_days > available:
+            # Part of this leave will be LOP (extra_days)
+            extra_days = leave_days - available
+            deducted_days = available
         else:
             deducted_days = leave_days
-            leave_balance.privilege_leave_balance -= leave_days
-        # Track used leave in DB (so frontend shows "used" after apply)
-        leave_balance.used_privilege_leave += deducted_days
 
     # Casual Leave
     elif leave_type == "Casual Leave":
@@ -507,16 +507,14 @@ def apply_leave_api():
                 "message": "Casual Leave cannot exceed 2 days"
             }), 400
 
-        if leave_days > leave_balance.casual_leave_balance:
+        available = float(leave_balance.casual_leave_balance or 0.0)
+        if leave_days > available:
             return jsonify({
                 "success": False,
                 "message": "Insufficient Casual Leave balance"
             }), 400
 
         deducted_days = leave_days
-        leave_balance.casual_leave_balance -= leave_days
-        # Track used leave in DB (so frontend shows "used" after apply)
-        leave_balance.used_casual_leave += deducted_days
 
     # Half Day Leave
     elif leave_type == "Half Day Leave":
@@ -526,21 +524,21 @@ def apply_leave_api():
                 "message": "Half Day Leave can only be applied for one day"
             }), 400
 
+        # Always a single half day
         leave_days = 0.5
         deducted_days = 0.5
 
-        if leave_balance.casual_leave_balance >= 0.5:
-            leave_balance.casual_leave_balance -= 0.5
-            leave_balance.used_casual_leave += 0.5
-        elif leave_balance.privilege_leave_balance >= 0.5:
-            leave_balance.privilege_leave_balance -= 0.5
-            leave_balance.used_privilege_leave += 0.5
-        else:
+        cl_available = float(leave_balance.casual_leave_balance or 0.0)
+        pl_available = float(leave_balance.privilege_leave_balance or 0.0)
+        if cl_available < 0.5 and pl_available < 0.5:
+            # No balance available at all → treat fully as LOP
             extra_days = 0.5
 
     # Compensatory Leave
     elif leave_type == "Compensatory Leave":
-        if leave_balance.compensatory_leave_balance <= 0:
+        available = float(leave_balance.compensatory_leave_balance or 0.0)
+
+        if available <= 0:
             return jsonify({
                 "success": False,
                 "message": "No Compensatory Leave balance available"
@@ -552,16 +550,13 @@ def apply_leave_api():
                 "message": "Maximum 2 Compensatory Leave days allowed"
             }), 400
 
-        if leave_days > leave_balance.compensatory_leave_balance:
+        if leave_days > available:
             return jsonify({
                 "success": False,
                 "message": "Insufficient Compensatory Leave balance"
             }), 400
 
         deducted_days = leave_days
-        leave_balance.compensatory_leave_balance -= leave_days
-        # Track used leave in DB (so frontend shows "used" after apply)
-        leave_balance.used_comp_leave += deducted_days
 
     # Optional Leave (Optional Holiday) - doesn't deduct from any leave balance
     elif leave_type == "Optional Leave":
@@ -574,7 +569,7 @@ def apply_leave_api():
             }), 400
 
         # Optional Leave doesn't deduct from any balance, just records the application
-        # Set deducted_days to 1 (or leave_days) for tracking purposes
+        # Set deducted_days to 1 (or leave_days) for tracking / display purposes
         deducted_days = float(leave_days)
         extra_days = 0.0
 

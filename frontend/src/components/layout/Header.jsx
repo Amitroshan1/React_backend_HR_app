@@ -63,16 +63,33 @@ export const Header = () => {
   const [hoveredLink, setHoveredLink] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const LinkItem = ({ name, href }) => (
-    <Link
-      to={href}
-      className="nav-link"
-      onMouseEnter={() => setHoveredLink(name)}
-      onMouseLeave={() => setHoveredLink(null)}
-    >
-      {name}
-    </Link>
-  );
+  const LinkItem = ({ name, href }) => {
+    const isExternal = /^https?:\/\//i.test(href);
+
+    if (isExternal) {
+      return (
+        <a
+          href={href}
+          className="nav-link"
+          onMouseEnter={() => setHoveredLink(name)}
+          onMouseLeave={() => setHoveredLink(null)}
+        >
+          {name}
+        </a>
+      );
+    }
+
+    return (
+      <Link
+        to={href}
+        className="nav-link"
+        onMouseEnter={() => setHoveredLink(name)}
+        onMouseLeave={() => setHoveredLink(null)}
+      >
+        {name}
+      </Link>
+    );
+  };
 
   const toggleMenu = () => {
     setMenuOpen(!menuOpen);
@@ -88,7 +105,7 @@ export const Header = () => {
       {/* Desktop Menu */}
       <nav className="nav-menu">
         <LinkItem name="Home" href="/" />
-        <LinkItem name="About Us" href="/about" />
+        <LinkItem name="About Us" href="https://www.saffotech.com/" />
       </nav>
 
       {/* Hamburger Icon */}
@@ -101,7 +118,7 @@ export const Header = () => {
       {/* Mobile Menu */}
       <div className={`mobile-menu ${menuOpen ? "active" : ""}`}>
         <LinkItem name="Home" href="/" />
-        <LinkItem name="About Us" href="/about" />
+        <LinkItem name="About Us" href="https://www.saffotech.com/" />
       </div>
     </header>
   );

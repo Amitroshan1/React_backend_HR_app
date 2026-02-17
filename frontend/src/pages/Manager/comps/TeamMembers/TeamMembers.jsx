@@ -2,17 +2,33 @@ import React, { useState, useEffect, useMemo } from "react";
 import { fetchTeamMembers } from "../../api";
 import "./TeamMembers.css";
 
+const MASTER_OPTIONS_API = "/api/auth/master-options";
+
 export const TeamMembers = ({ filters, setFilters }) => {
   const { circle, type } = filters;
 
-  // 1. ✅ Pagination State - CHANGED TO 6
+  const [masterCircles, setMasterCircles] = useState([]);
+  const [masterTypes, setMasterTypes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 6; // Set to 6 to fit 100% screen height
+  const itemsPerPage = 6;
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // 2. ✅ Reset to page 1 whenever filters change
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data.success) {
+            if (data.circles?.length) setMasterCircles(data.circles);
+            if (data.departments?.length) setMasterTypes(data.departments);
+          }
+        });
+    }
+  }, []);
+
   useEffect(() => {
     setCurrentPage(1);
   }, [circle, type]);
@@ -37,15 +53,15 @@ export const TeamMembers = ({ filters, setFilters }) => {
     return () => { cancelled = true; };
   }, [circle, type]);
 
-  const circleOptions = useMemo(() => ([
-    "All",
-    ...new Set(members.map((m) => m.circle).filter(Boolean)),
-  ]), [members]);
+  const circleOptions = useMemo(() => {
+    if (masterCircles.length) return ["All", ...masterCircles];
+    return ["All", ...new Set(members.map((m) => m.circle).filter(Boolean))];
+  }, [masterCircles, members]);
 
-  const typeOptions = useMemo(() => ([
-    "All",
-    ...new Set(members.map((m) => m.role).filter(Boolean)),
-  ]), [members]);
+  const typeOptions = useMemo(() => {
+    if (masterTypes.length) return ["All", ...masterTypes];
+    return ["All", ...new Set(members.map((m) => m.role).filter(Boolean))];
+  }, [masterTypes, members]);
 
   // 3. ✅ Slicing logic for 6 members
   const indexOfLastItem = currentPage * itemsPerPage;

@@ -178,6 +178,13 @@ def create_query_api():
     db.session.add(query_obj)
     db.session.commit()
 
+    # Send email notification to department + CC employee (non-blocking)
+    try:
+        notify_query_event(query_obj, action="created")
+    except Exception:
+        # Safety: email failures must not break API
+        pass
+
     recipients = _department_recipients(department, exclude_admin_id=admin.id)
     _create_notifications_for_admins(
         recipients,

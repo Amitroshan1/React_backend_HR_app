@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import './AddNewsFeed.css';
 
 const API_BASE = '/api/HumanResource';
+const MASTER_OPTIONS_API = '/api/auth/master-options';
 
-const CIRCLE_OPTIONS = ['All', 'NHQ', 'Delhi', 'Mumbai', 'Bangalore', 'Hyderabad'];
-const EMP_TYPE_OPTIONS = ['All', 'All Employees', 'Software Developer', 'Human Resource', 'Accounts', 'Admin'];
+const FALLBACK_CIRCLES = ['NHQ', 'Delhi', 'Mumbai', 'Bangalore', 'Hyderabad'];
+const FALLBACK_EMP_TYPES = ['Software Developer', 'Human Resource', 'Accounts', 'Admin'];
 
-export const AddNewsFeed = ({ onBack }) => {
+export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeOptions: propEmpTypeOptions }) => {
+  const [circleOptions, setCircleOptions] = useState(() => ['All', ...(propCircleOptions || FALLBACK_CIRCLES)]);
+  const [empTypeOptions, setEmpTypeOptions] = useState(() => ['All', 'All Employees', ...(propEmpTypeOptions || FALLBACK_EMP_TYPES)]);
   const [form, setForm] = useState({
-    circle: 'NHQ',
-    emp_type: 'Software Developer',
+    circle: 'All',
+    emp_type: 'All Employees',
     title: '',
     content: '',
   });
@@ -32,6 +35,29 @@ export const AddNewsFeed = ({ onBack }) => {
     setFileName(f ? f.name : 'No file chosen');
     setError('');
   };
+
+  useEffect(() => {
+    if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);
+    else if (!propCircleOptions) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
+          .then((res) => res.json().catch(() => ({})))
+          .then((data) => { if (data.success && data.circles?.length) setCircleOptions(['All', ...data.circles]); });
+      }
+    }
+  }, [propCircleOptions]);
+  useEffect(() => {
+    if (propEmpTypeOptions?.length) setEmpTypeOptions(['All', 'All Employees', ...propEmpTypeOptions]);
+    else if (!propEmpTypeOptions) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
+          .then((res) => res.json().catch(() => ({})))
+          .then((data) => { if (data.success && data.departments?.length) setEmpTypeOptions(['All', 'All Employees', ...data.departments]); });
+      }
+    }
+  }, [propEmpTypeOptions]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -63,7 +89,7 @@ export const AddNewsFeed = ({ onBack }) => {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         setSuccess(true);
-        setForm({ circle: 'NHQ', emp_type: 'Software Developer', title: '', content: '' });
+        setForm({ circle: form.circle, emp_type: form.emp_type, title: '', content: '' });
         setFile(null);
         setFileName('No file chosen');
         const fileInput = document.getElementById('news-file');
@@ -101,7 +127,7 @@ export const AddNewsFeed = ({ onBack }) => {
             <div className="form-item">
               <label>Circle</label>
               <select name="circle" value={form.circle} onChange={handleChange}>
-                {CIRCLE_OPTIONS.map((c) => (
+                {circleOptions.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
@@ -110,7 +136,7 @@ export const AddNewsFeed = ({ onBack }) => {
             <div className="form-item">
               <label>Employee Type</label>
               <select name="emp_type" value={form.emp_type} onChange={handleChange}>
-                {EMP_TYPE_OPTIONS.map((t) => (
+                {empTypeOptions.map((t) => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>

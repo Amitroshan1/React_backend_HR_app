@@ -22,6 +22,7 @@ from .models.news_feed import NewsFeed
 from .models.query import Query
 from .models.education import Education, UploadDoc
 from .models.prev_com import PreviousCompany
+from .models.master_data import MasterData
 from datetime import datetime, time, date
 from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
@@ -46,6 +47,30 @@ logger.addHandler(ch)
 
 
 # ===================================================
+# Master options (departments / circles) for any authenticated user
+# FINAL URL → GET /api/auth/master-options
+@auth.route("/master-options", methods=["GET"])
+@jwt_required()
+def get_master_options():
+    """Return department and circle names from MasterData for dropdowns (Queries, Admin, etc.)."""
+    dept_rows = (
+        MasterData.query.filter_by(master_type="department", is_active=True)
+        .order_by(MasterData.name.asc())
+        .all()
+    )
+    circle_rows = (
+        MasterData.query.filter_by(master_type="circle", is_active=True)
+        .order_by(MasterData.name.asc())
+        .all()
+    )
+    return jsonify({
+        "success": True,
+        "departments": [r.name for r in dept_rows],
+        "circles": [r.name for r in circle_rows],
+    }), 200
+
+
+# ===================================================
 # ✅ 1️⃣ VALIDATE USER (EMAIL/MOBILE + PASSWORD)
 # FINAL URL → POST /api/auth/validate-user
 @auth.route("/validate-user", methods=["POST"])
@@ -54,13 +79,13 @@ def validate_user():
 
     identifier = data.get("identifier")
     password = data.get("password")
-    print(identifier, password)
+    
     if not identifier or not password:
         return jsonify({
             "success": False,
             "message": "Missing credentials"
         }), 400
-
+    
     admin = None
     if identifier.isdigit():
         admin = Admin.query.filter_by(mobile=identifier).first()
@@ -81,12 +106,6 @@ def validate_user():
         }
     )
 
-    try:
-        send_login_alert_email(admin)
-    except Exception as e:
-        current_app.logger.warning(
-            f"Login email failed for {admin.email}: {e}"
-        )
 
     return jsonify({
         "success": True,

@@ -8,6 +8,7 @@ from . import db
 from .models.Admin_models import Admin
 from .models.manager_model import ManagerContact
 from .models.Performance import EmployeePerformance, ManagerReview
+from .email import send_performance_submitted_email, send_performance_reviewed_email
 
 
 performance_api = Blueprint("performance_api", __name__)
@@ -165,6 +166,13 @@ def upsert_self_performance():
         row.submitted_at = datetime.utcnow()
 
     db.session.commit()
+
+    # Fire-and-forget email (do not break API on failure)
+    try:
+        send_performance_submitted_email(row)
+    except Exception:
+        pass
+
     return jsonify({"success": True, "performance": _serialize_performance(row)}), 200
 
 
@@ -244,6 +252,12 @@ def manager_review(performance_id):
     row.status = "Reviewed"
     db.session.commit()
     row = EmployeePerformance.query.get(row.id)
+
+    try:
+        send_performance_reviewed_email(row, manager_admin, rating, comments)
+    except Exception:
+        pass
+
     return jsonify({"success": True, "performance": _serialize_performance(row)}), 200
 
 

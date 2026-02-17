@@ -205,6 +205,14 @@ def upload_form16():
     db.session.add(form16)
     db.session.commit()
 
+    # Notify employee (and CC Accounts) about Form 16 upload
+    try:
+        send_form16_uploaded_email(target_admin, financial_year)
+    except Exception:
+        current_app.logger.warning(
+            f"Form16 upload email failed for admin_id={admin_id}"
+        )
+
     return jsonify({
         "success": True,
         "message": "Form 16 uploaded successfully",
@@ -375,6 +383,14 @@ def upload_payslip():
     )
     db.session.add(payslip)
     db.session.commit()
+
+    # Notify employee (and CC Accounts) about payslip upload
+    try:
+        send_payslip_uploaded_email(target_admin, month, year)
+    except Exception:
+        current_app.logger.warning(
+            f"Payslip upload email failed for admin_id={admin_id}"
+        )
 
     return jsonify({
         "success": True,

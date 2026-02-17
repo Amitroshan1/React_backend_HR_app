@@ -1,12 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Admin.css';
 import { employeesData } from './Data';
 
+const MASTER_OPTIONS_API = '/api/auth/master-options';
+const FALLBACK_EMP_TYPES = ['Engineer', 'HR', 'Accountant'];
+const FALLBACK_CIRCLES = ['North', 'South', 'East', 'West'];
+
 const Admin = () => {
   const navigate = useNavigate();
+  const [employeeTypeOptions, setEmployeeTypeOptions] = useState(['All', ...FALLBACK_EMP_TYPES]);
+  const [circleOptions, setCircleOptions] = useState(['All', ...FALLBACK_CIRCLES]);
   const [employeeType, setEmployeeType] = useState('All');
   const [circle, setCircle] = useState('All');
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data.success) {
+            if (data.departments?.length) setEmployeeTypeOptions(['All', ...data.departments]);
+            if (data.circles?.length) setCircleOptions(['All', ...data.circles]);
+          }
+        });
+    }
+  }, []);
 
   // Filter employees based on selected filters
   const getFilteredEmployees = () => {
@@ -55,10 +75,9 @@ const Admin = () => {
             onChange={(e) => setEmployeeType(e.target.value)}
             className="filter-selectt"
           >
-            <option value="All">All</option>
-            <option value="Engineer">Engineer</option>
-            <option value="HR">HR</option>
-            <option value="Accountant">Accountant</option>
+            {employeeTypeOptions.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
           </select>
         </div>
 
@@ -69,11 +88,9 @@ const Admin = () => {
             onChange={(e) => setCircle(e.target.value)}
             className="filter-selectt"
           >
-            <option value="All">All</option>
-            <option value="North">North</option>
-            <option value="South">South</option>
-            <option value="East">East</option>
-            <option value="West">West</option>
+            {circleOptions.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
           </select>
         </div>
       </div>

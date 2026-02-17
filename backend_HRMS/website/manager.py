@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import func, or_
 from datetime import date
@@ -9,6 +9,7 @@ from .models.attendance import LeaveApplication, WorkFromHomeApplication
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .models.manager_model import ManagerContact
+from .email import send_leave_decision_email, send_wfh_decision_email
 
 
 manager = Blueprint("manager", __name__)
@@ -211,13 +212,59 @@ def act_on_leave_request(leave_id):
     new_status = "Approved" if action == "approve" else "Rejected"
     leave_obj.status = new_status
 
-    if new_status == "Rejected":
-        deducted = float(leave_obj.deducted_days or 0.0)
-        if leave_obj.admin and leave_obj.admin.leave_balance and deducted > 0:
-            leave_obj.admin.leave_balance.restore_leave(leave_obj.leave_type, deducted)
-            _reverse_leave_usage(leave_obj.admin.leave_balance, leave_obj.leave_type, deducted)
+    leave_balance = leave_obj.admin.leave_balance if leave_obj.admin else None
+    deducted = float(leave_obj.deducted_days or 0.0)
+
+    # Apply balance changes ONLY on approval.
+    # Rejected requests do not touch LeaveBalance.
+    if new_status == "Approved" and leave_balance and deducted > 0:
+        lt = leave_obj.leave_type
+
+        # Privilege Leave
+        if lt == "Privilege Leave":
+            current = float(leave_balance.privilege_leave_balance or 0.0)
+            leave_balance.privilege_leave_balance = max(0.0, current - deducted)
+            leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + deducted
+
+        # Casual Leave
+        elif lt == "Casual Leave":
+            current = float(leave_balance.casual_leave_balance or 0.0)
+            leave_balance.casual_leave_balance = max(0.0, current - deducted)
+            leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + deducted
+
+        # Compensatory Leave
+        elif lt == "Compensatory Leave":
+            current = float(leave_balance.compensatory_leave_balance or 0.0)
+            leave_balance.compensatory_leave_balance = max(0.0, current - deducted)
+            leave_balance.used_comp_leave = float(leave_balance.used_comp_leave or 0.0) + deducted
+
+        # Half Day Leave: treat as 0.5 day CL (or PL) unless it was pure LOP (extra_days >= 0.5)
+        elif lt == "Half Day Leave":
+            extra = float(leave_obj.extra_days or 0.0)
+            if extra < 0.5:
+                # There was sufficient balance when applied; now consume from CL if possible, else PL.
+                if float(leave_balance.casual_leave_balance or 0.0) >= 0.5:
+                    leave_balance.casual_leave_balance -= 0.5
+                    leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + 0.5
+                elif float(leave_balance.privilege_leave_balance or 0.0) >= 0.5:
+                    leave_balance.privilege_leave_balance -= 0.5
+                    leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + 0.5
+                # else: treat as LOP at this point as well (no balance change)
+
+        # Optional Leave: never touches leave balances
+        elif lt == "Optional Leave":
+            pass
 
     db.session.commit()
+
+    # Fire-and-forget email notification; never break API on failure
+    try:
+        send_leave_decision_email(leave_obj, approver, action)
+    except Exception:
+        current_app.logger.warning(
+            "send_leave_decision_email failed for leave_id=%s", getattr(leave_obj, "id", None)
+        )
+
     return jsonify({"success": True, "message": f"Leave request {new_status.lower()}"}), 200
 
 
@@ -276,6 +323,14 @@ def act_on_wfh_request(wfh_id):
 
     wfh_obj.status = "Approved" if action == "approve" else "Rejected"
     db.session.commit()
+
+    try:
+        send_wfh_decision_email(wfh_obj, approver, action)
+    except Exception:
+        current_app.logger.warning(
+            "send_wfh_decision_email failed for wfh_id=%s", getattr(wfh_obj, "id", None)
+        )
+
     return jsonify({"success": True, "message": f"WFH request {wfh_obj.status.lower()}"}), 200
 
 

@@ -111,7 +111,7 @@ def send_login_alert_email(user):
     <p>Regards,<br>
     <strong>HRMS Security Team</strong></p>
     """
-
+    print(f"Preparing to send login alert email to {user.email}")
     return send_email_via_zeptomail(
         sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
         subject=subject,
@@ -134,11 +134,17 @@ def send_payslip_uploaded_email(admin, month, year):
         <p>Regards,<br><strong>Accounts Team</strong></p>
         """
 
+        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        cc_emails = []
+        if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
+            cc_emails.append(accounts_email.strip())
+
         return send_email_via_zeptomail(
             sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
             subject=subject,
             body=body,
-            recipient_email=admin.email
+            recipient_email=admin.email,
+            cc_emails=cc_emails or None
         )
     except Exception as e:
         current_app.logger.warning(f"Payslip email failed for {admin.email}: {e}")
@@ -159,11 +165,17 @@ def send_form16_uploaded_email(admin, financial_year):
         <p>Regards,<br><strong>Accounts Team</strong></p>
         """
 
+        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        cc_emails = []
+        if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
+            cc_emails.append(accounts_email.strip())
+
         return send_email_via_zeptomail(
             sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
             subject=subject,
             body=body,
-            recipient_email=admin.email
+            recipient_email=admin.email,
+            cc_emails=cc_emails or None
         )
     except Exception as e:
         current_app.logger.warning(f"Form16 email failed for {admin.email}: {e}")
@@ -349,7 +361,7 @@ def send_wfh_approval_email_to_managers(admin, wfh):
             <tr><td><strong>End Date</strong></td>
                 <td>{wfh.end_date.strftime('%d-%m-%Y')}</td></tr>
             <tr><td><strong>Reason</strong></td>
-                <td>{wfh.reason.replace(chr(10), '<br>')}</td></tr>
+                <td>{wfh.reason.replace(chr(40), '<br>')}</td></tr>
             <tr><td><strong>Status</strong></td>
                 <td><strong>{wfh.status}</strong></td></tr>
         </table>
@@ -364,7 +376,28 @@ def send_wfh_approval_email_to_managers(admin, wfh):
         """
 
         # -------------------------
-        # Send email (TO HR, CC managers if any)
+        # Also CC the employee who submitted WFH
+        # -------------------------
+        if admin.email:
+            emp_email = admin.email.strip()
+            if emp_email:
+                cc_emails.append(emp_email)
+
+        # De-duplicate CC list and remove blanks
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+        cc_emails = deduped_cc
+
+        # -------------------------
+        # Send email (TO HR, CC managers + employee)
         # -------------------------
         send_email_via_zeptomail(
             sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
@@ -379,6 +412,300 @@ def send_wfh_approval_email_to_managers(admin, wfh):
     except Exception as e:
         current_app.logger.error(
             f"WFH approval email failed for {admin.email}: {e}"
+        )
+        return False
+
+
+def send_wfh_decision_email(wfh_obj, approver, action: str):
+    """
+    Notify employee + HR (+ managers if mapped) when a WFH request is approved/rejected.
+    """
+    try:
+        admin = wfh_obj.admin
+        if not admin:
+            return False
+
+        to_email = (admin.email or "").strip()
+        if not to_email:
+            return False
+
+        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        cc_emails = []
+
+        # HR always in CC (if configured and not same as TO)
+        if hr_email and hr_email.strip().lower() != to_email.lower():
+            cc_emails.append(hr_email.strip())
+
+        # Manager mapping (optional)
+        manager_contact = ManagerContact.query.filter_by(
+            user_email=admin.email
+        ).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=admin.circle,
+                user_type=admin.emp_type
+            ).first()
+
+        if manager_contact:
+            for email_field in ("l1_email", "l2_email", "l3_email"):
+                val = getattr(manager_contact, email_field, None)
+                if val:
+                    addr = val.strip()
+                    if addr and addr.lower() != to_email.lower():
+                        cc_emails.append(addr)
+
+        # De-duplicate CCs
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+
+        status_text = "approved" if action == "approve" else "rejected"
+        subject = f"WFH Request {status_text.capitalize()}"
+
+        body = f"""
+        <p>Hello {admin.first_name or admin.email},</p>
+
+        <p>Your Work From Home (WFH) request has been <strong>{status_text}</strong> by {approver.first_name or approver.email}.</p>
+
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{admin.first_name} ({admin.email})</td></tr>
+            <tr><td><strong>Circle</strong></td><td>{admin.circle}</td></tr>
+            <tr><td><strong>Department</strong></td><td>{admin.emp_type}</td></tr>
+            <tr><td><strong>Start Date</strong></td><td>{wfh_obj.start_date}</td></tr>
+            <tr><td><strong>End Date</strong></td><td>{wfh_obj.end_date}</td></tr>
+            <tr><td><strong>Reason</strong></td><td>{wfh_obj.reason}</td></tr>
+            <tr><td><strong>Status</strong></td><td>{wfh_obj.status}</td></tr>
+        </table>
+
+        <p>Please log in to the HRMS portal if you need more details.</p>
+        """
+
+        send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=deduped_cc or None,
+        )
+        return True
+
+    except Exception as e:
+        current_app.logger.warning(
+            f"WFH decision email failed for wfh_id={getattr(wfh_obj, 'id', None)}: {e}"
+        )
+        return False
+
+
+def send_performance_submitted_email(perf_row):
+    """
+    Notify manager(s) + HR + employee when a self-performance review is submitted.
+    """
+    try:
+        admin = perf_row.admin
+        if not admin:
+            return False
+
+        # Base recipients
+        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        to_email = None
+        cc_emails = []
+
+        # Manager mapping: prefer employee-specific, then group
+        manager_contact = ManagerContact.query.filter_by(
+            user_email=admin.email
+        ).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=admin.circle,
+                user_type=admin.emp_type
+            ).first()
+
+        if manager_contact:
+            # Choose primary TO manager
+            for email_field in ("l1_email", "l2_email", "l3_email"):
+                val = getattr(manager_contact, email_field, None)
+                if val:
+                    to_email = val.strip()
+                    break
+            # Add any remaining manager emails to CC
+            for email_field in ("l1_email", "l2_email", "l3_email"):
+                val = getattr(manager_contact, email_field, None)
+                if val:
+                    addr = val.strip()
+                    if addr and addr.lower() != (to_email or "").lower():
+                        cc_emails.append(addr)
+
+        # Fallbacks: if no manager, send to HR or employee
+        if not to_email:
+            if hr_email:
+                to_email = hr_email.strip()
+            elif admin.email:
+                to_email = admin.email.strip()
+
+        if not to_email:
+            return False
+
+        # HR in CC if not already TO
+        if hr_email and hr_email.strip().lower() != to_email.lower():
+            cc_emails.append(hr_email.strip())
+
+        # Always CC employee if not TO
+        if admin.email:
+            emp_email = admin.email.strip()
+            if emp_email and emp_email.lower() != to_email.lower():
+                cc_emails.append(emp_email)
+
+        # De-duplicate CCs
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+
+        month = perf_row.month or ""
+        status_text = perf_row.status or "Submitted"
+        subject = f"Performance Review Submitted – {admin.first_name or admin.email} ({month})"
+
+        # Shorten achievements text for email
+        achievements = (perf_row.achievements or "").strip()
+        short_ach = " ".join(achievements.split()[:40]) + ("..." if len(achievements.split()) > 40 else "")
+
+        body = f"""
+        <p>Hello,</p>
+
+        <p><strong>{admin.first_name or admin.email}</strong> has submitted a self-performance review for <strong>{month}</strong>.</p>
+
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{admin.first_name} ({admin.email})</td></tr>
+            <tr><td><strong>Circle</strong></td><td>{admin.circle}</td></tr>
+            <tr><td><strong>Department</strong></td><td>{admin.emp_type}</td></tr>
+            <tr><td><strong>Month</strong></td><td>{month}</td></tr>
+            <tr><td><strong>Status</strong></td><td>{status_text}</td></tr>
+        </table>
+
+        <p><strong>Achievements (preview):</strong></p>
+        <p>{short_ach or 'N/A'}</p>
+
+        <p>Please log in to the HRMS portal to view the full review and add your feedback.</p>
+        """
+
+        send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=deduped_cc or None,
+        )
+        return True
+
+    except Exception as e:
+        current_app.logger.warning(
+            f"Performance submitted email failed for perf_id={getattr(perf_row, 'id', None)}: {e}"
+        )
+        return False
+
+
+def send_performance_reviewed_email(perf_row, manager_admin, rating: str, comments: str):
+    """
+    Notify employee + HR (+ manager/other managers) when a performance review is completed.
+    """
+    try:
+        admin = perf_row.admin
+        if not admin:
+            return False
+
+        to_email = (admin.email or "").strip()
+        if not to_email:
+            return False
+
+        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        cc_emails = []
+
+        # HR in CC if not TO
+        if hr_email and hr_email.strip().lower() != to_email.lower():
+            cc_emails.append(hr_email.strip())
+
+        # Reviewing manager in CC (if not TO)
+        if manager_admin and manager_admin.email:
+            mgr_email = manager_admin.email.strip()
+            if mgr_email and mgr_email.lower() != to_email.lower():
+                cc_emails.append(mgr_email)
+
+        # Optional: other mapped managers (L2/L3)
+        manager_contact = ManagerContact.query.filter_by(
+            user_email=admin.email
+        ).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=admin.circle,
+                user_type=admin.emp_type
+            ).first()
+
+        if manager_contact:
+            for email_field in ("l1_email", "l2_email", "l3_email"):
+                val = getattr(manager_contact, email_field, None)
+                if val:
+                    addr = val.strip()
+                    if addr and addr.lower() not in {to_email.lower()}:
+                        cc_emails.append(addr)
+
+        # De-duplicate CCs
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+
+        month = perf_row.month or ""
+        subject = f"Performance Review Completed – {month}"
+
+        body = f"""
+        <p>Hello {admin.first_name or admin.email},</p>
+
+        <p>Your performance review for <strong>{month}</strong> has been completed by {manager_admin.first_name or manager_admin.email}.</p>
+
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{admin.first_name} ({admin.email})</td></tr>
+            <tr><td><strong>Circle</strong></td><td>{admin.circle}</td></tr>
+            <tr><td><strong>Department</strong></td><td>{admin.emp_type}</td></tr>
+            <tr><td><strong>Rating</strong></td><td>{rating}</td></tr>
+        </table>
+
+        <p><strong>Manager Comments:</strong></p>
+        <p>{(comments or '').strip() or 'N/A'}</p>
+
+        <p>Please log in to the HRMS portal to view your full performance review details.</p>
+        """
+
+        send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=deduped_cc or None,
+        )
+        return True
+
+    except Exception as e:
+        current_app.logger.warning(
+            f"Performance reviewed email failed for perf_id={getattr(perf_row, 'id', None)}: {e}"
         )
         return False
 
@@ -820,11 +1147,19 @@ def _notify_query_created(query: Query):
     else:
         to_email = current_app.config.get("ZEPTO_CC_ACCOUNT")
 
+    # CC employee who raised the query (if email present)
+    cc_emails = []
+    if admin.email:
+        addr = admin.email.strip()
+        if addr:
+            cc_emails.append(addr)
+
     send_email_via_zeptomail(
         sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
         subject=subject,
         body=body,
-        recipient_email=to_email
+        recipient_email=to_email,
+        cc_emails=cc_emails or None
     )
 
 
@@ -975,6 +1310,27 @@ def send_leave_applied_email(admin, leave):
                 cc_emails.append(manager_contact.l2_email)
 
         # -------------------------
+        # Ensure employee is also CC'd (if not same as HR)
+        # -------------------------
+        if admin.email:
+            emp_email = admin.email.strip()
+            if emp_email and (not hr_email or emp_email.lower() != hr_email.strip().lower()):
+                cc_emails.append(emp_email)
+
+        # De-duplicate CC list and remove blanks
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+        cc_emails = deduped_cc
+
+        # -------------------------
         # Leave calculations for mail
         # -------------------------
         unpaid_days = leave.extra_days or 0.0
@@ -1083,6 +1439,95 @@ def send_leave_applied_email(admin, leave):
     except Exception as e:
         current_app.logger.warning(
             f"Leave email failed for {admin.email}: {e}"
+        )
+        return False
+
+
+def send_leave_decision_email(leave_obj, approver, action: str):
+    """
+    Notify employee + HR (+ managers if mapped) when a leave request is approved/rejected.
+    """
+    try:
+        admin = leave_obj.admin
+        if not admin:
+            return False
+
+        # Build recipient + CC list
+        to_email = (admin.email or "").strip()
+        if not to_email:
+            return False
+
+        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        cc_emails = []
+
+        # HR always in CC (if configured and not same as TO)
+        if hr_email and hr_email.strip().lower() != to_email.lower():
+            cc_emails.append(hr_email.strip())
+
+        # Manager mapping (optional) - use same pattern as WFH
+        manager_contact = ManagerContact.query.filter_by(
+            user_email=admin.email
+        ).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=admin.circle,
+                user_type=admin.emp_type
+            ).first()
+
+        if manager_contact:
+            for email_field in ("l1_email", "l2_email", "l3_email"):
+                val = getattr(manager_contact, email_field, None)
+                if val:
+                    addr = val.strip()
+                    if addr and addr.lower() != to_email.lower():
+                        cc_emails.append(addr)
+
+        # De-duplicate CCs
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+
+        status_text = "approved" if action == "approve" else "rejected"
+        subject = f"Leave Request {status_text.capitalize()} – {leave_obj.leave_type}"
+
+        body = f"""
+        <p>Hello {admin.first_name or admin.email},</p>
+
+        <p>Your leave request has been <strong>{status_text}</strong> by {approver.first_name or approver.email}.</p>
+
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{admin.first_name} ({admin.email})</td></tr>
+            <tr><td><strong>Circle</strong></td><td>{admin.circle}</td></tr>
+            <tr><td><strong>Department</strong></td><td>{admin.emp_type}</td></tr>
+            <tr><td><strong>Leave Type</strong></td><td>{leave_obj.leave_type}</td></tr>
+            <tr><td><strong>Period</strong></td><td>{leave_obj.start_date} to {leave_obj.end_date}</td></tr>
+            <tr><td><strong>Deducted Days (Paid)</strong></td><td>{leave_obj.deducted_days}</td></tr>
+            <tr><td><strong>Unpaid Days (LWP)</strong></td><td>{leave_obj.extra_days}</td></tr>
+            <tr><td><strong>Status</strong></td><td>{leave_obj.status}</td></tr>
+        </table>
+
+        <p>Please log in to the HRMS portal if you need more details.</p>
+        """
+
+        send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=deduped_cc or None,
+        )
+        return True
+
+    except Exception as e:
+        current_app.logger.warning(
+            f"Leave decision email failed for leave_id={getattr(leave_obj, 'id', None)}: {e}"
         )
         return False
 
