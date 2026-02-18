@@ -79,7 +79,7 @@ export const AppLayout = () => {
             {/* The Header now gets the username from the centralized context */}
             <Headers username={username} role={empType} /> 
             
-            <div className="content-area" style={{ paddingTop: "14px" }}>
+            <div className="content-area" style={{ paddingTop: "24px" }}>
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
                 <Outlet />
             </div>

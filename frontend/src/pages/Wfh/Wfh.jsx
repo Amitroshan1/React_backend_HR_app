@@ -270,7 +270,7 @@ export const Wfh = () => {
   };
 
   return (
-    <div className="hr-main-container">
+    <div className="wfh-dashboard-container">
       {toast.show && (
         <Toast 
           message={toast.message} 
@@ -279,43 +279,42 @@ export const Wfh = () => {
         />
       )}
 
-      <h2 className="section-title">Work From Home Request</h2>
-
-      <div className="hr-search-card">
+      <div className="wfh-form-card">
+        <h2 className="wfh-page-title">Work From Home Request</h2>
         <form className="wfh-form" onSubmit={handleSubmit}>
-          <div className="search-controls">
-            <div className="input-group">
-              <label>From Date</label>
+          <div className="wfh-search-controls">
+            <div className="wfh-input-group">
+              <label className="wfh-form-label">From Date</label>
               <input 
                 type="date" 
-                className="custom-input"
+                className="wfh-custom-input"
                 value={form.from}
                 min={today}
                 onChange={handleFromChange} 
               />
             </div>
-            <div className="input-group">
-              <label>To Date</label>
+            <div className="wfh-input-group">
+              <label className="wfh-form-label">To Date</label>
               <input 
                 type="date" 
-                className="custom-input"
+                className="wfh-custom-input"
                 value={form.to}
                 min={form.from || today} 
                 onChange={e => setForm({...form, to: e.target.value})} 
               />
             </div>
-            <div className="input-group full-width-mobile">
-              <label>Reason for WFH</label>
+            <div className="wfh-input-group wfh-input-group-full">
+              <label className="wfh-form-label">Reason for WFH</label>
               <input 
                 type="text"
-                className="custom-input"
+                className="wfh-custom-input"
                 placeholder="Enter reason..."
                 value={form.reason}
                 onChange={e => setForm({...form, reason: e.target.value})}
               />
             </div>
-            <div className="search-btn-wrapper">
-              <button type="submit" className="btn-search" disabled={!isFormValid || submitting}>
+            <div className="wfh-btn-wrapper">
+              <button type="submit" className="wfh-btn-submit" disabled={!isFormValid || submitting}>
                 {submitting ? 'Submitting...' : 'Submit Request'}
               </button>
             </div>
@@ -323,10 +322,10 @@ export const Wfh = () => {
         </form>
       </div>
 
-      <div className="table-outer-wrapper">
-        <h3 className="section-title" style={{ marginTop: '2rem' }}>Request History</h3>
-        <div className="table-responsive">
-          <table className="results-table">
+      <div className="wfh-table-card">
+        <h3 className="wfh-section-title">Request History</h3>
+        <div className="wfh-table-responsive">
+          <table className="wfh-results-table">
             <thead>
               <tr>
                 <th>From Date</th>
@@ -339,15 +338,11 @@ export const Wfh = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="empty-state" style={{ textAlign: 'center', padding: '40px' }}>
-                    Loading...
-                  </td>
+                  <td colSpan="5" className="wfh-empty-state">Loading...</td>
                 </tr>
               ) : requests.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="empty-state" style={{ textAlign: 'center', padding: '40px' }}>
-                    No WFH requests found.
-                  </td>
+                  <td colSpan="5" className="wfh-empty-state">No WFH requests found.</td>
                 </tr>
               ) : (
                 requests.map(req => (
@@ -358,8 +353,8 @@ export const Wfh = () => {
                     <td>{formatDate(req.created_at)}</td>
                     <td>
                       <span className={['pending','approved','rejected'].includes((req.status || 'pending').toLowerCase()) 
-                        ? `badge-${(req.status || 'pending').toLowerCase()}` 
-                        : 'badge-default'}>
+                        ? `wfh-badge wfh-badge-${(req.status || 'pending').toLowerCase()}` 
+                        : 'wfh-badge wfh-badge-default'}>
                         {req.status || 'Pending'}
                       </span>
                     </td>

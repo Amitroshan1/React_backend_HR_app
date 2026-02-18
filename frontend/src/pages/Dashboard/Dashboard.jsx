@@ -1,11 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
 import { NavLink } from 'react-router-dom';
-import {  FiChevronRight,FiCheckCircle, FiUserCheck,FiCalendar,FiBriefcase as FiBriefcaseIcon, FiMessageSquare, FiKey 
-} from "react-icons/fi";
-import { MdOutlineDateRange } from "react-icons/md";
+import { FiChevronRight, FiCheckCircle, FiUserCheck, FiSun, FiCalendar, FiHelpCircle, FiKey, FiHome, FiClock, FiDollarSign, FiUser } from "react-icons/fi";
+import { MdBadge, MdCalendarToday } from "react-icons/md";
 import { GiReceiveMoney } from "react-icons/gi";
-import { TbDeviceLaptop } from "react-icons/tb";
-import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
 const API_BASE_URL = "/api/auth";
 
@@ -84,6 +81,82 @@ const formatTimeDifference = (diffMs) => {
     const seconds = totalSeconds % 60;
     return `${String(hours)}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
 };
+
+/** Format a date/time for Recent Activity (e.g. "Today", "Yesterday", "2 days ago"). */
+const formatTimeAgo = (isoString) => {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffMs = now - d;
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (d >= todayStart) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    return formatDate(isoString);
+};
+
+/** Build list of recent activity items from punch, last leave, last payslip. */
+function RecentActivityList({ punchIn, punchOut, lastLeave, lastPayslip, formatTime, formatTimeAgo, formatDate }) {
+    const items = [];
+    if (punchIn) {
+        items.push({
+            key: 'punch-in',
+            dot: 'green',
+            text: `Punch-in at ${formatTime(punchIn)}`,
+            time: 'Today',
+        });
+    }
+    if (punchOut) {
+        items.push({
+            key: 'punch-out',
+            dot: 'blue',
+            text: `Punch-out at ${formatTime(punchOut)}`,
+            time: 'Today',
+        });
+    }
+    if (lastLeave) {
+        const status = (lastLeave.status || '').toLowerCase();
+        const dot = status === 'approved' ? 'green' : status === 'rejected' ? 'red' : 'orange';
+        items.push({
+            key: `leave-${lastLeave.id}`,
+            dot,
+            text: `Leave (${lastLeave.leave_type || 'Leave'}): ${lastLeave.status || 'Pending'}`,
+            time: formatTimeAgo(lastLeave.created_at) || formatDate(lastLeave.start_date),
+        });
+    }
+    if (lastPayslip) {
+        items.push({
+            key: `payslip-${lastPayslip.id}`,
+            dot: 'blue',
+            text: `Payslip updated: ${lastPayslip.month || ''} ${lastPayslip.year || ''}`,
+            time: `${lastPayslip.month || ''} ${lastPayslip.year || ''}`.trim() || '—',
+        });
+    }
+    if (items.length === 0) {
+        return (
+                            <ul className="activity-list">
+                                <li>
+                                    <div className="left"><span className="dot blue"></span> No recent activity</div>
+                                    <span className="time">—</span>
+                                </li>
+                            </ul>
+        );
+    }
+    return (
+                            <ul className="activity-list">
+                                {items.map((item) => (
+                                    <li key={item.key}>
+                                        <div className="left"><span className={`dot ${item.dot}`}></span> {item.text}</div>
+                                        <span className="time">{item.time}</span>
+                                    </li>
+                                ))}
+                            </ul>
+    );
+}
+
 export const Dashboard = () => {  
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -109,6 +182,8 @@ export const Dashboard = () => {
         punch: {},
         leave_balance: { pl: 'N/A', cl: 'N/A' },
         managers: {},
+        last_leave: null,
+        last_payslip: null,
     });
     const [punchInDateTime, setPunchInDateTime] = useState(null);
     const [newsFeed, setNewsFeed] = useState([]);
@@ -135,6 +210,8 @@ export const Dashboard = () => {
                     punch: { ...punch, working_hours: workingHours || punch.working_hours },
                     leave_balance: result.leave_balance || { pl: 'N/A', cl: 'N/A' },
                     managers: result.managers || {},
+                    last_leave: result.last_leave || null,
+                    last_payslip: result.last_payslip || null,
                 });
                 if (result.punch.punch_in && !result.punch.punch_out) {
                     setPunchInDateTime(parsePunchInToDate(result.punch.punch_in));
@@ -433,7 +510,7 @@ export const Dashboard = () => {
                                 <p className="card-subtext">{dynamicData.employee?.emp_type || dynamicData.user?.emp_type || dynamicData.user?.department || 'N/A'}</p> 
                             </div>
                             <div className="card-icon-round blue-bg">
-                                <FiBriefcaseIcon className="icon-white" />
+                                <MdBadge className="icon-white" size={24} />
                             </div>
                         </div>
                         <div className="card top-card simple-card">
@@ -443,7 +520,7 @@ export const Dashboard = () => {
                                 <p className="card-subtext">{experience}</p> 
                             </div>
                             <div className="card-icon-round green-bg">
-                                <MdOutlineDateRange className="icon-white" />
+                                <MdCalendarToday className="icon-white" size={24} />
                             </div>
                         </div>
                         <div className="card top-card simple-card">
@@ -455,7 +532,7 @@ export const Dashboard = () => {
                                 </p>
                             </div>
                             <div className="card-icon-round sky-bg">
-                                <FiCalendar className="icon-white" />
+                                <FiSun className="icon-white" size={24} />
                             </div>
                         </div>
                         <div className="card top-card manager-card">
@@ -467,7 +544,7 @@ export const Dashboard = () => {
                                 </div>
                             </div>
                             <button className="profile-action-btn orange-bg">
-                                <FiUserCheck className="icon-white" />
+                                <FiUserCheck className="icon-white" size={24} />
                             </button>
                         </div>
                     </div>
@@ -535,7 +612,7 @@ export const Dashboard = () => {
                         <div className="quick-actions grid-span-4 actions-grid" >
                             <NavLink to="/leaves" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <TbDeviceLaptop className="action-icon green" />
+                                    <div className="action-icon green"><div className="action-icon-inner"><FiSun /></div></div>
                                     <div>
                                         <h4>Apply for Leave</h4>
                                         <p>Submit a new leave request</p>
@@ -545,7 +622,7 @@ export const Dashboard = () => {
                             </NavLink>
                             <NavLink to="/salary" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <GiReceiveMoney className="action-icon orange" />
+                                    <div className="action-icon orange"><div className="action-icon-inner"><GiReceiveMoney /></div></div>
                                     <div>
                                         <h4>View Payslips</h4>
                                         <p>Download salary statements</p>
@@ -555,7 +632,7 @@ export const Dashboard = () => {
                             </NavLink>
                             <NavLink to="/profile" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <IoMdPerson className="action-icon sky" />
+                                    <div className="action-icon sky"><div className="action-icon-inner"><FiUser /></div></div>
                                     <div>
                                         <h4>My Profile</h4>
                                         <p>View and edit your details</p>
@@ -565,7 +642,7 @@ export const Dashboard = () => {
                             </NavLink>
                             <NavLink to="/wfh" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <TbDeviceLaptop className="action-icon green" />
+                                    <div className="action-icon green"><div className="action-icon-inner"><FiHome /></div></div>
                                     <div>
                                         <h4>WFH Request</h4>
                                         <p>Request work from home</p>
@@ -575,7 +652,7 @@ export const Dashboard = () => {
                             </NavLink>
                             <NavLink to="/attendance" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <IoMdPerson className="action-icon sky" />
+                                    <div className="action-icon sky"><div className="action-icon-inner"><FiClock /></div></div>
                                     <div>
                                         <h4>My Attendance</h4>
                                         <p>Check attendance records</p>
@@ -585,7 +662,7 @@ export const Dashboard = () => {
                             </NavLink>
                             <NavLink to="/queries" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <FiMessageSquare className="action-icon blue" /> 
+                                    <div className="action-icon blue"><div className="action-icon-inner"><FiHelpCircle /></div></div> 
                                     <div>
                                         <h4>Raise a Query</h4>
                                         <p>Ask for HR/Admin support</p>
@@ -595,7 +672,7 @@ export const Dashboard = () => {
                             </NavLink>
                              <NavLink to="/claims" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <IoMdPerson className="action-icon sky" />
+                                    <div className="action-icon orange"><div className="action-icon-inner"><FiDollarSign /></div></div>
                                     <div>
                                         <h4>Claims</h4>
                                         <p>Check claim records</p>
@@ -605,7 +682,7 @@ export const Dashboard = () => {
                             </NavLink>
                             <NavLink to="/change-password" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <FiKey className="action-icon blue" />
+                                    <div className="action-icon blue"><div className="action-icon-inner"><FiKey /></div></div>
                                     <div>
                                         <h4>Change Password</h4>
                                         <p>Update your account password</p>
@@ -615,7 +692,7 @@ export const Dashboard = () => {
                             </NavLink>
                             <NavLink to="/holiday-calendar" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
-                                    <FiCalendar className="action-icon sky" />
+                                    <div className="action-icon sky"><div className="action-icon-inner"><FiCalendar /></div></div>
                                     <div>
                                         <h4>Holiday Calendar</h4>
                                         <p>View upcoming holidays</p>
@@ -635,7 +712,7 @@ export const Dashboard = () => {
                             </NavLink> */}
                         </div>
                         <div className="news-feed-section grid-span-2">
-                            <h2 className="section-title">News Feed</h2>
+                            <h2 className="news-feed">News Feed</h2>
                             <p className="subtext">Announcements for your circle and role</p>
                             {newsFeed.length === 0 ? (
                                 <p className="news-feed-empty">No announcements yet.</p>
@@ -658,23 +735,18 @@ export const Dashboard = () => {
                         </div>
 
 
-                        {/* 4.4. Recent Activity - (Static Data Placeholder) */}
+                        {/* 4.4. Recent Activity - dynamic from punch, last leave, last payslip */}
                         <div className="recent-box grid-span-2">
-                            <h2 className="section-title">Recent Activity</h2>
-                            <ul className="activity-list">
-                                <li>
-                                    <div className="left"><span className="dot green"></span> Leave approved</div>
-                                    <span className="time">2 hours ago</span>
-                                </li>
-                                <li>
-                                    <div className="left"><span className="dot red"></span> Punch-out at 6:02 PM</div>
-                                    <span className="time">Yesterday</span>
-                                </li>
-                                <li>
-                                    <div className="left"><span className="dot blue"></span> New policy added</div>
-                                    <span className="time">3 days ago</span>
-                                </li>
-                            </ul>
+                            <h2 className="rec-act">Recent Activity</h2>
+                            <RecentActivityList
+                                punchIn={dynamicData.punch?.punch_in}
+                                punchOut={dynamicData.punch?.punch_out}
+                                lastLeave={dynamicData.last_leave}
+                                lastPayslip={dynamicData.last_payslip}
+                                formatTime={formatTime}
+                                formatTimeAgo={formatTimeAgo}
+                                formatDate={formatDate}
+                            />
                         </div>
                     </div>
                 </div>

@@ -1,176 +1,466 @@
-/* Core Layout */
-.hr-main-container {
-  padding: 0;
-  max-width: 1300px;
+/* WFH page – aligned with Dashboard/Leaves styling, fully responsive */
+
+:root {
+  --wfh-body-bg: #f4f7f6;
+  --wfh-card-bg: #ffffff;
+  --wfh-text-dark: #111827;
+  --wfh-text-muted: #6b7280;
+  --wfh-border: #e5e7eb;
+  --wfh-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+@keyframes wfhSectionEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes wfhCardEnter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Page container – same padding/max-width as Dashboard & Leaves */
+.wfh-dashboard-container {
+  padding: 24px 24px 32px;
+  max-width: 1400px;
   margin: 0 auto;
-  font-family: 'Inter', sans-serif;
-  /* background-color: #f8fafc; */
+  background-color: var(--wfh-body-bg);
   min-height: 100vh;
+  animation: wfhSectionEnter 0.4s ease-out;
 }
 
-/* Search/Form Card Styling */
-.hr-search-card {
-  /* background: #f0f9ff;  */
-  border: 1px solid #bae6fd;
-  border-radius: 12px;
-  padding: 24px;
-}
-
-.section-title {
-  color: #1e293b;
+/* Section titles – gradient text (match Dashboard/Leaves) */
+.wfh-page-title {
   font-size: 1.25rem;
   font-weight: 700;
-  margin-bottom: 1.5rem;
-  margin-top: 2rem;
+  margin: 0 0 20px 0;
+  background: linear-gradient(90deg, #4f46e5 0%, #3b82f6 50%, #10b981 100%) !important;
+  background-size: 100% 100% !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  display: inline-block;
 }
 
-.search-controls {
+.wfh-section-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0 0 16px 0;
+  background: linear-gradient(90deg, #4f46e5 0%, #3b82f6 50%, #10b981 100%) !important;
+  background-size: 100% 100% !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  display: inline-block;
+}
+
+/* Form card – Dashboard/Leaves style: accent stripe, 12px radius, hover */
+.wfh-form-card {
+  background-color: var(--wfh-card-bg);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--wfh-shadow);
+  border: 1px solid var(--wfh-border);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+  animation: wfhCardEnter 0.45s ease-out forwards;
+  margin-bottom: 28px;
+}
+
+.wfh-form-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(180deg, #0891b2 0%, #06b6d4 100%);
+}
+
+.wfh-form-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.15);
+}
+
+/* Form layout */
+.wfh-search-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  align-items: flex-end; /* Keeps button level with inputs */
+  align-items: flex-end;
 }
 
-.input-group {
+.wfh-input-group {
   flex: 1;
-  min-width: 200px;
+  min-width: 160px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.input-group label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #475569;
+.wfh-input-group-full {
+  min-width: 200px;
 }
 
-.custom-input {
-  height: 45px;
-  padding: 0 12px;
+.wfh-form-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--wfh-text-muted);
+}
+
+.wfh-custom-input {
+  height: 44px;
+  padding: 0 14px;
   border-radius: 8px;
-  border: 1px solid #cbd5e1;
-  background-color: white;
-  font-size: 14px;
+  border: 1px solid var(--wfh-border);
+  background-color: var(--wfh-card-bg);
+  font-size: 0.9rem;
+  color: var(--wfh-text-dark);
   outline: none;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.custom-input:focus {
+.wfh-custom-input:focus {
   border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
-/* Button Styling matching image_4b3f7d */
-.btn-search {
-  height: 45px;
-  background: #3b82f6;
-  color: white;
-  border: none;
+.wfh-custom-input::placeholder {
+  color: var(--wfh-text-muted);
+}
+
+/* Submit button – gradient (match Leave modal / Leaves page) */
+.wfh-btn-wrapper {
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+.wfh-btn-submit {
+  height: 44px;
   padding: 0 24px;
+  background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
+  color: #fff;
+  border: none;
   border-radius: 8px;
   font-weight: 600;
+  font-size: 0.9rem;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
   white-space: nowrap;
 }
 
-.btn-search:hover:not(:disabled) {
-  background: #2563eb;
+.wfh-btn-submit:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35);
 }
 
-.btn-search:disabled {
+.wfh-btn-submit:disabled {
   background: #cbd5e1;
   cursor: not-allowed;
+  transform: none;
 }
 
-/* Table Styling matching image_4988cb */
-.table-responsive {
-  overflow-x: auto;
-  margin-top: 20px;
+/* Table card – same card style as form */
+.wfh-table-card {
+  background-color: var(--wfh-card-bg);
   border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  padding: 24px;
+  box-shadow: var(--wfh-shadow);
+  border: 1px solid var(--wfh-border);
+  transition: box-shadow 0.25s ease;
+  animation: wfhCardEnter 0.45s ease-out 0.1s both;
 }
 
-.results-table {
+.wfh-table-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+
+.wfh-table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+  border: 1px solid var(--wfh-border);
+}
+
+.wfh-results-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 800px;
-  background: white;
+  min-width: 560px;
+  font-size: 0.9rem;
 }
 
-.results-table th {
-  background: #06b6d4; /* Teal color from your CSS */
-  color: white;
-  padding: 14px;
+.wfh-results-table th,
+.wfh-results-table td {
+  padding: 12px 16px;
   text-align: left;
+}
+
+.wfh-results-table th {
+  background: linear-gradient(135deg, #eef2ff 0%, #eff6ff 100%);
+  color: #4338ca;
   font-weight: 600;
+  border-bottom: 1px solid var(--wfh-border);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
 }
 
-.results-table td {
-  padding: 14px;
-  border-bottom: 1px solid #e2e8f0;
-  font-size: 14px;
-  color: #334155;
+.wfh-results-table tbody tr {
+  border-bottom: 1px solid var(--wfh-border);
+  color: var(--wfh-text-dark);
+  transition: background-color 0.15s ease;
 }
 
-.badge-pending {
-  background-color: #fef3c7;
-  color: #d97706;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
+.wfh-results-table tbody tr:hover {
+  background-color: rgba(79, 70, 229, 0.04);
+}
+
+.wfh-empty-state {
+  text-align: center;
+  padding: 40px 16px !important;
+  color: var(--wfh-text-muted);
+  font-size: 0.9rem;
+}
+
+/* Status badges – match Leaves */
+.wfh-badge {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 50px;
+  font-size: 0.75rem;
   font-weight: 600;
+  text-align: center;
 }
 
-.badge-approved {
-  background-color: #d1fae5;
+.wfh-badge-pending {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #b45309;
+}
+
+.wfh-badge-approved {
+  background-color: rgba(16, 185, 129, 0.12);
   color: #059669;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
 }
 
-.badge-rejected {
-  background-color: #fee2e2;
-  color: #dc2626;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
+.wfh-badge-rejected {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
 }
 
-.badge-default {
-  background-color: #e2e8f0;
-  color: #64748b;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
+.wfh-badge-default {
+  background-color: #e5e7eb;
+  color: #6b7280;
 }
 
-/* --- Production Responsiveness --- */
-@media (max-width: 1024px) {
-  .input-group {
-    min-width: calc(50% - 16px); /* 2 items per row on tablets */
+/* Reason column – prevent overflow */
+.wfh-results-table td:nth-child(3) {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- FULLY RESPONSIVE (match Dashboard/Leaves breakpoints) --- */
+
+@media (max-width: 1200px) {
+  .wfh-dashboard-container {
+    padding: 20px 20px 28px;
+  }
+  .wfh-form-card,
+  .wfh-table-card {
+    padding: 20px;
+  }
+  .wfh-search-controls {
+    gap: 14px;
+  }
+  .wfh-input-group {
+    min-width: 140px;
+  }
+}
+
+@media (max-width: 992px) {
+  .wfh-dashboard-container {
+    padding: 16px 16px 24px;
+  }
+  .wfh-page-title {
+    font-size: 1.15rem;
+    margin-bottom: 20px;
+  }
+  .wfh-section-title {
+    font-size: 1.1rem;
+  }
+  .wfh-form-card,
+  .wfh-table-card {
+    padding: 18px;
+  }
+  .wfh-results-table {
+    font-size: 0.85rem;
+  }
+  .wfh-results-table th,
+  .wfh-results-table td {
+    padding: 10px 12px;
   }
 }
 
 @media (max-width: 768px) {
-  .hr-main-container { padding: 15px; }
-  
-  .search-controls {
+  .wfh-dashboard-container {
+    padding: 12px 12px 20px;
+  }
+  .wfh-page-title {
+    font-size: 1.1rem;
+    margin-bottom: 18px;
+  }
+  .wfh-section-title {
+    font-size: 1.05rem;
+    margin-bottom: 12px;
+  }
+  .wfh-form-card {
+    padding: 18px;
+    margin-bottom: 20px;
+  }
+  .wfh-search-controls {
     flex-direction: column;
     align-items: stretch;
+    gap: 14px;
   }
-  
-  .input-group { 
-    min-width: 100%; 
+  .wfh-input-group,
+  .wfh-input-group-full {
+    min-width: 100%;
   }
-  
-  .btn-search {
+  .wfh-btn-wrapper {
+    align-self: stretch;
+    margin-top: 4px;
+  }
+  .wfh-btn-submit {
     width: 100%;
-    margin-top: 10px;
+    height: 46px;
   }
+  .wfh-table-card {
+    padding: 16px;
+  }
+  .wfh-table-responsive {
+    margin: 0 -4px;
+    border-radius: 6px;
+  }
+  .wfh-results-table {
+    min-width: 520px;
+    font-size: 0.8rem;
+  }
+  .wfh-results-table th,
+  .wfh-results-table td {
+    padding: 10px 10px;
+  }
+  .wfh-empty-state {
+    padding: 32px 12px !important;
+    font-size: 0.85rem;
+  }
+  .wfh-badge {
+    font-size: 0.7rem;
+    padding: 4px 10px;
+  }
+}
+
+@media (max-width: 576px) {
+  .wfh-dashboard-container {
+    padding: 10px 10px 16px;
+  }
+  .wfh-page-title {
+    font-size: 1.05rem;
+    margin-bottom: 16px;
+  }
+  .wfh-section-title {
+    font-size: 1rem;
+  }
+  .wfh-form-card {
+    padding: 14px;
+    margin-bottom: 18px;
+  }
+  .wfh-custom-input {
+    height: 42px;
+    font-size: 16px; /* prevent zoom on iOS */
+  }
+  .wfh-btn-submit {
+    height: 44px;
+    font-size: 0.9rem;
+  }
+  .wfh-table-card {
+    padding: 14px;
+  }
+  .wfh-results-table {
+    min-width: 480px;
+    font-size: 0.75rem;
+  }
+  .wfh-results-table th,
+  .wfh-results-table td {
+    padding: 8px 8px;
+  }
+  .wfh-results-table td:nth-child(3) {
+    max-width: 120px;
+  }
+  .wfh-empty-state {
+    padding: 24px 10px !important;
+    font-size: 0.8rem;
+  }
+  .wfh-badge {
+    font-size: 0.65rem;
+    padding: 3px 8px;
+  }
+}
+
+@media (max-width: 400px) {
+  .wfh-dashboard-container {
+    padding: 8px 8px 12px;
+  }
+  .wfh-page-title {
+    font-size: 1rem;
+    margin-bottom: 14px;
+  }
+  .wfh-section-title {
+    font-size: 0.95rem;
+  }
+  .wfh-form-card {
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  .wfh-form-label {
+    font-size: 0.8rem;
+  }
+  .wfh-custom-input {
+    height: 40px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+  .wfh-btn-submit {
+    height: 42px;
+    padding: 0 16px;
+    font-size: 0.85rem;
+  }
+  .wfh-table-card {
+    padding: 12px;
+  }
+  .wfh-results-table {
+    min-width: 440px;
+    font-size: 0.7rem;
+  }
+  .wfh-results-table th,
+  .wfh-results-table td {
+    padding: 6px 6px;
+  }
+  .wfh-badge {
+    font-size: 0.6rem;
+    padding: 3px 6px;
+  }
+}
+
+/* Date input reset (match Leaves) */
+.wfh-custom-input[type="date"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: var(--wfh-card-bg);
 }

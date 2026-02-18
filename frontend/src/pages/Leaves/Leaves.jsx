@@ -185,7 +185,7 @@
 
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { FiBriefcase, FiStar, FiPlus } from 'react-icons/fi';
+import { FiSun, FiStar, FiRefreshCw, FiPlus } from 'react-icons/fi';
 import { ApplyLeaveModal } from './ApplyLeaveModal';
 import './Leaves.css';
 import { useUser } from '../../components/layout/UserContext';
@@ -222,21 +222,21 @@ export const Leaves= () => {
                 type: 'Casual Leave', 
                 value: remainingCl,  // Big number: Show remaining/pending (e.g., 5)
                 subtext: `Total ${totalCl}, Used ${usedCasual}`,  // Subtext: Total entitlement (8) and how much used
-                icon: <FiBriefcase />, 
+                icon: <FiSun size={22} />, 
                 colorClass: 'green-card'
             },
             { 
                 type: 'Privilege Leave', 
                 value: remainingPl,  // Big number: Show remaining/pending (e.g., 11)
                 subtext: `Total ${totalPl}, Used ${usedPrivilege}`,  // Subtext: Total entitlement (13) and how much used
-                icon: <FiStar />, 
+                icon: <FiStar size={22} />, 
                 colorClass: 'blue-card'
             },
             {
                 type: 'Compensatory Leave',
                 value: remainingComp,  // Big number: Show remaining/pending
                 subtext: `Total ${totalComp}, Used ${usedComp}`,  // Subtext: Total entitlement and how much used
-                icon: <FiBriefcase />,
+                icon: <FiRefreshCw size={22} />,
                 colorClass: 'orange-card'
             }
         ];
@@ -369,12 +369,12 @@ export const Leaves= () => {
             <div className="summary-cards-grid-leave">
                 {stats.map((item, index) => (
                     <div key={index} className={`summary-card-leave ${item.colorClass}`}>
-                        <div className="summary-icon-leave">{item.icon}</div>
                         <div className="summary-content-leave">
                             <p className="summary-value-leave">{item.value}</p> 
                             <p className="summary-label-leave">{item.type}</p>
                             <p className="summary-subtext-leave">{item.subtext}</p> 
                         </div>
+                        <div className="summary-icon-leave">{item.icon}</div>
                     </div>
                 ))}
             </div>

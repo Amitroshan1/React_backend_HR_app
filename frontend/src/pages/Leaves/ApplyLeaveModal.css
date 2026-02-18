@@ -100,8 +100,7 @@
 
 .date-input {
     width: 100%;
-    /* padding adjusted for calendar icon */
-    padding: 10px 35px 10px 15px; 
+    padding: 10px 12px 10px 15px;
     border: 1px solid #ddd;
     border-radius: 5px;
     font-size: 14px;
@@ -267,13 +266,14 @@
 }
 
 .button-submit {
-    background-color: #3a8cff;
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
     color: #fff;
-    border: 1px solid #3a8cff;
+    border: none;
 }
 
 .button-submit:hover {
-    background-color: #2b7ae0;
+    background: linear-gradient(to right, #4338ca, #2563eb, #059669);
+    filter: brightness(1.05);
 }
 
 /* --- RESPONSIVENESS --- */
@@ -363,7 +363,7 @@
     }
 
     .date-input {
-        padding: 12px 35px 12px 15px;
+        padding: 12px 12px 12px 15px;
         font-size: 16px; /* Prevents zoom on iOS */
     }
 
@@ -425,7 +425,7 @@
     }
 
     .date-input {
-        padding: 10px 30px 10px 12px;
+        padding: 10px 12px 10px 12px;
         font-size: 14px;
     }
 

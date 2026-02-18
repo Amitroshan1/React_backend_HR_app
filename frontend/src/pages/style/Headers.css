@@ -73,6 +73,15 @@
     margin: 0;
 }
 
+/* Dashboard welcome: gradient text, extra bold (same as Leave/Dashboard section titles) */
+.header-left .welcome-title:not(.page-heading) {
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    font-weight: 800;
+}
+
 .page-heading {
     color: var(--primary-blue);
 }
@@ -94,9 +103,9 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    border: 1px solid #f59e0b;
-    background: #fffbeb;
-    color: #92400e;
+    border: 1px solid #818cf8;
+    background: #eef2ff;
+    color: #4338ca;
     border-radius: 999px;
     padding: 6px 10px;
     font-size: 0.82rem;
@@ -108,15 +117,21 @@
 }
 
 .notice-revoke-btn {
-    border: 1px solid #f59e0b;
+    border: 1px solid #6366f1;
     background: #fff;
-    color: #92400e;
+    color: #4f46e5;
     border-radius: 999px;
     font-size: 0.72rem;
     font-weight: 600;
     padding: 2px 8px;
     cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
 }
+
+/* .notice-revoke-btn:hover:not(:disabled) {
+    background: #e0e7ff;
+    color: linear-gradient(180deg, #2563eb 0%, #3b82f6 100%);
+} */
 
 .notice-revoke-btn:disabled {
     opacity: 0.7;
@@ -130,20 +145,20 @@
     border-radius: 50%;
     transition: background 0.2s;
 } */
- .notification-wrapper {
+.notification-wrapper {
     position: relative;
     cursor: pointer;
-    padding: 10px; /* Larger hit area */
+    padding: 10px;
     border-radius: 50%;
-    transition: background 0.2s;
+    transition: background 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #f8f9fa; /* Light background to make the black icon pop */
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
 }
 
 .notification-wrapper:hover {
-    background: var(--bg-hover);
+    background: #e0e7ff;
 }
 
 .notification-wrapper.disabled {
@@ -174,9 +189,14 @@
 } */
 
 .bell-icon {
-    font-size: 1.4rem; /* Increased size */
-    color: #ff0000; /* Darker color for higher contrast */
+    font-size: 1.2rem;
+    color: #fff;
     display: block;
+    transition: color 0.2s ease;
+}
+
+.notification-wrapper:hover .bell-icon {
+    color: #6366f1;
 }
 
 .badge {
@@ -307,11 +327,18 @@
 }
 
 .dropdown-item:hover {
-    background: var(--bg-hover);
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
     color: var(--primary-blue);
 }
 
+.profile-dropdown-card .dropdown-item.active {
+    background: linear-gradient(180deg, #2563eb 0%, #3b82f6 100%);
+    color: #fff;
+}
 
+.profile-dropdown-card .dropdown-item.active .d-icon {
+    color: #fff;
+}
 
 .logout-btn {
     color: var(--danger);

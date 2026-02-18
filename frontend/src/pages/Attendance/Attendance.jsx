@@ -614,47 +614,47 @@ export const Attendance = () => {
     const daysOfWeek = useMemo(() => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], []);
 
     const renderSummaryCard = (icon, value, label, subtext, colorClass) => (
-        <div className={`summary-card ${colorClass}`}>
-            <div className="summary-icon">{icon}</div>
-            <div className="summary-content">
-                <p className="summary-value">{value}</p>
-                <p className="summary-label">{label}</p>
-                <p className="summary-subtext">{subtext}</p>
+        <div className={`attendance-summary-card ${colorClass}`}>
+            <div className="attendance-summary-content">
+                <p className="attendance-summary-value">{value}</p>
+                <p className="attendance-summary-label">{label}</p>
+                <p className="attendance-summary-subtext">{subtext}</p>
             </div>
+            <div className="attendance-summary-icon">{icon}</div>
         </div>
     );
 
     if (loading) {
         return (
-            <div className="attendance-page-container">
-                <div className="attendance-loading" style={{ padding: '4rem', textAlign: 'center' }}>
-                    <div className="loader" style={{ width: 40, height: 40, margin: '0 auto' }} />
-                    <p style={{ marginTop: 16, color: '#666' }}>Loading attendance...</p>
+            <div className="attendance-dashboard-container">
+                <div className="attendance-loading">
+                    <div className="attendance-loader" />
+                    <p className="attendance-loading-text">Loading attendance...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="attendance-page-container">
+        <div className="attendance-dashboard-container">
             {error && (
-                <div className="attendance-error" style={{ padding: 12, marginBottom: 20, background: '#fee', borderRadius: 8, color: '#c00' }}>
+                <div className="attendance-error">
                     {error}
                 </div>
             )}
 
             {/* 1. TOP SUMMARY CARDS */}
-            <div className="summary-cards-grid">
-                {renderSummaryCard(<FiCalendar className="icon-main" />, `${data.summary.presentDays}`, 'Present Days', 'this month', 'blue-card')}
-                {renderSummaryCard(<FiArrowRight className="icon-main" />, `${data.summary.avgPunchIn}`, 'Average Punch In', data.summary.onTimeStatus, 'green-card')}
-                {renderSummaryCard(<FiArrowRight className="icon-main icon-flipped" />, `${data.summary.avgPunchOut}`, 'Average Punch Out', data.summary.overtimeStatus, 'orange-card')}
-                {renderSummaryCard(<MdOutlineWatchLater className="icon-main" />, `${data.summary.totalHours}`, 'Total Hours', `Target ${data.summary.targetHours}`, 'yellow-card')}
+            <div className="attendance-summary-grid">
+                {renderSummaryCard(<FiCalendar className="attendance-card-icon" />, `${data.summary.presentDays}`, 'Present Days', 'this month', 'attendance-card-blue')}
+                {renderSummaryCard(<FiArrowRight className="attendance-card-icon" />, `${data.summary.avgPunchIn}`, 'Average Punch In', data.summary.onTimeStatus, 'attendance-card-green')}
+                {renderSummaryCard(<FiArrowRight className="attendance-card-icon attendance-icon-flipped" />, `${data.summary.avgPunchOut}`, 'Average Punch Out', data.summary.overtimeStatus, 'attendance-card-orange')}
+                {renderSummaryCard(<MdOutlineWatchLater className="attendance-card-icon" />, `${data.summary.totalHours}`, 'Total Hours', `Target ${data.summary.targetHours}`, 'attendance-card-yellow')}
             </div>
 
             {/* 2. ATTENDANCE CALENDAR */}
-            <div className="attendance-calendar-card card">
+            <div className="attendance-calendar-card">
                 <div className="calendar-header-row">
-                    <h2 className="section-title">Attendance Calendar</h2>
+                    <h2 className="attendance-section-title">Attendance Calendar</h2>
                     <div className='title-subtext'>View and export monthly attendance records.</div>
 
                     <div className="calendar-controls">
@@ -666,16 +666,17 @@ export const Attendance = () => {
                         />
                         
                         <button 
-                            className="print-button" 
+                            type="button"
+                            className="attendance-btn attendance-btn-refresh" 
                             onClick={() => fetchAttendance()}
                             disabled={loading}
-                            style={{ marginRight: '10px' }}
                         >
-                            <FiRefreshCw className="icon-white" style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+                            <FiRefreshCw className="icon-white" />
                             Refresh
                         </button>
                         <button
-                            className="print-button"
+                            type="button"
+                            className="attendance-btn attendance-btn-download"
                             onClick={handleDownloadExcel}
                             disabled={downloadingExcel}
                         >

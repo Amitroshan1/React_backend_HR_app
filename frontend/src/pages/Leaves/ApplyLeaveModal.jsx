@@ -462,7 +462,7 @@
 
 
 import React, { useState, useEffect, useRef } from 'react';
-import { FiX, FiChevronDown, FiCalendar } from 'react-icons/fi';
+import { FiX, FiChevronDown } from 'react-icons/fi';
 import dayjs from 'dayjs'; 
 import './ApplyLeaveModal.css'; 
 
@@ -652,7 +652,6 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                                 <label className="form-label">From Date</label>
                                 <div className="date-input-wrapper">
                                     <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="date-input" required />
-                                    <FiCalendar className="date-icon" />
                                 </div>
                             </div>
                             <div className="date-input-block">
@@ -667,7 +666,6 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                                         min={leaveType === 'Optional Leave' ? fromDate : fromDate}
                                         max={leaveType === 'Optional Leave' ? fromDate : undefined}
                                     />
-                                    <FiCalendar className="date-icon" />
                                 </div>
                             </div>
                         </div>

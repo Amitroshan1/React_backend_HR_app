@@ -117,7 +117,7 @@
 
 
 import { useState, useRef, useEffect } from "react";
-import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { useLocation, Link, NavLink, useNavigate } from 'react-router-dom';
 import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
 
@@ -356,7 +356,6 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                         </button>
                     )}
                     <h1 className={`welcome-title ${!isDashboard ? 'page-heading' : ''}`}>{title}</h1>
-                    {isDashboard && <p className="overview-text">{subtitle}</p>}
                 </div>
 
                 <div className="header-right">
@@ -416,13 +415,13 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 {/* Role-specific Panel Link - Only shown for HR/Manager/Account/IT/Admin */}
                                 {isSpecialRole && (
                                     <>
-                                        <Link 
+                                        <NavLink 
                                             to={roleInfo.route}
-                                            className="dropdown-item"
+                                            className={({ isActive }) => "dropdown-item" + (isActive ? " active" : "")}
                                             onClick={() => setIsDropdownOpen(false)}
                                         >
                                             <FaBriefcase className="d-icon" /> <span>{roleInfo.display} Panel</span>
-                                        </Link>
+                                        </NavLink>
                                     </>
                                 )}
 

@@ -16,9 +16,9 @@ from .email import send_login_alert_email
 from .models.Admin_models import Admin
 from . import db
 from .models.emp_detail_models import Employee
-from .models.attendance import Punch,Location,LeaveBalance
+from .models.attendance import Punch, Location, LeaveBalance, LeaveApplication
 from .models.manager_model import ManagerContact
-from .models.news_feed import NewsFeed
+from .models.news_feed import NewsFeed, PaySlip
 from .models.query import Query
 from .models.education import Education, UploadDoc
 from .models.prev_com import PreviousCompany
@@ -234,6 +234,33 @@ def _employee_homepage_impl():
         _add_level("l3", "l3_name", "l3_email", "l3_mobile")
 
     # ------------------------
+    # 6. LAST LEAVE APPLICATION (for Recent Activity)
+    # ------------------------
+    last_leave = LeaveApplication.query.filter_by(admin_id=admin.id).order_by(LeaveApplication.created_at.desc()).first()
+    last_leave_data = None
+    if last_leave:
+        last_leave_data = {
+            "id": last_leave.id,
+            "leave_type": last_leave.leave_type,
+            "status": last_leave.status,
+            "start_date": last_leave.start_date.strftime("%Y-%m-%d") if last_leave.start_date else None,
+            "end_date": last_leave.end_date.strftime("%Y-%m-%d") if last_leave.end_date else None,
+            "created_at": last_leave.created_at.strftime("%Y-%m-%d %H:%M:%S") if last_leave.created_at else None,
+        }
+
+    # ------------------------
+    # 7. LATEST PAYSLIP (for Recent Activity)
+    # ------------------------
+    last_payslip = PaySlip.query.filter_by(admin_id=admin.id).order_by(PaySlip.id.desc()).first()
+    last_payslip_data = None
+    if last_payslip:
+        last_payslip_data = {
+            "id": last_payslip.id,
+            "month": last_payslip.month,
+            "year": last_payslip.year,
+        }
+
+    # ------------------------
     # RESPONSE
     # ------------------------
     def _punch_iso(p, attr):
@@ -281,7 +308,9 @@ def _employee_homepage_impl():
             "used_cl": leave_balance.used_casual_leave if leave_balance else 0,
             "used_comp": leave_balance.used_comp_leave if leave_balance else 0,
         },
-        "managers": managers
+        "managers": managers,
+        "last_leave": last_leave_data,
+        "last_payslip": last_payslip_data,
     }), 200
 
 
