@@ -263,93 +263,78 @@ export const Claims = () => {
   };
 
   return (
-    <div className="claims-page-container">
-      {error && (
-        <div className="error-banner" style={{ padding: '12px', marginBottom: '20px', background: '#fee', borderRadius: '8px', color: '#c00' }}>
-          {error}
-        </div>
-      )}
-      {successMessage && (
-        <div className="success-banner" style={{ padding: '12px', marginBottom: '20px', background: '#efe', borderRadius: '8px', color: '#0a0' }}>
-          {successMessage}
-        </div>
-      )}
-      {/* <div className="claims-header">
-        <h1>Expense Claims</h1>
-        <p>Submit and track your expense claims</p>
-      </div> */}
+    <div className="claims-dashboard-container">
+      {error && <div className="claims-error">{error}</div>}
+      {successMessage && <div className="claims-success">{successMessage}</div>}
 
       {/* Main Form Card */}
-      <div className="claims-card">
-        <div className="card-header">
-          <Receipt className="icon-primary" />
-          <h3>Expense Claim Form</h3>
+      <div className="claims-card claims-form-card">
+        <div className="claims-card-header">
+          <h2 className="claims-section-title">Expense Claim Form</h2>
         </div>
 
-        <div className="card-body">
-          {/* Employee Information Section */}
-          <div className="form-section-grid">
-            <div className="form-group">
-              <label htmlFor="employeeName">Employee Name</label>
-              <input type="text" id="employeeName" value={claimForm.employeeName} onChange={handleInputChange} placeholder="Enter name" />
+        <div className="claims-card-body">
+          <div className="claims-form-grid">
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="employeeName">Employee Name</label>
+              <input className="claims-input" type="text" id="employeeName" value={claimForm.employeeName} onChange={handleInputChange} placeholder="Enter name" />
             </div>
-            <div className="form-group">
-              <label htmlFor="designation">Designation</label>
-              <input type="text" id="designation" value={claimForm.designation} onChange={handleInputChange} placeholder="Enter designation" />
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="designation">Designation</label>
+              <input className="claims-input" type="text" id="designation" value={claimForm.designation} onChange={handleInputChange} placeholder="Enter designation" />
             </div>
-            <div className="form-group">
-              <label htmlFor="employeeId">Employee ID</label>
-              <input type="text" id="employeeId" value={claimForm.employeeId} onChange={handleInputChange} placeholder="Enter ID" />
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="employeeId">Employee ID</label>
+              <input className="claims-input" type="text" id="employeeId" value={claimForm.employeeId} onChange={handleInputChange} placeholder="Enter ID" />
             </div>
-            <div className="form-group">
-              <label htmlFor="email">Email</label>
-              <input type="email" id="email" value={claimForm.email} onChange={handleInputChange} placeholder="Enter email" />
-            </div>
-          </div>
-
-          <div className="form-section-grid">
-            <div className="form-group">
-              <label htmlFor="projectName">Project Name</label>
-              <input type="text" id="projectName" value={claimForm.projectName} onChange={handleInputChange} placeholder="Enter project" />
-            </div>
-            <div className="form-group">
-              <label htmlFor="country">Country/State</label>
-              <input type="text" id="country" value={claimForm.country} onChange={handleInputChange} placeholder="Enter location" />
-            </div>
-            <div className="form-group">
-              <label htmlFor="travelFrom">Travel From</label>
-              <input type="date" id="travelFrom" value={claimForm.travelFrom} onChange={handleInputChange} />
-            </div>
-            <div className="form-group">
-              <label htmlFor="travelTo">Travel To</label>
-              <input type="date" id="travelTo" value={claimForm.travelTo} onChange={handleInputChange} />
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="email">Email</label>
+              <input className="claims-input" type="email" id="email" value={claimForm.email} onChange={handleInputChange} placeholder="Enter email" />
             </div>
           </div>
 
-          <hr className="divider" />
+          <div className="claims-form-grid">
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="projectName">Project Name</label>
+              <input className="claims-input" type="text" id="projectName" value={claimForm.projectName} onChange={handleInputChange} placeholder="Enter project" />
+            </div>
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="country">Country/State</label>
+              <input className="claims-input" type="text" id="country" value={claimForm.country} onChange={handleInputChange} placeholder="Enter location" />
+            </div>
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="travelFrom">Travel From</label>
+              <input className="claims-input" type="date" id="travelFrom" value={claimForm.travelFrom} onChange={handleInputChange} />
+            </div>
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="travelTo">Travel To</label>
+              <input className="claims-input" type="date" id="travelTo" value={claimForm.travelTo} onChange={handleInputChange} />
+            </div>
+          </div>
 
-          {/* Specific Expense Details */}
-          <h4 className="section-subtitle">Expense Details</h4>
-          <div className="expense-details-grid">
-            <div className="form-group col-sr">
-              <label>Sr. No.</label>
-              <input type="text" value={claims.length + 1} disabled className="input-disabled" />
+          <hr className="claims-divider" />
+
+          <h4 className="claims-subtitle">Expense Details</h4>
+          <div className="claims-expense-grid">
+            <div className="claims-form-group claims-col-sr">
+              <label className="claims-label">Sr. No.</label>
+              <input className="claims-input claims-input-disabled" type="text" value={claims.length + 1} disabled readOnly />
             </div>
-            <div className="form-group col-date">
-              <label>Date</label>
-              <input type="date" id="expenseDate" value={claimForm.expenseDate} onChange={handleInputChange} />
+            <div className="claims-form-group claims-col-date">
+              <label className="claims-label">Date</label>
+              <input className="claims-input" type="date" id="expenseDate" value={claimForm.expenseDate} onChange={handleInputChange} />
             </div>
-            <div className="form-group col-purpose">
-              <label>Purpose/Description</label>
-              <input type="text" id="purpose" value={claimForm.purpose} onChange={handleInputChange} placeholder="Enter purpose" />
+            <div className="claims-form-group claims-col-purpose">
+              <label className="claims-label">Purpose/Description</label>
+              <input className="claims-input" type="text" id="purpose" value={claimForm.purpose} onChange={handleInputChange} placeholder="Enter purpose" />
             </div>
-            <div className="form-group col-amount">
-              <label>Amount</label>
-              <input type="number" id="amount" value={claimForm.amount} onChange={handleInputChange} placeholder="0.00" />
+            <div className="claims-form-group claims-col-amount">
+              <label className="claims-label">Amount</label>
+              <input className="claims-input" type="number" id="amount" value={claimForm.amount} onChange={handleInputChange} placeholder="0.00" />
             </div>
-            <div className="form-group col-currency">
-              <label>Currency</label>
-              <select id="currency" value={claimForm.currency} onChange={handleInputChange}>
+            <div className="claims-form-group claims-col-currency">
+              <label className="claims-label">Currency</label>
+              <select className="claims-input" id="currency" value={claimForm.currency} onChange={handleInputChange}>
                 <option value="INR">INR</option>
                 <option value="USD">USD</option>
                 <option value="EUR">EUR</option>
@@ -358,36 +343,35 @@ export const Claims = () => {
             </div>
           </div>
 
-          <div className="action-footer">
-            <div className="form-group">
-              <label htmlFor="attachFile">Attach Supporting Receipt</label>
-              <div className="file-input-wrapper">
-                <input 
-                  type="file" 
-                  id="attachFile" 
+          <div className="claims-action-footer">
+            <div className="claims-form-group">
+              <label className="claims-label" htmlFor="attachFile">Attach Supporting Receipt</label>
+              <div className="claims-file-wrap">
+                <input
+                  type="file"
+                  id="attachFile"
                   onChange={handleFileChange}
                   ref={el => fileInputRefs.current.newClaim = el}
+                  className="claims-file-input"
                 />
-                <span className="file-custom-label">
-                   {claimForm.attachFile ? claimForm.attachFile.name : 'Choose file...'}
+                <span className="claims-file-label">
+                  {claimForm.attachFile ? claimForm.attachFile.name : 'Choose file...'}
                 </span>
               </div>
             </div>
-            <button className="btn-submit-more" onClick={handleAddToClaim}>
+            <button type="button" className="claims-btn-add" onClick={handleAddToClaim}>
               <Plus size={18} /> Add to List
             </button>
           </div>
         </div>
       </div>
 
-      {/* Current Claim Items List */}
       {claims.length > 0 && (
-        <div className="claims-card table-card">
-          <div className="card-header">
-            <FileText className="icon-primary" />
-            <h3>Current Claim Items ({claims.length})</h3>
+        <div className="claims-card claims-list-card">
+          <div className="claims-card-header">
+            <h2 className="claims-section-title">Current Claim Items ({claims.length})</h2>
           </div>
-          <div className="table-responsive">
+          <div className="claims-table-wrap">
             <table className="claims-table">
               <thead>
                 <tr>
@@ -410,11 +394,7 @@ export const Claims = () => {
                     <td>{claim.currency}</td>
                     <td>{claim.attachFile ? claim.attachFile.name : '-'}</td>
                     <td>
-                      <button 
-                        className="btn-remove" 
-                        onClick={() => handleRemoveClaim(claim.id)}
-                        style={{ background: '#fee', color: '#c00', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}
-                      >
+                      <button type="button" className="claims-btn-remove" onClick={() => handleRemoveClaim(claim.id)}>
                         <Trash2 size={14} />
                       </button>
                     </td>
@@ -426,16 +406,14 @@ export const Claims = () => {
         </div>
       )}
 
-      {/* Submitted Claims Table Card */}
-      <div className="claims-card table-card">
-        <div className="card-header">
-          <FileText className="icon-primary" />
-          <h3>Submitted Claims History</h3>
+      <div className="claims-card claims-history-card">
+        <div className="claims-card-header">
+          <h2 className="claims-section-title">Submitted Claims History</h2>
         </div>
         {loading ? (
-          <div style={{ padding: '20px', textAlign: 'center' }}>Loading claims...</div>
+          <div className="claims-loading">Loading claims...</div>
         ) : (
-          <div className="table-responsive">
+          <div className="claims-table-wrap">
             <table className="claims-table">
               <thead>
                 <tr>
@@ -450,10 +428,10 @@ export const Claims = () => {
               <tbody>
                 {submittedClaims.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="table-empty">No claims submitted yet.</td>
+                    <td colSpan="6" className="claims-empty">No claims submitted yet.</td>
                   </tr>
                 ) : (
-                  submittedClaims.map((claim, index) => (
+                  submittedClaims.map((claim) => (
                     <tr key={claim.id}>
                       <td>{claim.sr_no}</td>
                       <td>{claim.country}</td>
@@ -461,7 +439,7 @@ export const Claims = () => {
                       <td>{claim.purpose}</td>
                       <td><strong>{claim.amount} {claim.currency}</strong></td>
                       <td>
-                        <span className={`status-badge ${(claim.status || 'pending').toLowerCase()}`}>
+                        <span className={`claims-status-badge claims-status-${(claim.status || 'pending').toLowerCase()}`}>
                           {(claim.status || 'Pending').toUpperCase()}
                         </span>
                       </td>
@@ -475,24 +453,23 @@ export const Claims = () => {
       </div>
 
       {claims.length > 0 && (
-  <div className="summary-section">
-    <div className="total-box">
-      <div className="total-label">Total Claim Amount</div>
-      <div className="total-value">
-        {totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} {claimForm.currency}
-      </div>
-    </div>
-    <div className="final-actions">
-      <button 
-        className="btn-final" 
-        onClick={handleSubmitFinalClaim}
-        disabled={submitting}
-      >
-        {submitting ? 'Submitting...' : 'Submit Final Claim Report'}
-      </button>
-    </div>
-  </div>
-)}
+        <div className="claims-summary-section">
+          <div className="claims-total-box">
+            <span className="claims-total-label">Total Claim Amount</span>
+            <span className="claims-total-value">
+              {totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} {claimForm.currency}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="claims-btn-final"
+            onClick={handleSubmitFinalClaim}
+            disabled={submitting}
+          >
+            {submitting ? 'Submitting...' : 'Submit Final Claim Report'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

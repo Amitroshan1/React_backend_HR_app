@@ -758,117 +758,119 @@ export const Queries = () => {
   };
 
   return (
-    <div className="q-page">
-      <div className="q-container">
+    <div className="query-dashboard-container">
+      <div className="query-inner">
         {/* FORM / CHAT SECTION */}
-        <div className="q-card main-interaction">
+        <div className="query-card query-form-card">
           {!activeChat ? (
-            <div className="q-form-container">
-              <div className="q-header">
-                <MessageSquarePlus size={20} color="#2563eb" />
-                <h2>Raise a Query</h2>
+            <div className="query-form-wrap">
+              <div className="query-card-header">
+                <h2 className="query-section-title">Raise a Query</h2>
               </div>
-              {actionError && <div className="q-error">{actionError}</div>}
-              <form onSubmit={handleSubmit} className="q-form">
-                <div className="q-row">
-                  <div className="q-group">
-                    <label>Department</label>
-                    <select value={formData.department} onChange={(e) => setFormData({...formData, department: e.target.value})} required>
+              {actionError && <div className="query-error">{actionError}</div>}
+              <form onSubmit={handleSubmit} className="query-form">
+                <div className="query-form-row">
+                  <div className="query-form-group">
+                    <label className="query-label">Department</label>
+                    <select className="query-input" value={formData.department} onChange={(e) => setFormData({...formData, department: e.target.value})} required>
                       <option value="">Select Department</option>
                       {departments.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
-                  <div className="q-group">
-                    <label>Subject Title</label>
-                    <input placeholder="Subject..." value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} required />
+                  <div className="query-form-group">
+                    <label className="query-label">Subject Title</label>
+                    <input className="query-input" placeholder="Subject..." value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} required />
                   </div>
                 </div>
-                <div className="q-group">
-                  <label>Description</label>
-                  <textarea rows="3" placeholder="Describe your issue..." value={formData.text} onChange={(e) => setFormData({...formData, text: e.target.value})} required />
+                <div className="query-form-group">
+                  <label className="query-label">Description</label>
+                  <textarea className="query-input query-textarea" rows="3" placeholder="Describe your issue..." value={formData.text} onChange={(e) => setFormData({...formData, text: e.target.value})} required />
                 </div>
-                <div className="q-group">
-                  <label>Attach files (max 2MB each)</label>
+                <div className="query-form-group">
+                  <label className="query-label">Attach files (max 2MB each)</label>
                   <input
                     ref={fileInputRef}
                     type="file"
                     multiple
                     onChange={handleFileChange}
+                    className="query-file-input"
                   />
                   {selectedFiles.length > 0 && (
-                    <div className="q-file-list">
+                    <div className="query-file-list">
                       {selectedFiles.map(file => (
-                        <div key={file.name} className="q-file-item">{file.name}</div>
+                        <div key={file.name} className="query-file-item">{file.name}</div>
                       ))}
                     </div>
                   )}
                 </div>
-                <button type="submit" className="q-btn-primary" disabled={isSubmitting}>
-                  {isSubmitting ? <Loader2 className="spin" /> : "Submit Request"}
+                <button type="submit" className="query-btn-submit" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="query-spin" /> : "Submit Request"}
                 </button>
               </form>
             </div>
           ) : (
-            <div className="q-chat-container">
-              <div className="q-chat-header">
+            <div className="query-chat-wrap">
+              <div className="query-chat-header">
                 <div>
-                  <h3>{activeChat.title}</h3>
-                  <small>{activeChat.department}</small>
+                  <h3 className="query-chat-title">{activeChat.title}</h3>
+                  <small className="query-chat-dept">{activeChat.department}</small>
                 </div>
-                <button onClick={() => setActiveChat(null)} className="q-close"><X size={20}/></button>
+                <button type="button" onClick={() => setActiveChat(null)} className="query-chat-close"><X size={20}/></button>
               </div>
-              <div className="q-chat-messages">
+              <div className="query-chat-messages">
                 {activeChat.messages.map(m => (
-                  <div key={m.id} className={`q-msg ${m.sender}`}>
-                    <div className="q-bubble">
-                      <div className="q-sender">{m.senderName}</div>
+                  <div key={m.id} className={`query-msg ${m.sender}`}>
+                    <div className="query-bubble">
+                      <div className="query-sender">{m.senderName}</div>
                       {m.text}
-                      <span className="q-time">{m.timestamp}</span>
+                      <span className="query-msg-time">{m.timestamp}</span>
                     </div>
                   </div>
                 ))}
                 <div ref={chatEndRef} />
               </div>
-              <div className="q-chat-input">
-                <input placeholder="Type a message..." value={chatMessage} onChange={(e) => setChatMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} disabled={activeChat.status === 'Closed'} />
-                <button onClick={handleSendMessage} className="q-send" disabled={activeChat.status === 'Closed'}><Send size={18}/></button>
+              <div className="query-chat-input">
+                <input className="query-input" placeholder="Type a message..." value={chatMessage} onChange={(e) => setChatMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} disabled={activeChat.status === 'Closed'} />
+                <button type="button" onClick={handleSendMessage} className="query-send-btn" disabled={activeChat.status === 'Closed'}><Send size={18}/></button>
               </div>
             </div>
           )}
         </div>
 
         {/* TABLE SECTION */}
-        <div className="q-card table-section">
-          <div className="q-header"><h2>Your Query History</h2></div>
-          {actionError && <div className="q-error">{actionError}</div>}
-          <div className="q-table-wrapper">
-            <table className="q-table">
+        <div className="query-card query-table-card">
+          <div className="query-card-header">
+            <h2 className="query-section-title">Your Query History</h2>
+          </div>
+          {actionError && <div className="query-error">{actionError}</div>}
+          <div className="query-table-wrapper">
+            <table className="query-table">
               <thead>
                 <tr>
-                  <th style={{width: '25%'}}>Query Details</th>
-                  <th style={{width: '30%'}}>Description</th>
-                  <th style={{width: '15%'}}>Status</th>
-                  <th style={{width: '15%'}}>Close</th>
-                  <th style={{width: '15%'}}>Action</th>
+                  <th>Query Details</th>
+                  <th>Description</th>
+                  <th>Status</th>
+                  <th>Close</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan="5" className="empty">Loading...</td></tr>
+                  <tr><td colSpan="5" className="query-empty">Loading...</td></tr>
                 ) : queries.length === 0 ? (
-                  <tr><td colSpan="5" className="empty">No queries yet.</td></tr>
+                  <tr><td colSpan="5" className="query-empty">No queries yet.</td></tr>
                 ) : (
                   queries.map(q => (
                     <tr key={q.id}>
-                      <td><div className="cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
+                      <td><div className="query-cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
                       <td>{getSummary(q.queryText)}</td>
-                      <td><span className={`status-tag ${q.status}`}>{getStatusLabel(q.status)}</span></td>
+                      <td><span className={`query-status-badge query-status-${(q.status || '').toLowerCase()}`}>{getStatusLabel(q.status)}</span></td>
                       <td>
                         {q.status !== 'Closed' ? (
-                          <button className="done-btn" onClick={() => closeQuery(q.id)}><CheckCircle size={14}/> Close</button>
-                        ) : (<span className="text-success">✅ Closed</span>)}
+                          <button type="button" className="query-close-btn" onClick={() => closeQuery(q.id)}><CheckCircle size={14}/> Close</button>
+                        ) : (<span className="query-closed-text">Closed</span>)}
                       </td>
-                      <td><button onClick={() => openChat(q)} className="chat-link">Chat</button></td>
+                      <td><button type="button" onClick={() => openChat(q)} className="query-chat-link">Chat</button></td>
                     </tr>
                   ))
                 )}

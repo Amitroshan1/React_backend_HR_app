@@ -166,7 +166,7 @@
   transform: none;
 }
 
-/* Table card – same card style as form */
+/* Table card – same card style as form, with left accent stripe */
 .wfh-table-card {
   background-color: var(--wfh-card-bg);
   border-radius: 12px;
@@ -175,6 +175,19 @@
   border: 1px solid var(--wfh-border);
   transition: box-shadow 0.25s ease;
   animation: wfhCardEnter 0.45s ease-out 0.1s both;
+  position: relative;
+  overflow: hidden;
+}
+
+.wfh-table-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(180deg, #059669 0%, #10b981 100%);
 }
 
 .wfh-table-card:hover {

@@ -168,6 +168,19 @@
   border: 1px solid var(--leave-border);
   transition: box-shadow 0.25s ease;
   animation: leaveSectionEnter 0.4s ease-out 0.1s both;
+  position: relative;
+  overflow: hidden;
+}
+
+.leave-requests-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(180deg, #4f46e5 0%, #6366f1 100%);
 }
 
 .leave-requests-card:hover {
