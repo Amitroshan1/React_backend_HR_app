@@ -699,21 +699,23 @@ export const Attendance = () => {
                     <span className="key-item status-optional-holiday">Optional Holiday</span>
                 </div>
 
-                {/* Calendar Grid */}
-                <div className="calendar-grid">
-                    {daysOfWeek.map(day => (
-                        <div key={day} className="day-name">{day}</div>
-                    ))}
-                    
-                    {data.calendar.map((item, index) => (
-                        <CalendarDayCell 
-                            key={`calendar-day-${index}-${item.day || 'empty'}`}
-                            day={item.day}
-                            status={item.status}
-                            isFuture={item.isFuture || false}
-                            details={item.details || {}}
-                        />
-                    ))}
+                {/* Calendar Grid – scrollable on small screens so FRI/SAT stay visible */}
+                <div className="calendar-grid-scroll-wrap">
+                    <div className="calendar-grid">
+                        {daysOfWeek.map(day => (
+                            <div key={day} className="day-name">{day}</div>
+                        ))}
+                        
+                        {data.calendar.map((item, index) => (
+                            <CalendarDayCell 
+                                key={`calendar-day-${index}-${item.day || 'empty'}`}
+                                day={item.day}
+                                status={item.status}
+                                isFuture={item.isFuture || false}
+                                details={item.details || {}}
+                            />
+                        ))}
+                    </div>
                 </div>
             </div>
             

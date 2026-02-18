@@ -429,14 +429,43 @@
 .key-item.status-public-holiday::before { background-color: #f59e0b; }
 .key-item.status-optional-holiday::before { background-color: #8b5cf6; }
 
+/* Calendar Grid – scroll wrapper so all 7 days (SUN–SAT) visible on narrow viewports */
+.calendar-grid-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-left: -24px;
+  margin-right: -24px;
+  padding: 0 24px 24px;
+  border-radius: 0 0 8px 8px;
+}
+
+.calendar-grid-scroll-wrap::-webkit-scrollbar {
+  height: 6px;
+}
+
+.calendar-grid-scroll-wrap::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.calendar-grid-scroll-wrap::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.calendar-grid-scroll-wrap::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 /* Calendar Grid */
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 2px;
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--att-border);
+  min-width: 560px;
 }
 
 .day-name {
@@ -588,6 +617,12 @@
   .attendance-calendar-card {
     padding: 20px;
   }
+  .calendar-grid-scroll-wrap {
+    margin-left: -20px;
+    margin-right: -20px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
 }
 
 @media (max-width: 992px) {
@@ -611,6 +646,12 @@
   }
   .attendance-calendar-card {
     padding: 18px;
+  }
+  .calendar-grid-scroll-wrap {
+    margin-left: -18px;
+    margin-right: -18px;
+    padding-left: 18px;
+    padding-right: 18px;
   }
   .calendar-day-cell {
     min-height: 70px;
@@ -727,6 +768,12 @@
   .attendance-calendar-card {
     padding: 14px;
   }
+  .calendar-grid-scroll-wrap {
+    margin-left: -14px;
+    margin-right: -14px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
   .attendance-section-title {
     font-size: 1.05rem;
   }
@@ -767,6 +814,12 @@
   }
   .attendance-calendar-card {
     padding: 12px;
+  }
+  .calendar-grid-scroll-wrap {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
   .attendance-section-title {
     font-size: 1rem;
