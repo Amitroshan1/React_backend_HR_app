@@ -131,7 +131,7 @@ const getPageInfo = (pathname, firstName) => {
         '/queries/inbox': { title: 'Department Query Inbox', subtitle: 'Reply to queries assigned to your department' },
         '/claims': { title: 'Expense Claims', subtitle: 'Submit and track your claims' },
         '/separation': { title: 'Separation', subtitle: 'Resignation and clearance process' },
-        '/salary': { title: 'Salary', subtitle: 'Payslips and salary information' },
+        '/payslip': { title: 'Payslip', subtitle: 'View and download payslips' },
         '/profile': { title: 'Profile', subtitle: 'Your personal and employment details' },
         '/holiday-calendar': { title: 'Holiday Calendar', subtitle: 'Company holiday list by year' },
         '/performance': { title: 'Performance', subtitle: 'Self review and manager feedback' },
@@ -139,6 +139,10 @@ const getPageInfo = (pathname, firstName) => {
         '/hr': { title: 'HR Panel', subtitle: 'Administration' },
         '/account': { title: 'Accounts Panel', subtitle: 'Financial Management' },
         '/admin': { title: 'Admin Panel', subtitle: 'Admin Management' },
+        '/admin/leaves': { title: 'All Leave Applications', subtitle: 'Admin' },
+        '/admin/queries': { title: 'All Queries', subtitle: 'Admin' },
+        '/admin/claims': { title: 'All Expense Claims', subtitle: 'Admin' },
+        '/admin/resignations': { title: 'All Resignations', subtitle: 'Admin' },
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
         '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
         '/it': { title: 'IT Panel', subtitle: 'IT Management' },
@@ -356,7 +360,6 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                             aria-label="Go to Dashboard"
                         >
                             <FaHome />
-                            <span>Home</span>
                         </button>
                     )}
                     <h1 className={`welcome-title ${!isDashboard ? 'page-heading' : ''}`}>{title}</h1>
@@ -416,18 +419,17 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 </div>
                                 <div className="dropdown-divider"></div>
                                 
-                                {/* Role-specific Panel Link - Only shown for HR/Manager/Account/IT/Admin */}
-                                {isSpecialRole && (
-                                    <>
-                                        <NavLink 
-                                            to={roleInfo.route}
-                                            className={({ isActive }) => "dropdown-item" + (isActive ? " active" : "")}
-                                            onClick={() => setIsDropdownOpen(false)}
-                                        >
-                                            <FaBriefcase className="d-icon" /> <span>{roleInfo.display} Panel</span>
-                                        </NavLink>
-                                    </>
-                                )}
+                                {/* Role-specific Panel Links - HR, Manager, Account, IT, Admin (all that apply) */}
+                                {isSpecialRole && panelLinks.map((item) => (
+                                    <NavLink
+                                        key={item.route}
+                                        to={item.route}
+                                        className={({ isActive }) => "dropdown-item" + (isActive ? " active" : "")}
+                                        onClick={() => setIsDropdownOpen(false)}
+                                    >
+                                        <FaBriefcase className="d-icon" /> <span>{item.display} Panel</span>
+                                    </NavLink>
+                                ))}
 
                                 {/* Separation - Always shown */}
                                 <Link to="/performance" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>

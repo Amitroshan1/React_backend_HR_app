@@ -1,0 +1,72 @@
+.payslip-page {
+    padding: 1.5rem;
+    max-width: 720px;
+}
+
+.payslip-title {
+    margin: 0 0 0.25rem 0;
+    font-size: 1.5rem;
+}
+
+.payslip-desc {
+    color: var(--text-muted, #666);
+    margin: 0 0 1.5rem 0;
+    font-size: 0.95rem;
+}
+
+.payslip-loading,
+.payslip-empty,
+.payslip-error {
+    margin: 1rem 0;
+}
+
+.payslip-error {
+    color: var(--error, #c00);
+}
+
+.payslip-table-wrap {
+    overflow-x: auto;
+}
+
+.payslip-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--border, #ddd);
+    border-radius: 8px;
+    background: var(--card-bg, #fff);
+}
+
+.payslip-table th,
+.payslip-table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border, #eee);
+}
+
+.payslip-table th {
+    font-weight: 600;
+    background: var(--table-header-bg, #f5f5f5);
+}
+
+.payslip-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.payslip-download-btn {
+    padding: 0.4rem 0.8rem;
+    background: var(--primary, #2563eb);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.payslip-download-btn:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.payslip-download-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}

@@ -31,7 +31,7 @@ export const employeesData = [
       { id: "C002", type: "Medical", status: "Pending", startDate: "2024-02-15", endDate: "2024-02-15" }
     ],
     queries: [
-      { id: "Q001", type: "Salary", status: "Resolved", startDate: "2024-01-20", endDate: "2024-01-22" }
+      { id: "Q001", type: "Payslip", status: "Resolved", startDate: "2024-01-20", endDate: "2024-01-22" }
     ],
     resignations: [],
     punches: [

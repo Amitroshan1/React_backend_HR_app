@@ -1,18 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import './EmployeeDetails.css';
-import { employeesData } from './Data';
+
+const ADMIN_EMPLOYEE_DETAIL_API = '/api/admin/employees';
+
+const defaultPhoto = 'https://ui-avatars.com/api/?name=Employee&background=random';
 
 const EmployeeDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('Leaves');
   const [activeStatus, setActiveStatus] = useState('All');
+  const [employee, setEmployee] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  // Find the employee by ID
-  const employee = employeesData.find(emp => emp.id === id);
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!id || !token) {
+      setLoading(false);
+      setError(true);
+      return;
+    }
+    fetch(`${ADMIN_EMPLOYEE_DETAIL_API}/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if (data.success && data.employee) {
+          setEmployee(data.employee);
+        } else {
+          setError(true);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setError(true);
+        setLoading(false);
+      });
+  }, [id]);
 
-  if (!employee) {
+  if (loading) {
+    return (
+      <div className="employee-details-container">
+        <div className="not-found">
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !employee) {
     return (
       <div className="employee-details-container">
         <div className="not-found">
@@ -32,33 +70,32 @@ const EmployeeDetails = () => {
     let data = [];
     switch (activeSection) {
       case 'Leaves':
-        data = employee.leaves;
+        data = employee.leaves || [];
         break;
       case 'Punches':
-        data = employee.punches;
+        data = employee.punches || [];
         break;
       case 'Payslips':
-        data = employee.payslips;
+        data = employee.payslips || [];
         break;
       case 'Assets':
-        data = employee.assets;
+        data = employee.assets || [];
         break;
       case 'Claims':
-        data = employee.claims;
+        data = employee.claims || [];
         break;
       case 'Queries':
-        data = employee.queries;
+        data = employee.queries || [];
         break;
       case 'Resignation':
-        data = employee.resignations;
+        data = employee.resignations || [];
         break;
       default:
         data = [];
     }
 
-    // Filter by status
     if (activeStatus !== 'All') {
-      data = data.filter(item => item.status === activeStatus);
+      data = data.filter(item => (item.status || '').toLowerCase() === activeStatus.toLowerCase());
     }
 
     return data;
@@ -78,15 +115,14 @@ const EmployeeDetails = () => {
       {/* Profile Card */}
       <div className="profile-card">
         <div className="profile-left">
-          <img src={employee.photo} alt={employee.name} className="profile-photo" />
+          <img src={employee.photo || defaultPhoto} alt={employee.name} className="profile-photo" />
           <h2>{employee.name}</h2>
         </div>
         <div className="profile-right">
           <div className="info-row">
             <span className="info-icon">🆔</span>
             <div className="info-content">
-              {/* <span className="info-label">Employee ID:</span> */}
-              <span className="info-value">{employee.id}</span>
+              <span className="info-value">{employee.emp_id || employee.id}</span>
             </div>
           </div>
           <div className="info-row">
@@ -177,14 +213,14 @@ const EmployeeDetails = () => {
               {activeData.map((item) => (
                 <tr key={item.id}>
                   <td>{item.id}</td>
-                  <td>{item.type}</td>
+                  <td>{item.type || '—'}</td>
                   <td>
-                    <span className={`status-badge ${item.status.toLowerCase()}`}>
-                      {item.status}
+                    <span className={`status-badge ${(item.status || '').toLowerCase()}`}>
+                      {item.status || '—'}
                     </span>
                   </td>
-                  <td>{item.startDate}</td>
-                  <td>{item.endDate}</td>
+                  <td>{item.startDate || '—'}</td>
+                  <td>{item.endDate || '—'}</td>
                 </tr>
               ))}
             </tbody>

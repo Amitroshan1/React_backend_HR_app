@@ -66,17 +66,25 @@ def get_manager_detail(contact, level):
 
 def user_has_manager_access(admin):
     """
-    Return True if admin appears in any ManagerContact row as L1, L2, or L3
-    (by l1/l2/l3_admin_id or legacy l1/l2/l3_email). Used as single source of truth
-    for Manager panel access; emp_type is not required.
+    Return True if admin appears as L1/L2/L3 in a ManagerContact row whose circle_name
+    and user_type match the admin's circle and emp_type. Manager panel is only shown
+    for the scope (circle + emp_type) where they are configured as manager.
     """
     if not admin:
         return False
     admin_id = getattr(admin, "id", None)
     email = (getattr(admin, "email", None) or "").strip().lower()
+    circle = (getattr(admin, "circle", None) or "").strip().lower()
+    emp_type = (getattr(admin, "emp_type", None) or "").strip().lower()
     if not admin_id and not email:
         return False
+    if not circle or not emp_type:
+        return False
 
+    query = ManagerContact.query.filter(
+        func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
+        func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
+    )
     by_id = []
     if admin_id:
         by_id = [
@@ -94,4 +102,4 @@ def user_has_manager_access(admin):
     conditions = by_id + by_email
     if not conditions:
         return False
-    return ManagerContact.query.filter(or_(*conditions)).first() is not None
+    return query.filter(or_(*conditions)).first() is not None

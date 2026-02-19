@@ -146,7 +146,7 @@
 //                     <label>Subject Title</label>
 //                     <input 
 //                       name="title" 
-//                       placeholder="e.g., Salary discrepancy"
+//                       placeholder="e.g., Payslip discrepancy"
 //                       value={formData.title}
 //                       onChange={handleInputChange}
 //                       required
@@ -382,7 +382,7 @@
 //                   </div>
 //                   <div className="input-field">
 //                     <label>Subject Title</label>
-//                     <input name="title" placeholder="e.g., Salary discrepancy" value={formData.title} onChange={handleInputChange} required />
+//                     <input name="title" placeholder="e.g., Payslip discrepancy" value={formData.title} onChange={handleInputChange} required />
 //                   </div>
 //                 </div>
 

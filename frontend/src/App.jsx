@@ -3,7 +3,7 @@ import { HomePage } from "./pages/HomePage";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { Attendance } from "./pages/Attendance/Attendance";
 import { Wfh } from "./pages/Wfh/Wfh";
-import { Salary } from "./pages/Salary/Salary";
+import { Payslip } from "./pages/Payslip/Payslip";
 import { Leaves } from "./pages/Leaves/Leaves";
 import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
@@ -27,6 +27,10 @@ import { HolidayCalendarUser } from "./pages/Holiday/HolidayCalendarUser";
 // Employee Management System Components
 import Employee from "./pages/Admin/Employee";
 import EmployeeDetails from "./pages/Admin/EmployeeDetails";
+import AdminLeaves from "./pages/Admin/AdminLeaves";
+import AdminQueries from "./pages/Admin/AdminQueries";
+import AdminClaims from "./pages/Admin/AdminClaims";
+import AdminResignations from "./pages/Admin/AdminResignations";
 
 // Initialize localStorage on app start - clear old test data
 const isFirstLoad = !localStorage.getItem('_appInitialized');
@@ -47,7 +51,7 @@ export const App = () => {
       children: [
         { path: "dashboard", element: <Dashboard /> },
         { path: "attendance", element: <Attendance /> },
-        { path: "salary", element: <Salary /> },
+        { path: "payslip", element: <Payslip /> },
         { path: "leaves", element: <Leaves /> },
         { path: "profile", element: <Profile /> },
         { path: "change-password", element: <ChangePassword /> },
@@ -64,6 +68,10 @@ export const App = () => {
         { path: "archive-employees", element: <ArchiveEmployees /> },
         { path: "exit-employees", element: <ExitEmployee /> },
         { path: "admin", element: <Admin /> },
+        { path: "admin/leaves", element: <AdminLeaves /> },
+        { path: "admin/queries", element: <AdminQueries /> },
+        { path: "admin/claims", element: <AdminClaims /> },
+        { path: "admin/resignations", element: <AdminResignations /> },
         { path: "manager", element: <Manager /> },
         { path: "manager/performance-reviews", element: <ManagerPerformanceReviews /> },
         { path: "it", element: <ITPanel /> },
@@ -89,7 +97,7 @@ export const App = () => {
 // import { createBrowserRouter, RouterProvider } from "react-router-dom";
 // import { Attendance } from "./pages/Attendance/Attendance";
 // import { Wfh } from "./pages/Wfh/Wfh";
-// import { Salary } from "./pages/Salary/Salary";
+// import { Payslip } from "./pages/Payslip/Payslip";
 // import { Leaves } from "./pages/Leaves/Leaves";
 // import { Profile } from "./pages/Profile/components/Profile";
 // // import { Profile } from "./pages/Profile/Profile";
@@ -134,7 +142,7 @@ export const App = () => {
 //       children: [
 //         { path: "dashboard", element: <Dashboard /> },
 //         { path: "attendance", element: <Attendance /> },
-//         { path: "salary", element: <Salary /> },
+//         { path: "payslip", element: <Payslip /> },
 //         { path: "leaves", element: <Leaves /> },
 //         { path: "profile", element: <Profile /> },
 //         { path: "queries", element: <Queries /> },

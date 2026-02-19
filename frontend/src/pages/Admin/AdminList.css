@@ -1,0 +1,251 @@
+/* Admin list pages: leaves, queries, claims, resignations */
+.admin-list-container {
+  padding: 20px 40px;
+  max-width: 1400px;
+  margin: 0 auto;
+  background: #f5f7fa;
+  min-height: 100vh;
+}
+
+.admin-list-header {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-list-header .back-button {
+  padding: 8px 16px;
+  background: #3498db;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.admin-list-header .back-button:hover {
+  background: #2980b9;
+}
+
+.admin-list-header h1 {
+  font-size: 24px;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.admin-list-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  background: #fff;
+  padding: 14px 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.admin-list-filters label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #34495e;
+}
+
+.admin-list-filters .filter-select {
+  padding: 8px 14px;
+  border: 1px solid #dfe6ee;
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 160px;
+}
+
+/* Status buttons (same as EmployeeDetails) */
+.admin-list-filters .status-buttons {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.admin-list-filters .status-btn {
+  padding: 10px 20px;
+  background: white;
+  color: #2c3e50;
+  border: 2px solid #e1e8ed;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.admin-list-filters .status-btn:hover {
+  border-color: #9b59b6;
+  color: #9b59b6;
+}
+
+.admin-list-filters .status-btn.active {
+  background: #9b59b6;
+  color: white;
+  border-color: #9b59b6;
+}
+
+.admin-list-table-wrap {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  overflow-x: auto;
+}
+
+.admin-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-list-table th,
+.admin-list-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+.admin-list-table th {
+  background: #f8f9fa;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.admin-list-table tbody tr:hover {
+  background: #f8fafb;
+}
+
+.admin-list-table .cell-reason {
+  max-width: 280px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-badge.pending { background: #fef3c7; color: #92400e; }
+.status-badge.approved { background: #d1fae5; color: #065f46; }
+.status-badge.rejected { background: #fee2e2; color: #991b1b; }
+.status-badge.new { background: #dbeafe; color: #1e40af; }
+.status-badge.resolved { background: #d1fae5; color: #065f46; }
+.status-badge.closed { background: #e5e7eb; color: #374151; }
+.status-badge.partially-approved { background: #fef9c3; color: #854d0e; }
+
+.admin-list-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #64748b;
+  font-size: 15px;
+}
+
+/* Action column View button */
+.admin-list-view-btn {
+  padding: 6px 14px;
+  background: #3498db;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.admin-list-view-btn:hover {
+  background: #2980b9;
+}
+
+/* Query detail modal */
+.admin-query-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.admin-query-modal {
+  background: #fff;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+.admin-query-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #ecf0f1;
+}
+.admin-query-modal-header h2 {
+  font-size: 18px;
+  color: #2c3e50;
+  margin: 0;
+}
+.admin-query-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #7f8c8d;
+  line-height: 1;
+  padding: 0 4px;
+}
+.admin-query-modal-close:hover {
+  color: #2c3e50;
+}
+.admin-query-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.admin-query-meta {
+  margin-bottom: 20px;
+}
+.admin-query-meta p {
+  margin: 6px 0;
+  font-size: 14px;
+  color: #34495e;
+}
+.admin-query-chat h3 {
+  font-size: 14px;
+  color: #2c3e50;
+  margin-bottom: 12px;
+}
+.admin-query-msg {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+}
+.admin-query-msg-employee {
+  border-left-color: #9b59b6;
+  background: #f8f5fb;
+}
+.admin-query-msg-department {
+  border-left-color: #27ae60;
+  background: #f0f9f4;
+}
+.admin-query-msg-meta {
+  font-size: 12px;
+  color: #7f8c8d;
+  margin-bottom: 6px;
+}
+.admin-query-msg-text {
+  font-size: 14px;
+  color: #2c3e50;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

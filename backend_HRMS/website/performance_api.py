@@ -52,7 +52,7 @@ def _manager_contact_for_target(target_admin):
 
 
 def _is_manager_for_target(manager_admin, target_admin):
-    """True if manager is L1/L2/L3 in target's ManagerContact (no circle/emp_type restriction)."""
+    """True if manager is L1/L2/L3 in target's ManagerContact."""
     if not manager_admin or not target_admin:
         return False
     if manager_admin.id == target_admin.id:
@@ -62,6 +62,16 @@ def _is_manager_for_target(manager_admin, target_admin):
         return False
     from .manager_utils import is_manager_in_contact
     return is_manager_in_contact(contact, manager_admin)
+
+
+def _same_scope(manager_admin, target_admin):
+    """True if target's circle and emp_type match manager's."""
+    if not manager_admin or not target_admin:
+        return False
+    return (
+        _norm(getattr(manager_admin, "circle", "")) == _norm(getattr(target_admin, "circle", ""))
+        and _norm(getattr(manager_admin, "emp_type", "")) == _norm(getattr(target_admin, "emp_type", ""))
+    )
 
 
 def _ensure_manager_user():
@@ -192,7 +202,7 @@ def manager_queue():
 
     rows = []
     for row in q.all():
-        if row.admin and _is_manager_for_target(manager_admin, row.admin):
+        if row.admin and _is_manager_for_target(manager_admin, row.admin) and _same_scope(manager_admin, row.admin):
             rows.append(_serialize_performance(row))
 
     return jsonify({"success": True, "items": rows}), 200
@@ -208,7 +218,7 @@ def manager_review(performance_id):
     row = EmployeePerformance.query.get(performance_id)
     if not row:
         return jsonify({"success": False, "message": "Performance entry not found"}), 404
-    if not row.admin or not _is_manager_for_target(manager_admin, row.admin):
+    if not row.admin or not _is_manager_for_target(manager_admin, row.admin) or not _same_scope(manager_admin, row.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
 
     data = request.get_json(silent=True) or {}

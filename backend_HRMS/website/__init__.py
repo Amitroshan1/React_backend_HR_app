@@ -165,11 +165,13 @@ def create_app():
     from .Accounts import Accounts
     # from .Manager import manager
     from .Manager import manager
+    from .Admin import admin_bp
 
     from .notifications import notifications
     from .performance_api import performance_api
 
     app.register_blueprint(auth, url_prefix="/api/auth")
+    app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(leave, url_prefix="/api/leave")
     app.register_blueprint(hr, url_prefix="/api/HumanResource")
     app.register_blueprint(Accounts, url_prefix="/api/accounts")

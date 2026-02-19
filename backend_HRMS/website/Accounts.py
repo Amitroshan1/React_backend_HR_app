@@ -496,6 +496,15 @@ def payslip_history(admin_id):
             "message": "Unauthorized user"
         }), 401
 
+    # Option A: employee can only fetch their own; Accounts/HR/Admin can fetch any
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You can only view your own payslip history"
+        }), 403
+
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
         return jsonify({
@@ -536,6 +545,22 @@ def serve_uploaded_file(relative_path):
             "success": False,
             "message": "Invalid file path"
         }), 400
+
+    # Restrict payslip files: allow if payslip belongs to current user, or user is Accounts/HR/Admin
+    if normalized.startswith("payslips/"):
+        payslip = PaySlip.query.filter_by(file_path=normalized).first()
+        if not payslip:
+            return jsonify({
+                "success": False,
+                "message": "Payslip not found"
+            }), 404
+        emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+        can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+        if not can_view_any and payslip.admin_id != admin.id:
+            return jsonify({
+                "success": False,
+                "message": "Access denied"
+            }), 403
 
     uploads_root = os.path.abspath(os.path.join(current_app.root_path, "..", "uploads"))
     try:

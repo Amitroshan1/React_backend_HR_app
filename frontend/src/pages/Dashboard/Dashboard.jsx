@@ -467,7 +467,7 @@ export const Dashboard = () => {
         await handlePunchIn("");
     };
     const onPunchOutClick = async () => {
-        if (isPunching || !isCheckedIn) return;
+        if (isPunching || !dynamicData.punch.punch_in) return;
         await handlePunchOut("");
     };
     const dojFormatted = useMemo(() => formatDate(dynamicData.user.doj), [dynamicData.user.doj]);
@@ -602,9 +602,9 @@ export const Dashboard = () => {
                                     <button 
                                         className="btn-punch btn-punch-out"
                                         onClick={onPunchOutClick}
-                                        disabled={!isCheckedIn || isPunching || !location.isAvailable}
+                                        disabled={!dynamicData.punch.punch_in || isPunching || !location.isAvailable}
                                     >
-                                        {isPunching && isCheckedIn ? 'Punching Out...' : 'Punch Out'}
+                                        {isPunching && dynamicData.punch.punch_in ? 'Punching Out...' : 'Punch Out'}
                                     </button>
                                 </div>
                             </div>
@@ -620,12 +620,12 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
-                            <NavLink to="/salary" className="action-card nav-link-card"> 
+                            <NavLink to="/payslip" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon orange"><div className="action-icon-inner"><GiReceiveMoney /></div></div>
                                     <div>
                                         <h4>View Payslips</h4>
-                                        <p>Download salary statements</p>
+                                        <p>Download payslip statements</p>
                                     </div>
                                 </div>
                                 <FiChevronRight className="arrow" />
@@ -990,7 +990,7 @@ export const Dashboard = () => {
 //                             <div className="nav-content"><TbDeviceLaptop className="icon green" /> <div><h4>Leave</h4><p>Apply Now</p></div></div>
 //                             <FiChevronRight />
 //                         </NavLink>
-//                         <NavLink to="/salary" className="nav-action-card">
+//                         <NavLink to="/payslip" className="nav-action-card">
 //                             <div className="nav-content"><GiReceiveMoney className="icon orange" /> <div><h4>Payslips</h4><p>View Details</p></div></div>
 //                             <FiChevronRight />
 //                         </NavLink>
@@ -1209,7 +1209,7 @@ export const Dashboard = () => {
 //                             </div>
 //                             <FiChevronRight className="chevron" />
 //                         </NavLink>
-//                         <NavLink to="/salary" className="action-item">
+//                         <NavLink to="/payslip" className="action-item">
 //                             <div className="action-icon gold"><MdPayments /></div>
 //                             <div className="action-text">
 //                                 <strong>Payslips</strong>
@@ -1432,7 +1432,7 @@ export const Dashboard = () => {
 //                             </div>
 //                             <FiChevronRight className="tile-arrow" />
 //                         </NavLink>
-//                         <NavLink to="/salary" className="action-tile">
+//                         <NavLink to="/payslip" className="action-tile">
 //                             <div className="tile-icon gold"><MdPayments /></div>
 //                             <div className="tile-text">
 //                                 <strong>Payslips</strong>
@@ -1597,7 +1597,7 @@ export const Dashboard = () => {
 //                     <div className="actions-list">
 //                         {[
 //                             { to: "/leaves", icon: <FiCalendar />, title: "Apply Leave", color: "purple" },
-//                             { to: "/salary", icon: <MdPayments />, title: "View Payslips", color: "gold" },
+//                             { to: "/payslip", icon: <MdPayments />, title: "View Payslips", color: "gold" },
 //                             { to: "/attendance", icon: <IoMdPerson />, title: "Records", color: "teal" }
 //                         ].map((link, i) => (
 //                             <NavLink to={link.to} className="action-item" key={i}>
@@ -1622,7 +1622,7 @@ export const Dashboard = () => {
 //                         <div className="timeline-item">
 //                             <div className="marker"></div>
 //                             <div className="content">
-//                                 <p>Monthly Salary Credited</p>
+//                                 <p>Monthly Payslip</p>
 //                                 <span>Jan 25, 2026</span>
 //                             </div>
 //                         </div>
@@ -1740,7 +1740,7 @@ export const Dashboard = () => {
 //                             <div className="act-text"><strong>Apply Leave</strong><small>Submit request</small></div>
 //                             <FiChevronRight className="act-arrow" />
 //                         </NavLink>
-//                         <NavLink to="/salary" className="action-btn">
+//                         <NavLink to="/payslip" className="action-btn">
 //                             <MdPayments className="act-icon gold" />
 //                             <div className="act-text"><strong>Payslips</strong><small>Download monthly</small></div>
 //                             <FiChevronRight className="act-arrow" />

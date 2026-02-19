@@ -665,10 +665,8 @@ def punch_out():
 
         if not punch or not punch.punch_in:
             return jsonify({"success": False, "message": "No punch-in found for today"}), 400
-        
-        if punch.punch_out:
-            return jsonify({"success": False, "message": "Punch-out already done"}), 400
 
+        # Allow punch-out again: last punch-out is saved (overwrites previous)
         office_location = Location.query.first()
         zone = "NO_GPS"
         if user_lat is not None and user_lon is not None and office_location:

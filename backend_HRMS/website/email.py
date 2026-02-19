@@ -1359,7 +1359,7 @@ def send_leave_applied_email(admin, leave):
                 <p style="font-size: 13px; color: #555;">
                 <strong>Note:</strong><br>
                 • Deducted days are adjusted from the available leave balance.<br>
-                • Unpaid Leave (LWP) days will be treated as salary-unpaid days.
+                • Unpaid Leave (LWP) days will be treated as unpaid days.
                 </p>
 
                 <p>
