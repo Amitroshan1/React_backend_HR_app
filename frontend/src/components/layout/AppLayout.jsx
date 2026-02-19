@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useNavigate, ScrollRestoration } from "react-router-dom";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 // import "../../pages/style/Dashboard.css"
@@ -76,6 +76,7 @@ export const AppLayout = () => {
     });
     return (
         <div className="main-layout">
+            <ScrollRestoration />
             {/* The Header now gets the username from the centralized context */}
             <Headers username={username} role={empType} hasManagerAccess={userData.user?.has_manager_access} /> 
             
