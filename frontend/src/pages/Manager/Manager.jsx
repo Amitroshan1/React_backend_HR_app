@@ -5,8 +5,9 @@ import { ClaimRequests } from "./comps/LeaveRequests/ClaimRequests";
 import { WFHRequests } from "./comps/LeaveRequests/WFHRequests";
 import { ResignationRequests } from "./comps/LeaveRequests/ResignationRequests";
 import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
+import { ManagerProbationReviews } from "./ManagerProbationReviews";
 import { ManagerProfileCard } from "./comps/ManagerProfileCard/ManagerProfileCard";
-import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount } from "./api";
+import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount, fetchProbationReviewsDue } from "./api";
 import "./Manager.css";
 
 const APPROVAL_TABS = [
@@ -16,6 +17,7 @@ const APPROVAL_TABS = [
   { key: "resignation", label: "Resignation", countKey: "resignation" },
 ];
 const PERFORMANCE_TAB = { key: "performance", label: "Performance", countKey: "performance" };
+const PROBATION_TAB = { key: "probation", label: "Probation", countKey: "probation" };
 
 export const Manager = () => {
   const location = useLocation();
@@ -29,10 +31,12 @@ export const Manager = () => {
     resignation: 0,
   });
   const [pendingPerformanceCount, setPendingPerformanceCount] = useState(0);
+  const [probationCount, setProbationCount] = useState(0);
   const [managerProfile, setManagerProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [countsLoaded, setCountsLoaded] = useState(false);
   const [performanceCountLoaded, setPerformanceCountLoaded] = useState(false);
+  const [probationCountLoaded, setProbationCountLoaded] = useState(false);
   const defaultTabApplied = useRef(false);
 
   const reloadCounts = async () => {
@@ -96,7 +100,23 @@ export const Manager = () => {
   }, []);
 
   useEffect(() => {
-    if (!countsLoaded || !performanceCountLoaded || defaultTabApplied.current) return;
+    let isMounted = true;
+    const loadProbation = async () => {
+      try {
+        const list = await fetchProbationReviewsDue();
+        if (isMounted) setProbationCount(Array.isArray(list) ? list.length : 0);
+      } catch {
+        if (isMounted) setProbationCount(0);
+      } finally {
+        if (isMounted) setProbationCountLoaded(true);
+      }
+    };
+    loadProbation();
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!countsLoaded || !performanceCountLoaded || !probationCountLoaded || defaultTabApplied.current) return;
     defaultTabApplied.current = true;
     if ((counts.leave || 0) > 0) {
       setActiveTab("leave");
@@ -116,11 +136,16 @@ export const Manager = () => {
     }
     if ((pendingPerformanceCount || 0) > 0) {
       setActiveTab("performance");
+      return;
     }
-  }, [countsLoaded, performanceCountLoaded, counts.leave, counts.wfh, counts.claim, counts.resignation, pendingPerformanceCount]);
+    if ((probationCount || 0) > 0) {
+      setActiveTab("probation");
+    }
+  }, [countsLoaded, performanceCountLoaded, probationCountLoaded, counts.leave, counts.wfh, counts.claim, counts.resignation, pendingPerformanceCount, probationCount]);
 
   const getCount = (countKey) => {
     if (countKey === "performance") return pendingPerformanceCount;
+    if (countKey === "probation") return probationCount;
     return counts[countKey] ?? 0;
   };
 
@@ -142,6 +167,8 @@ export const Manager = () => {
         return <ResignationRequests {...panelProps} />;
       case "performance":
         return <ManagerPerformanceReviews />;
+      case "probation":
+        return <ManagerProbationReviews />;
       default:
         return <LeaveRequests {...panelProps} />;
     }
@@ -188,6 +215,21 @@ export const Manager = () => {
             aria-label={`${getCount(PERFORMANCE_TAB.countKey)} pending reviews`}
           >
             {getCount(PERFORMANCE_TAB.countKey)}
+          </span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === PROBATION_TAB.key}
+          className={`manager-tab ${activeTab === PROBATION_TAB.key ? "active" : ""}`}
+          onClick={() => setActiveTab(PROBATION_TAB.key)}
+        >
+          {PROBATION_TAB.label}
+          <span
+            className={`manager-tab-badge ${getCount(PROBATION_TAB.countKey) > 0 ? "has-pending" : ""}`}
+            aria-label={`${getCount(PROBATION_TAB.countKey)} probation reviews due`}
+          >
+            {getCount(PROBATION_TAB.countKey)}
           </span>
         </button>
       </div>

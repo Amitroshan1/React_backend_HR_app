@@ -1,4 +1,5 @@
-from datetime import datetime
+import calendar
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import click
@@ -13,6 +14,18 @@ PL_CARRY_FORWARD_CAP = 45.0
 PL_CREDIT_VALUE = 1.0
 CL_CREDIT_VALUE = 1.0
 IST_ZONE = ZoneInfo("Asia/Kolkata")
+PROBATION_MONTHS = 6
+
+
+def _probation_end_date(doj):
+    """Return date when 6-month probation ends (DOJ + 6 calendar months). Returns None if doj is None."""
+    if doj is None:
+        return None
+    mo = doj.month + PROBATION_MONTHS
+    yr = doj.year + (mo - 1) // 12
+    mo = (mo - 1) % 12 + 1
+    last = calendar.monthrange(yr, mo)[1]
+    return date(yr, mo, min(doj.day, last))
 
 
 def _event_exists(admin_id, event_key):
@@ -59,6 +72,7 @@ def _run_leave_accrual_for_date(run_date):
         "pl_credits": 0,
         "cl_credits": 0,
         "events_skipped_existing": 0,
+        "skipped_on_probation": 0,
     }
 
     should_reset_year = run_date.month == 1 and run_date.day == 1
@@ -82,6 +96,12 @@ def _run_leave_accrual_for_date(run_date):
         leave_balance, created_new = _ensure_leave_balance(admin.id)
         if created_new:
             summary["balances_created"] += 1
+
+        # PL/CL accrual only after 6-month probation; new joiners get no credits until then
+        probation_end = _probation_end_date(admin.doj)
+        if probation_end is None or run_date < probation_end:
+            summary["skipped_on_probation"] += 1
+            continue
 
         if should_reset_year:
             event_key = f"YEAR_RESET_{run_date.year}_01_01"
@@ -173,6 +193,7 @@ def register_leave_accrual_command(app):
             "leave-accrual-run summary: "
             f"date={summary['run_date']}, "
             f"admins_scanned={summary['admins_scanned']}, "
+            f"skipped_on_probation={summary['skipped_on_probation']}, "
             f"year_resets={summary['year_resets']}, "
             f"pl_credits={summary['pl_credits']}, "
             f"cl_credits={summary['cl_credits']}, "

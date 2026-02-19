@@ -114,6 +114,7 @@ class LeaveApplication(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
     deducted_days = db.Column(db.Float, default=0.0)
     extra_days=db.Column(db.Float, default=0.0)
+    pending_reminder_sent_at = db.Column(db.DateTime, nullable=True)
 
     admin = db.relationship('Admin', back_populates='leave_applications')
 

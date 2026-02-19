@@ -1403,6 +1403,81 @@ def send_leave_applied_email(admin, leave):
         return False
 
 
+def send_leave_pending_reminder(leave_application, manager_emails, hr_cc=True):
+    """
+    Send reminder to concern department (managers) when leave has been pending 6+ days.
+    TO: first manager (or HR if no manager); CC: other managers + HR.
+    """
+    try:
+        admin = leave_application.admin
+        if not admin:
+            return False
+
+        hr_email = (current_app.config.get("ZEPTO_CC_HR") or "").strip()
+        to_email = None
+        cc_emails = []
+
+        if manager_emails:
+            to_email = manager_emails[0].strip() if manager_emails[0] else None
+            for addr in manager_emails[1:]:
+                if addr and addr.strip():
+                    cc_emails.append(addr.strip())
+        if not to_email:
+            to_email = hr_email or (admin.email or "").strip()
+        if hr_cc and hr_email and hr_email.lower() != (to_email or "").lower():
+            cc_emails.append(hr_email)
+        if admin.email and (admin.email or "").strip().lower() not in {(to_email or "").lower(), *(e.lower() for e in cc_emails)}:
+            cc_emails.append((admin.email or "").strip())
+
+        to_lower = (to_email or "").lower()
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e or not e.strip():
+                continue
+            key = e.strip().lower()
+            if key != to_lower and key not in seen:
+                seen.add(key)
+                deduped_cc.append(e.strip())
+        cc_emails = deduped_cc
+
+        if not to_email:
+            current_app.logger.warning("Leave pending reminder: no recipient (HR or manager) configured")
+            return False
+
+        applied_date = leave_application.created_at.date() if leave_application.created_at else None
+        applied_str = applied_date.isoformat() if applied_date else "N/A"
+
+        subject = f"Reminder: Leave pending 6+ days – {admin.first_name or admin.email}"
+        body = f"""
+        <p>Hi,</p>
+        <p>This is a reminder that the following leave application has been <strong>pending for more than 6 days</strong> and is awaiting your approval or rejection.</p>
+        <table border="1" cellpadding="6" cellspacing="0" width="60%" style="border-collapse: collapse;">
+            <tr><td><strong>Employee Name</strong></td><td>{admin.first_name or 'N/A'}</td></tr>
+            <tr><td><strong>Employee Email</strong></td><td>{admin.email or 'N/A'}</td></tr>
+            <tr><td><strong>Circle / Department</strong></td><td>{admin.circle or 'N/A'} / {admin.emp_type or 'N/A'}</td></tr>
+            <tr><td><strong>Leave Type</strong></td><td>{leave_application.leave_type}</td></tr>
+            <tr><td><strong>Leave Period</strong></td><td>{leave_application.start_date} to {leave_application.end_date}</td></tr>
+            <tr><td><strong>Applied On</strong></td><td>{applied_str}</td></tr>
+            <tr><td><strong>Status</strong></td><td>{leave_application.status}</td></tr>
+        </table>
+        <p>Please approve or reject this request from the <strong>Manager panel (Leave Requests)</strong> in the HRMS portal at the earliest.</p>
+        <p><a href="https://solviotec.com/" style="background-color:#007bff;color:#ffffff;padding:10px 15px;text-decoration:none;border-radius:5px;" target="_blank">Login to HRMS Portal</a></p>
+        <p>Thanks &amp; Regards,<br>HRMS</p>
+        """
+        send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=cc_emails or None,
+        )
+        return True
+    except Exception as e:
+        current_app.logger.warning(f"Leave pending reminder email failed (leave_id={getattr(leave_application, 'id', None)}): {e}")
+        return False
+
+
 def send_leave_decision_email(leave_obj, approver, action: str):
     """
     Notify employee + HR (+ managers if mapped) when a leave request is approved/rejected.
@@ -1516,6 +1591,81 @@ def send_compoff_expiry_reminder(admin, gain_date, expiry_date):
         return True
     except Exception as e:
         current_app.logger.warning(f"Compoff expiry reminder email failed: {e}")
+        return False
+
+
+def send_probation_reminder_email(admin, probation_end_date, manager_emails):
+    """
+    Send to HR and concerned manager(s): employee will complete 6-month probation on probation_end_date.
+    manager_emails: list of manager email addresses to notify.
+    """
+    try:
+        hr_email = current_app.config.get("EMAIL_HR")
+        emp_name = (getattr(admin, "first_name", None) or "").strip() or (admin.email or "Employee")
+        doj = getattr(admin, "doj", None)
+        doj_str = doj.isoformat() if doj and hasattr(doj, "isoformat") else "N/A"
+        end_str = probation_end_date.isoformat() if hasattr(probation_end_date, "isoformat") else str(probation_end_date)
+        subject = f"Probation Review Due: {emp_name} – 6-month completion on {end_str}"
+        body = f"""
+        <p>Hello,</p>
+        <p>This is a reminder that the following employee will complete their 6-month probation period soon.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Email</strong></td><td>{admin.email or 'N/A'}</td></tr>
+            <tr><td><strong>Date of Joining</strong></td><td>{doj_str}</td></tr>
+            <tr><td><strong>Probation End Date</strong></td><td>{end_str}</td></tr>
+        </table>
+        <p>Please submit your review from the Manager panel (Probation Reviews) at least 15 days before the probation end date.</p>
+        <p>— HRMS</p>
+        """
+        all_recipients = [e for e in manager_emails if e]
+        if hr_email and hr_email not in all_recipients:
+            all_recipients.append(hr_email)
+        if not all_recipients:
+            current_app.logger.warning("Probation reminder: no HR or manager email configured")
+            return False
+        for recipient in all_recipients:
+            send_email_via_zeptomail(
+                sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+                subject=subject,
+                body=body,
+                recipient_email=recipient,
+            )
+        return True
+    except Exception as e:
+        current_app.logger.warning(f"Probation reminder email failed: {e}")
+        return False
+
+
+def send_probation_review_submitted_email(admin_employee, manager_name, feedback_preview=None):
+    """Notify HR that manager has submitted probation review for the employee."""
+    try:
+        hr_email = current_app.config.get("EMAIL_HR")
+        if not hr_email:
+            current_app.logger.warning("EMAIL_HR not set; cannot send probation review submitted email")
+            return False
+        emp_name = (getattr(admin_employee, "first_name", None) or "").strip() or (admin_employee.email or "Employee")
+        subject = f"Probation Review Submitted: {emp_name}"
+        feedback_snippet = (feedback_preview or "")[:200] + ("..." if (feedback_preview or "") and len(feedback_preview or "") > 200 else "")
+        body = f"""
+        <p>Hello HR,</p>
+        <p>Manager <strong>{manager_name or 'N/A'}</strong> has submitted the probation review for the following employee.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Email</strong></td><td>{admin_employee.email or 'N/A'}</td></tr>
+        </table>
+        {f'<p><strong>Feedback preview:</strong> {feedback_snippet}</p>' if feedback_snippet else ''}
+        <p>— HRMS</p>
+        """
+        send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=hr_email,
+        )
+        return True
+    except Exception as e:
+        current_app.logger.warning(f"Probation review submitted email failed: {e}")
         return False
 
 

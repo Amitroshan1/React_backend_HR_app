@@ -1,0 +1,126 @@
+.manager-probation-reviews {
+  padding: 1rem 0;
+}
+
+.manager-probation-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.manager-probation-desc {
+  color: var(--text-muted, #666);
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+}
+
+.manager-probation-loading,
+.manager-probation-empty {
+  color: var(--text-muted, #666);
+  margin: 1rem 0;
+}
+
+.manager-probation-error {
+  color: var(--error, #c00);
+  margin: 0 0 1rem 0;
+}
+
+.manager-probation-success {
+  color: var(--success, #070);
+  margin: 0 0 1rem 0;
+}
+
+.manager-probation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.manager-probation-card {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--card-bg, #fff);
+}
+
+.manager-probation-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.manager-probation-name {
+  font-weight: 600;
+}
+
+.manager-probation-email {
+  font-size: 0.9rem;
+  color: var(--text-muted, #666);
+}
+
+.manager-probation-meta {
+  font-size: 0.85rem;
+  color: var(--text-muted, #666);
+  margin-bottom: 0.75rem;
+}
+
+.manager-probation-submit-btn {
+  padding: 0.4rem 0.8rem;
+  background: var(--primary, #2563eb);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.manager-probation-submit-btn:hover {
+  opacity: 0.9;
+}
+
+.manager-probation-form label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.manager-probation-form label select,
+.manager-probation-form label textarea {
+  display: block;
+  width: 100%;
+  max-width: 400px;
+  margin-top: 0.25rem;
+  padding: 0.4rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 4px;
+}
+
+.manager-probation-form label textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.manager-probation-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.manager-probation-actions button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.manager-probation-actions button:last-child {
+  background: var(--primary, #2563eb);
+  color: #fff;
+  border: none;
+}
+
+.manager-probation-actions button:first-child {
+  background: #fff;
+  border: 1px solid var(--border, #ddd);
+}

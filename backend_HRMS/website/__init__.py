@@ -133,6 +133,7 @@ def create_app():
     from .models.master_data import MasterData
     from .models.leave_accrual_log import LeaveAccrualLog
     from .models.holiday_calendar import HolidayCalendar
+    from .models.probation import ProbationReview
 
     # ---------------------------
     # Flask-Login user loader
@@ -181,5 +182,30 @@ def create_app():
     register_leave_accrual_command(app)
     from .commands.compoff import register_compoff_command
     register_compoff_command(app)
+    from .commands.probation import register_probation_command
+    register_probation_command(app)
+    from .commands.leave_pending_reminder import register_leave_pending_reminder_command
+    register_leave_pending_reminder_command(app)
+
+    # ---------------------------
+    # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention
+    # ---------------------------
+    from flask_apscheduler import APScheduler
+    from . import scheduler as sched_mod
+    sched_mod.set_app(app)
+    scheduler = APScheduler()
+    app.config["SCHEDULER_API_ENABLED"] = False
+    app.config["SCHEDULER_TIMEZONE"] = "Asia/Kolkata"
+    app.config["SCHEDULER_JOBS"] = [
+        {
+            "id": "daily_hr_jobs",
+            "func": "website.scheduler:run_daily_hr_jobs",
+            "trigger": "cron",
+            "hour": 6,
+            "minute": 0,
+        }
+    ]
+    scheduler.init_app(app)
+    scheduler.start()
 
     return app

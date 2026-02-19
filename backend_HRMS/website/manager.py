@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request, current_app, url_for
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import func, or_
-from datetime import date
+from datetime import date, datetime
 
 from . import db
 from .models.Admin_models import Admin
@@ -9,7 +9,8 @@ from .models.attendance import LeaveApplication, WorkFromHomeApplication
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .models.manager_model import ManagerContact
-from .email import send_leave_decision_email, send_wfh_decision_email
+from .models.probation import ProbationReview
+from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
 
 
 manager = Blueprint("manager", __name__)
@@ -621,3 +622,91 @@ def sprint_performance():
         {"name": "Overdue Tasks", "value": int(round((overdue * 100) / total))},
     ]
     return jsonify({"success": True, "items": items}), 200
+
+
+# ---------------------------
+# Probation reviews (6-month reminder flow)
+# ---------------------------
+@manager.route("/probation-reviews-due", methods=["GET"])
+@jwt_required()
+def probation_reviews_due():
+    """List probation reviews pending manager feedback (reminder sent, review not yet submitted)."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    rows = (
+        ProbationReview.query.filter(
+            ProbationReview.reminder_sent_at.isnot(None),
+            ProbationReview.reviewed_at.is_(None),
+        )
+        .order_by(ProbationReview.probation_end_date.asc())
+        .all()
+    )
+    out = []
+    for pr in rows:
+        target = Admin.query.get(pr.admin_id)
+        if not target:
+            continue
+        if not _is_manager_for_target(admin, target):
+            continue
+        out.append({
+            "id": pr.id,
+            "admin_id": pr.admin_id,
+            "employee_name": (getattr(target, "first_name", None) or "").strip() or target.email or "N/A",
+            "employee_email": target.email,
+            "doj": _serialize_date(getattr(target, "doj", None)),
+            "probation_end_date": _serialize_date(pr.probation_end_date),
+            "reminder_sent_at": pr.reminder_sent_at.isoformat() if pr.reminder_sent_at else None,
+        })
+    return jsonify({"success": True, "reviews": out}), 200
+
+
+@manager.route("/probation-review", methods=["POST"])
+@jwt_required()
+def submit_probation_review():
+    """Manager submits probation feedback; notifies HR."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    review_id = data.get("probation_review_id") or data.get("id")
+    feedback = (data.get("feedback") or "").strip()
+    rating = (data.get("rating") or "").strip()
+
+    if not review_id:
+        return jsonify({"success": False, "message": "probation_review_id required"}), 400
+
+    pr = ProbationReview.query.get(review_id)
+    if not pr:
+        return jsonify({"success": False, "message": "Probation review not found"}), 404
+    if pr.reviewed_at:
+        return jsonify({"success": False, "message": "Review already submitted"}), 400
+
+    target = Admin.query.get(pr.admin_id)
+    if not target:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if not _is_manager_for_target(admin, target):
+        return jsonify({"success": False, "message": "You are not the manager for this employee"}), 403
+
+    pr.reviewed_at = datetime.utcnow()
+    pr.reviewed_by_admin_id = admin.id
+    pr.feedback = feedback or None
+    pr.rating = rating or None
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+    manager_name = (getattr(admin, "first_name", None) or "").strip() or admin.email or "Manager"
+    send_probation_review_submitted_email(target, manager_name, feedback_preview=feedback)
+    pr.hr_notified_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "message": "Review submitted; HR has been notified.",
+        "probation_review_id": pr.id,
+    }), 200

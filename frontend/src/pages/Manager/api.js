@@ -189,3 +189,31 @@ export async function fetchPendingPerformanceReviewsCount() {
   const items = await fetchManagerPerformanceQueue({ status: "Submitted" });
   return Array.isArray(items) ? items.length : 0;
 }
+
+export async function fetchProbationReviewsDue() {
+  const response = await fetch(`${API_BASE}/probation-reviews-due`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load probation reviews");
+  }
+  return result.reviews || [];
+}
+
+export async function submitProbationReview(probationReviewId, payload) {
+  const response = await fetch(`${API_BASE}/probation-review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ probation_review_id: probationReviewId, ...payload }),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to submit probation review");
+  }
+  return result;
+}
