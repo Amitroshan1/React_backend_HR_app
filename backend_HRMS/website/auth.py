@@ -16,7 +16,7 @@ from .email import send_login_alert_email
 from .models.Admin_models import Admin
 from . import db
 from .models.emp_detail_models import Employee
-from .models.attendance import Punch, Location, LeaveBalance
+from .models.attendance import Punch, Location, LeaveBalance, LeaveApplication
 from .compoff_utils import get_effective_comp_balance
 from .models.manager_model import ManagerContact
 from .models.news_feed import NewsFeed, PaySlip
@@ -233,6 +233,35 @@ def _employee_homepage_impl():
 
     from .manager_utils import user_has_manager_access
     has_manager_access = user_has_manager_access(admin)
+
+    # ------------------------
+    # 6. LAST LEAVE & LAST PAYSLIP
+    # ------------------------
+    last_leave = LeaveApplication.query.filter_by(admin_id=admin.id).order_by(
+        LeaveApplication.start_date.desc()
+    ).first()
+    last_leave_data = None
+    if last_leave:
+        last_leave_data = {
+            "id": last_leave.id,
+            "leave_type": last_leave.leave_type,
+            "start_date": last_leave.start_date.isoformat() if last_leave.start_date else None,
+            "end_date": last_leave.end_date.isoformat() if last_leave.end_date else None,
+            "status": last_leave.status,
+            "deducted_days": last_leave.deducted_days,
+        }
+
+    last_payslip = PaySlip.query.filter_by(admin_id=admin.id).order_by(
+        PaySlip.id.desc()
+    ).first()
+    last_payslip_data = None
+    if last_payslip:
+        last_payslip_data = {
+            "id": last_payslip.id,
+            "month": last_payslip.month,
+            "year": last_payslip.year,
+            "file_path": last_payslip.file_path,
+        }
 
     # ------------------------
     # RESPONSE

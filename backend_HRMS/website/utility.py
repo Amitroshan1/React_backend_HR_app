@@ -613,18 +613,6 @@ def calculate_attendance_Accounts(admin_id, emp_type, year, month):
     if lop_total > 0:
         absent_days = min(expected_working_days, absent_days + float(lop_total))
 
-    # Treat Sundays as paid holidays (office closed) – each Sunday counts as a present day.
-    # We credit one working-day equivalent per Sunday by reducing net absences (but never below 0).
-    if end_date >= start_date:
-        total_days_span = (end_date - start_date).days + 1
-        sundays_in_span = 0
-        for i in range(total_days_span):
-            d = start_date + timedelta(days=i)
-            if d.weekday() == 6:  # Sunday
-                sundays_in_span += 1
-        if sundays_in_span > 0:
-            absent_days = max(0.0, absent_days - float(sundays_in_span))
-
     return expected_working_days, absent_days
 
 
@@ -717,6 +705,16 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
     # -------- DATE RANGE FOR MONTH --------
     month_start = date(year, month, 1)
     month_end = date(year, month, calendar.monthrange(year, month)[1])
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    end_date = today if (year == today.year and month == today.month) else month_end
+
+    # Sundays in period (office closed = present; add to actual, do not reduce absent)
+    sundays_in_span = 0
+    if end_date >= month_start:
+        for i in range((end_date - month_start).days + 1):
+            d = month_start + timedelta(days=i)
+            if d.weekday() == 6:
+                sundays_in_span += 1
 
     # -------- DATA --------
     row += 1
@@ -725,9 +723,9 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
         # Employee name (Admin model; no Signup)
         emp_name = admin.first_name or "N/A"
 
-        # Attendance totals (Accounts HRMS logic)
+        # Attendance totals (Accounts HRMS logic): absent is Mon-Sat only; actual = present on weekdays + Sundays
         working_days_expected, absent_days = calculate_attendance_Accounts(admin.id, emp_type, year, month)
-        actual_working_days = working_days_expected - absent_days
+        actual_working_days = working_days_expected - absent_days + sundays_in_span
 
         # Total days in month
         total_days = calendar.monthrange(year, month)[1]
