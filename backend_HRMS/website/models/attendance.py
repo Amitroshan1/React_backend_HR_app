@@ -1,6 +1,6 @@
 from .. import db
 from flask_login import UserMixin
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 
 class Punch(db.Model, UserMixin):
@@ -34,6 +34,21 @@ class Location(db.Model):
     longitude = db.Column(db.Float, nullable=False)
     radius = db.Column(db.Float, default=100)
 
+
+
+class CompOffGain(db.Model):
+    """One row = 1 comp-off earned (e.g. by working on Sunday). Valid 30 days from gain_date."""
+    __tablename__ = "comp_off_gains"
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey("admins.id", ondelete="CASCADE"), nullable=False)
+    gain_date = db.Column(db.Date, nullable=False)  # date when comp was earned (e.g. Sunday worked)
+    expiry_date = db.Column(db.Date, nullable=False)  # gain_date + 30 days
+    used = db.Column(db.Float, default=0.0, nullable=False)  # 0 = full comp available, 1 = fully used
+    reminder_sent_at = db.Column(db.DateTime, nullable=True)  # when 7-day expiry reminder was sent
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    admin = db.relationship("Admin", back_populates="comp_off_gains")
 
 
 class LeaveBalance(db.Model):

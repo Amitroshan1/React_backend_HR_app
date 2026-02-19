@@ -123,7 +123,7 @@ def create_app():
     # Import Models
     # ---------------------------
     from .models.Admin_models import Admin
-    from .models.attendance import LeaveBalance, LeaveApplication
+    from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch
     from .models.query import Query, QueryReply
     from .models.emp_detail_models import Employee
     from .models.education import Education, UploadDoc
@@ -179,5 +179,7 @@ def create_app():
 
     from .commands.leave_accrual import register_leave_accrual_command
     register_leave_accrual_command(app)
+    from .commands.compoff import register_compoff_command
+    register_compoff_command(app)
 
     return app

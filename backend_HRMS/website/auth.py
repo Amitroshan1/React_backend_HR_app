@@ -16,7 +16,8 @@ from .email import send_login_alert_email
 from .models.Admin_models import Admin
 from . import db
 from .models.emp_detail_models import Employee
-from .models.attendance import Punch, Location, LeaveBalance, LeaveApplication
+from .models.attendance import Punch, Location, LeaveBalance
+from .compoff_utils import get_effective_comp_balance
 from .models.manager_model import ManagerContact
 from .models.news_feed import NewsFeed, PaySlip
 from .models.query import Query
@@ -220,45 +221,18 @@ def _employee_homepage_impl():
 
     managers = {}
     if manager_contact:
-        def _add_level(key, name_attr, email_attr, mobile_attr):
-            name = getattr(manager_contact, name_attr, None)
-            email = getattr(manager_contact, email_attr, None)
-            if name or email:
+        from .manager_utils import get_manager_detail
+        for key in ("l1", "l2", "l3"):
+            d = get_manager_detail(manager_contact, key)
+            if d.get("name") or d.get("email"):
                 managers[key] = {
-                    "name": name or "",
-                    "email": email or "",
-                    "mobile": getattr(manager_contact, mobile_attr, None) or ""
+                    "name": d["name"],
+                    "email": d["email"],
+                    "mobile": d["mobile"]
                 }
-        _add_level("l1", "l1_name", "l1_email", "l1_mobile")
-        _add_level("l2", "l2_name", "l2_email", "l2_mobile")
-        _add_level("l3", "l3_name", "l3_email", "l3_mobile")
 
-    # ------------------------
-    # 6. LAST LEAVE APPLICATION (for Recent Activity)
-    # ------------------------
-    last_leave = LeaveApplication.query.filter_by(admin_id=admin.id).order_by(LeaveApplication.created_at.desc()).first()
-    last_leave_data = None
-    if last_leave:
-        last_leave_data = {
-            "id": last_leave.id,
-            "leave_type": last_leave.leave_type,
-            "status": last_leave.status,
-            "start_date": last_leave.start_date.strftime("%Y-%m-%d") if last_leave.start_date else None,
-            "end_date": last_leave.end_date.strftime("%Y-%m-%d") if last_leave.end_date else None,
-            "created_at": last_leave.created_at.strftime("%Y-%m-%d %H:%M:%S") if last_leave.created_at else None,
-        }
-
-    # ------------------------
-    # 7. LATEST PAYSLIP (for Recent Activity)
-    # ------------------------
-    last_payslip = PaySlip.query.filter_by(admin_id=admin.id).order_by(PaySlip.id.desc()).first()
-    last_payslip_data = None
-    if last_payslip:
-        last_payslip_data = {
-            "id": last_payslip.id,
-            "month": last_payslip.month,
-            "year": last_payslip.year,
-        }
+    from .manager_utils import user_has_manager_access
+    has_manager_access = user_has_manager_access(admin)
 
     # ------------------------
     # RESPONSE
@@ -287,7 +261,8 @@ def _employee_homepage_impl():
             "emp_type": getattr(admin, "emp_type", None),
             "department": getattr(admin, "emp_type", None),
             "circle": getattr(admin, "circle", None),
-            "doj": _safe_doj(admin)
+            "doj": _safe_doj(admin),
+            "has_manager_access": has_manager_access
         },
         "employee": {
             "designation": employee.designation if employee else None
@@ -300,7 +275,7 @@ def _employee_homepage_impl():
         "leave_balance": {
             "pl": leave_balance.privilege_leave_balance if leave_balance else 0,
             "cl": leave_balance.casual_leave_balance if leave_balance else 0,
-            "comp": leave_balance.compensatory_leave_balance if leave_balance else 0,
+            "comp": (get_effective_comp_balance(admin.id) if admin else 0),
             "total_pl": leave_balance.total_privilege_leave if leave_balance else 0,
             "total_cl": leave_balance.total_casual_leave if leave_balance else 0,
             "total_comp": leave_balance.total_compensatory_leave if leave_balance else 0,

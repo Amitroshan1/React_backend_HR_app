@@ -130,6 +130,21 @@ export async function fetchManagerScope() {
   return result.scope || null;
 }
 
+export async function fetchManagerProfile() {
+  const response = await fetch(`${API_BASE}/profile`, {
+    method: "GET",
+    headers: {
+      ...authHeaders(),
+    },
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load manager profile");
+  }
+  return result.profile || null;
+}
+
 export async function fetchManagerPerformanceQueue(filters = {}) {
   const params = new URLSearchParams();
   if (filters.month) params.set("month", filters.month);

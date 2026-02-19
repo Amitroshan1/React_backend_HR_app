@@ -81,6 +81,12 @@ class Admin(db.Model, UserMixin):
         uselist=False,
         cascade="all, delete-orphan"
     )
+    comp_off_gains = db.relationship(
+        'CompOffGain',
+        back_populates='admin',
+        lazy='dynamic',
+        cascade="all, delete-orphan"
+    )
 
     # --- Password helpers ---
     def set_password(self, password):

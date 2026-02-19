@@ -15,6 +15,7 @@ from .models.query import Query, QueryReply
 from .models.notification import Notification
 from .email import notify_query_event, send_query_closed_email
 from .models.manager_model import ManagerContact
+from .manager_utils import get_manager_detail
 from werkzeug.utils import secure_filename
 import json
 import os
@@ -442,6 +443,36 @@ def close_query_api(query_id):
 
 
 
+@query.route("/api/managers/employees", methods=["GET"])
+@jwt_required()
+def list_employees_for_manager_picker():
+    """List active employees for L1/L2/L3 typeahead. Returns empty when q is empty; when q is set, returns up to 50 matches."""
+    search = (request.args.get("q") or "").strip().lower()
+    if not search:
+        return jsonify({"success": True, "employees": []}), 200
+    q = Admin.query.filter_by(is_active=True, is_exited=False).filter(
+        db.or_(
+            func.lower(func.coalesce(Admin.first_name, "")).contains(search),
+            func.lower(func.coalesce(Admin.email, "")).contains(search),
+            func.lower(func.coalesce(Admin.emp_id, "")).contains(search),
+        )
+    )
+    admins = q.order_by(Admin.first_name.asc()).limit(50).all()
+    return jsonify({
+        "success": True,
+        "employees": [
+            {
+                "id": a.id,
+                "name": a.first_name or a.email or "",
+                "email": a.email or "",
+                "emp_id": a.emp_id or "",
+                "mobile": a.mobile or "",
+            }
+            for a in admins
+        ]
+    }), 200
+
+
 @query.route("/api/managers/search", methods=["GET"])
 @jwt_required()
 def search_managers_api():
@@ -535,6 +566,9 @@ def get_manager_contact_api():
             "data": None
         }), 200
 
+    l1 = get_manager_detail(contact, "l1")
+    l2 = get_manager_detail(contact, "l2")
+    l3 = get_manager_detail(contact, "l3")
     return jsonify({
         "success": True,
         "exists": True,
@@ -542,21 +576,12 @@ def get_manager_contact_api():
             "circle_name": contact.circle_name,
             "user_type": contact.user_type,
             "user_email": contact.user_email or "",
-            "l1": {
-                "name": contact.l1_name or "",
-                "mobile": contact.l1_mobile or "",
-                "email": contact.l1_email or ""
-            },
-            "l2": {
-                "name": contact.l2_name or "",
-                "mobile": contact.l2_mobile or "",
-                "email": contact.l2_email or ""
-            },
-            "l3": {
-                "name": contact.l3_name or "",
-                "mobile": contact.l3_mobile or "",
-                "email": contact.l3_email or ""
-            }
+            "l1_admin_id": contact.l1_admin_id,
+            "l2_admin_id": contact.l2_admin_id,
+            "l3_admin_id": contact.l3_admin_id,
+            "l1": {"id": l1["id"], "name": l1["name"], "mobile": l1["mobile"], "email": l1["email"]},
+            "l2": {"id": l2["id"], "name": l2["name"], "mobile": l2["mobile"], "email": l2["email"]},
+            "l3": {"id": l3["id"], "name": l3["name"], "mobile": l3["mobile"], "email": l3["email"]},
         }
     }), 200
 
@@ -579,6 +604,17 @@ def upsert_manager_contact_api():
             "success": False,
             "message": "circle_name and user_type are required"
         }), 400
+
+    ids = [
+        int(x) if x is not None and str(x).strip() else None
+        for x in (data.get("l1_admin_id"), data.get("l2_admin_id"), data.get("l3_admin_id"))
+    ]
+    if ids[0] and ids[1] and ids[0] == ids[1]:
+        return jsonify({"success": False, "message": "L1 and L2 must be different people"}), 400
+    if ids[0] and ids[2] and ids[0] == ids[2]:
+        return jsonify({"success": False, "message": "L1 and L3 must be different people"}), 400
+    if ids[1] and ids[2] and ids[1] == ids[2]:
+        return jsonify({"success": False, "message": "L2 and L3 must be different people"}), 400
 
     circle_lower = circle.lower()
     emp_type_lower = emp_type.lower()
@@ -605,17 +641,20 @@ def upsert_manager_contact_api():
             contact = ManagerContact(circle_name=circle, user_type=emp_type, user_email=None)
             db.session.add(contact)
 
-    contact.l1_name = data.get("l1_name") or None
-    contact.l1_mobile = data.get("l1_mobile") or None
-    contact.l1_email = data.get("l1_email") or None
-
-    contact.l2_name = data.get("l2_name") or None
-    contact.l2_mobile = data.get("l2_mobile") or None
-    contact.l2_email = data.get("l2_email") or None
-
-    contact.l3_name = data.get("l3_name") or None
-    contact.l3_mobile = data.get("l3_mobile") or None
-    contact.l3_email = data.get("l3_email") or None
+    # Prefer admin_id; fallback to legacy fields
+    for level in ("l1", "l2", "l3"):
+        admin_id = data.get(f"{level}_admin_id")
+        admin_id = int(admin_id) if admin_id is not None and str(admin_id).strip() else None
+        setattr(contact, f"{level}_admin_id", admin_id)
+        if not admin_id:
+            setattr(contact, f"{level}_name", data.get(f"{level}_name") or None)
+            setattr(contact, f"{level}_mobile", data.get(f"{level}_mobile") or None)
+            setattr(contact, f"{level}_email", data.get(f"{level}_email") or None)
+        else:
+            # Clear legacy fields when using admin_id
+            setattr(contact, f"{level}_name", None)
+            setattr(contact, f"{level}_mobile", None)
+            setattr(contact, f"{level}_email", None)
 
     try:
         db.session.commit()

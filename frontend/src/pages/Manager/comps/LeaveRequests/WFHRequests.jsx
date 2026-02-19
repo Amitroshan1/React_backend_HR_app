@@ -21,7 +21,7 @@ export const WFHRequests = ({ statusFilter = "Pending", onRequestUpdated }) => {
           employeeName: r.employee_name || "N/A",
           reason: `${r.reason || "-"} (${r.start_date || "-"} to ${r.end_date || "-"})`,
         }));
-        setRequests(mapped);
+        setRequests(mapped.sort((a, b) => (b.id - a.id)));
       } catch (e) {
         setError(e.message || "Unable to load WFH requests");
         setRequests([]);

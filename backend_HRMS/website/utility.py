@@ -1,12 +1,13 @@
-from .models.attendance import LeaveApplication
+from .models.attendance import LeaveApplication, LeaveBalance, Punch, WorkFromHomeApplication
 from datetime import date
 from io import BytesIO
 import xlsxwriter
 import pandas as pd
-from .models.attendance import Punch
 import re
 
 from .models.Admin_models import Admin
+from . import db
+from .models.holiday_calendar import HolidayCalendar
 
 
 
@@ -420,3 +421,350 @@ def send_excel_file(
         download_name=download_name
     )
 
+
+
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+import calendar
+from sqlalchemy import func
+
+
+def calculate_attendance_Accounts(admin_id, emp_type, year, month):
+    """
+    HRMS-friendly monthly totals (Accounts view).
+
+    Returns:
+      - expected_working_days: calendar working days for this employee (weekends + mandatory holidays excluded,
+        optional holidays excluded only if the employee has an approved Optional Leave on that date).
+      - absent_days: only counts absence on expected working days (float, supports 0.5 for half-day leave without punch).
+
+    Notes:
+      - Mandatory holidays are loaded from HolidayCalendar (DB).
+      - Optional holidays are NOT treated as non-working unless Optional Leave is approved for that date.
+      - Approved WFH counts as present on a working day.
+      - Approved leaves count as paid leave days on working days; leave.extra_days (LWP/LOP) is approximated into absences.
+    """
+
+    # -------- DATE RANGE --------
+    start_date = date(year, month, 1)
+    month_end = date(year, month, calendar.monthrange(year, month)[1])
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    end_date = today if (year == today.year and month == today.month) else month_end
+
+    # -------- HOLIDAYS (DB) --------
+    holiday_rows = HolidayCalendar.query.filter(
+        HolidayCalendar.year == year,
+        HolidayCalendar.is_active.is_(True),
+        HolidayCalendar.holiday_date.between(start_date, end_date),
+    ).all()
+    mandatory_holidays = {h.holiday_date for h in holiday_rows if not getattr(h, "is_optional", False)}
+    optional_holidays = {h.holiday_date for h in holiday_rows if getattr(h, "is_optional", False)}
+
+    # -------- PUNCHES (WORKED DAYS: >= 8h full present, < 8h half day → 0.5 absent) --------
+    FULL_DAY_WORK_SECONDS = 8 * 3600
+
+    def _punch_work_seconds(p):
+        if getattr(p, "today_work", None) and str(p.today_work).strip():
+            s = str(p.today_work).strip()
+            parts = s.split(":")
+            try:
+                h = int(parts[0]) if len(parts) > 0 else 0
+                m = int(parts[1]) if len(parts) > 1 else 0
+                sec = int(parts[2]) if len(parts) > 2 else 0
+                return h * 3600 + m * 60 + sec
+            except (ValueError, IndexError):
+                pass
+        if p.punch_in and p.punch_out:
+            delta = p.punch_out - p.punch_in
+            return max(0, int(delta.total_seconds()))
+        return 0
+
+    punches = Punch.query.filter(
+        Punch.admin_id == admin_id,
+        Punch.punch_date.between(start_date, end_date)
+    ).all()
+    worked_full_dates = set()
+    worked_half_dates = set()
+    for p in punches:
+        if not p.punch_in or not p.punch_out:
+            continue
+        secs = _punch_work_seconds(p)
+        if secs >= FULL_DAY_WORK_SECONDS:
+            worked_full_dates.add(p.punch_date)
+        else:
+            worked_half_dates.add(p.punch_date)
+
+    # -------- WFH (APPROVED) --------
+    wfh_apps = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin_id,
+        WorkFromHomeApplication.status == "Approved",
+        WorkFromHomeApplication.start_date <= end_date,
+        WorkFromHomeApplication.end_date >= start_date
+    ).all()
+    wfh_dates = set()
+    for wfh in wfh_apps:
+        d = max(wfh.start_date, start_date)
+        d_end = min(wfh.end_date, end_date)
+        while d <= d_end:
+            wfh_dates.add(d)
+            d += timedelta(days=1)
+
+    # -------- LEAVES (APPROVED) --------
+    leaves = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin_id,
+        LeaveApplication.status == "Approved",
+        LeaveApplication.start_date <= end_date,
+        LeaveApplication.end_date >= start_date
+    ).all()
+
+    # Day -> leave units (1.0 or 0.5) for working-day coverage (excluding Optional Leave)
+    leave_units = {}
+    optional_leave_taken = set()
+    lop_total = 0.0  # approximated LWP/LOP days within this month range
+
+    for leave in leaves:
+        d_start = max(leave.start_date, start_date)
+        d_end = min(leave.end_date, end_date)
+
+        # Approximate LOP allocation into this month slice (best effort; extra_days is stored at application level).
+        span_days = (leave.end_date - leave.start_date).days + 1
+        overlap_days = (d_end - d_start).days + 1 if d_end >= d_start else 0
+        if span_days > 0 and overlap_days > 0 and float(getattr(leave, "extra_days", 0) or 0) > 0:
+            lop_total += float(leave.extra_days or 0) * (overlap_days / span_days)
+
+        # Optional Leave: treat as a day-off only if the date is an optional holiday.
+        if leave.leave_type == "Optional Leave":
+            d = d_start
+            while d <= d_end:
+                if d in optional_holidays:
+                    optional_leave_taken.add(d)
+                d += timedelta(days=1)
+            continue
+
+        # Half Day Leave: count as 0.5 on its start date (common case)
+        if leave.leave_type == "Half Day Leave":
+            if d_start <= d_end:
+                leave_units[d_start] = max(leave_units.get(d_start, 0.0), 0.5)
+            continue
+
+        # Other leave types: cover each day in the overlapping range
+        d = d_start
+        while d <= d_end:
+            leave_units[d] = max(leave_units.get(d, 0.0), 1.0)
+            d += timedelta(days=1)
+
+    # -------- DAY-WISE TOTALS --------
+    expected_working_days = 0.0
+    absent_days = 0.0
+
+    current = start_date
+    while current <= end_date:
+        weekday = current.weekday()  # Mon=0 ... Sun=6
+
+        # Weekend rules (company calendar)
+        is_weekend_non_working = (
+            weekday == 6 or
+            (weekday == 5 and emp_type not in ["Human Resource", "Accounts"])
+        )
+        is_mandatory_holiday = current in mandatory_holidays
+
+        # Base calendar working day (optional holidays remain working unless taken)
+        is_calendar_working_day = (not is_weekend_non_working) and (not is_mandatory_holiday)
+
+        # If it's not a working day, it doesn't affect expected/absent.
+        if not is_calendar_working_day:
+            current += timedelta(days=1)
+            continue
+
+        # Optional holiday taken (approved Optional Leave) becomes a day-off for this employee.
+        if current in optional_leave_taken:
+            current += timedelta(days=1)
+            continue
+
+        expected_working_days += 1.0
+
+        # Present if worked full day (>= 8h) or approved WFH
+        if current in worked_full_dates or current in wfh_dates:
+            current += timedelta(days=1)
+            continue
+
+        # Half day: punch in+out but < 8 hours → 0.5 absent
+        if current in worked_half_dates:
+            absent_days += 0.5
+            current += timedelta(days=1)
+            continue
+
+        # Approved leave covers the day (full or half)
+        units = float(leave_units.get(current, 0.0) or 0.0)
+        if units >= 1.0:
+            current += timedelta(days=1)
+            continue
+        if units == 0.5:
+            absent_days += 0.5
+            current += timedelta(days=1)
+            continue
+
+        # No punch, no WFH, no approved leave => absent
+        absent_days += 1.0
+        current += timedelta(days=1)
+
+    # Apply approximated LOP days (from leave.extra_days) into absences, capped by expected_working_days
+    if lop_total > 0:
+        absent_days = min(expected_working_days, absent_days + float(lop_total))
+
+    # Treat Sundays as paid holidays (office closed) – each Sunday counts as a present day.
+    # We credit one working-day equivalent per Sunday by reducing net absences (but never below 0).
+    if end_date >= start_date:
+        total_days_span = (end_date - start_date).days + 1
+        sundays_in_span = 0
+        for i in range(total_days_span):
+            d = start_date + timedelta(days=i)
+            if d.weekday() == 6:  # Sunday
+                sundays_in_span += 1
+        if sundays_in_span > 0:
+            absent_days = max(0.0, absent_days - float(sundays_in_span))
+
+    return expected_working_days, absent_days
+
+
+
+def get_leave_balance_Accounts(admin):
+    balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
+    if not balance:
+        return 0, 0
+    return (
+        float(balance.privilege_leave_balance or 0),
+        float(balance.casual_leave_balance or 0)
+    )
+
+
+def applied_leave_days_in_month(admin_id, leave_type, month_start, month_end):
+    """
+    Sum applied (approved) leave days for a given type in a month, prorated by
+    calendar overlap so multi-month leaves are not double-counted.
+    """
+    leaves = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin_id,
+        LeaveApplication.leave_type == leave_type,
+        LeaveApplication.status == "Approved",
+        LeaveApplication.start_date <= month_end,
+        LeaveApplication.end_date >= month_start
+    ).all()
+    total = 0.0
+    for leave in leaves:
+        overlap_start = max(leave.start_date, month_start)
+        overlap_end = min(leave.end_date, month_end)
+        overlap_days = (overlap_end - overlap_start).days + 1
+        span_days = (leave.end_date - leave.start_date).days + 1
+        if span_days <= 0:
+            continue
+        deducted = float(leave.deducted_days or 0)
+        total += (overlap_days / span_days) * deducted
+    return total
+
+
+
+from io import BytesIO
+import calendar
+import xlsxwriter
+from sqlalchemy import func
+
+
+def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
+    from .compoff_utils import get_effective_comp_balance
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output)
+    worksheet = workbook.add_worksheet("Attendance")
+
+    # -------- FORMATS --------
+    header_fmt = workbook.add_format({
+        'bold': True,
+        'border': 1,
+        'align': 'center',
+        'valign': 'vcenter',
+        'bg_color': '#D9E1F2'
+    })
+    cell_fmt = workbook.add_format({'border': 1})
+    title_fmt = workbook.add_format({'bold': True, 'font_size': 12})
+
+    # -------- HEADER --------
+    worksheet.merge_range('A1:M1', f"Employee Domain: {emp_type}", title_fmt)
+    worksheet.merge_range('A2:M2', f"Circle: {circle}", title_fmt)
+    worksheet.merge_range('A3:M3', f"Month: {calendar.month_name[month]} {year}", title_fmt)
+
+    # -------- TABLE HEADER --------
+    row = 4
+    headers = [
+        "S.No",
+        "Month",
+        "Employee Name",
+        "Total Days in Month",
+        "Actual Working Days",
+        "Total Absent Days",
+        "Balance CL",
+        "Balance PL",
+        "Balance Comp Off",
+        "Applied CL",
+        "Applied PL",
+        "Applied Comp Off",
+        "Total Applied Leave"
+    ]
+
+    for col, h in enumerate(headers):
+        worksheet.write(row, col, h, header_fmt)
+
+    # -------- DATE RANGE FOR MONTH --------
+    month_start = date(year, month, 1)
+    month_end = date(year, month, calendar.monthrange(year, month)[1])
+
+    # -------- DATA --------
+    row += 1
+    for idx, admin in enumerate(admins, start=1):
+
+        # Employee name (Admin model; no Signup)
+        emp_name = admin.first_name or "N/A"
+
+        # Attendance totals (Accounts HRMS logic)
+        working_days_expected, absent_days = calculate_attendance_Accounts(admin.id, emp_type, year, month)
+        actual_working_days = working_days_expected - absent_days
+
+        # Total days in month
+        total_days = calendar.monthrange(year, month)[1]
+
+        # Leave balances (by admin_id)
+        balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
+        balance_cl = float(balance.casual_leave_balance) if balance else 0
+        balance_pl = float(balance.privilege_leave_balance) if balance else 0
+        balance_comp = get_effective_comp_balance(admin.id)
+
+        # -------- APPLIED LEAVES (MONTH-WISE, PRORATED BY OVERLAP) --------
+        applied_cl = applied_leave_days_in_month(admin.id, "Casual Leave", month_start, month_end)
+        applied_pl = applied_leave_days_in_month(admin.id, "Privilege Leave", month_start, month_end)
+        applied_comp = applied_leave_days_in_month(admin.id, "Compensatory Leave", month_start, month_end)
+        total_applied_leave = applied_cl + applied_pl + applied_comp
+
+        # -------- WRITE ROW --------
+        worksheet.write_row(row, 0, [
+            idx,
+            f"{calendar.month_name[month]} {year}",
+            emp_name,
+            total_days,
+            actual_working_days,
+            absent_days,
+            balance_cl,
+            balance_pl,
+            balance_comp,
+            applied_cl,
+            applied_pl,
+            applied_comp,
+            total_applied_leave
+        ], cell_fmt)
+
+        row += 1
+
+    worksheet.set_column(0, 12, 22)
+    workbook.close()
+    output.seek(0)
+
+    return output

@@ -12,7 +12,7 @@ from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
 from .email import asset_email,update_asset_email
-from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
+from .utility import generate_attendance_excel_Accounts, send_excel_file, calculate_month_summary
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
@@ -638,13 +638,12 @@ def download_excel_acc_api():
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
         year, month = now.year, now.month
 
-    output = generate_attendance_excel(
+    output = generate_attendance_excel_Accounts(
         admins=admins,
         emp_type=emp_type,
         circle=circle,
         year=year,
-        month=month,
-        file_prefix="ACC"
+        month=month
     )
 
     filename = f"ACC_Attendance_{circle}_{emp_type}_{calendar.month_name[month]}_{year}.xlsx"

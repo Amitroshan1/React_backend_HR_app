@@ -1,0 +1,112 @@
+.manager-profile-card {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.manager-profile-card--loading {
+  min-height: 140px;
+}
+
+.manager-profile-card__photo-wrap {
+  flex-shrink: 0;
+}
+
+.manager-profile-card__photo {
+  width: 100px;
+  height: 100px;
+  border-radius: 12px;
+  object-fit: cover;
+  display: block;
+}
+
+.manager-profile-card__photo--skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: manager-profile-skeleton 1.2s ease-in-out infinite;
+}
+
+.manager-profile-card__details {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+}
+
+.manager-profile-card__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.manager-profile-card__label {
+  flex-shrink: 0;
+  width: 120px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.manager-profile-card__value {
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.manager-profile-card__address {
+  max-width: 100%;
+}
+
+.manager-profile-card__scope-row {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.manager-profile-card__scope {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.manager-profile-card__skeleton-line {
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: manager-profile-skeleton 1.2s ease-in-out infinite;
+}
+
+@keyframes manager-profile-skeleton {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .manager-profile-card {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .manager-profile-card__row {
+    flex-direction: column;
+    gap: 2px;
+    align-items: center;
+    text-align: center;
+  }
+
+  .manager-profile-card__label {
+    width: auto;
+  }
+}

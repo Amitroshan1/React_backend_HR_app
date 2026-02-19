@@ -21,7 +21,7 @@ export const LeaveRequests = ({ statusFilter = "Pending", onRequestUpdated }) =>
           employeeName: r.employee_name || "N/A",
           reason: `${r.leave_type || "Leave"} (${r.start_date || "-"} to ${r.end_date || "-"})`,
         }));
-        setRequests(mapped);
+        setRequests(mapped.sort((a, b) => (b.id - a.id)));
       } catch (e) {
         setError(e.message || "Unable to load leave requests");
         setRequests([]);

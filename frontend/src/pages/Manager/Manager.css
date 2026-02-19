@@ -91,3 +91,184 @@
     margin-top: 20px;
     min-height: 500px; /* Optional: matches sidebar height roughly */
 }
+
+/* ========== Manager landing: tabbed layout ========== */
+.manager-dashboard-wrapper {
+  padding: 24px;
+  background: #f8fafc;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.manager-scope {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.manager-scope strong {
+  color: #1e293b;
+}
+
+.manager-tabs-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.manager-tab {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px 10px 0 0;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.manager-tab:hover {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.manager-tab.active {
+  background: #fff;
+  color: #1e40af;
+  border: 1px solid #e2e8f0;
+  border-bottom-color: #fff;
+  margin-bottom: -2px;
+  padding-bottom: 12px;
+}
+
+.manager-tab-badge {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: #cbd5e1;
+  color: #475569;
+}
+
+.manager-tab.active .manager-tab-badge,
+.manager-tab .manager-tab-badge.has-pending {
+  background: #2563eb;
+  color: #fff;
+}
+
+.manager-status-filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.manager-status-filters button {
+  padding: 8px 20px;
+  border-radius: 20px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #64748b;
+  transition: background 0.2s, color 0.2s;
+}
+
+.manager-status-filters button:hover {
+  background: #cbd5e1;
+  color: #475569;
+}
+
+.manager-status-filters button.active {
+  background: #4f46e5;
+  color: #fff;
+}
+
+.manager-tab-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 24px;
+  overflow: auto;
+  margin-bottom: 24px;
+}
+
+.manager-performance-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.manager-performance-cta {
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+}
+
+.manager-performance-cta:hover {
+  background: #e0e7ff;
+}
+
+.manager-performance-cta .badge {
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  background: #4f46e5;
+  color: #fff;
+}
+
+.manager-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.manager-main-grid .left-column-content,
+.manager-main-grid .right-column-stack {
+  height: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 1024px) {
+  .manager-main-grid {
+    grid-template-columns: 1fr;
+  }
+}

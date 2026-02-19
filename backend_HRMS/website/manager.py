@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, url_for
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import func, or_
 from datetime import date
@@ -54,53 +54,26 @@ def _get_contact_for_target(target_admin):
 
 
 def _is_manager_for_target(approver_admin, target_admin):
+    """True if approver is L1/L2/L3 in target's ManagerContact (no circle/emp_type restriction)."""
     if not approver_admin or not target_admin:
         return False
     if approver_admin.id == target_admin.id:
         return False
-    # Strict scope: manager can only act within own emp_type + circle.
-    if _norm(approver_admin.circle) != _norm(target_admin.circle):
-        return False
-    if _norm(approver_admin.emp_type) != _norm(target_admin.emp_type):
-        return False
-
     contact = _get_contact_for_target(target_admin)
     if not contact:
         return False
-
-    approver_email = _norm(approver_admin.email)
-    allowed = {
-        _norm(contact.l1_email),
-        _norm(contact.l2_email),
-        _norm(contact.l3_email),
-    }
-    return approver_email in allowed
+    from .manager_utils import is_manager_in_contact
+    return is_manager_in_contact(contact, approver_admin)
 
 
 def _ensure_manager_user():
+    """Grant manager access if admin appears in any ManagerContact as L1/L2/L3 (no circle/emp_type required)."""
     admin = _get_current_admin()
     if not admin:
         return None, (jsonify({"success": False, "message": "Unauthorized user"}), 401)
-
-    admin_circle = _norm(admin.circle)
-    admin_type = _norm(admin.emp_type)
-    if not admin_circle or not admin_type:
-        return None, (jsonify({"success": False, "message": "Manager profile missing circle or emp_type"}), 403)
-
-    normalized_email = _norm(admin.email)
-    has_mapping = ManagerContact.query.filter(
-        func.lower(func.coalesce(ManagerContact.circle_name, "")) == admin_circle,
-        func.lower(func.coalesce(ManagerContact.user_type, "")) == admin_type,
-        or_(
-            func.lower(func.coalesce(ManagerContact.l1_email, "")) == normalized_email,
-            func.lower(func.coalesce(ManagerContact.l2_email, "")) == normalized_email,
-            func.lower(func.coalesce(ManagerContact.l3_email, "")) == normalized_email,
-        )
-    ).first()
-
-    if not has_mapping:
+    from .manager_utils import user_has_manager_access
+    if not user_has_manager_access(admin):
         return None, (jsonify({"success": False, "message": "Manager access required"}), 403)
-
     return admin, None
 
 
@@ -123,6 +96,63 @@ def manager_scope():
     ), 200
 
 
+@manager.route("/profile", methods=["GET"])
+@jwt_required()
+def manager_profile():
+    """Return current manager's profile for the top card: name, email, mobile, designation, address, scope, photo."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    emp = getattr(admin, "employee_details", None)
+    first_name = (getattr(admin, "first_name", None) or "").strip()
+    user_name = (getattr(admin, "user_name", None) or "").strip()
+    email = (getattr(admin, "email", None) or "").strip()
+    name = first_name or user_name or (email.split("@")[0] if email else None) or "Manager"
+    mobile = (getattr(admin, "mobile", None) or "").strip()
+    designation = None
+    current_address = None
+    photo_url = None
+
+    if emp:
+        if (getattr(emp, "name", None) or "").strip():
+            name = (emp.name or "").strip()
+        if (getattr(emp, "designation", None) or "").strip():
+            designation = (emp.designation or "").strip()
+        if not mobile and (getattr(emp, "mobile", None) or "").strip():
+            mobile = (emp.mobile or "").strip()
+        line1 = (getattr(emp, "present_address_line1", None) or "").strip()
+        if line1:
+            parts = [line1]
+            for attr in ("present_district", "present_state", "present_pincode"):
+                val = (getattr(emp, attr, None) or "").strip()
+                if val:
+                    parts.append(val)
+            current_address = ", ".join(parts)
+        photo_fn = (getattr(emp, "photo_filename", None) or "").strip()
+        if photo_fn:
+            photo_url = url_for("static", filename=f"uploads/{photo_fn}")
+
+    if not designation and (getattr(admin, "emp_type", None) or "").strip():
+        designation = (admin.emp_type or "").strip()
+
+    return jsonify({
+        "success": True,
+        "profile": {
+            "name": name,
+            "email": email or None,
+            "mobile": mobile or None,
+            "designation": designation or None,
+            "current_address": current_address or None,
+            "scope": {
+                "circle": getattr(admin, "circle", None),
+                "emp_type": getattr(admin, "emp_type", None),
+            },
+            "photo_url": photo_url,
+        },
+    }), 200
+
+
 def _reverse_leave_usage(leave_balance, leave_type, deducted_days):
     if not leave_balance or deducted_days <= 0:
         return
@@ -136,6 +166,8 @@ def _reverse_leave_usage(leave_balance, leave_type, deducted_days):
             0.0, float(leave_balance.used_casual_leave or 0.0) - deducted_days
         )
     elif leave_type == "Compensatory Leave":
+        from .compoff_utils import restore_comp_leave
+        restore_comp_leave(leave_balance.admin_id, deducted_days)
         leave_balance.used_comp_leave = max(
             0.0, float(leave_balance.used_comp_leave or 0.0) - deducted_days
         )
@@ -165,7 +197,7 @@ def list_leave_requests():
     if status.lower() != "all":
         query = query.filter(LeaveApplication.status == status)
 
-    rows = query.order_by(LeaveApplication.created_at.desc()).all()
+    rows = query.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).all()
     items = []
     for row in rows:
         if not _is_manager_for_target(admin, row.admin):
@@ -232,10 +264,15 @@ def act_on_leave_request(leave_id):
             leave_balance.casual_leave_balance = max(0.0, current - deducted)
             leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + deducted
 
-        # Compensatory Leave
+        # Compensatory Leave (deduct from CompOffGain oldest-first, then sync to LeaveBalance)
         elif lt == "Compensatory Leave":
-            current = float(leave_balance.compensatory_leave_balance or 0.0)
-            leave_balance.compensatory_leave_balance = max(0.0, current - deducted)
+            from .compoff_utils import deduct_comp_leave
+            if not deduct_comp_leave(leave_obj.admin_id, deducted):
+                db.session.rollback()
+                return jsonify({
+                    "success": False,
+                    "message": "Insufficient comp-off balance (may have expired). Please refresh and try again."
+                }), 400
             leave_balance.used_comp_leave = float(leave_balance.used_comp_leave or 0.0) + deducted
 
         # Half Day Leave: treat as 0.5 day CL (or PL) unless it was pure LOP (extra_days >= 0.5)
@@ -280,7 +317,7 @@ def list_wfh_requests():
     if status.lower() != "all":
         query = query.filter(WorkFromHomeApplication.status == status)
 
-    rows = query.order_by(WorkFromHomeApplication.created_at.desc()).all()
+    rows = query.order_by(WorkFromHomeApplication.created_at.desc(), WorkFromHomeApplication.id.desc()).all()
     items = []
     for row in rows:
         if not _is_manager_for_target(admin, row.admin):
@@ -440,7 +477,7 @@ def list_resignation_requests():
     if status.lower() != "all":
         query = query.filter(Resignation.status == status)
 
-    rows = query.order_by(Resignation.applied_on.desc()).all()
+    rows = query.order_by(Resignation.applied_on.desc(), Resignation.id.desc()).all()
     items = []
     for row in rows:
         if not _is_manager_for_target(admin, row.admin):

@@ -146,7 +146,7 @@ const getPageInfo = (pathname, firstName) => {
     return pathMap[normalizedPath] || { title: 'Portal', subtitle: '' };
 };
 
-export const Headers = ({ username, role, profilePic }) => {
+export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [queryUnreadCount, setQueryUnreadCount] = useState(0);
     const [noticeInfo, setNoticeInfo] = useState({
@@ -213,7 +213,11 @@ export const Headers = ({ username, role, profilePic }) => {
 
     const roleInfo = getRoleInfo(rawRole);
     const isDepartmentRole = ["hr", "account", "accounts", "it", "admin"].includes(roleInfo.display?.toLowerCase());
-    const isSpecialRole = roleInfo.hasPanel;
+    const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
+    const panelLinks = [];
+    if (roleInfo.hasPanel && roleInfo.route) panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
+    if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) panelLinks.push({ display: "Manager", route: "/manager" });
+    const isSpecialRole = panelLinks.length > 0;
 
     useEffect(() => {
         const handleClickOutside = (e) => {

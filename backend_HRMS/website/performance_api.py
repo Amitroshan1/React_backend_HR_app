@@ -52,43 +52,25 @@ def _manager_contact_for_target(target_admin):
 
 
 def _is_manager_for_target(manager_admin, target_admin):
+    """True if manager is L1/L2/L3 in target's ManagerContact (no circle/emp_type restriction)."""
     if not manager_admin or not target_admin:
         return False
     if manager_admin.id == target_admin.id:
         return False
-    if _norm(manager_admin.circle) != _norm(target_admin.circle):
-        return False
-    if _norm(manager_admin.emp_type) != _norm(target_admin.emp_type):
-        return False
-
     contact = _manager_contact_for_target(target_admin)
     if not contact:
         return False
-    manager_email = _norm(manager_admin.email)
-    allowed = {
-        _norm(contact.l1_email),
-        _norm(contact.l2_email),
-        _norm(contact.l3_email),
-    }
-    return manager_email in allowed
+    from .manager_utils import is_manager_in_contact
+    return is_manager_in_contact(contact, manager_admin)
 
 
 def _ensure_manager_user():
+    """Grant manager access if admin appears in any ManagerContact as L1/L2/L3 (no circle/emp_type required)."""
     admin = _current_admin()
     if not admin:
         return None, (jsonify({"success": False, "message": "Unauthorized user"}), 401)
-
-    manager_email = _norm(admin.email)
-    row = ManagerContact.query.filter(
-        func.lower(func.coalesce(ManagerContact.circle_name, "")) == _norm(admin.circle),
-        func.lower(func.coalesce(ManagerContact.user_type, "")) == _norm(admin.emp_type),
-        or_(
-            func.lower(func.coalesce(ManagerContact.l1_email, "")) == manager_email,
-            func.lower(func.coalesce(ManagerContact.l2_email, "")) == manager_email,
-            func.lower(func.coalesce(ManagerContact.l3_email, "")) == manager_email,
-        ),
-    ).first()
-    if not row:
+    from .manager_utils import user_has_manager_access
+    if not user_has_manager_access(admin):
         return None, (jsonify({"success": False, "message": "Manager access required"}), 403)
     return admin, None
 

@@ -77,7 +77,7 @@ export const AppLayout = () => {
     return (
         <div className="main-layout">
             {/* The Header now gets the username from the centralized context */}
-            <Headers username={username} role={empType} /> 
+            <Headers username={username} role={empType} hasManagerAccess={userData.user?.has_manager_access} /> 
             
             <div className="content-area" style={{ paddingTop: "24px" }}>
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}

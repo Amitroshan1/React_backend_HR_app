@@ -5,6 +5,7 @@
 
 from .models.Admin_models import Admin
 from .models.manager_model import ManagerContact
+from .manager_utils import get_manager_emails
 from flask import current_app, url_for
 from .models.expense import ExpenseLineItem
 import requests
@@ -321,17 +322,11 @@ def send_wfh_approval_email_to_managers(admin, wfh):
             ).first()
 
         # -------------------------
-        # Add managers IF found
+        # Add managers IF found (exclude applicant to prevent self-approval)
         # -------------------------
         if manager_contact:
-            if manager_contact.l1_email:
-                cc_emails.append(manager_contact.l1_email)
-
-            if manager_contact.l2_email:
-                cc_emails.append(manager_contact.l2_email)
-
-            if manager_contact.l3_email:
-                cc_emails.append(manager_contact.l3_email)
+            for email in get_manager_emails(manager_contact, exclude_email=admin.email):
+                cc_emails.append(email)
         else:
             # This warning is OK, but email still goes out
             current_app.logger.warning(
@@ -447,12 +442,9 @@ def send_wfh_decision_email(wfh_obj, approver, action: str):
             ).first()
 
         if manager_contact:
-            for email_field in ("l1_email", "l2_email", "l3_email"):
-                val = getattr(manager_contact, email_field, None)
-                if val:
-                    addr = val.strip()
-                    if addr and addr.lower() != to_email.lower():
-                        cc_emails.append(addr)
+            for addr in get_manager_emails(manager_contact, exclude_email=to_email):
+                if addr and addr.lower() != to_email.lower():
+                    cc_emails.append(addr)
 
         # De-duplicate CCs
         seen = set()
@@ -528,17 +520,10 @@ def send_performance_submitted_email(perf_row):
             ).first()
 
         if manager_contact:
-            # Choose primary TO manager
-            for email_field in ("l1_email", "l2_email", "l3_email"):
-                val = getattr(manager_contact, email_field, None)
-                if val:
-                    to_email = val.strip()
-                    break
-            # Add any remaining manager emails to CC
-            for email_field in ("l1_email", "l2_email", "l3_email"):
-                val = getattr(manager_contact, email_field, None)
-                if val:
-                    addr = val.strip()
+            manager_emails = get_manager_emails(manager_contact, exclude_email=admin.email)
+            if manager_emails:
+                to_email = manager_emails[0]
+                for addr in manager_emails[1:]:
                     if addr and addr.lower() != (to_email or "").lower():
                         cc_emails.append(addr)
 
@@ -654,12 +639,9 @@ def send_performance_reviewed_email(perf_row, manager_admin, rating: str, commen
             ).first()
 
         if manager_contact:
-            for email_field in ("l1_email", "l2_email", "l3_email"):
-                val = getattr(manager_contact, email_field, None)
-                if val:
-                    addr = val.strip()
-                    if addr and addr.lower() not in {to_email.lower()}:
-                        cc_emails.append(addr)
+            for addr in get_manager_emails(manager_contact, exclude_email=admin.email):
+                if addr and addr.lower() not in {to_email.lower()}:
+                    cc_emails.append(addr)
 
         # De-duplicate CCs
         seen = set()
@@ -789,16 +771,9 @@ def send_claim_submission_email(header):
             ).first()
 
         cc_emails = []
-
         if manager_contact:
-            if manager_contact.l1_email:
-                cc_emails.append(manager_contact.l1_email)
-
-            if manager_contact.l2_email:
-                cc_emails.append(manager_contact.l2_email)
-
-            if manager_contact.l3_email:
-                cc_emails.append(manager_contact.l3_email)
+            for email in get_manager_emails(manager_contact, exclude_email=admin.email):
+                cc_emails.append(email)
 
         # Always CC HR if configured
         hr_email = current_app.config.get("ZEPTO_CC_HR")
@@ -1018,26 +993,13 @@ def send_resignation_email(admin, resignation):
             return False, "Manager not configured"
 
         # -------------------------
-        # Decide TO / CC
+        # Decide TO / CC (first manager as TO, rest as CC)
         # -------------------------
-        to_email = None
-        cc_emails = []
-
-        if manager_contact.l1_email:
-            to_email = manager_contact.l1_email
-
-            if manager_contact.l2_email:
-                cc_emails.append(manager_contact.l2_email)
-            if manager_contact.l3_email:
-                cc_emails.append(manager_contact.l3_email)
-
-        elif manager_contact.l2_email:
-            to_email = manager_contact.l2_email
-
-            if manager_contact.l3_email:
-                cc_emails.append(manager_contact.l3_email)
-        else:
+        manager_emails = get_manager_emails(manager_contact)
+        if not manager_emails:
             return False, "No valid manager email found"
+        to_email = manager_emails[0]
+        cc_emails = list(manager_emails[1:])
 
         hr_email = current_app.config.get("ZEPTO_CC_HR")
         if hr_email:
@@ -1304,10 +1266,8 @@ def send_leave_applied_email(admin, leave):
             ).first()
 
         if manager_contact:
-            if manager_contact.l1_email:
-                cc_emails.append(manager_contact.l1_email)
-            elif manager_contact.l2_email:
-                cc_emails.append(manager_contact.l2_email)
+            for addr in get_manager_emails(manager_contact, exclude_email=admin.email):
+                cc_emails.append(addr)
 
         # -------------------------
         # Ensure employee is also CC'd (if not same as HR)
@@ -1475,12 +1435,9 @@ def send_leave_decision_email(leave_obj, approver, action: str):
             ).first()
 
         if manager_contact:
-            for email_field in ("l1_email", "l2_email", "l3_email"):
-                val = getattr(manager_contact, email_field, None)
-                if val:
-                    addr = val.strip()
-                    if addr and addr.lower() != to_email.lower():
-                        cc_emails.append(addr)
+            for addr in get_manager_emails(manager_contact, exclude_email=to_email):
+                if addr and addr.lower() != to_email.lower():
+                    cc_emails.append(addr)
 
         # De-duplicate CCs
         seen = set()
@@ -1531,6 +1488,35 @@ def send_leave_decision_email(leave_obj, approver, action: str):
         )
         return False
 
+
+def send_compoff_expiry_reminder(admin, gain_date, expiry_date):
+    """Notify employee that their comp-off (gained on gain_date) will expire in 7 days."""
+    try:
+        to_email = (admin.email or "").strip()
+        if not to_email:
+            return False
+        gain_str = gain_date.isoformat() if hasattr(gain_date, "isoformat") else str(gain_date)
+        expiry_str = expiry_date.isoformat() if hasattr(expiry_date, "isoformat") else str(expiry_date)
+        subject = "Reminder: Your comp-off will expire in 7 days"
+        body = f"""
+        <p>Hello {admin.first_name or admin.email},</p>
+
+        <p>This is a reminder that your <strong>1 comp-off</strong> gained on <strong>{gain_str}</strong> will expire on <strong>{expiry_str}</strong> (in 7 days).</p>
+
+        <p>Please apply for Compensatory Leave before the expiry date if you wish to use it.</p>
+
+        <p>— HRMS</p>
+        """
+        send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+        )
+        return True
+    except Exception as e:
+        current_app.logger.warning(f"Compoff expiry reminder email failed: {e}")
+        return False
 
 
 def send_password_set_email(admin):

@@ -209,7 +209,8 @@ def _attendance_summary_impl():
                             work_seconds = h * 3600 + m * 60 + s
                         except:
                             pass
-                    if work_seconds < (4.5 * 3600):
+                    # 8 hours threshold: < 8h = HALF_DAY, >= 8h = PRESENT (aligned with Accounts)
+                    if work_seconds < (8 * 3600):
                         day_status["status"] = "HALF_DAY"
                     else:
                         day_status["status"] = "PRESENT"
@@ -534,9 +535,10 @@ def apply_leave_api():
             # No balance available at all → treat fully as LOP
             extra_days = 0.5
 
-    # Compensatory Leave
+    # Compensatory Leave (balance from CompOffGain: non-expired, unused; max 2 per application)
     elif leave_type == "Compensatory Leave":
-        available = float(leave_balance.compensatory_leave_balance or 0.0)
+        from .compoff_utils import get_effective_comp_balance
+        available = get_effective_comp_balance(admin.id)
 
         if available <= 0:
             return jsonify({

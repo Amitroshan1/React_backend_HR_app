@@ -1,41 +1,48 @@
-import { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-// import StatsCards from "../components/StatsCards/StatsCards";
-import {StatsCards} from "./comps/StatsCards/StatsCards";
-import {TeamMembers} from "./comps/TeamMembers/TeamMembers";
-import {LeaveRequests} from "./comps/LeaveRequests/LeaveRequests";
-import {SprintPerformance} from "./comps/SprintPerformance/SprintPerformance";
+import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
+import { LeaveRequests } from "./comps/LeaveRequests/LeaveRequests";
+import { ClaimRequests } from "./comps/LeaveRequests/ClaimRequests";
+import { WFHRequests } from "./comps/LeaveRequests/WFHRequests";
+import { ResignationRequests } from "./comps/LeaveRequests/ResignationRequests";
+import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
+import { ManagerProfileCard } from "./comps/ManagerProfileCard/ManagerProfileCard";
+import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount } from "./api";
+import "./Manager.css";
 
-import {ClaimRequests} from "./comps/LeaveRequests/ClaimRequests";
-import {WFHRequests} from "./comps/LeaveRequests/WFHRequests";
-import {ResignationRequests} from "./comps/LeaveRequests/ResignationRequests";
-import {
-  fetchPendingCounts,
-  fetchManagerScope,
-  fetchPendingPerformanceReviewsCount,
-} from "./api";
+const APPROVAL_TABS = [
+  { key: "leave", label: "Leave", countKey: "leave" },
+  { key: "wfh", label: "Work From Home", countKey: "wfh" },
+  { key: "claims", label: "Claims", countKey: "claim" },
+  { key: "resignation", label: "Resignation", countKey: "resignation" },
+];
+const PERFORMANCE_TAB = { key: "performance", label: "Performance", countKey: "performance" };
 
-export const Manager = () =>{
-  const navigate = useNavigate();
-  const [activePanel, setActivePanel] = useState("leave");
-  const [showFullTable, setShowFullTable] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("All"); 
+export const Manager = () => {
   const location = useLocation();
+  const [activeTab, setActiveTab] = useState("leave");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [updateSignal, setUpdateSignal] = useState(null);
-  const [statsCounts, setStatsCounts] = useState({
+  const [counts, setCounts] = useState({
     leave: 0,
     wfh: 0,
     claim: 0,
     resignation: 0,
   });
   const [pendingPerformanceCount, setPendingPerformanceCount] = useState(0);
-  const [scopeInfo, setScopeInfo] = useState(null);
+  const [managerProfile, setManagerProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [countsLoaded, setCountsLoaded] = useState(false);
+  const [performanceCountLoaded, setPerformanceCountLoaded] = useState(false);
+  const defaultTabApplied = useRef(false);
+
   const reloadCounts = async () => {
     try {
-      const counts = await fetchPendingCounts();
-      setStatsCounts(counts);
+      const pending = await fetchPendingCounts();
+      setCounts(pending);
+      setCountsLoaded(true);
     } catch (error) {
-      console.error("Manager stats count load error:", error);
+      console.error("Manager counts load error:", error);
+      setCountsLoaded(true);
     }
   };
 
@@ -43,7 +50,7 @@ export const Manager = () =>{
     if (location.state?.updatedId && location.state?.newStatus) {
       setUpdateSignal({
         id: location.state.updatedId,
-        status: location.state.newStatus
+        status: location.state.newStatus,
       });
     }
   }, [location.state]);
@@ -53,23 +60,35 @@ export const Manager = () =>{
   }, []);
 
   useEffect(() => {
+    (async () => {
+      try {
+        const profile = await fetchManagerProfile();
+        setManagerProfile(profile);
+      } catch (error) {
+        console.error("Manager profile error:", error);
+      } finally {
+        setProfileLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
     let timerId = null;
-
-    const loadPendingPerformanceCount = async () => {
+    const load = async () => {
       try {
         const count = await fetchPendingPerformanceReviewsCount();
         if (isMounted) {
           setPendingPerformanceCount(count);
+          setPerformanceCountLoaded(true);
         }
       } catch (error) {
-        console.error("Pending performance count load error:", error);
+        console.error("Pending performance count error:", error);
+        if (isMounted) setPerformanceCountLoaded(true);
       }
     };
-
-    loadPendingPerformanceCount();
-    timerId = window.setInterval(loadPendingPerformanceCount, 30000);
-
+    load();
+    timerId = window.setInterval(load, 30000);
     return () => {
       isMounted = false;
       if (timerId) window.clearInterval(timerId);
@@ -77,126 +96,120 @@ export const Manager = () =>{
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const scope = await fetchManagerScope();
-        setScopeInfo(scope);
-      } catch (error) {
-        console.error("Manager scope load error:", error);
-      }
-    })();
-  }, []);
+    if (!countsLoaded || !performanceCountLoaded || defaultTabApplied.current) return;
+    defaultTabApplied.current = true;
+    if ((counts.leave || 0) > 0) {
+      setActiveTab("leave");
+      return;
+    }
+    if ((counts.wfh || 0) > 0) {
+      setActiveTab("wfh");
+      return;
+    }
+    if ((counts.claim || 0) > 0) {
+      setActiveTab("claims");
+      return;
+    }
+    if ((counts.resignation || 0) > 0) {
+      setActiveTab("resignation");
+      return;
+    }
+    if ((pendingPerformanceCount || 0) > 0) {
+      setActiveTab("performance");
+    }
+  }, [countsLoaded, performanceCountLoaded, counts.leave, counts.wfh, counts.claim, counts.resignation, pendingPerformanceCount]);
 
-  const [filters, setFilters] = useState({ circle: "All", type: "All" });
-  const handleCardSelect = (key) => {
-    setActivePanel(key);
-    setStatusFilter("All");
-    setShowFullTable(true);
+  const getCount = (countKey) => {
+    if (countKey === "performance") return pendingPerformanceCount;
+    return counts[countKey] ?? 0;
   };
 
-  const renderRightPanel = (currentFilter = "All") => {
-    const panelProps = { updateSignal, statusFilter: currentFilter, onRequestUpdated: reloadCounts };
-    const normalizedKey = activePanel?.toLowerCase().trim();
-    
-    switch (normalizedKey) { 
-      case "claims": 
-      case "claim": return <ClaimRequests {...panelProps} />;
-      case "wfh": 
-      case "work from home": return <WFHRequests {...panelProps} />;
-      case "resignation": 
-      case "resignations": return <ResignationRequests {...panelProps} />; 
-      default: return <LeaveRequests {...panelProps} />;
+  const isApprovalTab = APPROVAL_TABS.some((t) => t.key === activeTab);
+
+  const renderTabContent = () => {
+    const panelProps = {
+      updateSignal,
+      statusFilter: statusFilter,
+      onRequestUpdated: reloadCounts,
+    };
+    switch (activeTab) {
+      case "claims":
+      case "claim":
+        return <ClaimRequests {...panelProps} />;
+      case "wfh":
+        return <WFHRequests {...panelProps} />;
+      case "resignation":
+        return <ResignationRequests {...panelProps} />;
+      case "performance":
+        return <ManagerPerformanceReviews />;
+      default:
+        return <LeaveRequests {...panelProps} />;
     }
   };
 
-  const getPanelTitle = () => {
-    const key = activePanel?.toLowerCase().trim();
-    if (key.includes("claim")) return "Claim Requests";
-    if (key.includes("wfh") || key.includes("home")) return "Work From Home Requests";
-    if (key.includes("resign")) return "Resignation Requests";
-    return "Leave Requests";
-  };
+  const showStatusFilters = isApprovalTab;
 
   return (
-    <div className="manager-dashboard-wrapper" style={{ padding: "24px", background: "#f8fafc", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-      
-      {showFullTable && (
-        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "#ffffff", zIndex: 9999, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "30px 40px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f1f5f9" }}>
-            <h2 style={{ fontSize: "2rem", margin: 0 }}>All {getPanelTitle()}</h2>
-            <button onClick={() => { setShowFullTable(false); setStatusFilter("All"); }} style={{ padding: "10px 25px", borderRadius: "30px", border: "1px solid #ddd", cursor: "pointer", fontWeight: "600" }}>Close Table</button>
-          </div>
+    <div className="manager-dashboard-wrapper">
+      <ManagerProfileCard profile={managerProfile} loading={profileLoading} />
 
-          <div style={{ padding: "15px 40px", display: "flex", gap: "10px", backgroundColor: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
-            {["All", "Pending", "Approved", "Rejected"].map((status) => (
-              <button key={status} onClick={() => setStatusFilter(status)} style={{ padding: "8px 20px", borderRadius: "20px", border: "none", cursor: "pointer", fontWeight: "600", backgroundColor: statusFilter === status ? "#4f46e5" : "#e2e8f0", color: statusFilter === status ? "#ffffff" : "#64748b", transition: "0.2s" }}>
-                {status}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ flex: 1, overflowY: "auto", padding: "40px" }}>
-             {renderRightPanel(statusFilter)}
-          </div>
-        </div>
-      )}
-      
-      <div style={{ flex: "0 0 auto", marginBottom: '24px' }}>
-        {scopeInfo && (
-          <div style={{ marginBottom: 10, fontSize: "13px", color: "#475569" }}>
-            Scope: <strong>{scopeInfo.emp_type || "-"}</strong> | <strong>{scopeInfo.circle || "-"}</strong>
-          </div>
-        )}
-        <div style={{ marginBottom: 12 }}>
+      <div className="manager-tabs-wrap" role="tablist">
+        {APPROVAL_TABS.map((tab) => (
           <button
-            onClick={() => navigate("/manager/performance-reviews")}
-            style={{
-              padding: "10px 16px",
-              borderRadius: "10px",
-              border: "1px solid #c7d2fe",
-              background: "#eef2ff",
-              color: "#3730a3",
-              cursor: "pointer",
-              fontWeight: 600,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            className={`manager-tab ${activeTab === tab.key ? "active" : ""}`}
+            onClick={() => {
+              setActiveTab(tab.key);
+              setStatusFilter("All");
             }}
           >
-            Open Performance Review Queue
+            {tab.label}
             <span
-              style={{
-                minWidth: "22px",
-                height: "22px",
-                borderRadius: "999px",
-                padding: "0 7px",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "12px",
-                fontWeight: 700,
-                background: pendingPerformanceCount > 0 ? "#4f46e5" : "#cbd5e1",
-                color: "#ffffff",
-              }}
+              className={`manager-tab-badge ${getCount(tab.countKey) > 0 ? "has-pending" : ""}`}
+              aria-label={`${getCount(tab.countKey)} pending`}
             >
-              {pendingPerformanceCount}
+              {getCount(tab.countKey)}
             </span>
           </button>
-        </div>
-        <StatsCards onSelect={handleCardSelect} counts={statsCounts} />
+        ))}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === PERFORMANCE_TAB.key}
+          className={`manager-tab ${activeTab === PERFORMANCE_TAB.key ? "active" : ""}`}
+          onClick={() => setActiveTab(PERFORMANCE_TAB.key)}
+        >
+          {PERFORMANCE_TAB.label}
+          <span
+            className={`manager-tab-badge ${getCount(PERFORMANCE_TAB.countKey) > 0 ? "has-pending" : ""}`}
+            aria-label={`${getCount(PERFORMANCE_TAB.countKey)} pending reviews`}
+          >
+            {getCount(PERFORMANCE_TAB.countKey)}
+          </span>
+        </button>
       </div>
 
-      <div className="main-content-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, flex: 1, minHeight: 0, width: "100%" }}>
-        <div className="left-column-content" style={{ height: "100%", overflow: "hidden" }}>
-            <TeamMembers filters={filters} setFilters={setFilters} />
+      {showStatusFilters && (
+        <div className="manager-status-filters">
+          {["All", "Pending", "Approved", "Rejected"].map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={statusFilter === status ? "active" : ""}
+              onClick={() => setStatusFilter(status)}
+            >
+              {status}
+            </button>
+          ))}
         </div>
+      )}
 
-        <div className="right-column-stack" style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%", overflow: "hidden" }}>
-          <div style={{ flex: "0 0 auto" }}>
-            <SprintPerformance />
-          </div>
-        </div>
+      <div className="manager-tab-content" role="tabpanel">
+        {renderTabContent()}
       </div>
     </div>
   );
-}
+};

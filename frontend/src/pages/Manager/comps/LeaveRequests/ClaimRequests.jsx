@@ -21,7 +21,7 @@ export const ClaimRequests = ({ statusFilter = "Pending", onRequestUpdated }) =>
           employeeName: r.employee_name || "N/A",
           reason: `${r.project_name || "Project"} - ${r.country_state || "N/A"}`,
         }));
-        setRequests(mapped);
+        setRequests(mapped.sort((a, b) => (b.id - a.id)));
       } catch (e) {
         setError(e.message || "Unable to load claim requests");
         setRequests([]);
