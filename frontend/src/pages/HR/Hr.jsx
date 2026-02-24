@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, Building, 
-  FileCheck, Search, ArrowLeft, Download, ChevronDown 
+  FileCheck, Search, ArrowLeft, Download, ChevronDown, Key, Clock 
 } from 'lucide-react';
 import './Hr.css';
 import './SignUp.css'; 
@@ -15,7 +15,6 @@ import { UpdateManager } from './UpdateManager';
 import { AddAssets } from './AddAssets';
 import { AddLocation } from './AddLocation';
 import { AddNoc } from './AddNoc';
-import { ConfirmationRequest } from './ConfirmationRequest'; 
 import ExitEmployee from './ExitEmployee';
 import AddDeptCircle from './AddDeptCircle';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
@@ -35,8 +34,80 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// ----- HR Profile completeness (same logic as employee Profile) -----
+function hrProfileCompleteness(admin, employee, documents, education) {
+  const missing = [];
+  let score = 0;
+  const sectionWeight = 20;
+
+  const v = (x) => (x != null && String(x).trim() !== '');
+  const emp = employee || {};
+  const doc = documents || {};
+  const docKeys = ['aadhaar_front', 'aadhaar_back', 'pan_front', 'pan_back', 'passbook_front', 'appointment_letter'];
+  const docLabels = { aadhaar_front: 'Aadhaar (Front)', aadhaar_back: 'Aadhaar (Back)', pan_front: 'PAN (Front)', pan_back: 'PAN (Back)', passbook_front: 'Passbook (Front)', appointment_letter: 'Appointment Letter' };
+
+  // 1. Personal (name, father, marital, email, mobile, nationality, dob, gender)
+  const personalFields = [
+    { key: 'name', label: 'Full name', val: emp.name || admin?.first_name },
+    { key: 'father_name', label: "Father's name", val: emp.father_name },
+    { key: 'marital_status', label: 'Marital status', val: emp.marital_status },
+    { key: 'email', label: 'Personal email', val: emp.email || admin?.email },
+    { key: 'mobile', label: 'Mobile', val: emp.mobile || admin?.mobile },
+    { key: 'nationality', label: 'Nationality', val: emp.nationality },
+    { key: 'dob', label: 'Date of birth', val: emp.dob },
+    { key: 'gender', label: 'Gender', val: emp.gender },
+  ];
+  const personalMissing = personalFields.filter(f => !v(f.val));
+  if (personalMissing.length === 0) score += sectionWeight;
+  else personalMissing.forEach(f => missing.push(`Personal: ${f.label}`));
+
+  // 2. Address (present + permanent: line1, pincode, district, state)
+  const addrFields = [
+    { key: 'present', label: 'Current address (street)', val: emp.present_address_line1 },
+    { key: 'present_pincode', label: 'Current pincode', val: emp.present_pincode },
+    { key: 'present_district', label: 'Current district', val: emp.present_district },
+    { key: 'present_state', label: 'Current state', val: emp.present_state },
+    { key: 'permanent', label: 'Permanent address (street)', val: emp.permanent_address_line1 },
+    { key: 'permanent_pincode', label: 'Permanent pincode', val: emp.permanent_pincode },
+    { key: 'permanent_district', label: 'Permanent district', val: emp.permanent_district },
+    { key: 'permanent_state', label: 'Permanent state', val: emp.permanent_state },
+  ];
+  const addrMissing = addrFields.filter(f => !v(f.val));
+  if (addrMissing.length === 0) score += sectionWeight;
+  else addrMissing.forEach(f => missing.push(`Address: ${f.label}`));
+
+  // 3. Current employment (designation, emp_id, circle, doj, emp_type)
+  const empFields = [
+    { key: 'designation', label: 'Designation', val: emp.designation },
+    { key: 'emp_id', label: 'Employee ID', val: emp.emp_id || admin?.emp_id },
+    { key: 'circle', label: 'Department', val: admin?.circle },
+    { key: 'doj', label: 'Date of joining', val: admin?.doj },
+    { key: 'emp_type', label: 'Employment type', val: admin?.emp_type },
+  ];
+  const empMissing = empFields.filter(f => !v(f.val));
+  if (empMissing.length === 0) score += sectionWeight;
+  else empMissing.forEach(f => missing.push(`Employment: ${f.label}`));
+
+  // 4. Education (at least one with qualification, institution, start, end)
+  const eduFilled = education && education.length > 0 && education.some(e => v(e.qualification) && v(e.institution) && v(e.start) && v(e.end));
+  if (eduFilled) score += sectionWeight;
+  else missing.push('Education: at least one complete entry (qualification, institution, dates)');
+
+  // 5. Documents (all 6)
+  const docMissing = docKeys.filter(k => !v(doc[k]));
+  if (docMissing.length === 0) score += sectionWeight;
+  else docMissing.forEach(k => missing.push(`Document: ${docLabels[k]}`));
+
+  return { score, missing };
+}
+
+function hrProfileVal(val) {
+  if (val == null || String(val).trim() === '') return null;
+  return String(val).trim();
+}
+
 // ----- HR Employee Profile view (from Search Employee → Profile) -----
-function HrEmployeeProfileView({ employee, onBack, onEdit }) {
+function HrEmployeeProfileView({ employee, onBack }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -65,6 +136,24 @@ function HrEmployeeProfileView({ employee, onBack, onEdit }) {
   const previousEmployment = p.previous_employment || [];
   const docBase = (typeof window !== 'undefined' && window.__BACKEND_STATIC__) ? window.__BACKEND_STATIC__ : '';
   const docUrl = (path) => (path ? `${docBase}/static/uploads/${path}` : null);
+
+  const { score, missing } = hrProfileCompleteness(admin, emp, docs, education);
+  const notProvided = '— Not provided';
+  const notUploaded = 'Not uploaded';
+
+  const row = (label, value) => {
+    const display = value != null && String(value).trim() !== '' ? String(value).trim() : notProvided;
+    const isMissing = display === notProvided;
+    return (
+      <div key={label} className="hr-profile-row">
+        <span className="hr-profile-label">{label}</span>
+        <span className={isMissing ? 'hr-profile-value hr-profile-value--missing' : 'hr-profile-value'}>
+          {display}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div className="hr-sub-page">
       <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
@@ -74,77 +163,137 @@ function HrEmployeeProfileView({ employee, onBack, onEdit }) {
         {error && <p className="hr-error">{error}</p>}
         {profile && (
           <>
-            <div className="profile-section">
-              <h4>Basic Info</h4>
-              <p><strong>Name:</strong> {admin.first_name}</p>
-              <p><strong>Email:</strong> {admin.email}</p>
-              <p><strong>Emp ID:</strong> {admin.emp_id}</p>
-              <p><strong>Circle:</strong> {admin.circle}</p>
-              <p><strong>Type:</strong> {admin.emp_type}</p>
-              <p><strong>DOJ:</strong> {admin.doj || 'N/A'}</p>
-            </div>
-            {emp && (
-              <div className="profile-section">
-                <h4>Employee Details</h4>
-                <p><strong>Designation:</strong> {emp.designation || 'N/A'}</p>
-                <p><strong>Mobile:</strong> {emp.mobile || admin.mobile || 'N/A'}</p>
-                <p><strong>Gender:</strong> {emp.gender || 'N/A'}</p>
-                <p><strong>DOB:</strong> {emp.dob || 'N/A'}</p>
-                <p><strong>Permanent Address:</strong> {emp.permanent_address_line1 || 'N/A'} {emp.permanent_pincode && `- ${emp.permanent_pincode}`}</p>
-                <p><strong>Present Address:</strong> {emp.present_address_line1 || 'N/A'} {emp.present_pincode && `- ${emp.present_pincode}`}</p>
+            {/* Profile completeness block */}
+            <div className="hr-profile-completeness">
+              <div className="hr-profile-completeness-header">
+                <span className="hr-profile-completeness-title">Profile completion</span>
+                <span className="hr-profile-completeness-pct">{score}%</span>
               </div>
-            )}
-            {education.length > 0 && (
-              <div className="profile-section">
-                <h4>Education</h4>
-                {education.map((edu, i) => (
+              <div className="hr-profile-progress-wrap">
+                <div className="hr-profile-progress-bar" style={{ width: `${score}%` }} />
+              </div>
+              <div className="hr-profile-missing-box">
+                <span className="hr-profile-missing-title">Request from employee</span>
+                {missing.length === 0 ? (
+                  <p className="hr-profile-missing-all-ok">All required fields and documents are provided.</p>
+                ) : (
+                  <ul className="hr-profile-missing-list">
+                    {missing.map((m, i) => <li key={i}>{m}</li>)}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            {/* 1. Personal Information */}
+            <div className="profile-section">
+              <h4>Personal Information</h4>
+              <div className="hr-profile-grid">
+                {row('Full name', hrProfileVal(emp.name || admin.first_name))}
+                {row("Father's name", hrProfileVal(emp.father_name))}
+                {row("Mother's name", hrProfileVal(emp.mother_name))}
+                {row('Marital status', hrProfileVal(emp.marital_status))}
+                {row('Date of birth', emp.dob ? emp.dob.split('T')[0] : null)}
+                {row('Gender', hrProfileVal(emp.gender))}
+                {row('Blood group', hrProfileVal(emp.blood_group))}
+                {row('Nationality', hrProfileVal(emp.nationality))}
+                {row('Personal email', hrProfileVal(emp.email || admin.email))}
+                {row('Mobile', hrProfileVal(emp.mobile || admin.mobile))}
+                {row('Emergency contact', hrProfileVal(emp.emergency_mobile))}
+              </div>
+            </div>
+
+            {/* 2. Address */}
+            <div className="profile-section">
+              <h4>Address</h4>
+              <div className="hr-profile-address-block">
+                <div className="hr-profile-address-sub">
+                  <h5>Current address</h5>
+                  {row('Street', hrProfileVal(emp.present_address_line1))}
+                  {row('Pincode', hrProfileVal(emp.present_pincode))}
+                  {row('District', hrProfileVal(emp.present_district))}
+                  {row('State', hrProfileVal(emp.present_state))}
+                </div>
+                <div className="hr-profile-address-sub">
+                  <h5>Permanent address</h5>
+                  {row('Street', hrProfileVal(emp.permanent_address_line1))}
+                  {row('Pincode', hrProfileVal(emp.permanent_pincode))}
+                  {row('District', hrProfileVal(emp.permanent_district))}
+                  {row('State', hrProfileVal(emp.permanent_state))}
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Current Employment */}
+            <div className="profile-section">
+              <h4>Current Employment</h4>
+              <div className="hr-profile-grid">
+                {row('Designation', hrProfileVal(emp.designation))}
+                {row('Employee ID', hrProfileVal(emp.emp_id || admin.emp_id))}
+                {row('Department', hrProfileVal(admin.circle))}
+                {row('Date of joining', admin.doj ? admin.doj.split('T')[0] : null)}
+                {row('Employment type', hrProfileVal(admin.emp_type))}
+              </div>
+            </div>
+
+            {/* 4. Previous Employment */}
+            <div className="profile-section">
+              <h4>Previous Employment</h4>
+              {previousEmployment.length > 0 ? (
+                previousEmployment.map((pe, i) => (
                   <div key={i} className="profile-sub-item">
-                    <p><strong>{edu.qualification}</strong> – {edu.institution}</p>
-                    <p>{edu.start} to {edu.end} {edu.marks && `• ${edu.marks}`}</p>
-                    {edu.doc_file && (
+                    <p><strong>{pe.companyName || notProvided}</strong> – {pe.designation || notProvided}</p>
+                    <p>{pe.doj || ''} to {pe.dateOfLeaving || ''} {pe.experienceYears && `(${pe.experienceYears} yrs)`}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="hr-profile-empty-section">No previous employment recorded.</p>
+              )}
+            </div>
+
+            {/* 5. Education */}
+            <div className="profile-section">
+              <h4>Education</h4>
+              {education.length > 0 ? (
+                education.map((edu, i) => (
+                  <div key={i} className="profile-sub-item">
+                    <p><strong>{edu.qualification || notProvided}</strong> – {edu.institution || notProvided}</p>
+                    <p>{edu.university || edu.board ? `Board/University: ${edu.university || edu.board}` : ''} {edu.start && edu.end ? `${edu.start} to ${edu.end}` : ''} {edu.marks ? ` • ${edu.marks}` : ''}</p>
+                    {edu.doc_file ? (
                       <a href={docUrl(edu.doc_file)} target="_blank" rel="noopener noreferrer" className="doc-link">View certificate</a>
+                    ) : (
+                      <span className="hr-profile-value--missing">{notUploaded}</span>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <p className="hr-profile-empty-section">No education recorded.</p>
+              )}
+            </div>
+
+            {/* 6. Documents */}
+            <div className="profile-section">
+              <h4>Documents (uploaded by employee)</h4>
+              <div className="documents-grid">
+                {[
+                  { key: 'aadhaar_front', label: 'Aadhaar (Front)' },
+                  { key: 'aadhaar_back', label: 'Aadhaar (Back)' },
+                  { key: 'pan_front', label: 'PAN (Front)' },
+                  { key: 'pan_back', label: 'PAN (Back)' },
+                  { key: 'passbook_front', label: 'Passbook (Front)' },
+                  { key: 'appointment_letter', label: 'Appointment Letter' },
+                ].map(({ key, label }) => (
+                  <div key={key} className="doc-item">
+                    <span>{label}</span>
+                    {docs[key] ? (
+                      <a href={docUrl(docs[key])} target="_blank" rel="noopener noreferrer" className="doc-link">View</a>
+                    ) : (
+                      <span className="hr-profile-value--missing">{notUploaded}</span>
                     )}
                   </div>
                 ))}
               </div>
-            )}
-            {previousEmployment.length > 0 && (
-              <div className="profile-section">
-                <h4>Previous Employment</h4>
-                {previousEmployment.map((pe, i) => (
-                  <div key={i} className="profile-sub-item">
-                    <p><strong>{pe.companyName}</strong> – {pe.designation}</p>
-                    <p>{pe.doj} to {pe.dateOfLeaving} {pe.experienceYears && `(${pe.experienceYears} yrs)`}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="profile-section">
-              <h4>Documents (uploaded by employee)</h4>
-              <div className="documents-grid">
-                {docs.aadhaar_front && <div className="doc-item"><span>Aadhaar (Front)</span><a href={docUrl(docs.aadhaar_front)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
-                {docs.aadhaar_back && <div className="doc-item"><span>Aadhaar (Back)</span><a href={docUrl(docs.aadhaar_back)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
-                {docs.pan_front && <div className="doc-item"><span>PAN (Front)</span><a href={docUrl(docs.pan_front)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
-                {docs.pan_back && <div className="doc-item"><span>PAN (Back)</span><a href={docUrl(docs.pan_back)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
-                {docs.appointment_letter && <div className="doc-item"><span>Appointment Letter</span><a href={docUrl(docs.appointment_letter)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
-                {docs.passbook_front && <div className="doc-item"><span>Passbook (Front)</span><a href={docUrl(docs.passbook_front)} target="_blank" rel="noopener noreferrer" className="doc-link">View</a></div>}
-              </div>
-              {!docs.aadhaar_front && !docs.aadhaar_back && !docs.pan_front && !docs.pan_back && !docs.appointment_letter && !docs.passbook_front && (
-                <p className="no-docs">No documents uploaded yet.</p>
-              )}
             </div>
-            <button type="button" className="btn-edit-profile" onClick={() => onEdit({
-              first_name: admin.first_name,
-              user_name: admin.user_name,
-              email: admin.email,
-              emp_id: admin.emp_id,
-              mobile: admin.mobile || emp?.mobile,
-              doj: admin.doj,
-              emp_type: admin.emp_type,
-              circle: admin.circle,
-            })}>
-              Edit in Update SignUp
-            </button>
+
           </>
         )}
       </div>
@@ -223,7 +372,14 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
           <div className="attendance-table-wrap">
             <table className="hr-attendance-table">
               <thead>
-                <tr><th>Date</th><th>Punch In</th><th>Punch Out</th><th>Work</th></tr>
+                <tr>
+                  <th>Date</th>
+                  <th>Punch In</th>
+                  <th>Punch Out</th>
+                  <th>Location Status</th>
+                  <th>Work from home</th>
+                  <th>Working hour</th>
+                </tr>
               </thead>
               <tbody>
                 {attendance.attendance.map((row, i) => (
@@ -231,6 +387,8 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
                     <td>{row.date}</td>
                     <td>{row.punch_in || '–'}</td>
                     <td>{row.punch_out || '–'}</td>
+                    <td>{row.location_status || '–'}</td>
+                    <td>{row.is_wfh ? 'WFH' : '–'}</td>
                     <td>{row.today_work || '–'}</td>
                   </tr>
                 ))}
@@ -274,31 +432,71 @@ function HrPunchFormView({ employee, onBack }) {
     }
   };
   return (
-    <div className="hr-sub-page">
-      <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
-      <div className="hr-card">
-        <h2>Update Punch In/Out – {employee.name}</h2>
-        <p className="punch-form-desc">Use this form when an employee forgot to punch in or out. Changes will be saved to the database.</p>
-        <form onSubmit={handleSubmit} className="punch-form">
-          <div className="form-group">
-            <label>Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+    <div className="hr-punch-page">
+      <div className="hr-punch-page__header">
+        <button type="button" className="hr-punch-page__back" onClick={onBack}>
+          <ArrowLeft size={18} /> Back to Search
+        </button>
+      </div>
+      <div className="hr-punch-page__container">
+        <div className="hr-punch-page__hero">
+          <div className="hr-punch-page__hero-icon">
+            <Clock size={32} strokeWidth={2} />
           </div>
-          <div className="form-group">
-            <label>Punch In (HH:MM)</label>
-            <input type="time" value={punchIn} onChange={(e) => setPunchIn(e.target.value)} />
+          <h1 className="hr-punch-page__hero-title">Update Punch In/Out</h1>
+          <p className="hr-punch-page__hero-subtitle">
+            Correct or add punch times when an employee forgot to punch. Changes are saved to the database.
+          </p>
+          <div className="hr-punch-page__employee-badge">
+            <UserCheck size={18} />
+            <span>{employee.name || 'Employee'}</span>
           </div>
-          <div className="form-group">
-            <label>Punch Out (HH:MM)</label>
-            <input type="time" value={punchOut} onChange={(e) => setPunchOut(e.target.value)} />
-          </div>
-          {message.text && (
-            <p className={message.type === 'success' ? 'hr-success' : 'hr-error'}>{message.text}</p>
-          )}
-          <button type="submit" className="btn-submit-punch" disabled={submitting}>
-            {submitting ? 'Saving...' : 'Save Punch'}
-          </button>
-        </form>
+        </div>
+        <div className="hr-punch-page__card">
+          <form onSubmit={handleSubmit} className="hr-punch-form">
+            <div className="hr-punch-form__grid">
+              <div className="hr-punch-form__field">
+                <label className="hr-punch-form__label" htmlFor="hr-punch-date">Date</label>
+                <input
+                  id="hr-punch-date"
+                  type="date"
+                  className="hr-punch-form__input"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="hr-punch-form__field">
+                <label className="hr-punch-form__label" htmlFor="hr-punch-in">Punch In</label>
+                <input
+                  id="hr-punch-in"
+                  type="time"
+                  className="hr-punch-form__input hr-punch-form__input--time"
+                  value={punchIn}
+                  onChange={(e) => setPunchIn(e.target.value)}
+                />
+              </div>
+              <div className="hr-punch-form__field">
+                <label className="hr-punch-form__label" htmlFor="hr-punch-out">Punch Out</label>
+                <input
+                  id="hr-punch-out"
+                  type="time"
+                  className="hr-punch-form__input hr-punch-form__input--time"
+                  value={punchOut}
+                  onChange={(e) => setPunchOut(e.target.value)}
+                />
+              </div>
+            </div>
+            {message.text && (
+              <div className={`hr-punch-form__message hr-punch-form__message--${message.type}`} role="alert">
+                {message.text}
+              </div>
+            )}
+            <button type="submit" className="hr-punch-form__submit" disabled={submitting}>
+              {submitting ? 'Saving...' : 'Save Punch'}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
@@ -347,6 +545,11 @@ export const Hr = () => {
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [signupEditEmail, setSignupEditEmail] = useState(null); // when set, signup form is in "update" mode
+
+  const [resetPasswordEmail, setResetPasswordEmail] = useState('');
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [resetPasswordMessage, setResetPasswordMessage] = useState('');
+  const [resetPasswordError, setResetPasswordError] = useState('');
 
   const openSignupForEdit = (employeeData) => {
     setSignupForm({
@@ -462,6 +665,7 @@ export const Hr = () => {
 
   const updateOptions = [
     { title: 'Sign Up', icon: UserPlus, description: 'New employee registration' },
+    { title: 'Reset Employee Password', icon: Key, description: 'Send password reset link (1 hour)' },
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
@@ -469,7 +673,6 @@ export const Hr = () => {
     { title: 'Add Assets', icon: Building, description: 'Register company assets' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'Add NOC', icon: FileCheck, description: 'No Objection Certificate' },
-    { title: 'Confirmation Request', icon: FileText, description: 'Employee confirmations' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
@@ -678,14 +881,17 @@ export const Hr = () => {
   }
   else if (title === 'Add NOC') {
     setView('add_noc');
-  } else if (title === 'Confirmation Request') {
-    setView('confirmation_request');
   }
   else if (title === 'Exit Employee') { //New Condition For Exit Employee
   setView('exit_employee');
 }
-else if (title === 'Add Department And Circle') {
+  else if (title === 'Add Department And Circle') {
   setView('add_dept_circle');
+}
+else if (title === 'Reset Employee Password') {
+  setResetPasswordMessage('');
+  setResetPasswordError('');
+  setView('reset_password');
 }
 else if (title === 'Leave Accrual Monitor') {
   setView('leave_accrual_monitor');
@@ -760,17 +966,12 @@ if (view === 'add_noc') {
 return <AddNoc onBack={() => setView('updates')} />;
 }
 
-if (view === 'confirmation_request') {
-  return <ConfirmationRequest onBack={() => setView('updates')} />
-}
-
   // ----- Search Employee actions: Profile, Attendance, Punch In/Out -----
   if (view === 'employee_profile' && selectedEmployeeForAction) {
     return (
       <HrEmployeeProfileView
         employee={selectedEmployeeForAction}
         onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
-        onEdit={(data) => { openSignupForEdit(data); setView('signup'); }}
       />
     );
   }
@@ -788,6 +989,82 @@ if (view === 'confirmation_request') {
         employee={selectedEmployeeForAction}
         onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
       />
+    );
+  }
+
+  // VIEW: Reset employee password (send link, 1 hour expiry)
+  if (view === 'reset_password') {
+    const handleSendResetLink = async (e) => {
+      e.preventDefault();
+      const email = (resetPasswordEmail || '').trim();
+      if (!email) {
+        setResetPasswordError('Enter employee email.');
+        return;
+      }
+      setResetPasswordError('');
+      setResetPasswordMessage('');
+      setResetPasswordLoading(true);
+      try {
+        const res = await fetch(`${HR_API_BASE}/send-password-reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ employee_email: email }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setResetPasswordMessage(data.message || 'Reset link sent. The link expires in 1 hour.');
+          setResetPasswordEmail('');
+        } else {
+          setResetPasswordError(data.message || 'Failed to send reset link.');
+        }
+      } catch (err) {
+        setResetPasswordError('Network error. Please try again.');
+      } finally {
+        setResetPasswordLoading(false);
+      }
+    };
+    return (
+      <div className="signup-page-container">
+        <div className="signup-content-wrapper">
+          <button className="btn-back-updates" onClick={() => { setView('updates'); setResetPasswordMessage(''); setResetPasswordError(''); }}>
+            <ArrowLeft size={16} /> Back to Updates
+          </button>
+          <div className="signup-card">
+            <div className="card-header">
+              <h2>Reset employee password</h2>
+              <p>Send a password reset link to the employee&apos;s email. The link is valid for 1 hour. Only that employee can set a new password using the link.</p>
+            </div>
+            {resetPasswordMessage && (
+              <div className="signup-success-msg" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
+                {resetPasswordMessage}
+              </div>
+            )}
+            {resetPasswordError && (
+              <div className="signup-error-msg" style={{ padding: '12px', marginBottom: '16px', background: '#fef2f2', color: '#b91c1c', borderRadius: '8px' }}>
+                {resetPasswordError}
+              </div>
+            )}
+            <form className="signup-form" onSubmit={handleSendResetLink}>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Employee email <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <input
+                    type="email"
+                    placeholder="employee@company.com"
+                    value={resetPasswordEmail}
+                    onChange={(e) => setResetPasswordEmail(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="form-actions">
+                <button type="submit" className="btn-create-account" disabled={resetPasswordLoading}>
+                  {resetPasswordLoading ? 'Sending…' : 'Send reset link'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
     );
   }
 

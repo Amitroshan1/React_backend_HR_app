@@ -1688,3 +1688,38 @@ def send_password_set_email(admin):
 
     # replace with your actual mail sender
     current_app.logger.info(f"Password set email sent to {admin.email}")
+
+
+def send_password_reset_email(admin, reset_token):
+    """Send password reset link with token. Link expires in 1 hour. Returns (success: bool, message: str)."""
+    base_url = current_app.config.get("BASE_URL", "").rstrip("/")
+    reset_link = f"{base_url}/set-password?token={reset_token}"
+
+    subject = "Reset your HRMS password"
+    body = f"""
+    <p>Hello {admin.first_name or "User"},</p>
+
+    <p>HR has initiated a password reset for your account.</p>
+
+    <p>Click the link below to set a new password. This link is valid for <strong>1 hour</strong> only.</p>
+
+    <p><a href="{reset_link}">Set new password</a></p>
+
+    <p>If you did not request this, please ignore this email or contact HR.</p>
+
+    <br>
+    <p>Regards,<br>HR Team</p>
+    """
+    try:
+        ok, msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=admin.email,
+        )
+        if not ok:
+            current_app.logger.warning(f"Password reset email failed for {admin.email}: {msg}")
+        return ok
+    except Exception as e:
+        current_app.logger.warning(f"Password reset email failed for {admin.email}: {e}")
+        return False

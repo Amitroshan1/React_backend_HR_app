@@ -8,7 +8,7 @@
 
 #https://solviotec.com/api/HumanResource
 
-
+import secrets
 from flask import Blueprint, request, current_app, jsonify,json
 from flask_jwt_extended import jwt_required, get_jwt
 from .email import send_email_via_zeptomail,send_welcome_email
@@ -17,13 +17,13 @@ from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
 from flask_login import current_user
-from .email import update_asset_email,send_asset_assigned_email,send_password_set_email
+from .email import update_asset_email,send_asset_assigned_email,send_password_set_email,send_password_reset_email
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
 from .models.education import UploadDoc, Education
-from .models.attendance import Punch, LeaveApplication, LeaveBalance, Location
+from .models.attendance import Punch, LeaveApplication, LeaveBalance, Location, WorkFromHomeApplication
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
 from .models.master_data import MasterData
@@ -592,6 +592,38 @@ def signup_api():
             "success": False,
             "message": err_msg or "Unable to onboard employee"
         }), 500
+
+
+@hr.route("/send-password-reset", methods=["POST"])
+@jwt_required()
+@hr_required
+def send_password_reset():
+    """HR sends a password reset link to an employee. Link expires in 1 hour; user sets their own password."""
+    data = request.get_json() or {}
+    employee_email = (data.get("employee_email") or "").strip()
+    if not employee_email:
+        return jsonify({"success": False, "message": "employee_email is required"}), 400
+
+    admin = Admin.query.filter_by(email=employee_email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if getattr(admin, "is_exited", False):
+        return jsonify({"success": False, "message": "Cannot reset password for exited employee"}), 400
+    if not getattr(admin, "is_active", True):
+        return jsonify({"success": False, "message": "Employee account is inactive"}), 400
+
+    token = secrets.token_urlsafe(32)
+    admin.password_reset_token = token
+    admin.password_reset_expiry = datetime.utcnow() + timedelta(hours=1)
+    db.session.commit()
+
+    if not send_password_reset_email(admin, token):
+        return jsonify({"success": False, "message": "Failed to send email. Please try again."}), 500
+
+    return jsonify({
+        "success": True,
+        "message": "Password reset link sent. It expires in 1 hour.",
+    }), 200
 
 
 @hr.route("/reset-password", methods=["POST"])
@@ -1165,19 +1197,28 @@ def display_details_api():
             LeaveApplication.end_date >= month_start
         ).all()
 
+        wfh_apps = WorkFromHomeApplication.query.filter(
+            WorkFromHomeApplication.admin_id == user_id,
+            WorkFromHomeApplication.status == "Approved",
+            WorkFromHomeApplication.start_date <= month_end,
+            WorkFromHomeApplication.end_date >= month_start
+        ).all()
+
         punch_map = {p.punch_date: p for p in punches}
 
         attendance = []
         for d in range(1, num_days + 1):
             current_day = date(year, month, d)
             punch = punch_map.get(current_day)
+            is_wfh = any(wfh.start_date <= current_day <= wfh.end_date for wfh in wfh_apps)
 
             attendance.append({
                 "date": current_day.isoformat(),
                 "punch_in": punch.punch_in.strftime("%H:%M:%S") if punch and punch.punch_in else "",
                 "punch_out": punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else "",
-                "is_wfh": bool(getattr(punch, "is_wfh", False)) if punch else False,
+                "location_status": (getattr(punch, "location_status", None) or "") if punch else "",
                 "today_work": str(punch.today_work) if punch and punch.today_work else "",
+                "is_wfh": is_wfh,
                 "on_leave": any(
                     lv.start_date <= current_day <= lv.end_date for lv in leaves
                 )
@@ -1941,35 +1982,6 @@ def create_noc():
         "message": "NOC record created",
         "noc": {"id": noc.id, "admin_id": noc.admin_id, "noc_date": noc.noc_date.isoformat(), "status": noc.status},
     }), 201
-
-
-# --------------------------------------------------
-# CONFIRMATION REQUESTS (new joinees needing confirmation)
-# --------------------------------------------------
-@hr.route("/confirmation-requests", methods=["GET"])
-@jwt_required()
-@hr_required
-def list_confirmation_requests():
-    """Return employees who joined in last 6 months (confirmation candidates)."""
-    cutoff = date.today() - timedelta(days=180)
-    employees = Admin.query.filter(
-        Admin.doj >= cutoff,
-        Admin.is_exited == False,
-        Admin.is_active == True,
-    ).order_by(Admin.doj.desc()).all()
-    result = [
-        {
-            "id": a.id,
-            "name": a.first_name,
-            "emp_id": a.emp_id,
-            "email": a.email,
-            "doj": a.doj.isoformat() if a.doj else None,
-            "circle": a.circle,
-            "emp_type": a.emp_type,
-        }
-        for a in employees
-    ]
-    return jsonify({"success": True, "requests": result}), 200
 
 
 @hr.route("/leave-accrual/summary", methods=["GET"])

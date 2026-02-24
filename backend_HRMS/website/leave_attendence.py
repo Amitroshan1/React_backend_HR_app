@@ -667,6 +667,23 @@ def submit_wfh():
             "message": "End date must be on or after start date"
         }), 400
 
+    # Prevent re-application for same/overlapping dates (Pending or Approved)
+    overlapping_wfh = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin.id,
+        WorkFromHomeApplication.status.in_(["Pending", "Approved"]),
+        WorkFromHomeApplication.start_date <= end_d,
+        WorkFromHomeApplication.end_date >= start_d
+    ).first()
+
+    if overlapping_wfh:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"WFH already applied from {overlapping_wfh.start_date} to "
+                f"{overlapping_wfh.end_date} (Status: {overlapping_wfh.status})"
+            )
+        }), 409
+
     wfh_application = WorkFromHomeApplication(
         admin_id=admin.id,
         start_date=start_d,

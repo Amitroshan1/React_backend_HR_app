@@ -24,7 +24,7 @@ from .models.query import Query
 from .models.education import Education, UploadDoc
 from .models.prev_com import PreviousCompany
 from .models.master_data import MasterData
-from datetime import datetime, time, date
+from datetime import datetime, time, date, timedelta
 from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -69,6 +69,42 @@ def get_master_options():
         "departments": [r.name for r in dept_rows],
         "circles": [r.name for r in circle_rows],
     }), 200
+
+
+# ===================================================
+# Set password via reset token (public; link from HR reset email, expires in 1 hour)
+# FINAL URL → POST /api/auth/set-password
+@auth.route("/set-password", methods=["POST"])
+def set_password_by_token():
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or "").strip()
+    password = data.get("password")
+    confirm_password = data.get("confirm_password")
+
+    if not token:
+        return jsonify({"success": False, "message": "Token is required"}), 400
+    if not password or not confirm_password:
+        return jsonify({"success": False, "message": "Password and confirm password are required"}), 400
+    if password != confirm_password:
+        return jsonify({"success": False, "message": "Passwords do not match"}), 400
+    if len(password) < 8:
+        return jsonify({"success": False, "message": "Password must be at least 8 characters"}), 400
+
+    admin = Admin.query.filter_by(password_reset_token=token).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Invalid or expired link"}), 400
+    if not admin.password_reset_expiry or admin.password_reset_expiry < datetime.utcnow():
+        admin.password_reset_token = None
+        admin.password_reset_expiry = None
+        db.session.commit()
+        return jsonify({"success": False, "message": "This link has expired. Please ask HR to send a new one."}), 400
+
+    admin.set_password(password)
+    admin.password_reset_token = None
+    admin.password_reset_expiry = None
+    db.session.commit()
+
+    return jsonify({"success": True, "message": "Password updated successfully. You can now log in."}), 200
 
 
 # ===================================================

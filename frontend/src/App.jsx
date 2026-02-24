@@ -31,6 +31,7 @@ import AdminLeaves from "./pages/Admin/AdminLeaves";
 import AdminQueries from "./pages/Admin/AdminQueries";
 import AdminClaims from "./pages/Admin/AdminClaims";
 import AdminResignations from "./pages/Admin/AdminResignations";
+import SetPassword from "./pages/SetPassword";
 
 // Initialize localStorage on app start - clear old test data
 const isFirstLoad = !localStorage.getItem('_appInitialized');
@@ -44,6 +45,10 @@ export const App = () => {
     {
       path: "/",
       element: <HomePage />,
+    },
+    {
+      path: "/set-password",
+      element: <SetPassword />,
     },
     {
       path: "/",
