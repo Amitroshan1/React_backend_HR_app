@@ -810,7 +810,7 @@ def punch_out():
             diff = punch.punch_out - punch.punch_in
         else:
             # If punch_in is time only, combine with date
-            punch_in_dt = datetime.combine(today, punch.punch_in) if isinstance(punch.punch_in, datetime.time) else punch.punch_in
+            punch_in_dt = datetime.combine(today, punch.punch_in) if isinstance(punch.punch_in, time) else punch.punch_in
             diff = punch.punch_out - punch_in_dt
         
         today_work_str = str(diff).split(".")[0]  # "HH:MM:SS"
