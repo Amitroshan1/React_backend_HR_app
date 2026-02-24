@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 /* .noc-info-wrapper {
     background-color: #d1e9ff; Specific light blue background
     min-height: 100vh;
@@ -17,7 +17,7 @@
   align-items: flex-start;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   padding: 24px 20px 48px;
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
+
 }
 
 .noc-info-container {
@@ -114,11 +114,10 @@
   flex-shrink: 0;
 }
 
-<<<<<<< HEAD
 Table Design
 .table-responsive-container {
     overflow-x: auto;
-=======
+
 .btn-refresh-noc:hover:not(:disabled) {
   background: #0284c7;
 }
@@ -138,7 +137,7 @@ Table Design
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #fafbfc;
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
+
 }
 
 .noc-dynamic-table {
@@ -148,14 +147,14 @@ Table Design
 }
 
 .noc-dynamic-table th {
-<<<<<<< HEAD
-    background-color: #1976d2; Vibrant blue header
+
+    background-color: #1976d2;
     color: white;
     text-align: left;
     padding: 12px 15px;
     font-weight: 500;
     border-right: 1px solid rgba(255,255,255,0.2);
-=======
+
   background: linear-gradient(180deg, #0369a1 0%, #0284c7 100%);
   color: white;
   text-align: left;
@@ -165,7 +164,7 @@ Table Design
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
+
 }
 
 .noc-dynamic-table th:first-child {
@@ -391,7 +390,7 @@ Table Design
   }
 }
 
-<<<<<<< HEAD
+
 .btn-choose-file {
     background-color: #e0f2fe;
     color: #0369a1;
@@ -410,7 +409,7 @@ Table Design
 }
 
 .btn-status-uploaded {
-    background-color: #10b981; Green status
+    background-color: #10b981;
     color: white;
     border: none;
     padding: 4px 12px;
@@ -418,7 +417,6 @@ Table Design
     font-size: 12px;
 }
 
-Responsive Breakpoints
 @media (max-width: 600px) {
     .noc-info-card { padding: 15px; }
     .noc-info-header h2 { font-size: 16px; }
@@ -588,7 +586,8 @@ Responsive Breakpoints
     .noc-info-card { padding: 15px; }
     .noc-info-header h2 { font-size: 16px; }
     .table-input { max-width: 80px; }
-=======
+
+}
 @media (max-width: 600px) {
   .noc-info-wrapper {
     padding: 16px 12px 32px;
@@ -606,5 +605,4 @@ Responsive Breakpoints
   .noc-dynamic-table td:nth-child(5) {
     display: none;
   }
->>>>>>> 9879018451eb12b46d4821910763b6c8e012ae12
-}
+}}

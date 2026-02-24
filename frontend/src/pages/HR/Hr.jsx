@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
@@ -511,7 +512,9 @@ export const Hr = () => {
   const [selectedCircle, setSelectedCircle] = useState('');
   const [selectedEmployeeType, setSelectedEmployeeType] = useState('');
   const [openDropdownId, setOpenDropdownId] = useState(null);
+  const [dropdownPosition, setDropdownPosition] = useState(null);
   const dropdownRef = useRef(null);
+  const dropdownEmployeeRef = useRef(null);
 
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState(null);
@@ -836,9 +839,8 @@ export const Hr = () => {
 
   useEffect(() => {
     const handleClickOutside = (event) => {
-      // Don't close dropdown when clicking the results action buttons (Back to Search, Download, month input)
-      // so their click handlers can run without being interrupted by a re-render.
       if (event.target.closest?.('.results-actions')) return;
+      if (event.target.closest?.('.dropdown-menu-list--fixed')) return;
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setOpenDropdownId(null);
       }
@@ -847,13 +849,43 @@ export const Hr = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (openDropdownId === null) {
+      setDropdownPosition(null);
+      dropdownEmployeeRef.current = null;
+      return;
+    }
+    const emp = searchResults[openDropdownId];
+    if (emp) dropdownEmployeeRef.current = emp;
+    const updatePosition = () => {
+      const btn = dropdownRef.current?.querySelector('.btn-update-toggle');
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const w = 200;
+      setDropdownPosition({
+        top: rect.bottom + 4,
+        left: Math.min(rect.right - w, window.innerWidth - w - 8),
+      });
+    };
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [openDropdownId, searchResults]);
+
   const toggleDropdown = (id) => {
     setOpenDropdownId(openDropdownId === id ? null : id);
   };
 
   const handleOptionClick = (option, emp) => {
+    const employee = emp ?? dropdownEmployeeRef.current;
     setOpenDropdownId(null);
-    setSelectedEmployeeForAction(emp);
+    dropdownEmployeeRef.current = null;
+    if (!employee) return;
+    setSelectedEmployeeForAction(employee);
     if (option === 'Profile') setView('employee_profile');
     else if (option === 'Attendance') setView('employee_attendance');
     else if (option === 'Punch In/Out') setView('punch_form');
@@ -1346,15 +1378,6 @@ return <AddNoc onBack={() => setView('updates')} />;
                             <button className={`btn-update-toggle ${openDropdownId === i ? 'active' : ''}`} onClick={() => toggleDropdown(i)}>
                               Update <ChevronDown size={14} className={openDropdownId === i ? 'rotate-180' : ''} />
                             </button>
-                            {openDropdownId === i && (
-                              <div className="dropdown-menu-list">
-                                {employeeDetailsOptions.map((option) => (
-                                  <div key={option} className="dropdown-item" onClick={() => handleOptionClick(option, emp)}>
-                                    {option}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         </td>
                       </tr>
@@ -1373,6 +1396,33 @@ return <AddNoc onBack={() => setView('updates')} />;
           </div>
         )}
       </div>
+      {showSearchResults && openDropdownId !== null && dropdownPosition && createPortal(
+        <div
+          className="dropdown-menu-list dropdown-menu-list--fixed"
+          style={{
+            position: 'fixed',
+            top: dropdownPosition.top,
+            left: dropdownPosition.left,
+            width: 200,
+            minWidth: 160,
+            zIndex: 99999,
+          }}
+        >
+          {employeeDetailsOptions.map((option) => (
+            <div
+              key={option}
+              className="dropdown-item"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOptionClick(option, dropdownEmployeeRef.current); } }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOptionClick(option, dropdownEmployeeRef.current); }}
+            >
+              {option}
+            </div>
+          ))}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
