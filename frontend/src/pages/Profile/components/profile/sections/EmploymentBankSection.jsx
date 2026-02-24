@@ -1,4 +1,5 @@
 import React from 'react';
+import { GRADIENT_HEADER_STYLE } from '../../../utils/gradientStyles';
 import {AccordionCard} from '../AccordionCard';
 import {Input} from '../../common/Input';
 import {SelectInput} from '../../common/SelectInput';
@@ -29,7 +30,7 @@ export const EmploymentBankSection = ({
     ========================= */
     const primaryContent = isEditMode ? (
         <>
-            <h4>Current Employment Details</h4>
+            <h4 className="employment-section-title"><span style={GRADIENT_HEADER_STYLE}>Current Employment Details</span></h4>
             <div className="grid-3">
                 <SelectInput
                     label="Designation"
@@ -55,7 +56,7 @@ export const EmploymentBankSection = ({
         </>
     ) : (
         <>
-            <h4>Current Employment Details</h4>
+            <h4 className="employment-section-title"><span style={GRADIENT_HEADER_STYLE}>Current Employment Details</span></h4>
             <div className="grid-3">
                 <Info label="Designation" value={data.designation} />
                 <Info label="Employee ID" value={data.employeeId} />
@@ -71,8 +72,8 @@ export const EmploymentBankSection = ({
        PREVIOUS EMPLOYMENT
     ========================= */
     const historyContent = (
-        <div style={{ marginTop: '30px', borderTop: '1px solid #eee', paddingTop: '20px' }}>
-            <h3>Previous Employment History</h3>
+        <div className="section-divider">
+            <h3 className="employment-section-title"><span style={GRADIENT_HEADER_STYLE}>Previous Employment History</span></h3>
 
             {prevEmpData.map((emp, index) => (
                 <PreviousEmploymentCard 
@@ -89,17 +90,7 @@ export const EmploymentBankSection = ({
                 <button 
                     type="button"
                     onClick={onAddPrevEmp}
-                    style={{
-                        padding: '10px 15px',
-                        border: '1px dashed #3b82f6',
-                        background: '#e0f2fe',
-                        color: '#3b82f6',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        width: '100%',
-                        marginTop: '12px',
-                        fontWeight: '600'
-                    }}
+                    className="add-section"
                 >
                     + Add Previous Employer
                 </button>
@@ -135,47 +126,18 @@ export const EmploymentBankSection = ({
 
             {/* SAVE + UNDO */}
             {isEditMode && (
-                <div
-                    style={{
-                        marginTop: '28px',
-                        borderTop: '1px solid #eee',
-                        paddingTop: '20px',
-                        display: 'flex',
-                        gap: '12px'
-                    }}
-                >
+                <div className="section-actions">
                     <button
                         type="button"
                         onClick={onUndo}
-                        style={{
-                            padding: '10px 22px',
-                            background: 'transparent',
-                            border: '1px solid #9ca3af',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontWeight: '600',
-                            flex: 1
-                        }}
+                        className="entry-undo-btn"
                     >
                         Undo
                     </button>
-
                     <button
                         type="button"
                         onClick={onSave}
                         className="entry-save-btn"
-                        style={{
-                            padding: '14px 30px',
-                            background: 'linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontWeight: '700',
-                            fontSize: '16px',
-                            boxShadow: '0 6px 15px rgba(59, 130, 246, 0.5)',
-                            flex: 2
-                        }}
                     >
                         Save Employment Details
                     </button>

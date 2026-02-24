@@ -1,104 +1,320 @@
-.user-holiday-page {
+/* Holiday Calendar page – aligned with Dashboard/Leaves styling, fully responsive */
+
+:root {
+  --hc-body-bg: #f4f7f6;
+  --hc-card-bg: #ffffff;
+  --hc-text-dark: #111827;
+  --hc-text-muted: #6b7280;
+  --hc-border: #e5e7eb;
+  --hc-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+@keyframes hcSectionEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hcCardEnter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Page container */
+.hc-dashboard-container {
+  padding: 24px 24px 32px;
   max-width: 1100px;
   margin: 0 auto;
-  padding: 20px;
+  background-color: var(--hc-body-bg);
+  min-height: 100vh;
+  animation: hcSectionEnter 0.4s ease-out;
 }
 
-.user-holiday-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-  padding: 20px;
-}
-
-.user-holiday-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-end;
-  margin-bottom: 14px;
-}
-
-.user-holiday-header h2 {
-  margin: 0;
-  color: #1e293b;
-  font-size: 1.25rem;
-}
-
-.user-holiday-header p {
-  margin: 6px 0 0;
-  color: #64748b;
-  font-size: 0.92rem;
-}
-
-.user-holiday-year {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 120px;
-}
-
-.user-holiday-year label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #334155;
-}
-
-.user-holiday-year input {
-  border: 1px solid #cbd5e1;
+.hc-error {
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
   border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 0.95rem;
-}
-
-.user-holiday-error {
-  margin: 0 0 12px;
   color: #b91c1c;
-}
-
-.user-holiday-table-wrap {
-  overflow-x: auto;
-}
-
-.user-holiday-table {
-  width: 100%;
-  min-width: 680px;
-  border-collapse: collapse;
-}
-
-.user-holiday-table th,
-.user-holiday-table td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 10px 12px;
-  text-align: left;
-  font-size: 0.92rem;
-}
-
-.user-holiday-table th {
-  background: #f8fafc;
-  color: #334155;
-  font-weight: 700;
-}
-
-.user-holiday-empty {
-  text-align: center;
-  color: #64748b;
-}
-
-.user-holiday-note {
-  margin-top: 14px;
   font-size: 0.9rem;
-  color: #475569;
+}
+
+/* Card – left accent stripe, 12px radius */
+.hc-card {
+  background-color: var(--hc-card-bg);
+  border-radius: 12px;
+  box-shadow: var(--hc-shadow);
+  border: 1px solid var(--hc-border);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+  animation: hcCardEnter 0.45s ease-out forwards;
+}
+
+.hc-calendar-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 12px 0 0 12px;
+  background: #4f46e5;
+}
+
+.hc-calendar-card:hover {
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.15);
+}
+
+.hc-card-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--hc-border);
+}
+
+.hc-section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+  background: linear-gradient(90deg, #4f46e5 0%, #3b82f6 50%, #10b981 100%) !important;
+  background-size: 100% 100% !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  display: inline-block;
+}
+
+.hc-subtitle {
+  font-size: 0.9rem;
+  color: var(--hc-text-muted);
+  margin: 0;
+}
+
+.hc-card-body {
+  padding: 24px;
+}
+
+/* Table */
+.hc-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+  border: 1px solid var(--hc-border);
+}
+
+.hc-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+  font-size: 0.9rem;
+}
+
+.hc-table th,
+.hc-table td {
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.hc-table th {
+  background: linear-gradient(135deg, #eef2ff 0%, #eff6ff 100%);
+  color: #4338ca;
+  font-weight: 600;
+  border-bottom: 1px solid var(--hc-border);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.hc-table tbody tr {
+  border-bottom: 1px solid var(--hc-border);
+  color: var(--hc-text-dark);
+  transition: background-color 0.15s ease;
+}
+
+.hc-table tbody tr:hover {
+  background-color: rgba(79, 70, 229, 0.04);
+}
+
+.hc-empty {
+  text-align: center;
+  padding: 40px 16px !important;
+  color: var(--hc-text-muted);
+  font-size: 0.9rem;
+}
+
+.hc-note {
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid var(--hc-border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  color: var(--hc-text-muted);
+  line-height: 1.5;
+}
+
+.hc-note strong {
+  color: var(--hc-text-dark);
+}
+
+/* --- RESPONSIVE --- */
+
+@media (max-width: 1200px) {
+  .hc-dashboard-container {
+    padding: 20px 20px 28px;
+  }
+  .hc-card-body {
+    padding: 20px;
+  }
+  .hc-card-header {
+    padding: 18px 20px;
+  }
+  .hc-table th,
+  .hc-table td {
+    padding: 10px 14px;
+  }
+}
+
+@media (max-width: 992px) {
+  .hc-dashboard-container {
+    padding: 16px 16px 24px;
+  }
+  .hc-section-title {
+    font-size: 1.15rem;
+  }
+  .hc-subtitle {
+    font-size: 0.85rem;
+  }
+  .hc-card-body {
+    padding: 18px;
+  }
+  .hc-card-header {
+    padding: 18px;
+  }
+  .hc-table {
+    font-size: 0.85rem;
+    min-width: 480px;
+  }
+  .hc-table th,
+  .hc-table td {
+    padding: 10px 12px;
+  }
+  .hc-note {
+    margin-top: 18px;
+    font-size: 0.85rem;
+    padding: 12px 14px;
+  }
 }
 
 @media (max-width: 768px) {
-  .user-holiday-page {
+  .hc-dashboard-container {
+    padding: 12px 12px 20px;
+  }
+  .hc-section-title {
+    font-size: 1.1rem;
+  }
+  .hc-subtitle {
+    font-size: 0.8rem;
+  }
+  .hc-card-body {
+    padding: 16px;
+  }
+  .hc-card-header {
+    padding: 16px;
+  }
+  .hc-table-wrap {
+    margin: 0 -4px;
+  }
+  .hc-table {
+    min-width: 460px;
+    font-size: 0.85rem;
+  }
+  .hc-table th,
+  .hc-table td {
+    padding: 10px 10px;
+  }
+  .hc-empty {
+    padding: 32px 12px !important;
+    font-size: 0.85rem;
+  }
+  .hc-note {
+    margin-top: 16px;
+    font-size: 0.8rem;
     padding: 12px;
   }
+}
 
-  .user-holiday-header {
-    flex-direction: column;
-    align-items: stretch;
+@media (max-width: 576px) {
+  .hc-dashboard-container {
+    padding: 10px 10px 16px;
+  }
+  .hc-error {
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+  }
+  .hc-section-title {
+    font-size: 1.05rem;
+  }
+  .hc-subtitle {
+    font-size: 0.8rem;
+  }
+  .hc-card-body {
+    padding: 14px;
+  }
+  .hc-card-header {
+    padding: 14px;
+  }
+  .hc-table {
+    min-width: 400px;
+    font-size: 0.8rem;
+  }
+  .hc-table th,
+  .hc-table td {
+    padding: 8px 8px;
+  }
+  .hc-table th {
+    font-size: 0.7rem;
+  }
+  .hc-empty {
+    padding: 24px 10px !important;
+    font-size: 0.8rem;
+  }
+  .hc-note {
+    margin-top: 14px;
+    font-size: 0.75rem;
+    padding: 10px 12px;
+  }
+}
+
+@media (max-width: 400px) {
+  .hc-dashboard-container {
+    padding: 8px 8px 12px;
+  }
+  .hc-card-body {
+    padding: 12px;
+  }
+  .hc-card-header {
+    padding: 12px;
+  }
+  .hc-section-title {
+    font-size: 1rem;
+  }
+  .hc-table {
+    min-width: 360px;
+    font-size: 0.75rem;
+  }
+  .hc-table th,
+  .hc-table td {
+    padding: 6px 6px;
+  }
+  .hc-table th {
+    font-size: 0.65rem;
+  }
+  .hc-note {
+    margin-top: 12px;
+    font-size: 0.7rem;
+    padding: 8px 10px;
   }
 }

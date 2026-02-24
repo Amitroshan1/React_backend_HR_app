@@ -321,7 +321,8 @@ def _employee_homepage_impl():
 @auth.route("/news-feed", methods=["GET"])
 @jwt_required()
 def get_news_feed():
-    """Return news feed posts for the logged-in employee, filtered by their circle and emp_type."""
+    """Return news feed posts for the logged-in employee, filtered by their circle and emp_type.
+    Also includes birthdays and work anniversaries for users in the same circle."""
     try:
         admin_id = int(get_jwt_identity())
     except (TypeError, ValueError):
@@ -331,17 +332,62 @@ def get_news_feed():
         return jsonify({"success": False, "message": "User not found"}), 404
 
     from sqlalchemy import or_
-    user_circle = getattr(admin, "circle", None) or ""
+    user_circle = (getattr(admin, "circle", None) or "").strip()
     user_emp_type = getattr(admin, "emp_type", None) or ""
+    today = date.today()
+    current_month, current_day = today.month, today.day
 
+    items = []
+
+    # 1. Birthdays (Employee.dob) – same circle
+    if user_circle:
+        bday_admins = Admin.query.join(Employee, Admin.id == Employee.admin_id).filter(
+            db.func.lower(db.func.coalesce(Admin.circle, "")) == user_circle.lower(),
+            db.extract("month", Employee.dob) == current_month,
+            db.extract("day", Employee.dob) == current_day
+        ).all()
+        for a in bday_admins:
+            emp = Employee.query.filter_by(admin_id=a.id).first()
+            name = (emp and emp.name) or a.first_name or "A colleague"
+            items.append({
+                "id": f"birthday-{a.id}",
+                "type": "birthday",
+                "title": "Happy Birthday!",
+                "content": f"{name} celebrates their birthday today.",
+                "file_path": None,
+                "created_at": today.isoformat(),
+            })
+
+    # 2. Work anniversaries (Admin.doj) – same circle
+    if user_circle:
+        anniv_admins = Admin.query.filter(
+            db.func.lower(db.func.coalesce(Admin.circle, "")) == user_circle.lower(),
+            Admin.doj.isnot(None),
+            db.extract("month", Admin.doj) == current_month,
+            db.extract("day", Admin.doj) == current_day
+        ).all()
+        for a in anniv_admins:
+            years = today.year - a.doj.year if a.doj else 0
+            name = a.first_name or "A colleague"
+            items.append({
+                "id": f"anniversary-{a.id}",
+                "type": "anniversary",
+                "title": "Work Anniversary!",
+                "content": f"{name} completes {years} year(s) with us today.",
+                "file_path": None,
+                "created_at": today.isoformat(),
+            })
+
+    # 3. Regular news feed posts
     posts = NewsFeed.query.filter(
         or_(NewsFeed.circle == user_circle, NewsFeed.circle == "All"),
         or_(NewsFeed.emp_type == user_emp_type, NewsFeed.emp_type == "All")
     ).order_by(NewsFeed.created_at.desc()).limit(50).all()
 
-    items = [
+    items.extend([
         {
             "id": p.id,
+            "type": "post",
             "title": p.title,
             "content": p.content,
             "file_path": p.file_path,
@@ -350,7 +396,7 @@ def get_news_feed():
             "created_at": p.created_at.isoformat() if p.created_at else None,
         }
         for p in posts
-    ]
+    ])
     return jsonify({"success": True, "news_feed": items}), 200
 
 
@@ -367,6 +413,33 @@ def employee_profile():
         return jsonify({"success": False, "message": "User not found"}), 404
 
     employee = Employee.query.filter_by(admin_id=admin.id).first()
+
+    # Resolve reporting manager from ManagerContact (L1) - auto-update for profile display
+    reporting_manager_name = ""
+    try:
+        from .manager_utils import get_manager_detail
+        circle_lower = (admin.circle or "").strip().lower()
+        emp_type_lower = (admin.emp_type or "").strip().lower()
+        user_email = (admin.email or "").strip() or None
+        if circle_lower and emp_type_lower:
+            manager_contact = None
+            if user_email:
+                manager_contact = ManagerContact.query.filter(
+                    func.lower(ManagerContact.circle_name) == circle_lower,
+                    func.lower(ManagerContact.user_type) == emp_type_lower,
+                    ManagerContact.user_email == user_email
+                ).first()
+            if not manager_contact:
+                manager_contact = ManagerContact.query.filter(
+                    func.lower(ManagerContact.circle_name) == circle_lower,
+                    func.lower(ManagerContact.user_type) == emp_type_lower,
+                    (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
+                ).first()
+            if manager_contact:
+                l1 = get_manager_detail(manager_contact, "l1")
+                reporting_manager_name = (l1.get("name") or "").strip()
+    except Exception:
+        pass
     education_list = Education.query.filter_by(admin_id=admin.id).all()
     prev_companies = PreviousCompany.query.filter_by(admin_id=admin.id).all()
     upload_doc = UploadDoc.query.filter_by(admin_id=admin.id).first()
@@ -385,6 +458,7 @@ def employee_profile():
             "doj": _date_iso(admin.doj),
             "emp_type": admin.emp_type,
             "circle": admin.circle or "",
+            "reporting_manager": reporting_manager_name,
         },
         "employee": None,
         "education": [],
@@ -935,6 +1009,79 @@ def create_or_update_education():
         db.session.rollback()
         return {"success": False, "message": str(e)}, 500
 
+
+@auth.route("/previous-companies", methods=["POST"])
+@jwt_required()
+def save_previous_companies():
+    """Replace all previous companies for the logged-in user. Accepts list of {companyName, designation, dateOfLeaving, experienceYears}."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"success": False, "message": "Missing JSON body"}), 400
+
+    try:
+        admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        return jsonify({"success": False, "message": "items must be an array"}), 400
+
+    try:
+        PreviousCompany.query.filter_by(admin_id=admin_id).delete()
+
+        for item in items:
+            com_name = (item.get("companyName") or "").strip() or "-"
+            designation = (item.get("designation") or "").strip() or "-"
+            dol_str = item.get("dateOfLeaving") or ""
+            exp_years = item.get("experienceYears") or ""
+
+            dol = None
+            if dol_str:
+                try:
+                    dol = datetime.strptime(dol_str.split("T")[0], "%Y-%m-%d").date()
+                except (ValueError, AttributeError):
+                    dol = date.today()
+
+            doj = dol
+            if dol and exp_years:
+                try:
+                    yrs = float(str(exp_years).replace(",", "."))
+                    from datetime import timedelta
+                    doj = dol - timedelta(days=int(365.25 * yrs))
+                except (ValueError, TypeError):
+                    pass
+
+            if not doj:
+                doj = date.today()
+            if not dol:
+                dol = date.today()
+
+            pc = PreviousCompany(
+                admin_id=admin_id,
+                com_name=com_name,
+                designation=designation,
+                doj=doj,
+                dol=dol,
+                reason="-",
+                salary="-",
+                pan="-",
+                contact="-",
+                name_contact="-",
+                pf_num="-",
+                address="-",
+            )
+            db.session.add(pc)
+
+        db.session.commit()
+        return jsonify({"success": True, "message": "Previous employment saved"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 @auth.route("/upload-profile-file", methods=["POST"])

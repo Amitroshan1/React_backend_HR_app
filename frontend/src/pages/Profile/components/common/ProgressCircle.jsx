@@ -1,4 +1,5 @@
 import React from 'react';
+import { GRADIENT_HEADER_STYLE } from '../../utils/gradientStyles';
 
 export const ProgressCircle = ({ progressValue }) => {
     const radius = 50;
@@ -7,7 +8,7 @@ export const ProgressCircle = ({ progressValue }) => {
 
     return (
         <div className="card progress-card" style={{ padding: '20px', textAlign: 'center' }}>
-            <h3>Profile Completion</h3>
+            <h3 style={{ margin: 0 }}><span style={GRADIENT_HEADER_STYLE}>Profile Completion</span></h3>
             <div style={{ position: 'relative', width: '120px', height: '120px', margin: '15px auto 5px' }}>
                 <svg width="120" height="120" viewBox="0 0 120 120">
                     {/* Background Circle */}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { NavLink } from 'react-router-dom';
 import { FiChevronRight, FiCheckCircle, FiUserCheck, FiSun, FiCalendar, FiHelpCircle, FiKey, FiHome, FiClock, FiDollarSign, FiUser } from "react-icons/fi";
 import { MdBadge, MdCalendarToday } from "react-icons/md";
@@ -187,6 +187,8 @@ export const Dashboard = () => {
     });
     const [punchInDateTime, setPunchInDateTime] = useState(null);
     const [newsFeed, setNewsFeed] = useState([]);
+    const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
+    const newsFeedListRef = useRef(null);
     const fetchDashboardData = async (showAlert = false) => {
         const token = localStorage.getItem('token');
         if (!token) return;
@@ -250,6 +252,25 @@ export const Dashboard = () => {
         };
         loadInitialData();
     }, []);
+
+    /* News feed auto-scroll: continuous scroll, pause on hover */
+    useEffect(() => {
+        if (!newsFeed.length || newsFeedScrollPaused) return;
+        const el = newsFeedListRef.current;
+        if (!el || el.scrollHeight <= el.clientHeight) return;
+        const step = 1;
+        const interval = 40;
+        const id = setInterval(() => {
+            if (!el) return;
+            const { scrollTop, scrollHeight, clientHeight } = el;
+            if (scrollTop + clientHeight >= scrollHeight - 2) {
+                el.scrollTop = 0;
+            } else {
+                el.scrollTop += step;
+            }
+        }, interval);
+        return () => clearInterval(id);
+    }, [newsFeed.length, newsFeedScrollPaused]);
     const validateLocationRange = async (lat, lon) => {
         const token = localStorage.getItem('token');
         if (!token) return { in_range: false, requires_reason: true, zone: "NO_GPS" };
@@ -549,7 +570,8 @@ export const Dashboard = () => {
                         </div>
                     </div>
                     <div className="main-grid">
-                        <div className="attendance-section grid-span-4">
+                        <div className="dashboard-top-row grid-span-4">
+                            <div className="attendance-section">
                             <div className="attendance-header">
                                 <h2 className="section-title">Today's Status</h2>
                                 <span className="attendance-date">{todaysDate}</span>
@@ -608,6 +630,51 @@ export const Dashboard = () => {
                                     </button>
                                 </div>
                             </div>
+                            </div>
+                            <div 
+                                className="news-feed-section"
+                                onMouseEnter={() => setNewsFeedScrollPaused(true)}
+                                onMouseLeave={() => setNewsFeedScrollPaused(false)}
+                            >
+                            <h2 className="news-feed">
+                                <span 
+                                    className="news-feed-gradient-text"
+                                    style={{ 
+                                        background: 'linear-gradient(to right, #4f46e5, #3b82f6, #10b981)', 
+                                        WebkitBackgroundClip: 'text', 
+                                        backgroundClip: 'text', 
+                                        color: 'transparent',
+                                        WebkitTextFillColor: 'transparent',
+                                        display: 'inline-block'
+                                    }}
+                                >
+                                    News Feed
+                                </span>
+                            </h2>
+                            <p className="subtext">Announcements, birthdays & work anniversaries for your circle</p>
+                            {newsFeed.length === 0 ? (
+                                <p className="news-feed-empty">No announcements yet.</p>
+                            ) : (
+                                <ul className="news-feed-list" ref={newsFeedListRef}>
+                                    {newsFeed.map((item) => (
+                                        <li key={item.id} className={`news-feed-item ${(item.type || 'post') === 'birthday' ? 'news-feed-birthday' : ''} ${(item.type || 'post') === 'anniversary' ? 'news-feed-anniversary' : ''}`}>
+                                            <h4 className="news-feed-title">
+                                                {(item.type || '') === 'birthday' && '🎂 '}
+                                                {(item.type || '') === 'anniversary' && '🎉 '}
+                                                {item.title}
+                                            </h4>
+                                            <p className="news-feed-content">{item.content}</p>
+                                            <div className="news-feed-meta">
+                                                <span className="news-feed-date">{formatDate(item.created_at)}</span>
+                                                {item.file_path && (
+                                                    <a href={`/uploads/${item.file_path}`} target="_blank" rel="noopener noreferrer" className="news-feed-file">Attachment</a>
+                                                )}
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
                         </div>
                         <div className="quick-actions grid-span-4 actions-grid" >
                             <NavLink to="/leaves" className="action-card nav-link-card"> 
@@ -711,32 +778,9 @@ export const Dashboard = () => {
                                 <FiChevronRight className="arrow" />
                             </NavLink> */}
                         </div>
-                        <div className="news-feed-section grid-span-2">
-                            <h2 className="news-feed">News Feed</h2>
-                            <p className="subtext">Announcements for your circle and role</p>
-                            {newsFeed.length === 0 ? (
-                                <p className="news-feed-empty">No announcements yet.</p>
-                            ) : (
-                                <ul className="news-feed-list">
-                                    {newsFeed.map((item) => (
-                                        <li key={item.id} className="news-feed-item">
-                                            <h4 className="news-feed-title">{item.title}</h4>
-                                            <p className="news-feed-content">{item.content}</p>
-                                            <div className="news-feed-meta">
-                                                <span className="news-feed-date">{formatDate(item.created_at)}</span>
-                                                {item.file_path && (
-                                                    <a href={`/uploads/${item.file_path}`} target="_blank" rel="noopener noreferrer" className="news-feed-file">Attachment</a>
-                                                )}
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
 
-
-                        {/* 4.4. Recent Activity - dynamic from punch, last leave, last payslip */}
-                        <div className="recent-box grid-span-2">
+                        {/* Recent Activity */}
+                        <div className="recent-box grid-span-4">
                             <h2 className="rec-act">Recent Activity</h2>
                             <RecentActivityList
                                 punchIn={dynamicData.punch?.punch_in}
@@ -761,7 +805,7 @@ export const Dashboard = () => {
 
 
 
-// import { useEffect, useState, useMemo } from "react";
+// import { useEffect, useState, useMemo, useRef } from "react";
 // import { NavLink } from 'react-router-dom';
 // import { 
 //     FiChevronRight, FiCheckCircle, FiUserCheck, FiCalendar, 
@@ -1048,7 +1092,7 @@ export const Dashboard = () => {
 
 
 
-// import { useEffect, useState, useMemo } from "react";
+// import { useEffect, useState, useMemo, useRef } from "react";
 // import { NavLink } from 'react-router-dom';
 // import { 
 //     FiChevronRight, FiCheckCircle, FiLogOut, FiUser, 
@@ -1271,7 +1315,7 @@ export const Dashboard = () => {
 
 
 ///////working welllllllllll
-// import { useEffect, useState, useMemo } from "react";
+// import { useEffect, useState, useMemo, useRef } from "react";
 // import { NavLink } from 'react-router-dom';
 // import { 
 //     FiChevronRight, FiCheckCircle, FiLogOut, FiUser, 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { GRADIENT_HEADER_STYLE } from '../../../utils/gradientStyles';
 import PropTypes from 'prop-types';
 import {AccordionCard} from '../AccordionCard';
 import {Input} from '../../common/Input';
@@ -8,7 +9,7 @@ import {Info} from '../../common/Info'; // Assuming Info is available
 // Helper for displaying a single previous employment entry in view mode
 const ViewEmploymentEntry = ({ entry, index }) => (
     <div key={index} className="view-grid" style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', marginBottom: '10px' }}>
-        <h4 style={{ gridColumn: 'span 3', color: '#333' }}>Employment #{index + 1}</h4>
+        <h4 style={{ gridColumn: 'span 3' }}><span style={GRADIENT_HEADER_STYLE}>Employment #{index + 1}</span></h4>
         <Info label="Company Name" value={entry.companyName} />
         <Info label="Designation" value={entry.designation} />
         <Info label="Date of Leaving" value={entry.dateOfLeaving} />
@@ -52,9 +53,7 @@ export const PreviousEmploymentSection = ({
                         marginBottom: '15px', 
                         borderRadius: '4px' 
                     }}>
-                        <h4 style={{ marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
-                            Employment Record {index + 1}
-                        </h4>
+                        <h4 style={{ marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '10px' }}><span style={GRADIENT_HEADER_STYLE}>Employment Record {index + 1}</span></h4>
                         
                         <div className="grid-3" style={{ gridTemplateColumns: '1fr 1fr auto' }}>
                             <Input 

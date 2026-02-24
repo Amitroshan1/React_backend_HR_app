@@ -1,13 +1,14 @@
 import React from 'react';
+import { GRADIENT_HEADER_STYLE } from '../../utils/gradientStyles';
 import {Info} from '../common/Info';
 import {ProgressCircle} from '../common/ProgressCircle';
 import { formatDateForDisplay } from '../../utils/profileUtils';
 
-// Helper function to render data in the grid format of the screenshot
-const RenderInfoGrid = ({ title, data, sectionMap }) => (
-    <div style={{ marginBottom: '30px', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '20px', backgroundColor: '#fff' }}>
-        <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid #f0f0f0', paddingBottom: '10px', color: '#1f2937' }}>{title}</h4>
-        <div className="grid-3" style={{ gap: '25px 15px' }}>
+// Helper function to render data in the grid format (Dashboard-aligned)
+const RenderInfoGrid = ({ title, data, sectionMap, cardModifier = '' }) => (
+    <div className={`profile-view-card ${cardModifier}`}>
+        <h4><span style={GRADIENT_HEADER_STYLE}>{title}</span></h4>
+        <div className="grid-3">
             {sectionMap.map(({ label, key, formatFn = val => val }) => (
                 <Info 
                     key={key} 
@@ -46,22 +47,10 @@ export const ProfileViewLayout = ({ data, profileProgress, avatarCardComponent }
     ];
 
     return (
-        <div
-            className="profile-view-wrapper"
-            style={{
-                display: 'flex',
-                gap: '20px',
-                padding: '20px',
-                width: '100%',
-                margin: '0',
-                boxSizing: 'border-box',
-                flexGrow: 1,
-                minHeight: '100%'
-            }}
-        >
+        <div className="profile-view-wrapper">
 
             {/* --- Left Column (Summary) --- */}
-            <div style={{ flex: '0 0 350px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="profile-view-left">
                 
                 {/* 🛑 Renders the Profile Summary Card (now containing the button via prop injection) */}
                 {avatarCardComponent}
@@ -72,19 +61,20 @@ export const ProfileViewLayout = ({ data, profileProgress, avatarCardComponent }
             
             
             {/* --- Right Column (Details) --- */}
-            <div style={{ flex: '1', Width: '700px' }}>
+            <div className="profile-view-right">
                 
                 {/* Personal Details Card */}
                 <RenderInfoGrid
                     title="Personal Details - Basic and Contact Information"
                     data={data.formData}
-                    sectionMap={personalSectionMap.filter(item => item.key !== 'personalEmail' && item.key !== 'mobile')} 
+                    sectionMap={personalSectionMap.filter(item => item.key !== 'personalEmail' && item.key !== 'mobile')}
+                    cardModifier="profile-view-card--personal"
                 />
 
                 {/* Address Details Card (Custom rendering for the long address strings) */}
-                <div style={{ marginBottom: '30px', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '20px', backgroundColor: '#fff' }}>
-                    <h4 style={{ margin: '0 0 15px 0', borderBottom: '1px solid #f0f0f0', paddingBottom: '10px', color: '#1f2937' }}>Address Details</h4>
-                    <div className="grid-2" style={{ gap: '25px 15px' }}>
+                <div className="profile-view-card profile-view-card--address">
+                    <h4><span style={GRADIENT_HEADER_STYLE}>Address Details</span></h4>
+                    <div className="grid-2">
                         <Info 
                             label="Current Address" 
                             value={`${data.currentAddress.street}, ${data.currentAddress.city} - ${data.currentAddress.pincode}`}
@@ -101,6 +91,7 @@ export const ProfileViewLayout = ({ data, profileProgress, avatarCardComponent }
                     title="Current Employment Details - Office and Designation Information"
                     data={data.formData}
                     sectionMap={employmentSectionMap}
+                    cardModifier="profile-view-card--employment"
                 />
             </div>
 

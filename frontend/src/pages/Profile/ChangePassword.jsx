@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import "./ChangePassword.css";
 
 const HR_API_BASE = "/api/HumanResource";
 
@@ -70,33 +71,47 @@ const ChangePassword = () => {
   };
 
   return (
-    <div className="page-container">
-      <h2>Change Password</h2>
-      {message && <p style={{ color: "green" }}>{message}</p>}
-      {error && <p style={{ color: "red" }}>{error}</p>}
-      <form onSubmit={handleSubmit} className="simple-form">
-        <div className="form-group">
-          <label>New Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="new-password"
-          />
+    <div className="cp-dashboard-container">
+      {message && <div className="cp-success">{message}</div>}
+      {error && <div className="cp-error">{error}</div>}
+
+      <div className="cp-card cp-form-card">
+        <div className="cp-card-header">
+          <h2 className="cp-section-title">Change Password</h2>
         </div>
-        <div className="form-group">
-          <label>Confirm New Password</label>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            autoComplete="new-password"
-          />
+        <div className="cp-card-body">
+          <p className="cp-subtext">Enter your new password below. It must be at least 8 characters with uppercase, lowercase, number, and special character.</p>
+          <form onSubmit={handleSubmit} className="cp-form">
+            <div className="cp-form-group">
+              <label className="cp-label" htmlFor="newPassword">New Password</label>
+              <input
+                id="newPassword"
+                className="cp-input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="Enter new password"
+              />
+            </div>
+            <div className="cp-form-group">
+              <label className="cp-label" htmlFor="confirmPassword">Confirm New Password</label>
+              <input
+                id="confirmPassword"
+                className="cp-input"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="Confirm new password"
+              />
+            </div>
+            <button type="submit" className="cp-btn-submit" disabled={loading}>
+              {loading ? "Updating..." : "Update Password"}
+            </button>
+          </form>
         </div>
-        <button type="submit" disabled={loading}>
-          {loading ? "Updating..." : "Update Password"}
-        </button>
-      </form>
+      </div>
     </div>
   );
 };

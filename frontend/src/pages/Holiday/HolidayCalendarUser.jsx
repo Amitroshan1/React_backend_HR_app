@@ -42,60 +42,56 @@ export const HolidayCalendarUser = () => {
   }, [year]);
 
   return (
-    <div className="user-holiday-page">
-      <div className="user-holiday-card">
-        <div className="user-holiday-header">
-          <div>
-            <h2>Holiday Calendar {year}</h2>
-            <p>Company holiday list for updated year {year}.</p>
-          </div>
+    <div className="hc-dashboard-container">
+      {error && <div className="hc-error">{error}</div>}
+
+      <div className="hc-card hc-calendar-card">
+        <div className="hc-card-header">
+          <h2 className="hc-section-title">Holiday Calendar {year}</h2>
+          <p className="hc-subtitle">Company holiday list for {year}.</p>
         </div>
 
-        {error && <p className="user-holiday-error">{error}</p>}
-
-        <div className="user-holiday-table-wrap">
-          <table className="user-holiday-table">
-            <thead>
-              <tr>
-                <th>SR. NO.</th>
-                <th>DATE</th>
-                <th>DAY</th>
-                <th>HOLIDAYS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
+        <div className="hc-card-body">
+          <div className="hc-table-wrap">
+            <table className="hc-table">
+              <thead>
                 <tr>
-                  <td colSpan="4" className="user-holiday-empty">
-                    Loading holidays...
-                  </td>
+                  <th>SR. NO.</th>
+                  <th>DATE</th>
+                  <th>DAY</th>
+                  <th>HOLIDAYS</th>
                 </tr>
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan="4" className="user-holiday-empty">
-                    No holidays found.
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.sr_no}</td>
-                    <td>{row.display_date || "-"}</td>
-                    <td>{row.day || "-"}</td>
-                    <td>
-                      {row.holiday_name}
-                      {row.is_optional ? " (OPTIONAL)" : ""}
-                    </td>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan="4" className="hc-empty">Loading holidays...</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" className="hc-empty">No holidays found.</td>
+                  </tr>
+                ) : (
+                  rows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.sr_no}</td>
+                      <td>{row.display_date || "-"}</td>
+                      <td>{row.day || "-"}</td>
+                      <td>
+                        {row.holiday_name}
+                        {row.is_optional ? " (OPTIONAL)" : ""}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
 
-        <p className="user-holiday-note">
-          <strong>NOTE:</strong> OUT OF 3 OPTIONAL HOLIDAYS, YOU ARE ELIGIBLE TO OPT ANY ONE HOLIDAY.
-        </p>
+          <p className="hc-note">
+            <strong>NOTE:</strong> Out of 3 optional holidays, you are eligible to opt any one holiday.
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -1,9 +1,16 @@
 /* =========================================================
-   0. DESIGN TOKENS (Production Standard)
+   0. DESIGN TOKENS (Align with Dashboard)
 ========================================================= */
 :root {
-    --bg-page: #f7f9fb;
-    --bg-card: #ffffff;
+    --profile-body-bg: #f4f7f6;
+    --profile-card-bg: #ffffff;
+    --profile-text-dark: #343a40;
+    --profile-text-muted: #6c757d;
+    --profile-border: #e9ecef;
+    --profile-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+
+    --bg-page: var(--profile-body-bg);
+    --bg-card: var(--profile-card-bg);
 
     --color-primary: #2563eb;
     --color-primary-hover: #1d4ed8;
@@ -11,20 +18,41 @@
     --color-success-hover: #15803d;
     --color-danger: #dc2626;
 
-    --text-primary: #111827;
+    --text-primary: var(--profile-text-dark);
     --text-secondary: #4b5563;
-    --text-muted: #6b7280;
+    --text-muted: var(--profile-text-muted);
 
-    --border-light: #e5e7eb;
+    --border-light: var(--profile-border);
 
     --radius-sm: 6px;
     --radius-md: 8px;
     --radius-lg: 12px;
 
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.10);
+    --shadow-md: var(--profile-shadow);
 
     --transition-fast: 0.2s ease;
+}
+
+/* Profile gradient – card headers and section titles (no inline color on these elements) */
+.profile-section-title,
+.profile-view-card h4,
+.profile-page-title,
+.profile-card-header,
+.accordion-header h3,
+.accordion-card .accordion-header h3,
+.card.progress-card h3,
+.profile-summary-card h3,
+.crop-modal h3,
+.address-header h4,
+.previous-employment-card h4,
+.education-block h4 {
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    font-weight: 700 !important;
 }
 
 /* =========================================================
@@ -52,27 +80,54 @@
 }
 
 /* =========================================================
-   2. CARD BASE
+   2. CARD BASE (Dashboard-style accent stripe)
 ========================================================= */
 .card {
     background-color: var(--bg-card);
     padding: 24px;
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
-    /* width: 19.5rem;
-    height: 20rem;    */
-    transition: box-shadow 200ms ease, transform 200ms ease;
+    border: 1px solid var(--border-light);
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.2s ease;
+}
+
+.card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    background: linear-gradient(180deg, #4f46e5 0%, #6366f1 100%);
+}
+
+/* Different accent colors per card type */
+.card.card--summary::before,
+.profile-summary-card::before { background: linear-gradient(180deg, #4f46e5 0%, #7c3aed 100%); }
+.card.card--progress::before,
+.card.progress-card::before { background: linear-gradient(180deg, #059669 0%, #10b981 100%); }
+
+.profile-summary-card {
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-light);
+    position: relative;
+    overflow: hidden;
 }
 
 @media (hover: hover) {
     .card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(79, 70, 229, 0.12);
+        border-color: rgba(79, 70, 229, 0.15);
     }
 }
 
 /* =========================================================
-   3. BUTTONS
+   3. BUTTONS (gradient bg)
 ========================================================= */
 .edit-btn,
 .save-btn {
@@ -82,28 +137,40 @@
     border-radius: var(--radius-md);
     border: none;
     cursor: pointer;
-    transition: background-color var(--transition-fast),
-                transform var(--transition-fast);
+    color: #ffffff !important;
+    transition: opacity var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-.edit-btn {
-    background-color: var(--color-primary);
-    color: #ffffff;
-}
-
-.edit-btn:hover {
-    background-color: var(--color-primary-hover);
-    transform: translateY(-1px);
-}
-
+.edit-btn,
 .save-btn {
-    background-color: var(--color-success);
-    color: #ffffff;
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
 }
 
+.edit-btn:hover,
 .save-btn:hover {
-    background-color: var(--color-success-hover);
+    opacity: 0.95;
     transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+}
+
+.profile-btn-gradient {
+    margin-top: 15px;
+    padding: 14px 30px;
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
+    color: #ffffff !important;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 16px;
+    width: 100%;
+    box-shadow: 0 6px 15px rgba(79, 70, 229, 0.4);
+    transition: all 0.3s ease;
+}
+
+.profile-btn-gradient:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(79, 70, 229, 0.5);
 }
 
 /* =========================================================
@@ -152,7 +219,7 @@
 }
 
 /* =========================================================
-   5. ACCORDION (FIGMA-ACCURATE + SPACING)
+   5. ACCORDION (Dashboard-style with accent stripe)
 ========================================================= */
 .accordion-card {
     background-color: var(--bg-card);
@@ -160,12 +227,30 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
     overflow: hidden;
+    position: relative;
     transition:
-        box-shadow 240ms cubic-bezier(0.4, 0, 0.2, 1),
-        border-color 200ms ease,
-        transform 200ms ease;
+        box-shadow 0.25s ease,
+        border-color 0.2s ease,
+        transform 0.25s ease;
     animation: cardFadeIn 260ms ease;
 }
+
+.accordion-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    z-index: 1;
+}
+
+.accordion-card[data-section-name="personal"]::before { background: linear-gradient(180deg, #2563eb 0%, #3b82f6 100%); }
+.accordion-card[data-section-name="address"]::before { background: linear-gradient(180deg, #0891b2 0%, #06b6d4 100%); }
+.accordion-card[data-section-name="employment"]::before { background: linear-gradient(180deg, #d97706 0%, #f59e0b 100%); }
+.accordion-card[data-section-name="education"]::before { background: linear-gradient(180deg, #7c3aed 0%, #8b5cf6 100%); }
+.accordion-card[data-section-name="documents"]::before { background: linear-gradient(180deg, #4f46e5 0%, #6366f1 100%); }
 
 /* spacing between accordion cards */
 .accordion-card + .accordion-card {
@@ -174,8 +259,9 @@
 
 @media (hover: hover) {
     .accordion-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 28px rgba(0,0,0,0.14);
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(79, 70, 229, 0.12);
+        border-color: rgba(79, 70, 229, 0.15);
     }
 }
 
@@ -218,6 +304,208 @@
     opacity: 1;
     transform: translateY(0);
     padding: 22px;
+}
+
+/* Employment: prevent title overlapping with grid */
+.employment-section-title {
+    margin: 0 0 16px 0;
+    display: block;
+}
+
+/* Address: gap between Street Address and Pincode/City/State row */
+.address-fields-row {
+    margin-top: 20px;
+}
+
+/* Section actions (Save + Undo) - shared across all accordion sections */
+.section-actions {
+    margin-top: 24px;
+    border-top: 1px solid var(--border-light);
+    padding-top: 20px;
+    display: flex;
+    gap: 12px;
+}
+
+.section-actions .entry-undo-btn,
+.section-actions .discard-btn {
+    padding: 10px 22px;
+    background: transparent;
+    border: 1px solid #9ca3af;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-weight: 600;
+    flex: 1;
+}
+
+.section-actions .entry-save-btn,
+.section-actions .done-btn {
+    padding: 12px 24px;
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
+    color: white !important;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 16px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    flex: 2;
+}
+
+/* Previous employment card - header layout & Remove button positioning */
+.previous-employment-card {
+    margin-bottom: 20px;
+}
+
+.previous-employment-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.previous-employment-card-header h4 {
+    margin: 0;
+}
+
+.previous-employment-card .remove-btn {
+    margin-top: -4px;
+}
+
+/* Label on top border (outlined style) – Education & Documents, same as Employment */
+.education-body .form-group,
+.documents-body .form-group {
+    position: relative;
+    margin-bottom: 6px;
+}
+
+.education-body .form-group .input-label,
+.documents-body .form-group .input-label {
+    position: absolute !important;
+    top: 0 !important;
+    left: 12px !important;
+    transform: translateY(-50%) !important;
+    font-size: 16px;
+    font-weight: 600;
+    color: #2563eb;
+    padding: 0 6px;
+    background: #ffffff !important;
+    pointer-events: none;
+    order: unset;
+    transition: color 0.2s ease;
+}
+
+.education-body .form-group .form-control,
+.documents-body .form-group .form-control {
+    padding: 18px 14px 12px;
+    min-height: 52px;
+    line-height: 1.5;
+    border: 1px solid #e5e7eb;
+    background-color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    border-radius: var(--radius-md);
+    box-sizing: border-box;
+}
+
+.education-body .form-group .form-control:focus,
+.documents-body .form-group .form-control:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary), 0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+/* Input-box (FileUpload) – label on top border */
+.education-body .input-box,
+.documents-body .input-box {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.education-body .input-box label,
+.documents-body .input-box label {
+    position: absolute;
+    top: 0;
+    left: 12px;
+    transform: translateY(-50%);
+    font-size: 15px;
+    font-weight: 600;
+    color: #2563eb;
+    padding: 0 6px;
+    background: #ffffff;
+    z-index: 1;
+    pointer-events: auto;
+}
+
+.education-body .input-box label + input,
+.education-body .input-box label + select,
+.documents-body .input-box label + input,
+.documents-body .input-box label + select {
+    padding: 18px 14px 12px !important;
+    min-height: 52px !important;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    border: 1px solid #e5e7eb !important;
+    border-radius: var(--radius-md);
+    background-color: #ffffff;
+    box-sizing: border-box;
+}
+
+/* File input - match text input height (override inline styles) */
+.education-body .input-box input[type="file"],
+.documents-body .input-box input[type="file"] {
+    padding: 14px 14px !important;
+    min-height: 52px !important;
+    height: 52px !important;
+    line-height: 1.5;
+    box-sizing: border-box;
+}
+
+/* Education block - same structure as previous-employment-card */
+.education-block {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.education-block:last-of-type {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.education-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.education-block-header h4 {
+    margin: 0;
+}
+
+/* Subsections divider (like Employment history) */
+.section-divider {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-light);
+}
+
+/* View mode note (e.g. documents) */
+.section-view-note {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-light);
+}
+
+.section-view-note p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
 }
 
 /* =========================================================
@@ -391,6 +679,24 @@
 
 .danger-btn:hover {
     background-color: #fecaca;
+}
+
+/* Remove button - consistent red danger styling */
+.remove-btn {
+    background: #ef4444 !important;
+    color: white !important;
+    border: none !important;
+    padding: 8px 16px !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.remove-btn:hover {
+    background: #dc2626 !important;
+    transform: translateY(-1px);
 }
 
 .secondary-btn {
@@ -599,7 +905,9 @@
    EDIT / VIEW MODE TRANSITION
 ========================================================= */
 
-.personal-info-body {
+.personal-info-body,
+.education-body,
+.documents-body {
     animation: fadeSlideIn 260ms ease;
 }
 
@@ -636,39 +944,76 @@
     align-items: center;
     justify-content: center;
     height: 50px;
-    border: 2px dashed #2563eb; /* primary color */
+    padding: 0 32px;
+    border: none;
     border-radius: var(--radius-md);
     margin-top: 16px;
     cursor: pointer;
-    transition: background-color 0.2s ease, border-color 0.2s ease;
+    transition: background-color 0.2s ease;
+    background-color: #f0f7ff;
     color: #2563eb;
     font-weight: 600;
     font-size: 14px;
 }
 
 .add-section:hover {
-    background-color: #f0f7ff;
-    border-color: #1d4ed8;
+    background-color: #e0efff;
 }
 
 /* =========================================================
-   10. PROFILE PAGE LAYOUT (EDIT & VIEW MODES)
+   10. PROFILE PAGE LAYOUT (Dashboard-aligned)
 ========================================================= */
 
 .profile-page-container {
     width: 100%;
     min-height: 100vh;
-    margin: 0;
-    padding: 16px 24px;
+    padding: 0;
     box-sizing: border-box;
     background-color: var(--bg-page);
-    animation: pageFadeIn 320ms ease-out;
+    animation: pageFadeIn 400ms ease-out;
+}
+
+.profile-page-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px 32px;
+}
+
+/* Status / action bar (Dashboard header style) */
+.status-header-bar {
+    background-color: var(--bg-card);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.status-header-bar .profile-page-title,
+.edit-profile-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.status-header-inner {
+    padding: 12px 24px 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.action-button-container {
+    display: flex;
+    gap: 15px;
 }
 
 .profile-content-wrapper {
     display: flex;
+    flex-direction: column;
     gap: 24px;
-    align-items: flex-start;
+    padding: 12px 24px 40px;
+    width: 100%;
+    box-sizing: border-box;
     transition: padding 200ms ease, gap 200ms ease;
 }
 
@@ -679,10 +1024,87 @@
 .sections-column {
     flex: 1;
     min-width: 0;
+    width: 100%;
 }
 
 .profile-view-wrapper {
     flex-wrap: wrap;
+    display: flex;
+    gap: 24px;
+    padding: 24px 0;
+    width: 100%;
+    box-sizing: border-box;
+    flex-grow: 1;
+    min-height: 100%;
+    align-items: flex-start;
+}
+
+.profile-view-left {
+    flex: 0 0 350px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.profile-view-right {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Profile view cards (Personal, Address, Employment) - Dashboard style */
+.profile-view-card {
+    margin-bottom: 24px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    background-color: var(--bg-card);
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+}
+
+.profile-view-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+.profile-view-card--personal::before { background: linear-gradient(180deg, #2563eb 0%, #3b82f6 100%); }
+.profile-view-card--address::before { background: linear-gradient(180deg, #0891b2 0%, #06b6d4 100%); }
+.profile-view-card--employment::before { background: linear-gradient(180deg, #d97706 0%, #f59e0b 100%); }
+
+.profile-view-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.12);
+    border-color: rgba(79, 70, 229, 0.15);
+}
+
+.profile-view-card h4 {
+    margin: 0 0 16px 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 1.15rem;
+}
+
+.profile-view-card .grid-2,
+.profile-view-card .grid-3 {
+    gap: 20px 16px;
+}
+
+/* Content alignment - consistent label/value display */
+.profile-view-card .info-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.profile-view-card .info-box .value {
+    word-break: break-word;
 }
 
 /* Compact cards for extra info / metrics */
@@ -712,30 +1134,41 @@
     margin-bottom: 4px;
 }
 
-/* Edit mode header row: progress + two summary cards */
+/* Edit mode header row: progress card only */
 .edit-header-row {
     display: grid;
-    grid-template-columns: minmax(220px, 260px) repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(200px, 280px);
     gap: 24px;
     align-items: stretch;
-    margin-bottom: 12px;
+    margin-bottom: 20px;
 }
 
 .edit-progress-card {
     background-color: var(--bg-card);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
-    padding: 16px;
-    transition:
-        transform 180ms ease,
-        box-shadow 180ms ease,
-        background-color 180ms ease;
+    border: 1px solid var(--border-light);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+}
+
+.edit-progress-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    background: linear-gradient(180deg, #7c3aed 0%, #8b5cf6 100%);
 }
 
 .edit-progress-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 26px rgba(15, 23, 42, 0.18);
-    background-color: #ffffff;
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(79, 70, 229, 0.12);
+    border-color: rgba(79, 70, 229, 0.15);
 }
 
 /* Education section layout */
@@ -819,17 +1252,24 @@
 .entry-undo-btn,
 .discard-btn,
 .done-btn {
-    transition:
-        transform 150ms ease,
-        box-shadow 150ms ease,
-        background-color 150ms ease,
-        border-color 150ms ease;
+    transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.entry-save-btn,
+.done-btn {
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
+    color: #ffffff !important;
+    border: none;
+    padding: 10px 25px;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
 }
 
 .entry-save-btn:hover,
 .done-btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
 }
 
 .entry-undo-btn:hover,
@@ -871,36 +1311,70 @@
 }
 
 /* =========================================================
-   11. RESPONSIVE TWEAKS
+   11. RESPONSIVE – FULL BREAKPOINTS (Dashboard-aligned)
 ========================================================= */
 
-@media (max-width: 1024px) {
-    .profile-page-container {
-        padding: 12px 16px;
+/* Large desktop: 1400px */
+@media (max-width: 1400px) {
+    .profile-page-inner {
+        padding: 0 20px 28px;
     }
 
     .profile-content-wrapper {
-        gap: 20px;
+        padding: 20px 0 32px;
     }
 }
 
-@media (max-width: 900px) {
+/* Desktop: 1200px */
+@media (max-width: 1200px) {
+    .profile-page-inner {
+        padding: 0 20px 24px;
+    }
+
     .profile-content-wrapper {
-        flex-direction: column;
-        padding: 8px 0 24px;
+        padding: 16px 0 28px;
     }
 
-    .progress-column {
-        position: static;
-        width: 100%;
+    .profile-view-wrapper {
+        padding: 20px;
     }
 
-    .sections-column {
-        width: 100%;
+    .profile-view-left {
+        flex: 0 0 300px;
+    }
+
+    .edit-header-row {
+        grid-template-columns: minmax(180px, 260px);
+    }
+
+    .grid-2,
+    .grid-3 {
+        gap: 18px 14px;
+    }
+}
+
+/* Tablet: 992px */
+@media (max-width: 992px) {
+    .profile-page-inner {
+        padding: 0 16px 20px;
+    }
+
+    .profile-content-wrapper {
+        padding: 12px 0 24px;
+        gap: 20px;
     }
 
     .profile-view-wrapper {
         flex-direction: column;
+        padding: 16px;
+    }
+
+    .profile-view-left {
+        flex: 1 1 auto;
+    }
+
+    .profile-view-right {
+        flex: 1 1 100%;
     }
 
     .edit-header-row {
@@ -915,12 +1389,152 @@
         grid-column: span 1;
     }
 
+    .status-header-inner {
+        padding: 12px 24px;
+    }
+
+    .status-header-bar .profile-page-title {
+        font-size: 1.35rem;
+    }
+}
+
+/* Mobile: 768px */
+@media (max-width: 768px) {
+    .profile-container {
+        grid-template-columns: 1fr;
+        padding: 16px;
+    }
+
+    .profile-page-inner {
+        padding: 0 12px 20px;
+    }
+
+    .profile-content-wrapper {
+        flex-direction: column;
+        padding: 10px 0 20px;
+        gap: 16px;
+    }
+
+    .profile-view-wrapper {
+        flex-direction: column;
+        padding: 12px;
+    }
+
+    .progress-column {
+        width: 100%;
+    }
+
+    .sections-column {
+        width: 100%;
+    }
+
+    .edit-header-row {
+        grid-template-columns: 1fr;
+    }
+
     .education-date-row {
         flex-direction: column;
     }
 
-    .card {
-        width: 100%;
-        height: auto;
+    .grid-2,
+    .grid-3 {
+        grid-template-columns: 1fr;
+    }
+
+    .full {
+        grid-column: span 1;
+    }
+
+    .status-header-inner {
+        padding: 12px 16px;
+    }
+
+    .status-header-bar .profile-page-title {
+        font-size: 1.25rem;
+    }
+
+    .action-button-container {
+        flex-wrap: wrap;
+    }
+
+    .card,
+    .accordion-card,
+    .profile-view-card {
+        padding: 18px;
+    }
+}
+
+/* Small phone: 576px */
+@media (max-width: 576px) {
+    .profile-container {
+        padding: 12px;
+    }
+
+    .profile-page-inner {
+        padding: 0 10px 16px;
+    }
+
+    .profile-content-wrapper {
+        padding: 8px 0 16px;
+    }
+
+    .profile-view-wrapper {
+        padding: 10px;
+    }
+
+    .status-header-inner {
+        padding: 10px 12px;
+    }
+
+    .status-header-bar .profile-page-title {
+        font-size: 1.1rem;
+    }
+
+    .card,
+    .accordion-card,
+    .profile-view-card {
+        padding: 14px;
+    }
+
+    .accordion-header {
+        padding: 14px 18px;
+    }
+
+    .accordion-content,
+    .accordion-card.expanded .accordion-content {
+        padding: 0 18px;
+    }
+
+    .accordion-card.expanded .accordion-content {
+        padding: 18px;
+    }
+
+    .profile-view-card h4 {
+        font-size: 1rem;
+    }
+}
+
+/* Extra small: 400px */
+@media (max-width: 400px) {
+    .profile-page-inner {
+        padding: 0 8px 12px;
+    }
+
+    .profile-content-wrapper {
+        padding: 6px 0 12px;
+    }
+
+    .profile-view-wrapper {
+        padding: 8px;
+    }
+
+    .card,
+    .accordion-card,
+    .profile-view-card {
+        padding: 12px;
+    }
+
+    .edit-progress-card {
+        padding: 14px;
     }
 }

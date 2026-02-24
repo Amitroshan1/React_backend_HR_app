@@ -164,8 +164,12 @@ def create_app():
     from .query import query
     from .Accounts import Accounts
     # from .Manager import manager
+
     from .Manager import manager
     from .Admin import admin_bp
+
+    from .Manager import manager
+
 
     from .notifications import notifications
     from .performance_api import performance_api

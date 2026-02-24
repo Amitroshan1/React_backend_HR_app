@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { flushSync } from "react-dom";
 import "./../styling/profile.css";
+import { GRADIENT_HEADER_STYLE } from '../utils/gradientStyles';
 import {
     initialDataState,
     calculateProfileCompletion,
@@ -12,8 +13,6 @@ const API_BASE_URL = "/api/auth";
 
 const TOAST_DURATION_MS = 3000;
 
-// import ProgressCircle from './common/ProgressCircle';
-import { ProgressCircle } from "./common/ProgressCircle";
 import {PersonalInfoSection} from './profile/sections/PersonalInfoSection';
 import {AddressSection} from './profile/sections/AddressSection';
 import {EmploymentBankSection} from './profile/sections/EmploymentBankSection';
@@ -113,7 +112,7 @@ export const Profile = () => {
             employeeId: emp.emp_id || admin.emp_id || '',
             department: admin.circle || '',
             dateOfJoining: admin.doj ? admin.doj.split('T')[0] : '',
-            reportingManager: '',
+            reportingManager: (p.admin && p.admin.reporting_manager) || '',
             employmentType: admin.emp_type || '',
         };
 
@@ -441,6 +440,18 @@ export const Profile = () => {
                     showToast(errData.message || 'Failed to save. Please check your data and try again.', 'error');
                     return;
                 }
+                if (sectionName === 'employment') {
+                    const prevRes = await fetch(`${API_BASE_URL}/previous-companies`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ items: previousEmployment }),
+                    });
+                    if (!prevRes.ok) {
+                        const prevErr = await prevRes.json().catch(() => ({}));
+                        showToast(prevErr.message || 'Failed to save previous employment.', 'error');
+                        return;
+                    }
+                }
             }
             if (sectionName === 'education') {
                 const edu = educationDetails[0];
@@ -490,7 +501,7 @@ export const Profile = () => {
         } catch (err) {
             showToast('Failed to save.', 'error');
         }
-    }, [adminId, formData, currentAddress, permanentAddress, sameAsCurrent, educationDetails, files, showToast]);
+    }, [adminId, formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, showToast]);
 
     // --- AVATAR HANDLER (Omitted for brevity) ---
     const handleAvatarChange = (imageBlob) => {
@@ -930,14 +941,14 @@ export const Profile = () => {
 
     // 🛑 AVATAR CARD CREATION (MEMOIZED) - STYLES MODIFIED FOR MODERN FONT/AESTHETICS
     const avatarCardComponent = useMemo(() => (
-        <div style={{ ...MODERN_FONT_STYLE, textAlign: 'center', padding: '30px 20px', backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 8px 15px rgba(0, 0, 0, 0.08)' }}>
+        <div className="profile-summary-card card card--summary" style={{ ...MODERN_FONT_STYLE, textAlign: 'center', padding: '30px 20px' }}>
 
             <ProfileAvatar
                 imageUrl={currentAvatarUrl}
                 onImageChange={handleAvatarChange}
             />
 
-            <h3 style={{ margin: '15px 0 5px 0', color: '#1f2937', fontSize: '22px', fontWeight: '700' }}>{dataToDisplay.formData.fullName}</h3>
+            <h3 style={{ margin: '15px 0 5px 0', fontSize: '22px' }}><span style={GRADIENT_HEADER_STYLE}>{dataToDisplay.formData.fullName}</span></h3>
             <p style={{ margin: '0 0 20px 0', color: '#6b7280', fontWeight: '500', fontSize: '15px' }}>
                 {dataToDisplay.formData.designation} | {dataToDisplay.formData.employmentType}
             </p>
@@ -954,32 +965,7 @@ export const Profile = () => {
 
             {/* 🛑 ENHANCED EDIT PROFILE BUTTON (VIEW MODE) */}
             {!showEditCards && (
-                <button
-                    onClick={handleEditToggle}
-                    style={{
-                        marginTop: '15px',
-                        padding: '14px 30px',
-                        background: 'linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%)', // Rich Blue Gradient
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        fontWeight: '700',
-                        fontSize: '16px',
-                        width: '100%',
-                        boxShadow: '0 6px 15px rgba(59, 130, 246, 0.5)', // Prominent Shadow
-                        transition: 'all 0.3s ease',
-                        letterSpacing: '0.5px',
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.boxShadow = '0 8px 20px rgba(59, 130, 246, 0.7)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.boxShadow = '0 6px 15px rgba(59, 130, 246, 0.5)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                    }}
-                >
+                <button className="profile-btn-gradient" onClick={handleEditToggle}>
                     📝 Edit Profile
                 </button>
             )}
@@ -1045,17 +1031,15 @@ export const Profile = () => {
         // --- VIEW MODE RENDER (ProfileViewLayout) ---
         return (
             <>
-            <div className="profile-page-container" style={{
-                ...MODERN_FONT_STYLE, height: '100', minHeight: '100vh', backgroundColor: '#f4f6f9', width: '100%',
-                maxWidth: 'none',
-                padding: '0',
-            }}>
+            <div className="profile-page-container" style={MODERN_FONT_STYLE}>
+                <div className="profile-page-inner">
                 <ProfileViewLayout
                     data={dataToDisplay}
                     profileProgress={profileProgress}
                     onEditToggle={handleEditToggle}
                     avatarCardComponent={avatarCardComponent}
                 />
+                </div>
             </div>
             {toastEl}
             </>
@@ -1067,27 +1051,20 @@ export const Profile = () => {
         <>
         <div
             className="profile-page-container"
-            style={{
-                ...MODERN_FONT_STYLE,
-                width: '100%',
-                maxWidth: 'none',
-                minHeight: '100vh',
-                padding: 0,
-                backgroundColor: '#f4f6f9',
-            }}
+            style={MODERN_FONT_STYLE}
         >
-
-            {/* TOP STATUS/ACTION BAR - Styled for Stickiness and Modern Look */}
+            <div className="profile-page-inner">
+            {/* TOP STATUS/ACTION BAR */}
             <div className="status-header-bar" style={{
                 position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'white',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
             }}>
                 {/* ... (Status feedback unchanged) ... */}
 
-                <div style={{ padding: '15px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ddd' }}>
-                    <h2 style={{ fontWeight: '700', color: '#1f2937', margin: 0, fontSize: '24px' }}>Edit Profile</h2>
+                <div className="status-header-inner">
+                    <h2 className="edit-profile-title"><span style={GRADIENT_HEADER_STYLE}>Edit Profile</span></h2>
 
-                    <div className="action-button-container" style={{ display: 'flex', gap: '15px' }}>
+                    <div className="action-button-container">
 
                         {/* 🛑 ENHANCED DISCARD BUTTON (EDIT MODE) */}
                         <button
@@ -1115,31 +1092,8 @@ export const Profile = () => {
                             <span style={{ marginRight: '5px' }}>&larr;</span> Discard Changes
                         </button>
 
-                        {/* 🛑 ENHANCED DONE BUTTON (EDIT MODE) */}
-                        <button
-                            className="done-btn"
-                            onClick={handleDoneEditing}
-                            style={{
-                                padding: '10px 25px',
-                                background: 'linear-gradient(90deg, #10b981 0%, #059669 100%)', // Rich Green Gradient
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '6px',
-                                fontWeight: '700',
-                                cursor: 'pointer',
-                                boxShadow: '0 4px 10px rgba(16, 185, 129, 0.4)',
-                                transition: 'all 0.2s ease',
-                                letterSpacing: '0.5px',
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.boxShadow = '0 6px 15px rgba(16, 185, 129, 0.6)';
-                                e.currentTarget.style.transform = 'scale(1.02)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.boxShadow = '0 4px 10px rgba(16, 185, 129, 0.4)';
-                                e.currentTarget.style.transform = 'scale(1)';
-                            }}
-                        >
+                        {/* Done button (EDIT MODE) */}
+                        <button className="done-btn" onClick={handleDoneEditing}>
                             ✅ Done Editing
                         </button>
                     </div>
@@ -1147,78 +1101,8 @@ export const Profile = () => {
             </div>
 
             {/* MAIN CONTENT AREA (Accordion Layout) */}
-            <div
-                className="profile-content-wrapper"
-                style={{
-                    padding: '24px 24px 40px',
-                    width: '100%',
-                    boxSizing: 'border-box',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '24px',
-                }}
-            >
-                {/* Top row: Progress + Task Graph + Skills */}
-                <div className="edit-header-row">
-                    <div className="edit-progress-card">
-                        <ProgressCircle progressValue={profileProgress} />
-                    </div>
-
-                    <div className="mini-stat-card edit-summary-card">
-                        <div className="mini-stat-card-title">Tasks Overview</div>
-                        <div style={{ marginTop: '8px' }}>
-                            <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '6px' }}>This Month</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                                    <span>Completed</span>
-                                    <span>18</span>
-                                </div>
-                                <div style={{ height: '6px', borderRadius: '999px', background: '#e5e7eb', overflow: 'hidden' }}>
-                                    <div style={{ width: '78%', height: '100%', background: '#22c55e' }} />
-                                </div>
-
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
-                                    <span>In Progress</span>
-                                    <span>5</span>
-                                </div>
-                                <div style={{ height: '6px', borderRadius: '999px', background: '#e5e7eb', overflow: 'hidden' }}>
-                                    <div style={{ width: '45%', height: '100%', background: '#3b82f6' }} />
-                                </div>
-
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginTop: '4px' }}>
-                                    <span>Pending</span>
-                                    <span>3</span>
-                                </div>
-                                <div style={{ height: '6px', borderRadius: '999px', background: '#e5e7eb', overflow: 'hidden' }}>
-                                    <div style={{ width: '25%', height: '100%', background: '#f97316' }} />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mini-stat-card edit-summary-card">
-                        <div className="mini-stat-card-title">Key Skills</div>
-                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {[
-                                { label: 'Automation Testing', level: 'Advanced', width: '85%' },
-                                { label: 'JavaScript / React', level: 'Intermediate', width: '70%' },
-                                { label: 'Communication', level: 'Advanced', width: '90%' },
-                            ].map(skill => (
-                                <div key={skill.label}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                                        <span>{skill.label}</span>
-                                        <span style={{ color: '#6b7280' }}>{skill.level}</span>
-                                    </div>
-                                    <div style={{ height: '6px', borderRadius: '999px', background: '#e5e7eb', overflow: 'hidden', marginTop: '3px' }}>
-                                        <div style={{ width: skill.width, height: '100%', background: '#6366f1' }} />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* All cards stacked below, spanning whole page width */}
+            <div className="profile-content-wrapper">
+                {/* Accordion sections */}
                 <div className="sections-column" style={{ width: '100%' }}>
                 <PersonalInfoSection
                     data={dataToDisplay.formData}
@@ -1284,6 +1168,7 @@ export const Profile = () => {
                     uploadProfileFileUrl={`${API_BASE_URL}/upload-profile-file`}
                 />
                 </div>
+            </div>
             </div>
         </div>
         {toastEl}

@@ -148,7 +148,6 @@ export const PersonalInfoSection = ({
                             type="tel"
                             value={data.emergency}
                             onChange={onChange}
-                            helpText="e.g., +91 9988776655 (Spouse)"
                         />
                     </div>
                 ) : (

@@ -1,10 +1,11 @@
 import React from 'react';
+import { GRADIENT_HEADER_STYLE } from '../../../utils/gradientStyles';
 import {AccordionCard} from '../AccordionCard';
 import {FileUpload} from '../FileUpload';
 import {Input} from '../../common/Input';
 import {SelectInput} from '../../common/SelectInput';
 
-// ✅ Qualification dropdown options
+// Qualification dropdown options
 const qualificationOptions = [
     'High School',
     'Diploma',
@@ -35,16 +36,22 @@ export const EducationSection = ({
             isExpanded={isExpanded}
             onToggle={onToggle}
         >
+            <div className="education-body">
             {educationData.map((edu, index) => (
-                <div
-                    key={edu.id}
-                    className="education-block"
-                    style={{
-                        marginBottom: '25px',
-                        borderBottom: '1px solid #eee',
-                        paddingBottom: '20px'
-                    }}
-                >
+                <div key={edu.id} className="education-block">
+                    <div className="education-block-header">
+                        <h4><span style={GRADIENT_HEADER_STYLE}>Education #{index + 1}</span></h4>
+                        {isEditMode && educationData.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={() => onRemove(index)}
+                                className="remove-btn"
+                            >
+                                Remove
+                            </button>
+                        )}
+                    </div>
+
                     <div className="education-grid">
                         {/* ✅ Qualification Dropdown - same style as other selects */}
                         <div className="education-qualification">
@@ -117,19 +124,6 @@ export const EducationSection = ({
                             isMandatory
                         />
                     </div>
-
-                    {/* REMOVE SINGLE EDUCATION */}
-                    {isEditMode && educationData.length > 1 && (
-                        <div style={{ marginTop: '12px', textAlign: 'right' }}>
-                            <button
-                                type="button"
-                                onClick={() => onRemove(index)}
-                                className="remove-btn"
-                            >
-                                Remove
-                            </button>
-                        </div>
-                    )}
                 </div>
             ))}
 
@@ -138,17 +132,7 @@ export const EducationSection = ({
                 <button
                     type="button"
                     onClick={onAdd}
-                    style={{
-                        padding: '10px 15px',
-                        border: '1px dashed #3b82f6',
-                        background: '#e0f2fe',
-                        color: '#3b82f6',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        width: '100%',
-                        marginTop: '10px',
-                        fontWeight: '600'
-                    }}
+                    className="add-section"
                 >
                     + Add Education Details
                 </button>
@@ -156,52 +140,24 @@ export const EducationSection = ({
 
             {/* SAVE + UNDO */}
             {isEditMode && (
-                <div
-                    style={{
-                        marginTop: '28px',
-                        borderTop: '1px solid #eee',
-                        paddingTop: '20px',
-                        display: 'flex',
-                        gap: '12px'
-                    }}
-                >
+                <div className="section-actions">
                     <button
                         type="button"
                         onClick={onUndo}
-                        style={{
-                            padding: '12px 20px',
-                            background: 'transparent',
-                            border: '1px solid #9ca3af',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontWeight: '600',
-                            flex: 1
-                        }}
+                        className="entry-undo-btn"
                     >
                         Undo
                     </button>
-
                     <button
                         type="button"
                         onClick={onSave}
                         className="entry-save-btn"
-                        style={{
-                            padding: '14px 30px',
-                            background: 'linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            fontWeight: '700',
-                            fontSize: '16px',
-                            boxShadow: '0 6px 15px rgba(59, 130, 246, 0.5)',
-                            flex: 2
-                        }}
                     >
                         Save Education Details
                     </button>
                 </div>
             )}
+            </div>
         </AccordionCard>
     );
 };

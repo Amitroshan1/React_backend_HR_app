@@ -23,20 +23,6 @@ export const Input = ({
 
     return (
         <div className={`form-group floating-field ${error ? 'has-error' : ''}`}>
-            
-            {/* Input - only pass valid DOM attributes */}
-            <input
-                id={id}
-                name={name}
-                type={type}
-                value={value}
-                onChange={onChange}
-                className="form-control"
-                placeholder=" "
-                {...rest}
-            />
-
-            {/* Floating Label */}
             {label && (
                 <label
                     htmlFor={id}
@@ -48,6 +34,17 @@ export const Input = ({
                     )}
                 </label>
             )}
+
+            <input
+                id={id}
+                name={name}
+                type={type}
+                value={value || ''}
+                onChange={onChange}
+                className="form-control"
+                placeholder=" "
+                {...rest}
+            />
 
             {/* Help text - not a DOM prop */}
             {helpText && <div className="input-help-text" style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{helpText}</div>}

@@ -983,25 +983,25 @@ if (view === 'confirmation_request') {
 
       <div className="hr-stats-grid">
         {stats.map((stat) => (
-          <div key={stat.title} className={`stat-card border-${stat.color}`}>
+          <div key={stat.title} className={`stat-card stat-card-${stat.color}`}>
             <div className="stat-content">
-              <p className="stat-label">{stat.title}</p>
               <h3 className="stat-value">{stat.value}</h3>
+              <p className="stat-label">{stat.title}</p>
               <p className="stat-sub">{stat.subtitle}</p>
             </div>
-            <div className={`stat-icon-bg bg-${stat.color}`}>
+            <div className={`stat-icon-bg stat-icon-${stat.color}`}>
               <stat.icon size={24} />
             </div>
           </div>
         ))}
 
-        <div className="stat-card clickable updates-card-theme" onClick={() => setView('updates')}>
+        <div className="stat-card stat-card-updates clickable" onClick={() => setView('updates')}>
           <div className="stat-content">
-            <p className="stat-label">Updates</p>
             <h3 className="stat-value">{updateOptions.length}</h3>
+            <p className="stat-label">Updates</p>
             <p className="stat-sub">Click to manage</p>
           </div>
-          <div className="stat-icon-bg bg-updates">
+          <div className="stat-icon-bg stat-icon-updates">
             <RefreshCw size={24} />
           </div>
         </div>

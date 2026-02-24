@@ -1,10 +1,7 @@
 import React from 'react';
+import { GRADIENT_HEADER_STYLE } from '../../utils/gradientStyles';
 
 export const AccordionCard = ({ title, subText, children, sectionName, isExpanded, onToggle, showMandatoryError }) => {
-    const headerStyle = { 
-        margin: 0, 
-        color: isExpanded ? '#10b981' : (showMandatoryError ? '#f87d7dff' : '#1f2937') 
-    };
     return (
         <div
             className={`accordion-card ${isExpanded ? 'expanded' : 'collapsed'}`}
@@ -15,7 +12,7 @@ export const AccordionCard = ({ title, subText, children, sectionName, isExpande
         >
             <div className="accordion-header" onClick={onToggle}>
                 <div>
-                    <h3 style={headerStyle}>{title}</h3>
+                    <h3 style={{ margin: 0 }}><span style={GRADIENT_HEADER_STYLE}>{title}</span></h3>
                     <p className="sub" style={{ margin: '3px 0 0', color: showMandatoryError ? '#ef4444' : '#6b7280' }}>
                         {subText}
                         {showMandatoryError && (

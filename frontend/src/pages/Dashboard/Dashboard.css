@@ -817,6 +817,68 @@
   gap: 20px;
 }
 
+/* Today's Status (left) + News Feed (right) – same line, fixed height so News Feed scrolls */
+.dashboard-content .main-grid .dashboard-top-row,
+.main-grid .dashboard-top-row {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 20px;
+  grid-column: span 4;
+  align-items: stretch;
+  max-height: 400px;
+}
+
+/* Prevent attendance & news-feed from spanning full row when inside top-row */
+.dashboard-content .main-grid .dashboard-top-row .attendance-section,
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section {
+  grid-column: span 1 !important;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* News Feed: fixed height container, list scrolls after ~2 items */
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section,
+.main-grid .dashboard-top-row .news-feed-section {
+  display: flex !important;
+  flex-direction: column;
+  height: 100% !important;
+  max-height: 400px !important;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section h2.news-feed,
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .subtext {
+  flex-shrink: 0;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list,
+.main-grid .dashboard-top-row .news-feed-section .news-feed-list {
+  overflow-y: auto !important;
+  flex: 1;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar,
+.main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .grid-span-4 {
   grid-column: span 4;
 }
@@ -1186,43 +1248,74 @@
 
 .actions-grid {
   display: grid;
-
   grid-template-columns: repeat(3, 1fr);
-
-  gap: 15px;
+  gap: 18px;
 }
 
 .action-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px;
+  padding: 20px 20px 20px 22px;
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.25s ease, background 0.25s ease;
   cursor: pointer;
   min-width: 0;
   background: var(--card-bg);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+.action-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(180deg, #4f46e5 0%, #6366f1 100%);
+  opacity: 0.9;
+  transition: width 0.25s ease, opacity 0.25s ease;
+}
+.action-card:has(.action-icon.blue)::before {
+  background: linear-gradient(180deg, #2563eb 0%, #3b82f6 100%);
+}
+.action-card:has(.action-icon.orange)::before {
+  background: linear-gradient(180deg, #d97706 0%, #f59e0b 100%);
+}
+.action-card:has(.action-icon.green)::before {
+  background: linear-gradient(180deg, #059669 0%, #10b981 100%);
+}
+.action-card:has(.action-icon.sky)::before {
+  background: linear-gradient(180deg, #0891b2 0%, #06b6d4 100%);
 }
 .action-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 28px rgba(79, 70, 229, 0.15), 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: rgba(79, 70, 229, 0.2);
+  background: linear-gradient(135deg, #ffffff 0%, #fafbff 100%);
+}
+.action-card:hover::before {
+  width: 5px;
+  opacity: 1;
 }
 .action-card:hover .action-icon.blue {
-  transform: scale(1.05);
-  box-shadow: 0 0 18px rgba(59, 130, 246, 0.5), 0 6px 16px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.15);
+  transform: scale(1.08);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.55), 0 6px 18px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.2);
 }
 .action-card:hover .action-icon.orange {
-  transform: scale(1.05);
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.5), 0 6px 16px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.2);
+  transform: scale(1.08);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.55), 0 6px 18px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.25);
 }
 .action-card:hover .action-icon.green {
-  transform: scale(1.05);
-  box-shadow: 0 0 18px rgba(16, 185, 129, 0.5), 0 6px 16px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.15);
+  transform: scale(1.08);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.55), 0 6px 18px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.2);
 }
 .action-card:hover .action-icon.sky {
-  transform: scale(1.05);
-  box-shadow: 0 0 18px rgba(6, 182, 212, 0.5), 0 6px 16px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.15);
+  transform: scale(1.08);
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.55), 0 6px 18px rgba(0, 0, 0, 0.12), inset 1px 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .action-icon-group {
@@ -1231,20 +1324,20 @@
   gap: 16px;
 }
 
-/* Quick action cards: 40px box, small icon inside */
+/* Quick action cards: 44px icon box */
 .actions-grid .action-icon,
 .action-card .action-icon {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 10px;
   display: flex;
   justify-content: center;
   align-items: center;
   flex-shrink: 0;
   color: white;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
   position: relative;
 }
 
@@ -1257,11 +1350,11 @@
 }
 
 .action-icon-inner svg {
-  width: 1.5rem;
-  height: 1.5rem;
-  min-width: 1.5rem;
-  min-height: 1.5rem;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
+  width: 1.4rem;
+  height: 1.4rem;
+  min-width: 1.4rem;
+  min-height: 1.4rem;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
   flex-shrink: 0;
 }
 
@@ -1298,27 +1391,40 @@
 }
 
 .action-card h4 {
-  font-size: 1rem;
-
+  font-size: 1.02rem;
   font-weight: 600;
-
   color: var(--text-dark);
+  margin: 0 0 4px 0;
+  letter-spacing: -0.01em;
+  transition: color 0.2s ease;
+}
 
-  margin: 0;
+.action-card:hover h4 {
+  color: #4f46e5;
 }
 
 .action-card p {
-  font-size: 0.8rem;
-
+  font-size: 0.82rem;
   color: var(--text-muted);
-
   margin: 0;
+  line-height: 1.4;
+  transition: color 0.2s ease;
 }
 
-.arrow {
-  color: var(--text-muted);
+.action-card:hover p {
+  color: #6b7280;
+}
 
-  font-size: 1.2rem;
+.action-card .arrow {
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  transition: transform 0.25s ease, color 0.25s ease;
+}
+
+.action-card:hover .arrow {
+  transform: translateX(4px);
+  color: #4f46e5;
 }
 
 .recent-box,
@@ -1524,14 +1630,25 @@
 
 
 
+/* News Feed heading – gradient text (span wrapper to avoid inheritance issues) */
+.news-feed-section h2.news-feed .news-feed-gradient-text {
+  background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  display: inline-block !important;
+}
+
 /* Recent Activity & News Feed headings – gradient text (classes rec-act & news-feed from JSX) */
 .recent-box h2.rec-act,
 .news-feed-section h2.news-feed,
 .dashboard-content .recent-box h2.rec-act,
 .dashboard-content .news-feed-section h2.news-feed,
 .dashboard-content .main-grid .recent-box h2.rec-act,
-.dashboard-content .main-grid .news-feed-section h2.news-feed {
-  background: linear-gradient(90deg, #4f46e5 0%, #3b82f6 50%, #10b981 100%) !important;
+.dashboard-content .main-grid .news-feed-section h2.news-feed,
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section h2.news-feed {
+  background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
   background-size: 100% 100% !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
@@ -1639,6 +1756,9 @@
 
 /* Mobile landscape / large phone: 768px */
 @media (max-width: 768px) {
+  .dashboard-top-row {
+    grid-template-columns: 1fr;
+  }
   .content-area {
     margin-left: 0;
     padding: 8px 12px 16px;

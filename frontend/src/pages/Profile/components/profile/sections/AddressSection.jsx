@@ -1,4 +1,5 @@
 import React from 'react';
+import { GRADIENT_HEADER_STYLE } from '../../../utils/gradientStyles';
 import {AccordionCard} from '../AccordionCard';
 import {TextArea} from '../../common/TextArea';
 import {Input} from '../../common/Input';
@@ -24,7 +25,7 @@ export const AddressBlock = ({
     return (
         <div className={`address-block ${isCurrent ? '' : 'mt-lg'}`}>
             <div className="address-header">
-                <h4>{title}</h4>
+                <h4><span style={GRADIENT_HEADER_STYLE}>{title}</span></h4>
             </div>
 
             {isEditMode ? (
@@ -54,7 +55,7 @@ export const AddressBlock = ({
                         isMandatory
                     />
 
-                    <div className="grid-3 mt-md">
+                    <div className="grid-3 address-fields-row">
                         <Input
                             label="Pincode"
                             name="pincode"
@@ -102,7 +103,7 @@ export const AddressBlock = ({
             ) : (
                 <div className="fade-in">
                     <Info label="Street Address" value={data.street} />
-                    <div className="grid-3 mt-md">
+                    <div className="grid-3 address-fields-row">
                         <Info label="Pincode" value={data.pincode} />
                         <Info label="City" value={data.city} />
                         <Info label="State" value={data.state} />
