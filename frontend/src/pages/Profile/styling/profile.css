@@ -966,17 +966,21 @@
 
 .profile-page-container {
     width: 100%;
+    max-width: 100%;
     min-height: 100vh;
     padding: 0;
     box-sizing: border-box;
     background-color: var(--bg-page);
     animation: pageFadeIn 400ms ease-out;
+    overflow-x: hidden;
 }
 
 .profile-page-inner {
     max-width: 1400px;
     margin: 0 auto;
     padding: 0 24px 32px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* Status / action bar (Dashboard header style) */
@@ -1044,6 +1048,7 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
+    min-width: 0;
 }
 
 .profile-view-right {
@@ -1468,18 +1473,76 @@
 @media (max-width: 576px) {
     .profile-container {
         padding: 12px;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .profile-page-container {
+        width: 100%;
+        max-width: 100%;
     }
 
     .profile-page-inner {
         padding: 0 10px 16px;
+        width: 100%;
+        max-width: 100%;
     }
 
     .profile-content-wrapper {
         padding: 8px 0 16px;
+        width: 100%;
+        max-width: 100%;
     }
 
     .profile-view-wrapper {
-        padding: 10px;
+        padding: 10px 0;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .profile-view-left {
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .profile-view-right {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .profile-summary-card {
+        width: 100%;
+        min-width: 0;
+        padding: 20px 16px !important;
+    }
+
+    .profile-summary-card .profile-avatar-container,
+    .profile-summary-card .contact-info {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .profile-summary-card .value,
+    .profile-summary-card a,
+    .profile-summary-card p {
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+
+    .profile-summary-card > p {
+        flex-wrap: wrap;
+    }
+
+    .avatar-wrapper {
+        width: 120px;
+        height: 120px;
+    }
+
+    .profile-btn-gradient {
+        width: 100%;
+        padding: 12px 20px;
+        font-size: 15px;
     }
 
     .status-header-inner {
@@ -1494,6 +1557,8 @@
     .accordion-card,
     .profile-view-card {
         padding: 14px;
+        width: 100%;
+        min-width: 0;
     }
 
     .accordion-header {
@@ -1512,20 +1577,77 @@
     .profile-view-card h4 {
         font-size: 1rem;
     }
+
+    .card.progress-card {
+        width: 100%;
+        min-width: 0;
+    }
+}
+
+/* Phone: 480px */
+@media (max-width: 480px) {
+    .profile-container {
+        padding: 10px;
+    }
+
+    .profile-page-inner {
+        padding: 0 8px 14px;
+    }
+
+    .profile-content-wrapper {
+        padding: 6px 0 14px;
+    }
+
+    .profile-view-wrapper {
+        padding: 8px 0;
+    }
+
+    .profile-summary-card {
+        padding: 18px 14px !important;
+    }
+
+    .avatar-wrapper {
+        width: 110px;
+        height: 110px;
+    }
+
+    .profile-btn-gradient {
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+
+    .card,
+    .accordion-card,
+    .profile-view-card {
+        padding: 12px;
+    }
 }
 
 /* Extra small: 400px */
 @media (max-width: 400px) {
+    .profile-container {
+        padding: 8px;
+    }
+
     .profile-page-inner {
-        padding: 0 8px 12px;
+        padding: 0 6px 12px;
     }
 
     .profile-content-wrapper {
-        padding: 6px 0 12px;
+        padding: 4px 0 12px;
     }
 
     .profile-view-wrapper {
-        padding: 8px;
+        padding: 6px 0;
+    }
+
+    .profile-summary-card {
+        padding: 16px 12px !important;
+    }
+
+    .avatar-wrapper {
+        width: 100px;
+        height: 100px;
     }
 
     .card,

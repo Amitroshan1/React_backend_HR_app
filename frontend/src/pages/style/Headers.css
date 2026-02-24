@@ -55,11 +55,12 @@
     background: #f8fafc;
     color: var(--primary-blue);
     border-radius: 10px;
-    padding: 16px 24px;
-    font-size: 1.7rem;
+    padding: 10px 14px;
+    font-size: 1.15rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .home-logo-btn:hover {
@@ -327,9 +328,23 @@
     cursor: pointer;
 }
 
-.dropdown-item:hover {
+.dropdown-item:hover,
+.dropdown-item:active,
+.profile-dropdown-card .dropdown-item:hover,
+.profile-dropdown-card .dropdown-item:active,
+.profile-dropdown-card a.dropdown-item:hover,
+.profile-dropdown-card a.dropdown-item:active,
+.profile-dropdown-card .dropdown-item:focus-visible {
     background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981) !important;
-    color: var(--primary-blue);
+    color: #fff !important;
+    -webkit-text-fill-color: #fff;
+}
+.dropdown-item:hover .d-icon,
+.dropdown-item:active .d-icon,
+.profile-dropdown-card .dropdown-item:hover .d-icon,
+.profile-dropdown-card .dropdown-item:active .d-icon,
+.profile-dropdown-card .dropdown-item:focus-visible .d-icon {
+    color: #fff !important;
 }
 
 .profile-dropdown-card .dropdown-item.active {
@@ -345,9 +360,14 @@
     color: var(--danger);
 }
 
-.logout-btn:hover {
-    background: #fef2f2;
-    color: var(--danger);
+.logout-btn:hover,
+.logout-btn:active {
+    background: #fef2f2 !important;
+    color: var(--danger) !important;
+}
+.logout-btn:hover .d-icon,
+.logout-btn:active .d-icon {
+    color: var(--danger) !important;
 }
 
 .dropdown-divider {
@@ -373,6 +393,12 @@
     .header-left {
         gap: 8px;
         min-width: 0;
+    }
+
+    .home-logo-btn {
+        padding: 8px 12px;
+        font-size: 1.05rem;
+        border-radius: 8px;
     }
 
     .welcome-title {
@@ -405,6 +431,14 @@
         min-width: 200px;
         max-width: calc(100vw - 32px);
     }
+    .profile-dropdown-card .dropdown-item:hover,
+    .profile-dropdown-card a.dropdown-item:hover {
+        color: #fff !important;
+        -webkit-text-fill-color: #fff;
+    }
+    .profile-dropdown-card .dropdown-item:hover .d-icon {
+        color: #fff !important;
+    }
 }
 
 @media (max-width: 576px) {
@@ -415,5 +449,28 @@
     .welcome-title {
         max-width: 140px;
         font-size: 0.95rem;
+    }
+
+    .home-logo-btn {
+        padding: 7px 10px;
+        font-size: 1rem;
+        border-radius: 8px;
+    }
+
+    .profile-dropdown-card .dropdown-item:hover,
+    .profile-dropdown-card a.dropdown-item:hover {
+        color: #fff !important;
+        -webkit-text-fill-color: #fff;
+    }
+    .profile-dropdown-card .dropdown-item:hover .d-icon {
+        color: #fff !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .home-logo-btn {
+        padding: 6px 10px;
+        font-size: 0.95rem;
+        border-radius: 6px;
     }
 }

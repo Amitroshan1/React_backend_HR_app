@@ -660,7 +660,7 @@ export const Hr = () => {
   const stats = [
     { title: 'Total Employees', value: String(counts.total_employees), subtitle: 'All active', icon: Users, color: 'blue' },
     { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green' },
-    { title: 'Active Today', value: String(counts.today_punch_in_count), subtitle: 'Punched in today', icon: UserCheck, color: 'purple' },
+    { title: 'Active Today', value: String(counts.today_punch_in_count), subtitle: 'Punched in today', icon: UserCheck, color: 'teal' },
   ];
 
   const updateOptions = [
@@ -1262,8 +1262,8 @@ return <AddNoc onBack={() => setView('updates')} />;
         {stats.map((stat) => (
           <div key={stat.title} className={`stat-card stat-card-${stat.color}`}>
             <div className="stat-content">
-              <h3 className="stat-value">{stat.value}</h3>
               <p className="stat-label">{stat.title}</p>
+              <h3 className="stat-value">{stat.value}</h3>
               <p className="stat-sub">{stat.subtitle}</p>
             </div>
             <div className={`stat-icon-bg stat-icon-${stat.color}`}>
@@ -1274,8 +1274,8 @@ return <AddNoc onBack={() => setView('updates')} />;
 
         <div className="stat-card stat-card-updates clickable" onClick={() => setView('updates')}>
           <div className="stat-content">
-            <h3 className="stat-value">{updateOptions.length}</h3>
             <p className="stat-label">Updates</p>
+            <h3 className="stat-value">{updateOptions.length}</h3>
             <p className="stat-sub">Click to manage</p>
           </div>
           <div className="stat-icon-bg stat-icon-updates">
@@ -1287,7 +1287,7 @@ return <AddNoc onBack={() => setView('updates')} />;
 
 
 
-<div className="hr-search-card">
+<div className={`hr-search-card ${showSearchResults ? 'hr-search-card--results' : ''}`}>
         {!showSearchResults ? (
           <div className="search-section-inner">
             <h3 className="section-title">Search Employees</h3>

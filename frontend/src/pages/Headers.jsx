@@ -146,6 +146,7 @@ const getPageInfo = (pathname, firstName) => {
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
         '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
         '/it': { title: 'IT Panel', subtitle: 'IT Management' },
+        '/change-password':{title: 'Change Password'}
     };
     return pathMap[normalizedPath] || { title: 'Portal', subtitle: '' };
 };
