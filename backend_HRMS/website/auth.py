@@ -628,8 +628,8 @@ def location_check():
             "requires_reason": True,
             "message": "Location not captured"
         }), 200
-    office = Location.query.first()
-    if not office:
+    offices = Location.query.all()
+    if not offices:
         return jsonify({
             "success": True,
             "zone": "NO_OFFICE_CONFIG",
@@ -640,14 +640,48 @@ def location_check():
             "requires_reason": False,
             "message": "Office location not configured"
         }), 200
-    distance = calculate_distance(lat, lon, office.latitude, office.longitude)
-    zone = compute_zone(distance, office.radius)
+
+    # Evaluate all configured locations and pick the best match:
+    # - Prefer any office where zone is INSIDE/NEAR (in_range)
+    # - Among those, choose the one with smallest distance
+    # - If none are INSIDE/NEAR, pick the closest office overall
+    best_zone = None
+    best_distance = None
+    best_radius = None
+
+    for office in offices:
+        distance = calculate_distance(lat, lon, office.latitude, office.longitude)
+        zone = compute_zone(distance, office.radius)
+
+        if best_zone is None:
+            best_zone = zone
+            best_distance = distance
+            best_radius = office.radius
+            continue
+
+        # Prefer INSIDE/NEAR over OUTSIDE/NO_GPS; within same class choose closest
+        current_in_range = zone in ["INSIDE", "NEAR"]
+        best_in_range = best_zone in ["INSIDE", "NEAR"]
+
+        if current_in_range and not best_in_range:
+            best_zone = zone
+            best_distance = distance
+            best_radius = office.radius
+        elif current_in_range == best_in_range and distance < best_distance:
+            best_zone = zone
+            best_distance = distance
+            best_radius = office.radius
+
+    zone = best_zone
+    distance = best_distance
+    radius = best_radius
+
     return jsonify({
         "success": True,
         "zone": zone,
         "in_range": zone in ["INSIDE", "NEAR"],
-        "distance_meters": int(distance),
-        "radius_meters": office.radius,
+        "distance_meters": int(distance) if distance is not None else None,
+        "radius_meters": radius,
         "grace_meters": GEOFENCE_GRACE_METERS,
         "requires_reason": needs_reason_for_zone(zone),
         "message": f"{zone} zone"
