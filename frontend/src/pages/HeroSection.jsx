@@ -254,6 +254,14 @@ export const HeroSection = () => {
     }
   }, []);
 
+  /* If user is already logged in and lands on login page (e.g. pressed Back), send to dashboard – keeps Back effectively disabled after login */
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate]);
+
  const handleSubmit = async () => {
   if (isSubmitting) return;
   if (!email || !password) {
@@ -279,7 +287,7 @@ export const HeroSection = () => {
       localStorage.setItem("token", data.token);
       localStorage.setItem("lastActivityAt", String(Date.now()));
       await refreshUserData();
-      navigate("/dashboard"); // redirect after login
+      navigate("/dashboard", { replace: true }); // replace login in history so Back doesn't show login again
       setError("");
     } else {
       setError(data.message || "Invalid credentials");

@@ -23,6 +23,21 @@ export const AppLayout = () => {
     const navigate = useNavigate();
     const { userData, loadingUser } = useUser();
 
+    /* After login: disable Back – if user presses Back and lands on login, performance, holiday, etc., send them to dashboard */
+    useEffect(() => {
+        const handlePopState = () => {
+            const token = localStorage.getItem("token");
+            if (!token) return;
+            const path = window.location.pathname || "";
+            const disallowedBackTargets = ["/", "", "/select_role", "/performance", "/holiday-calendar", "/payslip"];
+            if (disallowedBackTargets.includes(path)) {
+                navigate("/dashboard", { replace: true });
+            }
+        };
+        window.addEventListener("popstate", handlePopState);
+        return () => window.removeEventListener("popstate", handlePopState);
+    }, [navigate]);
+
     useEffect(() => {
         const logoutForInactivity = () => {
             localStorage.setItem("sessionExpired", "1");
