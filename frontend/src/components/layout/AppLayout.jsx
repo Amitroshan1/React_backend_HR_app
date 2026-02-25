@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Outlet, useNavigate, ScrollRestoration } from "react-router-dom";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 // import "../../pages/style/Dashboard.css"
@@ -7,6 +7,17 @@ import "../../pages/Dashboard/Dashboard.css"
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const ACTIVITY_KEY = "lastActivityAt";
+
+/* Scroll to top when route changes so each page opens from the beginning */
+const ScrollToTop = () => {
+    const { pathname } = useLocation();
+    useEffect(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+    }, [pathname]);
+    return null;
+};
 
 export const AppLayout = () => {
     const navigate = useNavigate();
@@ -76,7 +87,7 @@ export const AppLayout = () => {
     });
     return (
         <div className="main-layout">
-            <ScrollRestoration />
+            <ScrollToTop />
             {/* The Header now gets the username from the centralized context */}
             <Headers username={username} role={empType} hasManagerAccess={userData.user?.has_manager_access} /> 
             
