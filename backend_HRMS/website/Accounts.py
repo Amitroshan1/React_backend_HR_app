@@ -31,6 +31,14 @@ from .models.expense import ExpenseLineItem
 Accounts = Blueprint('Accounts', __name__)
 
 
+def _get_uploads_root():
+    """Single source for uploads directory. Use UPLOADS_ROOT in production if files live elsewhere."""
+    root = current_app.config.get("UPLOADS_ROOT")
+    if root and str(root).strip():
+        return os.path.abspath(str(root).strip())
+    return os.path.abspath(os.path.join(current_app.root_path, "..", "uploads"))
+
+
 
 
 
@@ -367,7 +375,7 @@ def upload_payslip():
             "message": "Employee not found"
         }), 404
 
-    upload_folder = os.path.join(current_app.root_path, "..", "uploads", "payslips")
+    upload_folder = os.path.join(_get_uploads_root(), "payslips")
     os.makedirs(upload_folder, exist_ok=True)
 
     safe_name = secure_filename(file.filename)
@@ -420,7 +428,7 @@ def bulk_upload_payslips():
             "message": "month, year and payslip_files are required"
         }), 400
 
-    upload_folder = os.path.join(current_app.root_path, "..", "uploads", "payslips")
+    upload_folder = os.path.join(_get_uploads_root(), "payslips")
     os.makedirs(upload_folder, exist_ok=True)
 
     saved_slips = []
@@ -562,7 +570,13 @@ def serve_uploaded_file(relative_path):
                 "message": "Access denied"
             }), 403
 
-    uploads_root = os.path.abspath(os.path.join(current_app.root_path, "..", "uploads"))
+    uploads_root = _get_uploads_root()
+    full_path = os.path.join(uploads_root, normalized)
+    if not os.path.isfile(full_path):
+        return jsonify({
+            "success": False,
+            "message": "File not found on server. Payslip file may be missing at uploads path."
+        }), 404
     try:
         return send_from_directory(uploads_root, normalized, as_attachment=False)
     except Exception:

@@ -53,6 +53,9 @@ def create_app():
     app.config["EMAIL_IT"] = os.getenv("EMAIL_IT")
     app.config["EMAIL_ADMIN"] = os.getenv("EMAIL_ADMIN")
 
+    # Uploads root for payslips/form16 etc. Set UPLOADS_ROOT in production to absolute path if files live elsewhere.
+    app.config["UPLOADS_ROOT"] = os.getenv("UPLOADS_ROOT")
+
     # ---------------------------
     # Enable CORS
     # ---------------------------
