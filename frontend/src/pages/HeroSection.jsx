@@ -378,13 +378,15 @@ export const HeroSection = () => {
           </div> 
 
           {error && <p style={{ color: "red" }}>{error}</p>}
-          <p
-            className="forgot"
-            onClick={handleForgotPassword}
-            style={{ cursor: "pointer" }}
-          >
-            Forgot Password?
-          </p>
+          <div className="forgot-wrap">
+            <button
+              type="button"
+              className="forgot-btn"
+              onClick={handleForgotPassword}
+            >
+              Forgot Password?
+            </button>
+          </div>
 
           <button className="login-submit" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? "Logging in..." : "Submit"}

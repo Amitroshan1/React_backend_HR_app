@@ -29,7 +29,8 @@ export const AppLayout = () => {
             const token = localStorage.getItem("token");
             if (!token) return;
             const path = window.location.pathname || "";
-            const disallowedBackTargets = ["/", "", "/select_role", "/performance", "/holiday-calendar", "/payslip"];
+            /* Only redirect when Back/Forward lands on pre-login or public routes – leave in-app routes (payslip, profile, etc.) so browser Back/Forward work normally */
+            const disallowedBackTargets = ["/", "", "/select_role", "/performance", "/holiday-calendar"];
             if (disallowedBackTargets.includes(path)) {
                 navigate("/dashboard", { replace: true });
             }

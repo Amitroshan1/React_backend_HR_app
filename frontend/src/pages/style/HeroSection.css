@@ -302,11 +302,26 @@ top: -20px;
   transform: scale(1.05);
 }
 
-.forgot {
+/* Wrapper keeps "Forgot Password?" row right-aligned; only the button text is clickable */
+.forgot-wrap {
+  text-align: right;
+}
+
+.forgot-btn {
   font-size: 0.9rem;
   color: #555;
-  text-align: right;
   cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: inline;
+  font-family: inherit;
+}
+
+.forgot-btn:hover {
+  text-decoration: underline;
+  color: #4f46e5;
 }
  /* @media (max-width: 900px) {
   .hero-container {

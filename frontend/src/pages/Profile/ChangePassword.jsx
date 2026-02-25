@@ -125,7 +125,7 @@ const ChangePassword = () => {
                   onClick={() => setShowConfirmPassword((s) => !s)}
                   aria-label={showConfirmPassword ? "Hide password" : "Show password"}
                 >
-                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  {showConfirmPassword ? <Eye size={20} /> : <EyeOff size={20} />}
                 </button>
               </div>
             </div>

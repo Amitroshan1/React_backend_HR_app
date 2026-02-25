@@ -82,44 +82,76 @@ export const Payslip = () => {
 
     return (
         <div className="payslip-page">
-            <h1 className="payslip-title">My Payslips</h1>
-            <p className="payslip-desc">View and download your payslip statements.</p>
-            {loading && <p className="payslip-loading">Loading payslips…</p>}
-            {error && <p className="payslip-error">{error}</p>}
-            {!loading && !error && history.length === 0 && (
-                <p className="payslip-empty">No payslips found.</p>
-            )}
-            {!loading && !error && history.length > 0 && (
-                <div className="payslip-table-wrap">
-                    <table className="payslip-table">
-                        <thead>
-                            <tr>
-                                <th>Month</th>
-                                <th>Year</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {history.map((row) => (
-                                <tr key={row.id}>
-                                    <td>{row.month}</td>
-                                    <td>{row.year}</td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            className="payslip-download-btn"
-                                            onClick={() => handleDownload(row)}
-                                            disabled={downloadingId === row.id}
-                                        >
-                                            {downloadingId === row.id ? "Downloading…" : "Download"}
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+            <div className="payslip-card">
+                <div className="payslip-card-header">
+                    <h2 className="payslip-title">My Payslips</h2>
                 </div>
-            )}
+                <div className="payslip-card-body">
+                    <p className="payslip-desc">View and download your payslip statements.</p>
+                    {loading && <div className="payslip-loading">Loading payslips…</div>}
+                    {error && <div className="payslip-error">{error}</div>}
+                    {!loading && !error && history.length === 0 && (
+                        <div className="payslip-empty">No payslips found.</div>
+                    )}
+                    {!loading && !error && history.length > 0 && (
+                        <>
+                            <div className="payslip-table-wrap">
+                                <table className="payslip-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Month</th>
+                                            <th>Year</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {history.map((row) => (
+                                            <tr key={row.id}>
+                                                <td data-label="Month">{row.month}</td>
+                                                <td data-label="Year">{row.year}</td>
+                                                <td data-label="Action">
+                                                    <button
+                                                        type="button"
+                                                        className="payslip-download-btn"
+                                                        onClick={() => handleDownload(row)}
+                                                        disabled={downloadingId === row.id}
+                                                    >
+                                                        {downloadingId === row.id ? "Downloading…" : "Download"}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <ul className="payslip-cards-mobile" aria-hidden="true">
+                                {history.map((row) => (
+                                    <li key={row.id} className="payslip-row-card">
+                                        <div className="payslip-row-card-inner">
+                                            <span className="payslip-row-label">Month</span>
+                                            <span className="payslip-row-value">{row.month}</span>
+                                        </div>
+                                        <div className="payslip-row-card-inner">
+                                            <span className="payslip-row-label">Year</span>
+                                            <span className="payslip-row-value">{row.year}</span>
+                                        </div>
+                                        <div className="payslip-row-card-action">
+                                            <button
+                                                type="button"
+                                                className="payslip-download-btn"
+                                                onClick={() => handleDownload(row)}
+                                                disabled={downloadingId === row.id}
+                                            >
+                                                {downloadingId === row.id ? "Downloading…" : "Download"}
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
