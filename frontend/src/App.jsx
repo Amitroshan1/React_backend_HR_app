@@ -21,8 +21,11 @@ import { ITPanel } from "./pages/IT/ITPanel";
 import ArchiveEmployees from "./pages/HR/Archive/Archive";
 import ExitEmployee from "./pages/HR/ExitEmployee";
 import { EmployeePerformance } from "./pages/Performance/EmployeePerformance";
-import { ManagerPerformanceReviews } from "./pages/Manager/ManagerPerformanceReviews";
 import { HolidayCalendarUser } from "./pages/Holiday/HolidayCalendarUser";
+import { ManagerPerformanceReviews } from "./pages/Manager/ManagerPerformanceReviews";
+/* Ensure page CSS is in main bundle so it loads in production (fixes CSS missing on deploy) */
+import "./pages/Performance/EmployeePerformance.css";
+import "./pages/Holiday/HolidayCalendarUser.css";
 
 // Employee Management System Components
 import Employee from "./pages/Admin/Employee";
