@@ -23,13 +23,20 @@ export const AppLayout = () => {
     const navigate = useNavigate();
     const { userData, loadingUser } = useUser();
 
-    /* After login: disable Back – if user presses Back and lands on login, performance, holiday, etc., send them to dashboard */
+    /* No token: redirect to login immediately (direct URL, Back after logout) – no dashboard or loading state */
+    const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
+    useEffect(() => {
+        if (!hasToken) {
+            navigate("/", { replace: true });
+        }
+    }, [hasToken, navigate]);
+
+    /* After login: if user presses Back and lands on login, performance, holiday, etc., send them to dashboard */
     useEffect(() => {
         const handlePopState = () => {
             const token = localStorage.getItem("token");
             if (!token) return;
             const path = window.location.pathname || "";
-            /* Only redirect when Back/Forward lands on pre-login or public routes – leave in-app routes (payslip, profile, etc.) so browser Back/Forward work normally */
             const disallowedBackTargets = ["/", "", "/select_role", "/performance", "/holiday-calendar"];
             if (disallowedBackTargets.includes(path)) {
                 navigate("/dashboard", { replace: true });
@@ -79,7 +86,12 @@ export const AppLayout = () => {
             window.clearInterval(intervalId);
         };
     }, [navigate]);
-    
+
+    /* Don't show any protected UI or loading when not authenticated */
+    if (!hasToken) {
+        return null;
+    }
+
     if (loadingUser) {
         return (
            <div className="full-height-center">

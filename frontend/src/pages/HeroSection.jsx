@@ -180,7 +180,7 @@
 
 
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 import { useUser } from "../components/layout/UserContext";
 
@@ -188,6 +188,7 @@ import "./style/HeroSection.css";
 
 export const HeroSection = () => {
    const navigate = useNavigate();
+   const location = useLocation();
    const { refreshUserData } = useUser();
 
   const [email, setEmail] = useState("");
@@ -254,13 +255,34 @@ export const HeroSection = () => {
     }
   }, []);
 
-  /* If user is already logged in and lands on login page (e.g. pressed Back), send to dashboard – keeps Back effectively disabled after login */
+  /* If user is already logged in and lands on login page (e.g. Back or Forward), send to dashboard – keeps login out of history */
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
       navigate("/dashboard", { replace: true });
     }
   }, [navigate]);
+
+  /* When on login route with token (e.g. Forward from dashboard), redirect to dashboard; popstate runs when landing here via Back/Forward */
+  useEffect(() => {
+    const handlePopState = () => {
+      const token = localStorage.getItem("token");
+      const path = window.location.pathname || "";
+      if (token && (path === "/" || path === "")) {
+        navigate("/dashboard", { replace: true });
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [navigate]);
+
+  /* If we have token, redirect on every location change to login path (covers Forward/Back landing on "/") */
+  useEffect(() => {
+    const path = location.pathname || "";
+    if ((path === "/" || path === "") && localStorage.getItem("token")) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
  const handleSubmit = async () => {
   if (isSubmitting) return;
@@ -314,6 +336,11 @@ export const HeroSection = () => {
       "If you are already logged in, you can change your password from your dashboard (Change Password option)."
     );
   };
+
+  /* Don't show login UI when user has token – redirect runs in useEffect; avoids flash when Forward lands on login */
+  if (typeof window !== "undefined" && localStorage.getItem("token")) {
+    return null;
+  }
 
   return (
     <div className="index-container">

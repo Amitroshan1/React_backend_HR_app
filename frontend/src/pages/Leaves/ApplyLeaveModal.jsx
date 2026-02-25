@@ -556,6 +556,11 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
         finalDays = 0; // Will trigger validation error
     }
 
+    // Minimum selectable date for From Date (today) – prevents past dates
+    const minFromDate = dayjs().format('YYYY-MM-DD');
+    // To Date: cannot be before today or before From Date (whichever is later)
+    const minToDate = fromDate && !dayjs(fromDate).isBefore(dayjs(), 'day') ? fromDate : minFromDate;
+
     if (!isOpen) return null;
 
     const handleSubmit = async (e) => {
@@ -651,7 +656,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                             <div className="date-input-block">
                                 <label className="form-label">From Date</label>
                                 <div className="date-input-wrapper">
-                                    <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="date-input" required />
+                                    <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="date-input" required min={minFromDate} />
                                 </div>
                             </div>
                             <div className="date-input-block">
@@ -663,7 +668,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                                         onChange={(e) => setToDate(e.target.value)} 
                                         className="date-input" 
                                         required 
-                                        min={leaveType === 'Optional Leave' ? fromDate : fromDate}
+                                        min={minToDate}
                                         max={leaveType === 'Optional Leave' ? fromDate : undefined}
                                     />
                                 </div>
