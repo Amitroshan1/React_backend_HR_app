@@ -597,6 +597,8 @@ def serve_uploaded_file(relative_path):
     }), 404
 
 
+
+
 @Accounts.route("/employee-type-circle-summary", methods=["GET"])
 @jwt_required()
 def employee_type_circle_summary():
