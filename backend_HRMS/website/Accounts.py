@@ -197,7 +197,7 @@ def upload_form16():
             "message": "Employee not found"
         }), 404
 
-    upload_folder = os.path.join(current_app.root_path, "..", "uploads", "form16")
+    upload_folder = os.path.join(_get_uploads_root(), "form16")
     os.makedirs(upload_folder, exist_ok=True)
 
     safe_name = secure_filename(file.filename)
@@ -282,7 +282,7 @@ def bulk_upload_form16():
             "message": "financial_year and form16_files are required"
         }), 400
 
-    upload_folder = os.path.join(current_app.root_path, "..", "uploads", "form16")
+    upload_folder = os.path.join(_get_uploads_root(), "form16")
     os.makedirs(upload_folder, exist_ok=True)
 
     saved_docs = []
@@ -571,19 +571,30 @@ def serve_uploaded_file(relative_path):
             }), 403
 
     uploads_root = _get_uploads_root()
+
+    # Try primary path first (e.g. payslips/foo.pdf or flat foo.pdf).
     full_path = os.path.join(uploads_root, normalized)
-    if not os.path.isfile(full_path):
-        return jsonify({
-            "success": False,
-            "message": "File not found on server. Payslip file may be missing at uploads path."
-        }), 404
-    try:
-        return send_from_directory(uploads_root, normalized, as_attachment=False)
-    except Exception:
-        return jsonify({
-            "success": False,
-            "message": "File not found"
-        }), 404
+    if os.path.isfile(full_path):
+        try:
+            return send_from_directory(uploads_root, normalized, as_attachment=False)
+        except Exception:
+            pass
+
+    # Fallback for legacy DB: flat filename (no folder) stored in payslips/form16 subfolders.
+    if "/" not in normalized:
+        for subdir in ("payslips", "form16"):
+            candidate_dir = os.path.join(uploads_root, subdir)
+            candidate_path = os.path.join(candidate_dir, normalized)
+            if os.path.isfile(candidate_path):
+                try:
+                    return send_from_directory(candidate_dir, normalized, as_attachment=False)
+                except Exception:
+                    continue
+
+    return jsonify({
+        "success": False,
+        "message": "File not found on server. Payslip file may be missing at uploads path."
+    }), 404
 
 
 @Accounts.route("/employee-type-circle-summary", methods=["GET"])
