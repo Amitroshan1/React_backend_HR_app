@@ -253,20 +253,33 @@ export const Dashboard = () => {
         loadInitialData();
     }, []);
 
-    /* News feed auto-scroll: continuous scroll, pause on hover */
+    /* News feed auto-scroll: smooth bidirectional (last → first → last → first) */
+    const newsFeedDirRef = useRef('down');
     useEffect(() => {
         if (!newsFeed.length || newsFeedScrollPaused) return;
         const el = newsFeedListRef.current;
         if (!el || el.scrollHeight <= el.clientHeight) return;
         const step = 1;
-        const interval = 40;
+        const interval = 32;
         const id = setInterval(() => {
             if (!el) return;
             const { scrollTop, scrollHeight, clientHeight } = el;
-            if (scrollTop + clientHeight >= scrollHeight - 2) {
-                el.scrollTop = 0;
+            const atBottom = scrollTop + clientHeight >= scrollHeight - 2;
+            const atTop = scrollTop <= 2;
+            if (newsFeedDirRef.current === 'down') {
+                if (atBottom) {
+                    newsFeedDirRef.current = 'up';
+                    el.scrollTop -= step;
+                } else {
+                    el.scrollTop += step;
+                }
             } else {
-                el.scrollTop += step;
+                if (atTop) {
+                    newsFeedDirRef.current = 'down';
+                    el.scrollTop += step;
+                } else {
+                    el.scrollTop -= step;
+                }
             }
         }, interval);
         return () => clearInterval(id);
