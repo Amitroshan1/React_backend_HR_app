@@ -439,6 +439,50 @@
   font-style: italic;
 }
 
+/* ===== RESIGNATION HISTORY ===== */
+.separation-page-wrapper .history-card {
+  width: min(100%, 980px);
+  margin: 20px auto 0;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: #f9fafb;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.separation-page-wrapper .history-card h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--sep-text-dark);
+}
+
+.separation-page-wrapper .history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.separation-page-wrapper .history-table th,
+.separation-page-wrapper .history-table td {
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.separation-page-wrapper .history-table th {
+  background: #eff6ff;
+  color: #1e293b;
+  text-align: left;
+  font-weight: 600;
+}
+
+.separation-page-wrapper .history-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.separation-page-wrapper .history-table tbody tr:hover {
+  background: #e5f3ff;
+}
+
 .separation-page-wrapper .btn-download-noc {
   display: inline-flex;
   align-items: center;

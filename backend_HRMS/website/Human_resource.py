@@ -629,8 +629,29 @@ def send_password_reset():
 @hr.route("/reset-password", methods=["POST"])
 @jwt_required()
 def reset_password():
+    """
+    Reset password for the currently authenticated HR/Admin user.
 
-    user = current_user
+    NOTE: This route is JWT-protected, so we should NOT rely on
+    Flask-Login's current_user (which will be AnonymousUserMixin when
+    no session cookie is present). Instead, resolve the Admin from the
+    JWT claims.
+    """
+    claims = get_jwt()
+    email = claims.get("email")
+    if not email:
+        return jsonify({
+            "success": False,
+            "message": "Invalid token"
+        }), 401
+
+    user = Admin.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({
+            "success": False,
+            "message": "User not found"
+        }), 404
+
     data = request.get_json() or {}
 
     password = data.get("password")
