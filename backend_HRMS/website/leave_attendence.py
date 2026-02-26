@@ -1039,9 +1039,15 @@ def get_resignation_status():
             applied_on = getattr(resignation, 'applied_on', None)
             created_at_str = applied_on.isoformat() if applied_on and hasattr(applied_on, 'isoformat') else (str(applied_on) if applied_on else None)
             notice_info = _serialize_notice(resignation)
+
+            # Consider "already_submitted" only for active resignations (pending/approved).
+            # After revoke/reject, the UI can reopen the form while still showing history.
+            status = (resignation.status or "").strip()
+            is_active = _is_active_resignation_status(status)
+
             return jsonify({
                 "success": True,
-                "already_submitted": True,
+                "already_submitted": is_active,
                 "resignation": {
                     "id": resignation.id,
                     "resignation_date": resignation.resignation_date.isoformat(),
