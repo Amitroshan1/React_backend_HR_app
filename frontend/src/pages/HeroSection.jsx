@@ -182,6 +182,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { FiEye, FiEyeOff } from "react-icons/fi";
+import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
 
 import "./style/HeroSection.css";
@@ -309,6 +310,7 @@ export const HeroSection = () => {
       localStorage.setItem("token", data.token);
       localStorage.setItem("lastActivityAt", String(Date.now()));
       await refreshUserData();
+      toast.success("Login successful!");
       navigate("/dashboard", { replace: true }); // replace login in history so Back doesn't show login again
       setError("");
     } else {

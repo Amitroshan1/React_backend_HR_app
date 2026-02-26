@@ -118,6 +118,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link, NavLink, useNavigate } from 'react-router-dom';
+import { toast } from "react-toastify";
 import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
 
@@ -296,6 +297,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
     }, []);
 
     const handleLogout = () => {
+        toast.success("Logged out successfully");
         localStorage.removeItem('token');
         localStorage.removeItem('lastActivityAt');
         navigate('/');
