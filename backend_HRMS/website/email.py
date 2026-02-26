@@ -1069,7 +1069,97 @@ def send_resignation_email(admin, resignation):
         return False, str(e)
 
 
+def send_resignation_revoked_email(admin, resignation):
+    """
+    Notify manager(s) and HR that an employee has revoked their resignation.
+    Mirrors the routing logic of send_resignation_email.
+    """
 
+    try:
+        manager_contact = ManagerContact.query.filter_by(
+            user_email=admin.email
+        ).first()
+
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=admin.circle,
+                user_type=admin.emp_type
+            ).first()
+
+        if not manager_contact:
+            current_app.logger.warning(
+                f"No manager mapping for resignation revoke: {admin.email}"
+            )
+            return False, "Manager not configured"
+
+        manager_emails = get_manager_emails(manager_contact)
+        if not manager_emails:
+            return False, "No valid manager email found"
+        to_email = manager_emails[0]
+        cc_emails = list(manager_emails[1:])
+
+        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        if hr_email:
+            cc_emails.append(hr_email)
+
+        subject = f"Resignation Revoked – {admin.first_name} ({admin.emp_id})"
+
+        body = f"""
+        <p>Hi,</p>
+
+        <p>
+            <strong>{admin.first_name}</strong> has <strong>revoked</strong> their resignation.
+        </p>
+
+        <table cellpadding="8" cellspacing="0" border="1">
+            <tr>
+                <td><strong>Employee Name</strong></td>
+                <td>{admin.first_name}</td>
+            </tr>
+            <tr>
+                <td><strong>Employee ID</strong></td>
+                <td>{admin.emp_id}</td>
+            </tr>
+            <tr>
+                <td><strong>Circle</strong></td>
+                <td>{admin.circle}</td>
+            </tr>
+            <tr>
+                <td><strong>Department</strong></td>
+                <td>{admin.emp_type}</td>
+            </tr>
+            <tr>
+                <td><strong>Original Resignation Date</strong></td>
+                <td>{resignation.resignation_date.strftime('%d-%m-%Y') if resignation.resignation_date else 'N/A'}</td>
+            </tr>
+            <tr>
+                <td><strong>Current Status</strong></td>
+                <td>{resignation.status}</td>
+            </tr>
+        </table>
+
+        <p>Please update any pending separation actions accordingly.</p>
+
+        <br>
+        <p>
+            Regards,<br>
+            <strong>HRMS System</strong>
+        </p>
+        """
+
+        send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=cc_emails or None
+        )
+
+        return True, "Email sent"
+
+    except Exception as e:
+        current_app.logger.error(f"Resignation Revoke Email Error: {e}")
+        return False, str(e)
 
 
 #qurery realted email functions can be added here

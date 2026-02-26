@@ -38,6 +38,7 @@ export const Account = ()  => {
   });
   const [attendancePickerOpen, setAttendancePickerOpen] = useState(false);
   const [pendingAttendanceMonth, setPendingAttendanceMonth] = useState(attendanceMonth);
+  const [attendanceDownloadMode, setAttendanceDownloadMode] = useState('accounts'); // 'accounts' or 'client'
   
   // Form States
   const [payslipMonth, setPayslipMonth] = useState('January');
@@ -199,6 +200,17 @@ export const Account = ()  => {
       alert('Please select department and circle first.');
       return;
     }
+    setAttendanceDownloadMode('accounts');
+    setPendingAttendanceMonth(attendanceMonth);
+    setAttendancePickerOpen(true);
+  };
+
+  const handleDownloadClientAttendanceExcel = () => {
+    if (!selectedDept || !selectedCircle) {
+      alert('Please select department and circle first.');
+      return;
+    }
+    setAttendanceDownloadMode('client');
     setPendingAttendanceMonth(attendanceMonth);
     setAttendancePickerOpen(true);
   };
@@ -216,7 +228,11 @@ export const Account = ()  => {
     }
 
     const monthParam = pendingAttendanceMonth;
-    const url = `${API_BASE_URL}/download-excel?emp_type=${encodeURIComponent(selectedDept)}&circle=${encodeURIComponent(selectedCircle)}&month=${monthParam}`;
+    const endpoint =
+      attendanceDownloadMode === 'client' ? '/download-excel-client' : '/download-excel';
+    const url = `${API_BASE_URL}${endpoint}?emp_type=${encodeURIComponent(
+      selectedDept
+    )}&circle=${encodeURIComponent(selectedCircle)}&month=${monthParam}`;
 
     try {
       const response = await fetch(url, {
@@ -783,6 +799,9 @@ export const Account = ()  => {
         <div className="results-actions-grid">
            <button className="btn-success" onClick={handleDownloadAttendanceExcel}>
              <Download size={16}/> Attendance Excel
+           </button>
+           <button className="btn-secondary" onClick={handleDownloadClientAttendanceExcel}>
+             <Download size={16}/> For Client
            </button>
            <button className="btn-warning" onClick={handleOpenBulkPayslip}><Upload size={16}/> Bulk Payslips</button>
            <button className="btn-primary" onClick={handleOpenBulkForm16}><Upload size={16}/> Bulk Form 16</button>

@@ -11,7 +11,7 @@ from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
 from .models.seperation import Resignation, Noc_Upload
 from .models.holiday_calendar import HolidayCalendar
-from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_leave_applied_email
+from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email
 from .utility import generate_attendance_excel, send_excel_file
 from . import db
 from flask import jsonify
@@ -1017,6 +1017,24 @@ def get_resignation_status():
         resignation = Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
         noc_upload = Noc_Upload.query.filter_by(admin_id=admin.id).order_by(Noc_Upload.id.desc()).first()
 
+        # Full history for display under the form
+        history_rows = Resignation.query.filter_by(admin_id=admin.id).order_by(
+            Resignation.resignation_date.desc(), Resignation.id.desc()
+        ).all()
+        history = []
+        for r in history_rows:
+            applied_on = getattr(r, 'applied_on', None)
+            created_at_str = applied_on.isoformat() if applied_on and hasattr(applied_on, 'isoformat') else (
+                str(applied_on) if applied_on else None
+            )
+            history.append({
+                "id": r.id,
+                "resignation_date": r.resignation_date.isoformat() if r.resignation_date else None,
+                "reason": r.reason,
+                "status": r.status,
+                "created_at": created_at_str,
+            })
+
         if resignation:
             applied_on = getattr(resignation, 'applied_on', None)
             created_at_str = applied_on.isoformat() if applied_on and hasattr(applied_on, 'isoformat') else (str(applied_on) if applied_on else None)
@@ -1035,7 +1053,8 @@ def get_resignation_status():
                 "noc": {
                     "uploaded": noc_upload is not None,
                     "filename": os.path.basename(noc_upload.file_path) if noc_upload and noc_upload.file_path else None
-                }
+                },
+                "history": history
             }), 200
 
         return jsonify({
@@ -1048,7 +1067,8 @@ def get_resignation_status():
                 "email": admin.email,
                 "circle": admin.circle or "",
                 "emp_type": admin.emp_type or ""
-            }
+            },
+            "history": history
         }), 200
 
     except Exception as e:
@@ -1084,6 +1104,13 @@ def revoke_resignation():
 
         resignation.status = "Revoked"
         db.session.commit()
+
+        # Best-effort email notification on revoke
+        try:
+            send_resignation_revoked_email(admin, resignation)
+        except Exception:
+            current_app.logger.exception("Failed to send resignation revoked email")
+
         return jsonify({
             "success": True,
             "message": "Resignation revoked successfully",

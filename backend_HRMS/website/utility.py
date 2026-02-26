@@ -652,7 +652,6 @@ def applied_leave_days_in_month(admin_id, leave_type, month_start, month_end):
     return total
 
 
-
 from io import BytesIO
 import calendar
 import xlsxwriter
@@ -765,4 +764,180 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
     workbook.close()
     output.seek(0)
 
+    return output
+
+
+def generate_client_attendance_excel(admins, year, month, project_name=None, place=None):
+    """
+    Generate a client-facing attendance sheet with multiple employees
+    laid out horizontally on a single worksheet.
+
+    Layout:
+      - Column A: Day_Date
+      - For each employee i:
+          columns (B,C) for employee 1, (D,E) for employee 2, etc.
+          header block rows (Name, Month/Year, ...) merged across the two columns
+          then a header row with "Punch In" / "Punch Out" under each employee.
+    """
+    output = BytesIO()
+    workbook = xlsxwriter.Workbook(output)
+
+    # Common formats
+    header_fmt = workbook.add_format(
+        {"bold": True, "border": 1, "align": "left", "valign": "vcenter", "bg_color": "#9BC2E6"}
+    )
+    border_fmt = workbook.add_format({"border": 1})
+    legend_holiday_fmt = workbook.add_format({"border": 1, "bg_color": "#D9D9D9"})
+    legend_comp_off_fmt = workbook.add_format({"border": 1, "bg_color": "#FFF2CC"})
+    legend_half_day_fmt = workbook.add_format({"border": 1, "bg_color": "#C6E0B4"})
+    legend_leave_fmt = workbook.add_format({"border": 1, "bg_color": "#F8CBAD"})
+    sunday_row_fmt = workbook.add_format({"border": 1, "bg_color": "#D9D9D9"})
+
+    # Date range for the month
+    num_days = calendar.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, num_days)
+
+    # Single worksheet for all employees
+    worksheet = workbook.add_worksheet("Attendance")
+
+    # Legend rows (top of sheet)
+    worksheet.write(0, 0, "SUNDAY / HOLIDAY", legend_holiday_fmt)
+    worksheet.write(1, 0, "COMP OFF", legend_comp_off_fmt)
+    worksheet.write(2, 0, "HALF DAY", legend_half_day_fmt)
+    worksheet.write(3, 0, "LEAVE", legend_leave_fmt)
+
+    HEADER_START_ROW = 6   # Row 7 (1‑based) in Excel
+    LABEL_COL = 0          # Column A
+    FIRST_EMP_COL = 1      # First employee starts at column B
+    TIME_COLUMNS_PER_PAIR = 2
+
+    labels = [
+        "Name",
+        "Month/Year",
+        "Project Name",
+        "Place",
+        "Date of Joining",
+        "Date of Deputation",
+    ]
+
+    # Left label band
+    for idx, label in enumerate(labels):
+        r = HEADER_START_ROW + idx
+        worksheet.write(r, LABEL_COL, label, header_fmt)
+
+    # Build a punch map for all employees: {admin_id: {date: punch}}
+    admin_ids = [a.id for a in admins]
+    punches = Punch.query.filter(
+        Punch.admin_id.in_(admin_ids),
+        Punch.punch_date >= month_start,
+        Punch.punch_date <= month_end,
+    ).all()
+    punch_map = {}
+    for p in punches:
+        punch_map.setdefault(p.admin_id, {})[p.punch_date] = p
+
+    # Header block and per-employee columns
+    for emp_index, admin in enumerate(admins):
+        base_col = FIRST_EMP_COL + emp_index * TIME_COLUMNS_PER_PAIR  # B,C for first, D,E for second, etc.
+
+        # Fill band for this employee so there are borders under the labels
+        for idx in range(len(labels)):
+            r = HEADER_START_ROW + idx
+            # Set a default bordered cell which will be overwritten by merge_range
+            worksheet.write(r, base_col, "", border_fmt)
+            worksheet.write(r, base_col + 1, "", border_fmt)
+
+        month_label = f"{calendar.month_name[month]} {year}"
+
+        # Merge the two columns for each label row and write the employee-specific values
+        worksheet.merge_range(
+            HEADER_START_ROW + 0,
+            base_col,
+            HEADER_START_ROW + 0,
+            base_col + 1,
+            admin.first_name or "N/A",
+            border_fmt,
+        )
+        worksheet.merge_range(
+            HEADER_START_ROW + 1,
+            base_col,
+            HEADER_START_ROW + 1,
+            base_col + 1,
+            month_label,
+            border_fmt,
+        )
+        worksheet.merge_range(
+            HEADER_START_ROW + 2,
+            base_col,
+            HEADER_START_ROW + 2,
+            base_col + 1,
+            project_name or "",
+            border_fmt,
+        )
+        worksheet.merge_range(
+            HEADER_START_ROW + 3,
+            base_col,
+            HEADER_START_ROW + 3,
+            base_col + 1,
+            place or (admin.circle or ""),
+            border_fmt,
+        )
+        doj = getattr(admin, "doj", None)
+        worksheet.merge_range(
+            HEADER_START_ROW + 4,
+            base_col,
+            HEADER_START_ROW + 4,
+            base_col + 1,
+            doj.isoformat() if doj and hasattr(doj, "isoformat") else "",
+            border_fmt,
+        )
+        worksheet.merge_range(
+            HEADER_START_ROW + 5,
+            base_col,
+            HEADER_START_ROW + 5,
+            base_col + 1,
+            "",
+            border_fmt,
+        )
+
+        # Single-row table header directly under header block for this employee
+        TABLE_HEADER_ROW = HEADER_START_ROW + 7
+        if emp_index == 0:
+            # Only once for Day_Date
+            worksheet.write(TABLE_HEADER_ROW, LABEL_COL, "Day_Date", header_fmt)
+
+        worksheet.write(TABLE_HEADER_ROW, base_col,     "Punch In",  header_fmt)
+        worksheet.write(TABLE_HEADER_ROW, base_col + 1, "Punch Out", header_fmt)
+
+        # Per-day rows, exactly one row per date, starting below the header row
+        first_day_row = TABLE_HEADER_ROW + 1
+        for day in range(1, num_days + 1):
+            current = date(year, month, day)
+            row = first_day_row + (day - 1)
+
+            # Only write the Day_Date once (for the first employee)
+            if emp_index == 0:
+                label = f"{current.strftime('%A')}, {day} {calendar.month_name[month]}, {year}"
+                fmt_day = sunday_row_fmt if current.weekday() == 6 else border_fmt
+                worksheet.write(row, LABEL_COL, label, fmt_day)
+
+            # Employee-specific punch
+            pmap = punch_map.get(admin.id, {})
+            punch = pmap.get(current)
+            time_in_str = punch.punch_in.strftime("%I:%M %p") if punch and punch.punch_in else ""
+            time_out_str = punch.punch_out.strftime("%I:%M %p") if punch and punch.punch_out else ""
+
+            fmt = sunday_row_fmt if current.weekday() == 6 else border_fmt
+
+            worksheet.write(row, base_col,     time_in_str,  fmt)
+            worksheet.write(row, base_col + 1, time_out_str, fmt)
+
+    # Adjust column widths
+    worksheet.set_column(0, 0, 32)
+    last_col = FIRST_EMP_COL + TIME_COLUMNS_PER_PAIR * max(len(admins), 1)
+    worksheet.set_column(1, last_col, 14)
+
+    workbook.close()
+    output.seek(0)
     return output

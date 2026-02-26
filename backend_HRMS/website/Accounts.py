@@ -12,7 +12,7 @@ from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
 from .email import asset_email,update_asset_email
-from .utility import generate_attendance_excel_Accounts, send_excel_file, calculate_month_summary
+from .utility import generate_attendance_excel_Accounts, generate_client_attendance_excel, send_excel_file, calculate_month_summary
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
@@ -699,6 +699,58 @@ def download_excel_acc_api():
     )
 
     filename = f"ACC_Attendance_{circle}_{emp_type}_{calendar.month_name[month]}_{year}.xlsx"
+    return send_excel_file(
+        output,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
+@Accounts.route("/download-excel-client", methods=["GET"])
+@jwt_required()
+def download_excel_client_api():
+    circle = request.args.get("circle")
+    emp_type = request.args.get("emp_type")
+    month_str = request.args.get("month")
+
+    if not circle or not emp_type:
+        return jsonify({
+            "success": False,
+            "message": "circle and emp_type are required"
+        }), 400
+
+    admins = Admin.query.filter(
+        Admin.circle == circle,
+        Admin.emp_type == emp_type,
+        Admin.is_active == True,
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+    ).all()
+
+    if not admins:
+        return jsonify({
+            "success": False,
+            "message": "No employees found"
+        }), 404
+
+    if month_str:
+        try:
+            year, month = map(int, month_str.split("-"))
+        except ValueError:
+            return jsonify({
+                "success": False,
+                "message": "Invalid month format. Use YYYY-MM"
+            }), 400
+    else:
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        year, month = now.year, now.month
+
+    output = generate_client_attendance_excel(
+        admins=admins,
+        year=year,
+        month=month
+    )
+
+    filename = f"Client_Attendance_{circle}_{emp_type}_{calendar.month_name[month]}_{year}.xlsx"
     return send_excel_file(
         output,
         download_name=filename,
