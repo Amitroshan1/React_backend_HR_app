@@ -24,7 +24,8 @@
   border-bottom: 3px solid #f1f3f5;
 }
 
-.page-heading {
+/* Scoped to this page only so header title is not affected */
+.add-dept-circle-wrapper .page-heading {
   font-size: 36px;
   font-weight: 800;
   color: #212529;
@@ -367,7 +368,7 @@
     padding: 30px;
   }
 
-  .page-heading {
+  .add-dept-circle-wrapper .page-heading {
     font-size: 30px;
   }
 
@@ -391,7 +392,7 @@
     border-radius: 16px;
   }
 
-  .page-heading {
+  .add-dept-circle-wrapper .page-heading {
     font-size: 26px;
   }
 
@@ -430,7 +431,7 @@
     margin-bottom: 25px;
   }
 
-  .page-heading {
+  .add-dept-circle-wrapper .page-heading {
     font-size: 22px;
   }
 

@@ -213,14 +213,15 @@
   border-radius: 50%;
 }
 
-.welcome-title {
+/* Scoped to dashboard content only so header title is controlled by Headers.css */
+.dashboard-content .welcome-title {
   font-size: 1.75rem;
   color: var(--text-dark);
   font-weight: 700;
   margin: 0 0 4px 0;
 }
 
-.overview-text {
+.dashboard-content .overview-text {
   color: var(--text-muted);
   font-size: 0.9rem;
   margin: 0 0 24px 0;
@@ -633,19 +634,15 @@
   border-radius: 50%;
 }
 
-.welcome-title {
+.dashboard-content .welcome-title {
   font-size: 1.8rem;
-
   color: var(--text-dark);
-
   font-weight: 700;
-
   margin-bottom: 5px;
 }
 
-.overview-text {
+.dashboard-content .overview-text {
   color: var(--text-muted);
-
   margin-top: 0;
 
   margin-bottom: 20px;
@@ -1882,10 +1879,10 @@
   .header-right {
     gap: 12px;
   }
-  .welcome-title {
+  .dashboard-content .welcome-title {
     font-size: 1.4rem;
   }
-  .overview-text {
+  .dashboard-content .overview-text {
     font-size: 0.85rem;
     margin-bottom: 16px;
   }
@@ -2033,7 +2030,7 @@
     padding: 10px 12px;
     margin-bottom: 16px;
   }
-  .welcome-title {
+  .dashboard-content .welcome-title {
     font-size: 1.25rem;
   }
   .top-cards-grid,

@@ -69,23 +69,27 @@
 }
 
 .welcome-title {
-    font-size: 1.25rem;
-    font-weight: 700;
+    font-size: 1rem;
+    font-weight: 400;
     color: var(--text-dark);
     margin: 0;
 }
 
-/* Dashboard welcome: gradient text, extra bold (same as Leave/Dashboard section titles) */
+/* Dashboard welcome only: big and bold */
 .header-left .welcome-title:not(.page-heading) {
     background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     font-weight: 800;
+    font-size: 1.75rem;
 }
 
-.page-heading {
+/* Other page titles (except dashboard): responsive, not bold – specific so it overrides other .page-heading (e.g. AddDeptCircle.css) */
+.header-container .header-left .welcome-title.page-heading {
     color: var(--primary-blue);
+    font-weight: 800;
+    font-size: clamp(0.875rem, 2vw + 0.75rem, 1.25rem);
 }
 
 .overview-text {
@@ -402,11 +406,18 @@
     }
 
     .welcome-title {
-        font-size: 1rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 180px;
+        max-width: 200px;
+    }
+    .header-left .welcome-title:not(.page-heading) {
+        font-size: 1.5rem;
+        font-weight: 800;
+    }
+    .header-container .header-left .welcome-title.page-heading {
+        font-size: 1rem;
+        font-weight: 800;
     }
 
     .overview-text {
@@ -447,8 +458,15 @@
     }
 
     .welcome-title {
-        max-width: 140px;
-        font-size: 0.95rem;
+        max-width: 160px;
+    }
+    .header-left .welcome-title:not(.page-heading) {
+        font-size: 1.35rem;
+        font-weight: 800;
+    }
+    .header-container .header-left .welcome-title.page-heading {
+        font-size: 0.9rem;
+        font-weight: 800;
     }
 
     .home-logo-btn {
