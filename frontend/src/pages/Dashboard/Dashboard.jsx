@@ -64,13 +64,16 @@ const calculateExperience = (doj) => {
     if (!doj) return 'N/A';
     const today = new Date();
     const joinDate = new Date(doj);
-    let years = today.getFullYear() - joinDate.getFullYear();
-    const months = today.getMonth() - joinDate.getMonth();
-    
-    if (months < 0 || (months === 0 && today.getDate() < joinDate.getDate())) {
-        years--;
-    }
-    return years >= 0 ? `${years} years` : 'Less than a year';
+    if (isNaN(joinDate.getTime())) return 'N/A';
+    let totalMonths = (today.getFullYear() - joinDate.getFullYear()) * 12 + (today.getMonth() - joinDate.getMonth());
+    if (today.getDate() < joinDate.getDate()) totalMonths--;
+    if (totalMonths < 0) return 'Less than a year';
+    const years = Math.floor(totalMonths / 12);
+    const months = totalMonths % 12;
+    const parts = [];
+    if (years > 0) parts.push(`${years} year${years !== 1 ? 's' : ''}`);
+    if (months > 0) parts.push(`${months} month${months !== 1 ? 's' : ''}`);
+    return parts.length ? parts.join(' ') : 'Less than a month';
 };
 const formatTimeDifference = (diffMs) => {
     if (diffMs < 0) diffMs = 0;
