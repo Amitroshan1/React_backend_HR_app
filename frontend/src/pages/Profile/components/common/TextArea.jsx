@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const TextArea = ({ label, value, onChange, name, readOnly = false, error, placeholder }) => {
+export const TextArea = ({ label, value, onChange, name, readOnly = false, error, placeholder, maxLength, ...rest }) => {
     return (
         <div className="input-box">
             <label>{label}</label>
@@ -12,6 +12,8 @@ export const TextArea = ({ label, value, onChange, name, readOnly = false, error
                 placeholder={placeholder}
                 className={error ? 'input-error' : ''}
                 rows="3"
+                maxLength={maxLength}
+                {...rest}
             />
             {error && <p className="error-text">{error}</p>}
         </div>

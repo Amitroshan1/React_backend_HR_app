@@ -93,7 +93,7 @@ export const App = () => {
 
   return (
     <UserProvider>
-      <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} theme="light" />
+      <ToastContainer position="bottom-right" autoClose={3000} hideProgressBar={false} theme="light" />
       <RouterProvider router={router} />
     </UserProvider>
   );

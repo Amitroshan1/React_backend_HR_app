@@ -28,7 +28,8 @@
   width: 100%;
 }
 
-.btn-back-link {
+/* Back button – dashboard-style secondary (same as SignUp) */
+.btn-back-updates {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -45,7 +46,7 @@
   box-shadow: var(--nf-shadow);
 }
 
-.btn-back-link:hover {
+.btn-back-updates:hover {
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
   transform: translateX(-2px);

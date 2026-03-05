@@ -1,6 +1,7 @@
 import React from 'react';
 import {AccordionCard} from '../AccordionCard';
 import {Input} from '../../common/Input';
+import {PhoneInput} from '../../common/PhoneInput';
 import {SelectInput} from '../../common/SelectInput';
 import {Info} from '../../common/Info';
 import {
@@ -56,6 +57,8 @@ export const PersonalInfoSection = ({
                             onChange={onChange}
                             error={errors.fullName}
                             isMandatory
+                            minLength={2}
+                            maxLength={100}
                         />
 
                         <Input
@@ -65,6 +68,8 @@ export const PersonalInfoSection = ({
                             onChange={onChange}
                             error={errors.fatherName}
                             isMandatory
+                            minLength={2}
+                            maxLength={100}
                         />
 
                         <Input
@@ -72,6 +77,8 @@ export const PersonalInfoSection = ({
                             name="motherName"
                             value={data.motherName}
                             onChange={onChange}
+                            error={errors.motherName}
+                            maxLength={100}
                         />
 
                         <SelectInput
@@ -92,6 +99,7 @@ export const PersonalInfoSection = ({
                             onChange={onChange}
                             error={errors.dateOfBirth}
                             isMandatory
+                            max={new Date().toISOString().split('T')[0]}
                         />
 
                         <SelectInput
@@ -132,22 +140,25 @@ export const PersonalInfoSection = ({
                             isMandatory
                         />
 
-                        <Input
+                        <PhoneInput
                             label="Mobile Number"
                             name="mobile"
-                            type="tel"
                             value={data.mobile}
+                            countryCode={data.mobileCountryCode}
+                            countryCodeName="mobileCountryCode"
                             onChange={onChange}
                             error={errors.mobile}
                             isMandatory
                         />
 
-                        <Input
+                        <PhoneInput
                             label="Contact Number"
                             name="emergency"
-                            type="tel"
                             value={data.emergency}
+                            countryCode={data.emergencyCountryCode}
+                            countryCodeName="emergencyCountryCode"
                             onChange={onChange}
+                            error={errors.emergency}
                         />
                     </div>
                 ) : (
@@ -161,8 +172,8 @@ export const PersonalInfoSection = ({
                         <Info label="Blood Group" value={data.bloodGroup} />
                         <Info label="Nationality" value={data.nationality} />
                         <Info label="Personal Email" value={data.personalEmail} />
-                        <Info label="Mobile Number" value={data.mobile} />
-                        <Info label="Contact Number" value={data.emergency} />
+                        <Info label="Mobile Number" value={data.mobileCountryCode && data.mobile ? `${data.mobileCountryCode} ${data.mobile}` : data.mobile} />
+                        <Info label="Contact Number" value={data.emergencyCountryCode && data.emergency ? `${data.emergencyCountryCode} ${data.emergency}` : data.emergency} />
                     </div>
                 )}
 

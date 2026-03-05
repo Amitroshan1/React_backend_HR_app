@@ -332,13 +332,11 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   if (view === 'details') {
     return (
       <div className="manager-page-container">
-        <header className="manager-nav">
-          <button type="button" className="btn-back-square" onClick={handleBackFromDetails}>
-            <ArrowLeft size={18} /> {selectedEmployee ? 'Back to Search' : 'Back to Assign'}
-          </button>
-        </header>
-
         <div className="manager-form-wrapper">
+          <div className="manager-details-column">
+          <button type="button" className="btn-back-updates manager-back-btn" onClick={handleBackFromDetails}>
+            <ArrowLeft size={16} /> {selectedEmployee ? 'Back to Search' : 'Back to Assign'}
+          </button>
           <div className="details-sidebar-card manager-form-centered">
             <h2 className="manager-form-title">
               Manager Contact {selectedEmployee ? `for ${selectedEmployee.name || selectedEmployee.email}` : `for ${form.circle_name} / ${form.user_type}`}
@@ -499,6 +497,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
               </form>
             )}
           </div>
+          </div>
         </div>
       </div>
     );
@@ -608,7 +607,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
     <div className="manager-search-overlay">
       <div className={`search-manager-card ${employees.length > 0 ? 'has-results' : ''}`}>
         <div className="manager-search-header-row">
-          <button type="button" className="btn-back-text" onClick={() => setView('landing')}>
+          <button type="button" className="btn-back-updates" onClick={() => setView('landing')}>
             <ArrowLeft size={16} /> Back to options
           </button>
           <button type="button" className="close-btn" onClick={onBack} aria-label="Close">

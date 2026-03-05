@@ -63,15 +63,15 @@ export const initialDataState = {
     formData: {
         fullName: 'John Employee', fatherName: 'Mr. David Employee', motherName: 'Mrs. Jane Employee',
         maritalStatus: 'Married', gender: 'Male', bloodGroup: 'O+', personalEmail: 'john.employee@example.com',
-        mobile: '+91 9876543210', emergency: '+91 9988776655 (Spouse)', nationality: 'Indian',
+        mobile: '9876543210', mobileCountryCode: '+91',
+        emergency: '9988776655', emergencyCountryCode: '+91',
+        nationality: 'Indian',
         designation: 'Software Engineer', dateOfBirth: '1990-01-01',
         employeeId: 'EMP001', department: 'Engineering', dateOfJoining: '2023-01-15',
         reportingManager: 'Sarah Manager', employmentType: 'Full-Time',
         previousCompanyName: 'Tech Innovators Co.', previousDesignation: 'Junior Developer',
         dateOfLeaving: '2022-12-31',
         experienceYears: '2.5',
-        
-        // 👇 ADDED PROFILE IMAGE FIELD 👇
         profileImage: null, 
     },
     previousEmployment: [

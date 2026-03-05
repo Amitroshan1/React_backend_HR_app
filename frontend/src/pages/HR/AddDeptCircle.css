@@ -1,19 +1,34 @@
-/* Main Container */
+/* Add Department & Circle – dashboard styling */
+
 .add-dept-circle-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
+  background: #f4f7f6;
+  padding: 24px 24px 32px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+  box-sizing: border-box;
 }
 
 .add-dept-circle-wrapper {
   max-width: 1400px;
   margin: 0 auto;
-  background: white;
-  border-radius: 20px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e5e7eb;
   padding: 40px;
-  min-height: calc(100vh - 40px);
+  min-height: calc(100vh - 48px);
+  position: relative;
+  overflow: hidden;
+}
+
+.add-dept-circle-wrapper::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #4f46e5 0%, #6366f1 100%);
 }
 
 /* Page Header */
@@ -21,20 +36,18 @@
   text-align: center;
   margin-bottom: 40px;
   padding-bottom: 20px;
-  border-bottom: 3px solid #f1f3f5;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-/* Scoped to this page only so header title is not affected */
 .add-dept-circle-wrapper .page-heading {
-  font-size: 36px;
-  font-weight: 800;
-  color: #212529;
+  font-size: 1.35rem;
+  font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(90deg, #4f46e5 0%, #3b82f6 50%, #10b981 100%);
   -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
   background-clip: text;
-  letter-spacing: -0.5px;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
 }
 
 /* Action Buttons */
@@ -51,32 +64,30 @@
   gap: 10px;
   padding: 14px 28px;
   border: none;
-  border-radius: 12px;
+  border-radius: 8px;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .add-dept-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
   color: white;
 }
 
 .add-dept-button:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
 .add-circle-button {
-  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
   color: white;
 }
 
 .add-circle-button:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(56, 239, 125, 0.4);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 /* Form Container */
@@ -160,8 +171,8 @@
 
 .form-input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
 }
 
 .form-actions {
@@ -172,19 +183,18 @@
 
 .submit-button {
   padding: 12px 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
   color: white;
   border: none;
   border-radius: 10px;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
 .submit-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
 .cancel-button {
@@ -255,7 +265,7 @@
   min-width: 32px;
   height: 32px;
   padding: 0 10px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
   color: white;
   border-radius: 20px;
   font-size: 14px;

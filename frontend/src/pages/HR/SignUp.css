@@ -93,7 +93,9 @@
   border-bottom: 1px solid var(--su-border);
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 10px;
+  text-align: left;
 }
 
 .signup-card .card-header h2 {
@@ -110,6 +112,7 @@
   width: 100%;
   line-height: 1.35;
   word-wrap: break-word;
+  text-align: left;
 }
 
 .signup-card .card-header p {
@@ -118,6 +121,8 @@
   margin: 0;
   line-height: 1.5;
   flex-shrink: 0;
+  text-align: left;
+  width: 100%;
 }
 
 /* Success / Error messages – match Change Password */

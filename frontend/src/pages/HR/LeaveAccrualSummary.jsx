@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, RefreshCw, CalendarClock } from 'lucide-react';
+import './LeaveAccrualSummary.css';
 
 const API_BASE = '/api/HumanResource';
 
@@ -60,31 +61,21 @@ export const LeaveAccrualSummary = ({ onBack }) => {
   const latest = data.latest_run || {};
 
   return (
-    <div className="hr-main-container">
+    <div className="leave-accrual-page hr-main-container">
       <button className="btn-back-updates" onClick={onBack}>
         <ArrowLeft size={16} /> Back to Updates
       </button>
 
-      <div className="hr-card" style={{ marginTop: '12px', padding: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+      <div className="leave-accrual-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <CalendarClock size={22} /> Leave Accrual Monitor
           </h2>
           <button
             type="button"
+            className="leave-accrual-refresh-btn"
             onClick={fetchSummary}
             disabled={loading}
-            style={{
-              border: '1px solid #dbeafe',
-              background: '#eff6ff',
-              color: '#1d4ed8',
-              borderRadius: '8px',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
           >
             <RefreshCw size={16} /> {loading ? 'Refreshing...' : 'Refresh'}
           </button>

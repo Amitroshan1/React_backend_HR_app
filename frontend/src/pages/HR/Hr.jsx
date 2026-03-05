@@ -575,7 +575,12 @@ export const Hr = () => {
 
   const handleSignupChange = (e) => {
     const { name, value } = e.target;
-    setSignupForm(prev => ({ ...prev, [name]: value }));
+    if (name === 'mobile') {
+      const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+      setSignupForm(prev => ({ ...prev, [name]: digitsOnly }));
+    } else {
+      setSignupForm(prev => ({ ...prev, [name]: value }));
+    }
     setSignupError('');
   };
 
@@ -585,6 +590,10 @@ export const Hr = () => {
     const { user_name, first_name, email, emp_id, mobile, doj, emp_type, circle, password, confirmPassword } = signupForm;
     if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle) {
       setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Employee Type, Circle).');
+      return;
+    }
+    if (mobile.length !== 10) {
+      setSignupError('Mobile number must be exactly 10 digits.');
       return;
     }
     if (password && password !== confirmPassword) {
@@ -1152,7 +1161,7 @@ return <AddNoc onBack={() => setView('updates')} />;
               <div className="form-row">
                 <div className="form-group">
                   <label>Mobile Number <span style={{ color: '#b91c1c' }}>*</span></label>
-                  <input name="mobile" type="tel" placeholder="Enter your Mobile Number" value={signupForm.mobile} onChange={handleSignupChange} />
+                  <input name="mobile" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={10} placeholder="Enter 10-digit Mobile Number" value={signupForm.mobile} onChange={handleSignupChange} />
                 </div>
                 <div className="form-group">
                   <label>Date of Joining <span style={{ color: '#b91c1c' }}>*</span></label>
