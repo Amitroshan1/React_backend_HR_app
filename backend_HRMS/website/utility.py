@@ -320,6 +320,9 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             worksheet.write(row, 3, "Emp Name:", bold_fmt)
             worksheet.write(row, 4, emp_name)
 
+            # Move to next row for the day headers so the name row remains visible
+            row += 1
+
             # Punch rows
             in_times = []
             out_times = []
