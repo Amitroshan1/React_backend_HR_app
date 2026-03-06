@@ -870,8 +870,8 @@ def send_welcome_email(admin,data):
 
         <p>
             🔗 <strong>HRMS Portal:</strong>
-            <a href="https://solviotec.com/" target="_blank">
-                www.solviotec.com
+            <a href="{current_app.config.get('BASE_URL', 'https://solviotec.com/')}" target="_blank">
+                {current_app.config.get('BASE_URL', 'https://solviotec.com/')}
             </a>
         </p>
 
@@ -1457,7 +1457,7 @@ def send_leave_applied_email(admin, leave):
                 </p>
 
                 <p>
-                <a href="https://solviotec.com/"
+                <a href="{current_app.config.get('BASE_URL', 'https://solviotec.com/')}"
                 style="background-color:#007bff;color:#ffffff;
                         padding:10px 15px;text-decoration:none;
                         border-radius:5px;"
@@ -1552,7 +1552,7 @@ def send_leave_pending_reminder(leave_application, manager_emails, hr_cc=True):
             <tr><td><strong>Status</strong></td><td>{leave_application.status}</td></tr>
         </table>
         <p>Please approve or reject this request from the <strong>Manager panel (Leave Requests)</strong> in the HRMS portal at the earliest.</p>
-        <p><a href="https://solviotec.com/" style="background-color:#007bff;color:#ffffff;padding:10px 15px;text-decoration:none;border-radius:5px;" target="_blank">Login to HRMS Portal</a></p>
+        <p><a href="{current_app.config.get('BASE_URL', 'https://solviotec.com/')}" style="background-color:#007bff;color:#ffffff;padding:10px 15px;text-decoration:none;border-radius:5px;" target="_blank">Login to HRMS Portal</a></p>
         <p>Thanks &amp; Regards,<br>HRMS</p>
         """
         send_email_via_zeptomail(

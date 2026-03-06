@@ -66,6 +66,7 @@ def create_app():
             [
                 "https://solviotec.com",
                 "https://www.solviotec.com",
+                "https://test.solviotec.com",
                 "http://localhost:5173",
                 "http://localhost:3000",
                 "http://127.0.0.1:5173",
@@ -75,7 +76,10 @@ def create_app():
     )
     _cors_origins = [o.strip() for o in raw_cors_origins.split(",") if o.strip()]
     if not _cors_origins:
-        _cors_origins = ["https://solviotec.com"]
+        _cors_origins = [
+            "https://solviotec.com",
+            "https://test.solviotec.com",
+        ]
 
     CORS(
         app,
