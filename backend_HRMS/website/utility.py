@@ -6,6 +6,7 @@ import pandas as pd
 import re
 
 from .models.Admin_models import Admin
+from .models.emp_detail_models import Employee
 from . import db
 from .models.holiday_calendar import HolidayCalendar
 
@@ -285,10 +286,10 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
         punch_map = {}
         for p in punches:
             punch_map.setdefault(p.admin_id, {})[p.punch_date.day] = p
-
-        # Resolve employee identity directly from Admin model (Signup removed).
-        emp_ids = {a.email: (a.emp_id or "N/A") for a in admins}
-        emp_names = {a.email: (a.first_name or "N/A") for a in admins}
+        # Resolve employee identity, preferring Employee table and falling back to Admin.
+        admin_ids = [a.id for a in admins]
+        employee_rows = Employee.query.filter(Employee.admin_id.in_(admin_ids)).all()
+        employees_by_admin_id = {e.admin_id: e for e in employee_rows}
 
         def parse_today_work_to_seconds(val):
             if not val:
@@ -306,12 +307,17 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
         row = 2
         for admin in admins:
 
-            emp_code = emp_ids.get(admin.email, "N/A")
+            employee = employees_by_admin_id.get(admin.id)
+            if employee:
+                emp_code = employee.emp_id or (admin.emp_id or "N/A")
+                emp_name = employee.name or (admin.first_name or "N/A")
+            else:
+                emp_code = admin.emp_id or "N/A"
+                emp_name = admin.first_name or "N/A"
 
             worksheet.write(row, 0, "Emp ID:", bold_fmt)
             worksheet.write(row, 1, emp_code)
             worksheet.write(row, 3, "Emp Name:", bold_fmt)
-            emp_name = emp_names.get(admin.email, admin.first_name)
             worksheet.write(row, 4, emp_name)
 
             # Punch rows
