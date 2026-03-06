@@ -98,8 +98,10 @@ export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee, empTypeOptions =
         </button>
 
         <div className="search-filter-card">
-          <h3>Search Employee</h3>
-          <p>Select filters to find employees</p>
+          <div className="search-card-header">
+            <h3>Search Employee</h3>
+            <p>Select filters to find employees</p>
+          </div>
           <div className="filter-row">
             <div className="filter-group">
               <label>Employee Type</label>
@@ -179,9 +181,9 @@ export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee, empTypeOptions =
         )}
 
         {employees.length === 0 && !searchLoading && searchError === '' && (
-          <p style={{ marginTop: '1rem', color: '#666' }}>
-            Select Employee Type and Circle, then click Search to see results.
-          </p>
+          <div className="search-hint">
+            <p>Select Employee Type and Circle, then click Search to see results.</p>
+          </div>
         )}
       </div>
     </div>

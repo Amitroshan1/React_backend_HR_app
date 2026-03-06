@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
@@ -7,6 +7,12 @@ import "../../pages/Dashboard/Dashboard.css"
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const ACTIVITY_KEY = "lastActivityAt";
+
+// Normalize photo URL: strip /public prefix if present (Vite serves public files at root)
+const normalizePhotoUrl = (url) => {
+    if (!url) return url;
+    return url.startsWith('/public/') ? url.replace('/public/', '/') : url;
+};
 
 /* Scroll to top when route changes so each page opens from the beginning */
 const ScrollToTop = () => {
@@ -87,6 +93,20 @@ export const AppLayout = () => {
         };
     }, [navigate]);
 
+    // Safely get the username and emp_type from admins table data
+    // Backend returns: user.name (display name: first_name / user_name / email prefix) and user.emp_type
+    const username = userData.user?.name || userData.user?.first_name || userData.user?.user_name
+        || (userData.user?.email ? userData.user.email.split("@")[0] : null) || "User";
+    // Get emp_type from admins table (from backend /employee/homepage response)
+    const empType = userData.user?.emp_type || userData.user?.department || "Employee";
+    
+    // Cache-bust profile picture URL only when photo_url changes (not on every render)
+    // NOTE: This hook must be called BEFORE any early returns to maintain hook order
+    const profilePicWithCache = useMemo(() => {
+        const url = normalizePhotoUrl(userData.user?.photo_url);
+        return url ? `${url}?t=${Date.now()}` : null;
+    }, [userData.user?.photo_url]);
+
     /* Don't show any protected UI or loading when not authenticated */
     if (!hasToken) {
         return null;
@@ -100,13 +120,6 @@ export const AppLayout = () => {
         );
     }
     
-    // Safely get the username and emp_type from admins table data
-    // Backend returns: user.name (display name: first_name / user_name / email prefix) and user.emp_type
-    const username = userData.user?.name || userData.user?.first_name || userData.user?.user_name
-        || (userData.user?.email ? userData.user.email.split("@")[0] : null) || "User";
-    // Get emp_type from admins table (from backend /employee/homepage response)
-    const empType = userData.user?.emp_type || userData.user?.department || "Employee";
-    
     // Debug logging
     console.log("AppLayout Debug:", {
         userData: userData.user,
@@ -117,7 +130,7 @@ export const AppLayout = () => {
         <div className="main-layout">
             <ScrollToTop />
             {/* The Header now gets the username from the centralized context */}
-            <Headers username={username} role={empType} hasManagerAccess={userData.user?.has_manager_access} /> 
+            <Headers username={username} role={empType} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
             <div className="content-area" style={{ paddingTop: "24px" }}>
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}

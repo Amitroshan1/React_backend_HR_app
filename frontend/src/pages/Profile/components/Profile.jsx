@@ -8,10 +8,82 @@ import {
     MANDATORY_FORM_FIELDS,
     MANDATORY_FILES_LIST,
     simulatePincodeLookup} from '../utils/profileUtils';
+import { useUser } from "../../../components/layout/UserContext";
 
 const API_BASE_URL = "/api/auth";
 
 const TOAST_DURATION_MS = 3000;
+
+// Normalize photo URL: strip /public prefix if present (Vite serves public files at root)
+const normalizePhotoUrl = (url) => {
+    if (!url) return url;
+    return url.startsWith('/public/') ? url.replace('/public/', '/') : url;
+};
+
+const isValidEmail = (email) => {
+    if (!email || typeof email !== 'string') return false;
+    const trimmed = email.trim();
+    if (!trimmed) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+};
+
+// Map display gender to backend-compatible value (avoids backend error for "Prefer Not To Say")
+const mapGenderForBackend = (gender) => {
+    if (!gender) return gender;
+    if (gender === 'Prefer Not To Say') return 'prefer_not_to_say';
+    return gender;
+};
+
+// Map backend gender value to display value
+const mapGenderFromBackend = (gender) => {
+    if (!gender) return gender;
+    if (String(gender).toLowerCase() === 'prefer_not_to_say') return 'Prefer Not To Say';
+    return gender;
+};
+
+const NAME_MIN_LEN = 2;
+const NAME_MAX_LEN = 100;
+const ADDRESS_FIELD_MAX_LEN = 255;
+const MIN_AGE_YEARS = 18;
+
+const validateFullName = (val) => {
+    if (!val || typeof val !== 'string') return null;
+    const t = val.trim();
+    if (t.length < NAME_MIN_LEN) return 'Full Name must contain at least 2 characters.';
+    if (t.length > NAME_MAX_LEN) return `Full Name cannot exceed ${NAME_MAX_LEN} characters.`;
+    const hasLetters = /[a-zA-Z]/.test(t);
+    const onlyDigits = /^\d+$/.test(t.replace(/\s/g, ''));
+    const onlySpecial = !/[a-zA-Z0-9]/.test(t.replace(/\s/g, ''));
+    if (!hasLetters || onlyDigits) return 'Full Name must contain letters (cannot be numbers only).';
+    if (onlySpecial) return 'Full Name must contain letters (cannot be special characters only).';
+    return null;
+};
+
+const validatePersonName = (val, label) => {
+    if (!val || typeof val !== 'string') return null;
+    const t = val.trim();
+    if (t.length < NAME_MIN_LEN) return `${label} must contain at least ${NAME_MIN_LEN} characters.`;
+    if (t.length > NAME_MAX_LEN) return `${label} cannot exceed ${NAME_MAX_LEN} characters.`;
+    const hasLetters = /[a-zA-Z]/.test(t);
+    const onlyDigits = /^\d+$/.test(t.replace(/\s/g, ''));
+    const onlySpecial = !/[a-zA-Z0-9]/.test(t.replace(/\s/g, ''));
+    if (!hasLetters || onlyDigits) return `${label} must contain letters (cannot be numbers only).`;
+    if (onlySpecial) return `${label} must contain letters (cannot be special characters only).`;
+    return null;
+};
+
+const validateDateOfBirth = (dobStr) => {
+    if (!dobStr || typeof dobStr !== 'string') return null;
+    const d = new Date(dobStr);
+    if (isNaN(d.getTime())) return 'Please enter a valid date.';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    if (d > today) return 'Date of Birth cannot be in the future.';
+    const age = Math.floor((today - d) / (365.25 * 24 * 60 * 60 * 1000));
+    if (age < MIN_AGE_YEARS) return `You must be at least ${MIN_AGE_YEARS} years old.`;
+    return null;
+};
 
 import {PersonalInfoSection} from './profile/sections/PersonalInfoSection';
 import {AddressSection} from './profile/sections/AddressSection';
@@ -29,6 +101,7 @@ const MODERN_FONT_STYLE = {
 };
 
 export const Profile = () => {
+    const { refreshUserData } = useUser();
     // Helper for deep cloning the initial data structure
     const getInitialClone = () => JSON.parse(JSON.stringify(initialDataState));
     // --- UI/Control STATES ---
@@ -95,6 +168,18 @@ export const Profile = () => {
         const sameAsCurrent = !!(emp.present_address_line1 && emp.permanent_address_line1 &&
             emp.present_address_line1 === emp.permanent_address_line1 && emp.present_pincode === emp.permanent_pincode);
 
+        const parsePhone = (val) => {
+            if (!val) return { code: '+91', number: '' };
+            const str = String(val).trim();
+            const match = str.match(/^(\+\d{1,4})\s*(.*)$/);
+            if (match) {
+                return { code: match[1], number: match[2].replace(/\D/g, '').slice(0, 10) };
+            }
+            return { code: '+91', number: str.replace(/\D/g, '').slice(0, 10) };
+        };
+        const mobileParsed = parsePhone(emp.mobile || admin.mobile || '');
+        const emergencyParsed = parsePhone(emp.emergency_mobile || '');
+
         const form = {
             ...initialDataState.formData,
             fullName: emp.name || admin.first_name || '',
@@ -102,11 +187,13 @@ export const Profile = () => {
             motherName: emp.mother_name || '',
             maritalStatus: emp.marital_status || '',
             personalEmail: emp.email || admin.email || '',
-            mobile: emp.mobile || admin.mobile || '',
-            emergency: emp.emergency_mobile || '',
+            mobile: mobileParsed.number,
+            mobileCountryCode: mobileParsed.code,
+            emergency: emergencyParsed.number,
+            emergencyCountryCode: emergencyParsed.code,
             nationality: emp.nationality || '',
             dateOfBirth: emp.dob ? emp.dob.split('T')[0] : '',
-            gender: emp.gender || '',
+            gender: mapGenderFromBackend(emp.gender) || '',
             bloodGroup: emp.blood_group || '',
             designation: emp.designation || '',
             employeeId: emp.emp_id || admin.emp_id || '',
@@ -162,6 +249,10 @@ export const Profile = () => {
         setFiles(filePaths);
         setPreviousEmployment(prevEmp);
         setEducationDetails(eduDetails);
+        if (emp.photo_url) {
+            const normalizedUrl = normalizePhotoUrl(emp.photo_url);
+            setCurrentAvatarUrl(`${normalizedUrl}?t=${Date.now()}`);
+        }
     }, []);
 
     const fetchProfile = useCallback(async (options = {}) => {
@@ -228,12 +319,46 @@ export const Profile = () => {
             }
         });
 
-        // 2. ADDRESS VALIDATION
+        // 1b. FULL NAME VALIDATION (min/max, format)
+        const fullNameErr = validateFullName(currentFormData?.fullName);
+        if (fullNameErr) { newErrors.fullName = fullNameErr; hasMandatoryErrors = true; }
+
+        // 1c. FATHER NAME VALIDATION (min 2, max length)
+        const fatherNameErr = validatePersonName(currentFormData?.fatherName, 'Father Name');
+        if (fatherNameErr) { newErrors.fatherName = fatherNameErr; hasMandatoryErrors = true; }
+
+        const motherNameVal = currentFormData?.motherName;
+        if (motherNameVal && motherNameVal.toString().trim() !== '') {
+            const motherNameErr = validatePersonName(motherNameVal, 'Mother Name');
+            if (motherNameErr) { newErrors.motherName = motherNameErr; hasMandatoryErrors = true; }
+        }
+
+        // 1d. DATE OF BIRTH VALIDATION (no future, min age 18)
+        const dobErr = validateDateOfBirth(currentFormData?.dateOfBirth);
+        if (dobErr) { newErrors.dateOfBirth = dobErr; hasMandatoryErrors = true; }
+
+        // 1e. EMAIL FORMAT VALIDATION
+        const emailVal = currentFormData?.personalEmail;
+        if (emailVal && emailVal.toString().trim() !== '') {
+            if (!isValidEmail(emailVal)) {
+                newErrors.personalEmail = 'Please enter a valid email address.';
+                hasMandatoryErrors = true;
+            }
+        }
+
+        // 2. ADDRESS VALIDATION (including max length)
         const validateAddress = (addr, type) => {
             ADDRESS_MANDATORY_FIELDS.forEach(field => {
                 const key = `${type}${field.charAt(0).toUpperCase() + field.slice(1)}`;
-                if (!addr[field] || addr[field].toString().trim() === '' || (field === 'pincode' && addr.pincode && addr.pincode.length !== 6)) {
-                    newErrors[key] = `${field} is mandatory or invalid.`;
+                const val = addr[field];
+                if (!val || val.toString().trim() === '') {
+                    newErrors[key] = `${field} is mandatory.`;
+                    hasMandatoryErrors = true;
+                } else if (field === 'pincode' && val && val.length !== 6) {
+                    newErrors[key] = 'Pincode must be 6 digits.';
+                    hasMandatoryErrors = true;
+                } else if (field !== 'pincode' && val && val.toString().length > ADDRESS_FIELD_MAX_LEN) {
+                    newErrors[key] = `${field} cannot exceed ${ADDRESS_FIELD_MAX_LEN} characters.`;
                     hasMandatoryErrors = true;
                 }
             });
@@ -307,9 +432,9 @@ export const Profile = () => {
                         marital_status: formData.maritalStatus,
                         dob: formData.dateOfBirth,
                         emp_id: formData.employeeId,
-                        mobile: formData.mobile,
-                        gender: formData.gender,
-                        emergency_mobile: formData.emergency,
+                        mobile: formData.mobileCountryCode && formData.mobile ? `${formData.mobileCountryCode} ${formData.mobile}` : formData.mobile,
+                        gender: mapGenderForBackend(formData.gender),
+                        emergency_mobile: formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : formData.emergency,
                         nationality: formData.nationality,
                         blood_group: formData.bloodGroup,
                         designation: formData.designation,
@@ -415,9 +540,9 @@ export const Profile = () => {
                     marital_status: formData.maritalStatus || 'Single',
                     dob: formData.dateOfBirth || null,
                     emp_id: formData.employeeId || '',
-                    mobile: formData.mobile || '',
-                    gender: formData.gender || '',
-                    emergency_mobile: formData.emergency || '',
+                    mobile: formData.mobileCountryCode && formData.mobile ? `${formData.mobileCountryCode} ${formData.mobile}` : (formData.mobile || ''),
+                    gender: mapGenderForBackend(formData.gender) || '',
+                    emergency_mobile: formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : (formData.emergency || ''),
                     nationality: formData.nationality || '',
                     blood_group: formData.bloodGroup || '',
                     designation: formData.designation || '',
@@ -503,14 +628,39 @@ export const Profile = () => {
         }
     }, [adminId, formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, showToast]);
 
-    // --- AVATAR HANDLER (Omitted for brevity) ---
-    const handleAvatarChange = (imageBlob) => {
+    // --- AVATAR HANDLER ---
+    const handleAvatarChange = async (imageBlob) => {
         setSaveStatus('Uploading Image...');
-        setTimeout(() => {
-            const newUrl = URL.createObjectURL(imageBlob);
-            setCurrentAvatarUrl(newUrl);
-            setSaveStatus('Saved!');
-        }, 500);
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showToast('Please log in again.', 'error');
+            setSaveStatus('Ready');
+            return;
+        }
+        try {
+            const formData = new FormData();
+            formData.append('photo', imageBlob, 'profile.png');
+            const res = await fetch(`${API_BASE_URL}/employee/upload-photo`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+                body: formData,
+            });
+            const data = await res.json();
+            if (res.ok && data.success && data.photo_url) {
+                const normalizedUrl = normalizePhotoUrl(data.photo_url);
+                setCurrentAvatarUrl(`${normalizedUrl}?t=${Date.now()}`);
+                showToast('Profile picture updated successfully.');
+                setSaveStatus('Saved!');
+                refreshUserData();
+            } else {
+                showToast(data.message || 'Failed to upload photo.', 'error');
+                setSaveStatus('Ready');
+            }
+        } catch (err) {
+            console.error('Photo upload error:', err);
+            showToast('Failed to upload photo.', 'error');
+            setSaveStatus('Ready');
+        }
     };
 
     // =========================================================
@@ -716,6 +866,41 @@ export const Profile = () => {
             }
         });
 
+        const fullNameErr = validateFullName(formData?.fullName);
+        if (fullNameErr) { sectionErrors.fullName = fullNameErr; hasErrors = true; }
+
+        const fatherNameErr = validatePersonName(formData?.fatherName, 'Father Name');
+        if (fatherNameErr) { sectionErrors.fatherName = fatherNameErr; hasErrors = true; }
+
+        const motherNameVal = formData?.motherName;
+        if (motherNameVal && motherNameVal.toString().trim() !== '') {
+            const motherNameErr = validatePersonName(motherNameVal, 'Mother Name');
+            if (motherNameErr) { sectionErrors.motherName = motherNameErr; hasErrors = true; }
+        }
+
+        const dobErr = validateDateOfBirth(formData?.dateOfBirth);
+        if (dobErr) { sectionErrors.dateOfBirth = dobErr; hasErrors = true; }
+
+        const emailVal = formData?.personalEmail;
+        if (emailVal && emailVal.toString().trim() !== '') {
+            if (!isValidEmail(emailVal)) {
+                sectionErrors.personalEmail = 'Please enter a valid email address.';
+                hasErrors = true;
+            }
+        }
+
+        const mobileDigits = (formData.mobile || '').replace(/\D/g, '');
+        if (mobileDigits && mobileDigits.length !== 10) {
+            sectionErrors.mobile = 'Mobile number must be exactly 10 digits.';
+            hasErrors = true;
+        }
+
+        const emergencyDigits = (formData.emergency || '').replace(/\D/g, '');
+        if (emergencyDigits && emergencyDigits.length !== 10) {
+            sectionErrors.emergency = 'Contact number must be exactly 10 digits.';
+            hasErrors = true;
+        }
+
         setErrors(prev => ({ ...prev, ...sectionErrors }));
         return !hasErrors;
     };
@@ -728,8 +913,15 @@ export const Profile = () => {
         const validateAddress = (addr, type) => {
             ADDRESS_MANDATORY_FIELDS.forEach(field => {
                 const key = `${type}${field.charAt(0).toUpperCase() + field.slice(1)}`;
-                if (!addr[field] || addr[field].toString().trim() === '' || (field === 'pincode' && addr.pincode && addr.pincode.length !== 6)) {
-                    sectionErrors[key] = `${field} is mandatory or invalid.`;
+                const val = addr[field];
+                if (!val || val.toString().trim() === '') {
+                    sectionErrors[key] = `${field} is mandatory.`;
+                    hasErrors = true;
+                } else if (field === 'pincode' && val.length !== 6) {
+                    sectionErrors[key] = 'Pincode must be 6 digits.';
+                    hasErrors = true;
+                } else if (field !== 'pincode' && val.toString().length > ADDRESS_FIELD_MAX_LEN) {
+                    sectionErrors[key] = `${field} cannot exceed ${ADDRESS_FIELD_MAX_LEN} characters.`;
                     hasErrors = true;
                 }
             });

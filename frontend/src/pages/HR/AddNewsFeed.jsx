@@ -107,7 +107,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   return (
     <div className="newsfeed-page-container">
       <div className="newsfeed-content">
-        <button type="button" className="btn-back-link" onClick={onBack}>
+        <button type="button" className="btn-back-updates" onClick={onBack}>
           <ArrowLeft size={16} /> Back to Updates
         </button>
 

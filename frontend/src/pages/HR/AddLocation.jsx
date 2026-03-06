@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { ArrowLeft, Search, MapPin } from 'lucide-react';
+import { ArrowLeft, MapPin } from 'lucide-react';
 import './AddLocation.css';
 
 const HR_API_BASE = '/api/HumanResource';
@@ -116,7 +116,7 @@ export const AddLocation = ({ onBack }) => {
         <div className="location-card">
           <div className="location-card-header">
             <h2>Manage Office Locations</h2>
-            <Search size={20} className="header-icon-blue" />
+            <p className="location-card-subtitle">Add office locations with coordinates and radius for attendance</p>
           </div>
 
           <form className="search-section" onSubmit={handleAdd}>

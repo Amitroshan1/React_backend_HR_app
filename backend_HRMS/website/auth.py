@@ -314,6 +314,12 @@ def _employee_homepage_impl():
     _email = (getattr(admin, "email", None) or "").strip()
     display_name = _first or _uname or (_email.split("@")[0] if _email else None) or "User"
 
+    photo_url = None
+    if employee:
+        photo_fn = (getattr(employee, "photo_filename", None) or "").strip()
+        if photo_fn:
+            photo_url = f"/static/uploads/{photo_fn}"
+
     return jsonify({
         "success": True,
         "user": {
@@ -327,7 +333,8 @@ def _employee_homepage_impl():
             "department": getattr(admin, "emp_type", None),
             "circle": getattr(admin, "circle", None),
             "doj": _safe_doj(admin),
-            "has_manager_access": has_manager_access
+            "has_manager_access": has_manager_access,
+            "photo_url": photo_url
         },
         "employee": {
             "designation": employee.designation if employee else None
@@ -503,6 +510,10 @@ def employee_profile():
     }
 
     if employee:
+        photo_url = None
+        photo_fn = (getattr(employee, "photo_filename", None) or "").strip()
+        if photo_fn:
+            photo_url = f"/static/uploads/{photo_fn}"
         profile["employee"] = {
             "name": employee.name,
             "email": employee.email,
@@ -525,6 +536,7 @@ def employee_profile():
             "present_pincode": employee.present_pincode,
             "present_district": employee.present_district or "",
             "present_state": employee.present_state or "",
+            "photo_url": photo_url,
         }
 
     for edu in education_list:
@@ -568,6 +580,48 @@ def employee_profile():
         }
 
     return jsonify({"success": True, "profile": profile}), 200
+
+
+@auth.route('/employee/upload-photo', methods=['POST'])
+@jwt_required()
+def upload_profile_photo():
+    """Upload profile photo for the logged-in employee."""
+    try:
+        admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    employee = Employee.query.filter_by(admin_id=admin.id).first()
+    if not employee:
+        return jsonify({"success": False, "message": "Employee record not found"}), 404
+
+    if 'photo' not in request.files:
+        return jsonify({"success": False, "message": "No photo file provided"}), 400
+
+    photo = request.files['photo']
+    if not photo or not photo.filename:
+        return jsonify({"success": False, "message": "Invalid photo file"}), 400
+
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ext = photo.filename.rsplit('.', 1)[-1].lower() if '.' in photo.filename else ''
+    if ext not in allowed_extensions:
+        return jsonify({"success": False, "message": "Invalid file type. Allowed: png, jpg, jpeg, gif, webp"}), 400
+
+    filename = secure_filename(f"profile_{admin.id}_{admin.emp_id or 'emp'}.{ext}")
+    upload_dir = os.path.join(current_app.static_folder, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    photo_path = os.path.join(upload_dir, filename)
+    photo.save(photo_path)
+
+    employee.photo_filename = filename
+    db.session.commit()
+
+    photo_url = f"/static/uploads/{filename}"
+    return jsonify({"success": True, "message": "Photo uploaded successfully", "photo_url": photo_url}), 200
 
 
 def _normalize_working_hours(val):

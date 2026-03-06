@@ -121,14 +121,14 @@ export const AddAssets = ({ onBack }) => {
   return (
     <div className="assets-page-wrapper">
       <div className="assets-container">
-        <button className="btn-back-link" onClick={onBack}>
+        <button type="button" className="btn-back-updates" onClick={onBack}>
           <ArrowLeft size={16} /> Back to Updates
         </button>
 
         <div className="assets-card">
           <div className="assets-card-header">
             <h2>Add Assets</h2>
-            <Search size={20} className="header-search-icon" />
+            <p className="assets-card-subtitle">Search by Employee ID to assign assets</p>
           </div>
 
           <div className="search-section">

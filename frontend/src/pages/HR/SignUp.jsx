@@ -91,7 +91,7 @@ export const SignUp = ({ onBack }) => {
             <div className="form-row">
               <div className="form-group">
                 <label>Mobile Number</label>
-                <input type="tel" placeholder="Enter your Mobile Number" />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={10} placeholder="Enter 10-digit Mobile Number" onChange={(e) => e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10)} />
               </div>
               <div className="form-group">
                 <label>Date of Joining</label>

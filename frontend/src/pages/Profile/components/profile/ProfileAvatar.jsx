@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import AvatarEditor from 'react-avatar-editor';
 
 export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
@@ -6,6 +6,13 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
     const [image, setImage] = useState(imageUrl || '');
     const [isEditing, setIsEditing] = useState(false);
     const editorRef = useRef(null);
+
+    // Sync internal state when imageUrl prop changes (e.g. after successful upload)
+    useEffect(() => {
+        if (imageUrl && !isEditing) {
+            setImage(imageUrl);
+        }
+    }, [imageUrl, isEditing]);
 
     const handleFileChange = (e) => {
         const file = e.target.files[0];

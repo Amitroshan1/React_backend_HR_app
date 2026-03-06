@@ -1660,3 +1660,51 @@
         padding: 14px;
     }
 }
+
+/* Phone Input with Country Code */
+.phone-input-group {
+    position: relative;
+}
+
+.phone-input-group .input-label {
+    left: 0 !important;
+}
+
+.phone-input-wrapper {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.country-code-select {
+    width: 110px;
+    flex-shrink: 0;
+    padding: 12px 8px !important;
+    font-size: 14px;
+    cursor: pointer;
+    background-color: #f8fafc;
+    border: 1.5px solid var(--border-light);
+    border-radius: var(--radius-md);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.country-code-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.phone-input-group .phone-input-wrapper .form-control {
+    flex: 1;
+}
+
+@media (max-width: 480px) {
+    .phone-input-wrapper {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .country-code-select {
+        width: 100%;
+    }
+}

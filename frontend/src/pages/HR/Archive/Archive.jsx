@@ -227,11 +227,13 @@ const ArchiveEmployees = () => {
   return (
     <div className="archive-container">
       <div className="archive-wrapper">
-        {/* Back Button */}
-        <button className="back-button" onClick={() => navigate('/exit-employees')}>
-          <ArrowLeft size={20} />
-          <span>Back to Exit Employees</span>
-        </button>
+        {/* Header with Back Button */}
+        <div className="archive-header">
+          <button className="btn-back-updates" onClick={() => navigate('/exit-employees')}>
+            <ArrowLeft size={20} />
+            <span>Back to Exit Employees</span>
+          </button>
+        </div>
 
         {/* Title */}
         <div className="title-section">
@@ -239,7 +241,7 @@ const ArchiveEmployees = () => {
           <p className="page-subtitle">View exited employees archive</p>
         </div>
         {error && (
-          <p style={{ color: '#b91c1c', marginBottom: '12px' }}>{error}</p>
+          <p className="archive-error">{error}</p>
         )}
 
         {/* Filters */}

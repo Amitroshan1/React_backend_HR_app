@@ -297,7 +297,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
     }, []);
 
     const handleLogout = () => {
-        toast.success("Logged out successfully");
+        toast.info("Logged out successfully");
         localStorage.removeItem('token');
         localStorage.removeItem('lastActivityAt');
         navigate('/');

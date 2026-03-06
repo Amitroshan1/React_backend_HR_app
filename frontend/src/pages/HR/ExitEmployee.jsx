@@ -221,7 +221,7 @@ const ExitEmployee = ({onBack}) => {
 
         <div className="header-section">
           <button
-            className="back-button"
+            className="btn-back-updates"
             aria-label="Back to Updates"
             onClick={() => {
               if (onBack) {
@@ -258,7 +258,7 @@ const ExitEmployee = ({onBack}) => {
           <p className="page-subtitle">Manage and archive exited employees</p>
         </div>
         {error && (
-          <p style={{ color: '#b91c1c', marginBottom: '12px' }}>{error}</p>
+          <p className="exit-employee-error">{error}</p>
         )}
 
 

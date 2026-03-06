@@ -307,38 +307,51 @@
   box-sizing: border-box;
 }
 
-.manager-nav {
-  padding: 1rem 24px;
-  border-bottom: 1px solid var(--um-border);
-  background: var(--um-card-bg);
-  box-shadow: var(--um-shadow);
+/* Details view: button above manager card, aligned */
+.manager-details-column {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.btn-back-square {
+.manager-back-btn {
+  align-self: flex-start;
+  margin-left: 0;
+  margin-bottom: 0;
+}
+
+/* Back button – same as Update Sign Up / Sign Up */
+.btn-back-updates {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--um-border);
-  background: var(--um-card-bg);
   padding: 10px 18px;
+  margin-bottom: 0;
+  background: var(--um-card-bg);
+  border: 1px solid var(--um-border);
   border-radius: 8px;
-  cursor: pointer;
+  color: var(--um-text-dark);
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--um-text-dark);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  box-shadow: var(--um-shadow);
 }
 
-.btn-back-square:hover {
+.btn-back-updates:hover {
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+  transform: translateX(-2px);
 }
 
 .manager-form-wrapper {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 24px 16px;
+  padding: 24px 24px;
   min-height: calc(100vh - 80px);
 }
 

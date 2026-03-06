@@ -53,6 +53,7 @@ export const AddressBlock = ({
                         readOnly={!isCurrent && sameAsCurrent}
                         error={errors[`${errorPrefix}Street`]}
                         isMandatory
+                        maxLength={255}
                     />
 
                     <div className="grid-3 address-fields-row">
@@ -73,6 +74,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}City`]}
+                            maxLength={255}
                         />
                         <Input
                             label="State"
@@ -81,6 +83,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}State`]}
+                            maxLength={255}
                         />
                         <Input
                             label="District"
@@ -89,6 +92,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}District`]}
+                            maxLength={255}
                         />
                         <Input
                             label="Taluka"
@@ -97,6 +101,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}Taluka`]}
+                            maxLength={255}
                         />
                     </div>
                 </div>
