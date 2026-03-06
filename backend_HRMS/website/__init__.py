@@ -172,10 +172,9 @@ def create_app():
     from .Accounts import Accounts
     # from .Manager import manager
 
-    from .Manager import manager
+    from .manager import manager
     from .Admin import admin_bp
 
-    from .Manager import manager
 
 
     from .notifications import notifications
