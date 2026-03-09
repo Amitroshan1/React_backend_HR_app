@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 
-export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId, uploadProfileFileUrl }) => {
+export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId, uploadProfileFileUrl, accept }) => {
     const [progress, setProgress] = useState(0);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState('');
@@ -27,6 +27,16 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
     const handleActualFileChange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        if (accept) {
+            const allowedExts = accept.replace(/\./g, '').toLowerCase().split(',');
+            const ext = (file.name.split('.').pop() || '').toLowerCase();
+            if (!allowedExts.includes(ext)) {
+                setUploadError('Please select a valid file (.pdf, .jpg, or .png only).');
+                if (inputRef.current) inputRef.current.value = '';
+                return;
+            }
+        }
 
         if (!adminId || !uploadProfileFileUrl) {
             setUploadError('Profile not loaded. Please refresh and try again.');
@@ -100,6 +110,7 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
                 id={name}
                 name={name}
                 ref={inputRef}
+                accept={accept}
                 onChange={handleActualFileChange}
                 style={{
                     border: error ? '1px solid red' : '1px solid #ddd',

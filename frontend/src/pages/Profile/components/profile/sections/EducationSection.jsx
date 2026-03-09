@@ -25,6 +25,8 @@ export const EducationSection = ({
     onRemove,
     onSave,
     onUndo,
+    adminId,
+    uploadProfileFileUrl,
 }) => {
     const isEditMode = mode === 'edit';
 
@@ -121,7 +123,9 @@ export const EducationSection = ({
                             onFileChange={(_, file) =>
                                 onChange(index, 'certificate', file)
                             }
-                            isMandatory
+                            adminId={adminId}
+                            uploadProfileFileUrl={uploadProfileFileUrl}
+                            accept=".pdf,.jpg,.jpeg,.png"
                         />
                     </div>
                 </div>

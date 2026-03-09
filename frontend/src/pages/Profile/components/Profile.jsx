@@ -206,11 +206,11 @@ export const Profile = () => {
         };
 
         const prevEmp = prevList.length > 0 ? prevList.map((pe) => ({
-            companyName: pe.companyName || '',
+            companyName: pe.companyName || pe.com_name || '',
             designation: pe.designation || '',
-            dateOfLeaving: pe.dateOfLeaving ? pe.dateOfLeaving.split('T')[0] : '',
+            dateOfLeaving: (pe.dateOfLeaving || pe.dol) ? (pe.dateOfLeaving || pe.dol).toString().split('T')[0] : '',
             experienceYears: pe.experienceYears || '',
-        })) : [...initialDataState.previousEmployment];
+        })) : [];
 
         const eduDetails = eduList.length > 0 ? eduList.map((e) => ({
             id: e.id || Date.now(),
@@ -482,25 +482,23 @@ export const Profile = () => {
                         return false;
                     }
 
-                    // POST /education (first record only; backend requires start/end)
-                    const edu = educationDetails[0];
-                    if (edu && edu.fromDate && edu.toDate && (edu.qualification || edu.institution || edu.university || edu.marks)) {
-                        const eduPayload = {
-                            admin_id: parseInt(adminId, 10),
+                    // POST /education-replace (all education records)
+                    const eduItems = (educationDetails || [])
+                        .filter((edu) => edu && edu.fromDate && edu.toDate && (edu.qualification || edu.institution || edu.university || edu.marks))
+                        .map((edu) => ({
                             qualification: edu.qualification || '',
                             institution: edu.institution || '',
-                            board: edu.university || '',
-                            start: edu.fromDate,
-                            end: edu.toDate,
+                            university: edu.university || '',
+                            fromDate: edu.fromDate,
+                            toDate: edu.toDate,
                             marks: edu.marks || '',
-                            doc_file: typeof edu.certificate === 'string' ? edu.certificate : null,
-                        };
-                        await fetch(`${API_BASE_URL}/education`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                            body: JSON.stringify(eduPayload),
-                        });
-                    }
+                            certificate: typeof edu.certificate === 'string' ? edu.certificate : null,
+                        }));
+                    await fetch(`${API_BASE_URL}/education-replace`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ items: eduItems }),
+                    });
 
                     // POST /upload-docs (paths only; file upload can be separate)
                     const docPayload = {
@@ -602,27 +600,26 @@ export const Profile = () => {
                 }
             }
             if (sectionName === 'education') {
-                const edu = educationDetails[0];
-                if (edu && edu.fromDate && edu.toDate) {
-                    const eduPayload = {
-                        admin_id: parseInt(adminId, 10),
+                const items = (educationDetails || [])
+                    .filter((edu) => edu && edu.fromDate && edu.toDate && (edu.qualification || edu.institution || edu.university || edu.marks))
+                    .map((edu) => ({
                         qualification: edu.qualification || '',
                         institution: edu.institution || '',
-                        board: edu.university || '',
-                        start: edu.fromDate,
-                        end: edu.toDate,
+                        university: edu.university || '',
+                        fromDate: edu.fromDate,
+                        toDate: edu.toDate,
                         marks: edu.marks || '',
-                        doc_file: typeof edu.certificate === 'string' ? edu.certificate : null,
-                    };
-                    const eduRes = await fetch(`${API_BASE_URL}/education`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify(eduPayload),
-                    });
-                    if (!eduRes.ok) {
-                        showToast('Failed to save education.', 'error');
-                        return;
-                    }
+                        certificate: typeof edu.certificate === 'string' ? edu.certificate : null,
+                    }));
+                const eduRes = await fetch(`${API_BASE_URL}/education-replace`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ items }),
+                });
+                if (!eduRes.ok) {
+                    const errData = await eduRes.json().catch(() => ({}));
+                    showToast(errData.message || 'Failed to save education.', 'error');
+                    return;
                 }
             }
             if (sectionName === 'documents') {
@@ -876,7 +873,6 @@ export const Profile = () => {
         'department',
         'dateOfJoining',
         'reportingManager',
-        'employmentType'
     ];
 
     const validatePersonalSection = () => {
@@ -1399,6 +1395,8 @@ export const Profile = () => {
                     onRemove={handleRemoveEducation}
                     onSave={() => handleSectionSave('education')}
                     onUndo={() => handleSectionUndo('education')}
+                    adminId={adminId}
+                    uploadProfileFileUrl={`${API_BASE_URL}/upload-profile-file`}
                 />
                 <DocumentUploadSection
                     files={dataToDisplay.files}

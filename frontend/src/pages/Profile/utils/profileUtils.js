@@ -49,7 +49,7 @@ export const MANDATORY_FORM_FIELDS = [
     'fullName', 'fatherName', 'maritalStatus', 'personalEmail',
     'mobile', 'nationality', 'dateOfBirth', 'gender',
     'designation', 'employeeId', 'department', 'dateOfJoining',
-    'reportingManager', 'employmentType',
+    'reportingManager',
 ];
 
 export const MANDATORY_FILES_LIST = [
@@ -74,14 +74,7 @@ export const initialDataState = {
         experienceYears: '2.5',
         profileImage: null, 
     },
-    previousEmployment: [
-        {
-            companyName: 'Tech Innovators Co.',
-            designation: 'Junior Developer',
-            dateOfLeaving: '2022-12-31',
-            experienceYears: '2.5',
-        }
-    ],
+    previousEmployment: [],
     currentAddress: {
         street: '123, Main Street,\nNear City Center,\nBuilding 5, Flat 101', city: 'Mumbai', state: 'Maharashtra', district: 'Mumbai Suburban', taluka: 'Andheri', pincode: '400001'
     },
@@ -113,8 +106,11 @@ export function calculateProfileCompletion(formData, currentAddress, permanentAd
     let permanentAddressFilled = sameAsCurrent ? true : addressFields.every(f => permanentAddress[f] && permanentAddress[f].toString().trim() !== '');
     if(currentAddressFilled && permanentAddressFilled) totalScore += sectionWeight;
 
-    // 3. Employment
-    let employmentFilled = previousEmployment.length > 0 && previousEmployment.every(emp => emp.companyName && emp.designation);
+    // 3. Employment (current employment required; previous employment is optional)
+    const currentEmploymentFields = ['designation', 'employeeId', 'department', 'dateOfJoining', 'reportingManager'];
+    const currentEmploymentFilled = currentEmploymentFields.every(f => formData[f] && formData[f].toString().trim() !== '');
+    const previousEmploymentFilled = previousEmployment.length === 0 || previousEmployment.every(emp => emp.companyName && emp.designation);
+    let employmentFilled = currentEmploymentFilled && previousEmploymentFilled;
     if(employmentFilled) totalScore += sectionWeight;
 
     // 4. Education
