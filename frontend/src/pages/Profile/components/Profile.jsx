@@ -153,18 +153,18 @@ export const Profile = () => {
 
         const currentAddr = {
             street: emp.present_address_line1 || '',
-            city: emp.present_city || emp.present_district || '',
+            city: emp.present_district || '',
             state: emp.present_state || '',
             district: emp.present_district || '',
-            taluka: emp.present_taluka || '',
+            taluka: '',
             pincode: emp.present_pincode || '',
         };
         const permAddr = {
             street: emp.permanent_address_line1 || '',
-            city: emp.permanent_city || emp.permanent_district || '',
+            city: emp.permanent_district || '',
             state: emp.permanent_state || '',
             district: emp.permanent_district || '',
-            taluka: emp.permanent_taluka || '',
+            taluka: '',
             pincode: emp.permanent_pincode || '',
         };
         const sameAsCurrent = !!(emp.present_address_line1 && emp.permanent_address_line1 &&
@@ -464,14 +464,10 @@ export const Profile = () => {
                         permanent_pincode: permAddr.pincode,
                         permanent_district: permAddr.district,
                         permanent_state: permAddr.state,
-                        permanent_city: permAddr.city || null,
-                        permanent_taluka: permAddr.taluka || null,
                         present_address_line1: currentAddress.street,
                         present_pincode: currentAddress.pincode,
                         present_district: currentAddress.district,
                         present_state: currentAddress.state,
-                        present_city: currentAddress.city || null,
-                        present_taluka: currentAddress.taluka || null,
                     };
                     const empRes = await fetch(`${API_BASE_URL}/employee`, {
                         method: 'POST',
@@ -577,14 +573,10 @@ export const Profile = () => {
                     permanent_pincode: permAddr.pincode || '',
                     permanent_district: permAddr.district || '',
                     permanent_state: permAddr.state || '',
-                    permanent_city: permAddr.city || null,
-                    permanent_taluka: permAddr.taluka || null,
                     present_address_line1: currentAddress.street || '',
                     present_pincode: currentAddress.pincode || '',
                     present_district: currentAddress.district || '',
                     present_state: currentAddress.state || '',
-                    present_city: currentAddress.city || null,
-                    present_taluka: currentAddress.taluka || null,
                 };
                 const empRes = await fetch(`${API_BASE_URL}/employee`, {
                     method: 'POST',

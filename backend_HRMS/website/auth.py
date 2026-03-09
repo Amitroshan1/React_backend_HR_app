@@ -539,14 +539,10 @@ def employee_profile():
             "permanent_pincode": employee.permanent_pincode,
             "permanent_district": employee.permanent_district or "",
             "permanent_state": employee.permanent_state or "",
-            "permanent_city": getattr(employee, "permanent_city", None) or "",
-            "permanent_taluka": getattr(employee, "permanent_taluka", None) or "",
             "present_address_line1": employee.present_address_line1,
             "present_pincode": employee.present_pincode,
             "present_district": employee.present_district or "",
             "present_state": employee.present_state or "",
-            "present_city": getattr(employee, "present_city", None) or "",
-            "present_taluka": getattr(employee, "present_taluka", None) or "",
             "photo_url": photo_url,
         }
 
@@ -984,8 +980,8 @@ def create_or_update_employee():
             }
             optional_string_fields = {"mother_name", "emergency_mobile"}
             optional_address_fields = {
-                "permanent_district", "permanent_state", "permanent_city", "permanent_taluka",
-                "present_district", "present_state", "present_city", "present_taluka"
+                "permanent_district", "permanent_state",
+                "present_district", "present_state"
             }
 
             for field in [
@@ -993,9 +989,9 @@ def create_or_update_employee():
                 "dob", "emp_id", "mobile", "gender", "emergency_mobile",
                 "nationality", "blood_group", "designation",
                 "permanent_address_line1", "permanent_pincode",
-                "permanent_district", "permanent_state", "permanent_city", "permanent_taluka",
+                "permanent_district", "permanent_state",
                 "present_address_line1", "present_pincode",
-                "present_district", "present_state", "present_city", "present_taluka"
+                "present_district", "present_state"
             ]:
                 if field not in data:
                     continue
@@ -1101,15 +1097,11 @@ def create_or_update_employee():
             permanent_pincode=_str(data.get("permanent_pincode")),
             permanent_district=data.get("permanent_district") or None,
             permanent_state=data.get("permanent_state") or None,
-            permanent_city=data.get("permanent_city") or None,
-            permanent_taluka=data.get("permanent_taluka") or None,
 
             present_address_line1=_str(data.get("present_address_line1")),
             present_pincode=_str(data.get("present_pincode")),
             present_district=data.get("present_district") or None,
             present_state=data.get("present_state") or None,
-            present_city=data.get("present_city") or None,
-            present_taluka=data.get("present_taluka") or None,
         )
 
         db.session.add(employee)
