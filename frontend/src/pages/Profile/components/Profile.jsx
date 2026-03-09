@@ -44,6 +44,8 @@ const mapGenderFromBackend = (gender) => {
 const NAME_MIN_LEN = 2;
 const NAME_MAX_LEN = 100;
 const ADDRESS_FIELD_MAX_LEN = 255;
+const STREET_MAX_LEN = 400;
+const STATE_DISTRICT_MAX_LEN = 100;
 const MIN_AGE_YEARS = 18;
 
 const validateFullName = (val) => {
@@ -101,7 +103,7 @@ const MODERN_FONT_STYLE = {
 };
 
 export const Profile = () => {
-    const { refreshUserData } = useUser();
+    const { refreshUserData, bumpPhotoVersion } = useUser();
     // Helper for deep cloning the initial data structure
     const getInitialClone = () => JSON.parse(JSON.stringify(initialDataState));
     // --- UI/Control STATES ---
@@ -151,18 +153,18 @@ export const Profile = () => {
 
         const currentAddr = {
             street: emp.present_address_line1 || '',
-            city: emp.present_district || '',
+            city: emp.present_city || emp.present_district || '',
             state: emp.present_state || '',
             district: emp.present_district || '',
-            taluka: '',
+            taluka: emp.present_taluka || '',
             pincode: emp.present_pincode || '',
         };
         const permAddr = {
             street: emp.permanent_address_line1 || '',
-            city: emp.permanent_district || '',
+            city: emp.permanent_city || emp.permanent_district || '',
             state: emp.permanent_state || '',
             district: emp.permanent_district || '',
-            taluka: '',
+            taluka: emp.permanent_taluka || '',
             pincode: emp.permanent_pincode || '',
         };
         const sameAsCurrent = !!(emp.present_address_line1 && emp.permanent_address_line1 &&
@@ -346,6 +348,18 @@ export const Profile = () => {
             }
         }
 
+        // 1f. MOBILE & EMERGENCY: reject decimals (numeric only)
+        const mobileVal = currentFormData?.mobile;
+        if (mobileVal && (String(mobileVal).includes('.') || !/^\d*$/.test(String(mobileVal)))) {
+            newErrors.mobile = 'Mobile Number must contain only digits (no decimals).';
+            hasMandatoryErrors = true;
+        }
+        const emergencyVal = currentFormData?.emergency;
+        if (emergencyVal && (String(emergencyVal).includes('.') || !/^\d*$/.test(String(emergencyVal)))) {
+            newErrors.emergency = 'Contact Number must contain only digits (no decimals).';
+            hasMandatoryErrors = true;
+        }
+
         // 2. ADDRESS VALIDATION (including max length)
         const validateAddress = (addr, type) => {
             ADDRESS_MANDATORY_FIELDS.forEach(field => {
@@ -354,11 +368,20 @@ export const Profile = () => {
                 if (!val || val.toString().trim() === '') {
                     newErrors[key] = `${field} is mandatory.`;
                     hasMandatoryErrors = true;
-                } else if (field === 'pincode' && val && val.length !== 6) {
-                    newErrors[key] = 'Pincode must be 6 digits.';
+                } else if (field === 'pincode') {
+                    const pincodeStr = val ? String(val).trim() : '';
+                    if (pincodeStr.length !== 6) {
+                        newErrors[key] = 'Pincode must be 6 digits.';
+                        hasMandatoryErrors = true;
+                    } else if (/\./.test(pincodeStr) || !/^\d+$/.test(pincodeStr)) {
+                        newErrors[key] = 'Pincode must be 6 digits only (no decimals).';
+                        hasMandatoryErrors = true;
+                    }
+                } else if (field === 'street' && val && val.toString().length > STREET_MAX_LEN) {
+                    newErrors[key] = `Street Address cannot exceed ${STREET_MAX_LEN} characters.`;
                     hasMandatoryErrors = true;
-                } else if (field !== 'pincode' && val && val.toString().length > ADDRESS_FIELD_MAX_LEN) {
-                    newErrors[key] = `${field} cannot exceed ${ADDRESS_FIELD_MAX_LEN} characters.`;
+                } else if (['state', 'district', 'city', 'taluka'].includes(field) && val && val.toString().length > STATE_DISTRICT_MAX_LEN) {
+                    newErrors[key] = `${field} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
                     hasMandatoryErrors = true;
                 }
             });
@@ -379,8 +402,8 @@ export const Profile = () => {
         return { newErrors, hasMandatoryErrors };
     }, []);
 
-    // --- SAVE LOGIC (Omitted for brevity) ---
-    const saveCurrentChanges = useCallback((finalSave = false) => {
+    // --- SAVE LOGIC ---
+    const saveCurrentChanges = useCallback(async (finalSave = false) => {
         setSaveStatus('Saving...');
         const { newErrors, hasMandatoryErrors } = getMandatoryValidationErrors(
             formData, files, currentAddress, permanentAddress, sameAsCurrent
@@ -389,9 +412,6 @@ export const Profile = () => {
 
         if (hasMandatoryErrors) {
             setSaveStatus('Validation Error');
-            if (finalSave) {
-                // Removed alert for cleaner UX, relying on status/errors
-            }
             return false;
         }
 
@@ -419,33 +439,40 @@ export const Profile = () => {
 
         const runSave = async () => {
             const token = localStorage.getItem('token');
-
-            if (adminId && token) {
-                try {
+            if (!adminId || !token) {
+                setSaveStatus('Ready');
+                return false;
+            }
+            try {
                     // POST /employee
                     const empPayload = {
                         admin_id: parseInt(adminId, 10),
                         name: formData.fullName,
                         email: formData.personalEmail,
                         father_name: formData.fatherName,
-                        mother_name: formData.motherName,
+                        mother_name: (formData.motherName || '').trim(),
                         marital_status: formData.maritalStatus,
                         dob: formData.dateOfBirth,
                         emp_id: formData.employeeId,
                         mobile: formData.mobileCountryCode && formData.mobile ? `${formData.mobileCountryCode} ${formData.mobile}` : formData.mobile,
                         gender: mapGenderForBackend(formData.gender),
-                        emergency_mobile: formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : formData.emergency,
+                        emergency_mobile: (formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : (formData.emergency || '')).trim(),
                         nationality: formData.nationality,
                         blood_group: formData.bloodGroup,
                         designation: formData.designation,
+                        reporting_manager_name: (formData.reportingManager || '').trim() || null,
                         permanent_address_line1: permAddr.street,
                         permanent_pincode: permAddr.pincode,
                         permanent_district: permAddr.district,
                         permanent_state: permAddr.state,
+                        permanent_city: permAddr.city || null,
+                        permanent_taluka: permAddr.taluka || null,
                         present_address_line1: currentAddress.street,
                         present_pincode: currentAddress.pincode,
                         present_district: currentAddress.district,
                         present_state: currentAddress.state,
+                        present_city: currentAddress.city || null,
+                        present_taluka: currentAddress.taluka || null,
                     };
                     const empRes = await fetch(`${API_BASE_URL}/employee`, {
                         method: 'POST',
@@ -454,9 +481,10 @@ export const Profile = () => {
                     });
                     if (!empRes.ok) {
                         const errData = await empRes.json().catch(() => ({}));
-                        setSaveStatus(errData.message || 'Failed to save profile');
-                        showToast(errData.message || 'Failed to save profile.', 'error');
-                        return;
+                        const msg = errData.message || 'Failed to save profile';
+                        setSaveStatus(msg);
+                        showToast(msg, 'error');
+                        return false;
                     }
 
                     // POST /education (first record only; backend requires start/end)
@@ -494,20 +522,19 @@ export const Profile = () => {
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify(docPayload),
                     });
-                } catch (err) {
-                    setSaveStatus('Failed to save');
-                    showToast('Failed to save profile.', 'error');
-                    return;
-                }
+            } catch (err) {
+                setSaveStatus('Failed to save');
+                showToast('Failed to save profile.', 'error');
+                return false;
             }
             setSaveStatus('Saved!');
             showToast('Profile saved successfully.');
-            // Do not refetch here: it can overwrite savedData with stale API response. Data already set via flushSync; on next refresh fetchProfile will load from backend.
+            return true;
         };
 
         setSaveStatus('Saving...');
-        runSave();
-        return true;
+        const success = await runSave();
+        return success;
     }, [formData, files, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, adminId, getMandatoryValidationErrors, showToast]);
 
     const SECTION_SAVE_MESSAGES = {
@@ -536,24 +563,29 @@ export const Profile = () => {
                     name: formData.fullName || '',
                     email: formData.personalEmail || '',
                     father_name: formData.fatherName || '',
-                    mother_name: formData.motherName || '',
+                    mother_name: (formData.motherName || '').trim(),
                     marital_status: formData.maritalStatus || 'Single',
                     dob: formData.dateOfBirth || null,
                     emp_id: formData.employeeId || '',
                     mobile: formData.mobileCountryCode && formData.mobile ? `${formData.mobileCountryCode} ${formData.mobile}` : (formData.mobile || ''),
                     gender: mapGenderForBackend(formData.gender) || '',
-                    emergency_mobile: formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : (formData.emergency || ''),
+                    emergency_mobile: (formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : (formData.emergency || '')).trim(),
                     nationality: formData.nationality || '',
                     blood_group: formData.bloodGroup || '',
                     designation: formData.designation || '',
+                    reporting_manager_name: (formData.reportingManager || '').trim() || null,
                     permanent_address_line1: permAddr.street || '',
                     permanent_pincode: permAddr.pincode || '',
                     permanent_district: permAddr.district || '',
                     permanent_state: permAddr.state || '',
+                    permanent_city: permAddr.city || null,
+                    permanent_taluka: permAddr.taluka || null,
                     present_address_line1: currentAddress.street || '',
                     present_pincode: currentAddress.pincode || '',
                     present_district: currentAddress.district || '',
                     present_state: currentAddress.state || '',
+                    present_city: currentAddress.city || null,
+                    present_taluka: currentAddress.taluka || null,
                 };
                 const empRes = await fetch(`${API_BASE_URL}/employee`, {
                     method: 'POST',
@@ -629,7 +661,11 @@ export const Profile = () => {
     }, [adminId, formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, showToast]);
 
     // --- AVATAR HANDLER ---
-    const handleAvatarChange = async (imageBlob) => {
+    const handleAvatarChange = async (imageBlob, validationError) => {
+        if (!imageBlob) {
+            if (validationError) showToast(validationError, 'error');
+            return;
+        }
         setSaveStatus('Uploading Image...');
         const token = localStorage.getItem('token');
         if (!token) {
@@ -651,6 +687,7 @@ export const Profile = () => {
                 setCurrentAvatarUrl(`${normalizedUrl}?t=${Date.now()}`);
                 showToast('Profile picture updated successfully.');
                 setSaveStatus('Saved!');
+                bumpPhotoVersion?.();
                 refreshUserData();
             } else {
                 showToast(data.message || 'Failed to upload photo.', 'error');
@@ -701,9 +738,9 @@ export const Profile = () => {
         setSaveStatus('Ready');
     };
 
-    const handleDoneEditing = () => {
-        const wasValid = saveCurrentChanges(true);
-        if (wasValid) {
+    const handleDoneEditing = async () => {
+        const success = await saveCurrentChanges(true);
+        if (success) {
             setTimeout(() => {
                 setShowEditCards(false);
                 setExpandedSection(null);
@@ -747,15 +784,21 @@ export const Profile = () => {
         const isCurrent = addressType === 'current';
         const setter = isCurrent ? setCurrentAddress : setPermanentAddress;
         const errorKey = `${addressType}${name.charAt(0).toUpperCase() + name.slice(1)}`;
-        setter(prev => ({ ...prev, [name]: value }));
-        if (isCurrent && sameAsCurrent) {
-            setPermanentAddress(prev => ({ ...prev, [name]: value }));
+        // Pincode: numeric only, no decimals - take integer part only
+        let finalValue = value;
+        if (name === 'pincode') {
+            const parts = String(value).split('.');
+            finalValue = (parts[0] || '').replace(/\D/g, '').slice(0, 6);
         }
-        if (name === 'pincode' && value.length === 6) {
-            const newDetails = simulatePincodeLookup(value);
+        setter(prev => ({ ...prev, [name]: finalValue }));
+        if (isCurrent && sameAsCurrent) {
+            setPermanentAddress(prev => ({ ...prev, [name]: finalValue }));
+        }
+        if (name === 'pincode' && finalValue.length === 6) {
+            const newDetails = simulatePincodeLookup(finalValue);
             setter(prev => ({ ...prev, ...newDetails }));
             if (isCurrent && sameAsCurrent) {
-                setPermanentAddress(prev => ({ ...prev, ...newDetails, pincode: value }));
+                setPermanentAddress(prev => ({ ...prev, ...newDetails, pincode: finalValue }));
             }
         }
         setErrors(prev => ({ ...prev, [errorKey]: '' }));
@@ -889,16 +932,26 @@ export const Profile = () => {
             }
         }
 
-        const mobileDigits = (formData.mobile || '').replace(/\D/g, '');
-        if (mobileDigits && mobileDigits.length !== 10) {
-            sectionErrors.mobile = 'Mobile number must be exactly 10 digits.';
-            hasErrors = true;
+        const mobileVal = formData.mobile;
+        if (mobileVal) {
+            if (String(mobileVal).includes('.') || !/^\d*$/.test(String(mobileVal))) {
+                sectionErrors.mobile = 'Mobile Number must contain only digits (no decimals).';
+                hasErrors = true;
+            } else if (String(mobileVal).length !== 10) {
+                sectionErrors.mobile = 'Mobile number must be exactly 10 digits.';
+                hasErrors = true;
+            }
         }
 
-        const emergencyDigits = (formData.emergency || '').replace(/\D/g, '');
-        if (emergencyDigits && emergencyDigits.length !== 10) {
-            sectionErrors.emergency = 'Contact number must be exactly 10 digits.';
-            hasErrors = true;
+        const emergencyVal = formData.emergency;
+        if (emergencyVal) {
+            if (String(emergencyVal).includes('.') || !/^\d*$/.test(String(emergencyVal))) {
+                sectionErrors.emergency = 'Contact Number must contain only digits (no decimals).';
+                hasErrors = true;
+            } else if (String(emergencyVal).length !== 10) {
+                sectionErrors.emergency = 'Contact number must be exactly 10 digits.';
+                hasErrors = true;
+            }
         }
 
         setErrors(prev => ({ ...prev, ...sectionErrors }));
@@ -917,11 +970,20 @@ export const Profile = () => {
                 if (!val || val.toString().trim() === '') {
                     sectionErrors[key] = `${field} is mandatory.`;
                     hasErrors = true;
-                } else if (field === 'pincode' && val.length !== 6) {
-                    sectionErrors[key] = 'Pincode must be 6 digits.';
+                } else if (field === 'pincode') {
+                    const pincodeStr = val ? String(val).trim() : '';
+                    if (pincodeStr.length !== 6) {
+                        sectionErrors[key] = 'Pincode must be 6 digits.';
+                        hasErrors = true;
+                    } else if (/\./.test(pincodeStr) || !/^\d+$/.test(pincodeStr)) {
+                        sectionErrors[key] = 'Pincode must be 6 digits only (no decimals).';
+                        hasErrors = true;
+                    }
+                } else if (field === 'street' && val.toString().length > STREET_MAX_LEN) {
+                    sectionErrors[key] = `Street Address cannot exceed ${STREET_MAX_LEN} characters.`;
                     hasErrors = true;
-                } else if (field !== 'pincode' && val.toString().length > ADDRESS_FIELD_MAX_LEN) {
-                    sectionErrors[key] = `${field} cannot exceed ${ADDRESS_FIELD_MAX_LEN} characters.`;
+                } else if (['state', 'district', 'city', 'taluka'].includes(field) && val.toString().length > STATE_DISTRICT_MAX_LEN) {
+                    sectionErrors[key] = `${field} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
                     hasErrors = true;
                 }
             });

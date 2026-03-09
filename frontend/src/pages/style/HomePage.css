@@ -1,0 +1,26 @@
+/* Home page: header fixed, scrollbar starts after header */
+.home-page-layout {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-page-layout .header-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999;
+  flex-shrink: 0;
+}
+
+.home-scroll-area {
+  position: fixed;
+  top: 5rem;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}

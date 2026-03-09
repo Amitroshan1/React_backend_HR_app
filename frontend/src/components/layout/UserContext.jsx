@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext } from 'react'
+import { createContext, useState, useEffect, useContext, useCallback } from 'react'
 const API_BASE_URL = "/api/auth";
 const UserContext = createContext();
 export const useUser = () => useContext(UserContext);
@@ -10,6 +10,7 @@ export const UserProvider = ({ children }) => {
         managers: {},
     });
     const [loadingUser, setLoadingUser] = useState(true);
+    const [photoVersion, setPhotoVersion] = useState(0);
     const fetchCoreUserData = async () => {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -43,13 +44,18 @@ export const UserProvider = ({ children }) => {
             setLoadingUser(false);
         }
     };
+    const bumpPhotoVersion = useCallback(() => {
+        setPhotoVersion((v) => v + 1);
+    }, []);
     useEffect(() => {
         fetchCoreUserData();
     }, []);
     const value = {
         userData,
         loadingUser,
-        refreshUserData: fetchCoreUserData
+        refreshUserData: fetchCoreUserData,
+        photoVersion,
+        bumpPhotoVersion,
     };
     return (
         <UserContext.Provider value={value}>

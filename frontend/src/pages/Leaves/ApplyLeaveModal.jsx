@@ -556,10 +556,12 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
         finalDays = 0; // Will trigger validation error
     }
 
-    // Minimum selectable date for From Date (today) – prevents past dates
-    const minFromDate = dayjs().format('YYYY-MM-DD');
-    // To Date: cannot be before today or before From Date (whichever is later)
-    const minToDate = fromDate && !dayjs(fromDate).isBefore(dayjs(), 'day') ? fromDate : minFromDate;
+    // Minimum selectable date: 2 weeks ago (cannot select dates older than 2 weeks)
+    const minFromDate = dayjs().subtract(2, 'week').format('YYYY-MM-DD');
+    // To Date: cannot be before minFromDate or before From Date (whichever is later)
+    const minToDate = fromDate
+        ? (dayjs(fromDate).isBefore(minFromDate) ? minFromDate : fromDate)
+        : minFromDate;
 
     if (!isOpen) return null;
 

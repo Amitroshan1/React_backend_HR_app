@@ -14,10 +14,21 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
         }
     }, [imageUrl, isEditing]);
 
+    const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
-            // When a file is selected, set the state to the File object to trigger the editor
+            const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+            const isValidType = ALLOWED_IMAGE_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(ext);
+            if (!isValidType) {
+                if (typeof onImageChange === 'function') {
+                    onImageChange(null, 'Please upload only image files (JPEG, PNG, GIF, or WebP). Unsupported formats like .exe are not allowed.');
+                }
+                e.target.value = '';
+                return;
+            }
             setImage(file);
             setIsEditing(true);
         }

@@ -12,6 +12,7 @@ from math import radians, cos, sin, atan2, sqrt
 from werkzeug.utils import secure_filename
 from flask import Blueprint, request, redirect, url_for, current_app, jsonify
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from .email import send_login_alert_email
 from .models.Admin_models import Admin
 from . import db
@@ -318,7 +319,10 @@ def _employee_homepage_impl():
     if employee:
         photo_fn = (getattr(employee, "photo_filename", None) or "").strip()
         if photo_fn:
-            photo_url = f"/static/uploads/{photo_fn}"
+            try:
+                photo_url = url_for("static", filename=f"uploads/{photo_fn}", _external=True)
+            except Exception:
+                photo_url = f"/static/uploads/{photo_fn}"
 
     return jsonify({
         "success": True,
@@ -457,32 +461,35 @@ def employee_profile():
 
     employee = Employee.query.filter_by(admin_id=admin.id).first()
 
-    # Resolve reporting manager from ManagerContact (L1) - auto-update for profile display
+    # Reporting manager: use saved value if set, else resolve from ManagerContact (L1)
     reporting_manager_name = ""
-    try:
-        from .manager_utils import get_manager_detail
-        circle_lower = (admin.circle or "").strip().lower()
-        emp_type_lower = (admin.emp_type or "").strip().lower()
-        user_email = (admin.email or "").strip() or None
-        if circle_lower and emp_type_lower:
-            manager_contact = None
-            if user_email:
-                manager_contact = ManagerContact.query.filter(
-                    func.lower(ManagerContact.circle_name) == circle_lower,
-                    func.lower(ManagerContact.user_type) == emp_type_lower,
-                    ManagerContact.user_email == user_email
-                ).first()
-            if not manager_contact:
-                manager_contact = ManagerContact.query.filter(
-                    func.lower(ManagerContact.circle_name) == circle_lower,
-                    func.lower(ManagerContact.user_type) == emp_type_lower,
-                    (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
-                ).first()
-            if manager_contact:
-                l1 = get_manager_detail(manager_contact, "l1")
-                reporting_manager_name = (l1.get("name") or "").strip()
-    except Exception:
-        pass
+    if employee and getattr(employee, "reporting_manager_name", None):
+        reporting_manager_name = (employee.reporting_manager_name or "").strip()
+    if not reporting_manager_name:
+        try:
+            from .manager_utils import get_manager_detail
+            circle_lower = (admin.circle or "").strip().lower()
+            emp_type_lower = (admin.emp_type or "").strip().lower()
+            user_email = (admin.email or "").strip() or None
+            if circle_lower and emp_type_lower:
+                manager_contact = None
+                if user_email:
+                    manager_contact = ManagerContact.query.filter(
+                        func.lower(ManagerContact.circle_name) == circle_lower,
+                        func.lower(ManagerContact.user_type) == emp_type_lower,
+                        ManagerContact.user_email == user_email
+                    ).first()
+                if not manager_contact:
+                    manager_contact = ManagerContact.query.filter(
+                        func.lower(ManagerContact.circle_name) == circle_lower,
+                        func.lower(ManagerContact.user_type) == emp_type_lower,
+                        (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
+                    ).first()
+                if manager_contact:
+                    l1 = get_manager_detail(manager_contact, "l1")
+                    reporting_manager_name = (l1.get("name") or "").strip()
+        except Exception:
+            pass
     education_list = Education.query.filter_by(admin_id=admin.id).all()
     prev_companies = PreviousCompany.query.filter_by(admin_id=admin.id).all()
     upload_doc = UploadDoc.query.filter_by(admin_id=admin.id).first()
@@ -513,7 +520,10 @@ def employee_profile():
         photo_url = None
         photo_fn = (getattr(employee, "photo_filename", None) or "").strip()
         if photo_fn:
-            photo_url = f"/static/uploads/{photo_fn}"
+            try:
+                photo_url = url_for("static", filename=f"uploads/{photo_fn}", _external=True)
+            except Exception:
+                photo_url = f"/static/uploads/{photo_fn}"
         profile["employee"] = {
             "name": employee.name,
             "email": employee.email,
@@ -532,10 +542,14 @@ def employee_profile():
             "permanent_pincode": employee.permanent_pincode,
             "permanent_district": employee.permanent_district or "",
             "permanent_state": employee.permanent_state or "",
+            "permanent_city": getattr(employee, "permanent_city", None) or "",
+            "permanent_taluka": getattr(employee, "permanent_taluka", None) or "",
             "present_address_line1": employee.present_address_line1,
             "present_pincode": employee.present_pincode,
             "present_district": employee.present_district or "",
             "present_state": employee.present_state or "",
+            "present_city": getattr(employee, "present_city", None) or "",
+            "present_taluka": getattr(employee, "present_taluka", None) or "",
             "photo_url": photo_url,
         }
 
@@ -620,7 +634,10 @@ def upload_profile_photo():
     employee.photo_filename = filename
     db.session.commit()
 
-    photo_url = f"/static/uploads/{filename}"
+    try:
+        photo_url = url_for("static", filename=f"uploads/{filename}", _external=True)
+    except Exception:
+        photo_url = f"/static/uploads/{filename}"
     return jsonify({"success": True, "message": "Photo uploaded successfully", "photo_url": photo_url}), 200
 
 
@@ -962,22 +979,26 @@ def create_or_update_employee():
     try:
         if employee:
             required_string_fields = {
-                "name", "email", "father_name", "mother_name", "marital_status",
-                "emp_id", "mobile", "gender", "emergency_mobile", "nationality",
+                "name", "email", "father_name", "marital_status",
+                "emp_id", "mobile", "gender", "nationality",
                 "blood_group", "designation",
                 "permanent_address_line1", "permanent_pincode",
                 "present_address_line1", "present_pincode",
             }
-            optional_address_fields = {"permanent_district", "permanent_state", "present_district", "present_state"}
+            optional_string_fields = {"mother_name", "emergency_mobile", "reporting_manager_name"}
+            optional_address_fields = {
+                "permanent_district", "permanent_state", "permanent_city", "permanent_taluka",
+                "present_district", "present_state", "present_city", "present_taluka"
+            }
 
             for field in [
                 "name", "email", "father_name", "mother_name", "marital_status",
                 "dob", "emp_id", "mobile", "gender", "emergency_mobile",
-                "nationality", "blood_group", "designation",
+                "nationality", "blood_group", "designation", "reporting_manager_name",
                 "permanent_address_line1", "permanent_pincode",
-                "permanent_district", "permanent_state",
+                "permanent_district", "permanent_state", "permanent_city", "permanent_taluka",
                 "present_address_line1", "present_pincode",
-                "present_district", "present_state"
+                "present_district", "present_state", "present_city", "present_taluka"
             ]:
                 if field not in data:
                     continue
@@ -1000,13 +1021,26 @@ def create_or_update_employee():
                     elif field == "gender" and len(s) > 50:
                         s = s[:50]
                     val = s
+                elif field in optional_string_fields:
+                    val = (val or "").strip() if val is not None else ""
+                    if field == "emergency_mobile" and len(val) > 50:
+                        val = val[:50]
+                    elif field == "reporting_manager_name" and len(val) > 150:
+                        val = val[:150]
                 elif field in optional_address_fields:
                     val = (val or "").strip() if val is not None else None
                     if val == "":
                         val = None
                 setattr(employee, field, val)
 
-            db.session.commit()
+            try:
+                db.session.commit()
+            except IntegrityError as ie:
+                db.session.rollback()
+                err_msg = str(ie).lower()
+                if "unique" in err_msg or "duplicate" in err_msg or "1062" in err_msg:
+                    return jsonify({"success": False, "message": "This email is already registered. Please use a different email."}), 400
+                raise
             return jsonify({"success": True, "message": "Employee updated successfully"}), 200
 
         # Create new employee
@@ -1060,20 +1094,32 @@ def create_or_update_employee():
             nationality=_str(data.get("nationality")),
             blood_group=_str(data.get("blood_group")),
             designation=designation_val,
+            reporting_manager_name=(data.get("reporting_manager_name") or "").strip() or None,
 
             permanent_address_line1=_str(data.get("permanent_address_line1")),
             permanent_pincode=_str(data.get("permanent_pincode")),
             permanent_district=data.get("permanent_district") or None,
             permanent_state=data.get("permanent_state") or None,
+            permanent_city=data.get("permanent_city") or None,
+            permanent_taluka=data.get("permanent_taluka") or None,
 
             present_address_line1=_str(data.get("present_address_line1")),
             present_pincode=_str(data.get("present_pincode")),
             present_district=data.get("present_district") or None,
             present_state=data.get("present_state") or None,
+            present_city=data.get("present_city") or None,
+            present_taluka=data.get("present_taluka") or None,
         )
 
         db.session.add(employee)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError as ie:
+            db.session.rollback()
+            err_msg = str(ie).lower()
+            if "unique" in err_msg or "duplicate" in err_msg or "1062" in err_msg:
+                return jsonify({"success": False, "message": "This email is already registered. Please use a different email."}), 400
+            raise
         return jsonify({"success": True, "message": "Employee created successfully"}), 201
 
     except Exception as e:

@@ -17,8 +17,11 @@
     height: var(--header-height);
     display: flex;
     align-items: center;
-    position: sticky;
+    position: fixed;
     top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
     z-index: 1000;
     box-shadow: 0 2px 4px rgba(0,0,0,0.02);
 }
@@ -380,7 +383,23 @@
 }
 
 /* Responsive: same breakpoints as global design system */
+/* Content area: fixed below header so scrollbar starts after header */
+.main-layout .content-area {
+    position: fixed;
+    top: var(--header-height);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-top: 12px;
+}
+
 @media (max-width: 768px) {
+    :root {
+        --header-height: 64px;
+    }
+
     .hide-mobile {
         display: none !important;
     }

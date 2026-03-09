@@ -372,15 +372,22 @@
 
   .search-input-group {
     flex-direction: column;
+    gap: 10px;
   }
 
   .search-input-group input {
+    width: 100%;
+    min-width: 0;
     border-radius: 8px;
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   .btn-search-blue {
     border-radius: 8px;
     width: 100%;
+    flex-shrink: 0;
   }
 }
 
@@ -395,6 +402,12 @@
 
   .assets-card-header h2 {
     font-size: 1.1rem;
+  }
+
+  .search-input-group input {
+    font-size: 16px;
+    height: 48px;
+    padding: 0 16px;
   }
 
   .label-cell,

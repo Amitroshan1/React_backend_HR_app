@@ -17,14 +17,14 @@ html, body {
   justify-content: space-between;
   align-items: center;
   padding: 15px 30px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(5px);
-  box-shadow: 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   position: sticky;
   top: 0;
   width: 100%;
   z-index: 999;
-  height: 5rem;
+  min-height: 5rem;
+  flex-shrink: 0;
 }
 
 /* --- Logo --- */

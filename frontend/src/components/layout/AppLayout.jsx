@@ -27,7 +27,7 @@ const ScrollToTop = () => {
 
 export const AppLayout = () => {
     const navigate = useNavigate();
-    const { userData, loadingUser } = useUser();
+    const { userData, loadingUser, photoVersion } = useUser();
 
     /* No token: redirect to login immediately (direct URL, Back after logout) – no dashboard or loading state */
     const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
@@ -100,12 +100,11 @@ export const AppLayout = () => {
     // Get emp_type from admins table (from backend /employee/homepage response)
     const empType = userData.user?.emp_type || userData.user?.department || "Employee";
     
-    // Cache-bust profile picture URL only when photo_url changes (not on every render)
-    // NOTE: This hook must be called BEFORE any early returns to maintain hook order
+    // Cache-bust profile picture URL when photo_url or photoVersion changes (photoVersion bumps on profile upload)
     const profilePicWithCache = useMemo(() => {
         const url = normalizePhotoUrl(userData.user?.photo_url);
-        return url ? `${url}?t=${Date.now()}` : null;
-    }, [userData.user?.photo_url]);
+        return url ? `${url}?v=${photoVersion}&t=${Date.now()}` : null;
+    }, [userData.user?.photo_url, photoVersion]);
 
     /* Don't show any protected UI or loading when not authenticated */
     if (!hasToken) {
@@ -132,7 +131,7 @@ export const AppLayout = () => {
             {/* The Header now gets the username from the centralized context */}
             <Headers username={username} role={empType} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
-            <div className="content-area" style={{ paddingTop: "24px" }}>
+            <div className="content-area">
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
                 <Outlet />
             </div>

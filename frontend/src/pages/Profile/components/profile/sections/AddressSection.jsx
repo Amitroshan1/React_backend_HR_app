@@ -53,14 +53,17 @@ export const AddressBlock = ({
                         readOnly={!isCurrent && sameAsCurrent}
                         error={errors[`${errorPrefix}Street`]}
                         isMandatory
-                        maxLength={255}
+                        maxLength={400}
                     />
 
                     <div className="grid-3 address-fields-row">
                         <Input
                             label="Pincode"
                             name="pincode"
-                            type="number"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={6}
                             value={data.pincode}
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
@@ -74,7 +77,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}City`]}
-                            maxLength={255}
+                            maxLength={100}
                         />
                         <Input
                             label="State"
@@ -83,7 +86,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}State`]}
-                            maxLength={255}
+                            maxLength={100}
                         />
                         <Input
                             label="District"
@@ -92,7 +95,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}District`]}
-                            maxLength={255}
+                            maxLength={100}
                         />
                         <Input
                             label="Taluka"
@@ -101,7 +104,7 @@ export const AddressBlock = ({
                             onChange={(e) => onChange(addressType, e)}
                             readOnly={!isCurrent && sameAsCurrent}
                             error={errors[`${errorPrefix}Taluka`]}
-                            maxLength={255}
+                            maxLength={100}
                         />
                     </div>
                 </div>

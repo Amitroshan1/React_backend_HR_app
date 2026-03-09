@@ -45,7 +45,11 @@ export const PhoneInput = ({
     };
 
     const handleNumberChange = (e) => {
-        const numericValue = e.target.value.replace(/\D/g, '').slice(0, 10);
+        const raw = e.target.value;
+        // Reject decimals: take only integer part (digits before decimal)
+        const parts = String(raw).split('.');
+        const intPart = (parts[0] || '').replace(/\D/g, '');
+        const numericValue = intPart.slice(0, 10);
         onChange({
             target: {
                 name: name,
