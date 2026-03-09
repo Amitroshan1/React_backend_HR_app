@@ -40,10 +40,10 @@ export const EmploymentBankSection = ({
                     options={designationOptions}
                     error={errors.designation}
                 />
-                <Input label="Employee ID" name="employeeId" value={data.employeeId} onChange={onFormChange} error={errors.employeeId} />
+                <Input label="Employee ID" name="employeeId" value={data.employeeId} onChange={onFormChange} error={errors.employeeId} readOnly />
                 <Input label="Department" name="department" value={data.department} onChange={onFormChange} error={errors.department} />
-                <Input label="Date of Joining" name="dateOfJoining" type="date" value={data.dateOfJoining} onChange={onFormChange} error={errors.dateOfJoining} />
-                <Input label="Reporting Manager" name="reportingManager" value={data.reportingManager} onChange={onFormChange} error={errors.reportingManager} />
+                <Input label="Date of Joining" name="dateOfJoining" type="date" value={data.dateOfJoining} onChange={onFormChange} error={errors.dateOfJoining} readOnly />
+                <Input label="Reporting Manager" name="reportingManager" value={data.reportingManager} onChange={onFormChange} error={errors.reportingManager} maxLength={150} />
                 <SelectInput
                     label="Employment Type"
                     name="employmentType"

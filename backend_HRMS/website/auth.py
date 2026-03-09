@@ -1033,6 +1033,13 @@ def create_or_update_employee():
                         val = None
                 setattr(employee, field, val)
 
+            # Update Admin.emp_type if provided (employment type is stored on Admin)
+            emp_type_val = data.get("emp_type") or data.get("employment_type")
+            if emp_type_val is not None:
+                admin = Admin.query.get(admin_id)
+                if admin:
+                    admin.emp_type = (str(emp_type_val).strip() or None) if str(emp_type_val).strip() else None
+
             try:
                 db.session.commit()
             except IntegrityError as ie:

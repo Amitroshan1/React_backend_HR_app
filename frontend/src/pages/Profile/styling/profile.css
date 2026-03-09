@@ -840,6 +840,12 @@
     font-weight: 500;
     color: var(--text-primary);
     transition: border-color 180ms ease, box-shadow 180ms ease;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.form-group select.form-control {
+    min-width: 0;
 }
 
 .form-group .input-label {
