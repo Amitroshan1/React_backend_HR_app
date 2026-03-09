@@ -28,7 +28,6 @@ class Employee(db.Model,UserMixin):
     nationality = db.Column(db.String(150), nullable=False)
     blood_group = db.Column(db.String(150), nullable=False)
     designation=db.Column(db.String(150), nullable=False)
-    reporting_manager_name = db.Column(db.String(150), nullable=True)
 
     permanent_address_line1 = db.Column(db.String(400), nullable=False)
     permanent_pincode = db.Column(db.String(10), nullable=False)

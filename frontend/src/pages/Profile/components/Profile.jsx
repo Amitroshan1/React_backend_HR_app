@@ -46,7 +46,6 @@ const NAME_MAX_LEN = 100;
 const ADDRESS_FIELD_MAX_LEN = 255;
 const STREET_MAX_LEN = 400;
 const STATE_DISTRICT_MAX_LEN = 100;
-const REPORTING_MANAGER_MAX_LEN = 150;
 const MIN_AGE_YEARS = 18;
 
 const validateFullName = (val) => {
@@ -392,13 +391,6 @@ export const Profile = () => {
             validateAddress(currentPermanentAddress, 'permanent');
         }
 
-        // 2b. REPORTING MANAGER MAX LENGTH (matches backend)
-        const reportingManagerVal = (currentFormData.reportingManager || '').trim();
-        if (reportingManagerVal.length > REPORTING_MANAGER_MAX_LEN) {
-            newErrors.reportingManager = `Reporting Manager cannot exceed ${REPORTING_MANAGER_MAX_LEN} characters.`;
-            hasMandatoryErrors = true;
-        }
-
         // 3. DOCUMENT VALIDATION
         MANDATORY_FILES_LIST.forEach(key => {
             if (!currentFiles[key]) {
@@ -468,7 +460,6 @@ export const Profile = () => {
                         nationality: formData.nationality,
                         blood_group: formData.bloodGroup,
                         designation: formData.designation,
-                        reporting_manager_name: (formData.reportingManager || '').trim() || null,
                         permanent_address_line1: permAddr.street,
                         permanent_pincode: permAddr.pincode,
                         permanent_district: permAddr.district,
@@ -582,7 +573,6 @@ export const Profile = () => {
                     blood_group: formData.bloodGroup || '',
                     designation: formData.designation || '',
                     emp_type: (formData.employmentType || '').trim() || null,
-                    reporting_manager_name: (formData.reportingManager || '').trim() || null,
                     permanent_address_line1: permAddr.street || '',
                     permanent_pincode: permAddr.pincode || '',
                     permanent_district: permAddr.district || '',
@@ -1018,12 +1008,6 @@ export const Profile = () => {
                 hasErrors = true;
             }
         });
-
-        const reportingManagerVal = (formData.reportingManager || '').trim();
-        if (reportingManagerVal.length > REPORTING_MANAGER_MAX_LEN) {
-            sectionErrors.reportingManager = `Reporting Manager cannot exceed ${REPORTING_MANAGER_MAX_LEN} characters.`;
-            hasErrors = true;
-        }
 
         setErrors(prev => ({ ...prev, ...sectionErrors }));
         return !hasErrors;

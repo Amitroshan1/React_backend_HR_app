@@ -47,15 +47,6 @@ def run():
                 pass
             else:
                 print(f"present_taluka: {e}")
-        try:
-            db.session.execute(db.text("""
-                ALTER TABLE employees ADD COLUMN reporting_manager_name VARCHAR(150);
-            """))
-        except Exception as e:
-            if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
-                pass
-            else:
-                print(f"reporting_manager_name: {e}")
         db.session.commit()
         print("Migration completed.")
 

@@ -461,35 +461,32 @@ def employee_profile():
 
     employee = Employee.query.filter_by(admin_id=admin.id).first()
 
-    # Reporting manager: use saved value if set, else resolve from ManagerContact (L1)
+    # Reporting manager: always resolve from ManagerContact (L1) based on Admin
     reporting_manager_name = ""
-    if employee and getattr(employee, "reporting_manager_name", None):
-        reporting_manager_name = (employee.reporting_manager_name or "").strip()
-    if not reporting_manager_name:
-        try:
-            from .manager_utils import get_manager_detail
-            circle_lower = (admin.circle or "").strip().lower()
-            emp_type_lower = (admin.emp_type or "").strip().lower()
-            user_email = (admin.email or "").strip() or None
-            if circle_lower and emp_type_lower:
-                manager_contact = None
-                if user_email:
-                    manager_contact = ManagerContact.query.filter(
-                        func.lower(ManagerContact.circle_name) == circle_lower,
-                        func.lower(ManagerContact.user_type) == emp_type_lower,
-                        ManagerContact.user_email == user_email
-                    ).first()
-                if not manager_contact:
-                    manager_contact = ManagerContact.query.filter(
-                        func.lower(ManagerContact.circle_name) == circle_lower,
-                        func.lower(ManagerContact.user_type) == emp_type_lower,
-                        (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
-                    ).first()
-                if manager_contact:
-                    l1 = get_manager_detail(manager_contact, "l1")
-                    reporting_manager_name = (l1.get("name") or "").strip()
-        except Exception:
-            pass
+    try:
+        from .manager_utils import get_manager_detail
+        circle_lower = (admin.circle or "").strip().lower()
+        emp_type_lower = (admin.emp_type or "").strip().lower()
+        user_email = (admin.email or "").strip() or None
+        if circle_lower and emp_type_lower:
+            manager_contact = None
+            if user_email:
+                manager_contact = ManagerContact.query.filter(
+                    func.lower(ManagerContact.circle_name) == circle_lower,
+                    func.lower(ManagerContact.user_type) == emp_type_lower,
+                    ManagerContact.user_email == user_email
+                ).first()
+            if not manager_contact:
+                manager_contact = ManagerContact.query.filter(
+                    func.lower(ManagerContact.circle_name) == circle_lower,
+                    func.lower(ManagerContact.user_type) == emp_type_lower,
+                    (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
+                ).first()
+            if manager_contact:
+                l1 = get_manager_detail(manager_contact, "l1")
+                reporting_manager_name = (l1.get("name") or "").strip()
+    except Exception:
+        pass
     education_list = Education.query.filter_by(admin_id=admin.id).all()
     prev_companies = PreviousCompany.query.filter_by(admin_id=admin.id).all()
     upload_doc = UploadDoc.query.filter_by(admin_id=admin.id).first()
@@ -985,7 +982,7 @@ def create_or_update_employee():
                 "permanent_address_line1", "permanent_pincode",
                 "present_address_line1", "present_pincode",
             }
-            optional_string_fields = {"mother_name", "emergency_mobile", "reporting_manager_name"}
+            optional_string_fields = {"mother_name", "emergency_mobile"}
             optional_address_fields = {
                 "permanent_district", "permanent_state", "permanent_city", "permanent_taluka",
                 "present_district", "present_state", "present_city", "present_taluka"
@@ -994,7 +991,7 @@ def create_or_update_employee():
             for field in [
                 "name", "email", "father_name", "mother_name", "marital_status",
                 "dob", "emp_id", "mobile", "gender", "emergency_mobile",
-                "nationality", "blood_group", "designation", "reporting_manager_name",
+                "nationality", "blood_group", "designation",
                 "permanent_address_line1", "permanent_pincode",
                 "permanent_district", "permanent_state", "permanent_city", "permanent_taluka",
                 "present_address_line1", "present_pincode",
@@ -1025,8 +1022,6 @@ def create_or_update_employee():
                     val = (val or "").strip() if val is not None else ""
                     if field == "emergency_mobile" and len(val) > 50:
                         val = val[:50]
-                    elif field == "reporting_manager_name" and len(val) > 150:
-                        val = val[:150]
                 elif field in optional_address_fields:
                     val = (val or "").strip() if val is not None else None
                     if val == "":
@@ -1101,7 +1096,6 @@ def create_or_update_employee():
             nationality=_str(data.get("nationality")),
             blood_group=_str(data.get("blood_group")),
             designation=designation_val,
-            reporting_manager_name=(data.get("reporting_manager_name") or "").strip() or None,
 
             permanent_address_line1=_str(data.get("permanent_address_line1")),
             permanent_pincode=_str(data.get("permanent_pincode")),
