@@ -47,6 +47,7 @@ const ADDRESS_FIELD_MAX_LEN = 255;
 const STREET_MAX_LEN = 400;
 const STATE_DISTRICT_MAX_LEN = 100;
 const MIN_AGE_YEARS = 18;
+const EDU_INST_UNIV_MAX_LEN = 100;
 
 const validateFullName = (val) => {
     if (!val || typeof val !== 'string') return null;
@@ -153,18 +154,18 @@ export const Profile = () => {
 
         const currentAddr = {
             street: emp.present_address_line1 || '',
-            city: emp.present_district || '',
+            city: emp.present_city || emp.present_district || '',
             state: emp.present_state || '',
             district: emp.present_district || '',
-            taluka: '',
+            taluka: emp.present_taluka || '',
             pincode: emp.present_pincode || '',
         };
         const permAddr = {
             street: emp.permanent_address_line1 || '',
-            city: emp.permanent_district || '',
+            city: emp.permanent_city || emp.permanent_district || '',
             state: emp.permanent_state || '',
             district: emp.permanent_district || '',
-            taluka: '',
+            taluka: emp.permanent_taluka || '',
             pincode: emp.permanent_pincode || '',
         };
         const sameAsCurrent = !!(emp.present_address_line1 && emp.permanent_address_line1 &&
@@ -381,7 +382,8 @@ export const Profile = () => {
                     newErrors[key] = `Street Address cannot exceed ${STREET_MAX_LEN} characters.`;
                     hasMandatoryErrors = true;
                 } else if (['state', 'district', 'city', 'taluka'].includes(field) && val && val.toString().length > STATE_DISTRICT_MAX_LEN) {
-                    newErrors[key] = `${field} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
+                    const label = field.charAt(0).toUpperCase() + field.slice(1);
+                    newErrors[key] = `${label} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
                     hasMandatoryErrors = true;
                 }
             });
@@ -412,6 +414,7 @@ export const Profile = () => {
 
         if (hasMandatoryErrors) {
             setSaveStatus('Validation Error');
+            showToast('Please fix validation errors before saving.', 'error');
             return false;
         }
 
@@ -441,6 +444,7 @@ export const Profile = () => {
             const token = localStorage.getItem('token');
             if (!adminId || !token) {
                 setSaveStatus('Ready');
+                showToast('Session expired or profile not loaded. Please refresh the page.', 'error');
                 return false;
             }
             try {
@@ -464,10 +468,14 @@ export const Profile = () => {
                         permanent_pincode: permAddr.pincode,
                         permanent_district: permAddr.district,
                         permanent_state: permAddr.state,
+                        permanent_city: permAddr.city,
+                        permanent_taluka: permAddr.taluka,
                         present_address_line1: currentAddress.street,
                         present_pincode: currentAddress.pincode,
                         present_district: currentAddress.district,
                         present_state: currentAddress.state,
+                        present_city: currentAddress.city,
+                        present_taluka: currentAddress.taluka,
                     };
                     const empRes = await fetch(`${API_BASE_URL}/employee`, {
                         method: 'POST',
@@ -479,6 +487,12 @@ export const Profile = () => {
                         const msg = errData.message || 'Failed to save profile';
                         setSaveStatus(msg);
                         showToast(msg, 'error');
+                        if (msg.toLowerCase().includes('street')) {
+                            setErrors((prev) => ({ ...prev, currentStreet: msg, permanentStreet: msg }));
+                        }
+                        if (msg.toLowerCase().includes('email')) {
+                            setErrors((prev) => ({ ...prev, personalEmail: msg }));
+                        }
                         return false;
                     }
 
@@ -571,10 +585,14 @@ export const Profile = () => {
                     permanent_pincode: permAddr.pincode || '',
                     permanent_district: permAddr.district || '',
                     permanent_state: permAddr.state || '',
+                    permanent_city: permAddr.city || '',
+                    permanent_taluka: permAddr.taluka || '',
                     present_address_line1: currentAddress.street || '',
                     present_pincode: currentAddress.pincode || '',
                     present_district: currentAddress.district || '',
                     present_state: currentAddress.state || '',
+                    present_city: currentAddress.city || '',
+                    present_taluka: currentAddress.taluka || '',
                 };
                 const empRes = await fetch(`${API_BASE_URL}/employee`, {
                     method: 'POST',
@@ -583,7 +601,14 @@ export const Profile = () => {
                 });
                 const errData = await empRes.json().catch(() => ({}));
                 if (!empRes.ok) {
-                    showToast(errData.message || 'Failed to save. Please check your data and try again.', 'error');
+                    const msg = errData.message || 'Failed to save. Please check your data and try again.';
+                    showToast(msg, 'error');
+                    if (['personal', 'address', 'employment'].includes(sectionName) && msg.toLowerCase().includes('email')) {
+                        setErrors((prev) => ({ ...prev, personalEmail: msg }));
+                    }
+                    if (sectionName === 'address' && msg.toLowerCase().includes('street')) {
+                        setErrors((prev) => ({ ...prev, currentStreet: msg, permanentStreet: msg }));
+                    }
                     return;
                 }
                 if (sectionName === 'employment') {
@@ -643,6 +668,9 @@ export const Profile = () => {
                 }
             }
             showToast(SECTION_SAVE_MESSAGES[sectionName] || 'Saved successfully.');
+            if (['personal', 'address', 'employment'].includes(sectionName)) {
+                setErrors((prev) => ({ ...prev, personalEmail: '' }));
+            }
         } catch (err) {
             showToast('Failed to save.', 'error');
         }
@@ -726,17 +754,47 @@ export const Profile = () => {
         setSaveStatus('Ready');
     };
 
-    const handleDoneEditing = async () => {
-        const success = await saveCurrentChanges(true);
-        if (success) {
-            setTimeout(() => {
-                setShowEditCards(false);
-                setExpandedSection(null);
-                setErrors({});
-                setSaveStatus('Ready');
-            }, 350);
+    const exitEditMode = useCallback(() => {
+        setShowEditCards(false);
+        setExpandedSection(null);
+        setErrors({});
+        setSaveStatus('Ready');
+    }, []);
+
+    const hasNoChanges = useCallback(() => {
+        const s = savedData;
+        const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        if (!eq(formData, s.formData) || !eq(currentAddress, s.currentAddress) || sameAsCurrent !== s.sameAsCurrent) return false;
+        const perm = sameAsCurrent ? currentAddress : permanentAddress;
+        if (!eq(perm, s.permanentAddress)) return false;
+        if (!eq(previousEmployment, s.previousEmployment) || !eq(educationDetails, s.educationDetails)) return false;
+        const fileKeys = Object.keys(files || {});
+        const savedKeys = Object.keys(s.files || {});
+        if (fileKeys.length !== savedKeys.length) return false;
+        for (const k of fileKeys) {
+            const f = files[k], sf = s.files[k];
+            const fStr = typeof f === 'string' ? f : (f?.name ?? '');
+            const sfStr = typeof sf === 'string' ? sf : (sf?.name ?? '');
+            if (fStr !== sfStr) return false;
         }
-    };
+        return true;
+    }, [formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, savedData]);
+
+    const handleDoneEditing = useCallback(async () => {
+        try {
+            if (hasNoChanges()) {
+                exitEditMode();
+                return;
+            }
+            const success = await saveCurrentChanges(true);
+            if (success) {
+                setTimeout(exitEditMode, 350);
+            }
+        } catch (err) {
+            console.error('Done editing failed:', err);
+            showToast('Something went wrong. Please try again.', 'error');
+        }
+    }, [saveCurrentChanges, showToast, hasNoChanges, exitEditMode]);
 
     const handleUndoChanges = () => {
         const savedClone = JSON.parse(JSON.stringify(savedData));
@@ -777,6 +835,10 @@ export const Profile = () => {
         if (name === 'pincode') {
             const parts = String(value).split('.');
             finalValue = (parts[0] || '').replace(/\D/g, '').slice(0, 6);
+        } else if (name === 'street') {
+            finalValue = String(value || '').slice(0, STREET_MAX_LEN);
+        } else if (['city', 'district', 'state', 'taluka'].includes(name)) {
+            finalValue = String(value || '').slice(0, STATE_DISTRICT_MAX_LEN);
         }
         setter(prev => ({ ...prev, [name]: finalValue }));
         if (isCurrent && sameAsCurrent) {
@@ -824,9 +886,13 @@ export const Profile = () => {
     };
 
     const handleEducationChange = (index, name, value) => {
+        let finalValue = value;
+        if (name === 'institution' || name === 'university') {
+            finalValue = String(value || '').slice(0, EDU_INST_UNIV_MAX_LEN);
+        }
         setEducationDetails(prev => {
             const newArray = [...prev];
-            newArray[index] = { ...newArray[index], [name]: value };
+            newArray[index] = { ...newArray[index], [name]: finalValue };
             return newArray;
         });
     };
@@ -970,7 +1036,8 @@ export const Profile = () => {
                     sectionErrors[key] = `Street Address cannot exceed ${STREET_MAX_LEN} characters.`;
                     hasErrors = true;
                 } else if (['state', 'district', 'city', 'taluka'].includes(field) && val.toString().length > STATE_DISTRICT_MAX_LEN) {
-                    sectionErrors[key] = `${field} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
+                    const label = field.charAt(0).toUpperCase() + field.slice(1);
+                    sectionErrors[key] = `${label} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
                     hasErrors = true;
                 }
             });
@@ -1022,33 +1089,66 @@ export const Profile = () => {
 
         educationDetails.forEach((edu, index) => {
             const base = `education_${index}_`;
-            if (!edu.qualification) {
-                sectionErrors[`${base}qualification`] = 'Qualification is mandatory.';
+            const qual = (edu.qualification || '').toString().trim();
+            const inst = (edu.institution || '').toString().trim();
+            const univ = (edu.university || '').toString().trim();
+            if (!qual) {
+                sectionErrors[`${base}qualification`] = 'Qualification is required.';
                 hasErrors = true;
             }
-            if (!edu.institution) {
-                sectionErrors[`${base}institution`] = 'Institution is mandatory.';
+            if (!inst) {
+                sectionErrors[`${base}institution`] = 'Institution Name is required.';
+                hasErrors = true;
+            } else if (inst.length > EDU_INST_UNIV_MAX_LEN) {
+                sectionErrors[`${base}institution`] = `Institution Name cannot exceed ${EDU_INST_UNIV_MAX_LEN} characters.`;
                 hasErrors = true;
             }
-            if (!edu.university) {
-                sectionErrors[`${base}university`] = 'University is mandatory.';
+            if (!univ) {
+                sectionErrors[`${base}university`] = 'University / Board is required.';
+                hasErrors = true;
+            } else if (univ.length > EDU_INST_UNIV_MAX_LEN) {
+                sectionErrors[`${base}university`] = `University / Board cannot exceed ${EDU_INST_UNIV_MAX_LEN} characters.`;
                 hasErrors = true;
             }
-            if (!edu.fromDate) {
-                sectionErrors[`${base}fromDate`] = 'From date is mandatory.';
+            const fromStr = (edu.fromDate || '').toString().trim();
+            const toStr = (edu.toDate || '').toString().trim();
+            if (!fromStr) {
+                sectionErrors[`${base}fromDate`] = 'From date is required.';
                 hasErrors = true;
             }
-            if (!edu.toDate) {
-                sectionErrors[`${base}toDate`] = 'To date is mandatory.';
+            if (!toStr) {
+                sectionErrors[`${base}toDate`] = 'To date is required.';
                 hasErrors = true;
             }
-            if (!edu.marks) {
-                sectionErrors[`${base}marks`] = 'Marks are mandatory.';
+            if (fromStr && toStr) {
+                const fromD = new Date(fromStr);
+                const toD = new Date(toStr);
+                if (!isNaN(fromD.getTime()) && !isNaN(toD.getTime()) && fromD > toD) {
+                    sectionErrors[`${base}fromDate`] = 'From date cannot be greater than To date.';
+                    hasErrors = true;
+                }
+            }
+            const marksStr = (edu.marks || '').toString().trim();
+            if (!marksStr) {
+                sectionErrors[`${base}marks`] = 'Marks Percentage / CGPA is required.';
                 hasErrors = true;
+            } else {
+                const marksNum = parseFloat(marksStr);
+                if (!isNaN(marksNum) && marksNum > 100) {
+                    sectionErrors[`${base}marks`] = 'Marks Percentage cannot exceed 100.';
+                    hasErrors = true;
+                }
             }
         });
 
-        setErrors(prev => ({ ...prev, ...sectionErrors }));
+        setErrors(prev => {
+            const next = { ...prev };
+            Object.keys(next).forEach(k => { if (k.startsWith('education_')) delete next[k]; });
+            return { ...next, ...sectionErrors };
+        });
+        if (hasErrors) {
+            showToast('Please fix validation errors in education fields.', 'error');
+        }
         return !hasErrors;
     };
 
@@ -1120,7 +1220,9 @@ export const Profile = () => {
                 break;
             case 'education':
                 isValid = validateEducationSection();
-                if (isValid) {
+                if (!isValid) {
+                    setExpandedSection('education');
+                } else {
                     setSavedData(prev => ({
                         ...prev,
                         educationDetails
@@ -1309,6 +1411,7 @@ export const Profile = () => {
 
                         {/* 🛑 ENHANCED DISCARD BUTTON (EDIT MODE) */}
                         <button
+                            type="button"
                             className="discard-btn"
                             onClick={handleUndoChanges}
                             style={{
@@ -1334,7 +1437,11 @@ export const Profile = () => {
                         </button>
 
                         {/* Done button (EDIT MODE) */}
-                        <button className="done-btn" onClick={handleDoneEditing}>
+                        <button
+                            type="button"
+                            className="done-btn"
+                            onClick={() => handleDoneEditing().catch(() => {})}
+                        >
                             ✅ Done Editing
                         </button>
                     </div>
@@ -1397,6 +1504,7 @@ export const Profile = () => {
                     onUndo={() => handleSectionUndo('education')}
                     adminId={adminId}
                     uploadProfileFileUrl={`${API_BASE_URL}/upload-profile-file`}
+                    errors={errors}
                 />
                 <DocumentUploadSection
                     files={dataToDisplay.files}
