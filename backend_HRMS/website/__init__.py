@@ -170,7 +170,7 @@ def create_app():
     from .Human_resource import hr
     from .query import query
     from .Accounts import Accounts
-    from .Manager import manager
+    from .manager import manager
 
     # from .manager import manager
     from .Admin import admin_bp
