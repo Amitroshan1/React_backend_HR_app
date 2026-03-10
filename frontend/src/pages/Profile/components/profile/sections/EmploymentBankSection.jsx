@@ -7,8 +7,6 @@ import {Info} from '../../common/Info';
 import {PreviousEmploymentCard} from './PreviousEmploymentCard';
 import { designationOptions, formatDateForDisplay } from '../../../utils/profileUtils';
 
-const employmentTypeOptions = ['Full-Time', 'Part-Time', 'Contract', 'Internship'];
-
 export const EmploymentBankSection = ({ 
     data,
     prevEmpData,
@@ -44,14 +42,6 @@ export const EmploymentBankSection = ({
                 <Input label="Department" name="department" value={data.department} onChange={onFormChange} error={errors.department} />
                 <Input label="Date of Joining" name="dateOfJoining" type="date" value={data.dateOfJoining} onChange={onFormChange} error={errors.dateOfJoining} readOnly />
                 <Input label="Reporting Manager" name="reportingManager" value={data.reportingManager} onChange={onFormChange} error={errors.reportingManager} maxLength={150} readOnly />
-                <SelectInput
-                    label="Employment Type"
-                    name="employmentType"
-                    value={data.employmentType}
-                    onChange={onFormChange}
-                    options={employmentTypeOptions}
-                    error={errors.employmentType}
-                />
             </div>
         </>
     ) : (
@@ -63,7 +53,6 @@ export const EmploymentBankSection = ({
                 <Info label="Department" value={data.department} />
                 <Info label="Date of Joining" value={formatDateForDisplay(data.dateOfJoining)} />
                 <Info label="Reporting Manager" value={data.reportingManager} />
-                <Info label="Employment Type" value={data.employmentType} />
             </div>
         </>
     );
@@ -107,7 +96,6 @@ export const EmploymentBankSection = ({
         'department',
         'dateOfJoining',
         'reportingManager',
-        'employmentType'
     ];
     const hasMandatoryErrors =
         isEditMode && mandatoryKeys.some(key => errors[key]);

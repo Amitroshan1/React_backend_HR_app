@@ -1173,6 +1173,76 @@ def create_or_update_education():
         return {"success": False, "message": str(e)}, 500
 
 
+def _parse_education_date(val):
+    """Parse date string to date or None."""
+    if not val:
+        return None
+    if hasattr(val, "year"):
+        return val
+    s = str(val).strip()[:10]
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+@auth.route("/education-replace", methods=["POST"])
+@jwt_required()
+def replace_education():
+    """Replace all education records for the logged-in user. Accepts list of {qualification, institution, university/board, fromDate, start, toDate, end, marks, certificate/doc_file}."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"success": False, "message": "Missing JSON body"}), 400
+
+    try:
+        admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    items = data.get("items", [])
+    if not isinstance(items, list):
+        return jsonify({"success": False, "message": "items must be an array"}), 400
+
+    try:
+        Education.query.filter_by(admin_id=admin_id).delete()
+
+        for item in items:
+            qual = (item.get("qualification") or "").strip()
+            inst = (item.get("institution") or "").strip()
+            board_val = (item.get("board") or item.get("university") or "").strip() or "-"
+            start_val = _parse_education_date(item.get("start") or item.get("fromDate"))
+            end_val = _parse_education_date(item.get("end") or item.get("toDate"))
+            marks_val = (item.get("marks") or "").strip() or "-"
+            doc_file = (item.get("doc_file") or item.get("certificate") or "").strip() or None
+
+            if not qual or not inst or not start_val or not end_val:
+                continue
+
+            edu = Education(
+                admin_id=admin_id,
+                qualification=qual,
+                institution=inst,
+                board=board_val,
+                start=start_val,
+                end=end_val,
+                marks=marks_val,
+                doc_file=doc_file,
+            )
+            db.session.add(edu)
+
+        db.session.commit()
+        return jsonify({"success": True, "message": "Education records saved successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @auth.route("/previous-companies", methods=["POST"])
 @jwt_required()
 def save_previous_companies():
@@ -1270,12 +1340,17 @@ def upload_profile_file():
         return jsonify({"success": False, "message": "No file provided"}), 400
 
     allowed = ("aadharFront", "aadharBack", "panFront", "panBack", "appointmentLetter", "passbookFront")
-    if field not in allowed:
+    education_cert = field.startswith("education_certificate") if isinstance(field, str) else False
+    if field not in allowed and not education_cert:
         return jsonify({"success": False, "message": "Invalid field"}), 400
+
+    allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png"}
+    ext = os.path.splitext(secure_filename(file.filename))[1].lower() or ".pdf"
+    if education_cert and ext not in allowed_extensions:
+        return jsonify({"success": False, "message": "Certificate must be .pdf, .jpg, or .png"}), 400
 
     upload_dir = os.path.join(current_app.root_path, "static", "uploads", "profile")
     os.makedirs(upload_dir, exist_ok=True)
-    ext = os.path.splitext(secure_filename(file.filename))[1] or ".pdf"
     filename = f"{admin_id}_{field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
     file_path = os.path.join(upload_dir, filename)
     file.save(file_path)
