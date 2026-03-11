@@ -19,6 +19,7 @@ import Admin from "./pages/Admin/Admin";
 import { Manager } from "./pages/Manager/Manager";
 import { ITPanel } from "./pages/IT/ITPanel";
 import ArchiveEmployees from "./pages/HR/Archive/Archive";
+import ArchiveEmployeeDetails from "./pages/HR/Archive/ArchiveEmployeeDetails";
 import ExitEmployee from "./pages/HR/ExitEmployee";
 import { EmployeePerformance } from "./pages/Performance/EmployeePerformance";
 import { HolidayCalendarUser } from "./pages/Holiday/HolidayCalendarUser";
@@ -76,6 +77,7 @@ export const App = () => {
         { path: "hr", element: <Hr /> },
         { path: "updates", element: <Hr /> },
         { path: "archive-employees", element: <ArchiveEmployees /> },
+        { path: "archive-employees/:adminId", element: <ArchiveEmployeeDetails /> },
         { path: "exit-employees", element: <ExitEmployee /> },
         { path: "admin", element: <Admin /> },
         { path: "admin/leaves", element: <AdminLeaves /> },

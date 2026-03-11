@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, Calendar, ArrowLeft, User, CreditCard, Briefcase, FileText } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search, Calendar, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import './Archive.css';
 
@@ -23,17 +23,12 @@ const ArchiveEmployees = () => {
   const [showTypeList, setShowTypeList] = useState(false);
   const [showCircleList, setShowCircleList] = useState(false);
   
-  // Hover card state
-  const [hoveredEmployee, setHoveredEmployee] = useState(null);
-  const [hoveredField, setHoveredField] = useState('');
-  const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
-  const [showHoverCard, setShowHoverCard] = useState(false);
-  
-  // Refs
-  const hoverCardRef = useRef(null);
-  const hoverTimerRef = useRef(null);
-  
   const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historyRows, setHistoryRows] = useState([]);
+  const [historyEmployee, setHistoryEmployee] = useState(null);
   
   // Check if email filter is active
   const isEmailFilterActive = email.trim() !== '';
@@ -136,65 +131,43 @@ const ArchiveEmployees = () => {
     return [...new Set(archivedEmployees.map((e) => e.circle).filter(Boolean))];
   }, [masterOptions.circles, archivedEmployees]);
 
-  // Handle mouse enter on employee field
-  const handleMouseEnter = (employee, field, event) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    setHoverPosition({
-      x: rect.left,
-      y: rect.bottom + 10
-    });
-    setHoveredEmployee(employee);
-    setHoveredField(field);
-    
-    // Clear any existing timer
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-    }
-    
-    // Show hover card immediately
-    setShowHoverCard(true);
+  const handleViewDetails = (employee) => {
+    if (!employee?.id) return;
+    navigate(`/archive-employees/${employee.id}`);
   };
 
-  // Handle mouse leave from employee field
-  const handleMouseLeave = (e) => {
-    // Check if mouse is moving to hover card
-    const relatedTarget = e.relatedTarget;
-    if (relatedTarget && hoverCardRef.current && hoverCardRef.current.contains(relatedTarget)) {
-      return; // Don't hide if moving to hover card
-    }
-    
-    // Start timer to hide hover card
-    hoverTimerRef.current = setTimeout(() => {
-      setShowHoverCard(false);
-      setHoveredEmployee(null);
-    }, 150);
-  };
+  const openExitHistory = async (employee, e) => {
+    e?.stopPropagation?.();
+    if (!employee?.id) return;
 
-  // Handle mouse enter on hover card
-  const handleHoverCardEnter = () => {
-    // Clear hide timer when entering hover card
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
+    setHistoryEmployee(employee);
+    setShowHistoryModal(true);
+    setHistoryLoading(true);
+    setHistoryError('');
+    setHistoryRows([]);
+    try {
+      const res = await fetch(`${HR_API_BASE}/employees/${employee.id}/exit-history`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setHistoryError(data.message || 'Failed to load exit history');
+        return;
+      }
+      setHistoryRows(Array.isArray(data.history) ? data.history : []);
+    } catch {
+      setHistoryError('Network error while loading exit history');
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
-  // Handle mouse leave from hover card
-  const handleHoverCardLeave = () => {
-    // Start timer to hide hover card
-    hoverTimerRef.current = setTimeout(() => {
-      setShowHoverCard(false);
-      setHoveredEmployee(null);
-    }, 150);
-  };
-
-  // Handle card click (for future navigation)
-  const handleCardClick = (section, e) => {
-    e.stopPropagation(); // Prevent event bubbling
-    if (hoveredEmployee) {
-      console.log(`Navigate to ${section} for employee:`, hoveredEmployee.name);
-      // In future, navigate to separate pages here
-      // navigate(`/archive/${hoveredEmployee.id}/${section}`);
-    }
+  const closeExitHistory = () => {
+    setShowHistoryModal(false);
+    setHistoryLoading(false);
+    setHistoryError('');
+    setHistoryRows([]);
+    setHistoryEmployee(null);
   };
 
   const resetFilters = () => {
@@ -203,25 +176,6 @@ const ArchiveEmployees = () => {
     setEmail('');
     setTypeSearch('');
     setCircleSearch('');
-  };
-
-  // Handle row click to navigate to ExitEmployee page (only for row, not cells)
-  const handleRowClick = (employee, e) => {
-    // Don't navigate on row click - only navigate from specific clickable areas
-    // This prevents accidental navigation when clicking cells
-    return false;
-  };
-
-  // Handle field click - only show hover card, don't navigate
-  const handleFieldClick = (e, employee) => {
-    e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    setHoverPosition({
-      x: rect.left,
-      y: rect.bottom + 10
-    });
-    setHoveredEmployee(employee);
-    setShowHoverCard(true);
   };
 
   return (
@@ -416,19 +370,20 @@ const ArchiveEmployees = () => {
                 <th>Circle</th>
                 <th>Employee Type</th>
                 <th>Email</th>
+                <th>Action</th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="no-data">
+                  <td colSpan="6" className="no-data">
                     Loading archived employees...
                   </td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="no-data">
+                  <td colSpan="6" className="no-data">
                     No archived employees found
                   </td>
                 </tr>
@@ -438,51 +393,35 @@ const ArchiveEmployees = () => {
                     key={emp.id}
                     className="employee-row"
                   >
-                    <td 
-                      className="hoverable-cell"
-                      onMouseEnter={(e) => handleMouseEnter(emp, 'id', e)}
-                      onMouseLeave={handleMouseLeave}
-                      onClick={(e) => handleFieldClick(e, emp)}
-                    >
+                    <td>
                       {emp.employeeId}
                     </td>
                     
-                    <td 
-                      className="hoverable-cell employee-name"
-                      onMouseEnter={(e) => handleMouseEnter(emp, 'name', e)}
-                      onMouseLeave={handleMouseLeave}
-                      onClick={(e) => handleFieldClick(e, emp)}
-                    >
+                    <td className="employee-name">
                       {emp.name}
                     </td>
 
-                    <td
-                      className="hoverable-cell"
-                      onMouseEnter={(e) => handleMouseEnter(emp, 'circle', e)}
-                      onMouseLeave={handleMouseLeave}
-                      onClick={(e) => handleFieldClick(e, emp)}
-                    >
+                    <td>
                       <span className="circle-badge">{emp.circle}</span>
                     </td>
 
-                    <td
-                      className="hoverable-cell"
-                      onMouseEnter={(e) => handleMouseEnter(emp, 'type', e)}
-                      onMouseLeave={handleMouseLeave}
-                      onClick={(e) => handleFieldClick(e, emp)}
-                    >
+                    <td>
                       <span className="type-badge">
                         {emp.employeeType}
                       </span>
                     </td>
 
-                    <td 
-                      className="hoverable-cell employee-email"
-                      onMouseEnter={(e) => handleMouseEnter(emp, 'email', e)}
-                      onMouseLeave={handleMouseLeave}
-                      onClick={(e) => handleFieldClick(e, emp)}
-                    >
+                    <td className="employee-email">
                       {emp.email}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => handleViewDetails(emp)}
+                      >
+                        View details
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -492,65 +431,6 @@ const ArchiveEmployees = () => {
         </div>
       </div>
 
-      {/* Hover Card - Horizontal Layout */}
-      {showHoverCard && hoveredEmployee && (
-        <div 
-          ref={hoverCardRef}
-          className="hover-card hover-card-horizontal"
-          style={{
-            left: `${hoverPosition.x}px`,
-            top: `${hoverPosition.y}px`
-          }}
-          onMouseEnter={handleHoverCardEnter}
-          onMouseLeave={handleHoverCardLeave}
-        >
-          <div className="hover-card-content-horizontal">
-            <div 
-              className="card-section-horizontal" 
-              onClick={(e) => handleCardClick('profile', e)}
-            >
-              <User size={16} />
-              <div>
-                <h5>Profile</h5>
-                <p>View employee details</p>
-              </div>
-            </div>
-            
-            <div 
-              className="card-section-horizontal" 
-              onClick={(e) => handleCardClick('bank-details', e)}
-            >
-              <CreditCard size={16} />
-              <div>
-                <h5>Bank Details</h5>
-                <p>Account information</p>
-              </div>
-            </div>
-            
-            <div 
-              className="card-section-horizontal" 
-              onClick={(e) => handleCardClick('previous-company', e)}
-            >
-              <Briefcase size={16} />
-              <div>
-                <h5>Previous Company</h5>
-                <p>Work history</p>
-              </div>
-            </div>
-            
-            <div 
-              className="card-section-horizontal" 
-              onClick={(e) => handleCardClick('documents', e)}
-            >
-              <FileText size={16} />
-              <div>
-                <h5>Documents</h5>
-                <p>View all documents</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

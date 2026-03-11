@@ -23,6 +23,10 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -35,6 +39,8 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     setFileName(f ? f.name : 'No file chosen');
     setError('');
   };
+
+  const historyAttachmentUrl = (path) => (path ? `/uploads/${path}` : null);
 
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);
@@ -58,6 +64,60 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
       }
     }
   }, [propEmpTypeOptions]);
+
+  const fetchHistory = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setHistoryLoading(true);
+    setHistoryError('');
+    try {
+      const res = await fetch(`${API_BASE}/news-feed`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setHistory([]);
+        setHistoryError(data.message || 'Failed to load news feed history.');
+        return;
+      }
+      setHistory(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      setHistory([]);
+      setHistoryError('Network error while loading history.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  const handleDeletePost = async (id) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please log in.');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to delete this news feed post?')) {
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/news-feed/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        alert(data.message || 'Failed to delete post.');
+        return;
+      }
+      setHistory((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      alert('Network error while deleting post.');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -94,6 +154,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
         setFileName('No file chosen');
         const fileInput = document.getElementById('news-file');
         if (fileInput) fileInput.value = '';
+        await fetchHistory();
       } else {
         setError(data.message || 'Failed to post.');
       }
@@ -185,6 +246,68 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
               </button>
             </div>
           </form>
+
+          <div className="newsfeed-history">
+            <h3>News Feed History</h3>
+
+            {historyLoading && <p>Loading history…</p>}
+            {historyError && !historyLoading && (
+              <p className="newsfeed-error">{historyError}</p>
+            )}
+
+            {!historyLoading && !historyError && history.length === 0 && (
+              <p>No previous announcements found.</p>
+            )}
+
+            {!historyLoading && !historyError && history.length > 0 && (
+              <div className="newsfeed-history-table-wrapper">
+                <table className="newsfeed-history-table">
+                  <thead>
+                    <tr>
+                      <th>Title</th>
+                      <th>Circle</th>
+                      <th>Employee Type</th>
+                      <th>Date</th>
+                      <th>Attachment</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.title}</td>
+                        <td>{item.circle || 'All'}</td>
+                        <td>{item.emp_type || 'All'}</td>
+                        <td>{item.created_at ? item.created_at.split('T')[0] : '-'}</td>
+                        <td>
+                          {item.file_path ? (
+                            <a
+                              href={historyAttachmentUrl(item.file_path)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              View
+                            </a>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="newsfeed-delete-btn"
+                            onClick={() => handleDeletePost(item.id)}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

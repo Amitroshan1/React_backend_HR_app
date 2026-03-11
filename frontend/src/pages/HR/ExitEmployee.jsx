@@ -5,6 +5,15 @@ import './ExitEmployee.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+const formatDateDMY = (iso) => {
+  if (!iso) return '-';
+  const s = String(iso).slice(0, 10); // YYYY-MM-DD
+  const parts = s.split('-');
+  if (parts.length !== 3) return s;
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return s;
+  return `${d}-${m}-${y}`;
+};
 
 const ExitEmployee = ({onBack}) => {
   const navigate = useNavigate();
@@ -49,6 +58,8 @@ const ExitEmployee = ({onBack}) => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
+  const [exitDate, setExitDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [exitReason, setExitReason] = useState('');
 
   // Check if email filter is active
   const isEmailFilterActive = email.trim() !== '';
@@ -81,6 +92,7 @@ const ExitEmployee = ({onBack}) => {
         circle: e.circle || '',
         employeeType: e.emp_type || '',
         email: e.email || '',
+        resignationDate: e.resignation_date || null,
       }));
       setEmployees(rows);
     } catch {
@@ -120,6 +132,8 @@ const ExitEmployee = ({onBack}) => {
   useEffect(() => {
     if (employeeFromArchive) {
       setSelectedEmployee(employeeFromArchive);
+      setExitDate(new Date().toISOString().slice(0, 10));
+      setExitReason('');
       setShowConfirm(true);
     }
   }, [employeeFromArchive]);
@@ -159,6 +173,8 @@ const ExitEmployee = ({onBack}) => {
 
   const handleActionClick = (employee) => {
     setSelectedEmployee(employee);
+    setExitDate(new Date().toISOString().slice(0, 10));
+    setExitReason('');
     setShowConfirm(true);
   };
 
@@ -168,15 +184,14 @@ const ExitEmployee = ({onBack}) => {
     setSubmitting(true);
     setError('');
     try {
-      const today = new Date().toISOString().slice(0, 10);
       const res = await fetch(`${HR_API_BASE}/mark-exit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           employee_email: selectedEmployee.email,
           exit_type: 'Resigned',
-          exit_reason: 'Exited from HR panel',
-          exit_date: today,
+          exit_reason: (exitReason || '').trim(),
+          exit_date: exitDate,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -452,6 +467,7 @@ const ExitEmployee = ({onBack}) => {
                 <th>Circle</th>
                 <th>Employee Type</th>
                 <th>Email</th>
+                <th>Separation Date</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -459,13 +475,13 @@ const ExitEmployee = ({onBack}) => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="no-data">
+                  <td colSpan="7" className="no-data">
                     Loading employees...
                   </td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="no-data">
+                  <td colSpan="7" className="no-data">
                     No employees found
                   </td>
                 </tr>
@@ -484,6 +500,8 @@ const ExitEmployee = ({onBack}) => {
                     </td>
 
                     <td className="employee-email">{emp.email}</td>
+
+                    <td>{formatDateDMY(emp.resignationDate)}</td>
 
                     <td>
                       <button
@@ -515,8 +533,32 @@ const ExitEmployee = ({onBack}) => {
             <h2 id="confirm-modal-title" className="modal-title">Confirm Exit</h2>
 
             <p className="modal-message">
-              Are you sure you want to exit <strong>{selectedEmployee?.name}</strong>?
+              Exit <strong>{selectedEmployee?.name}</strong> by selecting the exit date and entering a reason.
             </p>
+
+            <div style={{ width: '100%', marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontWeight: 600 }}>Exit date</label>
+                <input
+                  type="date"
+                  value={exitDate}
+                  onChange={(e) => setExitDate(e.target.value)}
+                  style={{ padding: '10px', borderRadius: 8, border: '1px solid #e5e7eb' }}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontWeight: 600 }}>Reason</label>
+                <textarea
+                  value={exitReason}
+                  onChange={(e) => setExitReason(e.target.value)}
+                  rows={4}
+                  placeholder="Write reason for exiting..."
+                  style={{ padding: '10px', borderRadius: 8, border: '1px solid #e5e7eb', resize: 'vertical' }}
+                  required
+                />
+              </div>
+            </div>
 
             <div className="modal-actions">
               <button
@@ -529,7 +571,7 @@ const ExitEmployee = ({onBack}) => {
               <button
                 className="modal-button confirm-button"
                 onClick={handleConfirmExit}
-                disabled={submitting}
+                disabled={submitting || !exitDate || !(exitReason || '').trim()}
               >
                 {submitting ? 'Please wait...' : 'Yes'}
               </button>
