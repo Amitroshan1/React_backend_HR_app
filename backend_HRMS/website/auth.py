@@ -438,6 +438,8 @@ def get_news_feed():
             "title": p.title,
             "content": p.content,
             "file_path": p.file_path,
+            # Full URL for attachment, used by frontend
+            "file_url": p.file_url(),
             "circle": p.circle,
             "emp_type": p.emp_type,
             "created_at": p.created_at.isoformat() if p.created_at else None,

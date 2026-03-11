@@ -682,8 +682,15 @@ export const Dashboard = () => {
                                             <p className="news-feed-content">{item.content}</p>
                                             <div className="news-feed-meta">
                                                 <span className="news-feed-date">{formatDate(item.created_at)}</span>
-                                                {item.file_path && (
-                                                    <a href={`/uploads/${item.file_path}`} target="_blank" rel="noopener noreferrer" className="news-feed-file">Attachment</a>
+                                                {(item.file_url || item.file_path) && (
+                                                    <a
+                                                        href={item.file_url || `/static/uploads/${item.file_path}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="news-feed-file"
+                                                    >
+                                                        Attachment
+                                                    </a>
                                                 )}
                                             </div>
                                         </li>
