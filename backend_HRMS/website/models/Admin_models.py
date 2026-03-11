@@ -140,3 +140,17 @@ class AuditLog(db.Model):
     performed_by = db.Column(db.String(120))   # HR email
     target_email = db.Column(db.String(120))   # Employee email
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class EmployeeExitHistory(db.Model):
+    __tablename__ = "employee_exit_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=False, index=True)
+    exit_date = db.Column(db.Date, nullable=False)
+    exit_type = db.Column(db.String(30), nullable=True)
+    exit_reason = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(120), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    admin = db.relationship("Admin", backref=db.backref("exit_history", lazy="dynamic"))

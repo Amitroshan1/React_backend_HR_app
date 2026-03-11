@@ -12,7 +12,7 @@ import secrets
 from flask import Blueprint, request, current_app, jsonify,json
 from flask_jwt_extended import jwt_required, get_jwt
 from .email import send_email_via_zeptomail,send_welcome_email
-from .models.Admin_models import Admin,EmployeeArchive,AuditLog
+from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
@@ -759,8 +759,23 @@ def list_active_employees():
     circle = (request.args.get("circle") or "").strip()
     email = (request.args.get("email") or "").strip().lower()
 
-    q = Admin.query.filter(
-        db.func.coalesce(Admin.is_exited, False) == False,
+    # Latest resignation (separation) per admin, if any.
+    # If separation is revoked/cancelled, don't show a separation date on Exit Employees page.
+    latest_resignation_subq = (
+        db.session.query(
+            Resignation.admin_id.label("admin_id"),
+            db.func.max(Resignation.id).label("max_id"),
+        )
+        .filter(db.func.lower(db.func.coalesce(Resignation.status, "")) != "revoked")
+        .group_by(Resignation.admin_id)
+        .subquery()
+    )
+
+    q = (
+        db.session.query(Admin, Resignation)
+        .outerjoin(latest_resignation_subq, latest_resignation_subq.c.admin_id == Admin.id)
+        .outerjoin(Resignation, Resignation.id == latest_resignation_subq.c.max_id)
+        .filter(db.func.coalesce(Admin.is_exited, False) == False)
     )
 
     if emp_type:
@@ -772,21 +787,25 @@ def list_active_employees():
 
     rows = q.order_by(Admin.first_name.asc(), Admin.id.asc()).all()
 
+    employees = []
+    for admin_row, res in rows:
+        employees.append(
+            {
+                "id": admin_row.id,
+                "emp_id": admin_row.emp_id,
+                "name": admin_row.first_name,
+                "email": admin_row.email,
+                "circle": admin_row.circle,
+                "emp_type": admin_row.emp_type,
+                "resignation_date": res.resignation_date.isoformat() if res and res.resignation_date else None,
+            }
+        )
+
     return jsonify(
         {
             "success": True,
-            "count": len(rows),
-            "employees": [
-                {
-                    "id": row.id,
-                    "emp_id": row.emp_id,
-                    "name": row.first_name,
-                    "email": row.email,
-                    "circle": row.circle,
-                    "emp_type": row.emp_type,
-                }
-                for row in rows
-            ],
+            "count": len(employees),
+            "employees": employees,
         }
     ), 200
 
@@ -831,19 +850,32 @@ def mark_employee_exit():
 
     try:
         # --------------------------------------------------
-        # MARK EXIT
+        # MARK EXIT (current state)
         # --------------------------------------------------
         admin.is_active = False
         admin.is_exited = True
+
+        # --------------------------------------------------
+        # EXIT AUDIT/HISTORY (Option B)
+        # --------------------------------------------------
+        hr_email = get_jwt().get("email")
+        exit_row = EmployeeExitHistory(
+            admin_id=admin.id,
+            exit_date=exit_date,
+            exit_type=str(exit_type)[:30] if exit_type else None,
+            exit_reason=exit_reason,
+            created_by=hr_email,
+        )
+        db.session.add(exit_row)
+
+        # Keep Admin fields as a "latest exit" cache (backward compatible)
         admin.exit_date = exit_date
-        admin.exit_type = exit_type
+        admin.exit_type = str(exit_type)[:30] if exit_type else None
         admin.exit_reason = exit_reason
 
         # --------------------------------------------------
         # AUDIT LOG
         # --------------------------------------------------
-        hr_email = get_jwt().get("email")
-
         audit = AuditLog(
             action="EMPLOYEE_EXITED",
             performed_by=hr_email,
@@ -879,18 +911,36 @@ def employee_archive_list():
     """
 
     try:
+        # Latest exit record per employee (by max history id)
+        latest_exit_id_subq = (
+            db.session.query(
+                EmployeeExitHistory.admin_id.label("admin_id"),
+                db.func.max(EmployeeExitHistory.id).label("max_id"),
+            )
+            .group_by(EmployeeExitHistory.admin_id)
+            .subquery()
+        )
+
         exited_employees = (
-            Admin.query
+            db.session.query(Admin, EmployeeExitHistory)
+            .outerjoin(latest_exit_id_subq, latest_exit_id_subq.c.admin_id == Admin.id)
+            .outerjoin(EmployeeExitHistory, EmployeeExitHistory.id == latest_exit_id_subq.c.max_id)
             .filter(Admin.is_exited == True)
             .order_by(
-                db.case((Admin.exit_date.is_(None), 1), else_=0),
-                Admin.exit_date.desc()
+                db.case(
+                    (db.func.coalesce(EmployeeExitHistory.exit_date, Admin.exit_date).is_(None), 1),
+                    else_=0,
+                ),
+                db.func.coalesce(EmployeeExitHistory.exit_date, Admin.exit_date).desc(),
+                Admin.id.desc(),
             )
             .all()
         )
 
         employees = []
-        for emp in exited_employees:
+        for (emp, exit_row) in exited_employees:
+            effective_exit_date = (exit_row.exit_date if exit_row else emp.exit_date)
+            effective_exit_type = (exit_row.exit_type if exit_row else emp.exit_type)
             employees.append({
                 "admin_id": emp.id,
                 "name": emp.first_name,
@@ -899,8 +949,8 @@ def employee_archive_list():
                 "emp_id": emp.emp_id,
                 "circle": emp.circle,
                 "emp_type": emp.emp_type,
-                "exit_date": emp.exit_date.isoformat() if emp.exit_date else None,
-                "exit_type": emp.exit_type
+                "exit_date": effective_exit_date.isoformat() if effective_exit_date else None,
+                "exit_type": effective_exit_type
             })
 
         return jsonify({
@@ -915,6 +965,39 @@ def employee_archive_list():
             "message": "Failed to load employee archive",
             "error": str(e)
         }), 500
+
+
+@hr.route("/employees/<int:admin_id>/exit-history", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_employee_exit_history(admin_id):
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    rows = (
+        EmployeeExitHistory.query.filter_by(admin_id=admin_id)
+        .order_by(EmployeeExitHistory.exit_date.desc(), EmployeeExitHistory.id.desc())
+        .all()
+    )
+    return jsonify(
+        {
+            "success": True,
+            "admin_id": admin_id,
+            "count": len(rows),
+            "history": [
+                {
+                    "id": r.id,
+                    "exit_date": r.exit_date.isoformat() if r.exit_date else None,
+                    "exit_type": r.exit_type,
+                    "exit_reason": r.exit_reason,
+                    "created_by": r.created_by,
+                    "created_at": r.created_at.isoformat() if getattr(r, "created_at", None) else None,
+                }
+                for r in rows
+            ],
+        }
+    ), 200
 
 
 
@@ -1657,6 +1740,65 @@ def add_news_feed_api():
             "emp_type": news_feed.emp_type
         }
     }), 201
+
+
+@hr.route("/news-feed", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_news_feed_history():
+    """List news feed posts for HR (history view)."""
+    try:
+        circle = request.args.get("circle")
+        emp_type = request.args.get("emp_type")
+
+        q = NewsFeed.query.order_by(NewsFeed.created_at.desc())
+
+        if circle and circle.lower() != "all":
+            q = q.filter(NewsFeed.circle == circle)
+        if emp_type and emp_type.lower() != "all":
+            q = q.filter(NewsFeed.emp_type == emp_type)
+
+        posts = q.limit(200).all()
+
+        return jsonify({
+            "success": True,
+            "count": len(posts),
+            "items": [
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "content": p.content,
+                    "file_path": p.file_path,
+                    "circle": p.circle,
+                    "emp_type": p.emp_type,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                }
+                for p in posts
+            ],
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e) or "Failed to load news feed history",
+        }), 500
+
+
+@hr.route("/news-feed/<int:post_id>", methods=["DELETE"])
+@jwt_required()
+@hr_required
+def delete_news_feed(post_id):
+    """Delete a news feed post (HR only)."""
+    post = NewsFeed.query.get(post_id)
+    if not post:
+        return jsonify({"success": False, "message": "News feed post not found"}), 404
+
+    try:
+        db.session.delete(post)
+        db.session.commit()
+        return jsonify({"success": True, "message": "News feed post deleted"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e) or "Failed to delete post"}), 500
 
 
 @hr.route("/employee/lookup", methods=["GET"])
