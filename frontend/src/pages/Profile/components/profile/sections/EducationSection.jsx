@@ -27,6 +27,7 @@ export const EducationSection = ({
     onUndo,
     adminId,
     uploadProfileFileUrl,
+    errors = {},
 }) => {
     const isEditMode = mode === 'edit';
 
@@ -64,56 +65,69 @@ export const EducationSection = ({
                                 onChange={(e) => onChange(index, 'qualification', e.target.value)}
                                 options={qualificationOptions}
                                 isMandatory
+                                error={errors[`education_${index}_qualification`]}
                             />
                         </div>
 
                         <Input
                             label="Institution Name"
+                            name={`institution_${index}`}
                             value={edu.institution}
                             onChange={(e) =>
                                 onChange(index, 'institution', e.target.value)
                             }
                             isMandatory
+                            maxLength={100}
+                            error={errors[`education_${index}_institution`]}
                         />
 
                         <Input
                             label="University / Board"
+                            name={`university_${index}`}
                             value={edu.university}
                             onChange={(e) =>
                                 onChange(index, 'university', e.target.value)
                             }
                             isMandatory
+                            maxLength={100}
+                            error={errors[`education_${index}_university`]}
                         />
 
                         <div className="education-date-row">
                             <Input
                                 label="From Date"
+                                name={`fromDate_${index}`}
                                 type="date"
                                 value={edu.fromDate}
                                 onChange={(e) =>
                                     onChange(index, 'fromDate', e.target.value)
                                 }
                                 isMandatory
+                                error={errors[`education_${index}_fromDate`]}
                             />
 
                             <Input
                                 label="To Date"
+                                name={`toDate_${index}`}
                                 type="date"
                                 value={edu.toDate}
                                 onChange={(e) =>
                                     onChange(index, 'toDate', e.target.value)
                                 }
                                 isMandatory
+                                error={errors[`education_${index}_toDate`]}
                             />
                         </div>
 
                         <Input
                             label="Marks Percentage / CGPA"
+                            name={`marks_${index}`}
                             value={edu.marks}
                             onChange={(e) =>
                                 onChange(index, 'marks', e.target.value)
                             }
                             isMandatory
+                            error={errors[`education_${index}_marks`]}
                         />
 
                         <FileUpload
@@ -126,6 +140,7 @@ export const EducationSection = ({
                             adminId={adminId}
                             uploadProfileFileUrl={uploadProfileFileUrl}
                             accept=".pdf,.jpg,.jpeg,.png"
+                            error={errors[`education_${index}_certificate`]}
                         />
                     </div>
                 </div>

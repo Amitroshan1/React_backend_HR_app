@@ -32,7 +32,7 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
             const allowedExts = accept.replace(/\./g, '').toLowerCase().split(',');
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             if (!allowedExts.includes(ext)) {
-                setUploadError('Please select a valid file (.pdf, .jpg, or .png only).');
+                setUploadError(`Unsupported file format (.${ext}). Please use .pdf, .jpg, .jpeg, or .png only.`);
                 if (inputRef.current) inputRef.current.value = '';
                 return;
             }

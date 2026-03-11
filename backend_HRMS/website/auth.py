@@ -539,10 +539,12 @@ def employee_profile():
             "permanent_pincode": employee.permanent_pincode,
             "permanent_district": employee.permanent_district or "",
             "permanent_state": employee.permanent_state or "",
+            "permanent_city": getattr(employee, "permanent_city", None) or "",
             "present_address_line1": employee.present_address_line1,
             "present_pincode": employee.present_pincode,
             "present_district": employee.present_district or "",
             "present_state": employee.present_state or "",
+            "present_city": getattr(employee, "present_city", None) or "",
             "photo_url": photo_url,
         }
 
@@ -967,7 +969,25 @@ def create_or_update_employee():
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "admin_id must be an integer"}), 400
 
+    # Early validation: street address max length (400 chars) - return user-friendly message before any DB ops
+    for key in ("permanent_address_line1", "present_address_line1"):
+        val = data.get(key)
+        if val is not None and len(str(val).strip()) > 400:
+            return jsonify({"success": False, "message": "Street address cannot exceed 400 characters."}), 400
+
     employee = Employee.query.filter_by(admin_id=admin_id).first()
+    new_email_raw = (data.get("email") or data.get("personalEmail") or "").strip()
+    new_email = new_email_raw.lower() if new_email_raw else ""
+
+    # Proactive duplicate email check (Employee and Admin tables) - case-insensitive
+    dup_msg = "This email is already taken. Please use a different email."
+    if new_email:
+        existing_emp = Employee.query.filter(func.lower(Employee.email) == new_email).first()
+        if existing_emp and (not employee or existing_emp.admin_id != admin_id):
+            return jsonify({"success": False, "message": dup_msg}), 400
+        existing_admin = Admin.query.filter(Admin.email.isnot(None), func.lower(Admin.email) == new_email).first()
+        if existing_admin and existing_admin.id != admin_id:
+            return jsonify({"success": False, "message": dup_msg}), 400
 
     try:
         if employee:
@@ -980,8 +1000,8 @@ def create_or_update_employee():
             }
             optional_string_fields = {"mother_name", "emergency_mobile"}
             optional_address_fields = {
-                "permanent_district", "permanent_state",
-                "present_district", "present_state"
+                "permanent_district", "permanent_state", "permanent_city",
+                "present_district", "present_state", "present_city"
             }
 
             for field in [
@@ -989,9 +1009,9 @@ def create_or_update_employee():
                 "dob", "emp_id", "mobile", "gender", "emergency_mobile",
                 "nationality", "blood_group", "designation",
                 "permanent_address_line1", "permanent_pincode",
-                "permanent_district", "permanent_state",
+                "permanent_district", "permanent_state", "permanent_city",
                 "present_address_line1", "present_pincode",
-                "present_district", "present_state"
+                "present_district", "present_state", "present_city"
             ]:
                 if field not in data:
                     continue
@@ -1013,6 +1033,8 @@ def create_or_update_employee():
                         s = s[-50:]
                     elif field == "gender" and len(s) > 50:
                         s = s[:50]
+                    elif field in ("permanent_address_line1", "present_address_line1") and len(s) > 400:
+                        return jsonify({"success": False, "message": "Street address cannot exceed 400 characters."}), 400
                     val = s
                 elif field in optional_string_fields:
                     val = (val or "").strip() if val is not None else ""
@@ -1020,25 +1042,34 @@ def create_or_update_employee():
                         val = val[:50]
                 elif field in optional_address_fields:
                     val = (val or "").strip() if val is not None else None
+                    if val and len(val) > 100:
+                        label = "District" if "district" in field else ("State" if "state" in field else "City")
+                        return jsonify({"success": False, "message": f"{label} cannot exceed 100 characters."}), 400
                     if val == "":
                         val = None
                 setattr(employee, field, val)
 
-            # Update Admin.emp_type if provided (employment type is stored on Admin)
-            emp_type_val = data.get("emp_type") or data.get("employment_type")
-            if emp_type_val is not None:
-                admin = Admin.query.get(admin_id)
-                if admin:
-                    admin.emp_type = (str(emp_type_val).strip() or None) if str(emp_type_val).strip() else None
+            # Ensure optional fields can be cleared: explicitly set when present in request
+            if "mother_name" in data:
+                employee.mother_name = (data.get("mother_name") or "").strip()
+            if "emergency_mobile" in data:
+                em = (data.get("emergency_mobile") or "").strip()
+                employee.emergency_mobile = em[:50] if len(em) > 50 else em
+
+            # Update Admin.emp_type and Admin.email if provided (stored on Admin)
+            admin_obj = Admin.query.get(admin_id)
+            if admin_obj:
+                emp_type_val = data.get("emp_type") or data.get("employment_type")
+                if emp_type_val is not None:
+                    admin_obj.emp_type = (str(emp_type_val).strip() or None) if str(emp_type_val).strip() else None
+                if new_email and "email" in data:
+                    admin_obj.email = (data.get("email") or data.get("personalEmail") or "").strip() or None
 
             try:
                 db.session.commit()
-            except IntegrityError as ie:
+            except IntegrityError:
                 db.session.rollback()
-                err_msg = str(ie).lower()
-                if "unique" in err_msg or "duplicate" in err_msg or "1062" in err_msg:
-                    return jsonify({"success": False, "message": "This email is already registered. Please use a different email."}), 400
-                raise
+                return jsonify({"success": False, "message": "This email is already taken. Please use a different email."}), 400
             return jsonify({"success": True, "message": "Employee updated successfully"}), 200
 
         # Create new employee
@@ -1073,6 +1104,17 @@ def create_or_update_employee():
         # Designation can be empty on first save; default to "Not Specified"
         designation_val = _str(data.get("designation")) or "Not Specified"
 
+        # Address field length validation (create path)
+        for key in ("permanent_address_line1", "present_address_line1"):
+            s = _str(data.get(key))
+            if s and len(s) > 400:
+                return jsonify({"success": False, "message": "Street address cannot exceed 400 characters."}), 400
+        for key in ("permanent_district", "permanent_state", "permanent_city", "present_district", "present_state", "present_city"):
+            s = _str(data.get(key))
+            if s and len(s) > 100:
+                label = "District" if "district" in key else ("State" if "state" in key else "City")
+                return jsonify({"success": False, "message": f"{label} cannot exceed 100 characters."}), 400
+
         def _mobile(s, max_len=20):
             s = _str(s)
             return s[-max_len:] if len(s) > max_len else s
@@ -1097,24 +1139,26 @@ def create_or_update_employee():
             permanent_pincode=_str(data.get("permanent_pincode")),
             permanent_district=data.get("permanent_district") or None,
             permanent_state=data.get("permanent_state") or None,
+            permanent_city=data.get("permanent_city") or None,
 
             present_address_line1=_str(data.get("present_address_line1")),
             present_pincode=_str(data.get("present_pincode")),
             present_district=data.get("present_district") or None,
             present_state=data.get("present_state") or None,
+            present_city=data.get("present_city") or None,
         )
 
         db.session.add(employee)
         try:
             db.session.commit()
-        except IntegrityError as ie:
+        except IntegrityError:
             db.session.rollback()
-            err_msg = str(ie).lower()
-            if "unique" in err_msg or "duplicate" in err_msg or "1062" in err_msg:
-                return jsonify({"success": False, "message": "This email is already registered. Please use a different email."}), 400
-            raise
+            return jsonify({"success": False, "message": "This email is already taken. Please use a different email."}), 400
         return jsonify({"success": True, "message": "Employee created successfully"}), 201
 
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"success": False, "message": "This email is already taken. Please use a different email."}), 400
     except Exception as e:
         db.session.rollback()
         logging.exception("Employee create/update error")
