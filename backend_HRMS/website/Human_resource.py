@@ -212,6 +212,13 @@ def list_holidays_for_year():
 @hr.route("/holidays/user", methods=["GET"])
 @jwt_required()
 def list_holidays_for_user_view():
+    from .models.Admin_models import Admin
+    claims = get_jwt()
+    email = (claims.get("email") or "").strip()
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin or (admin.circle or "").strip().upper() != "NHQ":
+        return jsonify({"success": False, "message": "Holiday calendar is restricted to NHQ users"}), 403
+
     year = _parse_year_or_400(request.args.get("year", date.today().year))
     if not year:
         return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
@@ -1815,7 +1822,7 @@ def search_employee_api_for_asset():
         }), 400
 
     # Admin is the source of truth
-    admin = Admin.query.filter_by(emp_id=emp_id).first()
+    admin = Admin.query.filter_by(emp_id=emp_id, is_exited=False).first()
 
     if not admin:
         return jsonify({
@@ -2289,10 +2296,13 @@ def search_employee_api():
             "message": "emp_type and circle are required"
         }), 400
 
-    employees = Admin.query.filter_by(
-        emp_type=emp_type,
-        circle=circle
-    ).all()
+    employees = (
+        Admin.query.filter_by(
+            emp_type=emp_type,
+            circle=circle,
+            is_exited=False
+        ).all()
+    )
 
     return jsonify({
         "success": True,
@@ -2320,7 +2330,7 @@ def search_employee_api():
 def get_employee_api(email_path):
     """Get Admin (employee) by email. Uses path so URL-encoded @ and dots are preserved."""
     email = unquote(email_path).strip()
-    admin = Admin.query.filter_by(email=email).first()
+    admin = Admin.query.filter_by(email=email, is_exited=False).first()
 
     if not admin:
         return jsonify({
@@ -2349,7 +2359,7 @@ def get_employee_api(email_path):
 def update_employee_api(email_path):
     """Update Admin (employee) by email."""
     email = unquote(email_path).strip()
-    admin = Admin.query.filter_by(email=email).first()
+    admin = Admin.query.filter_by(email=email, is_exited=False).first()
 
     if not admin:
         return jsonify({

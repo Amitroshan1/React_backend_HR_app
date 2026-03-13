@@ -12,7 +12,7 @@ import { useUser } from "../../../components/layout/UserContext";
 
 const API_BASE_URL = "/api/auth";
 
-const TOAST_DURATION_MS = 3000;
+const TOAST_DURATION_MS = 6000;
 
 // Normalize photo URL: strip /public prefix if present (Vite serves public files at root)
 const normalizePhotoUrl = (url) => {
@@ -137,6 +137,10 @@ export const Profile = () => {
     const [, setLastSavedTime] = useState(null);
 
     const showToast = useCallback((message, type = 'success') => {
+        // Simple debug log so you can verify toasts are being triggered
+        // You can remove this later if not needed.
+        // eslint-disable-next-line no-console
+        console.log('Profile toast:', { message, type });
         setToast({ show: true, message, type });
     }, []);
     useEffect(() => {
@@ -447,6 +451,7 @@ export const Profile = () => {
                 showToast('Session expired or profile not loaded. Please refresh the page.', 'error');
                 return false;
             }
+            let successMsg = 'Profile saved successfully.';
             try {
                     // POST /employee
                     const empPayload = {
@@ -480,9 +485,9 @@ export const Profile = () => {
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify(empPayload),
                     });
+                    const empData = await empRes.json().catch(() => ({}));
                     if (!empRes.ok) {
-                        const errData = await empRes.json().catch(() => ({}));
-                        const msg = errData.message || 'Failed to save profile';
+                        const msg = empData.message || 'Failed to save profile';
                         setSaveStatus(msg);
                         showToast(msg, 'error');
                         if (msg.toLowerCase().includes('street')) {
@@ -492,6 +497,9 @@ export const Profile = () => {
                             setErrors((prev) => ({ ...prev, personalEmail: msg }));
                         }
                         return false;
+                    }
+                    if (empData && typeof empData.message === 'string' && empData.message.trim()) {
+                        successMsg = empData.message.trim();
                     }
 
                     // POST /education-replace (all education records)
@@ -533,7 +541,7 @@ export const Profile = () => {
                 return false;
             }
             setSaveStatus('Saved!');
-            showToast('Profile saved successfully.');
+            showToast(successMsg, 'success');
             return true;
         };
 
@@ -550,6 +558,14 @@ export const Profile = () => {
         documents: 'Documents saved successfully.',
     };
 
+    const SECTION_ERROR_MESSAGES = {
+        personal: 'Please fix errors in Personal Information before saving.',
+        address: 'Please fix address validation errors before saving.',
+        employment: 'Please fix employment details before saving.',
+        education: 'Please fix education validation errors before saving.',
+        documents: 'Please fix document issues before saving.',
+    };
+
     const saveSectionToBackend = useCallback(async (sectionName) => {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -562,6 +578,7 @@ export const Profile = () => {
         }
         const permAddr = sameAsCurrent ? currentAddress : permanentAddress;
         try {
+            let successMsg = SECTION_SAVE_MESSAGES[sectionName] || 'Saved successfully.';
             if (['personal', 'address', 'employment'].includes(sectionName)) {
                 const empPayload = {
                     admin_id: parseInt(adminId, 10),
@@ -607,6 +624,9 @@ export const Profile = () => {
                     }
                     return;
                 }
+                if (errData && typeof errData.message === 'string' && errData.message.trim()) {
+                    successMsg = errData.message.trim();
+                }
                 if (sectionName === 'employment') {
                     const prevRes = await fetch(`${API_BASE_URL}/previous-companies`, {
                         method: 'POST',
@@ -637,10 +657,13 @@ export const Profile = () => {
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                     body: JSON.stringify({ items }),
                 });
+                const eduData = await eduRes.json().catch(() => ({}));
                 if (!eduRes.ok) {
-                    const errData = await eduRes.json().catch(() => ({}));
-                    showToast(errData.message || 'Failed to save education.', 'error');
+                    showToast(eduData.message || 'Failed to save education.', 'error');
                     return;
+                }
+                if (eduData && typeof eduData.message === 'string' && eduData.message.trim()) {
+                    successMsg = eduData.message.trim();
                 }
             }
             if (sectionName === 'documents') {
@@ -658,12 +681,16 @@ export const Profile = () => {
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                     body: JSON.stringify(docPayload),
                 });
+                const docData = await docRes.json().catch(() => ({}));
                 if (!docRes.ok) {
-                    showToast('Failed to save documents.', 'error');
+                    showToast(docData.message || 'Failed to save documents.', 'error');
                     return;
                 }
+                if (docData && typeof docData.message === 'string' && docData.message.trim()) {
+                    successMsg = docData.message.trim();
+                }
             }
-            showToast(SECTION_SAVE_MESSAGES[sectionName] || 'Saved successfully.');
+            showToast(successMsg, 'success');
             if (['personal', 'address', 'employment'].includes(sectionName)) {
                 setErrors((prev) => ({ ...prev, personalEmail: '' }));
             }
@@ -948,7 +975,8 @@ export const Profile = () => {
             'mobile',
             'nationality',
             'dateOfBirth',
-            'gender'
+            'gender',
+            'emergency'
         ];
 
         required.forEach(key => {
@@ -1154,12 +1182,7 @@ export const Profile = () => {
         switch (sectionName) {
             case 'personal': {
                 isValid = validatePersonalSection();
-                const designationOk = formData.designation && formData.designation.trim() !== '' && formData.designation !== 'Choose Your Designation';
-                if (isValid && !designationOk) {
-                    setErrors(prev => ({ ...prev, designation: 'Please select a Designation (in Employment section).' }));
-                    showToast('Please select Designation in the Employment section below.', 'error');
-                    isValid = false;
-                } else if (isValid) {
+                if (isValid) {
                     setSavedData(prev => ({
                         ...prev,
                         formData: {
@@ -1228,6 +1251,12 @@ export const Profile = () => {
                 break;
             default:
                 break;
+        }
+
+        if (!isValid) {
+            // Show a generic per-section error toast on validation failure
+            const msg = SECTION_ERROR_MESSAGES[sectionName] || 'Please fix validation errors before saving.';
+            showToast(msg, 'error');
         }
 
         return isValid;
@@ -1320,7 +1349,8 @@ export const Profile = () => {
                 position: 'fixed',
                 top: 20,
                 right: 20,
-                zIndex: 9999,
+                // Use a very high z-index so this toast is always above overlays/modals
+                zIndex: 200000,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,

@@ -1080,7 +1080,8 @@ def create_or_update_employee():
         def _str(v, default=""):
             return (v or default).strip() if v is not None else default
 
-        # User-friendly validation messages
+        # User-friendly validation messages for first-time create.
+        # Keep this list minimal so profile can be created card-by-card.
         required = [
             ("name", "Full name"),
             ("email", "Email"),
@@ -1092,10 +1093,7 @@ def create_or_update_employee():
             ("emergency_mobile", "Emergency contact"),
             ("nationality", "Nationality"),
             ("blood_group", "Blood group"),
-            ("permanent_address_line1", "Permanent address"),
-            ("permanent_pincode", "Permanent address pincode"),
-            ("present_address_line1", "Current address"),
-            ("present_pincode", "Current address pincode"),
+            # Address fields are optional on first save; can be filled later.
         ]
         for key, label in required:
             if not _str(data.get(key)):

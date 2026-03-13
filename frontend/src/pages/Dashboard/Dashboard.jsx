@@ -529,6 +529,7 @@ export const Dashboard = () => {
         .map((n) => (typeof n === "string" ? n.trim() : n))
         .find((n) => n) || "N/A";
     const managerDept = dynamicData.user?.circle || "N/A"; 
+    const userCircle = (dynamicData.user?.circle || '').trim().toUpperCase();
     if (loading) return (
         <div className="full-height-center">
             <h2 className="loader"></h2>
@@ -780,7 +781,17 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
-                            <NavLink to="/holiday-calendar" className="action-card nav-link-card"> 
+                            <NavLink
+                                to="/holiday-calendar"
+                                className="action-card nav-link-card"
+                                onClick={(e) => {
+                                    if (userCircle !== 'NHQ') {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        alert('Holiday Calendar is only available for NHQ users.');
+                                    }
+                                }}
+                            > 
                                 <div className="action-icon-group">
                                     <div className="action-icon sky"><div className="action-icon-inner"><FiCalendar /></div></div>
                                     <div>

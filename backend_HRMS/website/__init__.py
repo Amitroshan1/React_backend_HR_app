@@ -174,9 +174,6 @@ def create_app():
 
     # from .manager import manager
     from .Admin import admin_bp
-
-
-
     from .notifications import notifications
     from .performance_api import performance_api
 

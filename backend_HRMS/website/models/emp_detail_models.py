@@ -24,18 +24,18 @@ class Employee(db.Model,UserMixin):
     emp_id = db.Column(db.String(50), unique=True, nullable=False)
     mobile = db.Column(db.String(20), nullable=False)
     gender = db.Column(db.String(50), nullable=False)
-    emergency_mobile = db.Column(db.String(50), nullable=False)
+    emergency_mobile = db.Column(db.String(50), nullable=True)
     nationality = db.Column(db.String(150), nullable=False)
     blood_group = db.Column(db.String(150), nullable=False)
     designation=db.Column(db.String(150), nullable=False)
 
-    permanent_address_line1 = db.Column(db.String(400), nullable=False)
-    permanent_pincode = db.Column(db.String(10), nullable=False)
+    permanent_address_line1 = db.Column(db.String(400), nullable=True)
+    permanent_pincode = db.Column(db.String(10), nullable=True)
     permanent_district = db.Column(db.String(100), nullable=True)
     permanent_state = db.Column(db.String(100), nullable=True)
 
-    present_address_line1 = db.Column(db.String(400), nullable=False)
-    present_pincode = db.Column(db.String(10), nullable=False)
+    present_address_line1 = db.Column(db.String(400), nullable=True)
+    present_pincode = db.Column(db.String(10), nullable=True)
     present_district = db.Column(db.String(100), nullable=True)
     present_state = db.Column(db.String(100), nullable=True)
 
