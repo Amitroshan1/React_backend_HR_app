@@ -126,8 +126,13 @@ def validate_user():
     
     admin = None
     if identifier.isdigit():
-        admin = Admin.query.filter_by(mobile=identifier).first()
+        # Treat all-digit identifier as either mobile or emp_id
+        from sqlalchemy import or_
+        admin = Admin.query.filter(
+            or_(Admin.mobile == identifier, Admin.emp_id == identifier)
+        ).first()
     elif "@" in identifier:
+        # Email-based login
         admin = Admin.query.filter_by(email=identifier).first()
 
     # Validate credentials first
