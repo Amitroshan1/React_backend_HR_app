@@ -543,6 +543,34 @@ export const Account = ()  => {
     }
   };
 
+  const handleDeletePayslip = async (payslipId) => {
+    if (!window.confirm('Are you sure you want to delete this payslip?')) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please login again.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/payslip/${payslipId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to delete payslip');
+      }
+      setPayslipHistory(prev => prev.filter(p => p.id !== payslipId));
+      alert('Payslip deleted successfully');
+    } catch (error) {
+      console.error('Delete payslip error:', error);
+      alert(error.message || 'Unable to delete payslip');
+    }
+  };
+
   const handleOpenBulkForm16 = () => {
     const currentYear = new Date().getFullYear();
     setPreviousView(currentView);
@@ -803,8 +831,12 @@ export const Account = ()  => {
            <button className="btn-secondary" onClick={handleDownloadClientAttendanceExcel}>
              <Download size={16}/> For Client
            </button>
-           <button className="btn-warning" onClick={handleOpenBulkPayslip}><Upload size={16}/> Bulk Payslips</button>
-           <button className="btn-primary" onClick={handleOpenBulkForm16}><Upload size={16}/> Bulk Form 16</button>
+           <button className="btn-warning" onClick={handleOpenBulkPayslip}>
+             <Upload size={16}/> Bulk Payslips
+           </button>
+           <button className="btn-primary" onClick={handleOpenBulkForm16}>
+             <Upload size={16}/> Bulk Form 16
+           </button>
         </div>
       </div>
     </div>
@@ -878,6 +910,7 @@ export const Account = ()  => {
                 <th>Year</th>
                 <th>Uploaded On</th>
                 <th>File</th>
+                <th>Delete</th>
               </tr>
             </thead>
             <tbody>
@@ -905,6 +938,15 @@ export const Account = ()  => {
                     {item.file_path ? (
                       <a href={buildFileUrl(item.file_path)} target="_blank" rel="noreferrer">View</a>
                     ) : '-'}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="text-link"
+                      onClick={() => handleDeletePayslip(item.id)}
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}

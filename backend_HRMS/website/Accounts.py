@@ -536,6 +536,51 @@ def payslip_history(admin_id):
     }), 200
 
 
+@Accounts.route("/payslip/<int:payslip_id>", methods=["DELETE"])
+@jwt_required()
+def delete_payslip(payslip_id):
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized user"
+        }), 401
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_delete_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+
+    payslip = PaySlip.query.get(payslip_id)
+    if not payslip:
+        return jsonify({
+            "success": False,
+            "message": "Payslip not found"
+        }), 404
+
+    if not can_delete_any and payslip.admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You are not allowed to delete this payslip"
+        }), 403
+
+    # Best-effort delete of underlying file
+    try:
+        uploads_root = _get_uploads_root()
+        abs_path = os.path.join(uploads_root, payslip.file_path)
+        if os.path.isfile(abs_path):
+            os.remove(abs_path)
+    except Exception:
+        current_app.logger.warning("Error deleting payslip file for id=%s", payslip_id)
+
+    db.session.delete(payslip)
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "message": "Payslip deleted successfully"
+    }), 200
+
+
 @Accounts.route("/file/<path:relative_path>", methods=["GET"])
 @jwt_required()
 def serve_uploaded_file(relative_path):
