@@ -16,6 +16,7 @@ from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitH
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from flask_login import current_user
 from .email import update_asset_email,send_asset_assigned_email,send_password_set_email,send_password_reset_email
