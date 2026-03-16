@@ -16,6 +16,7 @@ from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitH
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
+from sqlalchemy.exc import IntegrityError
 from flask_login import current_user
 from .email import update_asset_email,send_asset_assigned_email,send_password_set_email,send_password_reset_email
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
@@ -494,6 +495,18 @@ def signup_api():
     hr_email = get_jwt().get("email")
 
     try:
+        # Pre-check for duplicate identifiers to avoid raw IntegrityError messages
+        existing_conflict = Admin.query.filter(
+            (Admin.email == email) |
+            (Admin.user_name == user_name) |
+            (Admin.mobile == mobile) |
+            (Admin.emp_id == emp_id)
+        ).first()
+
+        if existing_conflict and existing_conflict.password:
+            conflict_msg = "Email, User name, Mobile or Employee ID already exists. Use different values."
+            return jsonify({"success": False, "message": conflict_msg}), 409
+
         admin = Admin.query.filter_by(email=email).first()
 
         # ======================================================
@@ -586,6 +599,13 @@ def signup_api():
             "action": action
         }), 201
 
+    except IntegrityError:
+        db.session.rollback()
+        # Duplicate key from DB: return friendly message instead of 500
+        return jsonify({
+            "success": False,
+            "message": "Email, User name, Mobile or Employee ID already exists. Use different values."
+        }), 409
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("Signup error")
@@ -704,13 +724,19 @@ def hr_dashboard_api():
         db.extract("day", Employee.dob) == current_day
     ).all()
 
-    # 3️⃣ Total Employees
-    total_employees = Admin.query.count()
+    # 3️⃣ Total Employees (active only)
+    # Count only active, non-exited employees so HR dashboard shows active headcount
+    total_employees = Admin.query.filter(
+        Admin.is_active == True,
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+    ).count()
 
-    # 4️⃣ New Joinees (last 30 days)
+    # 4️⃣ New Joinees (last 30 days, active only)
     thirty_days_ago = today - timedelta(days=30)
     new_joinees_count = Admin.query.filter(
-        Admin.doj >= thirty_days_ago
+        Admin.doj >= thirty_days_ago,
+        Admin.is_active == True,
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
     ).count()
 
     # 5️⃣ Today's Punch-in Count

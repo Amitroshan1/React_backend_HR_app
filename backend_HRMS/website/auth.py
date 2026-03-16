@@ -130,11 +130,25 @@ def validate_user():
     elif "@" in identifier:
         admin = Admin.query.filter_by(email=identifier).first()
 
+    # Validate credentials first
     if not admin or not admin.check_password(password):
         return jsonify({
             "success": False,
             "message": "Invalid credentials"
         }), 400
+
+    # Block exited or inactive users from logging in
+    if getattr(admin, "is_exited", False):
+        return jsonify({
+            "success": False,
+            "message": "Your account has been exited. Please contact HR."
+        }), 403
+
+    if getattr(admin, "is_active", True) is False:
+        return jsonify({
+            "success": False,
+            "message": "Your account is inactive. Please contact HR."
+        }), 403
 
     access_token = create_access_token(
         identity=str(admin.id),
