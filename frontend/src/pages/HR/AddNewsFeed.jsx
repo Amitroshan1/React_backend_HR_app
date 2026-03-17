@@ -40,7 +40,9 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     setError('');
   };
 
-  const historyAttachmentUrl = (path) => (path ? `/uploads/${path}` : null);
+  // For history attachments, prefer backend-generated file_url when available
+  // and fall back to the same /static/uploads path used on the dashboard.
+  const historyAttachmentUrl = (path) => (path ? `/static/uploads/${path}` : null);
 
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);

@@ -45,22 +45,28 @@ def is_manager_in_contact(contact, admin_or_email):
 
 
 def get_manager_detail(contact, level):
-    """Get {id, name, email, mobile} for L1/L2/L3. Prefers admin_id."""
+    """
+    Get {id, name, email, mobile} for L1/L2/L3.
+    Prefers linked Admin record when it exists AND is active / non-exited.
+    Otherwise, returns empty values so exited managers are not surfaced in UI.
+    """
     admin_id = getattr(contact, f"{level}_admin_id", None)
     if admin_id:
         admin = Admin.query.get(admin_id)
-        if admin:
+        if admin and getattr(admin, "is_active", True) and not getattr(admin, "is_exited", False):
             return {
                 "id": admin.id,
                 "name": (admin.first_name or admin.email or ""),
                 "email": (admin.email or "").strip(),
                 "mobile": (admin.mobile or "").strip(),
             }
+
+    # If there is no active, non-exited linked Admin, do not surface legacy details as managers
     return {
         "id": None,
-        "name": (getattr(contact, f"{level}_name", None) or "").strip(),
-        "email": (getattr(contact, f"{level}_email", None) or "").strip(),
-        "mobile": (getattr(contact, f"{level}_mobile", None) or "").strip(),
+        "name": "",
+        "email": "",
+        "mobile": "",
     }
 
 

@@ -320,6 +320,16 @@ def _employee_homepage_impl():
         }
 
     # ------------------------
+    # 7. JOINING INFO (DOJ + years of service)
+    # ------------------------
+    years_of_service = None
+    if admin.doj:
+        years_of_service = today.year - admin.doj.year
+        # If current date is before this year's anniversary, subtract one year
+        if (today.month, today.day) < (admin.doj.month, admin.doj.day):
+            years_of_service -= 1
+
+    # ------------------------
     # RESPONSE
     # ------------------------
     def _punch_iso(p, attr):
@@ -366,6 +376,11 @@ def _employee_homepage_impl():
             "punch_in": _punch_iso(punch, "punch_in"),
             "punch_out": _punch_iso(punch, "punch_out"),
             "working_hours": working_hours
+        },
+        "joining_info": {
+            "doj": _safe_doj(admin),
+            "years_of_service": years_of_service,
+            "is_joining_today": bool(admin.doj and admin.doj == today),
         },
         "leave_balance": {
             "pl": leave_balance.privilege_leave_balance if leave_balance else 0,

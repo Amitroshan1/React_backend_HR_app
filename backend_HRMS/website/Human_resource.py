@@ -713,10 +713,29 @@ def hr_dashboard_api():
     current_day = today.day
     current_month = today.month
 
-    # 1️⃣ Work Anniversaries (Admin DOJ)
+    # 1️⃣ Work Anniversaries (Admin DOJ - only if at least 1 year completed)
+    # Compute a cut-off date one year ago; only employees who joined on this
+    # month/day in a prior year are treated as having a work anniversary.
+    try:
+        one_year_ago = today.replace(year=today.year - 1)
+    except ValueError:
+        # Handle Feb 29 edge case by falling back one year and clamping to Feb 28
+        if current_month == 2 and current_day == 29:
+            one_year_ago = date(today.year - 1, 2, 28)
+        else:
+            one_year_ago = date(today.year - 1, current_month, current_day)
+
     employees_with_anniversaries = Admin.query.filter(
         db.extract("month", Admin.doj) == current_month,
-        db.extract("day", Admin.doj) == current_day
+        db.extract("day", Admin.doj) == current_day,
+        Admin.doj <= one_year_ago
+    ).all()
+
+    # 1️⃣.b Joinings Today (Admin DOJ exactly today, active/non-exited only)
+    employees_joining_today = Admin.query.filter(
+        Admin.doj == today,
+        Admin.is_active == True,
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
     ).all()
 
     # 2️⃣ Birthdays (Employee DOB)
@@ -757,6 +776,17 @@ def hr_dashboard_api():
             "designation": emp_detail.designation if emp_detail else None
         })
 
+    joinings_today_list = []
+    for e in employees_joining_today:
+        emp_detail = Employee.query.filter_by(admin_id=e.id).first()
+        joinings_today_list.append({
+            "emp_id": e.emp_id,
+            "name": e.first_name,
+            "email": e.email,
+            "doj": e.doj.isoformat() if e.doj else None,
+            "designation": emp_detail.designation if emp_detail else None
+        })
+
     birthdays_list = [
         {
             "name": e.name,
@@ -776,7 +806,8 @@ def hr_dashboard_api():
             "today_punch_in_count": today_punch_count
         },
         "anniversaries": anniversaries_list,
-        "birthdays": birthdays_list
+        "birthdays": birthdays_list,
+        "joinings_today": joinings_today_list
     }), 200
 
 
@@ -2324,10 +2355,11 @@ def search_employee_api():
         }), 400
 
     employees = (
-        Admin.query.filter_by(
-            emp_type=emp_type,
-            circle=circle,
-            is_exited=False
+        Admin.query.filter(
+            Admin.emp_type == emp_type,
+            Admin.circle == circle,
+            # Treat NULL as not exited; include only active/non-exited employees
+            or_(Admin.is_exited == False, Admin.is_exited.is_(None))
         ).all()
     )
 
