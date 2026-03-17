@@ -439,7 +439,7 @@ def get_news_feed():
                 "created_at": today.isoformat(),
             })
 
-    # 2. Work anniversaries (Admin.doj) – same circle
+    # 2. Work anniversaries & joinings today (Admin.doj) – same circle
     if user_circle:
         anniv_admins = Admin.query.filter(
             db.func.lower(db.func.coalesce(Admin.circle, "")) == user_circle.lower(),
@@ -450,14 +450,27 @@ def get_news_feed():
         for a in anniv_admins:
             years = today.year - a.doj.year if a.doj else 0
             name = a.first_name or "A colleague"
-            items.append({
-                "id": f"anniversary-{a.id}",
-                "type": "anniversary",
-                "title": "Work Anniversary!",
-                "content": f"{name} completes {years} year(s) with us today.",
-                "file_path": None,
-                "created_at": today.isoformat(),
-            })
+
+            if years <= 0:
+                # Joining / onboarding info when DOJ is today (not a work anniversary yet)
+                items.append({
+                    "id": f"joining-{a.id}",
+                    "type": "joining",
+                    "title": "Welcome Onboard!",
+                    "content": f"Congratulations {name}, welcome to the team!",
+                    "file_path": None,
+                    "created_at": today.isoformat(),
+                })
+            else:
+                # True work anniversary (at least 1 year completed)
+                items.append({
+                    "id": f"anniversary-{a.id}",
+                    "type": "anniversary",
+                    "title": "Work Anniversary!",
+                    "content": f"{name} completes {years} year(s) with us today.",
+                    "file_path": None,
+                    "created_at": today.isoformat(),
+                })
 
     # 3. Regular news feed posts
     posts = NewsFeed.query.filter(
