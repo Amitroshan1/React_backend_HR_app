@@ -2389,7 +2389,11 @@ def search_employee_api():
 def get_employee_api(email_path):
     """Get Admin (employee) by email. Uses path so URL-encoded @ and dots are preserved."""
     email = unquote(email_path).strip()
-    admin = Admin.query.filter_by(email=email, is_exited=False).first()
+    admin = Admin.query.filter(
+        Admin.email == email,
+        # Treat NULL as not-exited (older rows may have NULL in is_exited)
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+    ).first()
 
     if not admin:
         return jsonify({
@@ -2418,7 +2422,11 @@ def get_employee_api(email_path):
 def update_employee_api(email_path):
     """Update Admin (employee) by email."""
     email = unquote(email_path).strip()
-    admin = Admin.query.filter_by(email=email, is_exited=False).first()
+    admin = Admin.query.filter(
+        Admin.email == email,
+        # Treat NULL as not-exited (older rows may have NULL in is_exited)
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+    ).first()
 
     if not admin:
         return jsonify({
