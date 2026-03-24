@@ -45,8 +45,13 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     typeof window !== 'undefined' && window.__BACKEND_STATIC__
       ? window.__BACKEND_STATIC__
       : '';
-  const historyAttachmentUrl = (item) =>
-    item?.file_url || (item?.file_path ? `${backendStaticBase}/uploads/${item.file_path}` : null);
+  const historyAttachmentUrl = (item) => {
+    if (item?.file_url) {
+      // Normalize legacy backend URLs that still point to /static/uploads.
+      return item.file_url.replace('/static/uploads/', '/uploads/');
+    }
+    return item?.file_path ? `${backendStaticBase}/uploads/${item.file_path}` : null;
+  };
 
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);
