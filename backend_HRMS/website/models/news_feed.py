@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from flask import current_app
+from flask import url_for
 from .. import db
 
 
@@ -19,10 +19,7 @@ class NewsFeed(db.Model):
 
     def file_url(self):
         if self.file_path:
-            base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
-            if base_url:
-                return f"{base_url}/uploads/{self.file_path}"
-            return f"/uploads/{self.file_path}"
+            return url_for('static', filename=f'uploads/{self.file_path}', _external=True)
         return None
     
 

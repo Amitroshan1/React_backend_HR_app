@@ -40,17 +40,16 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     setError('');
   };
 
-  // For history attachments, build backend static URL to avoid SPA 404s.
+  // For history attachments, prefer backend-generated URL.
   const backendStaticBase =
     typeof window !== 'undefined' && window.__BACKEND_STATIC__
       ? window.__BACKEND_STATIC__
       : '';
   const historyAttachmentUrl = (item) => {
     if (item?.file_url) {
-      // Normalize legacy backend URLs that still point to /static/uploads.
-      return item.file_url.replace('/static/uploads/', '/uploads/');
+      return item.file_url;
     }
-    return item?.file_path ? `${backendStaticBase}/uploads/${item.file_path}` : null;
+    return item?.file_path ? `${backendStaticBase}/static/uploads/${item.file_path}` : null;
   };
 
   useEffect(() => {
