@@ -44,9 +44,9 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   const backendStaticBase =
     typeof window !== 'undefined' && window.__BACKEND_STATIC__
       ? window.__BACKEND_STATIC__
-      : '/api';
+      : '';
   const historyAttachmentUrl = (item) =>
-    item?.file_url || (item?.file_path ? `${backendStaticBase}/static/uploads/${item.file_path}` : null);
+    item?.file_url || (item?.file_path ? `${backendStaticBase}/uploads/${item.file_path}` : null);
 
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);
