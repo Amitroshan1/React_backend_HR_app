@@ -1834,6 +1834,7 @@ def list_news_feed_history():
                     "title": p.title,
                     "content": p.content,
                     "file_path": p.file_path,
+                    "file_url": p.file_url(),
                     "circle": p.circle,
                     "emp_type": p.emp_type,
                     "created_at": p.created_at.isoformat() if p.created_at else None,
