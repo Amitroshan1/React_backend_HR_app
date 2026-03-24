@@ -2436,6 +2436,7 @@ def update_employee_api(email_path):
 
     data = request.get_json() or {}
 
+    proposed_emp_type = None
     if "emp_type" in data:
         proposed_emp_type = str(data.get("emp_type") or "").strip()
         if not proposed_emp_type or not _is_allowed_master_value(MASTER_TYPE_DEPARTMENT, proposed_emp_type):
@@ -2444,6 +2445,7 @@ def update_employee_api(email_path):
                 "message": "Invalid employee type. Please select a configured department."
             }), 400
 
+    proposed_circle = None
     if "circle" in data:
         proposed_circle = str(data.get("circle") or "").strip()
         if not proposed_circle or not _is_allowed_master_value(MASTER_TYPE_CIRCLE, proposed_circle):
@@ -2452,12 +2454,16 @@ def update_employee_api(email_path):
                 "message": "Invalid circle. Please select a configured circle."
             }), 400
 
-    admin.user_name = data.get("user_name", admin.user_name)
-    admin.first_name = data.get("first_name", admin.first_name)
-    admin.emp_id = data.get("emp_id", admin.emp_id)
-    admin.mobile = data.get("mobile", admin.mobile)
-    admin.circle = data.get("circle", admin.circle)
-    admin.emp_type = data.get("emp_type", admin.emp_type)
+    admin.user_name = str(data.get("user_name", admin.user_name) or "").strip() or admin.user_name
+    admin.first_name = str(data.get("first_name", admin.first_name) or "").strip() or admin.first_name
+    admin.emp_id = str(data.get("emp_id", admin.emp_id) or "").strip() or admin.emp_id
+    admin.mobile = str(data.get("mobile", admin.mobile) or "").strip() or admin.mobile
+
+    if proposed_circle is not None:
+        admin.circle = proposed_circle
+
+    if proposed_emp_type is not None:
+        admin.emp_type = proposed_emp_type
 
     if "doj" in data:
         admin.doj = datetime.fromisoformat(data["doj"]).date()

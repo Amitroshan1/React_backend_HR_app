@@ -40,9 +40,13 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     setError('');
   };
 
-  // For history attachments, prefer backend-generated file_url when available
-  // and fall back to the same /static/uploads path used on the dashboard.
-  const historyAttachmentUrl = (path) => (path ? `/static/uploads/${path}` : null);
+  // For history attachments, build backend static URL to avoid SPA 404s.
+  const backendStaticBase =
+    typeof window !== 'undefined' && window.__BACKEND_STATIC__
+      ? window.__BACKEND_STATIC__
+      : '';
+  const historyAttachmentUrl = (item) =>
+    item?.file_url || (item?.file_path ? `${backendStaticBase}/static/uploads/${item.file_path}` : null);
 
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);
@@ -282,9 +286,9 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
                         <td>{item.emp_type || 'All'}</td>
                         <td>{item.created_at ? item.created_at.split('T')[0] : '-'}</td>
                         <td>
-                          {item.file_path ? (
+                          {(item.file_url || item.file_path) ? (
                             <a
-                              href={historyAttachmentUrl(item.file_path)}
+                              href={historyAttachmentUrl(item)}
                               target="_blank"
                               rel="noopener noreferrer"
                             >

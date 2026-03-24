@@ -511,7 +511,7 @@ export const Hr = () => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState('');
   const [selectedEmployeeType, setSelectedEmployeeType] = useState('');
-  const [openDropdownId, setOpenDropdownId] = useState(null);
+  const [openDropdownKey, setOpenDropdownKey] = useState(null);
   const [dropdownPosition, setDropdownPosition] = useState(null);
   const dropdownRef = useRef(null);
   const dropdownEmployeeRef = useRef(null);
@@ -733,7 +733,7 @@ export const Hr = () => {
 
   const handleBackToSearch = () => {
     setShowSearchResults(false);
-    setOpenDropdownId(null);
+    setOpenDropdownKey(null);
   };
 
   const handleDownloadAllFromSearch = async () => {
@@ -851,7 +851,7 @@ export const Hr = () => {
       if (event.target.closest?.('.results-actions')) return;
       if (event.target.closest?.('.dropdown-menu-list--fixed')) return;
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setOpenDropdownId(null);
+        setOpenDropdownKey(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -859,12 +859,12 @@ export const Hr = () => {
   }, []);
 
   useEffect(() => {
-    if (openDropdownId === null) {
+    if (openDropdownKey === null) {
       setDropdownPosition(null);
       dropdownEmployeeRef.current = null;
       return;
     }
-    const emp = searchResults[openDropdownId];
+    const emp = searchResults.find((row) => (row.id ?? row.email) === openDropdownKey);
     if (emp) dropdownEmployeeRef.current = emp;
     const updatePosition = () => {
       const btn = dropdownRef.current?.querySelector('.btn-update-toggle');
@@ -883,15 +883,15 @@ export const Hr = () => {
       window.removeEventListener('scroll', updatePosition, true);
       window.removeEventListener('resize', updatePosition);
     };
-  }, [openDropdownId, searchResults]);
+  }, [openDropdownKey, searchResults]);
 
-  const toggleDropdown = (id) => {
-    setOpenDropdownId(openDropdownId === id ? null : id);
+  const toggleDropdown = (employeeKey) => {
+    setOpenDropdownKey(openDropdownKey === employeeKey ? null : employeeKey);
   };
 
   const handleOptionClick = (option, emp) => {
     const employee = emp ?? dropdownEmployeeRef.current;
-    setOpenDropdownId(null);
+    setOpenDropdownKey(null);
     dropdownEmployeeRef.current = null;
     if (!employee) return;
     setSelectedEmployeeForAction(employee);
@@ -1376,21 +1376,23 @@ return <AddNoc onBack={() => setView('updates')} />;
                     </tr>
                   </thead>
                   <tbody>
-                    {searchResults.map((emp, i) => (
-                      <tr key={i}>
+                    {searchResults.map((emp) => {
+                      const employeeKey = emp.id ?? emp.email;
+                      return (
+                      <tr key={employeeKey}>
                         <td>{emp.name}</td>
                         <td>{emp.email}</td>
                         <td>{emp.circle}</td>
                         <td>{emp.type}</td>
                         <td>
-                          <div className="dropdown-container" ref={openDropdownId === i ? dropdownRef : null}>
-                            <button className={`btn-update-toggle ${openDropdownId === i ? 'active' : ''}`} onClick={() => toggleDropdown(i)}>
-                              Update <ChevronDown size={14} className={openDropdownId === i ? 'rotate-180' : ''} />
+                          <div className="dropdown-container" ref={openDropdownKey === employeeKey ? dropdownRef : null}>
+                            <button className={`btn-update-toggle ${openDropdownKey === employeeKey ? 'active' : ''}`} onClick={() => toggleDropdown(employeeKey)}>
+                              Update <ChevronDown size={14} className={openDropdownKey === employeeKey ? 'rotate-180' : ''} />
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
@@ -1405,7 +1407,7 @@ return <AddNoc onBack={() => setView('updates')} />;
           </div>
         )}
       </div>
-      {showSearchResults && openDropdownId !== null && dropdownPosition && createPortal(
+      {showSearchResults && openDropdownKey !== null && dropdownPosition && createPortal(
         <div
           className="dropdown-menu-list dropdown-menu-list--fixed"
           style={{

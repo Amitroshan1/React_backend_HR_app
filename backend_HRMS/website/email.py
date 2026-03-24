@@ -1427,6 +1427,10 @@ def send_leave_applied_email(admin, leave):
                         <td>{leave.start_date} to {leave.end_date}</td>
                     </tr>
                     <tr>
+                        <td><strong>Reason</strong></td>
+                        <td>{(leave.reason or '').replace(chr(10), '<br>')}</td>
+                    </tr>
+                    <tr>
                         <td><strong>Total Days</strong></td>
                         <td>{leave.deducted_days + leave.extra_days}</td>
                     </tr>

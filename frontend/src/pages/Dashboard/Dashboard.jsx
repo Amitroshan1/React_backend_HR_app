@@ -439,7 +439,11 @@ export const Dashboard = () => {
             }
         } catch (error) {
             console.error("Punch In error:", error);
-            alert("Network error during Punch In.");
+            if (!navigator.onLine) {
+                alert("No internet connection. Please check your network and try again.");
+            } else {
+                alert("We couldn't complete your request right now. Please try again.");
+            }
         } finally {
             setIsPunching(false);
         }
@@ -493,8 +497,11 @@ export const Dashboard = () => {
             }
         } catch (error) {
             console.error("Punch Out error:", error);
-            const msg = error.message || "Network error during Punch Out.";
-            alert(msg.includes("Failed to fetch") || msg.includes("NetworkError") ? "Network error: Check if backend is running and CORS is configured." : `Punch Out Failed: ${msg}`);
+            if (!navigator.onLine) {
+                alert("No internet connection. Please check your network and try again.");
+            } else {
+                alert("We couldn't complete your request right now. Please try again.");
+            }
         } finally {
             setIsPunching(false);
         }

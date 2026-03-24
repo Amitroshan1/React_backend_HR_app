@@ -435,12 +435,18 @@ def apply_leave_api():
         }), 400
 
     leave_type = data.get("leave_type")
-    reason = data.get("reason")
+    reason = (data.get("reason") or "").strip()
 
     if not leave_type or not reason:
         return jsonify({
             "success": False,
             "message": "leave_type and reason are required"
+        }), 400
+
+    if len(reason) < 20:
+        return jsonify({
+            "success": False,
+            "message": "Reason must be at least 20 characters long"
         }), 400
 
     # -------------------------
