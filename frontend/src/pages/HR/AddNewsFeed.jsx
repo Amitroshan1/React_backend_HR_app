@@ -40,17 +40,10 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     setError('');
   };
 
-  // For history attachments, prefer backend-generated URL.
-  const backendStaticBase =
-    typeof window !== 'undefined' && window.__BACKEND_STATIC__
-      ? window.__BACKEND_STATIC__
-      : '';
-  const historyAttachmentUrl = (item) => {
-    if (item?.file_url) {
-      return item.file_url;
-    }
-    return item?.file_path ? `${backendStaticBase}/static/uploads/${item.file_path}` : null;
-  };
+  // In this deployment, attachments are reliably served from /static/uploads.
+  // Keep HR history on a fixed static path to avoid API base mismatches.
+  const historyAttachmentUrl = (item) =>
+    (item?.file_path ? `/static/uploads/${item.file_path}` : null);
 
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);

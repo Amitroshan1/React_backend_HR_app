@@ -80,7 +80,8 @@ def send_email_via_zeptomail(sender_email,
 
 
 
-from datetime import datetime
+from datetime import datetime, timedelta
+import secrets
 from flask import current_app
 
 
@@ -1764,24 +1765,48 @@ def send_probation_review_submitted_email(admin_employee, manager_name, feedback
 
 
 def send_password_set_email(admin):
-    reset_link = f"{current_app.config['BASE_URL']}/set-password?email={admin.email}"
+    """Send initial password-set link using secure token (1 hour expiry)."""
+    try:
+        token = secrets.token_urlsafe(32)
+        admin.password_reset_token = token
+        admin.password_reset_expiry = datetime.utcnow() + timedelta(hours=1)
+        db.session.commit()
 
-    subject = "Set your HRMS password"
-    body = f"""
-    <p>Hello {admin.first_name},</p>
+        base_url = current_app.config.get("BASE_URL", "").rstrip("/")
+        reset_link = f"{base_url}/set-password?token={token}"
 
-    <p>Your HRMS account has been upgraded.</p>
+        subject = "Set your HRMS password"
+        body = f"""
+        <p>Hello {admin.first_name or "User"},</p>
 
-    <p>Please set your password using the link below:</p>
+        <p>Your HRMS account has been created/updated.</p>
 
-    <p><a href="{reset_link}">Set Password</a></p>
+        <p>Please set your password using the link below. This link is valid for <strong>1 hour</strong>.</p>
 
-    <br>
-    <p>Regards,<br>HR Team</p>
-    """
+        <p><a href="{reset_link}">Set Password</a></p>
 
-    # replace with your actual mail sender
-    current_app.logger.info(f"Password set email sent to {admin.email}")
+        <p>If you did not expect this email, please contact HR.</p>
+
+        <br>
+        <p>Regards,<br>HR Team</p>
+        """
+
+        ok, msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=admin.email,
+        )
+        if not ok:
+            current_app.logger.warning(f"Password set email failed for {admin.email}: {msg}")
+            return False
+
+        current_app.logger.info(f"Password set email sent to {admin.email}")
+        return True
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.warning(f"Password set email failed for {admin.email}: {e}")
+        return False
 
 
 def send_password_reset_email(admin, reset_token):
