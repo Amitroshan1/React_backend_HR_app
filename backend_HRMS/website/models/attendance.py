@@ -60,24 +60,23 @@ class LeaveBalance(db.Model):
     admin_id = db.Column(
         db.Integer,
         db.ForeignKey('admins.id', ondelete="CASCADE"),
-        unique=True,
         nullable=False
     )
 
     # Remaining balances (what's left to use)
-    privilege_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
-    casual_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
-    compensatory_leave_balance = db.Column(db.Float, default=0.0, nullable=False)
+    privilege_leave_balance = db.Column(db.Float, nullable=False)
+    casual_leave_balance = db.Column(db.Float, nullable=False)
+    compensatory_leave_balance = db.Column(db.Float, nullable=False)
 
     # Total entitlements (fixed total granted)
-    total_privilege_leave = db.Column(db.Float, default=0.0, nullable=False)
-    total_casual_leave = db.Column(db.Float, default=0.0, nullable=False)
-    total_compensatory_leave = db.Column(db.Float, default=0.0, nullable=False)
+    total_privilege_leave = db.Column(db.Float, nullable=False, server_default="0")
+    total_casual_leave = db.Column(db.Float, nullable=False, server_default="0")
+    total_compensatory_leave = db.Column(db.Float, nullable=False, server_default="0")
 
     # Used amounts (how much has been used from total)
-    used_privilege_leave = db.Column(db.Float, default=0.0, nullable=False)
-    used_casual_leave = db.Column(db.Float, default=0.0, nullable=False)
-    used_comp_leave = db.Column(db.Float, default=0.0, nullable=False)
+    used_privilege_leave = db.Column(db.Float, nullable=False, server_default="0")
+    used_casual_leave = db.Column(db.Float, nullable=False, server_default="0")
+    used_comp_leave = db.Column(db.Float, nullable=False, server_default="0")
 
     last_updated = db.Column(db.Date, nullable=True)
 
