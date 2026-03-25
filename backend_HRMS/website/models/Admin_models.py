@@ -1,7 +1,8 @@
 from .. import db
-from flask_login import UserMixin, login_manager
+from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from sqlalchemy import text
 from website.models.family_models import FamilyDetails
 from website.models.emp_detail_models import Employee,Asset
 from website.models.prev_com import PreviousCompany
@@ -16,37 +17,47 @@ from website.models.Performance import EmployeePerformance
 
 
 class Admin(db.Model, UserMixin):
+    """Aligned with MySQL `admins` table (DESCRIBE)."""
+
     __tablename__ = 'admins'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
 
-    # Identity
     email = db.Column(db.String(120), unique=True, nullable=True)
-    password = db.Column(db.String(350), nullable=True)
-    password_reset_token = db.Column(db.String(255), nullable=True)
-    password_reset_expiry = db.Column(db.DateTime, nullable=True)
-
-
-    # Profile
     first_name = db.Column(db.String(150), nullable=True)
     user_name = db.Column(db.String(120), unique=True, nullable=True)
     mobile = db.Column(db.String(15), unique=True, nullable=True)
-
-    # Employment
     emp_id = db.Column(db.String(10), unique=True, nullable=True)
     doj = db.Column(db.Date, nullable=True)
     emp_type = db.Column(db.String(50), nullable=True)
     circle = db.Column(db.String(50), nullable=True)
 
-    # System flags
-    is_active = db.Column(db.Boolean, default=True)
-    is_exited = db.Column(db.Boolean, default=False)
+    password = db.Column(db.String(350), nullable=True)
+    password_reset_token = db.Column(db.String(255), nullable=True)
+    password_reset_expiry = db.Column(db.DateTime, nullable=True)
+
+    is_active = db.Column(
+        db.Boolean,
+        nullable=True,
+        default=True,
+        server_default=text("1"),
+    )
+    is_exited = db.Column(
+        db.Boolean,
+        nullable=True,
+        default=False,
+        server_default=text("0"),
+    )
 
     exit_date = db.Column(db.Date, nullable=True)
     exit_reason = db.Column(db.Text, nullable=True)
     exit_type = db.Column(db.String(30), nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=True, default=datetime.now)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=True,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
 
     # --- Relationships (UNCHANGED) ---
     employee_details = db.relationship('Employee', back_populates='admin', uselist=False, cascade="all, delete-orphan")
