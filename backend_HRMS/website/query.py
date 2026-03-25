@@ -641,20 +641,10 @@ def upsert_manager_contact_api():
             contact = ManagerContact(circle_name=circle, user_type=emp_type, user_email=None)
             db.session.add(contact)
 
-    # Prefer admin_id; fallback to legacy fields
     for level in ("l1", "l2", "l3"):
         admin_id = data.get(f"{level}_admin_id")
         admin_id = int(admin_id) if admin_id is not None and str(admin_id).strip() else None
         setattr(contact, f"{level}_admin_id", admin_id)
-        if not admin_id:
-            setattr(contact, f"{level}_name", data.get(f"{level}_name") or None)
-            setattr(contact, f"{level}_mobile", data.get(f"{level}_mobile") or None)
-            setattr(contact, f"{level}_email", data.get(f"{level}_email") or None)
-        else:
-            # Clear legacy fields when using admin_id
-            setattr(contact, f"{level}_name", None)
-            setattr(contact, f"{level}_mobile", None)
-            setattr(contact, f"{level}_email", None)
 
     try:
         db.session.commit()

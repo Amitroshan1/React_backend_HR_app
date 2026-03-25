@@ -38,13 +38,6 @@ class Admin(db.Model, UserMixin):
     emp_type = db.Column(db.String(50), nullable=True)
     circle = db.Column(db.String(50), nullable=True)
 
-    # OAuth (old users)
-    oauth_provider = db.Column(db.String(50), nullable=True)
-    oauth_id = db.Column(db.String(255), unique=True, nullable=True)
-    oauth_token = db.Column(db.Text, nullable=True)
-    oauth_refresh_token = db.Column(db.Text, nullable=True)
-    oauth_token_expiry = db.Column(db.DateTime, nullable=True)
-
     # System flags
     is_active = db.Column(db.Boolean, default=True)
     is_exited = db.Column(db.Boolean, default=False)

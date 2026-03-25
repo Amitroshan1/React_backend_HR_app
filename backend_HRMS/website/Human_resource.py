@@ -511,7 +511,7 @@ def signup_api():
         admin = Admin.query.filter_by(email=email).first()
 
         # ======================================================
-        # CASE 1: Existing user (OAuth / partial record)
+        # CASE 1: Existing user (partial record, e.g. no password yet)
         # ======================================================
         if admin:
             if admin.password:

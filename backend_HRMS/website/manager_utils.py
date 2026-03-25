@@ -67,19 +67,19 @@ def resolve_manager_contact_for_employee(target_admin):
 
 
 def _resolve_email_from_contact(contact, level):
-    """Get email for L1/L2/L3 from contact. Prefers admin_id over legacy l*_email."""
+    """Get email for L1/L2/L3 from linked Admin only."""
     admin_id = getattr(contact, f"{level}_admin_id", None)
-    if admin_id:
-        admin = Admin.query.get(admin_id)
-        if admin and admin.email:
-            return (admin.email or "").strip()
-    return (getattr(contact, f"{level}_email", None) or "").strip()
+    if not admin_id:
+        return ""
+    admin = Admin.query.get(admin_id)
+    if admin and admin.email:
+        return (admin.email or "").strip()
+    return ""
 
 
 def get_manager_emails(contact, exclude_email=None):
     """
-    Return list of manager emails from ManagerContact.
-    Prefers admin_id over legacy l*_email fields.
+    Return list of manager emails from ManagerContact (via l*_admin_id -> Admin.email).
     Excludes exclude_email (applicant) to prevent self-approval.
     """
     if not contact:
@@ -96,6 +96,11 @@ def is_manager_in_contact(contact, admin_or_email):
     """Check if admin (or email string) is L1/L2/L3 in this contact."""
     if not contact:
         return False
+    if hasattr(admin_or_email, "id") and getattr(admin_or_email, "id", None):
+        aid = admin_or_email.id
+        for level in ("l1", "l2", "l3"):
+            if getattr(contact, f"{level}_admin_id", None) == aid:
+                return True
     email = admin_or_email.email if hasattr(admin_or_email, "email") else (admin_or_email or "").strip()
     if not email:
         return False
@@ -105,9 +110,8 @@ def is_manager_in_contact(contact, admin_or_email):
 
 def get_manager_detail(contact, level):
     """
-    Get {id, name, email, mobile} for L1/L2/L3.
-    Prefers linked Admin record when it exists AND is active / non-exited.
-    Otherwise, returns empty values so exited managers are not surfaced in UI.
+    Get {id, name, email, mobile} for L1/L2/L3 from linked Admin only.
+    Inactive/exited admins are not surfaced.
     """
     admin_id = getattr(contact, f"{level}_admin_id", None)
     if admin_id:
@@ -120,7 +124,6 @@ def get_manager_detail(contact, level):
                 "mobile": (admin.mobile or "").strip(),
             }
 
-    # If there is no active, non-exited linked Admin, do not surface legacy details as managers
     return {
         "id": None,
         "name": "",
@@ -131,45 +134,21 @@ def get_manager_detail(contact, level):
 
 def user_has_manager_access(admin):
     """
-    Return True if admin appears as L1/L2/L3 in a ManagerContact row whose circle_name
-    and user_type match the admin's circle and emp_type. Manager panel is only shown
-    for the scope (circle + emp_type) where they are configured as manager.
+    Return True if admin is configured as L1/L2/L3 on any ManagerContact row (l*_admin_id only).
+
+    Authorization for each employee is enforced separately via resolve_manager_contact_for_employee
+    + is_manager_in_contact.
     """
     if not admin:
         return False
     admin_id = getattr(admin, "id", None)
-    email = _norm_email(getattr(admin, "email", None))
-    if not admin_id and not email:
+    if not admin_id:
         return False
-    if not _norm_circle(getattr(admin, "circle", None)):
-        return False
-    if not (getattr(admin, "emp_type", None) or "").strip():
-        return False
-
-    by_id = []
-    if admin_id:
-        by_id = [
+    row = ManagerContact.query.filter(
+        or_(
             ManagerContact.l1_admin_id == admin_id,
             ManagerContact.l2_admin_id == admin_id,
             ManagerContact.l3_admin_id == admin_id,
-        ]
-    by_email = []
-    if email:
-        by_email = [
-            ManagerContact.l1_email.isnot(None)
-            & (func.lower(func.trim(ManagerContact.l1_email)) == email),
-            ManagerContact.l2_email.isnot(None)
-            & (func.lower(func.trim(ManagerContact.l2_email)) == email),
-            ManagerContact.l3_email.isnot(None)
-            & (func.lower(func.trim(ManagerContact.l3_email)) == email),
-        ]
-    conditions = by_id + by_email
-    if not conditions:
-        return False
-
-    for contact in ManagerContact.query.filter(or_(*conditions)).all():
-        if circles_equivalent(admin.circle, contact.circle_name) and emp_types_equivalent(
-            admin.emp_type, contact.user_type
-        ):
-            return True
-    return False
+        )
+    ).first()
+    return row is not None

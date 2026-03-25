@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request, current_app, url_for
-from flask_jwt_extended import jwt_required, get_jwt
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from sqlalchemy import func, or_
 from datetime import date, datetime
 
@@ -24,10 +24,19 @@ def _serialize_date(value):
 
 
 def _get_current_admin():
-    email = get_jwt().get("email")
-    if not email:
-        return None
-    return Admin.query.filter_by(email=email).first()
+    claims = get_jwt() or {}
+    email = claims.get("email")
+    if email:
+        admin = Admin.query.filter_by(email=email).first()
+        if admin:
+            return admin
+    try:
+        aid = int(get_jwt_identity()) if get_jwt_identity() is not None else None
+    except (TypeError, ValueError):
+        aid = None
+    if aid is not None:
+        return Admin.query.get(aid)
+    return None
 
 
 def _get_contact_for_target(target_admin):
@@ -49,19 +58,8 @@ def _is_manager_for_target(approver_admin, target_admin):
     return is_manager_in_contact(contact, approver_admin)
 
 
-def _same_scope(manager_admin, target_admin):
-    """True if target's circle and emp_type match manager's (data only from manager's scope)."""
-    if not manager_admin or not target_admin:
-        return False
-    from .manager_utils import circles_equivalent, emp_types_equivalent
-
-    return circles_equivalent(manager_admin.circle, target_admin.circle) and emp_types_equivalent(
-        manager_admin.emp_type, target_admin.emp_type
-    )
-
-
 def _ensure_manager_user():
-    """Grant manager access if admin is L1/L2/L3 in a ManagerContact row matching their circle and emp_type."""
+    """Grant manager access if admin is L1/L2/L3 (or legacy l*_email) on any ManagerContact row."""
     admin = _get_current_admin()
     if not admin:
         return None, (jsonify({"success": False, "message": "Unauthorized user"}), 401)
@@ -194,7 +192,7 @@ def list_leave_requests():
     rows = query.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).all()
     items = []
     for row in rows:
-        if not _is_manager_for_target(admin, row.admin) or not _same_scope(admin, row.admin):
+        if not _is_manager_for_target(admin, row.admin):
             continue
         items.append({
             "id": row.id,
@@ -230,7 +228,7 @@ def act_on_leave_request(leave_id):
     leave_obj = LeaveApplication.query.get(leave_id)
     if not leave_obj:
         return jsonify({"success": False, "message": "Leave request not found"}), 404
-    if not _is_manager_for_target(approver, leave_obj.admin) or not _same_scope(approver, leave_obj.admin):
+    if not _is_manager_for_target(approver, leave_obj.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
     if leave_obj.status != "Pending":
         return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
@@ -314,7 +312,7 @@ def list_wfh_requests():
     rows = query.order_by(WorkFromHomeApplication.created_at.desc(), WorkFromHomeApplication.id.desc()).all()
     items = []
     for row in rows:
-        if not _is_manager_for_target(admin, row.admin) or not _same_scope(admin, row.admin):
+        if not _is_manager_for_target(admin, row.admin):
             continue
         items.append({
             "id": row.id,
@@ -347,7 +345,7 @@ def act_on_wfh_request(wfh_id):
     wfh_obj = WorkFromHomeApplication.query.get(wfh_id)
     if not wfh_obj:
         return jsonify({"success": False, "message": "WFH request not found"}), 404
-    if not _is_manager_for_target(approver, wfh_obj.admin) or not _same_scope(approver, wfh_obj.admin):
+    if not _is_manager_for_target(approver, wfh_obj.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
     if wfh_obj.status != "Pending":
         return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
@@ -390,7 +388,7 @@ def list_claim_requests():
 
     items = []
     for row in rows:
-        if not _is_manager_for_target(admin, row.admin) or not _same_scope(admin, row.admin):
+        if not _is_manager_for_target(admin, row.admin):
             continue
         line_items = ExpenseLineItem.query.filter_by(claim_id=row.id).order_by(ExpenseLineItem.sr_no.asc()).all()
         derived_status = _claim_status(line_items)
@@ -441,7 +439,7 @@ def act_on_claim_request(claim_id):
     claim = ExpenseClaimHeader.query.get(claim_id)
     if not claim:
         return jsonify({"success": False, "message": "Claim request not found"}), 404
-    if not _is_manager_for_target(approver, claim.admin) or not _same_scope(approver, claim.admin):
+    if not _is_manager_for_target(approver, claim.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
 
     new_status = "Approved" if action == "approve" else "Rejected"
@@ -474,7 +472,7 @@ def list_resignation_requests():
     rows = query.order_by(Resignation.applied_on.desc(), Resignation.id.desc()).all()
     items = []
     for row in rows:
-        if not _is_manager_for_target(admin, row.admin) or not _same_scope(admin, row.admin):
+        if not _is_manager_for_target(admin, row.admin):
             continue
         items.append({
             "id": row.id,
@@ -506,7 +504,7 @@ def act_on_resignation_request(resignation_id):
     resignation = Resignation.query.get(resignation_id)
     if not resignation:
         return jsonify({"success": False, "message": "Resignation request not found"}), 404
-    if not _is_manager_for_target(approver, resignation.admin) or not _same_scope(approver, resignation.admin):
+    if not _is_manager_for_target(approver, resignation.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
     if resignation.status != "Pending":
         return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
@@ -523,36 +521,29 @@ def list_team_members():
     if err:
         return err
 
-    manager_circle = _norm(manager_admin.circle)
-    req_circle = _norm(request.args.get("circle"))
-    req_type = _norm(request.args.get("emp_type"))
+    req_circle_raw = request.args.get("circle")
+    req_type_raw = request.args.get("emp_type")
+    req_circle = _norm(req_circle_raw) if req_circle_raw else ""
+    req_type = _norm(req_type_raw) if req_type_raw else ""
 
     from .manager_utils import circles_equivalent, emp_types_equivalent
 
-    # If frontend sends filters, enforce they cannot escape manager's own scope.
-    if req_circle and req_circle != "all" and not circles_equivalent(
-        request.args.get("circle"), manager_admin.circle
-    ):
-        return jsonify({"success": True, "members": []}), 200
-    if req_type and req_type != "all" and not emp_types_equivalent(
-        request.args.get("emp_type"), manager_admin.emp_type
-    ):
-        return jsonify({"success": True, "members": []}), 200
-
     rows = (
-        Admin.query.filter(
-            func.coalesce(Admin.is_exited, False) == False,
-            func.lower(func.trim(func.coalesce(Admin.circle, ""))) == manager_circle,
-        )
+        Admin.query.filter(func.coalesce(Admin.is_exited, False) == False)
         .order_by(Admin.first_name.asc(), Admin.id.asc())
         .all()
     )
-    rows = [r for r in rows if emp_types_equivalent(r.emp_type, manager_admin.emp_type)]
 
     today = date.today()
     members = []
     for row in rows:
         if row.id == manager_admin.id:
+            continue
+        if not _is_manager_for_target(manager_admin, row):
+            continue
+        if req_circle and req_circle != "all" and not circles_equivalent(row.circle, req_circle_raw):
+            continue
+        if req_type and req_type != "all" and not emp_types_equivalent(row.emp_type, req_type_raw):
             continue
         has_wfh_today = (
             WorkFromHomeApplication.query.filter(
@@ -600,16 +591,16 @@ def sprint_performance():
             overdue += 1
 
     for row in LeaveApplication.query.all():
-        if _is_manager_for_target(manager_admin, row.admin) and _same_scope(manager_admin, row.admin):
+        if _is_manager_for_target(manager_admin, row.admin):
             _tally(row.status)
     for row in WorkFromHomeApplication.query.all():
-        if _is_manager_for_target(manager_admin, row.admin) and _same_scope(manager_admin, row.admin):
+        if _is_manager_for_target(manager_admin, row.admin):
             _tally(row.status)
     for row in Resignation.query.all():
-        if _is_manager_for_target(manager_admin, row.admin) and _same_scope(manager_admin, row.admin):
+        if _is_manager_for_target(manager_admin, row.admin):
             _tally(row.status)
     for row in ExpenseClaimHeader.query.all():
-        if _is_manager_for_target(manager_admin, row.admin) and _same_scope(manager_admin, row.admin):
+        if _is_manager_for_target(manager_admin, row.admin):
             line_items = ExpenseLineItem.query.filter_by(claim_id=row.id).all()
             _tally(_claim_status(line_items))
 
@@ -646,7 +637,7 @@ def probation_reviews_due():
         target = Admin.query.get(pr.admin_id)
         if not target:
             continue
-        if not _is_manager_for_target(admin, target) or not _same_scope(admin, target):
+        if not _is_manager_for_target(admin, target):
             continue
         out.append({
             "id": pr.id,
@@ -685,7 +676,7 @@ def submit_probation_review():
     target = Admin.query.get(pr.admin_id)
     if not target:
         return jsonify({"success": False, "message": "Employee not found"}), 404
-    if not _is_manager_for_target(admin, target) or not _same_scope(admin, target):
+    if not _is_manager_for_target(admin, target):
         return jsonify({"success": False, "message": "You are not the manager for this employee"}), 403
 
     pr.reviewed_at = datetime.utcnow()

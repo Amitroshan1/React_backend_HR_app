@@ -25,11 +25,12 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
     circle_name: '',
     user_type: '',
     user_email: '',
-    l1_admin_id: null, l2_admin_id: null, l3_admin_id: null,
-    l1_name: '', l1_mobile: '', l1_email: '',
-    l2_name: '', l2_mobile: '', l2_email: '',
-    l3_name: '', l3_mobile: '', l3_email: '',
+    l1_admin_id: null,
+    l2_admin_id: null,
+    l3_admin_id: null,
   });
+  /** Display strings for typeahead (from API or picker); not sent to API */
+  const [levelLabels, setLevelLabels] = useState({ l1: '', l2: '', l3: '' });
   const [pickerOpenFor, setPickerOpenFor] = useState(null);
   const [pickerSearchTerm, setPickerSearchTerm] = useState('');
   const [pickerResults, setPickerResults] = useState([]);
@@ -117,13 +118,9 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   };
 
   const selectPickerEmployee = (level, emp) => {
-    setForm((f) => ({
-      ...f,
-      [`${level}_admin_id`]: emp.id,
-      [`${level}_name`]: emp.name ?? '',
-      [`${level}_email`]: emp.email ?? '',
-      [`${level}_mobile`]: emp.mobile ?? '',
-    }));
+    setForm((f) => ({ ...f, [`${level}_admin_id`]: emp.id }));
+    const label = emp.email ? `${emp.name || emp.email} (${emp.email})` : (emp.name || '');
+    setLevelLabels((prev) => ({ ...prev, [level]: label }));
     setPickerOpenFor(null);
     setPickerSearchTerm('');
     setPickerResults([]);
@@ -131,13 +128,8 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   };
 
   const clearPickerSelection = (level) => {
-    setForm((f) => ({
-      ...f,
-      [`${level}_admin_id`]: null,
-      [`${level}_name`]: '',
-      [`${level}_email`]: '',
-      [`${level}_mobile`]: '',
-    }));
+    setForm((f) => ({ ...f, [`${level}_admin_id`]: null }));
+    setLevelLabels((prev) => ({ ...prev, [level]: '' }));
     if (pickerOpenFor === level) {
       setPickerSearchTerm('');
       setPickerResults([]);
@@ -145,13 +137,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
     setSubmitError('');
   };
 
-  const displayValue = (level) => {
-    const id = form[`${level}_admin_id`];
-    const name = form[`${level}_name`];
-    const email = form[`${level}_email`];
-    if (id && (name || email)) return `${name || email} (${email || ''})`;
-    return '';
-  };
+  const displayValue = (level) => levelLabels[level] || '';
 
   const handleAssignManager = useCallback(async () => {
     if (!filters.circle || !filters.emp_type) {
@@ -181,18 +167,25 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
         return;
       }
       const d = data.data;
+      const l1 = d?.l1;
+      const l2 = d?.l2;
+      const l3 = d?.l3;
+      const labelFor = (row) =>
+        row?.email ? `${row.name || row.email} (${row.email})` : (row?.name || '');
       setForm((prev) => ({
         ...prev,
         circle_name: filters.circle,
         user_type: filters.emp_type,
         user_email: '',
-        l1_admin_id: d?.l1_admin_id ?? d?.l1?.id ?? null,
-        l2_admin_id: d?.l2_admin_id ?? d?.l2?.id ?? null,
-        l3_admin_id: d?.l3_admin_id ?? d?.l3?.id ?? null,
-        l1_name: d?.l1?.name ?? '', l1_mobile: d?.l1?.mobile ?? '', l1_email: d?.l1?.email ?? '',
-        l2_name: d?.l2?.name ?? '', l2_mobile: d?.l2?.mobile ?? '', l2_email: d?.l2?.email ?? '',
-        l3_name: d?.l3?.name ?? '', l3_mobile: d?.l3?.mobile ?? '', l3_email: d?.l3?.email ?? '',
+        l1_admin_id: d?.l1_admin_id ?? l1?.id ?? null,
+        l2_admin_id: d?.l2_admin_id ?? l2?.id ?? null,
+        l3_admin_id: d?.l3_admin_id ?? l3?.id ?? null,
       }));
+      setLevelLabels({
+        l1: labelFor(l1),
+        l2: labelFor(l2),
+        l3: labelFor(l3),
+      });
       setView('details');
     } catch {
       setContactError('Network error. Please try again.');
@@ -256,18 +249,25 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
         return;
       }
       const d = data.data;
+      const l1 = d?.l1;
+      const l2 = d?.l2;
+      const l3 = d?.l3;
+      const labelFor = (row) =>
+        row?.email ? `${row.name || row.email} (${row.email})` : (row?.name || '');
       setForm((prev) => ({
         ...prev,
         circle_name: emp.circle || filters.circle,
         user_type: emp.emp_type || filters.emp_type,
         user_email: emp.email || '',
-        l1_admin_id: d?.l1_admin_id ?? d?.l1?.id ?? null,
-        l2_admin_id: d?.l2_admin_id ?? d?.l2?.id ?? null,
-        l3_admin_id: d?.l3_admin_id ?? d?.l3?.id ?? null,
-        l1_name: d?.l1?.name ?? '', l1_mobile: d?.l1?.mobile ?? '', l1_email: d?.l1?.email ?? '',
-        l2_name: d?.l2?.name ?? '', l2_mobile: d?.l2?.mobile ?? '', l2_email: d?.l2?.email ?? '',
-        l3_name: d?.l3?.name ?? '', l3_mobile: d?.l3?.mobile ?? '', l3_email: d?.l3?.email ?? '',
+        l1_admin_id: d?.l1_admin_id ?? l1?.id ?? null,
+        l2_admin_id: d?.l2_admin_id ?? l2?.id ?? null,
+        l3_admin_id: d?.l3_admin_id ?? l3?.id ?? null,
       }));
+      setLevelLabels({
+        l1: labelFor(l1),
+        l2: labelFor(l2),
+        l3: labelFor(l3),
+      });
       setView('details');
     } catch {
       setContactError('Network error. Please try again.');
@@ -275,12 +275,6 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
       setContactLoading(false);
     }
   }, [filters.circle, filters.emp_type, getAuthHeaders]);
-
-  const handleFormChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-    setSubmitError('');
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -295,16 +289,9 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
           circle_name: form.circle_name,
           user_type: form.user_type,
           user_email: form.user_email || null,
-          l1_admin_id: form.l1_admin_id || null, l2_admin_id: form.l2_admin_id || null, l3_admin_id: form.l3_admin_id || null,
-          l1_name: form.l1_admin_id ? null : (form.l1_name || null),
-          l1_mobile: form.l1_admin_id ? null : (form.l1_mobile || null),
-          l1_email: form.l1_admin_id ? null : (form.l1_email || null),
-          l2_name: form.l2_admin_id ? null : (form.l2_name || null),
-          l2_mobile: form.l2_admin_id ? null : (form.l2_mobile || null),
-          l2_email: form.l2_admin_id ? null : (form.l2_email || null),
-          l3_name: form.l3_admin_id ? null : (form.l3_name || null),
-          l3_mobile: form.l3_admin_id ? null : (form.l3_mobile || null),
-          l3_email: form.l3_admin_id ? null : (form.l3_email || null),
+          l1_admin_id: form.l1_admin_id || null,
+          l2_admin_id: form.l2_admin_id || null,
+          l3_admin_id: form.l3_admin_id || null,
         }),
       });
       const data = await res.json();
