@@ -19,7 +19,6 @@ from . import db
 from .models.emp_detail_models import Employee
 from .models.attendance import Punch, Location, LeaveBalance, LeaveApplication
 from .compoff_utils import get_effective_comp_balance
-from .models.manager_model import ManagerContact
 from .models.news_feed import NewsFeed, PaySlip
 from .models.query import Query
 from .models.education import Education, UploadDoc
@@ -253,27 +252,9 @@ def _employee_homepage_impl():
     # so DB "NHQ"/"Software Developer" matches admin "nhq"/"software developer".
     # Fall back to group-level (user_email is None or '') if no employee-specific row.
     # ------------------------
-    manager_contact = None
-    user_circle = (getattr(admin, "circle", None) or "").strip()
-    user_emp_type = (getattr(admin, "emp_type", None) or "").strip()
-    user_email = (admin.email or "").strip() or None
-    if user_circle and user_emp_type:
-        circle_lower = user_circle.lower()
-        emp_type_lower = user_emp_type.lower()
-        if user_email:
-            # Try employee-specific row first (exact email; circle/type case-insensitive)
-            manager_contact = ManagerContact.query.filter(
-                func.lower(ManagerContact.circle_name) == circle_lower,
-                func.lower(ManagerContact.user_type) == emp_type_lower,
-                ManagerContact.user_email == user_email
-            ).first()
-        if not manager_contact:
-            # Fall back to group-level row (user_email null or empty)
-            manager_contact = ManagerContact.query.filter(
-                func.lower(ManagerContact.circle_name) == circle_lower,
-                func.lower(ManagerContact.user_type) == emp_type_lower,
-                (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
-            ).first()
+    from .manager_utils import resolve_manager_contact_for_employee
+
+    manager_contact = resolve_manager_contact_for_employee(admin)
 
     managers = {}
     if manager_contact:
@@ -513,27 +494,12 @@ def employee_profile():
     # Reporting manager: always resolve from ManagerContact (L1) based on Admin
     reporting_manager_name = ""
     try:
-        from .manager_utils import get_manager_detail
-        circle_lower = (admin.circle or "").strip().lower()
-        emp_type_lower = (admin.emp_type or "").strip().lower()
-        user_email = (admin.email or "").strip() or None
-        if circle_lower and emp_type_lower:
-            manager_contact = None
-            if user_email:
-                manager_contact = ManagerContact.query.filter(
-                    func.lower(ManagerContact.circle_name) == circle_lower,
-                    func.lower(ManagerContact.user_type) == emp_type_lower,
-                    ManagerContact.user_email == user_email
-                ).first()
-            if not manager_contact:
-                manager_contact = ManagerContact.query.filter(
-                    func.lower(ManagerContact.circle_name) == circle_lower,
-                    func.lower(ManagerContact.user_type) == emp_type_lower,
-                    (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
-                ).first()
-            if manager_contact:
-                l1 = get_manager_detail(manager_contact, "l1")
-                reporting_manager_name = (l1.get("name") or "").strip()
+        from .manager_utils import get_manager_detail, resolve_manager_contact_for_employee
+
+        manager_contact = resolve_manager_contact_for_employee(admin)
+        if manager_contact:
+            l1 = get_manager_detail(manager_contact, "l1")
+            reporting_manager_name = (l1.get("name") or "").strip()
     except Exception:
         pass
     education_list = Education.query.filter_by(admin_id=admin.id).all()

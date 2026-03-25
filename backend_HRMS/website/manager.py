@@ -8,7 +8,6 @@ from .models.Admin_models import Admin
 from .models.attendance import LeaveApplication, WorkFromHomeApplication
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
-from .models.manager_model import ManagerContact
 from .models.probation import ProbationReview
 from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
 
@@ -32,26 +31,9 @@ def _get_current_admin():
 
 
 def _get_contact_for_target(target_admin):
-    circle = _norm(target_admin.circle)
-    emp_type = _norm(target_admin.emp_type)
-    target_email = _norm(target_admin.email)
+    from .manager_utils import resolve_manager_contact_for_employee
 
-    if not circle or not emp_type:
-        return None
-
-    specific = ManagerContact.query.filter(
-        func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
-        func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
-        func.lower(func.coalesce(ManagerContact.user_email, "")) == target_email,
-    ).first()
-    if specific:
-        return specific
-
-    return ManagerContact.query.filter(
-        func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
-        func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
-        or_(ManagerContact.user_email.is_(None), ManagerContact.user_email == ""),
-    ).first()
+    return resolve_manager_contact_for_employee(target_admin)
 
 
 def _is_manager_for_target(approver_admin, target_admin):
@@ -71,9 +53,10 @@ def _same_scope(manager_admin, target_admin):
     """True if target's circle and emp_type match manager's (data only from manager's scope)."""
     if not manager_admin or not target_admin:
         return False
-    return (
-        _norm(manager_admin.circle) == _norm(target_admin.circle)
-        and _norm(manager_admin.emp_type) == _norm(target_admin.emp_type)
+    from .manager_utils import circles_equivalent, emp_types_equivalent
+
+    return circles_equivalent(manager_admin.circle, target_admin.circle) and emp_types_equivalent(
+        manager_admin.emp_type, target_admin.emp_type
     )
 
 
@@ -541,25 +524,30 @@ def list_team_members():
         return err
 
     manager_circle = _norm(manager_admin.circle)
-    manager_type = _norm(manager_admin.emp_type)
     req_circle = _norm(request.args.get("circle"))
     req_type = _norm(request.args.get("emp_type"))
 
+    from .manager_utils import circles_equivalent, emp_types_equivalent
+
     # If frontend sends filters, enforce they cannot escape manager's own scope.
-    if req_circle and req_circle != "all" and req_circle != manager_circle:
+    if req_circle and req_circle != "all" and not circles_equivalent(
+        request.args.get("circle"), manager_admin.circle
+    ):
         return jsonify({"success": True, "members": []}), 200
-    if req_type and req_type != "all" and req_type != manager_type:
+    if req_type and req_type != "all" and not emp_types_equivalent(
+        request.args.get("emp_type"), manager_admin.emp_type
+    ):
         return jsonify({"success": True, "members": []}), 200
 
     rows = (
         Admin.query.filter(
             func.coalesce(Admin.is_exited, False) == False,
-            func.lower(func.coalesce(Admin.circle, "")) == manager_circle,
-            func.lower(func.coalesce(Admin.emp_type, "")) == manager_type,
+            func.lower(func.trim(func.coalesce(Admin.circle, ""))) == manager_circle,
         )
         .order_by(Admin.first_name.asc(), Admin.id.asc())
         .all()
     )
+    rows = [r for r in rows if emp_types_equivalent(r.emp_type, manager_admin.emp_type)]
 
     today = date.today()
     members = []

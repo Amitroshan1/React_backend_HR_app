@@ -2,11 +2,10 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt, jwt_required
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
 from . import db
 from .models.Admin_models import Admin
-from .models.manager_model import ManagerContact
 from .models.Performance import EmployeePerformance, ManagerReview
 from .email import send_performance_submitted_email, send_performance_reviewed_email
 
@@ -30,25 +29,9 @@ def _is_hr(admin):
 
 
 def _manager_contact_for_target(target_admin):
-    circle = _norm(getattr(target_admin, "circle", ""))
-    emp_type = _norm(getattr(target_admin, "emp_type", ""))
-    email = _norm(getattr(target_admin, "email", ""))
-    if not circle or not emp_type:
-        return None
+    from .manager_utils import resolve_manager_contact_for_employee
 
-    row = ManagerContact.query.filter(
-        func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
-        func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
-        func.lower(func.coalesce(ManagerContact.user_email, "")) == email,
-    ).first()
-    if row:
-        return row
-
-    return ManagerContact.query.filter(
-        func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
-        func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
-        or_(ManagerContact.user_email.is_(None), ManagerContact.user_email == ""),
-    ).first()
+    return resolve_manager_contact_for_employee(target_admin)
 
 
 def _is_manager_for_target(manager_admin, target_admin):
@@ -68,9 +51,10 @@ def _same_scope(manager_admin, target_admin):
     """True if target's circle and emp_type match manager's."""
     if not manager_admin or not target_admin:
         return False
-    return (
-        _norm(getattr(manager_admin, "circle", "")) == _norm(getattr(target_admin, "circle", ""))
-        and _norm(getattr(manager_admin, "emp_type", "")) == _norm(getattr(target_admin, "emp_type", ""))
+    from .manager_utils import circles_equivalent, emp_types_equivalent
+
+    return circles_equivalent(manager_admin.circle, target_admin.circle) and emp_types_equivalent(
+        manager_admin.emp_type, target_admin.emp_type
     )
 
 

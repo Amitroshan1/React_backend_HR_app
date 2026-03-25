@@ -7,6 +7,65 @@ from .models.Admin_models import Admin
 from .models.manager_model import ManagerContact
 
 
+def _norm_circle(value):
+    return (value or "").strip().lower()
+
+
+def _norm_email(value):
+    return (value or "").strip().lower()
+
+
+def _emp_type_canon(value):
+    """
+    Map common role labels to one bucket so e.g. HR, Human Resource, Human Resources match
+    manager_contacts.user_type and admins.emp_type even when wording differs.
+    """
+    t = (value or "").strip().lower().replace("-", " ")
+    t = " ".join(t.split())
+    if t in ("hr", "human resource", "human resources"):
+        return "hr"
+    if t in ("account", "accounts", "accountant"):
+        return "accounts"
+    return t
+
+
+def circles_equivalent(a, b):
+    return _norm_circle(a) == _norm_circle(b)
+
+
+def emp_types_equivalent(a, b):
+    return _emp_type_canon(a) == _emp_type_canon(b)
+
+
+def resolve_manager_contact_for_employee(target_admin):
+    """
+    Find ManagerContact for an employee: circle (trim-insensitive) + emp_type (canonical),
+    prefer user_email-specific row, else group row (empty user_email).
+    Used by homepage manager lookup and manager approval flows.
+    """
+    if not target_admin:
+        return None
+    circle_key = _norm_circle(getattr(target_admin, "circle", None))
+    if not circle_key or not (getattr(target_admin, "emp_type", None) or "").strip():
+        return None
+    target_email = _norm_email(getattr(target_admin, "email", None))
+
+    candidates = ManagerContact.query.filter(
+        func.lower(func.trim(func.coalesce(ManagerContact.circle_name, ""))) == circle_key,
+    ).all()
+
+    matching = [c for c in candidates if emp_types_equivalent(c.user_type, target_admin.emp_type)]
+
+    for c in matching:
+        ue = _norm_email(c.user_email)
+        if ue and ue == target_email:
+            return c
+    for c in matching:
+        if not (c.user_email or "").strip():
+            return c
+    return None
+
+
 def _resolve_email_from_contact(contact, level):
     """Get email for L1/L2/L3 from contact. Prefers admin_id over legacy l*_email."""
     admin_id = getattr(contact, f"{level}_admin_id", None)
@@ -79,18 +138,14 @@ def user_has_manager_access(admin):
     if not admin:
         return False
     admin_id = getattr(admin, "id", None)
-    email = (getattr(admin, "email", None) or "").strip().lower()
-    circle = (getattr(admin, "circle", None) or "").strip().lower()
-    emp_type = (getattr(admin, "emp_type", None) or "").strip().lower()
+    email = _norm_email(getattr(admin, "email", None))
     if not admin_id and not email:
         return False
-    if not circle or not emp_type:
+    if not _norm_circle(getattr(admin, "circle", None)):
+        return False
+    if not (getattr(admin, "emp_type", None) or "").strip():
         return False
 
-    query = ManagerContact.query.filter(
-        func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
-        func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
-    )
     by_id = []
     if admin_id:
         by_id = [
@@ -101,11 +156,20 @@ def user_has_manager_access(admin):
     by_email = []
     if email:
         by_email = [
-            ManagerContact.l1_email.isnot(None) & (func.lower(ManagerContact.l1_email) == email),
-            ManagerContact.l2_email.isnot(None) & (func.lower(ManagerContact.l2_email) == email),
-            ManagerContact.l3_email.isnot(None) & (func.lower(ManagerContact.l3_email) == email),
+            ManagerContact.l1_email.isnot(None)
+            & (func.lower(func.trim(ManagerContact.l1_email)) == email),
+            ManagerContact.l2_email.isnot(None)
+            & (func.lower(func.trim(ManagerContact.l2_email)) == email),
+            ManagerContact.l3_email.isnot(None)
+            & (func.lower(func.trim(ManagerContact.l3_email)) == email),
         ]
     conditions = by_id + by_email
     if not conditions:
         return False
-    return query.filter(or_(*conditions)).first() is not None
+
+    for contact in ManagerContact.query.filter(or_(*conditions)).all():
+        if circles_equivalent(admin.circle, contact.circle_name) and emp_types_equivalent(
+            admin.emp_type, contact.user_type
+        ):
+            return True
+    return False
