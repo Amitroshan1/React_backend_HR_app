@@ -808,6 +808,16 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     month_start = date(year, month, 1)
     month_end = date(year, month, num_days)
 
+    # Non-optional, active holidays for this month
+    holidays = HolidayCalendar.query.filter(
+        HolidayCalendar.year == year,
+        HolidayCalendar.holiday_date >= month_start,
+        HolidayCalendar.holiday_date <= month_end,
+        HolidayCalendar.is_optional == False,
+        HolidayCalendar.is_active == True,
+    ).all()
+    holiday_dates = {h.holiday_date: h for h in holidays}
+
     # Single worksheet for all employees
     worksheet = workbook.add_worksheet("Attendance")
 
@@ -941,10 +951,16 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             current = date(year, month, day)
             row = first_day_row + (day - 1)
 
+            is_sunday = current.weekday() == 6
+            is_holiday = current in holiday_dates
+
             # Only write the Day_Date once (for the first employee)
             if emp_index == 0:
                 label = f"{current.strftime('%A')}, {day} {calendar.month_name[month]}, {year}"
-                fmt_day = sunday_row_fmt if current.weekday() == 6 else border_fmt
+                if is_holiday:
+                    fmt_day = legend_holiday_fmt
+                else:
+                    fmt_day = sunday_row_fmt if is_sunday else border_fmt
                 worksheet.write(row, LABEL_COL, label, fmt_day)
 
             # Employee-specific punch and leave data
@@ -953,9 +969,15 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             punch = pmap.get(current)
             leaves_for_day = lmap.get(current, [])
 
-            base_fmt = sunday_row_fmt if current.weekday() == 6 else border_fmt
+            base_fmt = sunday_row_fmt if is_sunday else border_fmt
 
-            if leaves_for_day:
+            if is_holiday:
+                # Show holiday name (or generic label) for all employees
+                holiday_name = holiday_dates[current].holiday_name
+                text = holiday_name or "Holiday"
+                worksheet.write(row, base_col,     text, legend_holiday_fmt)
+                worksheet.write(row, base_col + 1, "",   legend_holiday_fmt)
+            elif leaves_for_day:
                 # Decide coloring and text based on leave status
                 statuses = { (la.status or "").lower() for la in leaves_for_day }
                 has_pending_only = "pending" in statuses and not any(
