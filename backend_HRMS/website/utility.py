@@ -800,6 +800,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     legend_comp_off_fmt = workbook.add_format({"border": 1, "bg_color": "#FFF2CC"})
     legend_half_day_fmt = workbook.add_format({"border": 1, "bg_color": "#C6E0B4"})
     legend_leave_fmt = workbook.add_format({"border": 1, "bg_color": "#F8CBAD"})
+    legend_leave_pending_fmt = workbook.add_format({"border": 1, "bg_color": "#FFD966"})
     sunday_row_fmt = workbook.add_format({"border": 1, "bg_color": "#D9D9D9"})
 
     # Date range for the month
@@ -815,6 +816,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     worksheet.write(1, 0, "COMP OFF", legend_comp_off_fmt)
     worksheet.write(2, 0, "HALF DAY", legend_half_day_fmt)
     worksheet.write(3, 0, "LEAVE", legend_leave_fmt)
+    worksheet.write(4, 0, "LEAVE PENDING / NOT APPROVED", legend_leave_pending_fmt)
 
     HEADER_START_ROW = 6   # Row 7 (1‑based) in Excel
     LABEL_COL = 0          # Column A
@@ -845,6 +847,20 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     punch_map = {}
     for p in punches:
         punch_map.setdefault(p.admin_id, {})[p.punch_date] = p
+
+    # Build a leave map for all employees: {admin_id: {date: [LeaveApplication,...]}}
+    leave_map = {}
+    leave_qs = LeaveApplication.query.filter(
+        LeaveApplication.admin_id.in_(admin_ids),
+        LeaveApplication.start_date <= month_end,
+        LeaveApplication.end_date >= month_start,
+    ).all()
+    for la in leave_qs:
+        current = la.start_date
+        while current <= la.end_date:
+            if month_start <= current <= month_end:
+                leave_map.setdefault(la.admin_id, {}).setdefault(current, []).append(la)
+            current += timedelta(days=1)
 
     # Header block and per-employee columns
     for emp_index, admin in enumerate(admins):
@@ -931,16 +947,39 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                 fmt_day = sunday_row_fmt if current.weekday() == 6 else border_fmt
                 worksheet.write(row, LABEL_COL, label, fmt_day)
 
-            # Employee-specific punch
+            # Employee-specific punch and leave data
             pmap = punch_map.get(admin.id, {})
+            lmap = leave_map.get(admin.id, {})
             punch = pmap.get(current)
-            time_in_str = punch.punch_in.strftime("%I:%M %p") if punch and punch.punch_in else ""
-            time_out_str = punch.punch_out.strftime("%I:%M %p") if punch and punch.punch_out else ""
+            leaves_for_day = lmap.get(current, [])
 
-            fmt = sunday_row_fmt if current.weekday() == 6 else border_fmt
+            base_fmt = sunday_row_fmt if current.weekday() == 6 else border_fmt
 
-            worksheet.write(row, base_col,     time_in_str,  fmt)
-            worksheet.write(row, base_col + 1, time_out_str, fmt)
+            if leaves_for_day:
+                # Decide coloring and text based on leave status
+                statuses = { (la.status or "").lower() for la in leaves_for_day }
+                has_pending_only = "pending" in statuses and not any(
+                    s in statuses for s in ("approved", "approved by manager", "approved by hr")
+                )
+
+                if has_pending_only:
+                    cell_text = "Leave not approved"
+                    fmt = legend_leave_pending_fmt
+                else:
+                    cell_text = "Leave"
+                    fmt = legend_leave_fmt
+
+                worksheet.write(row, base_col,     cell_text, fmt)
+                worksheet.write(row, base_col + 1, "",        fmt)
+            else:
+                # Normal punch display in 24-hour format
+                time_in_str = punch.punch_in.strftime("%H:%M") if punch and punch.punch_in else ""
+                time_out_str = punch.punch_out.strftime("%H:%M") if punch and punch.punch_out else ""
+
+                fmt = base_fmt
+
+                worksheet.write(row, base_col,     time_in_str,  fmt)
+                worksheet.write(row, base_col + 1, time_out_str, fmt)
 
     # Adjust column widths
     worksheet.set_column(0, 0, 32)
