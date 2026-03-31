@@ -695,8 +695,10 @@
 /* HR Updates Grid – Dashboard aligned */
 .updates-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 16px;
+  width: 100%;
+  align-items: stretch;
 }
 
 .update-card {
@@ -711,6 +713,10 @@
   box-shadow: var(--hr-shadow);
   overflow: hidden;
   transition: all 0.25s ease;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: flex-start;
 }
 
 .update-card::before {
@@ -739,6 +745,8 @@
 .update-text h4 {
   margin: 0 0 4px 0;
   font-size: 1rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
   background: var(--hr-gradient);
   -webkit-background-clip: text;
   background-clip: text;
@@ -750,6 +758,13 @@
   margin: 0;
   font-size: 13px;
   color: var(--hr-text-muted);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.update-text {
+  min-width: 0;
+  flex: 1;
 }
 
 @media (max-width: 640px) {
@@ -1660,7 +1675,7 @@
     padding: 18px;
   }
   .updates-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1825,6 +1840,22 @@
     grid-template-columns: 1fr;
     gap: 14px;
   }
+
+  .update-card {
+    padding: 14px;
+    gap: 12px;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .update-icon-box {
+    padding: 9px;
+  }
+
+  .update-icon-box svg {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 @media (max-width: 576px) {
@@ -1963,6 +1994,8 @@
 
   .update-card {
     padding: 14px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .update-text h4 {

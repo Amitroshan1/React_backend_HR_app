@@ -253,7 +253,8 @@
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 
-.separation-page-wrapper .radio-card input[type="radio"] {
+.separation-page-wrapper .radio-card input[type="radio"],
+.separation-page-wrapper .radio-card input[type="checkbox"] {
   width: 18px;
   height: 18px;
   margin: 0;

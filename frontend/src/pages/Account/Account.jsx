@@ -7,6 +7,18 @@ import {
 import './Account.css';
 
 export const Account = ()  => {
+  const YEAR_RE = /^\d{4}$/;
+  const FINANCIAL_YEAR_RE = /^\d{4}-\d{4}$/;
+  const sanitizeYearInput = (value) => value.replace(/\D/g, '').slice(0, 4);
+  const sanitizeFinancialYearInput = (value) => value.replace(/[^\d-]/g, '').slice(0, 9);
+  const isValidYear = (value) => YEAR_RE.test((value || '').trim());
+  const isValidFinancialYear = (value) => {
+    const text = (value || '').trim();
+    if (!FINANCIAL_YEAR_RE.test(text)) return false;
+    const [start, end] = text.split('-').map(Number);
+    return Number.isInteger(start) && Number.isInteger(end) && end === start + 1;
+  };
+
   const getStoredAccountContext = () => {
     try {
       return JSON.parse(localStorage.getItem('account_form16_context') || '{}');
@@ -436,6 +448,10 @@ export const Account = ()  => {
       alert('Please select month and year.');
       return;
     }
+    if (!isValidYear(payslipYear)) {
+      alert('Please enter a valid 4-digit year (e.g. 2026).');
+      return;
+    }
     if (!payslipFile) {
       alert('Please choose a payslip file.');
       return;
@@ -491,6 +507,10 @@ export const Account = ()  => {
   const handleBulkPayslipUpload = async () => {
     if (!bulkPayslipMonth || !bulkPayslipYear.trim()) {
       alert('Please select month and year.');
+      return;
+    }
+    if (!isValidYear(bulkPayslipYear)) {
+      alert('Please enter a valid 4-digit year (e.g. 2026).');
       return;
     }
     if (!bulkPayslipFiles.length) {
@@ -585,6 +605,10 @@ export const Account = ()  => {
       alert('Please enter financial year.');
       return;
     }
+    if (!isValidFinancialYear(bulkForm16Year)) {
+      alert('Please enter financial year in YYYY-YYYY format (e.g. 2026-2027), where second year is start year + 1.');
+      return;
+    }
     if (!bulkForm16Files.length) {
       alert('Please select one or more files.');
       return;
@@ -641,6 +665,10 @@ export const Account = ()  => {
     }
     if (!form16FinancialYear.trim()) {
       alert('Please enter financial year.');
+      return;
+    }
+    if (!isValidFinancialYear(form16FinancialYear)) {
+      alert('Please enter financial year in YYYY-YYYY format (e.g. 2026-2027), where second year is start year + 1.');
       return;
     }
     if (!form16File) {
@@ -868,7 +896,10 @@ export const Account = ()  => {
             className="custom-input-file"
             placeholder="e.g. 2026"
             value={payslipYear}
-            onChange={(e) => setPayslipYear(e.target.value)}
+            inputMode="numeric"
+            maxLength={4}
+            pattern="\d{4}"
+            onChange={(e) => setPayslipYear(sanitizeYearInput(e.target.value))}
           />
         </div>
         <div className="input-group">
@@ -975,7 +1006,10 @@ export const Account = ()  => {
             className="custom-input-file"
             placeholder="e.g. 2025-2026"
             value={form16FinancialYear}
-            onChange={(e) => setForm16FinancialYear(e.target.value)}
+            inputMode="numeric"
+            maxLength={9}
+            pattern="\d{4}-\d{4}"
+            onChange={(e) => setForm16FinancialYear(sanitizeFinancialYearInput(e.target.value))}
           />
         </div>
         <div className="input-group">
@@ -1078,7 +1112,10 @@ export const Account = ()  => {
             className="custom-input-file"
             placeholder="e.g. 2026"
             value={bulkPayslipYear}
-            onChange={(e) => setBulkPayslipYear(e.target.value)}
+            inputMode="numeric"
+            maxLength={4}
+            pattern="\d{4}"
+            onChange={(e) => setBulkPayslipYear(sanitizeYearInput(e.target.value))}
           />
         </div>
         <div className="input-group">
@@ -1199,7 +1236,10 @@ export const Account = ()  => {
             className="custom-input-file"
             placeholder="e.g. 2026-2027"
             value={bulkForm16Year}
-            onChange={(e) => setBulkForm16Year(e.target.value)}
+            inputMode="numeric"
+            maxLength={9}
+            pattern="\d{4}-\d{4}"
+            onChange={(e) => setBulkForm16Year(sanitizeFinancialYearInput(e.target.value))}
           />
         </div>
         <div className="input-group">
