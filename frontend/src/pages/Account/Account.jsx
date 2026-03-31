@@ -2,11 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
-  ArrowLeft, Upload, Search 
+  ArrowLeft, Upload, Search
 } from 'lucide-react';
 import './Account.css';
+import { useUser } from '../../components/layout/UserContext';
 
 export const Account = ()  => {
+  const { userData } = useUser();
+
+  const isHr =
+    ((userData?.user?.emp_type || '') + '')
+      .trim()
+      .toLowerCase() === 'hr' ||
+    ((userData?.user?.emp_type || '') + '')
+      .trim()
+      .toLowerCase() === 'human resource' ||
+    ((userData?.user?.emp_type || '') + '')
+      .trim()
+      .toLowerCase() === 'human resources';
+
   const getStoredAccountContext = () => {
     try {
       return JSON.parse(localStorage.getItem('account_form16_context') || '{}');
@@ -63,6 +77,59 @@ export const Account = ()  => {
   const [form16History, setForm16History] = useState([]);
   const [form16HistoryLoading, setForm16HistoryLoading] = useState(false);
   const [form16HistoryError, setForm16HistoryError] = useState('');
+  const [ctcForm, setCtcForm] = useState({
+    basic_salary: '',
+    hra: '',
+    other_allowance: '',
+    epf: '',
+    esic: '',
+    ptax: '',
+  });
+  const [ctcMonth, setCtcMonth] = useState(() => {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}`; // YYYY-MM
+  });
+  const [ctcHraPct, setCtcHraPct] = useState('');
+  const [ctcEpfMode, setCtcEpfMode] = useState('min'); // 'min' | 'percent'
+  const [ctcEpfPct, setCtcEpfPct] = useState('');
+  const [ctcComputed, setCtcComputed] = useState({
+    hra_amount: 0,
+    epf_amount: 0,
+    ptax_amount: 0,
+    esic_employee_amount: 0,
+    esic_employer_amount: 0,
+    gross_salary: 0,
+    net_salary: 0,
+    deductions_total: 0,
+  });
+  const [ctcCalcError, setCtcCalcError] = useState('');
+  const [ctcSaving, setCtcSaving] = useState(false);
+  const [ctcLoading, setCtcLoading] = useState(false);
+  const [ctcError, setCtcError] = useState('');
+  const [ctcSuccess, setCtcSuccess] = useState('');
+  const [ctcHistory, setCtcHistory] = useState([]);
+  const [ctcHistoryLoading, setCtcHistoryLoading] = useState(false);
+  const [ctcHistoryError, setCtcHistoryError] = useState('');
+
+  // Employee Accounts Profile (new model) - tied to selected employee in "Bank Details"
+  const [accountsProfileForm, setAccountsProfileForm] = useState({
+    function: '',
+    designation: '',
+    location: '',
+    bank_details: '',
+    date_of_joining: '',
+    tax_regime: '',
+    pan: '',
+    uan: '',
+    pf_account_number: '',
+    esi_number: '',
+    pran: '',
+  });
+  const [accountsProfileLoading, setAccountsProfileLoading] = useState(false);
+  const [accountsProfileSaving, setAccountsProfileSaving] = useState(false);
+  const [accountsProfileError, setAccountsProfileError] = useState('');
+  const [accountsProfileSuccess, setAccountsProfileSuccess] = useState('');
 
   const API_BASE_URL = '/api/accounts';
 
@@ -195,6 +262,38 @@ export const Account = ()  => {
     return `${API_BASE_URL}/file/${normalized}`;
   };
 
+  const openProtectedFile = async (filePath) => {
+    const url = buildFileUrl(filePath);
+    if (!url) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Session expired. Please login again.');
+      return;
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        let msg = 'Unable to open file';
+        try {
+          const j = await res.json();
+          msg = j?.message || j?.msg || msg;
+        } catch {
+          // ignore
+        }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (e) {
+      alert(e.message || 'Unable to open file');
+    }
+  };
+
   const handleDownloadAttendanceExcel = () => {
     if (!selectedDept || !selectedCircle) {
       alert('Please select department and circle first.');
@@ -302,26 +401,62 @@ export const Account = ()  => {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/employee-documents/${emp.adminId}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || 'Failed to fetch documents');
+      setAccountsProfileError('');
+      setAccountsProfileSuccess('');
+      setAccountsProfileLoading(true);
+
+      const [docsRes, profileRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/employee-documents/${emp.adminId}`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE_URL}/employee-accounts-profile?admin_id=${encodeURIComponent(emp.adminId)}`, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      const docsJson = await docsRes.json().catch(() => ({}));
+      if (!docsRes.ok || !docsJson.success) {
+        throw new Error(docsJson.message || 'Failed to fetch documents');
       }
+
+      const profileJson = await profileRes.json().catch(() => ({}));
+      if (!profileRes.ok || !profileJson.success) {
+        throw new Error(profileJson.message || 'Failed to fetch accounts profile');
+      }
+
+      const p = profileJson.profile || {};
+      setAccountsProfileForm({
+        function: p.function || '',
+        designation: p.designation || '',
+        location: p.location || '',
+        bank_details: p.bank_details || '',
+        date_of_joining: p.date_of_joining || '',
+        tax_regime: p.tax_regime || '',
+        pan: p.pan || '',
+        uan: p.uan || '',
+        pf_account_number: p.pf_account_number || '',
+        esi_number: p.esi_number || '',
+        pran: p.pran || '',
+      });
+      if (!profileJson.profile) {
+        setAccountsProfileSuccess('No Accounts Profile yet. Fill details and click Save.');
+      }
+
       setSelectedEmployee({
         ...emp,
-        documents: result.documents || {},
-        form16Path: result.form16_path || emp.form16Path || null
+        documents: docsJson.documents || {},
+        form16Path: docsJson.form16_path || emp.form16Path || null
       });
       setCurrentView('viewPayslip');
     } catch (error) {
       console.error('Document fetch error:', error);
+      setAccountsProfileError(error.message || 'Unable to load employee data');
       setSelectedEmployee(emp);
       setCurrentView('viewPayslip');
+    } finally {
+      setAccountsProfileLoading(false);
     }
   };
 
@@ -356,12 +491,278 @@ export const Account = ()  => {
     }
   };
 
+  const loadCtcBreakup = async (adminId) => {
+    const token = localStorage.getItem('token');
+    if (!token || !adminId) return;
+    try {
+      setCtcLoading(true);
+      setCtcError('');
+      const response = await fetch(`${API_BASE_URL}/ctc-breakup/${adminId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load CTC breakup');
+      }
+      const c = result.ctc_breakup || {};
+      setCtcForm({
+        basic_salary: c.basic_salary ?? '',
+        hra: c.hra ?? '',
+        other_allowance: c.other_allowance ?? '',
+        epf: c.epf ?? '',
+        esic: c.esic ?? '',
+        ptax: c.ptax ?? '',
+      });
+      // When loading existing record, we can't reliably reverse-engineer % choices.
+      // Keep user inputs empty; computed will refresh once user edits fields.
+      setCtcHraPct('');
+      setCtcEpfMode('min');
+      setCtcEpfPct('');
+    } catch (error) {
+      console.error('CTC breakup load error:', error);
+      setCtcError(error.message || 'Unable to load CTC breakup');
+      setCtcForm({
+        basic_salary: '',
+        hra: '',
+        other_allowance: '',
+        epf: '',
+        esic: '',
+        ptax: '',
+      });
+      setCtcHraPct('');
+      setCtcEpfMode('min');
+      setCtcEpfPct('');
+    } finally {
+      setCtcLoading(false);
+    }
+  };
+
+  const loadCtcHistory = async (adminId) => {
+    const token = localStorage.getItem('token');
+    if (!token || !adminId) {
+      setCtcHistory([]);
+      setCtcHistoryError('');
+      return;
+    }
+    try {
+      setCtcHistoryLoading(true);
+      setCtcHistoryError('');
+      const response = await fetch(`${API_BASE_URL}/ctc-breakup/history/${adminId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load CTC breakup history');
+      }
+      setCtcHistory(result.history || []);
+    } catch (error) {
+      console.error('CTC breakup history error:', error);
+      setCtcHistory([]);
+      setCtcHistoryError(error.message || 'Unable to load CTC breakup history');
+    } finally {
+      setCtcHistoryLoading(false);
+    }
+  };
+
+  const handleOpenCtcBreakup = (emp) => {
+    setPreviousView(currentView);
+    setSelectedEmployee(emp);
+    setCtcForm({
+      basic_salary: '',
+      hra: '',
+      other_allowance: '',
+      epf: '',
+      esic: '',
+      ptax: '',
+    });
+    setCtcHraPct('');
+    setCtcEpfMode('min');
+    setCtcEpfPct('');
+    setCtcCalcError('');
+    setCtcComputed({
+      hra_amount: 0,
+      epf_amount: 0,
+      ptax_amount: 0,
+      esic_employee_amount: 0,
+      esic_employer_amount: 0,
+      gross_salary: 0,
+      net_salary: 0,
+      deductions_total: 0,
+    });
+    setCtcError('');
+    setCtcSuccess('');
+    setCurrentView('ctcBreakup');
+    loadCtcBreakup(emp.adminId);
+    loadCtcHistory(emp.adminId);
+  };
+
+  useEffect(() => {
+    if (currentView !== 'ctcBreakup') return;
+    if (!selectedEmployee?.adminId) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const basic = Number(ctcForm.basic_salary || 0);
+    if (!basic || basic <= 0) {
+      setCtcCalcError('');
+      setCtcComputed((p) => ({ ...p, gross_salary: 0, net_salary: 0, deductions_total: 0 }));
+      return;
+    }
+
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        setCtcCalcError('');
+        const response = await fetch(`${API_BASE_URL}/ctc-breakup/calculate`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            admin_id: selectedEmployee.adminId,
+            basic_salary: ctcForm.basic_salary,
+            hra_pct: ctcHraPct,
+            other_allowance: ctcForm.other_allowance,
+            epf_mode: ctcEpfMode,
+            epf_pct: ctcEpfPct,
+            month: ctcMonth
+          })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+          throw new Error(result.message || 'Unable to calculate CTC breakup');
+        }
+        if (cancelled) return;
+        const computed = result?.data?.computed || {};
+        setCtcComputed({
+          hra_amount: Number(computed.hra_amount || 0),
+          epf_amount: Number(computed.epf_amount || 0),
+          ptax_amount: Number(computed.ptax_amount || 0),
+          esic_employee_amount: Number(computed.esic_employee_amount || 0),
+          esic_employer_amount: Number(computed.esic_employer_amount || 0),
+          gross_salary: Number(computed.gross_salary || 0),
+          net_salary: Number(computed.net_salary || 0),
+          deductions_total: Number(computed.deductions_total || 0),
+        });
+
+        // Keep the persisted payload in sync with computed amounts
+        setCtcForm((p) => ({
+          ...p,
+          hra: computed.hra_amount ?? '',
+          epf: computed.epf_amount ?? '',
+          ptax: computed.ptax_amount ?? '',
+          esic: computed.esic_employee_amount ?? '',
+        }));
+      } catch (e) {
+        if (cancelled) return;
+        setCtcCalcError(e.message || 'CTC calculation failed');
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [
+    currentView,
+    selectedEmployee?.adminId,
+    ctcForm.basic_salary,
+    ctcForm.other_allowance,
+    ctcHraPct,
+    ctcEpfMode,
+    ctcEpfPct,
+    ctcMonth
+  ]);
+
+  useEffect(() => {
+    // After a hard refresh, state is restored from localStorage but fetched data may be stale/missing.
+    // If user is on the "viewPayslip" page, re-fetch both docs (UploadDoc) and accounts profile.
+    if (currentView !== 'viewPayslip') return;
+    if (!selectedEmployee?.adminId) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setAccountsProfileLoading(true);
+        setAccountsProfileError('');
+        setAccountsProfileSuccess('');
+
+        const adminId = selectedEmployee.adminId;
+        const [docsRes, profileRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/employee-documents/${adminId}`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE_URL}/employee-accounts-profile?admin_id=${encodeURIComponent(adminId)}`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        const docsJson = await docsRes.json().catch(() => ({}));
+        const profileJson = await profileRes.json().catch(() => ({}));
+
+        if (!docsRes.ok || !docsJson.success) {
+          throw new Error(docsJson.message || 'Failed to fetch documents');
+        }
+        if (!profileRes.ok || !profileJson.success) {
+          throw new Error(profileJson.message || 'Failed to fetch accounts profile');
+        }
+
+        if (cancelled) return;
+
+        const p = profileJson.profile || {};
+        setAccountsProfileForm({
+          function: p.function || '',
+          designation: p.designation || '',
+          location: p.location || '',
+          bank_details: p.bank_details || '',
+          date_of_joining: p.date_of_joining || '',
+          tax_regime: p.tax_regime || '',
+          pan: p.pan || '',
+          uan: p.uan || '',
+          pf_account_number: p.pf_account_number || '',
+          esi_number: p.esi_number || '',
+          pran: p.pran || '',
+        });
+        if (!profileJson.profile) {
+          setAccountsProfileSuccess('No Accounts Profile yet. Fill details and click Save.');
+        }
+
+        setSelectedEmployee((prev) => ({
+          ...(prev || {}),
+          documents: docsJson.documents || {},
+          form16Path: docsJson.form16_path || prev?.form16Path || null,
+        }));
+      } catch (e) {
+        if (cancelled) return;
+        setAccountsProfileError(e.message || 'Unable to load employee data');
+      } finally {
+        if (!cancelled) setAccountsProfileLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentView, selectedEmployee?.adminId]);
+
   useEffect(() => {
     if (currentView === 'addForm16' && selectedEmployee?.adminId) {
       loadForm16History(selectedEmployee.adminId);
     }
     if (currentView === 'addPayslip' && selectedEmployee?.adminId) {
       loadPayslipHistory(selectedEmployee.adminId);
+    }
+    if (currentView === 'ctcBreakup' && selectedEmployee?.adminId) {
+      loadCtcBreakup(selectedEmployee.adminId);
+      loadCtcHistory(selectedEmployee.adminId);
     }
   }, []);
 
@@ -685,6 +1086,50 @@ export const Account = ()  => {
     }
   };
 
+  const handleSaveCtcBreakup = async () => {
+    if (!selectedEmployee?.adminId) {
+      alert('Employee not selected.');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please login again.');
+      return;
+    }
+
+    try {
+      setCtcSaving(true);
+      setCtcError('');
+      setCtcSuccess('');
+      const payload = {
+        admin_id: selectedEmployee.adminId,
+        ...ctcForm,
+        gross_salary: ctcComputed.gross_salary,
+        net_salary: ctcComputed.net_salary,
+      };
+      const response = await fetch(`${API_BASE_URL}/ctc-breakup`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to save CTC breakup');
+      }
+      setCtcSuccess('CTC breakup saved successfully.');
+      await loadCtcBreakup(selectedEmployee.adminId);
+      await loadCtcHistory(selectedEmployee.adminId);
+    } catch (error) {
+      console.error('CTC breakup save error:', error);
+      setCtcError(error.message || 'Unable to save CTC breakup');
+    } finally {
+      setCtcSaving(false);
+    }
+  };
+
   const renderMainView = () => (
     <div className="fade-in">
       <div className="hr-stats-grid">
@@ -795,6 +1240,7 @@ export const Account = ()  => {
                 <th>Bank Details</th>
                 <th>Update</th>
                 <th>Form 16</th>
+                <th>CTC Breakup</th>
                 <th>Working Days</th>
               </tr>
             </thead>
@@ -815,6 +1261,14 @@ export const Account = ()  => {
                       onClick={() => handleAddForm16Click(emp)}
                     >
                       Add Form16
+                    </button>
+                  </td>
+                  <td>
+                    <button
+                      className="text-link"
+                      onClick={() => handleOpenCtcBreakup(emp)}
+                    >
+                      CTC Breakup
                     </button>
                   </td>
                   <td>{emp.workingDays}</td>
@@ -1051,6 +1505,190 @@ export const Account = ()  => {
       </div>
     </div>
   );
+
+  const renderCtcBreakup = () => {
+    return (
+      <div className="form16-page-stack fade-in">
+        <button
+          type="button"
+          className="btn-back"
+          onClick={() => setCurrentView(previousView || 'employees')}
+        >
+          <ArrowLeft size={18} /> Back
+        </button>
+        <div className="table-container-card">
+          <div className="card-header-row">
+            <h3 className="section-title">CTC Breakup for {selectedEmployee?.name}</h3>
+          </div>
+          <div className="ctc-form-grid">
+            <div className="ctc-form-half">
+              <h4 className="ctc-form-half-title">Part A</h4>
+                <div className="input-group">
+                  <label>Month (for P.Tax)</label>
+                  <input className="custom-select" type="month" value={ctcMonth} onChange={(e) => setCtcMonth(e.target.value)} />
+                </div>
+              <div className="input-group">
+                <label>Employee ID (Emp_ID)</label>
+                <input className="custom-select" value={selectedEmployee?.id || ''} readOnly />
+              </div>
+              <div className="input-group">
+                <label>Basic Salary + DA</label>
+                <input className="custom-select" type="number" step="0.01" value={ctcForm.basic_salary} onChange={(e) => setCtcForm((p) => ({ ...p, basic_salary: e.target.value }))} />
+              </div>
+              <div className="input-group">
+                  <label>HRA (%)</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="0.01"
+                    placeholder="HRA should be between 5% to 50%"
+                    value={ctcHraPct}
+                    disabled={!Number(ctcForm.basic_salary || 0)}
+                    onChange={(e) => setCtcHraPct(e.target.value)}
+                  />
+                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                    {Number(ctcForm.basic_salary || 0) > 0 ? (
+                      <span>
+                        {ctcHraPct || 0}% - {Number(ctcComputed.hra_amount || 0).toFixed(2)}
+                      </span>
+                    ) : (
+                      <span>Enter Basic Salary + DA to calculate HRA.</span>
+                    )}
+                  </div>
+              </div>
+            </div>
+            <div className="ctc-form-half">
+              <h4 className="ctc-form-half-title">Part B</h4>
+              <div className="input-group">
+                <label>Other Allowance</label>
+                <input className="custom-select" type="number" step="0.01" value={ctcForm.other_allowance} onChange={(e) => setCtcForm((p) => ({ ...p, other_allowance: e.target.value }))} />
+              </div>
+              <div className="input-group">
+                  <label>EPF</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                    <select className="custom-select" value={ctcEpfMode} onChange={(e) => setCtcEpfMode(e.target.value)} disabled={Number(ctcForm.basic_salary || 0) < 15000}>
+                      <option value="min">Minimum 1800 (basic ≥ 15000)</option>
+                      <option value="percent">Percentage (basic ≥ 15000)</option>
+                    </select>
+                    {ctcEpfMode === 'percent' && Number(ctcForm.basic_salary || 0) >= 15000 && (
+                      <input
+                        className="custom-select"
+                        type="number"
+                        step="0.01"
+                        placeholder="Enter EPF % (e.g. 8)"
+                        value={ctcEpfPct}
+                        onChange={(e) => setCtcEpfPct(e.target.value)}
+                      />
+                    )}
+                    <input className="custom-select" type="text" readOnly value={`${Number(ctcComputed.epf_amount || 0).toFixed(2)}`} />
+                    {Number(ctcForm.basic_salary || 0) < 15000 && (
+                      <div style={{ fontSize: 13, opacity: 0.85 }}>Basic below 15000: EPF 12% mandatory.</div>
+                    )}
+                  </div>
+              </div>
+              <div className="input-group">
+                <label>P.Tax</label>
+                  <input className="custom-select" type="text" readOnly value={Number(ctcComputed.ptax_amount || 0).toFixed(2)} />
+                </div>
+                <div className="input-group">
+                  <label>ESIC (Employee)</label>
+                  <input className="custom-select" type="text" readOnly value={Number(ctcComputed.esic_employee_amount || 0).toFixed(2)} />
+                </div>
+                <div className="input-group">
+                  <label>ESIC (Employer)</label>
+                  <input className="custom-select" type="text" readOnly value={Number(ctcComputed.esic_employer_amount || 0).toFixed(2)} />
+              </div>
+            </div>
+          </div>
+            <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+              {ctcCalcError && <div className="q-error">{ctcCalcError}</div>}
+              <div className="table-responsive">
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th>Gross Salary</th>
+                      <th>Total Deductions</th>
+                      <th>Net Salary</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{Number(ctcComputed.gross_salary || 0).toFixed(2)}</td>
+                      <td>{Number(ctcComputed.deductions_total || 0).toFixed(2)}</td>
+                      <td>{Number(ctcComputed.net_salary || 0).toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {ctcLoading && <p>Loading CTC breakup...</p>}
+          {ctcError && <div className="q-error">{ctcError}</div>}
+          {ctcSuccess && <div className="q-success">{ctcSuccess}</div>}
+          <div className="form-actions-row">
+            <button
+              type="button"
+              className="btn-primary full-width"
+              onClick={handleSaveCtcBreakup}
+              disabled={ctcSaving || !selectedEmployee?.adminId}
+            >
+              {ctcSaving ? 'Saving...' : 'Save CTC Breakup'}
+            </button>
+          </div>
+        </div>
+
+        <div className="table-container-card form16-history-card">
+          <h4 className="section-title" style={{ marginBottom: '12px' }}>CTC Breakup History</h4>
+          <div className="table-responsive">
+            <table className="results-table">
+              <thead>
+                <tr>
+                  <th>Updated At</th>
+                  <th>Basic Salary + DA</th>
+                  <th>HRA</th>
+                  <th>Other Allowance</th>
+                  <th>Gross Salary</th>
+                  <th>EPF</th>
+                  <th>ESIC (Employee)</th>
+                  <th>P.Tax</th>
+                  <th>Net Salary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ctcHistoryLoading && (
+                  <tr>
+                    <td colSpan="9">Loading history...</td>
+                  </tr>
+                )}
+                {!ctcHistoryLoading && ctcHistoryError && (
+                  <tr>
+                    <td colSpan="9">{ctcHistoryError}</td>
+                  </tr>
+                )}
+                {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.length === 0 && (
+                  <tr>
+                    <td colSpan="9">No CTC breakup records found.</td>
+                  </tr>
+                )}
+                {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.map((item) => (
+                  <tr key={item.id}>
+                    <td>{formatDateTime(item.updated_at || item.created_at)}</td>
+                    <td>{Number(item.basic_salary || 0).toFixed(2)}</td>
+                    <td>{Number(item.hra || 0).toFixed(2)}</td>
+                    <td>{Number(item.other_allowance || 0).toFixed(2)}</td>
+                    <td>{Number(item.gross_salary || 0).toFixed(2)}</td>
+                    <td>{Number(item.epf || 0).toFixed(2)}</td>
+                    <td>{Number(item.esic || 0).toFixed(2)}</td>
+                    <td>{Number(item.ptax || 0).toFixed(2)}</td>
+                    <td>{Number(item.net_salary || 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderBulkPayslip = () => (
     <div className="form16-page-stack fade-in">
@@ -1304,50 +1942,264 @@ export const Account = ()  => {
 
   return (
     <div className="hr-main-container">
-      {currentView !== 'addForm16' && currentView !== 'addPayslip' && currentView !== 'bulkPayslip' && currentView !== 'bulkForm16' && (
-        <div className="page-header">
-          <h1 className="main-title">Accounts & Payroll</h1>
-          <p className="sub-title">Monitor and manage company financial operations</p>
-        </div>
-      )}
-
       {currentView === 'main' && renderMainView()}
       {currentView === 'employees' && renderEmployeesView()}
       {currentView === 'addPayslip' && renderAddPayslip()}
       {currentView === 'bulkPayslip' && renderBulkPayslip()}
       {currentView === 'bulkForm16' && renderBulkForm16()}
       {currentView === 'addForm16' && renderAddForm16()}
+      {currentView === 'ctcBreakup' && renderCtcBreakup()}
       {currentView === 'viewPayslip' && (
          <div className="fade-in">
             <button className="btn-back" onClick={() => setCurrentView('employees')}><ArrowLeft size={18}/> Back</button>
-            <div className="stat-card">
-                <h3>{selectedEmployee?.name}'s Bank Details</h3>
-                <p>Passbook: {selectedEmployee?.documents?.passbook_front ? 'Available' : 'Not uploaded'}</p>
-                {selectedEmployee?.documents?.passbook_front && (
-                  <p>
-                    <a
-                      href={buildFileUrl(selectedEmployee.documents.passbook_front)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      View Passbook
-                    </a>
-                  </p>
+            <div className="table-container-card">
+              <div className="card-header-row">
+                <h3 className="section-title">Employee Accounts Profile</h3>
+              </div>
+              <p style={{ marginTop: 0, color: '#64748b' }}>
+                {selectedEmployee?.name || 'Employee'} ({selectedEmployee?.id || '-'}) — {selectedEmployee?.email || '-'}
+              </p>
+
+              {accountsProfileLoading && <p>Loading...</p>}
+              {accountsProfileError && <div className="q-error">{accountsProfileError}</div>}
+              {accountsProfileSuccess && <div className="q-success">{accountsProfileSuccess}</div>}
+
+              <div className={`accounts-two-col-grid ${isHr ? '' : 'accounts-readonly'}`}>
+                <div>
+                  <div className="input-group">
+                    <label>Function</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.function}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, function: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>Designation</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.designation}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, designation: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>Location</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.location}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, location: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>Date of Joining</label>
+                      <input
+                        className="custom-select"
+                        type="date"
+                        value={accountsProfileForm.date_of_joining}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, date_of_joining: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>Bank Details</label>
+                      <textarea
+                        className="custom-select"
+                        rows={3}
+                        value={accountsProfileForm.bank_details}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, bank_details: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>Tax Regime</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.tax_regime}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, tax_regime: e.target.value }))}
+                        placeholder="Old / New"
+                        disabled={!isHr}
+                      />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="input-group">
+                    <label>Employee ID (Emp_ID)</label>
+                    <input className="custom-select" value={selectedEmployee?.id || ''} readOnly />
+                  </div>
+                  <div className="input-group">
+                    <label>PAN</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.pan}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pan: e.target.value }))}
+                        placeholder="ABCDE1234F"
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>UAN</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.uan}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, uan: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>PF Account Number</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.pf_account_number}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pf_account_number: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>ESI Number</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.esi_number}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, esi_number: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                  <div className="input-group">
+                    <label>PRAN</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.pran}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pran: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-actions-row">
+                {isHr ? (
+                  <button
+                    type="button"
+                    className="btn-primary full-width"
+                    disabled={accountsProfileSaving || !selectedEmployee?.adminId}
+                    onClick={async () => {
+                      const token = localStorage.getItem('token');
+                      if (!token || !selectedEmployee?.adminId) return;
+                      try {
+                        setAccountsProfileSaving(true);
+                        setAccountsProfileError('');
+                        setAccountsProfileSuccess('');
+                        const res = await fetch(`${API_BASE_URL}/employee-accounts-profile`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({
+                            admin_id: selectedEmployee.adminId,
+                            employee_number: selectedEmployee.id || null,
+                            ...accountsProfileForm,
+                            date_of_joining: accountsProfileForm.date_of_joining || null,
+                          }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok || !data.success) throw new Error(data.message || 'Failed to save');
+                        setAccountsProfileSuccess('Saved successfully.');
+                      } catch (e) {
+                        setAccountsProfileError(e.message || 'Unable to save');
+                      } finally {
+                        setAccountsProfileSaving(false);
+                      }
+                    }}
+                  >
+                    {accountsProfileSaving ? 'Saving...' : 'Save Accounts Profile'}
+                  </button>
+                ) : (
+                  null
                 )}
-                <p>PAN Front: {selectedEmployee?.documents?.pan_front ? 'Available' : 'Not uploaded'}</p>
-                <p>Aadhaar Front: {selectedEmployee?.documents?.aadhaar_front ? 'Available' : 'Not uploaded'}</p>
-                <p>Form 16: {selectedEmployee?.form16Path ? 'Available' : 'Not uploaded'}</p>
-                {selectedEmployee?.form16Path && (
-                  <p>
-                    <a
-                      href={buildFileUrl(selectedEmployee.form16Path)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      View Form 16
-                    </a>
-                  </p>
-                )}
+              </div>
+            </div>
+
+            <div className="table-container-card" style={{ marginTop: '16px' }}>
+              <div className="card-header-row">
+                <h3 className="section-title">Uploaded Documents</h3>
+              </div>
+              {(() => {
+                const docs = selectedEmployee?.documents || {};
+                const docItems = [
+                  { key: 'passbook_front', label: 'Passbook' },
+                  { key: 'pan_front', label: 'PAN Front' },
+                  { key: 'pan_back', label: 'PAN Back' },
+                  { key: 'aadhaar_front', label: 'Aadhaar Front' },
+                  { key: 'aadhaar_back', label: 'Aadhaar Back' },
+                  { key: 'appointment_letter', label: 'Appointment Letter' },
+                ];
+                const hasAny = docItems.some((d) => !!docs?.[d.key]) || !!selectedEmployee?.form16Path;
+                if (!hasAny) return <p>No documents uploaded.</p>;
+                const leftItems = docItems.slice(0, 3);
+                const rightItems = docItems.slice(3, 6);
+                return (
+                  <>
+                    <div className="accounts-docs-grid">
+                      <div>
+                        {leftItems.map((d) => (
+                          <div key={d.key} style={{ marginBottom: '10px' }}>
+                            <div className="flex-between" style={{ marginBottom: '6px' }}>
+                              <span>{d.label}</span>
+                              <span>{docs?.[d.key] ? 'Available' : 'Not uploaded'}</span>
+                            </div>
+                            {docs?.[d.key] && (
+                              <button
+                                type="button"
+                                className="text-link"
+                                onClick={() => openProtectedFile(docs[d.key])}
+                              >
+                                View
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div>
+                        {rightItems.map((d) => (
+                          <div key={d.key} style={{ marginBottom: '10px' }}>
+                            <div className="flex-between" style={{ marginBottom: '6px' }}>
+                              <span>{d.label}</span>
+                              <span>{docs?.[d.key] ? 'Available' : 'Not uploaded'}</span>
+                            </div>
+                            {docs?.[d.key] && (
+                              <button
+                                type="button"
+                                className="text-link"
+                                onClick={() => openProtectedFile(docs[d.key])}
+                              >
+                                View
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '10px' }}>
+                      <div className="flex-between" style={{ marginBottom: '6px' }}>
+                        <span>Form 16</span>
+                        <span>{selectedEmployee?.form16Path ? 'Available' : 'Not uploaded'}</span>
+                      </div>
+                      {selectedEmployee?.form16Path && (
+                        <button
+                          type="button"
+                          className="text-link"
+                          onClick={() => openProtectedFile(selectedEmployee.form16Path)}
+                        >
+                          View
+                        </button>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
          </div>
       )}

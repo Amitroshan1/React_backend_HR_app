@@ -534,13 +534,31 @@
 }
 
 .manager-typeahead-clear {
-  font-size: 0.8rem;
-  color: #4f46e5;
-  background: none;
-  border: none;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #ffffff;
+  background: #4f46e5;
+  border: 1px solid rgba(79, 70, 229, 0.35);
   cursor: pointer;
-  margin-left: 8px;
-  padding: 0;
+
+  margin-left: 10px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  line-height: 1.2;
+
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.manager-typeahead-clear:hover:not(:disabled) {
+  background: #4338ca;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+}
+
+.manager-typeahead-clear:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
 }
 
 .btn-manager-submit {

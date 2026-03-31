@@ -22,6 +22,7 @@ import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
 
 const HR_API_BASE = '/api/HumanResource';
+const ACCOUNTS_API_BASE = '/api/accounts';
 
 function formatDateShort(isoDate) {
   if (!isoDate) return '';
@@ -402,6 +403,284 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
   );
 }
 
+// ----- HR Employee Accounts profile (from Search Employee -> Employee Accounts) -----
+function HrEmployeeAccountsView({ employee, onBack }) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [documents, setDocuments] = useState({});
+  const [form16Path, setForm16Path] = useState(null);
+  const [form, setForm] = useState({
+    function: '',
+    designation: '',
+    location: '',
+    bank_details: '',
+    date_of_joining: '',
+    tax_regime: '',
+    pan: '',
+    uan: '',
+    pf_account_number: '',
+    esi_number: '',
+    pran: '',
+  });
+
+  const buildFileUrl = (filePath) => {
+    if (!filePath) return null;
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) return filePath;
+    const normalized = filePath.replace(/^\/+/, '');
+    return `${ACCOUNTS_API_BASE}/file/${normalized}`;
+  };
+
+  const openProtectedFile = async (filePath) => {
+    const url = buildFileUrl(filePath);
+    if (!url) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Session expired. Please login again.');
+      return;
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        let msg = 'Unable to open file';
+        try {
+          const j = await res.json();
+          msg = j?.message || j?.msg || msg;
+        } catch {
+          // ignore
+        }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (e) {
+      alert(e.message || 'Unable to open file');
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError('');
+      setSuccess('');
+      try {
+        const [profileRes, docsRes] = await Promise.all([
+          fetch(
+            `${ACCOUNTS_API_BASE}/employee-accounts-profile?admin_id=${encodeURIComponent(employee.id)}`,
+            { headers: getAuthHeaders() }
+          ),
+          fetch(
+            `${ACCOUNTS_API_BASE}/employee-documents/${encodeURIComponent(employee.id)}`,
+            { headers: getAuthHeaders() }
+          ),
+        ]);
+        const data = await profileRes.json().catch(() => ({}));
+        const docsData = await docsRes.json().catch(() => ({}));
+        if (!profileRes.ok || !data.success) {
+          throw new Error(data.message || 'Failed to load employee accounts profile');
+        }
+        if (!docsRes.ok || !docsData.success) {
+          throw new Error(docsData.message || 'Failed to load uploaded documents');
+        }
+        const p = data.profile || {};
+        if (!cancelled) {
+          setForm({
+            function: p.function || '',
+            designation: p.designation || '',
+            location: p.location || '',
+            bank_details: p.bank_details || '',
+            date_of_joining: p.date_of_joining || '',
+            tax_regime: p.tax_regime || '',
+            pan: p.pan || '',
+            uan: p.uan || '',
+            pf_account_number: p.pf_account_number || '',
+            esi_number: p.esi_number || '',
+            pran: p.pran || '',
+          });
+          setDocuments(docsData.documents || {});
+          setForm16Path(docsData.form16_path || null);
+          if (!data.profile) {
+            setSuccess('No profile found. Fill details and Save.');
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setError(e.message || 'Network error');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [employee.id]);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const payload = {
+        admin_id: employee.id,
+        employee_number: employee.emp_id || null,
+        ...form,
+        date_of_joining: form.date_of_joining || null,
+      };
+      const res = await fetch(`${ACCOUNTS_API_BASE}/employee-accounts-profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to save profile');
+      }
+      setSuccess('Employee accounts profile saved successfully.');
+    } catch (e2) {
+      setError(e2.message || 'Network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="hr-sub-page">
+      <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
+      <div className="hr-card">
+        <h2>Employee Accounts – {employee.name}</h2>
+        <p style={{ color: '#64748b', marginTop: '-4px' }}>
+          Emp ID: {employee.emp_id || 'N/A'} {employee.email ? `• ${employee.email}` : ''}
+        </p>
+        {loading && <p className="hr-loading">Loading...</p>}
+        {error && <p className="hr-error">{error}</p>}
+        {success && <p style={{ color: '#166534', fontWeight: 600 }}>{success}</p>}
+        {!loading && (
+          <form onSubmit={handleSave} className="hr-employee-accounts-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label>Function</label>
+                <input value={form.function} onChange={(e) => setForm((p) => ({ ...p, function: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>Designation</label>
+                <input value={form.designation} onChange={(e) => setForm((p) => ({ ...p, designation: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Location</label>
+                <input value={form.location} onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>Date of Joining</label>
+                <input type="date" value={form.date_of_joining} onChange={(e) => setForm((p) => ({ ...p, date_of_joining: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Bank Details</label>
+                <textarea rows={3} value={form.bank_details} onChange={(e) => setForm((p) => ({ ...p, bank_details: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>Tax Regime</label>
+                <input value={form.tax_regime} onChange={(e) => setForm((p) => ({ ...p, tax_regime: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>PAN</label>
+                <input value={form.pan} onChange={(e) => setForm((p) => ({ ...p, pan: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>UAN</label>
+                <input value={form.uan} onChange={(e) => setForm((p) => ({ ...p, uan: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>PF Account Number</label>
+                <input value={form.pf_account_number} onChange={(e) => setForm((p) => ({ ...p, pf_account_number: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>ESI Number</label>
+                <input value={form.esi_number} onChange={(e) => setForm((p) => ({ ...p, esi_number: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>PRAN</label>
+                <input value={form.pran} onChange={(e) => setForm((p) => ({ ...p, pran: e.target.value }))} />
+              </div>
+            </div>
+            <div className="form-actions">
+              <button type="submit" className="btn-create-account" disabled={saving}>
+                {saving ? 'Saving...' : 'Save Employee Accounts'}
+              </button>
+            </div>
+
+            <div className="profile-section hr-employee-docs-section">
+              <h4>Uploaded Documents</h4>
+              {(() => {
+                const docItems = [
+                  { key: 'passbook_front', label: 'Passbook' },
+                  { key: 'pan_front', label: 'PAN Front' },
+                  { key: 'pan_back', label: 'PAN Back' },
+                  { key: 'aadhaar_front', label: 'Aadhaar Front' },
+                  { key: 'aadhaar_back', label: 'Aadhaar Back' },
+                  { key: 'appointment_letter', label: 'Appointment Letter' },
+                ];
+                const hasAny = docItems.some((d) => !!documents?.[d.key]) || !!form16Path;
+                if (!hasAny) return <p className="no-docs">No documents uploaded yet.</p>;
+                return (
+                  <div className="hr-employee-docs-grid">
+                    {docItems.map((d) => (
+                      <div key={d.key} className="hr-employee-doc-item">
+                        <div className="hr-employee-doc-meta">
+                          <span>{d.label}</span>
+                          <span>{documents?.[d.key] ? 'Available' : 'Not uploaded'}</span>
+                        </div>
+                        {documents?.[d.key] && (
+                          <button
+                            type="button"
+                            className="hr-employee-doc-btn"
+                            onClick={() => openProtectedFile(documents[d.key])}
+                          >
+                            View
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <div className="hr-employee-doc-item">
+                      <div className="hr-employee-doc-meta">
+                        <span>Form 16</span>
+                        <span>{form16Path ? 'Available' : 'Not uploaded'}</span>
+                      </div>
+                      {form16Path && (
+                        <button
+                          type="button"
+                          className="hr-employee-doc-btn"
+                          onClick={() => openProtectedFile(form16Path)}
+                        >
+                          View
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ----- HR Punch In/Out form (from Search Employee → Punch In/Out) -----
 function HrPunchFormView({ employee, onBack }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -529,6 +808,7 @@ export const Hr = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [searchDownloading, setSearchDownloading] = useState(false);
+  const [searchClientDownloading, setSearchClientDownloading] = useState(false);
   const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
   const [masterLoading, setMasterLoading] = useState(false);
 
@@ -665,7 +945,7 @@ export const Hr = () => {
     }
   };
 
-  const employeeDetailsOptions = ['Profile', 'Attendance', 'Punch In/Out'];
+  const employeeDetailsOptions = ['Profile', 'Attendance', 'Punch In/Out', 'Employee Accounts'];
 
   const [selectedEmployeeForAction, setSelectedEmployeeForAction] = useState(null);
 
@@ -712,6 +992,7 @@ export const Hr = () => {
         setSearchResults(data.employees.map((e) => ({
           name: e.name,
           email: e.email,
+          emp_id: e.emp_id || '',
           circle: selectedCircle,
           type: selectedEmployeeType,
           id: e.id
@@ -764,6 +1045,55 @@ export const Hr = () => {
       alert(e.message || 'Download failed');
     } finally {
       setSearchDownloading(false);
+    }
+  };
+
+  const extractFilenameFromContentDisposition = (contentDisposition) => {
+    if (!contentDisposition) return null;
+    const match = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i);
+    if (!match) return null;
+    try {
+      return decodeURIComponent(match[1].replace(/"/g, ''));
+    } catch {
+      return match[1].replace(/"/g, '');
+    }
+  };
+
+  const handleDownloadClientAllFromSearch = async () => {
+    if (!selectedCircle || !selectedEmployeeType) {
+      alert('Please search by Circle and Employee Type first.');
+      return;
+    }
+    setSearchClientDownloading(true);
+    try {
+      const res = await fetch(
+        `${ACCOUNTS_API_BASE}/download-excel-client?circle=${encodeURIComponent(selectedCircle)}&emp_type=${encodeURIComponent(selectedEmployeeType)}&month=${searchDownloadMonth}`,
+        { headers: getAuthHeaders() }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Client download failed');
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      const contentDisposition = res.headers.get('content-disposition') || '';
+      const filenameFromServer = extractFilenameFromContentDisposition(contentDisposition);
+      a.download =
+        filenameFromServer ||
+        `Client_Attendance_${selectedCircle}_${selectedEmployeeType.replace(/\s+/g, '_')}_${searchDownloadMonth}.xlsx`;
+
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e.message || 'Client download failed');
+    } finally {
+      setSearchClientDownloading(false);
     }
   };
 
@@ -898,6 +1228,7 @@ export const Hr = () => {
     if (option === 'Profile') setView('employee_profile');
     else if (option === 'Attendance') setView('employee_attendance');
     else if (option === 'Punch In/Out') setView('punch_form');
+    else if (option === 'Employee Accounts') setView('employee_accounts');
   };
 
   const handleUpdateCardClick = (title) => {
@@ -1027,6 +1358,14 @@ return <AddNoc onBack={() => setView('updates')} />;
   if (view === 'punch_form' && selectedEmployeeForAction) {
     return (
       <HrPunchFormView
+        employee={selectedEmployeeForAction}
+        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+      />
+    );
+  }
+  if (view === 'employee_accounts' && selectedEmployeeForAction) {
+    return (
+      <HrEmployeeAccountsView
         employee={selectedEmployeeForAction}
         onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
       />
@@ -1402,6 +1741,14 @@ return <AddNoc onBack={() => setView('updates')} />;
               <input type="month" value={searchDownloadMonth} onChange={(e) => setSearchDownloadMonth(e.target.value)} style={{ marginRight: 8 }} />
               <button type="button" className="btn-success" onClick={(e) => { e.stopPropagation(); handleDownloadAllFromSearch(); }} disabled={searchDownloading}>
                 <Download size={16}/> {searchDownloading ? 'Downloading...' : 'Download Attendance'}
+              </button>
+              <button
+                type="button"
+                className="btn-success"
+                onClick={(e) => { e.stopPropagation(); handleDownloadClientAllFromSearch(); }}
+                disabled={searchClientDownloading}
+              >
+                <Download size={16}/> {searchClientDownloading ? 'Downloading...' : 'For Client'}
               </button>
             </div>
           </div>

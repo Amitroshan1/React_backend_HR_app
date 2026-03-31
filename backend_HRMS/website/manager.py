@@ -54,7 +54,9 @@ def _is_manager_for_target(approver_admin, target_admin):
     contact = _get_contact_for_target(target_admin)
     if not contact:
         return False
-    from .manager_utils import is_manager_in_contact
+    from .manager_utils import is_manager_in_contact, manager_scope_matches_contact
+    if not manager_scope_matches_contact(approver_admin, contact):
+        return False
     return is_manager_in_contact(contact, approver_admin)
 
 

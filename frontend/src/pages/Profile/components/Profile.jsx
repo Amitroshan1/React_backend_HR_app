@@ -206,7 +206,6 @@ export const Profile = () => {
             employeeId: emp.emp_id || admin.emp_id || '',
             department: admin.circle || '',
             dateOfJoining: admin.doj ? admin.doj.split('T')[0] : '',
-            reportingManager: (p.admin && p.admin.reporting_manager) || '',
             employmentType: admin.emp_type || '',
         };
 
@@ -961,7 +960,6 @@ export const Profile = () => {
         'employeeId',
         'department',
         'dateOfJoining',
-        'reportingManager',
     ];
 
     const validatePersonalSection = () => {

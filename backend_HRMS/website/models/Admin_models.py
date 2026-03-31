@@ -91,6 +91,20 @@ class Admin(db.Model, UserMixin):
         lazy='dynamic',
         cascade="all, delete-orphan"
     )
+    employee_accounts_record = db.relationship(
+        'EmployeeAccounts',
+        back_populates='admin',
+        uselist=False,
+        cascade='all, delete-orphan',
+    )
+
+    # Single CTC breakup row per Admin.
+    ctc_breakup_record = db.relationship(
+        "CTCBreakup",
+        back_populates="admin",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     # --- Password helpers ---
     def set_password(self, password):

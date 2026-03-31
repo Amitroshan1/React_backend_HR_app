@@ -49,7 +49,6 @@ export const MANDATORY_FORM_FIELDS = [
     'fullName', 'fatherName', 'maritalStatus', 'personalEmail',
     'mobile', 'nationality', 'dateOfBirth', 'gender',
     'designation', 'employeeId', 'department', 'dateOfJoining',
-    'reportingManager',
 ];
 
 export const MANDATORY_FILES_LIST = [
@@ -68,7 +67,7 @@ export const initialDataState = {
         nationality: 'Indian',
         designation: 'Software Engineer', dateOfBirth: '1990-01-01',
         employeeId: 'EMP001', department: 'Engineering', dateOfJoining: '2023-01-15',
-        reportingManager: 'Sarah Manager', employmentType: 'Full-Time',
+        employmentType: 'Full-Time',
         previousCompanyName: 'Tech Innovators Co.', previousDesignation: 'Junior Developer',
         dateOfLeaving: '2022-12-31',
         experienceYears: '2.5',
@@ -107,7 +106,7 @@ export function calculateProfileCompletion(formData, currentAddress, permanentAd
     if(currentAddressFilled && permanentAddressFilled) totalScore += sectionWeight;
 
     // 3. Employment (current employment required; previous employment is optional)
-    const currentEmploymentFields = ['designation', 'employeeId', 'department', 'dateOfJoining', 'reportingManager'];
+    const currentEmploymentFields = ['designation', 'employeeId', 'department', 'dateOfJoining'];
     const currentEmploymentFilled = currentEmploymentFields.every(f => formData[f] && formData[f].toString().trim() !== '');
     const previousEmploymentFilled = previousEmployment.length === 0 || previousEmployment.every(emp => emp.companyName && emp.designation);
     let employmentFilled = currentEmploymentFilled && previousEmploymentFilled;

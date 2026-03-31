@@ -37,6 +37,25 @@ def emp_types_equivalent(a, b):
     return _emp_type_canon(a) == _emp_type_canon(b)
 
 
+def manager_scope_matches_contact(manager_admin, contact):
+    """
+    Strict manager scope check:
+    - manager's Admin.circle must match ManagerContact.circle_name
+    - manager's Admin.emp_type must match ManagerContact.user_type (canonical)
+    - if ManagerContact.user_email is set, it must match manager email
+    """
+    if not manager_admin or not contact:
+        return False
+    if not circles_equivalent(getattr(manager_admin, "circle", None), getattr(contact, "circle_name", None)):
+        return False
+    if not emp_types_equivalent(getattr(manager_admin, "emp_type", None), getattr(contact, "user_type", None)):
+        return False
+    contact_user_email = _norm_email(getattr(contact, "user_email", None))
+    if contact_user_email:
+        return contact_user_email == _norm_email(getattr(manager_admin, "email", None))
+    return True
+
+
 def resolve_manager_contact_for_employee(target_admin):
     """
     Find ManagerContact for an employee: circle (trim-insensitive) + emp_type (canonical),
@@ -144,11 +163,13 @@ def user_has_manager_access(admin):
     admin_id = getattr(admin, "id", None)
     if not admin_id:
         return False
-    row = ManagerContact.query.filter(
+    rows = ManagerContact.query.filter(
         or_(
             ManagerContact.l1_admin_id == admin_id,
             ManagerContact.l2_admin_id == admin_id,
             ManagerContact.l3_admin_id == admin_id,
         )
-    ).first()
-    return row is not None
+    ).all()
+    if not rows:
+        return False
+    return any(manager_scope_matches_contact(admin, r) for r in rows)

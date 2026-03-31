@@ -42,7 +42,6 @@ export const ProfileViewLayout = ({ data, profileProgress, avatarCardComponent }
         { label: "Department", key: "department" },
         { label: "Designation", key: "designation" },
         { label: "Date of Joining", key: "dateOfJoining", formatFn: formatDateForDisplay },
-        { label: "Reporting Manager", key: "reportingManager" },
     ];
 
     return (

@@ -41,7 +41,6 @@ export const EmploymentBankSection = ({
                 <Input label="Employee ID" name="employeeId" value={data.employeeId} onChange={onFormChange} error={errors.employeeId} readOnly />
                 <Input label="Department" name="department" value={data.department} onChange={onFormChange} error={errors.department} />
                 <Input label="Date of Joining" name="dateOfJoining" type="date" value={data.dateOfJoining} onChange={onFormChange} error={errors.dateOfJoining} readOnly />
-                <Input label="Reporting Manager" name="reportingManager" value={data.reportingManager} onChange={onFormChange} error={errors.reportingManager} maxLength={150} readOnly />
             </div>
         </>
     ) : (
@@ -52,7 +51,6 @@ export const EmploymentBankSection = ({
                 <Info label="Employee ID" value={data.employeeId} />
                 <Info label="Department" value={data.department} />
                 <Info label="Date of Joining" value={formatDateForDisplay(data.dateOfJoining)} />
-                <Info label="Reporting Manager" value={data.reportingManager} />
             </div>
         </>
     );
@@ -95,7 +93,6 @@ export const EmploymentBankSection = ({
         'employeeId',
         'department',
         'dateOfJoining',
-        'reportingManager',
     ];
     const hasMandatoryErrors =
         isEditMode && mandatoryKeys.some(key => errors[key]);

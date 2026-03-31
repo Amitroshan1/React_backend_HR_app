@@ -141,6 +141,8 @@ def create_app():
     from .models.leave_accrual_log import LeaveAccrualLog
     from .models.holiday_calendar import HolidayCalendar
     from .models.probation import ProbationReview
+    from .models.employee_accounts import EmployeeAccounts
+    from .models.ctc_breakup import CTCBreakup
 
     # ---------------------------
     # Flask-Login user loader

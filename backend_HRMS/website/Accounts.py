@@ -25,10 +25,207 @@ from . import db
 from werkzeug.utils import secure_filename
 from sqlalchemy import func, or_
 from .models.expense import ExpenseLineItem
-
+from .models.employee_accounts import EmployeeAccounts
+from .models.ctc_breakup import CTCBreakup
 
 
 Accounts = Blueprint('Accounts', __name__)
+
+
+def _accounts_can_access_any_profile(admin):
+    t = (getattr(admin, "emp_type", None) or "").strip().lower()
+    return t in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+
+
+def _is_hr(admin):
+    """
+    HR-only access helper for employee-accounts-profile.
+    Notes:
+    - Uses Admin.emp_type values (case-insensitive).
+    - Treats only HR/Human Resource as HR.
+    """
+    t = (getattr(admin, "emp_type", None) or "").strip().lower()
+    return t in ("hr", "human resource", "human resources")
+
+
+def _find_admin_by_employee_number(emp_raw):
+    if emp_raw is None:
+        return None
+    s = str(emp_raw).strip()
+    if not s:
+        return None
+    return Admin.query.filter(func.lower(func.trim(Admin.emp_id)) == s.lower()).first()
+
+
+def _parse_doj(val):
+    if val is None or val == "":
+        return None
+    if isinstance(val, date):
+        return val
+    s = str(val).strip()
+    if not s:
+        return None
+    return datetime.strptime(s.split("T")[0], "%Y-%m-%d").date()
+
+
+def _parse_amount(val):
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    return float(s)
+
+
+def _round2(x):
+    try:
+        return round(float(x or 0), 2)
+    except Exception:
+        return 0.0
+
+
+_CTC_RULES = {
+    "hra": {"min_pct": 5.0, "max_pct": 50.0},
+    "epf": {"mandatory_pct": 12.0, "basic_threshold": 15000.0, "min_amount_if_above_threshold": 1800.0},
+    "ptax": {
+        "male": {"slab_7500_10000": 175.0, "slab_above_10000": 200.0, "feb_surcharge": 300.0},
+        "female": {"slab_25000_or_more": 200.0},
+    },
+    "esic": {
+        "gross_threshold": 21001.0,
+        "employee_pct": 3.25,
+        "employer_pct": 0.75,
+    },
+}
+
+
+def _ctc_calculate(*, basic_salary, other_allowance, hra_pct, epf_mode, epf_pct, month, gender):
+    """
+    Implements rules exactly as discussed:
+    - HRA: between 5% and 50% of (basic + DA)
+    - EPF: if basic < 15000 => 12% mandatory; else choose min 1800 OR percentage
+    - PTAX: depends on gender, basic slabs and Feb special
+    - ESIC: if gross < 21001 => employee 3.25% and employer 0.75%; else 0
+    - Gross = basic + hra_amount + other_allowance
+    - Net = Gross - (EPF + PTAX + ESIC_employee)
+    """
+    basic = float(basic_salary or 0)
+    other = float(other_allowance or 0)
+
+    # Month parsing: expects "YYYY-MM" (preferred) but tolerates "February"/etc.
+    month_num = None
+    if month:
+        s = str(month).strip()
+        if len(s) >= 7 and s[4] == "-" and s[:4].isdigit() and s[5:7].isdigit():
+            try:
+                month_num = int(s[5:7])
+            except Exception:
+                month_num = None
+        if month_num is None:
+            name = s.lower()
+            month_map = {
+                "january": 1, "february": 2, "march": 3, "april": 4,
+                "may": 5, "june": 6, "july": 7, "august": 8,
+                "september": 9, "october": 10, "november": 11, "december": 12,
+            }
+            month_num = month_map.get(name)
+
+    # HRA
+    hra_pct_val = None if hra_pct is None or str(hra_pct).strip() == "" else float(hra_pct)
+    if hra_pct_val is None:
+        hra_pct_val = _CTC_RULES["hra"]["min_pct"]
+    if hra_pct_val < _CTC_RULES["hra"]["min_pct"] or hra_pct_val > _CTC_RULES["hra"]["max_pct"]:
+        raise ValueError(f"HRA percentage must be between {_CTC_RULES['hra']['min_pct']} and {_CTC_RULES['hra']['max_pct']}")
+    hra_amount = basic * (hra_pct_val / 100.0)
+
+    gross = basic + hra_amount + other
+
+    # EPF
+    epf_amount = 0.0
+    if basic < _CTC_RULES["epf"]["basic_threshold"]:
+        epf_amount = basic * (_CTC_RULES["epf"]["mandatory_pct"] / 100.0)
+        epf_mode_effective = "mandatory_12pct"
+        epf_pct_effective = _CTC_RULES["epf"]["mandatory_pct"]
+    else:
+        mode = (epf_mode or "min").strip().lower()
+        if mode not in ("min", "percent", "percentage"):
+            mode = "min"
+        if mode in ("percent", "percentage"):
+            pct = None if epf_pct is None or str(epf_pct).strip() == "" else float(epf_pct)
+            if pct is None or pct <= 0:
+                raise ValueError("EPF percentage is required when EPF mode is percentage")
+            epf_amount = basic * (pct / 100.0)
+            epf_mode_effective = "percent"
+            epf_pct_effective = pct
+        else:
+            epf_amount = float(_CTC_RULES["epf"]["min_amount_if_above_threshold"])
+            epf_mode_effective = "min"
+            epf_pct_effective = None
+
+    # PTAX
+    g = (gender or "").strip().lower()
+    is_male = g.startswith("m")
+    is_female = g.startswith("f")
+    ptax_amount = 0.0
+    if is_male:
+        if basic >= 7500 and basic <= 10000:
+            ptax_amount = _CTC_RULES["ptax"]["male"]["slab_7500_10000"]
+        elif basic > 10000:
+            ptax_amount = _CTC_RULES["ptax"]["male"]["slab_above_10000"]
+            if month_num == 2:
+                ptax_amount = _CTC_RULES["ptax"]["male"]["feb_surcharge"]
+    elif is_female:
+        if basic >= 25000:
+            ptax_amount = _CTC_RULES["ptax"]["female"]["slab_25000_or_more"]
+        else:
+            ptax_amount = 0.0
+
+    # ESIC
+    esic_employee_amount = 0.0
+    esic_employer_amount = 0.0
+    if gross < _CTC_RULES["esic"]["gross_threshold"]:
+        esic_employee_amount = gross * (_CTC_RULES["esic"]["employee_pct"] / 100.0)
+        esic_employer_amount = gross * (_CTC_RULES["esic"]["employer_pct"] / 100.0)
+
+    deductions = epf_amount + ptax_amount + esic_employee_amount
+    net = gross - deductions
+
+    return {
+        "inputs": {
+            "basic_salary": _round2(basic),
+            "hra_pct": _round2(hra_pct_val),
+            "other_allowance": _round2(other),
+            "epf_mode": epf_mode_effective,
+            "epf_pct": _round2(epf_pct_effective) if epf_pct_effective is not None else None,
+            "month": month,
+            "gender": gender,
+        },
+        "computed": {
+            "hra_amount": _round2(hra_amount),
+            "epf_amount": _round2(epf_amount),
+            "ptax_amount": _round2(ptax_amount),
+            "esic_employee_amount": _round2(esic_employee_amount),
+            "esic_employer_amount": _round2(esic_employer_amount),
+            "gross_salary": _round2(gross),
+            "net_salary": _round2(net),
+            "deductions_total": _round2(deductions),
+        },
+        "rules": _CTC_RULES,
+    }
+
+
+_EMP_ACC_STRING_FIELDS = (
+    "function",
+    "designation",
+    "location",
+    "bank_details",
+    "tax_regime",
+    "pan",
+    "uan",
+    "pf_account_number",
+    "esi_number",
+    "pran",
+)
 
 
 def _get_uploads_root():
@@ -536,6 +733,209 @@ def payslip_history(admin_id):
     }), 200
 
 
+@Accounts.route("/ctc-breakup/<int:admin_id>", methods=["GET"])
+@jwt_required()
+def get_ctc_breakup(admin_id):
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized user"
+        }), 401
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You can only view your own CTC breakup"
+        }), 403
+
+    target_admin = Admin.query.get(admin_id)
+    if not target_admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
+
+    row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    return jsonify({
+        "success": True,
+        "ctc_breakup": row.to_dict() if row else None
+    }), 200
+
+
+@Accounts.route("/ctc-breakup/calculate", methods=["POST"])
+@jwt_required()
+def calculate_ctc_breakup():
+    """
+    Calculates CTC breakup using current govt rules and employee gender.
+    Expects JSON:
+    {
+      "admin_id": 123,
+      "basic_salary": 50000,
+      "hra_pct": 5,
+      "other_allowance": 0,
+      "epf_mode": "min" | "percent",
+      "epf_pct": 8,
+      "month": "2026-02"
+    }
+    """
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({"success": False, "message": "You can only calculate your own CTC breakup"}), 403
+
+    target_admin = Admin.query.get(admin_id)
+    if not target_admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    emp = Employee.query.filter_by(admin_id=admin_id).first()
+    gender = getattr(emp, "gender", None) if emp else None
+
+    try:
+        result = _ctc_calculate(
+            basic_salary=_parse_amount(data.get("basic_salary")) or 0,
+            other_allowance=_parse_amount(data.get("other_allowance")) or 0,
+            hra_pct=data.get("hra_pct"),
+            epf_mode=data.get("epf_mode"),
+            epf_pct=data.get("epf_pct"),
+            month=data.get("month"),
+            gender=gender,
+        )
+        return jsonify({"success": True, "data": result}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+
+@Accounts.route("/ctc-breakup", methods=["PUT"])
+@jwt_required()
+def upsert_ctc_breakup():
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized user"
+        }), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return jsonify({
+            "success": False,
+            "message": "admin_id is required"
+        }), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({
+            "success": False,
+            "message": "Invalid admin_id"
+        }), 400
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_edit_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_edit_any and admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You can only update your own CTC breakup"
+        }), 403
+
+    target_admin = Admin.query.get(admin_id)
+    if not target_admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
+
+    row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    if not row:
+        row = CTCBreakup(admin_id=admin_id)
+        db.session.add(row)
+
+    try:
+        # Partial update: only fields present in payload are updated.
+        if "basic_salary" in data:
+            row.basic_salary = _parse_amount(data.get("basic_salary"))
+        if "hra" in data:
+            row.hra = _parse_amount(data.get("hra"))
+        if "other_allowance" in data:
+            row.other_allowance = _parse_amount(data.get("other_allowance"))
+        if "gross_salary" in data:
+            row.gross_salary = _parse_amount(data.get("gross_salary"))
+        if "net_salary" in data:
+            row.net_salary = _parse_amount(data.get("net_salary"))
+        if "epf" in data:
+            row.epf = _parse_amount(data.get("epf"))
+        if "esic" in data:
+            row.esic = _parse_amount(data.get("esic"))
+        if "ptax" in data:
+            row.ptax = _parse_amount(data.get("ptax"))
+        row.updated_at = datetime.now()
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        }), 500
+
+    return jsonify({
+        "success": True,
+        "message": "CTC breakup saved",
+        "ctc_breakup": row.to_dict()
+    }), 200
+
+
+@Accounts.route("/ctc-breakup/history/<int:admin_id>", methods=["GET"])
+@jwt_required()
+def ctc_breakup_history(admin_id):
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized user"
+        }), 401
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You can only view your own CTC breakup history"
+        }), 403
+
+    target_admin = Admin.query.get(admin_id)
+    if not target_admin:
+        return jsonify({
+            "success": False,
+            "message": "Employee not found"
+        }), 404
+
+    rows = CTCBreakup.query.filter_by(admin_id=admin_id).order_by(CTCBreakup.updated_at.desc(), CTCBreakup.id.desc()).all()
+    return jsonify({
+        "success": True,
+        "history": [r.to_dict() for r in rows]
+    }), 200
+
+
 @Accounts.route("/payslip/<int:payslip_id>", methods=["DELETE"])
 @jwt_required()
 def delete_payslip(payslip_id):
@@ -636,9 +1036,19 @@ def serve_uploaded_file(relative_path):
                 except Exception:
                     continue
 
+    # Profile docs and other static uploads live under Flask static/uploads/
+    # Example: upload_profile_file stores "profile/<filename>" under static/uploads/profile/.
+    static_uploads_root = os.path.join(current_app.static_folder, "uploads")
+    static_full_path = os.path.join(static_uploads_root, normalized)
+    if os.path.isfile(static_full_path):
+        try:
+            return send_from_directory(static_uploads_root, normalized, as_attachment=False)
+        except Exception:
+            pass
+
     return jsonify({
         "success": False,
-        "message": "File not found on server. Payslip file may be missing at uploads path."
+        "message": "File not found on server."
     }), 404
 
 
@@ -845,4 +1255,198 @@ def payroll_summary():
             "payslips_generated": payslips_generated,
             "ytd_expenses": float(ytd_expenses or 0)
         }
+    }), 200
+
+
+@Accounts.route("/employee-accounts-profile", methods=["GET"])
+@jwt_required()
+def get_employee_accounts_profile():
+    """
+    Load Accounts payroll/statutory profile for one employee.
+    Query: admin_id (int) OR employee_number (matches admins.emp_id).
+    If omitted, returns the logged-in user's profile.
+    """
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    admin_id_param = request.args.get("admin_id", type=int)
+    employee_number = (request.args.get("employee_number") or "").strip()
+
+    target_admin = None
+    if _is_hr(viewer):
+        if admin_id_param:
+            target_admin = Admin.query.get(admin_id_param)
+        elif employee_number:
+            target_admin = _find_admin_by_employee_number(employee_number)
+        else:
+            target_admin = viewer
+    else:
+        target_admin = viewer
+        if admin_id_param and admin_id_param != viewer.id:
+            return jsonify({"success": False, "message": "You can only view your own profile"}), 403
+        if employee_number:
+            resolved = _find_admin_by_employee_number(employee_number)
+            if not resolved or resolved.id != viewer.id:
+                return jsonify({"success": False, "message": "Invalid employee number for your account"}), 403
+
+    if not target_admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    row = EmployeeAccounts.query.filter_by(admin_id=target_admin.id).first()
+    employee_details = Employee.query.filter_by(admin_id=target_admin.id).first()
+
+    # Auto-fill defaults from authoritative tables.
+    # Rule: use EmployeeAccounts value if it's set, otherwise fallback to:
+    # - function -> Admin.emp_type
+    # - date_of_joining -> Admin.doj
+    # - designation -> Employee.designation
+    base = row.to_dict() if row else {}
+
+    def _str_or_none(x):
+        if x is None:
+            return None
+        s = str(x).strip()
+        return s or None
+
+    def _date_iso(d):
+        if d is None:
+            return None
+        return d.isoformat() if hasattr(d, "isoformat") else None
+
+    auto_function = _str_or_none(getattr(target_admin, "emp_type", None))
+    auto_designation = _str_or_none(getattr(employee_details, "designation", None)) if employee_details else None
+    auto_doj = _date_iso(getattr(target_admin, "doj", None))
+
+    profile = {
+        "id": base.get("id"),
+        "admin_id": base.get("admin_id"),
+        "employee_number": base.get("employee_number") or getattr(target_admin, "emp_id", None),
+        "function": _str_or_none(base.get("function")) or auto_function,
+        "designation": _str_or_none(base.get("designation")) or auto_designation,
+        "location": base.get("location"),
+        "bank_details": base.get("bank_details"),
+        "date_of_joining": base.get("date_of_joining") or auto_doj,
+        "tax_regime": base.get("tax_regime"),
+        "pan": base.get("pan"),
+        "uan": base.get("uan"),
+        "pf_account_number": base.get("pf_account_number"),
+        "esi_number": base.get("esi_number"),
+        "pran": base.get("pran"),
+        "created_at": base.get("created_at"),
+        "updated_at": base.get("updated_at"),
+    }
+
+    return jsonify({
+        "success": True,
+        "admin": {
+            "id": target_admin.id,
+            "emp_id": target_admin.emp_id,
+            "first_name": target_admin.first_name,
+            "email": target_admin.email,
+            "doj": target_admin.doj.isoformat() if target_admin.doj else None,
+        },
+        "profile": profile,
+    }), 200
+
+
+@Accounts.route("/employee-accounts-profile", methods=["PUT"])
+@jwt_required()
+def put_employee_accounts_profile():
+    """
+    Partial save. If body contains employee_number, it must match an existing Admin.emp_id;
+    then admin_id is set and all other provided fields are merged.
+    Staff (Accounts/HR/Admin) may pass admin_id to edit a specific employee without sending employee_number again.
+    """
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    # Only HR can update accounts profiles.
+    if not _is_hr(viewer):
+        return jsonify({"success": False, "message": "HR access required"}), 403
+
+    data = request.get_json(silent=True) or {}
+    admin_id_body = data.get("admin_id")
+    try:
+        admin_id_body = int(admin_id_body) if admin_id_body is not None and str(admin_id_body).strip() else None
+    except (TypeError, ValueError):
+        admin_id_body = None
+
+    employee_number_in = data.get("employee_number")
+    if employee_number_in is not None:
+        employee_number_in = str(employee_number_in).strip() or None
+
+    target_admin = None
+    if _accounts_can_access_any_profile(viewer):
+        if admin_id_body:
+            target_admin = Admin.query.get(admin_id_body)
+        elif employee_number_in:
+            target_admin = _find_admin_by_employee_number(employee_number_in)
+        else:
+            target_admin = viewer
+    else:
+        target_admin = viewer
+        if admin_id_body and admin_id_body != viewer.id:
+            return jsonify({"success": False, "message": "You can only update your own profile"}), 403
+        if employee_number_in:
+            resolved = _find_admin_by_employee_number(employee_number_in)
+            if not resolved or resolved.id != viewer.id:
+                return jsonify({
+                    "success": False,
+                    "message": "Employee number does not match your account",
+                }), 400
+
+    if not target_admin:
+        if employee_number_in:
+            return jsonify({
+                "success": False,
+                "message": "Employee number does not match any employee (check Admin emp_id)",
+            }), 400
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    if employee_number_in:
+        resolved = _find_admin_by_employee_number(employee_number_in)
+        if not resolved or resolved.id != target_admin.id:
+            return jsonify({
+                "success": False,
+                "message": "Employee number does not match this employee's emp_id",
+            }), 400
+
+    row = EmployeeAccounts.query.filter_by(admin_id=target_admin.id).first()
+    if not row:
+        row = EmployeeAccounts(
+            admin_id=target_admin.id,
+            employee_number=(employee_number_in or (target_admin.emp_id or "")).strip() or None,
+        )
+        db.session.add(row)
+    else:
+        if employee_number_in:
+            row.employee_number = employee_number_in
+        elif not row.employee_number and target_admin.emp_id:
+            row.employee_number = (target_admin.emp_id or "").strip() or None
+
+    for key in _EMP_ACC_STRING_FIELDS:
+        if key not in data:
+            continue
+        val = data.get(key)
+        setattr(row, key, (str(val).strip() if val is not None and str(val).strip() else None))
+
+    if "date_of_joining" in data:
+        row.date_of_joining = _parse_doj(data.get("date_of_joining"))
+
+    row.updated_at = datetime.utcnow()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("employee_accounts save")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+    return jsonify({
+        "success": True,
+        "message": "Profile saved",
+        "profile": row.to_dict(),
     }), 200

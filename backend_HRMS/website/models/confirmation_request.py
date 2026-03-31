@@ -20,8 +20,8 @@ class ConfirmationRequest(db.Model):
     # 🆕 Review/comment field
     review_comment = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     # Optional: readable representation (for debugging/logs)
     def __repr__(self):
@@ -39,8 +39,8 @@ class HRConfirmationRequest(db.Model):
     manager_decision = db.Column(db.String(50))  # Approved / Rejected
     manager_review = db.Column(db.Text)
     status = db.Column(db.String(50), default='Pending')  # HR's action
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     # Relationships
     employee = db.relationship("Signup", backref="hr_confirmation_requests", lazy=True)
