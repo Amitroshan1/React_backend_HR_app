@@ -978,17 +978,26 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                 worksheet.write(row, base_col,     text, legend_holiday_fmt)
                 worksheet.write(row, base_col + 1, "",   legend_holiday_fmt)
             elif leaves_for_day:
-                # Decide coloring and text based on leave status
+                # Decide coloring and text based on leave status, and include leave type(s)
                 statuses = { (la.status or "").lower() for la in leaves_for_day }
+
+                # Collect leave types for the day (e.g. "Privilege Leave", "Casual Leave")
+                leave_types = {
+                    (getattr(la, "leave_type", "") or "").strip()
+                    for la in leaves_for_day
+                    if getattr(la, "leave_type", None)
+                }
+                type_label = ", ".join(sorted(t for t in leave_types if t)) or "Leave"
+
                 has_pending_only = "pending" in statuses and not any(
                     s in statuses for s in ("approved", "approved by manager", "approved by hr")
                 )
 
                 if has_pending_only:
-                    cell_text = "Leave not approved"
+                    cell_text = f"Leave not approved ({type_label})"
                     fmt = legend_leave_pending_fmt
                 else:
-                    cell_text = "Leave"
+                    cell_text = f"Leave ({type_label})"
                     fmt = legend_leave_fmt
 
                 worksheet.write(row, base_col,     cell_text, fmt)
