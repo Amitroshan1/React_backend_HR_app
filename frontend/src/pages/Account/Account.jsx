@@ -67,6 +67,20 @@ export const Account = ()  => {
   const [bulkPayslipFiles, setBulkPayslipFiles] = useState([]);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [bulkUploadResult, setBulkUploadResult] = useState(null);
+
+  const [bulkPayrollMonth, setBulkPayrollMonth] = useState(() => {
+    const now = new Date();
+    return now.toLocaleString('en-US', { month: 'long' });
+  });
+  const [bulkPayrollYear, setBulkPayrollYear] = useState(String(new Date().getFullYear()));
+  const [isBulkPayrollGenerating, setIsBulkPayrollGenerating] = useState(false);
+  const [bulkPayrollResult, setBulkPayrollResult] = useState(null); // used for Save result messages
+  const [bulkPayrollError, setBulkPayrollError] = useState('');
+  const [payrollRows, setPayrollRows] = useState([]);
+  const [isPayrollSaving, setIsPayrollSaving] = useState(false);
+  const [payrollHistoryRows, setPayrollHistoryRows] = useState([]);
+  const [payrollHistoryLoading, setPayrollHistoryLoading] = useState(false);
+  const [payrollHistoryError, setPayrollHistoryError] = useState('');
   const [bulkForm16Year, setBulkForm16Year] = useState(`${new Date().getFullYear()}-${new Date().getFullYear() + 1}`);
   const [bulkForm16Files, setBulkForm16Files] = useState([]);
   const [isBulkForm16Uploading, setIsBulkForm16Uploading] = useState(false);
@@ -981,6 +995,252 @@ export const Account = ()  => {
     setCurrentView('bulkForm16');
   };
 
+  const handleOpenBulkPayroll = () => {
+    const now = new Date();
+    const monthName = now.toLocaleString('en-US', { month: 'long' });
+    setPreviousView(currentView);
+    setBulkPayrollMonth(monthName);
+    setBulkPayrollYear(String(now.getFullYear()));
+    setBulkPayrollResult(null);
+    setBulkPayrollError('');
+    setPayrollRows([]);
+    setCurrentView('bulkPayroll');
+  };
+
+  const handleGeneratePayrollForFiltered = async ({ clearMessages = true } = {}) => {
+    if (clearMessages) {
+      setBulkPayrollError('');
+      setBulkPayrollResult(null);
+    }
+
+    if (!bulkPayrollMonth || !bulkPayrollYear.trim()) {
+      setBulkPayrollError('Please select month and year.');
+      return;
+    }
+
+    if (!Array.isArray(employeesList) || employeesList.length === 0) {
+      setBulkPayrollError('No employees found in the current filtered list.');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setBulkPayrollError('Please login again.');
+      return;
+    }
+
+    try {
+      setIsBulkPayrollGenerating(true);
+      // Fetch/create payroll rows without overwriting saved deductions.
+      const payload = {
+        admin_ids: employeesList.map((emp) => emp.adminId),
+        month: bulkPayrollMonth,
+        year: bulkPayrollYear.trim(),
+      };
+
+      const res = await fetch(`${API_BASE_URL}/payroll/list`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || 'Payroll list fetch failed');
+      }
+
+      const payrollByAdminId = new Map(
+        (result.payrolls || []).map((p) => [p.admin_id, p])
+      );
+
+      const calcNet = (gross, epf, ptax, esic) => {
+        const g = Number(gross || 0);
+        const e = Number(epf || 0);
+        const t = Number(ptax || 0);
+        const s = Number(esic || 0);
+        return g - e - t - s;
+      };
+
+      const mapped = (employeesList || []).map((emp) => {
+        const p = payrollByAdminId.get(emp.adminId) || {};
+        return {
+          adminId: emp.adminId,
+          empId: emp.id,
+          name: emp.name,
+          one_day_salary: Number(p.one_day_salary || 0),
+          gross_salary_for_month: Number(p.gross_salary_for_month || 0),
+          actual_working_days: Number(p.actual_working_days || 0),
+          epf_final: Number(p.epf_final || 0),
+          ptax_final: Number(p.ptax_final || 0),
+          esic_final: Number(p.esic_final || 0),
+          net_salary_final: Number(p.net_salary_final || calcNet(
+            p.gross_salary_for_month,
+            p.epf_final,
+            p.ptax_final,
+            p.esic_final
+          )),
+        };
+      });
+
+      setPayrollRows(mapped);
+    } catch (e) {
+      setBulkPayrollError(e?.message || 'Bulk payroll generation failed');
+    } finally {
+      setIsBulkPayrollGenerating(false);
+    }
+  };
+
+  const handleSavePayrollDeductions = async () => {
+    setBulkPayrollError('');
+    setBulkPayrollResult(null);
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setBulkPayrollError('Please login again.');
+      return;
+    }
+    if (!Array.isArray(payrollRows) || payrollRows.length === 0) {
+      setBulkPayrollError('No payroll rows to save.');
+      return;
+    }
+
+    try {
+      setIsPayrollSaving(true);
+      const failures = [];
+
+      for (const row of payrollRows) {
+        try {
+          const payload = {
+            admin_id: row.adminId,
+            month: bulkPayrollMonth,
+            year: bulkPayrollYear.trim(),
+            epf_final: Number(row.epf_final || 0),
+            ptax_final: Number(row.ptax_final || 0),
+            esic_final: Number(row.esic_final || 0),
+            actual_working_days: Number(row.actual_working_days || 0),
+          };
+
+          const res = await fetch(`${API_BASE_URL}/payroll/deductions-update`, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+          const result = await res.json();
+          if (!res.ok || !result.success) {
+            failures.push({
+              admin_id: row.adminId,
+              name: row.name,
+              reason: result.message || 'Save deductions failed',
+            });
+          }
+        } catch (e) {
+          failures.push({
+            admin_id: row.adminId,
+            name: row.name,
+            reason: e?.message || 'Save deductions exception',
+          });
+        }
+      }
+
+      if (failures.length > 0) {
+        setBulkPayrollResult({
+          month: bulkPayrollMonth,
+          year: bulkPayrollYear.trim(),
+          saved_count: payrollRows.length - failures.length,
+          failed_count: failures.length,
+          failed_rows: failures,
+        });
+        setBulkPayrollError('Some employees failed to save deductions. See details below.');
+      } else {
+        setBulkPayrollResult({
+          month: bulkPayrollMonth,
+          year: bulkPayrollYear.trim(),
+          saved_count: payrollRows.length,
+          failed_count: 0,
+        });
+      }
+
+      // Refresh rows to ensure DB-calculated net salary is reflected.
+      await handleGeneratePayrollForFiltered({ clearMessages: false });
+    } finally {
+      setIsPayrollSaving(false);
+    }
+  };
+
+  const handleOpenPayrollHistory = async () => {
+    setPreviousView(currentView);
+    setPayrollHistoryRows([]);
+    setPayrollHistoryError('');
+    setCurrentView('payrollHistory');
+  };
+
+  const loadPayrollHistory = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setPayrollHistoryError('Please login again.');
+      return;
+    }
+    if (!bulkPayrollMonth || !bulkPayrollYear.trim()) {
+      setPayrollHistoryError('Please select month and year.');
+      return;
+    }
+
+    try {
+      setPayrollHistoryLoading(true);
+      setPayrollHistoryError('');
+
+      const payload = {
+        month: bulkPayrollMonth,
+        year: bulkPayrollYear.trim(),
+        circle: selectedCircle || '',
+        emp_type: selectedDept || '',
+      };
+
+      const res = await fetch(`${API_BASE_URL}/payroll/history`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load payroll history');
+      }
+
+      setPayrollHistoryRows(result.history || []);
+    } catch (e) {
+      setPayrollHistoryRows([]);
+      setPayrollHistoryError(e?.message || 'Unable to load payroll history');
+    } finally {
+      setPayrollHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentView !== 'bulkPayroll') return;
+
+    // On refresh, employeesList resets. Reload filtered employees first, then fetch payroll.
+    if (selectedDept && selectedCircle && (!Array.isArray(employeesList) || employeesList.length === 0)) {
+      handleCircleSelect(selectedDept, selectedCircle, false);
+      return;
+    }
+
+    // Auto-fetch payroll as soon as list is available or month/year changes.
+    if (Array.isArray(employeesList) && employeesList.length > 0) {
+      handleGeneratePayrollForFiltered();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, bulkPayrollMonth, bulkPayrollYear, selectedDept, selectedCircle, employeesList.length]);
+
   const handleBulkForm16Upload = async () => {
     if (!bulkForm16Year.trim()) {
       alert('Please enter financial year.');
@@ -1290,6 +1550,9 @@ export const Account = ()  => {
            </button>
            <button className="btn-primary" onClick={handleOpenBulkForm16}>
              <Upload size={16}/> Bulk Form 16
+           </button>
+           <button className="btn-secondary" onClick={handleOpenBulkPayroll} disabled={isBulkPayrollGenerating}>
+             <Calculator size={16}/> Payroll
            </button>
         </div>
       </div>
@@ -1940,6 +2203,302 @@ export const Account = ()  => {
     </div>
   );
 
+  const renderBulkPayroll = () => (
+    <div className="form16-page-stack fade-in">
+      <button
+        type="button"
+        className="btn-back"
+        onClick={() => setCurrentView(previousView || 'employees')}
+      >
+        <ArrowLeft size={18} /> Back
+      </button>
+
+      {bulkPayrollError && <div className="q-error" style={{ marginTop: 12 }}>{bulkPayrollError}</div>}
+      {isBulkPayrollGenerating && (
+        <p style={{ marginTop: 14, color: '#64748b' }}>Loading payroll data...</p>
+      )}
+
+      <div className="table-container-card">
+        <div className="table-responsive">
+          <table className="results-table">
+            <thead className="thead-teal">
+              <tr>
+                <th colSpan={8} style={{ background: '#06b6d4', color: 'white' }}>
+                  Employee | Circle: {selectedCircle || '-'} | Month:{' '}
+                  <select
+                    className="custom-select"
+                    style={{ width: 160, margin: '0 10px' }}
+                    value={bulkPayrollMonth}
+                    onChange={(e) => setBulkPayrollMonth(e.target.value)}
+                  >
+                    <option>January</option><option>February</option><option>March</option><option>April</option>
+                    <option>May</option><option>June</option><option>July</option><option>August</option>
+                    <option>September</option><option>October</option><option>November</option><option>December</option>
+                  </select>
+                  Year:{' '}
+                  <input
+                    type="text"
+                    className="custom-input-file"
+                    style={{ width: 110, marginLeft: 10 }}
+                    placeholder="e.g. 2026"
+                    value={bulkPayrollYear}
+                    onChange={(e) => setBulkPayrollYear(e.target.value)}
+                  />
+
+                  <button
+                    type="button"
+                    className="btn-outline-sm"
+                    style={{ float: 'right', marginTop: -4 }}
+                    onClick={handleOpenPayrollHistory}
+                  >
+                    History
+                  </button>
+                </th>
+              </tr>
+              <tr>
+                <th>Name</th>
+                <th>EmpID</th>
+                <th>Gross Salary</th>
+                <th>EPF</th>
+                <th>P.Tax</th>
+                <th>ESIC</th>
+                <th>Actual Working Days</th>
+                <th>Net Salary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payrollRows.length === 0 && !isBulkPayrollGenerating && (
+                <tr>
+                  <td colSpan="8" className="empty" style={{ padding: 18, color: '#64748b' }}>
+                    No employees in this filtered list for the selected month/year.
+                  </td>
+                </tr>
+              )}
+              {payrollRows.map((row) => {
+                const gross = Number(row.one_day_salary || 0) * Number(row.actual_working_days || 0);
+                const net = Number(gross || 0)
+                  - Number(row.epf_final || 0)
+                  - Number(row.ptax_final || 0)
+                  - Number(row.esic_final || 0);
+                return (
+                  <tr key={row.adminId}>
+                    <td className="font-bold">{row.name}</td>
+                    <td>{row.empId}</td>
+                    <td>{Number(gross || 0).toFixed(2)}</td>
+                    <td>
+                      <input
+                        className="custom-input-file"
+                        style={{ width: 110 }}
+                        type="number"
+                        step="0.01"
+                        value={row.epf_final}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          setPayrollRows((prev) =>
+                            prev.map((r) =>
+                              r.adminId === row.adminId
+                                ? { ...r, epf_final: val }
+                                : r
+                            )
+                          );
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="custom-input-file"
+                        style={{ width: 110 }}
+                        type="number"
+                        step="0.01"
+                        value={row.ptax_final}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          setPayrollRows((prev) =>
+                            prev.map((r) =>
+                              r.adminId === row.adminId
+                                ? { ...r, ptax_final: val }
+                                : r
+                            )
+                          );
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="custom-input-file"
+                        style={{ width: 110 }}
+                        type="number"
+                        step="0.01"
+                        value={row.esic_final}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          setPayrollRows((prev) =>
+                            prev.map((r) =>
+                              r.adminId === row.adminId
+                                ? { ...r, esic_final: val }
+                                : r
+                            )
+                          );
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="custom-input-file"
+                        style={{ width: 110 }}
+                        type="number"
+                        step="0.1"
+                        value={row.actual_working_days}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          setPayrollRows((prev) =>
+                            prev.map((r) =>
+                              r.adminId === row.adminId
+                                ? { ...r, actual_working_days: val }
+                                : r
+                            )
+                          );
+                        }}
+                      />
+                    </td>
+                    <td>{net.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="form-actions-row" style={{ marginTop: 18 }}>
+          <button
+            type="button"
+            className="btn-primary full-width"
+            onClick={handleSavePayrollDeductions}
+            disabled={isPayrollSaving || payrollRows.length === 0}
+          >
+            {isPayrollSaving ? 'Saving...' : 'Save Deductions'}
+          </button>
+        </div>
+
+        {bulkPayrollResult && (
+          <div style={{ marginTop: 12 }}>
+            {Number(bulkPayrollResult.failed_count || 0) === 0 ? (
+              <div className="q-success">
+                <strong>Success:</strong> {bulkPayrollResult.saved_count || 0} &nbsp;|&nbsp;
+                <strong>Failed:</strong> {bulkPayrollResult.failed_count || 0}
+              </div>
+            ) : (
+              <div className="q-error">
+                <strong>Success:</strong> {bulkPayrollResult.saved_count || 0} &nbsp;|&nbsp;
+                <strong>Failed:</strong> {bulkPayrollResult.failed_count || 0}
+              </div>
+            )}
+          </div>
+        )}
+
+        {bulkPayrollResult && bulkPayrollResult.failed_rows?.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <h5 style={{ margin: '0 0 8px 0' }}>Failed to save for</h5>
+            <div className="table-responsive">
+              <table className="results-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkPayrollResult.failed_rows.map((item, idx) => (
+                    <tr key={`${item.admin_id}-${idx}`}>
+                      <td>{item.name || item.admin_id}</td>
+                      <td>{item.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  useEffect(() => {
+    if (currentView === 'payrollHistory') {
+      loadPayrollHistory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, bulkPayrollMonth, bulkPayrollYear, selectedCircle, selectedDept]);
+
+  const renderPayrollHistory = () => (
+    <div className="fade-in">
+      <button className="btn-back" onClick={() => setCurrentView(previousView || 'bulkPayroll')}>
+        <ArrowLeft size={18} /> Back
+      </button>
+
+      <div className="table-container-card">
+        <div className="card-header-row">
+          <h3 className="section-title">
+            Payroll History | Circle: {selectedCircle || '-'} | Department: {selectedDept || '-'} | Month: {bulkPayrollMonth} | Year: {bulkPayrollYear} | Created At:{' '}
+            {payrollHistoryRows.length > 0
+              ? (() => {
+                  const latest = payrollHistoryRows
+                    .map((r) => r.created_at)
+                    .filter(Boolean)
+                    .sort()
+                    .slice(-1)[0];
+                  return latest
+                    ? new Date(latest).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+                    : '-';
+                })()
+              : '-'}
+          </h3>
+        </div>
+
+        {payrollHistoryError && <div className="q-error">{payrollHistoryError}</div>}
+        {payrollHistoryLoading && <p style={{ color: '#64748b' }}>Loading...</p>}
+
+        <div className="table-responsive">
+          <table className="results-table">
+            <thead className="thead-teal">
+              <tr>
+                <th>Name</th>
+                <th>EmpID</th>
+                <th>Gross Salary</th>
+                <th>EPF</th>
+                <th>P.Tax</th>
+                <th>ESIC</th>
+                <th>Actual Working Days</th>
+                <th>Net Salary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!payrollHistoryLoading && payrollHistoryRows.length === 0 && (
+                <tr>
+                  <td colSpan="8" style={{ padding: 18, color: '#64748b' }}>
+                    No payroll history found for this month/year.
+                  </td>
+                </tr>
+              )}
+              {payrollHistoryRows.map((r) => (
+                <tr key={r.admin_id}>
+                  <td className="font-bold">{r.name}</td>
+                  <td>{r.emp_id}</td>
+                  <td>{Number(r.gross_salary_for_month || 0).toFixed(2)}</td>
+                  <td>{Number(r.epf_final || 0).toFixed(2)}</td>
+                  <td>{Number(r.ptax_final || 0).toFixed(2)}</td>
+                  <td>{Number(r.esic_final || 0).toFixed(2)}</td>
+                  <td>{Number(r.actual_working_days || 0).toFixed(1)}</td>
+                  <td>{Number(r.net_salary_final || 0).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="hr-main-container">
       {currentView === 'main' && renderMainView()}
@@ -1947,6 +2506,8 @@ export const Account = ()  => {
       {currentView === 'addPayslip' && renderAddPayslip()}
       {currentView === 'bulkPayslip' && renderBulkPayslip()}
       {currentView === 'bulkForm16' && renderBulkForm16()}
+      {currentView === 'bulkPayroll' && renderBulkPayroll()}
+      {currentView === 'payrollHistory' && renderPayrollHistory()}
       {currentView === 'addForm16' && renderAddForm16()}
       {currentView === 'ctcBreakup' && renderCtcBreakup()}
       {currentView === 'viewPayslip' && (

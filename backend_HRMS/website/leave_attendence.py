@@ -28,6 +28,108 @@ logger = logging.getLogger(__name__)
 NOTICE_PERIOD_DAYS = 90
 
 
+def _is_weekend_non_working_for_emp(emp_type: str, d: date) -> bool:
+    wd = d.weekday()  # Mon=0 ... Sun=6
+    if wd == 6:
+        return True
+    if wd == 5:
+        return (emp_type or "").strip() not in ["Human Resource", "Accounts"]
+    return False
+
+
+def _load_holiday_sets(year: int, start_date: date, end_date: date):
+    rows = HolidayCalendar.query.filter(
+        HolidayCalendar.year == year,
+        HolidayCalendar.is_active.is_(True),
+        HolidayCalendar.holiday_date.between(start_date, end_date),
+    ).all()
+    mandatory = {h.holiday_date for h in rows if not getattr(h, "is_optional", False)}
+    optional = {h.holiday_date for h in rows if getattr(h, "is_optional", False)}
+    return mandatory, optional
+
+
+def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_date: date) -> float:
+    """
+    Sandwich leave policy:
+    - Count all calendar WORKING days within the range as leave days.
+    - Non-working days (weekends + holidays) are counted ONLY if they are sandwiched
+      between two counted working leave days within the same request range.
+    """
+    if end_date < start_date:
+        return 0.0
+
+    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date)
+
+    def _is_non_working(d: date) -> bool:
+        # Treat both mandatory and optional holidays as non-working for sandwich computation
+        if d in mandatory_holidays or d in optional_holidays:
+            return True
+        return _is_weekend_non_working_for_emp(emp_type, d)
+
+    all_days = []
+    cur = start_date
+    while cur <= end_date:
+        all_days.append(cur)
+        cur += timedelta(days=1)
+
+    working_days = [d for d in all_days if not _is_non_working(d)]
+    if not working_days:
+        return 0.0
+
+    counted = set(working_days)
+
+    # Sandwich: count non-working days that are strictly between working leave days
+    for d in all_days:
+        if d in counted:
+            continue
+        if not _is_non_working(d):
+            continue
+        before = any(w < d for w in working_days)
+        after = any(w > d for w in working_days)
+        if before and after:
+            counted.add(d)
+
+    return float(len(counted))
+
+
+def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_date: date):
+    """
+    Return (working_days, sandwich_days).
+    - working_days: days that are calendar working days for this emp_type (holidays + weekends excluded)
+    - sandwich_days: non-working days inside the range that are between working_days
+    """
+    if end_date < start_date:
+        return 0.0, 0.0
+
+    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date)
+
+    def _is_non_working(d: date) -> bool:
+        if d in mandatory_holidays or d in optional_holidays:
+            return True
+        return _is_weekend_non_working_for_emp(emp_type, d)
+
+    all_days = []
+    cur = start_date
+    while cur <= end_date:
+        all_days.append(cur)
+        cur += timedelta(days=1)
+
+    working_days = [d for d in all_days if not _is_non_working(d)]
+    if not working_days:
+        return 0.0, 0.0
+
+    sandwich_days = 0
+    for d in all_days:
+        if not _is_non_working(d):
+            continue
+        before = any(w < d for w in working_days)
+        after = any(w > d for w in working_days)
+        if before and after:
+            sandwich_days += 1
+
+    return float(len(working_days)), float(sandwich_days)
+
+
 def _is_active_resignation_status(status):
     return (status or "").strip().lower() in {"pending", "approved"}
 
@@ -492,9 +594,22 @@ def apply_leave_api():
     # NOTE: We ONLY adjust LeaveBalance when manager APPROVES.
     # Here we just compute how many days should be deducted vs. treated as LOP.
     # -------------------------
-    leave_days = (end_date - start_date).days + 1
+    emp_type = getattr(admin, "emp_type", None) or ""
+
+    # Sandwich leave policy (all leave types):
+    # - working days count against requested leave type
+    # - sandwich days (non-working) are deducted from PL if available, else treated as LWP (extra_days)
+    # Half Day Leave overrides this to 0.5 below.
+    working_days, sandwich_days = _compute_working_and_sandwich_days(
+        emp_type=emp_type,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    leave_days = float(working_days) + float(sandwich_days)
     deducted_days = 0.0
     extra_days = 0.0
+    requested_deducted_days = 0.0
+    sandwich_pl_days = 0.0
 
     # Privilege Leave
     if leave_type == "Privilege Leave":
@@ -505,27 +620,31 @@ def apply_leave_api():
             deducted_days = available
         else:
             deducted_days = leave_days
+        requested_deducted_days = float(deducted_days)
+        sandwich_pl_days = 0.0
 
     # Casual Leave
     elif leave_type == "Casual Leave":
-        if leave_days > 2:
+        # Max 2 CL working days; sandwich days handled separately from PL/LWP.
+        if working_days > 2:
             return jsonify({
                 "success": False,
                 "message": "Casual Leave cannot exceed 2 days"
             }), 400
 
         available = float(leave_balance.casual_leave_balance or 0.0)
-        if leave_days > available:
+        if working_days > available:
             return jsonify({
                 "success": False,
                 "message": "Insufficient Casual Leave balance"
             }), 400
 
-        deducted_days = leave_days
+        requested_deducted_days = float(working_days)
+        deducted_days = requested_deducted_days
 
     # Half Day Leave
     elif leave_type == "Half Day Leave":
-        if leave_days > 1:
+        if (end_date - start_date).days + 1 > 1:
             return jsonify({
                 "success": False,
                 "message": "Half Day Leave can only be applied for one day"
@@ -534,6 +653,8 @@ def apply_leave_api():
         # Always a single half day
         leave_days = 0.5
         deducted_days = 0.5
+        requested_deducted_days = 0.5
+        sandwich_days = 0.0
 
         cl_available = float(leave_balance.casual_leave_balance or 0.0)
         pl_available = float(leave_balance.privilege_leave_balance or 0.0)
@@ -552,7 +673,8 @@ def apply_leave_api():
                 "message": "No Compensatory Leave balance available"
             }), 400
 
-        if leave_days > 2:
+        # Max 2 CompOff working days; sandwich days handled separately from PL/LWP.
+        if working_days > 2:
             return jsonify({
                 "success": False,
                 "message": "Maximum 2 Compensatory Leave days allowed"
@@ -564,7 +686,8 @@ def apply_leave_api():
                 "message": "Insufficient Compensatory Leave balance"
             }), 400
 
-        deducted_days = leave_days
+        requested_deducted_days = float(working_days)
+        deducted_days = requested_deducted_days
 
     # Optional Leave (Optional Holiday) - doesn't deduct from any leave balance
     elif leave_type == "Optional Leave":
@@ -580,12 +703,23 @@ def apply_leave_api():
         # Set deducted_days to 1 (or leave_days) for tracking / display purposes
         deducted_days = float(leave_days)
         extra_days = 0.0
+        requested_deducted_days = float(leave_days)
+        sandwich_days = 0.0
 
     else:
         return jsonify({
             "success": False,
             "message": "Invalid leave type"
         }), 400
+
+    # Deduct sandwich days from PL (Leave With Pay) if available; remainder becomes LWP (extra_days).
+    if sandwich_days > 0 and leave_type not in ("Privilege Leave", "Optional Leave"):
+        pl_available = float(leave_balance.privilege_leave_balance or 0.0)
+        pl_used_for_sandwich = min(pl_available, float(sandwich_days))
+        sandwich_pl_days = float(pl_used_for_sandwich)
+        sandwich_lwp = float(sandwich_days) - float(pl_used_for_sandwich)
+        deducted_days = float(deducted_days) + sandwich_pl_days
+        extra_days = float(extra_days) + sandwich_lwp
 
     # -------------------------
     # Save leave application
@@ -598,7 +732,9 @@ def apply_leave_api():
         end_date=end_date,
         status="Pending",
         deducted_days=deducted_days,
-        extra_days=extra_days
+        extra_days=extra_days,
+        requested_deducted_days=requested_deducted_days,
+        sandwich_pl_days=sandwich_pl_days,
     )
 
     try:

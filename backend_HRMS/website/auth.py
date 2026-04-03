@@ -20,6 +20,7 @@ from .models.emp_detail_models import Employee
 from .models.attendance import Punch, Location, LeaveBalance, LeaveApplication
 from .compoff_utils import get_effective_comp_balance
 from .models.news_feed import NewsFeed, PaySlip
+from .models.monthly_payroll import MonthlyPayroll
 from .models.query import Query
 from .models.education import Education, UploadDoc
 from .models.prev_com import PreviousCompany
@@ -300,6 +301,27 @@ def _employee_homepage_impl():
             "file_path": last_payslip.file_path,
         }
 
+    payroll_rows = (
+        MonthlyPayroll.query
+        .filter_by(admin_id=admin.id)
+        .order_by(MonthlyPayroll.year.desc(), MonthlyPayroll.month_num.desc(), MonthlyPayroll.id.desc())
+        .limit(12)
+        .all()
+    )
+    my_payroll_history = []
+    for row in payroll_rows:
+        my_payroll_history.append({
+            "id": row.id,
+            "month": row.month,
+            "month_num": row.month_num,
+            "year": row.year,
+            "actual_working_days": float(row.actual_working_days or 0),
+            "gross_salary_for_month": float(row.gross_salary_for_month or 0),
+            "deductions_total_final": float(row.deductions_total_final or 0),
+            "net_salary_final": float(row.net_salary_final or 0),
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        })
+
     # ------------------------
     # 7. JOINING INFO (DOJ + years of service)
     # ------------------------
@@ -377,6 +399,7 @@ def _employee_homepage_impl():
         "managers": managers,
         "last_leave": last_leave_data,
         "last_payslip": last_payslip_data,
+        "my_payroll_history": my_payroll_history,
     }), 200
 
 

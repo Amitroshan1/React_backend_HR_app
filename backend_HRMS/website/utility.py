@@ -625,6 +625,265 @@ def calculate_attendance_Accounts(admin_id, emp_type, year, month):
     return expected_working_days, absent_days
 
 
+def calculate_sundays_in_span(year: int, month: int) -> int:
+    """
+    Count Sundays (weekday==6) within the same span your Excel generator uses:
+      - If (year, month) is the current month, count Sundays up to today's date.
+      - Otherwise count Sundays for the full month.
+    """
+    month_start = date(year, month, 1)
+    month_end = date(year, month, calendar.monthrange(year, month)[1])
+
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    end_date = today if (year == today.year and month == today.month) else month_end
+
+    sundays_in_span = 0
+    for i in range((end_date - month_start).days + 1):
+        d = month_start + timedelta(days=i)
+        if d.weekday() == 6:
+            sundays_in_span += 1
+    return sundays_in_span
+
+
+def calculate_weekend_continuous_absence_penalty(admin_id: int, emp_type: str, year: int, month: int) -> int:
+    """
+    Sandwich / continuous-block rule (Fri–Sat–Sun–Mon):
+    If employee is "blocked" on all 4 days (approved leave OR no punch/WFH),
+    then weekend should NOT be credited as present.
+
+    Penalty logic:
+      - Always remove the Sunday credit (penalty +1) for that Sunday.
+      - If Saturday is normally NON-working for this emp_type, also apply an extra penalty (+1)
+        so Saturday+Sunday both get treated as absent for that block.
+
+    Notes:
+      - Uses the same month span behavior as calculate_attendance_Accounts:
+        current month is capped to today's date (IST).
+      - "Blocked" here means: NOT a full-day punch and NOT approved WFH. Approved leave makes a day blocked.
+        Half-day leave is treated as blocked for this rule.
+    """
+    start_date = date(year, month, 1)
+    month_end = date(year, month, calendar.monthrange(year, month)[1])
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    end_date = today if (year == today.year and month == today.month) else month_end
+
+    if end_date < start_date:
+        return 0
+
+    # Holidays (needed for Optional Leave tracking)
+    holiday_rows = HolidayCalendar.query.filter(
+        HolidayCalendar.year == year,
+        HolidayCalendar.is_active.is_(True),
+        HolidayCalendar.holiday_date.between(start_date, end_date),
+    ).all()
+    optional_holidays = {h.holiday_date for h in holiday_rows if getattr(h, "is_optional", False)}
+
+    # Punches (full-day only for "presence")
+    FULL_DAY_WORK_SECONDS = 8 * 3600
+
+    def _punch_work_seconds(p):
+        if getattr(p, "today_work", None) and str(p.today_work).strip():
+            s = str(p.today_work).strip()
+            parts = s.split(":")
+            try:
+                h = int(parts[0]) if len(parts) > 0 else 0
+                m = int(parts[1]) if len(parts) > 1 else 0
+                sec = int(parts[2]) if len(parts) > 2 else 0
+                return h * 3600 + m * 60 + sec
+            except (ValueError, IndexError):
+                pass
+        if p.punch_in and p.punch_out:
+            delta = p.punch_out - p.punch_in
+            return max(0, int(delta.total_seconds()))
+        return 0
+
+    punches = Punch.query.filter(
+        Punch.admin_id == admin_id,
+        Punch.punch_date.between(start_date, end_date),
+    ).all()
+    worked_full_dates = set()
+    for p in punches:
+        if not p.punch_in or not p.punch_out:
+            continue
+        secs = _punch_work_seconds(p)
+        if secs >= FULL_DAY_WORK_SECONDS:
+            worked_full_dates.add(p.punch_date)
+
+    # WFH (approved)
+    wfh_apps = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin_id,
+        WorkFromHomeApplication.status == "Approved",
+        WorkFromHomeApplication.start_date <= end_date,
+        WorkFromHomeApplication.end_date >= start_date,
+    ).all()
+    wfh_dates = set()
+    for wfh in wfh_apps:
+        d = max(wfh.start_date, start_date)
+        d_end = min(wfh.end_date, end_date)
+        while d <= d_end:
+            wfh_dates.add(d)
+            d += timedelta(days=1)
+
+    # Leaves (approved) – capture full-day coverage and optional leave taken on optional holidays.
+    leaves = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin_id,
+        LeaveApplication.status == "Approved",
+        LeaveApplication.start_date <= end_date,
+        LeaveApplication.end_date >= start_date,
+    ).all()
+
+    leave_full_dates = set()
+    optional_leave_taken = set()
+    for leave in leaves:
+        d_start = max(leave.start_date, start_date)
+        d_end = min(leave.end_date, end_date)
+
+        if leave.leave_type == "Optional Leave":
+            d = d_start
+            while d <= d_end:
+                if d in optional_holidays:
+                    optional_leave_taken.add(d)
+                d += timedelta(days=1)
+            continue
+
+        if leave.leave_type == "Half Day Leave":
+            # Half day is NOT treated as "presence" for this continuous-absence rule.
+            continue
+
+        # Other leave types cover each day fully.
+        d = d_start
+        while d <= d_end:
+            leave_full_dates.add(d)
+            d += timedelta(days=1)
+
+    def _is_blocked(d: date) -> bool:
+        # Full-day punch or WFH breaks the block.
+        if d in worked_full_dates or d in wfh_dates:
+            return False
+        # Any approved leave (including Optional Leave on optional holidays) counts as blocked.
+        if d in leave_full_dates or d in optional_leave_taken:
+            return True
+        # No punch/WFH/leave => blocked (continuous absence)
+        return True
+
+    # Saturday is considered "working" only for HR/Accounts (same as calculate_attendance_Accounts)
+    emp_type_clean = (emp_type or "").strip()
+    saturday_is_working = emp_type_clean in ["Human Resource", "Accounts"]
+
+    penalty = 0
+    current = start_date
+    while current <= end_date:
+        if current.weekday() != 6:  # only Sundays
+            current += timedelta(days=1)
+            continue
+
+        sun = current
+        fri = sun - timedelta(days=2)
+        sat = sun - timedelta(days=1)
+        mon = sun + timedelta(days=1)
+
+        # Need all four days within span
+        if fri < start_date or mon > end_date:
+            current += timedelta(days=1)
+            continue
+
+        if _is_blocked(fri) and _is_blocked(sat) and _is_blocked(sun) and _is_blocked(mon):
+            # Remove Sunday credit
+            penalty += 1
+            # If Saturday is normally off, also count Saturday as absent in this continuous block
+            if not saturday_is_working:
+                penalty += 1
+
+        current += timedelta(days=1)
+
+    return penalty
+
+
+def calculate_actual_working_days_Accounts(admin_id: int, emp_type: str, year: int, month_num: int) -> float:
+    """
+    Actual working days (Accounts Excel style) with continuous weekend-absence penalty.
+    """
+    working_days_expected, absent_days = calculate_attendance_Accounts(
+        admin_id=admin_id,
+        emp_type=emp_type,
+        year=year,
+        month=month_num,
+    )
+    sundays_in_span = calculate_sundays_in_span(year=year, month=month_num)
+    penalty = calculate_weekend_continuous_absence_penalty(
+        admin_id=admin_id,
+        emp_type=emp_type,
+        year=year,
+        month=month_num,
+    )
+    return float(working_days_expected) - float(absent_days) + float(sundays_in_span) - float(penalty)
+
+
+def calculate_actual_working_days_for_payroll(admin_id: int, year: int, month_num: int) -> float:
+    """
+    Excel-style "actual working days":
+      actual = working_days_expected - absent_days + sundays_in_span
+    where:
+      - working_days_expected and absent_days come from calculate_attendance_Accounts()
+      - sundays_in_span is added like your Accounts Excel generator does.
+    """
+    admin = Admin.query.get(admin_id)
+    emp_type = (admin.emp_type or "").strip() if admin else ""
+
+    return calculate_actual_working_days_Accounts(
+        admin_id=admin_id,
+        emp_type=emp_type,
+        year=year,
+        month_num=month_num,
+    )
+
+
+def calculate_monthly_payroll_from_ctc_and_attendance(*, admin_id: int, year: int, month_num: int):
+    """
+    Compute monthly payroll gross and CTC-based deductions (computed values).
+    Deductions totals and final net are meant to be finalized/overridden by Accounts.
+    """
+    # Local import to avoid circular imports
+    from .models.ctc_breakup import CTCBreakup
+
+    admin = Admin.query.get(admin_id)
+    emp_type = (admin.emp_type or "").strip() if admin else ""
+
+    ctc = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    ctc_gross_salary = float(ctc.gross_salary or 0.0) if ctc else 0.0
+    epf_amount = float(ctc.epf or 0.0) if ctc else 0.0
+    esic_amount = float(ctc.esic or 0.0) if ctc else 0.0
+    ptax_amount = float(ctc.ptax or 0.0) if ctc else 0.0
+
+    calendar_days = calendar.monthrange(year, month_num)[1]
+    one_day_salary = (ctc_gross_salary / float(calendar_days)) if calendar_days > 0 else 0.0
+
+    # Step: gross = one_day_salary * actual_working_days
+    actual_working_days = calculate_actual_working_days_for_payroll(
+        admin_id=admin_id,
+        year=year,
+        month_num=month_num,
+    )
+    gross_salary_for_month = one_day_salary * float(actual_working_days)
+
+    return {
+        "admin_id": admin_id,
+        "year": str(year),
+        "month_num": int(month_num),
+        "month": calendar.month_name[int(month_num)],
+        "ctc_gross_salary": ctc_gross_salary,
+        "calendar_days": int(calendar_days),
+        "one_day_salary": one_day_salary,
+        "actual_working_days": actual_working_days,
+        "gross_salary_for_month": gross_salary_for_month,
+        "epf_computed": epf_amount,
+        "esic_computed": esic_amount,
+        "ptax_computed": ptax_amount,
+        "deductions_total_computed": epf_amount + esic_amount + ptax_amount,
+        "net_salary_computed": gross_salary_for_month - (epf_amount + esic_amount + ptax_amount),
+    }
+
+
 
 def get_leave_balance_Accounts(admin):
     balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
@@ -716,14 +975,6 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     end_date = today if (year == today.year and month == today.month) else month_end
 
-    # Sundays in period (office closed = present; add to actual, do not reduce absent)
-    sundays_in_span = 0
-    if end_date >= month_start:
-        for i in range((end_date - month_start).days + 1):
-            d = month_start + timedelta(days=i)
-            if d.weekday() == 6:
-                sundays_in_span += 1
-
     # -------- DATA --------
     row += 1
     for idx, admin in enumerate(admins, start=1):
@@ -731,9 +982,9 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
         # Employee name (Admin model; no Signup)
         emp_name = admin.first_name or "N/A"
 
-        # Attendance totals (Accounts HRMS logic): absent is Mon-Sat only; actual = present on weekdays + Sundays
+        # Attendance totals (Accounts HRMS logic) + continuous weekend-absence penalty
         working_days_expected, absent_days = calculate_attendance_Accounts(admin.id, emp_type, year, month)
-        actual_working_days = working_days_expected - absent_days + sundays_in_span
+        actual_working_days = calculate_actual_working_days_Accounts(admin.id, emp_type, year, month)
 
         # Total days in month
         total_days = calendar.monthrange(year, month)[1]

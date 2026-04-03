@@ -63,6 +63,18 @@ def _ensure_leave_balance(admin_id):
     return leave_balance, True
 
 
+def _try_credit_pl_bonus(admin_id, leave_balance, run_date, event_suffix, summary):
+    event_key = f"PL_BONUS_{run_date.year}_{event_suffix}"
+    if _event_exists(admin_id, event_key):
+        summary["events_skipped_existing"] += 1
+        return
+    leave_balance.privilege_leave_balance = float(
+        leave_balance.privilege_leave_balance or 0.0
+    ) + PL_CREDIT_VALUE
+    _mark_event(admin_id, event_key, run_date)
+    summary["pl_credits"] += 1
+
+
 def _run_leave_accrual_for_date(run_date):
     summary = {
         "run_date": run_date.isoformat(),
@@ -77,10 +89,11 @@ def _run_leave_accrual_for_date(run_date):
 
     should_reset_year = run_date.month == 1 and run_date.day == 1
     should_credit_20th = run_date.day == 20
-    should_credit_pl_20th = should_credit_20th and 1 <= run_date.month <= 11
-    should_credit_cl_20th = should_credit_20th and 1 <= run_date.month <= 8
-    should_credit_pl_extra_july = run_date.month == 7 and run_date.day == 1
-    should_credit_pl_dec_1 = run_date.month == 12 and run_date.day == 1
+    # CL: 1 on the 20th for Jan–Jun only (6 per year); PL monthly uses same day for all 12 months
+    should_credit_cl_20th = should_credit_20th and 1 <= run_date.month <= 6
+    should_credit_pl_bonus_apr = run_date.month == 4 and run_date.day == 15
+    should_credit_pl_bonus_aug = run_date.month == 8 and run_date.day == 15
+    should_credit_pl_bonus_dec = run_date.month == 12 and run_date.day == 15
 
     admins = (
         Admin.query.filter(
@@ -116,29 +129,14 @@ def _run_leave_accrual_for_date(run_date):
                 _mark_event(admin.id, event_key, run_date)
                 summary["year_resets"] += 1
 
-        if should_credit_pl_extra_july:
-            event_key = f"PL_EXTRA_{run_date.year}_07_01"
-            if _event_exists(admin.id, event_key):
-                summary["events_skipped_existing"] += 1
-            else:
-                leave_balance.privilege_leave_balance = float(
-                    leave_balance.privilege_leave_balance or 0.0
-                ) + PL_CREDIT_VALUE
-                _mark_event(admin.id, event_key, run_date)
-                summary["pl_credits"] += 1
+        if should_credit_pl_bonus_apr:
+            _try_credit_pl_bonus(admin.id, leave_balance, run_date, "04_15", summary)
+        if should_credit_pl_bonus_aug:
+            _try_credit_pl_bonus(admin.id, leave_balance, run_date, "08_15", summary)
+        if should_credit_pl_bonus_dec:
+            _try_credit_pl_bonus(admin.id, leave_balance, run_date, "12_15", summary)
 
-        if should_credit_pl_dec_1:
-            event_key = f"PL_DEC_{run_date.year}_12_01"
-            if _event_exists(admin.id, event_key):
-                summary["events_skipped_existing"] += 1
-            else:
-                leave_balance.privilege_leave_balance = float(
-                    leave_balance.privilege_leave_balance or 0.0
-                ) + PL_CREDIT_VALUE
-                _mark_event(admin.id, event_key, run_date)
-                summary["pl_credits"] += 1
-
-        if should_credit_pl_20th:
+        if should_credit_20th:
             event_key = f"PL_{run_date.year}_{run_date.month:02d}_20"
             if _event_exists(admin.id, event_key):
                 summary["events_skipped_existing"] += 1

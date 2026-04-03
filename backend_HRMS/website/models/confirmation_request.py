@@ -24,7 +24,7 @@ class ConfirmationRequest(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     # Optional: readable representation (for debugging/logs)
-    def __repr__(self):
+    def __repr__(self): 
         return f"<ConfirmationRequest employee_id={self.employee_id} status={self.status}>"
 
 

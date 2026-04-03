@@ -143,6 +143,7 @@ def create_app():
     from .models.probation import ProbationReview
     from .models.employee_accounts import EmployeeAccounts
     from .models.ctc_breakup import CTCBreakup
+    from .models.monthly_payroll import MonthlyPayroll
 
     # ---------------------------
     # Flask-Login user loader

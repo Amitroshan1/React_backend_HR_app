@@ -4,7 +4,7 @@
 
 
 
-from flask import Blueprint, request, current_app, jsonify,json, send_from_directory
+from flask import Blueprint, request, current_app, jsonify,json, send_from_directory, send_file
 from flask_jwt_extended import jwt_required, get_jwt
 from .email import send_email_via_zeptomail,send_welcome_email,send_payslip_uploaded_email,send_form16_uploaded_email
 from .models.Admin_models import Admin
@@ -12,7 +12,14 @@ from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
 from .email import asset_email,update_asset_email
-from .utility import generate_attendance_excel_Accounts, generate_client_attendance_excel, send_excel_file, calculate_month_summary
+from .utility import (
+    generate_attendance_excel_Accounts,
+    generate_client_attendance_excel,
+    send_excel_file,
+    calculate_month_summary,
+    calculate_monthly_payroll_from_ctc_and_attendance,
+    calculate_actual_working_days_Accounts,
+)
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
@@ -21,12 +28,17 @@ from .models.attendance import Punch, LeaveApplication,LeaveBalance
 from .models.news_feed import NewsFeed, PaySlip, Form16
 from werkzeug.security import generate_password_hash
 import os
+from io import BytesIO
 from . import db
 from werkzeug.utils import secure_filename
 from sqlalchemy import func, or_
 from .models.expense import ExpenseLineItem
 from .models.employee_accounts import EmployeeAccounts
 from .models.ctc_breakup import CTCBreakup
+from .models.monthly_payroll import MonthlyPayroll
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfgen import canvas
 
 
 Accounts = Blueprint('Accounts', __name__)
@@ -82,6 +94,164 @@ def _round2(x):
         return round(float(x or 0), 2)
     except Exception:
         return 0.0
+
+
+def _fmt_money(v):
+    try:
+        return f"{float(v or 0.0):,.2f}"
+    except Exception:
+        return "0.00"
+
+
+def _fit_text_pdf(text, font_name, font_size, max_w):
+    """Truncate text so it fits within max_w points (ReportLab stringWidth)."""
+    s = str(text if text is not None else "-").strip() or "-"
+    if stringWidth(s, font_name, font_size) <= max_w:
+        return s
+    ell = "..."
+    while s and stringWidth(s + ell, font_name, font_size) > max_w:
+        s = s[:-1]
+    return (s + ell) if s else ell
+
+
+def _wrap_lines_pdf(text, font_name, font_size, max_w):
+    """Word-wrap into lines that each fit within max_w (no truncation)."""
+    words = str(text or "").split()
+    if not words:
+        return [""]
+    lines = []
+    cur = words[0]
+    if stringWidth(cur, font_name, font_size) > max_w:
+        return [_fit_text_pdf(cur, font_name, font_size, max_w)]
+    for w in words[1:]:
+        if stringWidth(w, font_name, font_size) > max_w:
+            lines.append(cur)
+            cur = _fit_text_pdf(w, font_name, font_size, max_w)
+            continue
+        test = f"{cur} {w}"
+        if stringWidth(test, font_name, font_size) <= max_w:
+            cur = test
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
+_ONES = (
+    "Zero",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+)
+_TENS = (
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
+)
+
+
+def _words_under_100(n):
+    n = int(n)
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        t = _TENS[n // 10]
+        u = n % 10
+        return f"{t} {_ONES[u]}".strip() if u else t
+    return ""
+
+
+def _words_under_1000(n):
+    n = int(n)
+    if n <= 0:
+        return ""
+    if n < 100:
+        return _words_under_100(n)
+    if n < 1000:
+        h = n // 100
+        r = n % 100
+        base = f"{_ONES[h]} Hundred"
+        if r:
+            return f"{base} {_words_under_100(r)}"
+        return base
+    # 1000–99999 (e.g. large crore counts): split as N Thousand + remainder
+    if n < 100000:
+        th = n // 1000
+        rem = n % 1000
+        s = f"{_words_under_1000(th)} Thousand"
+        if rem:
+            s = f"{s} {_words_under_1000(rem)}"
+        return s
+    return str(n)
+
+
+def _rupees_in_words(amount):
+    """Indian numbering (lakhs/crores) for payslip footer."""
+    n = int(round(float(amount or 0)))
+    if n == 0:
+        return "Zero"
+    if n < 0:
+        return f"Minus {_rupees_in_words(-n)}"
+    parts = []
+    crores = n // 10000000
+    n %= 10000000
+    lakhs = n // 100000
+    n %= 100000
+    thousands = n // 1000
+    remainder = n % 1000
+    if crores:
+        parts.append(f"{_words_under_1000(crores)} Crore")
+    if lakhs:
+        parts.append(f"{_words_under_1000(lakhs)} Lakh")
+    if thousands:
+        parts.append(f"{_words_under_1000(thousands)} Thousand")
+    if remainder:
+        parts.append(_words_under_1000(remainder))
+    return " ".join(parts)
+
+
+def _prorate_earnings_to_gross(basic, hra, other, target_gross):
+    """Scale CTC components so they sum to monthly gross (payroll)."""
+    b = float(basic or 0.0)
+    h = float(hra or 0.0)
+    o = float(other or 0.0)
+    s = b + h + o
+    tg = float(target_gross or 0.0)
+    if tg <= 0:
+        return 0.0, 0.0, 0.0
+    if s <= 0:
+        return round(tg / 3.0, 2), round(tg / 3.0, 2), round(tg / 3.0, 2)
+    r = tg / s
+    b2 = round(b * r, 2)
+    h2 = round(h * r, 2)
+    o2 = round(o * r, 2)
+    diff = round(tg - (b2 + h2 + o2), 2)
+    o2 = round(o2 + diff, 2)
+    return b2, h2, o2
 
 
 _CTC_RULES = {
@@ -315,7 +485,12 @@ def employees_by_type_and_circle():
         employee_details = Employee.query.filter_by(admin_id=emp.id).first()
         upload_doc = UploadDoc.query.filter_by(admin_id=emp.id).first()
         latest_form16 = Form16.query.filter_by(admin_id=emp.id).order_by(Form16.id.desc()).first()
-        month_stats = calculate_month_summary(emp.id, selected_year, selected_month)
+        working_days = calculate_actual_working_days_Accounts(
+            admin_id=emp.id,
+            emp_type=emp_type,
+            year=selected_year,
+            month_num=selected_month,
+        )
 
         data.append({
             "id": emp.id,
@@ -323,7 +498,7 @@ def employees_by_type_and_circle():
             "first_name": employee_details.name if employee_details and employee_details.name else emp.first_name,
             "email": employee_details.email if employee_details and employee_details.email else emp.email,
             "mobile": emp.mobile,
-            "working_days": month_stats.get("working_days_final", 0),
+            "working_days": round(float(working_days or 0.0), 1),
             "bank_details_available": bool(upload_doc and upload_doc.passbook_front),
             "bank_details_path": upload_doc.passbook_front if upload_doc else None,
             "documents": upload_doc.to_dict() if upload_doc else {},
@@ -1256,6 +1431,682 @@ def payroll_summary():
             "ytd_expenses": float(ytd_expenses or 0)
         }
     }), 200
+
+
+def _parse_month_to_num(month_val):
+    """
+    Accepts:
+      - "January" / "jan"
+      - numeric month string/int like "1" / 1
+    Returns 1..12 or raises ValueError.
+    """
+    if month_val is None:
+        raise ValueError("month is required")
+
+    if isinstance(month_val, int):
+        m = month_val
+    else:
+        s = str(month_val).strip()
+        if not s:
+            raise ValueError("month is required")
+        if s.isdigit():
+            m = int(s)
+        else:
+            # Match calendar.month_name (1..12)
+            lower = s.lower()
+            month_lookup = {calendar.month_name[i].lower(): i for i in range(1, 13)}
+            if lower not in month_lookup:
+                # Also allow common abbreviations (jan, feb, ...)
+                abbr_lookup = {calendar.month_name[i][:3].lower(): i for i in range(1, 13)}
+                m = abbr_lookup.get(lower)
+            else:
+                m = month_lookup[lower]
+
+    if m < 1 or m > 12:
+        raise ValueError("Invalid month")
+    return m
+
+
+@Accounts.route("/payroll/generate", methods=["POST"])
+@jwt_required()
+def payroll_generate():
+    """
+    Create or recalculate payroll-by-month row using:
+      - CTC breakup gross_salary prorated by calendar days (gross 1-day salary)
+      - actual working days (Excel-style attendance logic)
+      - deductions initially fetched from CTC breakup
+
+    Expected JSON:
+      {
+        "admin_id": 123,
+        "month": "January",     # or 1..12
+        "year": "2026"
+      }
+    """
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    month_val = data.get("month")
+    year_val = data.get("year")
+
+    try:
+        admin_id = int(admin_id)
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e) or "Invalid input"}), 400
+
+    if not _accounts_can_access_any_profile(viewer) and admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    # Calculate computed payroll amounts
+    result = calculate_monthly_payroll_from_ctc_and_attendance(
+        admin_id=admin_id,
+        year=year_int,
+        month_num=month_num,
+    )
+
+    month_name = calendar.month_name[month_num]
+    year_str = str(year_int)
+
+    row = MonthlyPayroll.query.filter_by(
+        admin_id=admin_id,
+        month_num=month_num,
+        year=year_str,
+    ).first()
+
+    # Upsert
+    if not row:
+        row = MonthlyPayroll(
+            admin_id=admin_id,
+            month=month_name,
+            month_num=month_num,
+            year=year_str,
+        )
+        db.session.add(row)
+
+    # Earnings
+    row.ctc_gross_salary = result["ctc_gross_salary"]
+    row.calendar_days = result["calendar_days"]
+    row.one_day_salary = result["one_day_salary"]
+    row.actual_working_days = result["actual_working_days"]
+    row.gross_salary_for_month = result["gross_salary_for_month"]
+
+    # Deductions - computed fetched from CTC
+    row.epf_computed = result["epf_computed"]
+    row.esic_computed = result["esic_computed"]
+    row.ptax_computed = result["ptax_computed"]
+
+    # Defaults: finals start same as computed (Accounts can override later)
+    row.epf_final = result["epf_computed"]
+    row.esic_final = result["esic_computed"]
+    row.ptax_final = result["ptax_computed"]
+
+    deductions_total_final = float(row.epf_final or 0.0) + float(row.esic_final or 0.0) + float(row.ptax_final or 0.0)
+    row.deductions_total_final = deductions_total_final
+    row.net_salary_final = float(row.gross_salary_for_month or 0.0) - deductions_total_final
+
+    db.session.commit()
+    return jsonify({"success": True, "payroll": row.to_dict()}), 200
+
+
+@Accounts.route("/payroll/deductions-update", methods=["PUT"])
+@jwt_required()
+def payroll_deductions_update():
+    """
+    Accounts can override the final deductions before saving.
+
+    Expected JSON:
+      {
+        "admin_id": 123,
+        "month": "January",
+        "year": "2026",
+        "epf_final": 0,
+        "esic_final": 0,
+        "ptax_final": 0,
+        "actual_working_days": 22.5
+      }
+    """
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    month_val = data.get("month")
+    year_val = data.get("year")
+
+    if admin_id is None or month_val is None or year_val is None:
+        return jsonify({"success": False, "message": "admin_id, month, year are required"}), 400
+
+    try:
+        admin_id = int(admin_id)
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e) or "Invalid input"}), 400
+
+    if not _accounts_can_access_any_profile(viewer) and admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    row = MonthlyPayroll.query.filter_by(
+        admin_id=admin_id,
+        month_num=month_num,
+        year=str(year_int),
+    ).first()
+    if not row:
+        return jsonify({"success": False, "message": "Payroll row not found. Generate it first."}), 404
+
+    # Optional overrides; if omitted, keep existing values
+    if "epf_final" in data:
+        row.epf_final = float(data.get("epf_final") or 0.0)
+    if "esic_final" in data:
+        row.esic_final = float(data.get("esic_final") or 0.0)
+    if "ptax_final" in data:
+        row.ptax_final = float(data.get("ptax_final") or 0.0)
+    if "actual_working_days" in data:
+        awd = float(data.get("actual_working_days") or 0.0)
+        row.actual_working_days = max(0.0, awd)
+        # Recompute gross based on stored one_day_salary.
+        one_day = float(row.one_day_salary or 0.0)
+        row.gross_salary_for_month = one_day * float(row.actual_working_days or 0.0)
+
+    deductions_total_final = float(row.epf_final or 0.0) + float(row.esic_final or 0.0) + float(row.ptax_final or 0.0)
+    row.deductions_total_final = deductions_total_final
+    row.net_salary_final = float(row.gross_salary_for_month or 0.0) - deductions_total_final
+
+    db.session.commit()
+    return jsonify({"success": True, "payroll": row.to_dict()}), 200
+
+
+@Accounts.route("/payroll/list", methods=["POST"])
+@jwt_required()
+def payroll_list():
+    """
+    Fetch payroll rows for given admin_ids + month + year.
+    If a row doesn't exist yet, create it with computed deductions (initial finals),
+    but if it exists, do NOT overwrite existing final deductions.
+
+    Expected JSON:
+      {
+        "admin_ids": [1,2,3],
+        "month": "January",
+        "year": "2026"
+      }
+    """
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_ids = data.get("admin_ids") or []
+    month_val = data.get("month")
+    year_val = data.get("year")
+
+    if not isinstance(admin_ids, list) or not admin_ids:
+        return jsonify({"success": False, "message": "admin_ids list is required"}), 400
+    if month_val is None or year_val is None:
+        return jsonify({"success": False, "message": "month and year are required"}), 400
+
+    try:
+        admin_ids = [int(x) for x in admin_ids]
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid admin_ids/month/year"}), 400
+
+    if not _accounts_can_access_any_profile(viewer):
+        # Non-Accounts users can only fetch their own payroll row.
+        if not (len(admin_ids) == 1 and admin_ids[0] == viewer.id):
+            return jsonify({"success": False, "message": "Access denied"}), 403
+
+    month_name = calendar.month_name[month_num]
+    year_str = str(year_int)
+
+    payrolls = []
+    rows_to_create = []
+
+    # Fetch existing rows
+    existing_rows = MonthlyPayroll.query.filter(
+        MonthlyPayroll.admin_id.in_(admin_ids),
+        MonthlyPayroll.month_num == month_num,
+        MonthlyPayroll.year == year_str,
+    ).all()
+    existing_by_admin = {r.admin_id: r for r in existing_rows}
+
+    # Create missing rows using computed values
+    for admin_id in admin_ids:
+        row = existing_by_admin.get(admin_id)
+        if row:
+            payrolls.append(row)
+            continue
+
+        computed = calculate_monthly_payroll_from_ctc_and_attendance(
+            admin_id=admin_id,
+            year=year_int,
+            month_num=month_num,
+        )
+        new_row = MonthlyPayroll(
+            admin_id=admin_id,
+            month=month_name,
+            month_num=month_num,
+            year=year_str,
+        )
+        new_row.ctc_gross_salary = computed["ctc_gross_salary"]
+        new_row.calendar_days = computed["calendar_days"]
+        new_row.one_day_salary = computed["one_day_salary"]
+        new_row.actual_working_days = computed["actual_working_days"]
+        new_row.gross_salary_for_month = computed["gross_salary_for_month"]
+
+        new_row.epf_computed = computed["epf_computed"]
+        new_row.esic_computed = computed["esic_computed"]
+        new_row.ptax_computed = computed["ptax_computed"]
+
+        # Initial finals = computed; Accounts can later override via deductions-update
+        new_row.epf_final = computed["epf_computed"]
+        new_row.esic_final = computed["esic_computed"]
+        new_row.ptax_final = computed["ptax_computed"]
+        new_row.deductions_total_final = computed["deductions_total_computed"]
+        new_row.net_salary_final = computed["net_salary_computed"]
+
+        db.session.add(new_row)
+        rows_to_create.append(new_row)
+        payrolls.append(new_row)
+
+    db.session.commit()
+
+    # Return only the columns your UI needs
+    return jsonify({
+        "success": True,
+        "payrolls": [
+            {
+                "admin_id": p.admin_id,
+                "month": p.month,
+                "month_num": p.month_num,
+                "year": p.year,
+                "one_day_salary": float(p.one_day_salary or 0.0),
+                "gross_salary_for_month": p.gross_salary_for_month,
+                "actual_working_days": p.actual_working_days,
+                "epf_final": p.epf_final,
+                "ptax_final": p.ptax_final,
+                "esic_final": p.esic_final,
+                "net_salary_final": p.net_salary_final,
+            }
+            for p in payrolls
+        ],
+    }), 200
+
+
+@Accounts.route("/payroll/history", methods=["POST"])
+@jwt_required()
+def payroll_history():
+    """
+    Read-only history from monthly_payrolls for a given month/year.
+    Optionally filter by circle + emp_type (department) to match the filtered users list.
+
+    Expected JSON:
+      {
+        "month": "January",
+        "year": "2026",
+        "circle": "NHQ",
+        "emp_type": "Accounts"
+      }
+    """
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    month_val = data.get("month")
+    year_val = data.get("year")
+    circle = (data.get("circle") or "").strip()
+    emp_type = (data.get("emp_type") or "").strip()
+
+    if month_val is None or year_val is None:
+        return jsonify({"success": False, "message": "month and year are required"}), 400
+
+    try:
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid month/year"}), 400
+
+    q = (
+        db.session.query(MonthlyPayroll, Admin)
+        .join(Admin, Admin.id == MonthlyPayroll.admin_id)
+        .filter(
+            MonthlyPayroll.month_num == month_num,
+            MonthlyPayroll.year == str(year_int),
+        )
+    )
+
+    if circle:
+        q = q.filter(Admin.circle == circle)
+    if emp_type:
+        q = q.filter(Admin.emp_type == emp_type)
+
+    q = q.order_by(Admin.first_name.asc(), Admin.emp_id.asc())
+    rows = q.all()
+
+    history = []
+    for payroll, admin in rows:
+        history.append({
+            "admin_id": admin.id,
+            "name": admin.first_name or "N/A",
+            "emp_id": admin.emp_id,
+            "circle": admin.circle,
+            "emp_type": admin.emp_type,
+            "month": payroll.month,
+            "year": payroll.year,
+            "gross_salary_for_month": float(payroll.gross_salary_for_month or 0.0),
+            "epf_final": float(payroll.epf_final or 0.0),
+            "ptax_final": float(payroll.ptax_final or 0.0),
+            "esic_final": float(payroll.esic_final or 0.0),
+            "actual_working_days": float(payroll.actual_working_days or 0.0),
+            "net_salary_final": float(payroll.net_salary_final or 0.0),
+            "created_at": payroll.created_at.isoformat() if payroll.created_at else None,
+            "updated_at": payroll.updated_at.isoformat() if payroll.updated_at else None,
+        })
+
+    return jsonify({"success": True, "history": history}), 200
+
+
+@Accounts.route("/payroll/<int:payroll_id>/download", methods=["GET"])
+@jwt_required()
+def download_payroll_slip(payroll_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    payroll = MonthlyPayroll.query.get(payroll_id)
+    if not payroll:
+        return jsonify({"success": False, "message": "Payroll record not found"}), 404
+
+    if not _accounts_can_access_any_profile(viewer) and payroll.admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    admin = Admin.query.get(payroll.admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    profile = EmployeeAccounts.query.filter_by(admin_id=admin.id).first()
+    ctc = CTCBreakup.query.filter_by(admin_id=admin.id).first()
+    employee_details = Employee.query.filter_by(admin_id=admin.id).first()
+
+    emp_name = (getattr(admin, "first_name", None) or getattr(admin, "user_name", None) or "Employee").strip()
+    emp_no = (getattr(admin, "emp_id", None) or "").strip() or "-"
+    month_year = f"{payroll.month}-{payroll.year}"
+
+    basic = float(getattr(ctc, "basic_salary", 0.0) or 0.0)
+    hra = float(getattr(ctc, "hra", 0.0) or 0.0)
+    other = float(getattr(ctc, "other_allowance", 0.0) or 0.0)
+    gross = float(getattr(payroll, "gross_salary_for_month", 0.0) or 0.0)
+    epf = float(getattr(payroll, "epf_final", 0.0) or 0.0)
+    ptax = float(getattr(payroll, "ptax_final", 0.0) or 0.0)
+    esic = float(getattr(payroll, "esic_final", 0.0) or 0.0)
+    total_ded = float(getattr(payroll, "deductions_total_final", 0.0) or 0.0)
+    net = float(getattr(payroll, "net_salary_final", 0.0) or 0.0)
+    work_days = float(getattr(payroll, "actual_working_days", 0.0) or 0.0)
+    cal_days = int(getattr(payroll, "calendar_days", 0) or 0)
+
+    basic, hra, other = _prorate_earnings_to_gross(basic, hra, other, gross)
+    cum_earn1 = basic
+    cum_earn2 = basic + hra
+    cum_earn3 = gross
+    cum_ded1 = epf
+    cum_ded2 = epf + ptax
+    cum_ded3 = total_ded
+
+    leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
+    clpl_balance = float((leave_balance.casual_leave_balance if leave_balance else 0.0) or 0.0) + float(
+        (leave_balance.privilege_leave_balance if leave_balance else 0.0) or 0.0
+    )
+    weekly_off = max(cal_days - int(round(work_days)), 0)
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    left_margin = 36
+    right_margin = width - 36
+    usable_w = right_margin - left_margin
+    c.setLineWidth(0.5)
+    # Six columns only: [Earnings, Amount, Gross] + [Deductions, Amount, Gross]
+    x0 = left_margin
+    x1 = x0 + usable_w * 0.27
+    x2 = x1 + usable_w * 0.115
+    x3 = x2 + usable_w * 0.115
+    x4 = x3 + usable_w * 0.27
+    x5 = x4 + usable_w * 0.115
+    x6 = right_margin
+
+    def _clip_text(text, max_chars=42):
+        t = str(text or "-").strip()
+        if len(t) <= max_chars:
+            return t
+        return f"{t[:max_chars - 3]}..."
+
+    def _amt_right(right_edge, yy, text):
+        """Right-align amount inside column ending at right_edge (pt)."""
+        c.drawRightString(right_edge - 6, yy, text)
+
+    y = height - 32
+    c.setFont("Helvetica-Bold", 16)
+    c.drawCentredString(width / 2, y, "Saffo Solution Technology LLP")
+    y -= 15
+    c.setFont("Helvetica", 10)
+    c.drawCentredString(width / 2, y, "203, A Wing, 2nd Floor")
+    y -= 13
+    c.drawCentredString(width / 2, y, "Technocity TTC Indl Area, Mhape")
+    y -= 13
+    c.drawCentredString(width / 2, y, "Navi Mumbai")
+    y -= 13
+    c.drawCentredString(width / 2, y, "CIN: AAP-6504")
+    y -= 18
+    c.drawCentredString(width / 2, y, "E-Mail : finance@saffotech.com")
+    c.setLineWidth(0.7)
+    c.line(left_margin + 40, y - 4, right_margin - 40, y - 4)
+
+    y -= 28
+    c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(width / 2, y, "Pay Slip")
+    y -= 16
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(width / 2, y, f"for {month_year}")
+    y -= 18
+    c.setFont("Helvetica-Bold", 15)
+    c.drawCentredString(width / 2, y, emp_name)
+
+    y -= 14
+    c.line(left_margin, y, right_margin, y)
+    y -= 16
+    meta_font = "Helvetica"
+    meta_size = 10
+    c.setFont(meta_font, meta_size)
+
+    mid_split = left_margin + usable_w * 0.5
+    left_block_end = mid_split - 10
+    right_block_start = mid_split + 10
+    label_line_step = 10
+
+    meta_left = [
+        ("Employee Number", emp_no),
+        ("Function", getattr(profile, "function", None) or getattr(admin, "emp_type", None) or "-"),
+        (
+            "Designation",
+            (getattr(profile, "designation", None) or (getattr(employee_details, "designation", None) if employee_details else None) or "-"),
+        ),
+        ("Location", getattr(profile, "location", None) or getattr(admin, "circle", None) or "-"),
+        ("Bank Details", _clip_text(getattr(profile, "bank_details", None), 38)),
+        ("Date of joining", getattr(admin, "doj", None).strftime("%d-%b-%y") if getattr(admin, "doj", None) else "-"),
+    ]
+    meta_right = [
+        ("Tax Regime", getattr(profile, "tax_regime", None) or "Regular Tax Regime"),
+        ("Income Tax Number (PAN)", getattr(profile, "pan", None) or "-"),
+        ("Universal Account Number (UAN)", getattr(profile, "uan", None) or "-"),
+        ("PF account number", getattr(profile, "pf_account_number", None) or "-"),
+        ("ESI Number", getattr(profile, "esi_number", None) or "-"),
+        ("PR Account Number (PRAN)", getattr(profile, "pran", None) or "-"),
+    ]
+
+    # Tight label columns: colon sits just after longest label (capped), not a fixed 84% band — frees space for values
+    left_inner_w = left_block_end - left_margin - 14
+    right_inner_w = right_margin - right_block_start - 14
+    max_left_pt = max(stringWidth(l[0], meta_font, meta_size) for l in meta_left)
+    max_right_pt = max(stringWidth(r[0], meta_font, meta_size) for r in meta_right)
+    # Cap label band so first-column values + Tax Regime column are not squeezed
+    meta_left_max_w = min(max_left_pt, left_inner_w * 0.38)
+    meta_right_max_w = min(max_right_pt, right_inner_w * 0.48)
+    left_colon_x = left_margin + 2 + meta_left_max_w + 4
+    left_val_x = left_colon_x + 6
+    left_val_max_w = max(24.0, left_block_end - left_val_x)
+
+    right_colon_x = right_block_start + meta_right_max_w + 4
+    right_val_x = right_colon_x + 6
+    right_val_max_w = max(28.0, right_margin - right_val_x - 4)
+
+    y_cursor = y
+    for i in range(6):
+        left_lines = _wrap_lines_pdf(meta_left[i][0], meta_font, meta_size, meta_left_max_w)
+        right_lines = _wrap_lines_pdf(meta_right[i][0], meta_font, meta_size, meta_right_max_w)
+        n_lines = max(len(left_lines), len(right_lines), 1)
+        for j, line in enumerate(left_lines):
+            c.drawString(left_margin + 2, y_cursor - j * label_line_step, line)
+        for j, line in enumerate(right_lines):
+            c.drawString(right_block_start, y_cursor - j * label_line_step, line)
+        c.drawString(left_colon_x, y_cursor, ":")
+        c.drawString(right_colon_x, y_cursor, ":")
+        val_l = _fit_text_pdf(str(meta_left[i][1]), meta_font, meta_size, left_val_max_w)
+        c.drawString(left_val_x, y_cursor, val_l)
+        val_r = _fit_text_pdf(str(meta_right[i][1]), meta_font, meta_size, right_val_max_w)
+        c.drawString(right_val_x, y_cursor, val_r)
+        y_cursor -= 6 + n_lines * label_line_step
+
+    y = y_cursor - 4
+    c.line(left_margin, y, right_margin, y)
+    y -= 18
+
+    # Attendance section (full content width)
+    att_left = left_margin
+    att_right = right_margin
+    att_h = 78
+    att_top = y
+    att_bottom = y - att_h
+    c.setLineWidth(0.45)
+    c.rect(att_left, att_bottom, att_right - att_left, att_top - att_bottom)
+    c.line(att_left, att_top - 22, att_right, att_top - 22)
+    split_x = att_left + (att_right - att_left) * 0.72
+    c.line(split_x, att_top, split_x, att_bottom)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(att_left + 5, att_top - 15, "Attendance Details")
+    c.drawRightString(att_right - 6, att_top - 15, "Value")
+    c.setFont("Helvetica", 10)
+    r1, r2, r3 = att_top - 36, att_top - 54, att_top - 72
+    c.drawString(att_left + 5, r1, "CL/PL")
+    _amt_right(att_right, r1, f"{clpl_balance:.2f} Days")
+    c.drawString(att_left + 5, r2, "Present Days")
+    _amt_right(att_right, r2, f"{work_days:.0f} Days")
+    c.drawString(att_left + 5, r3, "Weekly Off")
+    _amt_right(att_right, r3, f"{weekly_off} Days")
+
+    y = att_bottom - 18
+    row_h = 22
+    hdr_h = 22
+    body_rows = 6
+
+    # Earnings / deductions table (aligned to six-column grid)
+    table_top = y
+    table_bottom = table_top - hdr_h - body_rows * row_h
+    for xx in (x0, x1, x2, x3, x4, x5, x6):
+        c.line(xx, table_top, xx, table_bottom)
+    horiz = [table_top, table_top - hdr_h]
+    for i in range(1, body_rows + 1):
+        horiz.append(table_top - hdr_h - i * row_h)
+    for yy in horiz:
+        c.line(x0, yy, x6, yy)
+
+    hdr_y = table_top - 12
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(x0 + 4, hdr_y, "Earnings")
+    c.drawCentredString((x1 + x2) / 2, hdr_y, "Amount")
+    c.drawCentredString((x2 + x3) / 2, hdr_y, "Gross Salary")
+    c.drawString(x3 + 4, hdr_y, "Deductions")
+    c.drawCentredString((x4 + x5) / 2, hdr_y, "Amount")
+    c.drawCentredString((x5 + x6) / 2, hdr_y, "Gross Salary")
+
+    r = table_top - hdr_h - 14
+    c.setFont("Helvetica", 10)
+    c.drawString(x0 + 4, r, "Basic Salary + DA")
+    _amt_right(x2, r, _fmt_money(basic))
+    _amt_right(x3, r, _fmt_money(cum_earn1))
+    c.drawString(x3 + 4, r, "EPF")
+    _amt_right(x5, r, _fmt_money(epf))
+    _amt_right(x6, r, _fmt_money(cum_ded1))
+
+    r -= row_h
+    c.drawString(x0 + 4, r, "HRA")
+    _amt_right(x2, r, _fmt_money(hra))
+    _amt_right(x3, r, _fmt_money(cum_earn2))
+    c.drawString(x3 + 4, r, "P.Tax")
+    _amt_right(x5, r, _fmt_money(ptax))
+    _amt_right(x6, r, _fmt_money(cum_ded2))
+
+    r -= row_h
+    c.drawString(x0 + 4, r, "Other Allowance")
+    _amt_right(x2, r, _fmt_money(other))
+    _amt_right(x3, r, _fmt_money(cum_earn3))
+    c.drawString(x3 + 4, r, "ESIC")
+    _amt_right(x5, r, _fmt_money(esic))
+    _amt_right(x6, r, _fmt_money(cum_ded3))
+
+    r -= row_h
+    # Blank spacer row (matches typical payslip layout)
+    r -= row_h
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(x0 + 4, r, "Total Earnings")
+    _amt_right(x2, r, _fmt_money(gross))
+    _amt_right(x3, r, _fmt_money(gross))
+    c.drawString(x3 + 4, r, "Total Deductions")
+    _amt_right(x5, r, _fmt_money(total_ded))
+    _amt_right(x6, r, _fmt_money(total_ded))
+
+    r -= row_h
+    c.setFont("Helvetica-Bold", 10.5)
+    c.drawString(x3 + 4, r, "Net Amount")
+    # Single net figure in last column only (avoids Rs. on border / duplicate)
+    _amt_right(x6, r, f"Rs. {_fmt_money(net)}")
+
+    y = table_bottom - 20
+    words = _rupees_in_words(net)
+    c.setFont("Helvetica", 10)
+    c.drawString(left_margin, y, "Amount (in words):")
+    y -= 16
+    c.drawString(left_margin, y, f"Indian Rupees {words} Only")
+
+    sig_y = y - 52
+    c.setLineWidth(0.45)
+    c.line(right_margin - 200, sig_y + 28, right_margin, sig_y + 28)
+    c.setFont("Helvetica-Bold", 10.5)
+    c.drawRightString(right_margin, sig_y + 12, "for Saffo Solution Technology LLP")
+    c.setFont("Helvetica", 10)
+    c.drawRightString(right_margin, sig_y - 4, "Authorised Signatory")
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    filename = f"payroll-slip-{emp_no}-{payroll.month}-{payroll.year}.pdf".replace(" ", "-")
+    return send_file(buffer, mimetype="application/pdf", as_attachment=True, download_name=filename)
 
 
 @Accounts.route("/employee-accounts-profile", methods=["GET"])

@@ -210,6 +210,8 @@ def list_leave_requests():
             "status": row.status,
             "deducted_days": row.deducted_days,
             "extra_days": row.extra_days,
+            "requested_deducted_days": getattr(row, "requested_deducted_days", 0.0),
+            "sandwich_pl_days": getattr(row, "sandwich_pl_days", 0.0),
             "created_at": _serialize_date(row.created_at),
         })
 
@@ -240,34 +242,38 @@ def act_on_leave_request(leave_id):
 
     leave_balance = leave_obj.admin.leave_balance if leave_obj.admin else None
     deducted = float(leave_obj.deducted_days or 0.0)
+    requested_deducted = float(getattr(leave_obj, "requested_deducted_days", 0.0) or 0.0)
+    sandwich_pl = float(getattr(leave_obj, "sandwich_pl_days", 0.0) or 0.0)
 
     # Apply balance changes ONLY on approval.
     # Rejected requests do not touch LeaveBalance.
-    if new_status == "Approved" and leave_balance and deducted > 0:
+    if new_status == "Approved" and leave_balance and (deducted > 0 or sandwich_pl > 0):
         lt = leave_obj.leave_type
 
         # Privilege Leave
         if lt == "Privilege Leave":
+            # For PL requests, deducted_days already includes any sandwich effect.
             current = float(leave_balance.privilege_leave_balance or 0.0)
             leave_balance.privilege_leave_balance = max(0.0, current - deducted)
             leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + deducted
 
         # Casual Leave
         elif lt == "Casual Leave":
+            # Deduct only working-day portion from CL; sandwich days are handled via sandwich_pl_days below.
             current = float(leave_balance.casual_leave_balance or 0.0)
-            leave_balance.casual_leave_balance = max(0.0, current - deducted)
-            leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + deducted
+            leave_balance.casual_leave_balance = max(0.0, current - requested_deducted)
+            leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + requested_deducted
 
         # Compensatory Leave (deduct from CompOffGain oldest-first, then sync to LeaveBalance)
         elif lt == "Compensatory Leave":
             from .compoff_utils import deduct_comp_leave
-            if not deduct_comp_leave(leave_obj.admin_id, deducted):
+            if not deduct_comp_leave(leave_obj.admin_id, requested_deducted):
                 db.session.rollback()
                 return jsonify({
                     "success": False,
                     "message": "Insufficient comp-off balance (may have expired). Please refresh and try again."
                 }), 400
-            leave_balance.used_comp_leave = float(leave_balance.used_comp_leave or 0.0) + deducted
+            leave_balance.used_comp_leave = float(leave_balance.used_comp_leave or 0.0) + requested_deducted
 
         # Half Day Leave: treat as 0.5 day CL (or PL) unless it was pure LOP (extra_days >= 0.5)
         elif lt == "Half Day Leave":
@@ -285,6 +291,12 @@ def act_on_leave_request(leave_id):
         # Optional Leave: never touches leave balances
         elif lt == "Optional Leave":
             pass
+
+        # Sandwich leave: deduct sandwich days from PL if recorded (leave with pay).
+        if sandwich_pl > 0 and lt not in ("Privilege Leave", "Optional Leave"):
+            current_pl = float(leave_balance.privilege_leave_balance or 0.0)
+            leave_balance.privilege_leave_balance = max(0.0, current_pl - sandwich_pl)
+            leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + sandwich_pl
 
     db.session.commit()
 

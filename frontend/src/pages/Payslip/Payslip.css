@@ -194,6 +194,56 @@
   transform: none;
 }
 
+.payroll-history-block {
+  margin-top: 18px;
+}
+
+.payroll-history-title {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ps-text-dark);
+}
+
+.payroll-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.payroll-month-card {
+  border: 1px solid var(--ps-border);
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.payroll-month-title {
+  font-weight: 700;
+  color: var(--ps-text-dark);
+  margin-bottom: 8px;
+}
+
+.payroll-month-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: #374151;
+  margin-bottom: 6px;
+  gap: 10px;
+}
+
+.payroll-month-row.net {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #d1d5db;
+}
+
+.payroll-download-btn {
+  width: 100%;
+  margin-top: 10px;
+}
+
 /* ---- RESPONSIVE ---- */
 
 @media (max-width: 992px) {
