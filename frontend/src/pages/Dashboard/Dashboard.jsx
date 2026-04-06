@@ -1,1850 +1,1028 @@
 import { useEffect, useState, useMemo, useRef } from "react";
-import { NavLink } from 'react-router-dom';
-import { FiChevronRight, FiCheckCircle, FiUserCheck, FiSun, FiCalendar, FiHelpCircle, FiKey, FiHome, FiClock, FiDollarSign, FiUser } from "react-icons/fi";
+import { NavLink } from "react-router-dom";
+import {
+  FiChevronRight,
+  FiCheckCircle,
+  FiUserCheck,
+  FiSun,
+  FiCalendar,
+  FiHelpCircle,
+  FiKey,
+  FiHome,
+  FiClock,
+  FiDollarSign,
+  FiUser,
+} from "react-icons/fi";
 import { MdBadge, MdCalendarToday } from "react-icons/md";
 import { GiReceiveMoney } from "react-icons/gi";
+import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
 const API_BASE_URL = "/api/auth";
 
 const parsePunchInToDate = (val) => {
-    if (!val) return null;
-    try {
-        const s = String(val).trim();
-        if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
-            const [h, m, sec = 0] = s.split(":").map(Number);
-            const d = new Date();
-            d.setHours(h, m, sec, 0);
-            return d;
-        }
-        const normalized = s.includes(" ") && !s.includes("T") ? s.replace(" ", "T") : s;
-        const d = new Date(normalized);
-        return isNaN(d.getTime()) ? null : d;
-    } catch {
-        return null;
+  if (!val) return null;
+  try {
+    const s = String(val).trim();
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
+      const [h, m, sec = 0] = s.split(":").map(Number);
+      const d = new Date();
+      d.setHours(h, m, sec, 0);
+      return d;
     }
+    const normalized =
+      s.includes(" ") && !s.includes("T") ? s.replace(" ", "T") : s;
+    const d = new Date(normalized);
+    return isNaN(d.getTime()) ? null : d;
+  } catch {
+    return null;
+  }
 };
 
 const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  if (!dateString) return "N/A";
+  const date = new Date(dateString);
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 };
 const formatTime = (timeString) => {
-    if (!timeString) return '---';
-    try {
-        const s = String(timeString).trim();
-        if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
-            const [h, m, sec = 0] = s.split(":").map(Number);
-            const d = new Date();
-            d.setHours(h, m, sec, 0);
-            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-        }
-        const normalized = s.includes(" ") && !s.includes("T") ? s.replace(" ", "T") : s;
-        const d = new Date(normalized);
-        if (isNaN(d.getTime())) return 'Invalid Time';
-        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-    } catch (e) {
-        return 'Invalid Time';
+  if (!timeString) return "---";
+  try {
+    const s = String(timeString).trim();
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
+      const [h, m, sec = 0] = s.split(":").map(Number);
+      const d = new Date();
+      d.setHours(h, m, sec, 0);
+      return d.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
     }
+    const normalized =
+      s.includes(" ") && !s.includes("T") ? s.replace(" ", "T") : s;
+    const d = new Date(normalized);
+    if (isNaN(d.getTime())) return "Invalid Time";
+    return d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+  } catch (e) {
+    return "Invalid Time";
+  }
 };
 
 const formatWorkingHours = (val) => {
-    if (!val) return '0h 00m 00s';
-    const v = String(val).trim();
-    if (/^\d{4}-\d{2}-\d{2}/.test(v)) return '0h 00m 00s';  // Reject datetime-like "0000-04-22 00:00:00"
-    if (/^\d+h\s+\d+m\s+\d+s$/.test(v)) return v;
-    const m = v.match(/^(\d+):(\d{2}):(\d{2})/);
-    if (m) {
-        const [, h, min, sec] = m;
-        return `${parseInt(h, 10)}h ${min}m ${sec}s`;
-    }
-    return '0h 00m 00s';
+  if (!val) return "0h 00m 00s";
+  const v = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return "0h 00m 00s"; // Reject datetime-like "0000-04-22 00:00:00"
+  if (/^\d+h\s+\d+m\s+\d+s$/.test(v)) return v;
+  const m = v.match(/^(\d+):(\d{2}):(\d{2})/);
+  if (m) {
+    const [, h, min, sec] = m;
+    return `${parseInt(h, 10)}h ${min}m ${sec}s`;
+  }
+  return "0h 00m 00s";
 };
 const calculateExperience = (doj) => {
-    if (!doj) return 'N/A';
-    const today = new Date();
-    const joinDate = new Date(doj);
-    if (isNaN(joinDate.getTime())) return 'N/A';
-    let totalMonths = (today.getFullYear() - joinDate.getFullYear()) * 12 + (today.getMonth() - joinDate.getMonth());
-    if (today.getDate() < joinDate.getDate()) totalMonths--;
-    if (totalMonths < 0) return 'Less than a year';
-    const years = Math.floor(totalMonths / 12);
-    const months = totalMonths % 12;
-    const parts = [];
-    if (years > 0) parts.push(`${years} year${years !== 1 ? 's' : ''}`);
-    if (months > 0) parts.push(`${months} month${months !== 1 ? 's' : ''}`);
-    return parts.length ? parts.join(' ') : 'Less than a month';
+  if (!doj) return "N/A";
+  const today = new Date();
+  const joinDate = new Date(doj);
+  if (isNaN(joinDate.getTime())) return "N/A";
+  let totalMonths =
+    (today.getFullYear() - joinDate.getFullYear()) * 12 +
+    (today.getMonth() - joinDate.getMonth());
+  if (today.getDate() < joinDate.getDate()) totalMonths--;
+  if (totalMonths < 0) return "Less than a year";
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  const parts = [];
+  if (years > 0) parts.push(`${years} year${years !== 1 ? "s" : ""}`);
+  if (months > 0) parts.push(`${months} month${months !== 1 ? "s" : ""}`);
+  return parts.length ? parts.join(" ") : "Less than a month";
 };
 const formatTimeDifference = (diffMs) => {
-    if (diffMs < 0) diffMs = 0;
-    
-    const totalSeconds = Math.floor(diffMs / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    return `${String(hours)}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  if (diffMs < 0) diffMs = 0;
+
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours)}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
 };
 
 /** Format a date/time for Recent Activity (e.g. "Today", "Yesterday", "2 days ago"). */
 const formatTimeAgo = (isoString) => {
-    if (!isoString) return '';
-    const d = new Date(isoString);
-    if (isNaN(d.getTime())) return '';
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const diffMs = now - d;
-    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-    if (d >= todayStart) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    return formatDate(isoString);
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffMs = now - d;
+  const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  if (d >= todayStart) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+  return formatDate(isoString);
 };
 
 /** Build list of recent activity items from punch, last leave, last payslip. */
-function RecentActivityList({ punchIn, punchOut, lastLeave, lastPayslip, formatTime, formatTimeAgo, formatDate }) {
-    const items = [];
-    if (punchIn) {
-        items.push({
-            key: 'punch-in',
-            dot: 'green',
-            text: `Punch-in at ${formatTime(punchIn)}`,
-            time: 'Today',
-        });
-    }
-    if (punchOut) {
-        items.push({
-            key: 'punch-out',
-            dot: 'blue',
-            text: `Punch-out at ${formatTime(punchOut)}`,
-            time: 'Today',
-        });
-    }
-    if (lastLeave) {
-        const status = (lastLeave.status || '').toLowerCase();
-        const dot = status === 'approved' ? 'green' : status === 'rejected' ? 'red' : 'orange';
-        items.push({
-            key: `leave-${lastLeave.id}`,
-            dot,
-            text: `Leave (${lastLeave.leave_type || 'Leave'}): ${lastLeave.status || 'Pending'}`,
-            time: formatTimeAgo(lastLeave.created_at) || formatDate(lastLeave.start_date),
-        });
-    }
-    if (lastPayslip) {
-        items.push({
-            key: `payslip-${lastPayslip.id}`,
-            dot: 'blue',
-            text: `Payslip updated: ${lastPayslip.month || ''} ${lastPayslip.year || ''}`,
-            time: `${lastPayslip.month || ''} ${lastPayslip.year || ''}`.trim() || '—',
-        });
-    }
-    if (items.length === 0) {
-        return (
-                            <ul className="activity-list">
-                                <li>
-                                    <div className="left"><span className="dot blue"></span> No recent activity</div>
-                                    <span className="time">—</span>
-                                </li>
-                            </ul>
-        );
-    }
+function RecentActivityList({
+  punchIn,
+  punchOut,
+  lastLeave,
+  lastPayslip,
+  formatTime,
+  formatTimeAgo,
+  formatDate,
+}) {
+  const items = [];
+  if (punchIn) {
+    items.push({
+      key: "punch-in",
+      dot: "green",
+      text: `Punch-in at ${formatTime(punchIn)}`,
+      time: "Today",
+    });
+  }
+  if (punchOut) {
+    items.push({
+      key: "punch-out",
+      dot: "blue",
+      text: `Punch-out at ${formatTime(punchOut)}`,
+      time: "Today",
+    });
+  }
+  if (lastLeave) {
+    const status = (lastLeave.status || "").toLowerCase();
+    const dot =
+      status === "approved"
+        ? "green"
+        : status === "rejected"
+          ? "red"
+          : "orange";
+    items.push({
+      key: `leave-${lastLeave.id}`,
+      dot,
+      text: `Leave (${lastLeave.leave_type || "Leave"}): ${lastLeave.status || "Pending"}`,
+      time:
+        formatTimeAgo(lastLeave.created_at) || formatDate(lastLeave.start_date),
+    });
+  }
+  if (lastPayslip) {
+    items.push({
+      key: `payslip-${lastPayslip.id}`,
+      dot: "blue",
+      text: `Payslip updated: ${lastPayslip.month || ""} ${lastPayslip.year || ""}`,
+      time:
+        `${lastPayslip.month || ""} ${lastPayslip.year || ""}`.trim() || "—",
+    });
+  }
+  if (items.length === 0) {
     return (
-                            <ul className="activity-list">
-                                {items.map((item) => (
-                                    <li key={item.key}>
-                                        <div className="left"><span className={`dot ${item.dot}`}></span> {item.text}</div>
-                                        <span className="time">{item.time}</span>
-                                    </li>
-                                ))}
-                            </ul>
+      <ul className="activity-list">
+        <li>
+          <div className="left">
+            <span className="dot blue"></span> No recent activity
+          </div>
+          <span className="time">—</span>
+        </li>
+      </ul>
     );
+  }
+  return (
+    <ul className="activity-list">
+      {items.map((item) => (
+        <li key={item.key}>
+          <div className="left">
+            <span className={`dot ${item.dot}`}></span> {item.text}
+          </div>
+          <span className="time">{item.time}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
-export const Dashboard = () => {  
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [isPunching, setIsPunching] = useState(false);
-    const [location, setLocation] = useState({ 
-        lat: null, 
-        lon: null, 
-        error: null,
-        isAvailable: false,
-        isInRange: false
-    });
-    const [geo, setGeo] = useState({
+export const Dashboard = () => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isPunching, setIsPunching] = useState(false);
+  const [location, setLocation] = useState({
+    lat: null,
+    lon: null,
+    error: null,
+    isAvailable: false,
+    isInRange: false,
+  });
+  const [geo, setGeo] = useState({
+    zone: "NO_GPS",
+    requiresReason: false,
+    distance: null,
+    radius: null,
+    grace: 100,
+    message: "",
+  });
+  const [dynamicData, setDynamicData] = useState({
+    user: {},
+    employee: {},
+    punch: {},
+    leave_balance: { pl: "N/A", cl: "N/A" },
+    managers: {},
+    last_leave: null,
+    last_payslip: null,
+  });
+  const [punchInDateTime, setPunchInDateTime] = useState(null);
+  const [newsFeed, setNewsFeed] = useState([]);
+  const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
+  const newsFeedListRef = useRef(null);
+  const fetchDashboardData = async (showAlert = false) => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        if (response.status === 401) {
+        }
+        throw new Error("Failed to fetch dashboard data.");
+      }
+      const result = await response.json();
+      if (result.success) {
+        const punch = result.punch || {};
+        const workingHours = punch.working_hours
+          ? formatWorkingHours(punch.working_hours)
+          : punch.working_hours;
+        setDynamicData({
+          user: result.user || {},
+          employee: result.employee || {},
+          punch: {
+            ...punch,
+            working_hours: workingHours || punch.working_hours,
+          },
+          leave_balance: result.leave_balance || { pl: "N/A", cl: "N/A" },
+          managers: result.managers || {},
+          last_leave: result.last_leave || null,
+          last_payslip: result.last_payslip || null,
+        });
+        if (result.punch.punch_in && !result.punch.punch_out) {
+          setPunchInDateTime(parsePunchInToDate(result.punch.punch_in));
+        } else {
+          setPunchInDateTime(null);
+        }
+      } else if (showAlert) {
+        alert(result.message || "Failed to load data.");
+      }
+    } catch (err) {
+      // console.error("Fetch error:", err);
+      if (showAlert) alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const fetchNewsFeed = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/news-feed`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.news_feed)) {
+        setNewsFeed(data.news_feed);
+      }
+    } catch {
+      setNewsFeed([]);
+    }
+  };
+  useEffect(() => {
+    const loadInitialData = async () => {
+      await fetchDashboardData();
+      await fetchNewsFeed();
+    };
+    loadInitialData();
+  }, []);
+
+  /* News feed auto-scroll: smooth bidirectional (last → first → last → first) */
+  const newsFeedDirRef = useRef("down");
+  useEffect(() => {
+    if (!newsFeed.length || newsFeedScrollPaused) return;
+    const el = newsFeedListRef.current;
+    if (!el || el.scrollHeight <= el.clientHeight) return;
+    const step = 1;
+    const interval = 32;
+    const id = setInterval(() => {
+      if (!el) return;
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const atBottom = scrollTop + clientHeight >= scrollHeight - 2;
+      const atTop = scrollTop <= 2;
+      if (newsFeedDirRef.current === "down") {
+        if (atBottom) {
+          newsFeedDirRef.current = "up";
+          el.scrollTop -= step;
+        } else {
+          el.scrollTop += step;
+        }
+      } else {
+        if (atTop) {
+          newsFeedDirRef.current = "down";
+          el.scrollTop += step;
+        } else {
+          el.scrollTop -= step;
+        }
+      }
+    }, interval);
+    return () => clearInterval(id);
+  }, [newsFeed.length, newsFeedScrollPaused]);
+  const validateLocationRange = async (lat, lon) => {
+    const token = localStorage.getItem("token");
+    if (!token)
+      return { in_range: false, requires_reason: true, zone: "NO_GPS" };
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/employee/location-check?lat=${lat}&lon=${lon}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      const data = await res.json();
+      setGeo({
+        zone: data.zone || "NO_GPS",
+        requiresReason: !!data.requires_reason,
+        distance: data.distance_meters ?? null,
+        radius: data.radius_meters ?? null,
+        grace: data.grace_meters ?? 100,
+        message: data.message || "",
+      });
+      return data;
+    } catch {
+      setGeo({
         zone: "NO_GPS",
-        requiresReason: false,
+        requiresReason: true,
         distance: null,
         radius: null,
         grace: 100,
-        message: ""
-    });
-    const [dynamicData, setDynamicData] = useState({
-        user: {},
-        employee: {},
-        punch: {},
-        leave_balance: { pl: 'N/A', cl: 'N/A' },
-        managers: {},
-        last_leave: null,
-        last_payslip: null,
-    });
-    const [punchInDateTime, setPunchInDateTime] = useState(null);
-    const [newsFeed, setNewsFeed] = useState([]);
-    const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
-    const newsFeedListRef = useRef(null);
-    const fetchDashboardData = async (showAlert = false) => {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-        try {
-            const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!response.ok) {
-                if (response.status === 401) {
-                }
-                throw new Error("Failed to fetch dashboard data.");
-            }
-            const result = await response.json();
-            if (result.success) {
-                const punch = result.punch || {};
-                const workingHours = punch.working_hours ? formatWorkingHours(punch.working_hours) : punch.working_hours;
-                setDynamicData({
-                    user: result.user || {},
-                    employee: result.employee || {},
-                    punch: { ...punch, working_hours: workingHours || punch.working_hours },
-                    leave_balance: result.leave_balance || { pl: 'N/A', cl: 'N/A' },
-                    managers: result.managers || {},
-                    last_leave: result.last_leave || null,
-                    last_payslip: result.last_payslip || null,
-                });
-                if (result.punch.punch_in && !result.punch.punch_out) {
-                    setPunchInDateTime(parsePunchInToDate(result.punch.punch_in));
-                } else {
-                    setPunchInDateTime(null);
-                }
-            } else if (showAlert) {
-                alert(result.message || "Failed to load data.");
-            }
-        } catch (err) {
-            console.error("Fetch error:", err);
-            if (showAlert) alert(err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-    const fetchNewsFeed = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-        try {
-            const res = await fetch(`${API_BASE_URL}/news-feed`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            const data = await res.json();
-            if (data.success && Array.isArray(data.news_feed)) {
-                setNewsFeed(data.news_feed);
-            }
-        } catch {
-            setNewsFeed([]);
-        }
-    };
-    useEffect(() => {
-        const loadInitialData = async () => {
-            await fetchDashboardData();
-            await fetchNewsFeed();
-        };
-        loadInitialData();
-    }, []);
+        message: "Location check failed",
+      });
+      return { in_range: false, requires_reason: true, zone: "NO_GPS" };
+    }
+  };
 
-    /* News feed auto-scroll: smooth bidirectional (last → first → last → first) */
-    const newsFeedDirRef = useRef('down');
-    useEffect(() => {
-        if (!newsFeed.length || newsFeedScrollPaused) return;
-        const el = newsFeedListRef.current;
-        if (!el || el.scrollHeight <= el.clientHeight) return;
-        const step = 1;
-        const interval = 32;
-        const id = setInterval(() => {
-            if (!el) return;
-            const { scrollTop, scrollHeight, clientHeight } = el;
-            const atBottom = scrollTop + clientHeight >= scrollHeight - 2;
-            const atTop = scrollTop <= 2;
-            if (newsFeedDirRef.current === 'down') {
-                if (atBottom) {
-                    newsFeedDirRef.current = 'up';
-                    el.scrollTop -= step;
-                } else {
-                    el.scrollTop += step;
-                }
-            } else {
-                if (atTop) {
-                    newsFeedDirRef.current = 'down';
-                    el.scrollTop += step;
-                } else {
-                    el.scrollTop -= step;
-                }
-            }
-        }, interval);
-        return () => clearInterval(id);
-    }, [newsFeed.length, newsFeedScrollPaused]);
-    const validateLocationRange = async (lat, lon) => {
-        const token = localStorage.getItem('token');
-        if (!token) return { in_range: false, requires_reason: true, zone: "NO_GPS" };
-        try {
-            const res = await fetch(`${API_BASE_URL}/employee/location-check?lat=${lat}&lon=${lon}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+  useEffect(() => {
+    const checkLocation = async () => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const locationData = await validateLocationRange(lat, lon);
+            const inRange = !!locationData?.in_range;
+            const zone = locationData?.zone || "NO_GPS";
+            const errorMessage =
+              inRange || zone === "NO_OFFICE_CONFIG"
+                ? null
+                : "You are outside office range. Punch In/Out requires a reason.";
+            setLocation({
+              lat,
+              lon,
+              error: errorMessage,
+              isAvailable: true,
+              isInRange: inRange,
             });
-            const data = await res.json();
-            setGeo({
-                zone: data.zone || "NO_GPS",
-                requiresReason: !!data.requires_reason,
-                distance: data.distance_meters ?? null,
-                radius: data.radius_meters ?? null,
-                grace: data.grace_meters ?? 100,
-                message: data.message || ""
-            });
-            return data;
-        } catch {
-            setGeo({
-                zone: "NO_GPS",
-                requiresReason: true,
-                distance: null,
-                radius: null,
-                grace: 100,
-                message: "Location check failed"
-            });
-            return { in_range: false, requires_reason: true, zone: "NO_GPS" };
-        }
-    };
-
-    useEffect(() => {
-        const checkLocation = async () => {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    async (position) => {
-                        const lat = position.coords.latitude;
-                        const lon = position.coords.longitude;
-                        const locationData = await validateLocationRange(lat, lon);
-                        const inRange = !!locationData?.in_range;
-                        const zone = locationData?.zone || "NO_GPS";
-                        const errorMessage = inRange || zone === "NO_OFFICE_CONFIG"
-                            ? null
-                            : "You are outside office range. Punch In/Out requires a reason.";
-                        setLocation({
-                            lat,
-                            lon,
-                            error: errorMessage,
-                            isAvailable: true,
-                            isInRange: inRange,
-                        });
-                    },
-                    (err) => {
-                        console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
-                        setLocation((prev) => ({ 
-                            ...prev, 
-                            error: "Location access denied or unavailable. Punch In/Out requires location.",
-                            isAvailable: false,
-                            isInRange: false
-                        }));
-                    }
-                );
-            } else {
-                setLocation((prev) => ({ 
-                    ...prev, 
-                    error: "Geolocation not supported by this browser.",
-                    isAvailable: false,
-                    isInRange: false
-                }));
-            }
-        };
-        
-        checkLocation();
-        const locationInterval = setInterval(checkLocation, 30000);
-        
-        return () => clearInterval(locationInterval);
-    }, []);
-    useEffect(() => {
-        let timer;
-        // Only start timer if punched in and NOT punched out
-        if (punchInDateTime && !dynamicData.punch.punch_out) {
-            timer = setInterval(() => {
-                const now = new Date();
-                const diffMs = now.getTime() - punchInDateTime.getTime();
-                const formattedTime = formatTimeDifference(diffMs);
-                setDynamicData(prev => ({
-                    ...prev,
-                    punch: {
-                        ...prev.punch,
-                        working_hours: formattedTime,
-                    }
-                }));
-            }, 1000); 
-        } else {
-            // Stop timer if punched out
-            setDynamicData(prev => ({
-                ...prev,
-                punch: {
-                    ...prev.punch,
-                    working_hours: prev.punch.working_hours || '0h 00m 00s',
-                }
+          },
+          (err) => {
+            console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
+            setLocation((prev) => ({
+              ...prev,
+              error:
+                "Location access denied or unavailable. Punch In/Out requires location.",
+              isAvailable: false,
+              isInRange: false,
             }));
-        }
-        return () => {
-            if (timer) {
-                clearInterval(timer);
-            }
-        };
-    }, [punchInDateTime, dynamicData.punch.punch_out]); 
-    const handlePunchIn = async (reason = "") => {
-        if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
-            alert(location.error || "Cannot punch in without location. Please enable location services.");
-            return;
-        } 
-        setIsPunching(true);
-        const token = localStorage.getItem('token');
-        try {
-            const response = await fetch(`${API_BASE_URL}/employee/punch-in`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    lat: location.lat,
-                    lon: location.lon,
-                    is_wfh: false, // Assuming office punch-in for now
-                    geo_reason: reason || null
-                })
-            });
-            const result = await response.json();
-            if (response.ok && result.success) {
-                const newPunchInTime = parsePunchInToDate(result.punch_in) || new Date();
-                setDynamicData(prev => ({
-                    ...prev,
-                    punch: {
-                        ...prev.punch,
-                        punch_in: result.punch_in, 
-                        punch_out: null, 
-                        working_hours: "0h 00m 00s", 
-                    }
-                }));
-                setPunchInDateTime(newPunchInTime);
-                alert(`Punched In Successfully at ${formatTime(result.punch_in)}!`);
-            } else {
-                // If location is out of range, update state
-                if (result.message && result.message.includes("Too far")) {
-                    setLocation(prev => ({ ...prev, isInRange: false }));
-                }
-                alert(`Punch In Failed: ${result.message || 'Server error.'}`);
-            }
-        } catch (error) {
-            console.error("Punch In error:", error);
-            if (!navigator.onLine) {
-                alert("No internet connection. Please check your network and try again.");
-            } else {
-                alert("We couldn't complete your request right now. Please try again.");
-            }
-        } finally {
-            setIsPunching(false);
-        }
+          },
+        );
+      } else {
+        setLocation((prev) => ({
+          ...prev,
+          error: "Geolocation not supported by this browser.",
+          isAvailable: false,
+          isInRange: false,
+        }));
+      }
     };
-    const handlePunchOut = async (reason = "") => {
-        if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
-            alert(location.error || "Cannot punch out without location. Please enable location services.");
-            return;
-        } 
-        setIsPunching(true);
-        const token = localStorage.getItem('token');
-        try {
-            const response = await fetch(`${API_BASE_URL}/employee/punch-out`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    lat: location.lat,
-                    lon: location.lon,
-                    geo_reason: reason || null
-                })
-            });
-            const text = await response.text();
-            let result;
-            try {
-                result = text ? JSON.parse(text) : {};
-            } catch (_) {
-                throw new Error(`Server error (${response.status}). Check backend logs.`);
-            }
-            if (response.ok && result.success) {
-                setPunchInDateTime(null);
-                const workHours = formatWorkingHours(result.today_work);
-                setDynamicData(prev => ({
-                    ...prev,
-                    punch: {
-                        ...prev.punch,
-                        punch_out: result.punch_out, 
-                        punch_in: prev.punch.punch_in,
-                        working_hours: workHours
-                    }
-                }));
-                await fetchDashboardData();
-                alert(`Punched Out Successfully! Total Today's Work: ${result.today_work || 'N/A'}`);
-            } else {
-                if (result.message && result.message.includes("Too far")) {
-                    setLocation(prev => ({ ...prev, isInRange: false }));
-                }
-                alert(`Punch Out Failed: ${result.message || 'Server error.'}`);
-            }
-        } catch (error) {
-            console.error("Punch Out error:", error);
-            if (!navigator.onLine) {
-                alert("No internet connection. Please check your network and try again.");
-            } else {
-                alert("We couldn't complete your request right now. Please try again.");
-            }
-        } finally {
-            setIsPunching(false);
+
+    checkLocation();
+    const locationInterval = setInterval(checkLocation, 30000);
+
+    return () => clearInterval(locationInterval);
+  }, []);
+  useEffect(() => {
+    let timer;
+    // Only start timer if punched in and NOT punched out
+    if (punchInDateTime && !dynamicData.punch.punch_out) {
+      timer = setInterval(() => {
+        const now = new Date();
+        const diffMs = now.getTime() - punchInDateTime.getTime();
+        const formattedTime = formatTimeDifference(diffMs);
+        setDynamicData((prev) => ({
+          ...prev,
+          punch: {
+            ...prev.punch,
+            working_hours: formattedTime,
+          },
+        }));
+      }, 1000);
+    } else {
+      // Stop timer if punched out
+      setDynamicData((prev) => ({
+        ...prev,
+        punch: {
+          ...prev.punch,
+          working_hours: prev.punch.working_hours || "0h 00m 00s",
+        },
+      }));
+    }
+    return () => {
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
+  }, [punchInDateTime, dynamicData.punch.punch_out]);
+  const handlePunchIn = async (reason = "") => {
+    if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
+      alert(
+        location.error ||
+          "Cannot punch in without location. Please enable location services.",
+      );
+      return;
+    }
+    setIsPunching(true);
+    const token = localStorage.getItem("token");
+    try {
+      const response = await fetch(`${API_BASE_URL}/employee/punch-in`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lat: location.lat,
+          lon: location.lon,
+          is_wfh: false, // Assuming office punch-in for now
+          geo_reason: reason || null,
+        }),
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        const newPunchInTime =
+          parsePunchInToDate(result.punch_in) || new Date();
+        setDynamicData((prev) => ({
+          ...prev,
+          punch: {
+            ...prev.punch,
+            punch_in: result.punch_in,
+            punch_out: null,
+            working_hours: "0h 00m 00s",
+          },
+        }));
+        setPunchInDateTime(newPunchInTime);
+        alert(`Punched In Successfully at ${formatTime(result.punch_in)}!`);
+      } else {
+        // If location is out of range, update state
+        if (result.message && result.message.includes("Too far")) {
+          setLocation((prev) => ({ ...prev, isInRange: false }));
         }
-    };
-    const onPunchInClick = async () => {
-        if (isPunching || !!dynamicData.punch.punch_in) return;
-        await handlePunchIn("");
-    };
-    const onPunchOutClick = async () => {
-        if (isPunching || !dynamicData.punch.punch_in) return;
-        await handlePunchOut("");
-    };
-    const dojFormatted = useMemo(() => formatDate(dynamicData.user.doj), [dynamicData.user.doj]);
-    const experience = useMemo(() => calculateExperience(dynamicData.user.doj), [dynamicData.user.doj]);
-    const totalLeave = useMemo(() => {
-        const pl = Number(dynamicData.leave_balance.pl);
-        const cl = Number(dynamicData.leave_balance.cl);
-        return (isNaN(pl) || isNaN(cl)) ? 'N/A' : (pl + cl);
-    }, [dynamicData.leave_balance]);
-    const punchInTimeDisplay = useMemo(() => formatTime(dynamicData.punch.punch_in), [dynamicData.punch.punch_in]);
-    const todaysDate = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), []);
-    const currentStatus = useMemo(() => {
-        if (dynamicData.punch.punch_in) {
-            return dynamicData.punch.punch_out ? "Inactive" : "Active";
+        alert(`Punch In Failed: ${result.message || "Server error."}`);
+      }
+    } catch (error) {
+      console.error("Punch In error:", error);
+      if (!navigator.onLine) {
+        alert(
+          "No internet connection. Please check your network and try again.",
+        );
+      } else {
+        alert("We couldn't complete your request right now. Please try again.");
+      }
+    } finally {
+      setIsPunching(false);
+    }
+  };
+  const handlePunchOut = async (reason = "") => {
+    if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
+      alert(
+        location.error ||
+          "Cannot punch out without location. Please enable location services.",
+      );
+      return;
+    }
+    setIsPunching(true);
+    const token = localStorage.getItem("token");
+    try {
+      const response = await fetch(`${API_BASE_URL}/employee/punch-out`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lat: location.lat,
+          lon: location.lon,
+          geo_reason: reason || null,
+        }),
+      });
+      const text = await response.text();
+      let result;
+      try {
+        result = text ? JSON.parse(text) : {};
+      } catch (_) {
+        throw new Error(
+          `Server error (${response.status}). Check backend logs.`,
+        );
+      }
+      if (response.ok && result.success) {
+        setPunchInDateTime(null);
+        const workHours = formatWorkingHours(result.today_work);
+        setDynamicData((prev) => ({
+          ...prev,
+          punch: {
+            ...prev.punch,
+            punch_out: result.punch_out,
+            punch_in: prev.punch.punch_in,
+            working_hours: workHours,
+          },
+        }));
+        await fetchDashboardData();
+        alert(
+          `Punched Out Successfully! Total Today's Work: ${result.today_work || "N/A"}`,
+        );
+      } else {
+        if (result.message && result.message.includes("Too far")) {
+          setLocation((prev) => ({ ...prev, isInRange: false }));
         }
-        return "Inactive";
-    }, [dynamicData.punch.punch_in, dynamicData.punch.punch_out]);
-    const isCheckedIn = dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
-    const isCheckedOut = dynamicData.punch.punch_out;
-    const isActive = isCheckedIn;
-    const managerName = [dynamicData.managers?.l2?.name, dynamicData.managers?.l1?.name, dynamicData.managers?.l3?.name]
-        .map((n) => (typeof n === "string" ? n.trim() : n))
-        .find((n) => n) || "N/A";
-    const managerDept = dynamicData.user?.circle || "N/A"; 
-    const userCircle = (dynamicData.user?.circle || '').trim().toUpperCase();
-    if (loading) return (
-        <div className="full-height-center">
-            <h2 className="loader"></h2>
-        </div>
-    );
+        alert(`Punch Out Failed: ${result.message || "Server error."}`);
+      }
+    } catch (error) {
+      console.error("Punch Out error:", error);
+      if (!navigator.onLine) {
+        alert(
+          "No internet connection. Please check your network and try again.",
+        );
+      } else {
+        alert("We couldn't complete your request right now. Please try again.");
+      }
+    } finally {
+      setIsPunching(false);
+    }
+  };
+  const onPunchInClick = async () => {
+    if (isPunching || !!dynamicData.punch.punch_in) return;
+    await handlePunchIn("");
+  };
+  const onPunchOutClick = async () => {
+    if (isPunching || !dynamicData.punch.punch_in) return;
+    await handlePunchOut("");
+  };
+  const dojFormatted = useMemo(
+    () => formatDate(dynamicData.user.doj),
+    [dynamicData.user.doj],
+  );
+  const experience = useMemo(
+    () => calculateExperience(dynamicData.user.doj),
+    [dynamicData.user.doj],
+  );
+  const totalLeave = useMemo(() => {
+    const pl = Number(dynamicData.leave_balance.pl);
+    const cl = Number(dynamicData.leave_balance.cl);
+    return isNaN(pl) || isNaN(cl) ? "N/A" : pl + cl;
+  }, [dynamicData.leave_balance]);
+  const punchInTimeDisplay = useMemo(
+    () => formatTime(dynamicData.punch.punch_in),
+    [dynamicData.punch.punch_in],
+  );
+  const todaysDate = useMemo(
+    () =>
+      new Date().toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }),
+    [],
+  );
+  const currentStatus = useMemo(() => {
+    if (dynamicData.punch.punch_in) {
+      return dynamicData.punch.punch_out ? "Inactive" : "Active";
+    }
+    return "Inactive";
+  }, [dynamicData.punch.punch_in, dynamicData.punch.punch_out]);
+  const isCheckedIn =
+    dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
+  const isCheckedOut = dynamicData.punch.punch_out;
+  const isActive = isCheckedIn;
+  const managerName =
+    [
+      dynamicData.managers?.l2?.name,
+      dynamicData.managers?.l1?.name,
+      dynamicData.managers?.l3?.name,
+    ]
+      .map((n) => (typeof n === "string" ? n.trim() : n))
+      .find((n) => n) || "N/A";
+  const managerDept = dynamicData.user?.circle || "N/A";
+  const userCircle = (dynamicData.user?.circle || "").trim().toUpperCase();
+  if (loading)
     return (
-        <>
-        <div className="main-layout">
-            <div className="content-area">
-                <div className="dashboard-content" style={{ paddingTop: "24px" }}>
-                    <div className="top-cards-grid">
-                        <div className="card top-card simple-card">
-                            <div className="card-content-wrapper">
-                                <h4 className="card-label">Employee ID</h4>
-                                <h3 className="card-value">{dynamicData.user.emp_id || 'N/A'}</h3> 
-                                <p className="card-subtext">{dynamicData.employee?.emp_type || dynamicData.user?.emp_type || dynamicData.user?.department || 'N/A'}</p> 
-                            </div>
-                            <div className="card-icon-round blue-bg">
-                                <MdBadge className="icon-white" size={24} />
-                            </div>
-                        </div>
-                        <div className="card top-card simple-card">
-                            <div className="card-content-wrapper">
-                                <h4 className="card-label">Date of Joining</h4>
-                                <h3 className="card-value">{dojFormatted}</h3> 
-                                <p className="card-subtext">{experience}</p> 
-                            </div>
-                            <div className="card-icon-round green-bg">
-                                <MdCalendarToday className="icon-white" size={24} />
-                            </div>
-                        </div>
-                        <div className="card top-card simple-card">
-                            <div className="card-content-wrapper">
-                                <h4 className="card-label">Leave Balance</h4>
-                                <h3 className="card-value">{totalLeave} Days</h3> 
-                                <p className="card-subtext">
-                                    {dynamicData.leave_balance.pl} PL + {dynamicData.leave_balance.cl} CL
-                                </p>
-                            </div>
-                            <div className="card-icon-round sky-bg">
-                                <FiSun className="icon-white" size={24} />
-                            </div>
-                        </div>
-                        <div className="card top-card manager-card">
-                            <div className="manager-content-left">
-                                <div className="card-label">Reporting Manager</div>
-                                <div className="manager-profile-box">
-                                    <h3 className="manager-name-text">{managerName}</h3> 
-                                    <p className="manager-dept-text">{managerDept}</p> 
-                                </div>
-                            </div>
-                            <button className="profile-action-btn orange-bg">
-                                <FiUserCheck className="icon-white" size={24} />
-                            </button>
-                        </div>
-                    </div>
-                    <div className="main-grid">
-                        <div className="dashboard-top-row grid-span-4">
-                            <div className="attendance-section">
-                            <div className="attendance-header">
-                                <h2 className="section-title">Today's Status</h2>
-                                <span className="attendance-date">{todaysDate}</span>
-                            </div>
-                            <div className="attendance-body">
-                                {/* Location & Status Row */}
-                                <div className="status-row-top">
-                                    <div className="location-badge">
-                                        <span className="location-label">Location</span>
-                                        <span className={`location-pill ${location.isAvailable && location.isInRange ? 'on' : 'off'}`}>
-                                            <span className="location-dot"></span>
-                                            {location.isAvailable && location.isInRange ? 'Within Range' : 'Off'}
-                                        </span>
-                                    </div>
-                                    <div className={`status-badge-main ${isActive ? 'active' : 'inactive'}`}>
-                                        <span className={`status-pulse-dot ${isActive ? 'active' : ''}`}></span>
-                                        <span className="status-text">{currentStatus}</span>
-                                    </div>
-                                </div>
-                                
-                                {location.error && (
-                                    <div className="location-error-banner">
-                                        <span>⚠️</span>
-                                        <span>{location.error}</span>
-                                    </div>
-                                )}
-                                
-                                {/* Stats Grid */}
-                                <div className="status-stats-grid">
-                                    <div className="status-stat-card">
-                                        <span className="stat-label">Check In</span>
-                                        <span className="stat-value">{punchInTimeDisplay || '--:--:--'}</span>
-                                    </div>
-                                    <div className="status-stat-card highlight">
-                                        <span className="stat-label">Hours Today</span>
-                                        <span className="stat-value stat-timer">{formatWorkingHours(dynamicData.punch.working_hours)}</span>
-                                    </div>
-                                </div>
-                                
-                                {/* Action Buttons */}
-                                <div className="status-action-buttons">
-                                    <button 
-                                        className="btn-punch btn-punch-in" 
-                                        onClick={onPunchInClick}
-                                        disabled={!!dynamicData.punch.punch_in || isPunching || !location.isAvailable}
-                                    >
-                                        <FiCheckCircle className="btn-icon" />
-                                        {isPunching && !isCheckedIn ? 'Punching In...' : 'Punch In'}
-                                    </button>
-                                    <button 
-                                        className="btn-punch btn-punch-out"
-                                        onClick={onPunchOutClick}
-                                        disabled={!dynamicData.punch.punch_in || isPunching || !location.isAvailable}
-                                    >
-                                        {isPunching && dynamicData.punch.punch_in ? 'Punching Out...' : 'Punch Out'}
-                                    </button>
-                                </div>
-                            </div>
-                            </div>
-                            <div 
-                                className="news-feed-section"
-                                onMouseEnter={() => setNewsFeedScrollPaused(true)}
-                                onMouseLeave={() => setNewsFeedScrollPaused(false)}
-                            >
-                            <h2 className="news-feed">
-                                <span 
-                                    className="news-feed-gradient-text"
-                                    style={{ 
-                                        background: 'linear-gradient(to right, #4f46e5, #3b82f6, #10b981)', 
-                                        WebkitBackgroundClip: 'text', 
-                                        backgroundClip: 'text', 
-                                        color: 'transparent',
-                                        WebkitTextFillColor: 'transparent',
-                                        display: 'inline-block'
-                                    }}
-                                >
-                                    News Feed
-                                </span>
-                            </h2>
-                            <p className="subtext">Announcements, birthdays & work anniversaries for your circle</p>
-                            {newsFeed.length === 0 ? (
-                                <p className="news-feed-empty">No announcements yet.</p>
-                            ) : (
-                                <ul className="news-feed-list" ref={newsFeedListRef}>
-                                    {newsFeed.map((item) => (
-                                        <li key={item.id} className={`news-feed-item ${(item.type || 'post') === 'birthday' ? 'news-feed-birthday' : ''} ${(item.type || 'post') === 'anniversary' ? 'news-feed-anniversary' : ''}`}>
-                                            <h4 className="news-feed-title">
-                                                {(item.type || '') === 'birthday' && '🎂 '}
-                                                {(item.type || '') === 'anniversary' && '🎉 '}
-                                                {item.title}
-                                            </h4>
-                                            <p className="news-feed-content">{item.content}</p>
-                                            <div className="news-feed-meta">
-                                                <span className="news-feed-date">{formatDate(item.created_at)}</span>
-                                                {(item.file_url || item.file_path) && (
-                                                    <a
-                                                        href={item.file_url || `/static/uploads/${item.file_path}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="news-feed-file"
-                                                    >
-                                                        Attachment
-                                                    </a>
-                                                )}
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                        </div>
-                        <div className="quick-actions grid-span-4 actions-grid" >
-                            <NavLink to="/leaves" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon green"><div className="action-icon-inner"><FiSun /></div></div>
-                                    <div>
-                                        <h4>Apply for Leave</h4>
-                                        <p>Submit a new leave request</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                            <NavLink to="/payslip" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon orange"><div className="action-icon-inner"><GiReceiveMoney /></div></div>
-                                    <div>
-                                        <h4>View Payslips</h4>
-                                        <p>Download payslip statements</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                            <NavLink to="/profile" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon sky"><div className="action-icon-inner"><FiUser /></div></div>
-                                    <div>
-                                        <h4>My Profile</h4>
-                                        <p>View and edit your details</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                            <NavLink to="/wfh" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon green"><div className="action-icon-inner"><FiHome /></div></div>
-                                    <div>
-                                        <h4>WFH Request</h4>
-                                        <p>Request work from home</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                            <NavLink to="/attendance" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon sky"><div className="action-icon-inner"><FiClock /></div></div>
-                                    <div>
-                                        <h4>My Attendance</h4>
-                                        <p>Check attendance records</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                            <NavLink to="/queries" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon blue"><div className="action-icon-inner"><FiHelpCircle /></div></div> 
-                                    <div>
-                                        <h4>Raise a Query</h4>
-                                        <p>Ask for HR/Admin support</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                             <NavLink to="/claims" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon orange"><div className="action-icon-inner"><FiDollarSign /></div></div>
-                                    <div>
-                                        <h4>Claims</h4>
-                                        <p>Check claim records</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                            <NavLink to="/change-password" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon blue"><div className="action-icon-inner"><FiKey /></div></div>
-                                    <div>
-                                        <h4>Change Password</h4>
-                                        <p>Update your account password</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                            <NavLink
-                                to="/holiday-calendar"
-                                className="action-card nav-link-card"
-                                onClick={(e) => {
-                                    if (userCircle !== 'NHQ') {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        alert('Holiday Calendar is only available for NHQ users.');
-                                    }
-                                }}
-                            > 
-                                <div className="action-icon-group">
-                                    <div className="action-icon sky"><div className="action-icon-inner"><FiCalendar /></div></div>
-                                    <div>
-                                        <h4>Holiday Calendar</h4>
-                                        <p>View upcoming holidays</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
-                               {/* <NavLink to="/account" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <IoMdPerson className="action-icon sky" />
-                                    <div>
-                                        <h4>Accounts</h4>
-                                        <p>Accounts Details</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink> */}
-                        </div>
-
-                        {/* Recent Activity */}
-                        <div className="recent-box grid-span-4">
-                            <h2 className="rec-act">Recent Activity</h2>
-                            <RecentActivityList
-                                punchIn={dynamicData.punch?.punch_in}
-                                punchOut={dynamicData.punch?.punch_out}
-                                lastLeave={dynamicData.last_leave}
-                                lastPayslip={dynamicData.last_payslip}
-                                formatTime={formatTime}
-                                formatTimeAgo={formatTimeAgo}
-                                formatDate={formatDate}
-                            />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        </>
+      <div className="full-height-center">
+        <h2 className="loader"></h2>
+      </div>
     );
+  return (
+    <>
+      <div className="main-layout">
+        <div className="content-area">
+          <div className="dashboard-content" style={{ paddingTop: "24px" }}>
+            <div className="top-cards-grid">
+              <div className="card top-card simple-card">
+                <div className="card-content-wrapper">
+                  <h4 className="card-label">Employee ID</h4>
+                  <h3 className="card-value">
+                    {dynamicData.user.emp_id || "N/A"}
+                  </h3>
+                  <p className="card-subtext">
+                    {dynamicData.employee?.emp_type ||
+                      dynamicData.user?.emp_type ||
+                      dynamicData.user?.department ||
+                      "N/A"}
+                  </p>
+                </div>
+                <div className="card-icon-round blue-bg">
+                  <MdBadge className="icon-white" size={24} />
+                </div>
+              </div>
+              <div className="card top-card simple-card">
+                <div className="card-content-wrapper">
+                  <h4 className="card-label">Date of Joining</h4>
+                  <h3 className="card-value">{dojFormatted}</h3>
+                  <p className="card-subtext">{experience}</p>
+                </div>
+                <div className="card-icon-round green-bg">
+                  <MdCalendarToday className="icon-white" size={24} />
+                </div>
+              </div>
+              <div className="card top-card simple-card">
+                <div className="card-content-wrapper">
+                  <h4 className="card-label">Leave Balance</h4>
+                  <h3 className="card-value">{totalLeave} Days</h3>
+                  <p className="card-subtext">
+                    {dynamicData.leave_balance.pl} PL +{" "}
+                    {dynamicData.leave_balance.cl} CL
+                  </p>
+                </div>
+                <div className="card-icon-round sky-bg">
+                  <FiSun className="icon-white" size={24} />
+                </div>
+              </div>
+              <div className="card top-card manager-card">
+                <div className="manager-content-left">
+                  <div className="card-label">Reporting Manager</div>
+                  <div className="manager-profile-box">
+                    <h3 className="manager-name-text">{managerName}</h3>
+                    <p className="manager-dept-text">{managerDept}</p>
+                  </div>
+                </div>
+                <button className="profile-action-btn orange-bg">
+                  <FiUserCheck className="icon-white" size={24} />
+                </button>
+              </div>
+            </div>
+            <div className="main-grid">
+              <div className="dashboard-top-row grid-span-4">
+                <div className="attendance-section">
+                  <div className="attendance-header">
+                    <h2 className="section-title">Today's Status</h2>
+                    <span className="attendance-date">{todaysDate}</span>
+                  </div>
+                  <div className="attendance-body">
+                    {/* Location & Status Row */}
+                    <div className="status-row-top">
+                      <div className="location-badge">
+                        <span className="location-label">Location</span>
+                        <span
+                          className={`location-pill ${location.isAvailable && location.isInRange ? "on" : "off"}`}
+                        >
+                          <span className="location-dot"></span>
+                          {location.isAvailable && location.isInRange
+                            ? "Within Range"
+                            : "Off"}
+                        </span>
+                      </div>
+                      <div
+                        className={`status-badge-main ${isActive ? "active" : "inactive"}`}
+                      >
+                        <span
+                          className={`status-pulse-dot ${isActive ? "active" : ""}`}
+                        ></span>
+                        <span className="status-text">{currentStatus}</span>
+                      </div>
+                    </div>
+
+                    {location.error && (
+                      <div className="location-error-banner">
+                        <span>⚠️</span>
+                        <span>{location.error}</span>
+                      </div>
+                    )}
+
+                    {/* Stats Grid */}
+                    <div className="status-stats-grid">
+                      <div className="status-stat-card">
+                        <span className="stat-label">Check In</span>
+                        <span className="stat-value">
+                          {punchInTimeDisplay || "--:--:--"}
+                        </span>
+                      </div>
+                      <div className="status-stat-card highlight">
+                        <span className="stat-label">Hours Today</span>
+                        <span className="stat-value stat-timer">
+                          {formatWorkingHours(dynamicData.punch.working_hours)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="status-action-buttons">
+                      <button
+                        className="btn-punch btn-punch-in"
+                        onClick={onPunchInClick}
+                        disabled={
+                          !!dynamicData.punch.punch_in ||
+                          isPunching ||
+                          !location.isAvailable
+                        }
+                      >
+                        <FiCheckCircle className="btn-icon" />
+                        {isPunching && !isCheckedIn
+                          ? "Punching In..."
+                          : "Punch In"}
+                      </button>
+                      <button
+                        className="btn-punch btn-punch-out"
+                        onClick={onPunchOutClick}
+                        disabled={
+                          !dynamicData.punch.punch_in ||
+                          isPunching ||
+                          !location.isAvailable
+                        }
+                      >
+                        {isPunching && dynamicData.punch.punch_in
+                          ? "Punching Out..."
+                          : "Punch Out"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className="news-feed-section"
+                  onMouseEnter={() => setNewsFeedScrollPaused(true)}
+                  onMouseLeave={() => setNewsFeedScrollPaused(false)}
+                >
+                  <h2 className="news-feed">
+                    <span
+                      className="news-feed-gradient-text"
+                      style={{
+                        background:
+                          "linear-gradient(to right, #4f46e5, #3b82f6, #10b981)",
+                        WebkitBackgroundClip: "text",
+                        backgroundClip: "text",
+                        color: "transparent",
+                        WebkitTextFillColor: "transparent",
+                        display: "inline-block",
+                      }}
+                    >
+                      News Feed
+                    </span>
+                  </h2>
+                  <p className="subtext">
+                    Announcements, birthdays & work anniversaries for your
+                    circle
+                  </p>
+                  {newsFeed.length === 0 ? (
+                    <p className="news-feed-empty">No announcements yet.</p>
+                  ) : (
+                    <ul className="news-feed-list" ref={newsFeedListRef}>
+                      {newsFeed.map((item) => (
+                        <li
+                          key={item.id}
+                          className={`news-feed-item ${(item.type || "post") === "birthday" ? "news-feed-birthday" : ""} ${(item.type || "post") === "anniversary" ? "news-feed-anniversary" : ""}`}
+                        >
+                          <h4 className="news-feed-title">
+                            {(item.type || "") === "birthday" && "🎂 "}
+                            {(item.type || "") === "anniversary" && "🎉 "}
+                            {item.title}
+                          </h4>
+                          <p className="news-feed-content">{item.content}</p>
+                          <div className="news-feed-meta">
+                            <span className="news-feed-date">
+                              {formatDate(item.created_at)}
+                            </span>
+                            {(item.file_url || item.file_path) && (
+                              <a
+                                href={
+                                  item.file_url ||
+                                  `/static/uploads/${item.file_path}`
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="news-feed-file"
+                              >
+                                Attachment
+                              </a>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+              <div className="quick-actions grid-span-4 actions-grid">
+                <NavLink to="/leaves" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <div className="action-icon green">
+                      <div className="action-icon-inner">
+                        <FiSun />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Apply for Leave</h4>
+                      <p>Submit a new leave request</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink to="/payslip" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <div className="action-icon orange">
+                      <div className="action-icon-inner">
+                        <GiReceiveMoney />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>View Payslips</h4>
+                      <p>Download payslip statements</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink to="/profile" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <div className="action-icon sky">
+                      <div className="action-icon-inner">
+                        <FiUser />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>My Profile</h4>
+                      <p>View and edit your details</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink to="/wfh" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <div className="action-icon green">
+                      <div className="action-icon-inner">
+                        <FiHome />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>WFH Request</h4>
+                      <p>Request work from home</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink to="/attendance" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <div className="action-icon sky">
+                      <div className="action-icon-inner">
+                        <FiClock />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>My Attendance</h4>
+                      <p>Check attendance records</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink to="/queries" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <div className="action-icon blue">
+                      <div className="action-icon-inner">
+                        <FiHelpCircle />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Raise a Query</h4>
+                      <p>Ask for HR/Admin support</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink to="/claims" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <div className="action-icon orange">
+                      <div className="action-icon-inner">
+                        <FiDollarSign />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Claims</h4>
+                      <p>Check claim records</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink
+                  to="/change-password"
+                  className="action-card nav-link-card"
+                >
+                  <div className="action-icon-group">
+                    <div className="action-icon blue">
+                      <div className="action-icon-inner">
+                        <FiKey />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Change Password</h4>
+                      <p>Update your account password</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink
+                  to="/holiday-calendar"
+                  className="action-card nav-link-card"
+                  onClick={(e) => {
+                    if (userCircle !== "NHQ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      alert(
+                        "Holiday Calendar is only available for NHQ users.",
+                      );
+                    }
+                  }}
+                >
+                  <div className="action-icon-group">
+                    <div className="action-icon sky">
+                      <div className="action-icon-inner">
+                        <FiCalendar />
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Holiday Calendar</h4>
+                      <p>View upcoming holidays</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+                <NavLink to="/account" className="action-card nav-link-card">
+                  <div className="action-icon-group">
+                    <IoMdPerson className="action-icon sky" />
+                    <div>
+                      <h4>Accounts</h4>
+                      <p>Accounts Details</p>
+                    </div>
+                  </div>
+                  <FiChevronRight className="arrow" />
+                </NavLink>
+              </div>
+
+              {/* Recent Activity */}
+              <div className="recent-box grid-span-4">
+                <h2 className="rec-act">Recent Activity</h2>
+                <RecentActivityList
+                  punchIn={dynamicData.punch?.punch_in}
+                  punchOut={dynamicData.punch?.punch_out}
+                  lastLeave={dynamicData.last_leave}
+                  lastPayslip={dynamicData.last_payslip}
+                  formatTime={formatTime}
+                  formatTimeAgo={formatTimeAgo}
+                  formatDate={formatDate}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
 };
-
-
-
-
-
-
-// import { useEffect, useState, useMemo, useRef } from "react";
-// import { NavLink } from 'react-router-dom';
-// import { 
-//     FiChevronRight, FiCheckCircle, FiUserCheck, FiCalendar, 
-//     FiBriefcase as FiBriefcaseIcon, FiMessageSquare 
-// } from "react-icons/fi";
-// import { MdOutlineDateRange } from "react-icons/md";
-// import { GiReceiveMoney } from "react-icons/gi";
-// import { TbDeviceLaptop } from "react-icons/tb";
-// import { IoMdPerson } from "react-icons/io";
-// import "./Dashboard.css";
-
-// const API_BASE_URL = "http://localhost:5000/api/auth";
-
-// // Helper Functions
-// const formatDate = (dateString) => {
-//     if (!dateString) return 'N/A';
-//     const date = new Date(dateString);
-//     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-// };
-
-// const formatTime = (isoString) => {
-//     if (!isoString) return '---';
-//     try {
-//         const date = new Date(isoString);
-//         return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-//     } catch (e) { return 'Invalid Time'; }
-// };
-
-// const calculateExperience = (doj) => {
-//     if (!doj) return 'N/A';
-//     const today = new Date();
-//     const joinDate = new Date(doj);
-//     let years = today.getFullYear() - joinDate.getFullYear();
-//     if (today.getMonth() < joinDate.getMonth() || (today.getMonth() === joinDate.getMonth() && today.getDate() < joinDate.getDate())) {
-//         years--;
-//     }
-//     return years >= 0 ? `${years} years` : 'Less than a year';
-// };
-
-// const formatTimeDifference = (diffMs) => {
-//     if (diffMs < 0) diffMs = 0;
-//     const totalSeconds = Math.floor(diffMs / 1000);
-//     const hours = Math.floor(totalSeconds / 3600);
-//     const minutes = Math.floor((totalSeconds % 3600) / 60);
-//     const seconds = totalSeconds % 60;
-//     return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
-// };
-
-// export const Dashboard = () => {
-//     const [loading, setLoading] = useState(true);
-//     const [isPunching, setIsPunching] = useState(false);
-//     const [location, setLocation] = useState({ lat: null, lon: null, error: null });
-//     const [dynamicData, setDynamicData] = useState({
-//         user: {}, employee: {}, punch: {}, leave_balance: { pl: 'N/A', cl: 'N/A' }, manager: {},
-//     });
-//     const [punchInDateTime, setPunchInDateTime] = useState(null);
-
-//     const fetchDashboardData = async () => {
-//         const token = localStorage.getItem('token');
-//         if (!token) return;
-//         try {
-//             const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
-//                 method: 'GET', headers: { 'Authorization': `Bearer ${token}` }
-//             });
-//             const result = await response.json();
-//             if (result.success) {
-//                 setDynamicData({
-//                     user: result.user || {},
-//                     employee: result.employee || {},
-//                     punch: result.punch || {},
-//                     leave_balance: result.leave_balance || { pl: 0, cl: 0 },
-//                     manager: result.manager || {},
-//                 });
-//                 if (result.punch.punch_in && !result.punch.punch_out) {
-//                     setPunchInDateTime(new Date(result.punch.punch_in));
-//                 }
-//             }
-//         } catch (err) { console.error("Fetch error:", err); }
-//         finally { setLoading(false); }
-//     };
-
-//     useEffect(() => { fetchDashboardData(); }, []);
-
-//     // Geolocation Effect
-//     useEffect(() => {
-//         if (navigator.geolocation) {
-//             navigator.geolocation.getCurrentPosition(
-//                 (pos) => setLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude, error: null }),
-//                 (err) => setLocation(p => ({ ...p, error: "Location required for Punch In." }))
-//             );
-//         }
-//     }, []);
-
-//     // Timer Effect
-//     useEffect(() => {
-//         let timer;
-//         if (punchInDateTime) {
-//             timer = setInterval(() => {
-//                 const diffMs = new Date().getTime() - punchInDateTime.getTime();
-//                 setDynamicData(prev => ({ ...prev, punch: { ...prev.punch, working_hours: formatTimeDifference(diffMs) } }));
-//             }, 1000);
-//         }
-//         return () => clearInterval(timer);
-//     }, [punchInDateTime]);
-
-//     // Punch Handlers
-//     const handlePunchIn = async () => {
-//         if (!location.lat) return alert(location.error);
-//         setIsPunching(true);
-//         try {
-//             const response = await fetch(`${API_BASE_URL}/employee/punch-in`, {
-//                 method: 'POST',
-//                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
-//                 body: JSON.stringify({ lat: location.lat, lon: location.lon, is_wfh: false })
-//             });
-//             const result = await response.json();
-//             if (result.success) {
-//                 setPunchInDateTime(new Date(result.punch_in));
-//                 fetchDashboardData();
-//             }
-//         } catch (e) { alert("Network error"); }
-//         finally { setIsPunching(false); }
-//     };
-
-//     const handlePunchOut = async () => {
-//         setIsPunching(true);
-//         try {
-//             const response = await fetch(`${API_BASE_URL}/employee/punch-out`, {
-//                 method: 'POST',
-//                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-//             });
-//             const result = await response.json();
-//             if (result.success) {
-//                 setPunchInDateTime(null);
-//                 fetchDashboardData();
-//             }
-//         } catch (e) { alert("Network error"); }
-//         finally { setIsPunching(false); }
-//     };
-
-//     // Memos
-//     const totalLeave = useMemo(() => Number(dynamicData.leave_balance.pl || 0) + Number(dynamicData.leave_balance.cl || 0), [dynamicData.leave_balance]);
-//     const todaysDate = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), []);
-
-//     if (loading) return <div className="full-height-center"><div className="loader"></div></div>;
-
-//     return (
-//         <div className="dashboard-container">
-//             {/* Top Cards */}
-//             <div className="top-cards-grid">
-//                 <div className="card simple-card">
-//                     <div className="card-content">
-//                         <p className="card-label">Employee ID</p>
-//                         <h3 className="card-value">{dynamicData.user.emp_id || 'N/A'}</h3>
-//                         <p className="card-subtext">{dynamicData.employee.designation || 'Staff'}</p>
-//                     </div>
-//                     <div className="card-icon-round blue-bg"><FiBriefcaseIcon /></div>
-//                 </div>
-
-//                 <div className="card simple-card">
-//                     <div className="card-content">
-//                         <p className="card-label">Joined Date</p>
-//                         <h3 className="card-value">{formatDate(dynamicData.user.doj)}</h3>
-//                         <p className="card-subtext">{calculateExperience(dynamicData.user.doj)}</p>
-//                     </div>
-//                     <div className="card-icon-round green-bg"><MdOutlineDateRange /></div>
-//                 </div>
-
-//                 <div className="card simple-card">
-//                     <div className="card-content">
-//                         <p className="card-label">Leave Balance</p>
-//                         <h3 className="card-value">{totalLeave} Days</h3>
-//                         <p className="card-subtext">{dynamicData.leave_balance.pl} PL | {dynamicData.leave_balance.cl} CL</p>
-//                     </div>
-//                     <div className="card-icon-round sky-bg"><FiCalendar /></div>
-//                 </div>
-
-//                 <div className="card manager-card">
-//                     <div className="manager-info">
-//                         <p className="card-label">Reporting Manager</p>
-//                         <h3 className="manager-name">{dynamicData.manager?.l1 || 'N/A'}</h3>
-//                         <p className="manager-dept">{dynamicData.user?.circle || 'Management'}</p>
-//                     </div>
-//                     <button className="action-circle-btn orange-bg"><FiUserCheck /></button>
-//                 </div>
-//             </div>
-
-//             {/* Attendance Section */}
-//             <div className="attendance-section card">
-//                 <div className="attendance-header">
-//                     <h2 className="section-title">Today's Status</h2>
-//                     <span className="attendance-date">{todaysDate}</span>
-//                 </div>
-//                 <div className="attendance-body">
-//                     <div className="status-item">
-//                         <p className="label">Check In Time</p>
-//                         <p className="time-value underline">{formatTime(dynamicData.punch.punch_in)}</p>
-//                     </div>
-//                     <div className="status-item center-status">
-//                         <p className="label">Current Status</p>
-//                         <p className={`status-pill ${punchInDateTime && !dynamicData.punch.punch_out ? 'active' : 'inactive'}`}>
-//                             {punchInDateTime && !dynamicData.punch.punch_out ? "Checked In" : "Checked Out"}
-//                         </p>
-//                     </div>
-//                     <div className="status-item">
-//                         <p className="label">Hours Today</p>
-//                         <p className="time-value">{dynamicData.punch.working_hours || '0h 00m 00s'}</p>
-//                     </div>
-//                     <div className="action-buttons">
-//                         <button className="btn-punch-in" onClick={handlePunchIn} disabled={!!punchInDateTime || isPunching}>
-//                             <FiCheckCircle /> Punch In
-//                         </button>
-//                         <button className="btn-punch-out" onClick={handlePunchOut} disabled={!punchInDateTime || isPunching}>
-//                             Punch Out
-//                         </button>
-//                     </div>
-//                 </div>
-//             </div>
-
-//             {/* Side-by-Side Bottom Section */}
-//             <div className="bottom-grid-container">
-//                 <div className="quick-actions-box card">
-//                     <h2 className="section-title">Quick Actions</h2>
-//                     <div className="actions-subgrid">
-//                         <NavLink to="/leaves" className="nav-action-card">
-//                             <div className="nav-content"><TbDeviceLaptop className="icon green" /> <div><h4>Leave</h4><p>Apply Now</p></div></div>
-//                             <FiChevronRight />
-//                         </NavLink>
-//                         <NavLink to="/payslip" className="nav-action-card">
-//                             <div className="nav-content"><GiReceiveMoney className="icon orange" /> <div><h4>Payslips</h4><p>View Details</p></div></div>
-//                             <FiChevronRight />
-//                         </NavLink>
-//                         <NavLink to="/attendance" className="nav-action-card">
-//                             <div className="nav-content"><IoMdPerson className="icon sky" /> <div><h4>Attendance</h4><p>History</p></div></div>
-//                             <FiChevronRight />
-//                         </NavLink>
-//                         <NavLink to="/queries" className="nav-action-card">
-//                             <div className="nav-content"><FiMessageSquare className="icon blue" /> <div><h4>Queries</h4><p>Support</p></div></div>
-//                             <FiChevronRight />
-//                         </NavLink>
-//                          <NavLink to="/wfh" className="nav-action-card"> 
-//                                 <div className="nav-content">
-//                                      <FiMessageSquare className="icon blue" />
-//                                      <div>
-//                                          <h4>WFH Request</h4>
-//                                          <p>Request work from home</p>
-//                                      </div>
-//                                  </div>
-//                                  <FiChevronRight />
-//                              </NavLink>
-//                               <NavLink to="/claims" className="nav-action-card">                                  <div className="nav-content">
-//                                      <FiMessageSquare className="icon blue"  />
-//                                      <div>
-//                                          <h4>Claims</h4>
-//                                          <p>Check claim records</p>                                     </div>
-//                                  </div>
-//                                  <FiChevronRight/>
-//                             </NavLink>
-//                     </div>
-//                 </div>
-
-//                 <div className="recent-activity-box card">
-//                     <h2 className="section-title">Recent Activity</h2>
-//                     <ul className="activity-timeline">
-//                         <li><span className="dot green"></span> <p>Leave approved by HR</p> <small>2h ago</small></li>
-//                         <li><span className="dot red"></span> <p>Punched out (Yesterday)</p> <small>6:02 PM</small></li>
-//                         <li><span className="dot blue"></span> <p>New policy update</p> <small>3 days ago</small></li>
-//                     </ul>
-//                 </div>
-//             </div>
-//         </div>
-//     );
-// };
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { useEffect, useState, useMemo, useRef } from "react";
-// import { NavLink } from 'react-router-dom';
-// import { 
-//     FiChevronRight, FiCheckCircle, FiLogOut, FiUser, 
-//     FiBriefcase, FiCalendar, FiMessageSquare, FiClock 
-// } from "react-icons/fi";
-// import { MdOutlineDateRange, MdPayments } from "react-icons/md";
-// import { IoMdPerson } from "react-icons/io";
-// import "./Dashboard.css";
-
-// const API_BASE_URL = "http://localhost:5000/api/auth";
-
-// const formatDate = (dateString) => {
-//     if (!dateString) return 'N/A';
-//     const date = new Date(dateString);
-//     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-// };
-
-// const formatTimeDifference = (diffMs) => {
-//     if (diffMs < 0) diffMs = 0;
-//     const totalSeconds = Math.floor(diffMs / 1000);
-//     const hours = Math.floor(totalSeconds / 3600);
-//     const minutes = Math.floor((totalSeconds % 3600) / 60);
-//     const seconds = totalSeconds % 60;
-//     return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
-// };
-
-// export const Dashboard = () => {  
-//     const [loading, setLoading] = useState(true);
-//     const [isPunching, setIsPunching] = useState(false);
-//     const [punchInDateTime, setPunchInDateTime] = useState(null);
-//     const [dynamicData, setDynamicData] = useState({
-//         user: {}, employee: {}, punch: {}, leave_balance: { pl: 0, cl: 0 }, manager: {},
-//     });
-
-//     const fetchDashboardData = async () => {
-//         const token = localStorage.getItem('token');
-//         try {
-//             const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
-//                 headers: { 'Authorization': `Bearer ${token}` }
-//             });
-//             const result = await response.json();
-//             if (result.success) { 
-//                 setDynamicData({
-//                     user: result.user || {},
-//                     employee: result.employee || {},
-//                     punch: result.punch || {},
-//                     leave_balance: result.leave_balance || { pl: 0, cl: 0 },
-//                     manager: result.manager || {},
-//                 }); 
-//                 if (result.punch.punch_in && !result.punch.punch_out) {
-//                     setPunchInDateTime(new Date(result.punch.punch_in));
-//                 }
-//             }
-//         } catch (err) { console.error(err); } 
-//         finally { setLoading(false); }
-//     };
-
-//     useEffect(() => { fetchDashboardData(); }, []);
-
-//     useEffect(() => {
-//         let timer; 
-//         if (punchInDateTime) {
-//             timer = setInterval(() => {
-//                 const diffMs = new Date().getTime() - punchInDateTime.getTime();
-//                 setDynamicData(prev => ({ ...prev, punch: { ...prev.punch, working_hours: formatTimeDifference(diffMs) } }));
-//             }, 1000); 
-//         }
-//         return () => clearInterval(timer);
-//     }, [punchInDateTime]);
-
-//     const isCheckedIn = !!dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
-
-//     if (loading) return <div className="loader-container"><div className="spinner"></div></div>;
-
-//     return (
-//         <div className="dashboard-container">
-//             {/* Top Stats Row */}
-//             <div className="stats-grid">
-//                 <div className="stat-card">
-//                     <div className="stat-info">
-//                         <span className="stat-label">Employee ID</span>
-//                         <h3 className="stat-value">{dynamicData.user.emp_id || '---'}</h3>
-//                         <span className="stat-sub">{dynamicData.employee.designation || 'Staff'}</span>
-//                     </div>
-//                     <div className="stat-icon-box blue"><FiBriefcase /></div>
-//                 </div>
-
-//                 <div className="stat-card">
-//                     <div className="stat-info">
-//                         <span className="stat-label">Date of Joining</span>
-//                         <h3 className="stat-value">{formatDate(dynamicData.user.doj)}</h3>
-//                         <span className="stat-sub">New Member</span>
-//                     </div>
-//                     <div className="stat-icon-box green"><MdOutlineDateRange /></div>
-//                 </div>
-
-//                 <div className="stat-card">
-//                     <div className="stat-info">
-//                         <span className="stat-label">Leave Balance</span>
-//                         <h3 className="stat-value">{Number(dynamicData.leave_balance.pl) + Number(dynamicData.leave_balance.cl)} Days</h3>
-//                         <span className="stat-sub">{dynamicData.leave_balance.pl} PL | {dynamicData.leave_balance.cl} CL</span>
-//                     </div>
-//                     <div className="stat-icon-box sky"><FiCalendar /></div>
-//                 </div>
-
-//                 <div className="stat-card manager-card">
-//                     <div className="stat-info">
-//                         <span className="stat-label">Reporting Manager</span>
-//                         <h3 className="stat-value manager-name">{dynamicData.manager?.l1 || "N/A"}</h3>
-//                         <span className="stat-sub">{dynamicData.user?.circle || "Head Office"}</span>
-//                     </div>
-//                     <div className="stat-icon-box orange"><FiUser /></div>
-//                 </div>
-//             </div>
-
-//             {/* Attendance Section */}
-//             <div className="attendance-card">
-//                 <div className="card-header">
-//                     <h2>Today's Status</h2>
-//                     <span className="date-badge">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</span>
-//                 </div>
-//                 <div className="attendance-content">
-//                     <div className="info-group">
-//                         <label><FiClock /> Check In</label>
-//                         <p>{dynamicData.punch.punch_in ? new Date(dynamicData.punch.punch_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</p>
-//                     </div>
-//                     <div className="info-group">
-//                         <label>Status</label>
-//                         <span className={`status-pill ${isCheckedIn ? 'in' : 'out'}`}>
-//                             {isCheckedIn ? "Checked In" : "Not Checked In"}
-//                         </span>
-//                     </div>
-//                     <div className="info-group">
-//                         <label>Working Hours</label>
-//                         <p className="timer-text">{dynamicData.punch.working_hours || '0h 00m 00s'}</p>
-//                     </div>
-//                     <div className="button-group">
-//                         <button className="btn-punch in" disabled={isCheckedIn || isPunching}>
-//                             <FiCheckCircle /> Punch In
-//                         </button>
-//                         <button className="btn-punch out" disabled={!isCheckedIn || isPunching}>
-//                             <FiLogOut /> Punch Out
-//                         </button>
-//                     </div>
-//                 </div>
-//             </div>
-
-//             {/* Bottom Section */}
-//             <div className="bottom-row">
-//                 <div className="quick-actions-box">
-//                     <h2 className="section-title">Quick Actions</h2>
-//                     <div className="actions-grid">
-//                         <NavLink to="/leaves" className="action-item">
-//                             <div className="action-icon purple"><FiCalendar /></div>
-//                             <div className="action-text">
-//                                 <strong>Apply Leave</strong>
-//                                 <p>Plan your time off</p>
-//                             </div>
-//                             <FiChevronRight className="chevron" />
-//                         </NavLink>
-//                         <NavLink to="/payslip" className="action-item">
-//                             <div className="action-icon gold"><MdPayments /></div>
-//                             <div className="action-text">
-//                                 <strong>Payslips</strong>
-//                                 <p>View & Download</p>
-//                             </div>
-//                             <FiChevronRight className="chevron" />
-//                         </NavLink>
-//                         <NavLink to="/attendance" className="action-item">
-//                             <div className="action-icon teal"><IoMdPerson /></div>
-//                             <div className="action-text">
-//                                 <strong>Attendance</strong>
-//                                 <p>History & Logs</p>
-//                             </div>
-//                             <FiChevronRight className="chevron" />
-//                         </NavLink>
-//                         <NavLink to="/queries" className="action-item">
-//                             <div className="action-icon rose"><FiMessageSquare /></div>
-//                             <div className="action-text">
-//                                 <strong>Help Desk</strong>
-//                                 <p>Raise a Query</p>
-//                             </div>
-//                             <FiChevronRight className="chevron" />
-//                         </NavLink>
-//                     </div>
-//                 </div>
-
-//                 <div className="activity-box">
-//                     <h2 className="section-title">Recent Activity</h2>
-//                     <div className="activity-list">
-//                         <div className="activity-item">
-//                             <span className="activity-dot green"></span>
-//                             <div className="activity-info">
-//                                 <p>Leave Request Approved</p>
-//                                 <small>2 hours ago</small>
-//                             </div>
-//                         </div>
-//                         <div className="activity-item">
-//                             <span className="activity-dot blue"></span>
-//                             <div className="activity-info">
-//                                 <p>Punch In successful</p>
-//                                 <small>09:15 AM</small>
-//                             </div>
-//                         </div>
-//                     </div>
-//                 </div>
-//             </div>
-//         </div>
-//     );
-// };
-
-
-
-
-
-
-
-
-
-
-
-///////working welllllllllll
-// import { useEffect, useState, useMemo, useRef } from "react";
-// import { NavLink } from 'react-router-dom';
-// import { 
-//     FiChevronRight, FiCheckCircle, FiLogOut, FiUser, 
-//     FiBriefcase, FiCalendar, FiMessageSquare, FiClock 
-// } from "react-icons/fi";
-// import { MdOutlineDateRange, MdPayments } from "react-icons/md";
-// import { IoMdPerson } from "react-icons/io";
-// import "./Dashboard.css";
-
-// const API_BASE_URL = "http://localhost:5000/api/auth";
-
-// const formatDate = (dateString) => {
-//     if (!dateString) return 'N/A';
-//     const date = new Date(dateString);
-//     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-// };
-
-// const formatTimeDifference = (diffMs) => {
-//     if (diffMs < 0) diffMs = 0;
-//     const totalSeconds = Math.floor(diffMs / 1000);
-//     const hours = Math.floor(totalSeconds / 3600);
-//     const minutes = Math.floor((totalSeconds % 3600) / 60);
-//     const seconds = totalSeconds % 60;
-//     return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
-// };
-
-// export const Dashboard = () => {  
-//     const [loading, setLoading] = useState(true);
-//     const [isPunching, setIsPunching] = useState(false);
-//     const [punchInDateTime, setPunchInDateTime] = useState(null);
-//     const [dynamicData, setDynamicData] = useState({
-//         user: {}, employee: {}, punch: {}, leave_balance: { pl: 0, cl: 0 }, manager: {},
-//     });
-
-//     const fetchDashboardData = async () => {
-//         const token = localStorage.getItem('token');
-//         try {
-//             const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
-//                 headers: { 'Authorization': `Bearer ${token}` }
-//             });
-//             const result = await response.json();
-//             if (result.success) { 
-//                 setDynamicData({
-//                     user: result.user || {},
-//                     employee: result.employee || {},
-//                     punch: result.punch || {},
-//                     leave_balance: result.leave_balance || { pl: 0, cl: 0 },
-//                     manager: result.manager || {},
-//                 }); 
-//                 if (result.punch.punch_in && !result.punch.punch_out) {
-//                     setPunchInDateTime(new Date(result.punch.punch_in));
-//                 }
-//             }
-//         } catch (err) { console.error(err); } 
-//         finally { setLoading(false); }
-//     };
-
-//     useEffect(() => { fetchDashboardData(); }, []);
-
-//     useEffect(() => {
-//         let timer; 
-//         if (punchInDateTime) {
-//             timer = setInterval(() => {
-//                 const diffMs = new Date().getTime() - punchInDateTime.getTime();
-//                 setDynamicData(prev => ({ ...prev, punch: { ...prev.punch, working_hours: formatTimeDifference(diffMs) } }));
-//             }, 1000); 
-//         }
-//         return () => clearInterval(timer);
-//     }, [punchInDateTime]);
-
-//     const isCheckedIn = !!dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
-
-//     if (loading) return <div className="loader-container"><div className="spinner"></div></div>;
-
-//     return (
-//         <div className="dashboard-container">
-//             {/* The 4 Top Cards (Original Design) */}
-//             <div className="stats-grid">
-//                 <div className="stat-card">
-//                     <div className="stat-content">
-//                         <p className="stat-label">Employee ID</p>
-//                         <h3 className="stat-value">{dynamicData.user.emp_id || '---'}</h3>
-//                         <p className="stat-subtext">{dynamicData.employee.designation || 'N/A'}</p>
-//                     </div>
-//                     <div className="stat-icon-circle blue-bg"><FiBriefcase /></div>
-//                 </div>
-
-//                 <div className="stat-card">
-//                     <div className="stat-content">
-//                         <p className="stat-label">Date of Joining</p>
-//                         <h3 className="stat-value">{formatDate(dynamicData.user.doj)}</h3>
-//                         <p className="stat-subtext">0 years</p>
-//                     </div>
-//                     <div className="stat-icon-circle green-bg"><MdOutlineDateRange /></div>
-//                 </div>
-
-//                 <div className="stat-card">
-//                     <div className="stat-content">
-//                         <p className="stat-label">Leave Balance</p>
-//                         <h3 className="stat-value">{Number(dynamicData.leave_balance.pl) + Number(dynamicData.leave_balance.cl)} Days</h3>
-//                         <p className="stat-subtext">{dynamicData.leave_balance.pl} PL + {dynamicData.leave_balance.cl} CL</p>
-//                     </div>
-//                     <div className="stat-icon-circle sky-bg"><FiCalendar /></div>
-//                 </div>
-
-//                 <div className="stat-card">
-//                     <div className="stat-content">
-//                         <p className="stat-label">Reporting Manager</p>
-//                         <h3 className="stat-value">{dynamicData.manager?.l1 || "N/A"}</h3>
-//                         <p className="stat-subtext">{dynamicData.user?.circle || "NHQ"}</p>
-//                     </div>
-//                     <div className="stat-icon-circle orange-bg"><FiUser /></div>
-//                 </div>
-//             </div>
-
-//             {/* Attendance Section (Polished) */}
-//             <div className="attendance-section">
-//                 <div className="attendance-header">
-//                     <h2 className="section-title">Today's Status</h2>
-//                     <span className="current-date">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</span>
-//                 </div>
-//                 <div className="attendance-row">
-//                     <div className="att-info">
-//                         <span className="att-label">Check In Time</span>
-//                         <span className="att-data">{dynamicData.punch.punch_in ? new Date(dynamicData.punch.punch_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '---'}</span>
-//                     </div>
-//                     <div className="att-info">
-//                         <span className="att-label">Current Status</span>
-//                         <span className={`status-tag ${isCheckedIn ? 'active' : 'inactive'}`}>
-//                             {isCheckedIn ? "Checked In" : "Not Checked In"}
-//                         </span>
-//                     </div>
-//                     <div className="att-info">
-//                         <span className="att-label">Hours Today</span>
-//                         <span className="att-data timer">{dynamicData.punch.working_hours || '0h 00m 00s'}</span>
-//                     </div>
-//                     <div className="att-actions">
-//                         <button className="punch-btn in" disabled={isCheckedIn || isPunching}>
-//                            <FiCheckCircle /> Punch In
-//                         </button>
-//                         <button className="punch-btn out" disabled={!isCheckedIn || isPunching}>
-//                            <FiLogOut /> Punch Out
-//                         </button>
-//                     </div>
-//                 </div>
-//             </div>
-
-//             {/* Bottom Row */}
-//             <div className="bottom-layout">
-//                 <div className="quick-actions-card">
-//                     <h2 className="section-title">Quick Actions</h2>
-//                     <div className="actions-container">
-//                         <NavLink to="/leaves" className="action-tile">
-//                             <div className="tile-icon purple"><FiCalendar /></div>
-//                             <div className="tile-text">
-//                                 <strong>Apply Leave</strong>
-//                                 <small>Submit request</small>
-//                             </div>
-//                             <FiChevronRight className="tile-arrow" />
-//                         </NavLink>
-//                         <NavLink to="/payslip" className="action-tile">
-//                             <div className="tile-icon gold"><MdPayments /></div>
-//                             <div className="tile-text">
-//                                 <strong>Payslips</strong>
-//                                 <small>Download</small>
-//                             </div>
-//                             <FiChevronRight className="tile-arrow" />
-//                         </NavLink>
-//                         <NavLink to="/attendance" className="action-tile">
-//                             <div className="tile-icon teal"><IoMdPerson /></div>
-//                             <div className="tile-text">
-//                                 <strong>Attendance</strong>
-//                                 <small>View records</small>
-//                             </div>
-//                             <FiChevronRight className="tile-arrow" />
-//                         </NavLink>
-//                         <NavLink to="/queries" className="action-tile">
-//                             <div className="tile-icon rose"><FiMessageSquare /></div>
-//                             <div className="tile-text">
-//                                 <strong>Queries</strong>
-//                                 <small>HR Support</small>
-//                             </div>
-//                             <FiChevronRight className="tile-arrow" />
-//                         </NavLink>
-//                     </div>
-//                 </div>
-
-//                 <div className="activity-card">
-//                     <h2 className="section-title">Recent Activity</h2>
-//                     <div className="activity-feed">
-//                         <div className="feed-item">
-//                             <div className="feed-dot green"></div>
-//                             <div className="feed-content">
-//                                 <p>Leave approved</p>
-//                                 <small>2h ago</small>
-//                             </div>
-//                         </div>
-//                         <div className="feed-item">
-//                             <div className="feed-dot blue"></div>
-//                             <div className="feed-content">
-//                                 <p>Punch-out at 6:02 PM</p>
-//                                 <small>Yesterday</small>
-//                             </div>
-//                         </div>
-//                     </div>
-//                 </div>
-//             </div>
-//         </div>
-//     );
-// };
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { useEffect, useState } from "react";
-// import { NavLink } from 'react-router-dom';
-// import { 
-//     FiChevronRight, FiCheckCircle, FiLogOut, FiUser, 
-//     FiBriefcase, FiCalendar, FiMessageSquare, FiActivity, FiClock 
-// } from "react-icons/fi";
-// import { MdOutlineDateRange, MdPayments } from "react-icons/md";
-// import { IoMdPerson } from "react-icons/io";
-// import "./Dashboard.css";
-
-// const API_BASE_URL = "http://localhost:5000/api/auth";
-
-// export const Dashboard = () => {  
-//     const [loading, setLoading] = useState(true);
-//     const [punchInDateTime, setPunchInDateTime] = useState(null);
-//     const [dynamicData, setDynamicData] = useState({
-//         user: {}, employee: {}, punch: {}, leave_balance: { pl: 0, cl: 0 }, manager: {},
-//     });
-
-//     const fetchDashboardData = async () => {
-//         const token = localStorage.getItem('token');
-//         try {
-//             const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
-//                 headers: { 'Authorization': `Bearer ${token}` }
-//             });
-//             const result = await response.json();
-//             if (result.success) { 
-//                 setDynamicData({
-//                     user: result.user || {},
-//                     employee: result.employee || {},
-//                     punch: result.punch || {},
-//                     leave_balance: result.leave_balance || { pl: 0, cl: 0 },
-//                     manager: result.manager || {},
-//                 }); 
-//                 if (result.punch.punch_in && !result.punch.punch_out) {
-//                     setPunchInDateTime(new Date(result.punch.punch_in));
-//                 }
-//             }
-//         } catch (err) { console.error(err); } 
-//         finally { setLoading(false); }
-//     };
-
-//     useEffect(() => { fetchDashboardData(); }, []);
-
-//     const isCheckedIn = !!dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
-
-//     if (loading) return <div className="loader-container"><div className="spinner"></div></div>;
-
-//     return (
-//         <main className="dashboard-wrapper">
-//             {/* <header className="dashboard-welcome">
-//                 <h1>Welcome back, {dynamicData.user.name || 'User'}!</h1>
-//                 <p>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
-//             </header> */}
-
-//             <section className="stats-grid">
-//                 {[
-//                     { label: "Employee ID", val: dynamicData.user.emp_id, sub: dynamicData.employee.designation, icon: <FiBriefcase />, theme: "blue" },
-//                     { label: "Date of Joining", val: dynamicData.user.doj ? new Date(dynamicData.user.doj).toLocaleDateString() : 'N/A', sub: "Permanent", icon: <MdOutlineDateRange />, theme: "green" },
-//                     { label: "Leave Balance", val: `${Number(dynamicData.leave_balance.pl) + Number(dynamicData.leave_balance.cl)} Days`, sub: `${dynamicData.leave_balance.pl} PL | ${dynamicData.leave_balance.cl} CL`, icon: <FiCalendar />, theme: "sky" },
-//                     { label: "Reporting Manager", val: dynamicData.manager?.l1 || "Not Assigned", sub: dynamicData.user?.circle || "Head Office", icon: <FiUser />, theme: "orange" }
-//                 ].map((card, i) => (
-//                     <div className="stat-card" key={i}>
-//                         <div className="stat-info">
-//                             <span className="label">{card.label}</span>
-//                             <span className="value">{card.val || '---'}</span>
-//                             <span className="subtext">{card.sub || '---'}</span>
-//                         </div>
-//                         <div className={`icon-box ${card.theme}`}>{card.icon}</div>
-//                     </div>
-//                 ))}
-//             </section>
-
-//             <section className="attendance-card">
-//                 <div className="card-header">
-//                     <h2><FiClock /> Attendance Overview</h2>
-//                     <span className={`status-pill ${isCheckedIn ? 'online' : 'offline'}`}>
-//                         {isCheckedIn ? "Checked In" : "Offline"}
-//                     </span>
-//                 </div>
-//                 <div className="attendance-body">
-//                     <div className="data-point">
-//                         <span className="label">Check In</span>
-//                         <span className="text">{dynamicData.punch.punch_in ? new Date(dynamicData.punch.punch_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</span>
-//                     </div>
-//                     <div className="data-point">
-//                         <span className="label">Working Hours</span>
-//                         <span className="text timer">{dynamicData.punch.working_hours || '0h 00m 00s'}</span>
-//                     </div>
-//                     <div className="button-group">
-//                         <button className="btn-punch in" disabled={isCheckedIn}>Punch In</button>
-//                         <button className="btn-punch out" disabled={!isCheckedIn}>Punch Out</button>
-//                     </div>
-//                 </div>
-//             </section>
-
-//             <div className="dashboard-footer-grid">
-//                 <section className="actions-card">
-//                     <h3>Quick Actions</h3>
-//                     <div className="actions-list">
-//                         {[
-//                             { to: "/leaves", icon: <FiCalendar />, title: "Apply Leave", color: "purple" },
-//                             { to: "/payslip", icon: <MdPayments />, title: "View Payslips", color: "gold" },
-//                             { to: "/attendance", icon: <IoMdPerson />, title: "Records", color: "teal" }
-//                         ].map((link, i) => (
-//                             <NavLink to={link.to} className="action-item" key={i}>
-//                                 <span className={`action-icon ${link.color}`}>{link.icon}</span>
-//                                 <span className="action-label">{link.title}</span>
-//                                 <FiChevronRight className="arrow" />
-//                             </NavLink>
-//                         ))}
-//                     </div>
-//                 </section>
-
-//                 <section className="activity-card">
-//                     <h3>Recent Activity</h3>
-//                     <div className="timeline">
-//                         <div className="timeline-item">
-//                             <div className="marker active"></div>
-//                             <div className="content">
-//                                 <p>Punch-in Recorded</p>
-//                                 <span>Today, 09:15 AM</span>
-//                             </div>
-//                         </div>
-//                         <div className="timeline-item">
-//                             <div className="marker"></div>
-//                             <div className="content">
-//                                 <p>Monthly Payslip</p>
-//                                 <span>Jan 25, 2026</span>
-//                             </div>
-//                         </div>
-//                     </div>
-//                 </section>
-//             </div>
-//         </main>
-//     );
-// };
-
-
-
-
-
-
-
-
-
-
-// import { useEffect, useState } from "react";
-// import { NavLink } from 'react-router-dom';
-// import { 
-//     FiChevronRight, FiUser, FiBriefcase, FiCalendar, FiClock, FiActivity 
-// } from "react-icons/fi";
-// import { MdOutlineDateRange, MdPayments } from "react-icons/md";
-// import { IoMdPerson } from "react-icons/io";
-// import "./Dashboard.css";
-
-// const API_BASE_URL = "http://localhost:5000/api/auth";
-
-// export const Dashboard = () => {  
-//     const [loading, setLoading] = useState(true);
-//     const [dynamicData, setDynamicData] = useState({
-//         user: {}, employee: {}, punch: {}, leave_balance: { pl: 0, cl: 0 }, manager: {},
-//     });
-
-//     const fetchDashboardData = async () => {
-//         const token = localStorage.getItem('token');
-//         try {
-//             const response = await fetch(`${API_BASE_URL}/employee/homepage`, {
-//                 headers: { 'Authorization': `Bearer ${token}` }
-//             });
-//             const result = await response.json();
-//             if (result.success) { 
-//                 setDynamicData({
-//                     user: result.user || {},
-//                     employee: result.employee || {},
-//                     punch: result.punch || {},
-//                     leave_balance: result.leave_balance || { pl: 0, cl: 0 },
-//                     manager: result.manager || {},
-//                 }); 
-//             }
-//         } catch (err) { console.error(err); } 
-//         finally { setLoading(false); }
-//     };
-
-//     useEffect(() => { fetchDashboardData(); }, []);
-
-//     if (loading) return <div className="loader-container"><div className="spinner"></div></div>;
-
-//     const statItems = [
-//         { label: "Employee ID", val: dynamicData.user.emp_id, sub: dynamicData.employee.designation, icon: <FiBriefcase />, theme: "blue" },
-//         { label: "Date of Joining", val: dynamicData.user.doj ? new Date(dynamicData.user.doj).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : 'N/A', sub: "Permanent", icon: <MdOutlineDateRange />, theme: "green" },
-//         { label: "Leave Balance", val: `${Number(dynamicData.leave_balance.pl) + Number(dynamicData.leave_balance.cl)} Days`, sub: `${dynamicData.leave_balance.pl} PL + ${dynamicData.leave_balance.cl} CL`, icon: <FiCalendar />, theme: "sky" },
-//         { label: "Reporting Manager", val: dynamicData.manager?.l1 || "N/A", sub: dynamicData.user?.circle || "Head Office", icon: <FiUser />, theme: "orange" }
-//     ];
-
-//     return (
-//         <div className="dashboard-main">
-//             {/* Top Stat Cards: Content Left, Icon Right */}
-//             <div className="stats-row">
-//                 {statItems.map((item, i) => (
-//                     <div className="stat-card" key={i}>
-//                         <div className="info-side">
-//                             <span className="info-label">{item.label}</span>
-//                             <h2 className="info-value">{item.val}</h2>
-//                             <span className="info-subtext">{item.sub}</span>
-//                         </div>
-//                         <div className={`icon-side ${item.theme}`}>
-//                             {item.icon}
-//                         </div>
-//                     </div>
-//                 ))}
-//             </div>
-
-//             {/* Attendance Card */}
-//             <div className="attendance-box">
-//                 <div className="box-header">
-//                     <h3>Attendance Overview</h3>
-//                     <span className="date-tag">{new Date().toDateString()}</span>
-//                 </div>
-//                 <div className="box-grid">
-//                     <div className="grid-item">
-//                         <label>Check In</label>
-//                         <p>{dynamicData.punch.punch_in ? new Date(dynamicData.punch.punch_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</p>
-//                     </div>
-//                     <div className="grid-item">
-//                         <label>Working Hours</label>
-//                         <p className="highlight-blue">{dynamicData.punch.working_hours || '0h 00m 00s'}</p>
-//                     </div>
-//                     <div className="grid-actions">
-//                         <button className="punch-btn punch-in">Punch In</button>
-//                         <button className="punch-btn punch-out">Punch Out</button>
-//                     </div>
-//                 </div>
-//             </div>
-
-//             {/* Bottom Section */}
-//             <div className="bottom-row">
-//                 <div className="content-box">
-//                     <h3>Quick Actions</h3>
-//                     <div className="action-stack">
-//                         <NavLink to="/leaves" className="action-btn">
-//                             <FiCalendar className="act-icon purple" />
-//                             <div className="act-text"><strong>Apply Leave</strong><small>Submit request</small></div>
-//                             <FiChevronRight className="act-arrow" />
-//                         </NavLink>
-//                         <NavLink to="/payslip" className="action-btn">
-//                             <MdPayments className="act-icon gold" />
-//                             <div className="act-text"><strong>Payslips</strong><small>Download monthly</small></div>
-//                             <FiChevronRight className="act-arrow" />
-//                         </NavLink>
-//                     </div>
-//                 </div>
-//                 <div className="content-box">
-//                     <h3>Recent Activity</h3>
-//                     <div className="activity-feed">
-//                         <div className="feed-item">
-//                             <div className="feed-dot green"></div>
-//                             <div className="feed-content">
-//                                 <strong>Punch-in Recorded</strong>
-//                                 <span>Today, 09:15 AM</span>
-//                             </div>
-//                         </div>
-//                     </div>
-//                 </div>
-//             </div>
-//         </div>
-//     );
-// };3

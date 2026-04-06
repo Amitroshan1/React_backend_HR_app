@@ -1,0 +1,674 @@
+
+import { useState, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  getAssetUnitsFromStorage,
+  getInventoryFromStorage,
+  saveAssetUnitsToStorage,
+  saveInventoryToStorage,
+  generateInventoryId,
+  addToInventory,
+  addSoftwareToInventory,
+  compressImage,
+} from "../Data";
+import "./AddnewAssets.css";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const BASE = "/it/inventory";
+
+const ASSET_TYPES = [
+  { label: "IT Assets",             key: "it"             },
+  { label: "Office Assets",         key: "office"         },
+  { label: "Transport Assets",      key: "transport"      },
+  { label: "Infrastructure Assets", key: "infrastructure" },
+];
+
+const CATEGORIES = ["Hardware", "Accessories", "Consumables"];
+const HW_TYPES   = ["Laptop", "Mobile", "Desktop", "Tablet", "Other"];
+
+// ─── Row factories ────────────────────────────────────────────────────────────
+
+const blankHwRow = () => ({
+  id: Date.now() + Math.random(),
+  brand: "", make: "", model: "", serialNumber: "",
+  photos: [], _errors: {},
+});
+
+const blankMobileRow = () => ({ ...blankHwRow(), imei1: "", imei2: "" });
+
+const blankQtyRow = () => ({
+  id: Date.now() + Math.random(),
+  name: "", quantity: "",
+  photos: [], _errors: {},
+});
+
+const blankSoftwareRow = () => ({
+  id: Date.now() + Math.random(),
+  name: "", subscriptionStart: "", subscriptionEnd: "", quantity: "1",
+  _errors: {},
+});
+
+const blankRowForType = (rowType) => {
+  if (rowType === "mobile")   return blankMobileRow();
+  if (rowType === "hw")       return blankHwRow();
+  if (rowType === "software") return blankSoftwareRow();
+  return blankQtyRow();
+};
+
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+const validateRow = (row, rowType) => {
+  const errors = {};
+
+  if (rowType === "hw" || rowType === "mobile") {
+    if (!row.brand.trim())        errors.brand        = "Required";
+    if (!row.make.trim())         errors.make         = "Required";
+    if (!row.model.trim())        errors.model        = "Required";
+    if (!row.serialNumber.trim()) errors.serialNumber = "Required";
+
+    if (rowType === "mobile") {
+      if (!row.imei1.trim())
+        errors.imei1 = "Required";
+      else if (!/^\d{15}$/.test(row.imei1.trim()))
+        errors.imei1 = "Must be exactly 15 digits";
+
+      if (row.imei2.trim() && !/^\d{15}$/.test(row.imei2.trim()))
+        errors.imei2 = "Must be exactly 15 digits";
+    }
+  } else if (rowType === "software") {
+    if (!row.name.trim())            errors.name              = "Required";
+    if (!row.subscriptionStart)      errors.subscriptionStart = "Required";
+    if (!row.subscriptionEnd)        errors.subscriptionEnd   = "Required";
+    if (
+      row.subscriptionStart &&
+      row.subscriptionEnd &&
+      row.subscriptionEnd <= row.subscriptionStart
+    ) errors.subscriptionEnd = "Must be after start date";
+    if (!row.quantity || parseInt(row.quantity) < 1) errors.quantity = "Min 1";
+  } else {
+    if (!row.name.trim())                               errors.name     = "Required";
+    if (!row.quantity || parseInt(row.quantity) < 1)   errors.quantity = "Min 1";
+  }
+
+  return errors;
+};
+
+// ─── CellInput ────────────────────────────────────────────────────────────────
+
+function CellInput({ value, onChange, placeholder, error, className = "", ...props }) {
+  return (
+    <td>
+      <input
+        className={`ana-cell-input ${className} ${error ? "err" : ""}`}
+        value={value}
+        placeholder={placeholder}
+        onChange={onChange}
+        {...props}
+      />
+      {error && <span className="ana-cell-err">{error}</span>}
+    </td>
+  );
+}
+
+// ─── WorkInProgress ───────────────────────────────────────────────────────────
+
+function WorkInProgress({ label }) {
+  return (
+    <div className="ana-wip-wrap">
+      <div className="ana-wip-card">
+        <div className="ana-wip-icon">🚧</div>
+        <h2 className="ana-wip-title">Work In Progress</h2>
+        <p className="ana-wip-sub">
+          <strong>{label}</strong> section is under development.
+          <br />
+          This feature will be available soon.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── PhotoModal ───────────────────────────────────────────────────────────────
+
+function PhotoModal({ photos, onClose, onRemovePhoto }) {
+  return (
+    <div className="ana-photo-modal-backdrop" onClick={onClose}>
+      <div className="ana-photo-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ana-photo-modal-head">
+          <span>{photos.length} Photo{photos.length !== 1 ? "s" : ""}</span>
+          <button className="ana-photo-modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="ana-photo-modal-body">
+          {photos.length === 0 ? (
+            <p style={{ textAlign: "center", color: "#aaa", padding: 24 }}>No photos</p>
+          ) : (
+            <div className="ana-photo-grid">
+              {photos.map((src, i) => (
+                <div key={i} className="ana-photo-item">
+                  <img src={src} alt={`photo-${i + 1}`} />
+                  <button
+                    type="button"
+                    className="ana-photo-remove"
+                    onClick={() => onRemovePhoto(i)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ITAssetsForm ─────────────────────────────────────────────────────────────
+
+function ITAssetsForm() {
+  const navigate = useNavigate();
+
+  const [category,     setCategory]     = useState("Hardware");
+  const [hwType,       setHwType]       = useState("Laptop");
+  const [rows,         setRows]         = useState([blankHwRow()]);
+  const [submitted,    setSubmitted]    = useState(false);
+  const [successMsg,   setSuccessMsg]   = useState("");
+  const [photoPreview, setPhotoPreview] = useState(null);
+
+  const rowType = useMemo(() => {
+    if (category === "Software")  return "software";
+    if (category !== "Hardware")  return "qty";
+    if (hwType === "Mobile")      return "mobile";
+    return "hw";
+  }, [category, hwType]);
+
+  // ── Row management ─────────────────────────────────────────────────────────
+
+  const resetForm = useCallback((nextRowType) => {
+    setRows([blankRowForType(nextRowType)]);
+    setSuccessMsg("");
+    setSubmitted(false);
+  }, []);
+
+  const handleCategoryChange = useCallback((cat) => {
+    setCategory(cat);
+    const nextRowType =
+      cat === "Software" ? "software" : cat !== "Hardware" ? "qty" : "hw";
+    if (cat === "Hardware") setHwType("Laptop");
+    resetForm(nextRowType);
+  }, [resetForm]);
+
+  const handleTypeChange = useCallback((e) => {
+    const type = e.target.value;
+    setHwType(type);
+    resetForm(type === "Mobile" ? "mobile" : "hw");
+  }, [resetForm]);
+
+  const addRow    = useCallback(() => setRows((prev) => [...prev, blankRowForType(rowType)]), [rowType]);
+  const removeRow = useCallback((id) => setRows((prev) => prev.length > 1 ? prev.filter((r) => r.id !== id) : prev), []);
+
+  const updateRow = useCallback((id, field, value) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const updated = { ...r, [field]: value };
+        if (submitted) updated._errors = validateRow(updated, rowType);
+        return updated;
+      }),
+    );
+  }, [submitted, rowType]);
+
+  // ── Photos ─────────────────────────────────────────────────────────────────
+
+  const handlePhotoUpload = useCallback(async (rowId, files) => {
+    if (!files?.length) return;
+    try {
+      const compressed = await Promise.all(Array.from(files).map(compressImage));
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === rowId ? { ...r, photos: [...r.photos, ...compressed] } : r,
+        ),
+      );
+    } catch (err) {
+      console.error("Photo upload failed:", err);
+    }
+  }, []);
+
+  const removePhoto = useCallback((rowId, photoIndex) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === rowId
+          ? { ...r, photos: r.photos.filter((_, i) => i !== photoIndex) }
+          : r,
+      ),
+    );
+  }, []);
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
+  const handleSubmit = useCallback(() => {
+    setSubmitted(true);
+    const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, rowType) }));
+    setRows(validated);
+    if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
+
+    if (category === "Hardware") {
+      const units     = getAssetUnitsFromStorage();
+      const inventory = getInventoryFromStorage();
+      const existingSerials = new Set(units.map((u) => u.assetId));
+      let addedCount = 0;
+
+      validated.forEach((row) => {
+        const serial    = row.serialNumber.trim();
+        const brandName = row.brand.trim();
+        if (!serial || existingSerials.has(serial)) return;
+
+        let invItem = inventory.find(
+          (i) =>
+            i.name.toLowerCase() === brandName.toLowerCase() &&
+            i.category === "Hardware" &&
+            i.hwType   === hwType,
+        );
+
+        if (!invItem) {
+          invItem = {
+            id:                 generateInventoryId(inventory),
+            name:               brandName,
+            category:           "Hardware",
+            hwType,
+            inventoryCategory:  "IT Assets",
+            totalQuantity:      0,
+            availableQuantity:  0,
+            assignedQuantity:   0,
+            notWorkingQuantity: 0,
+            repairQuantity:     0,
+          };
+          inventory.push(invItem);
+        }
+
+        units.push({
+          id:           serial,
+          assetId:      serial,
+          inventoryId:  invItem.id,
+          assetName:    brandName,
+          category:     "Hardware",
+          hwType,
+          brand:        brandName,
+          make:         row.make.trim(),
+          model:        row.model.trim(),
+          serialNumber: serial,
+          ...(hwType === "Mobile" && {
+            imei1: row.imei1.trim(),
+            imei2: row.imei2.trim() || null,
+          }),
+          photos:     row.photos,
+          status:     "available",
+          assignedTo: null,
+          repairDate: null,
+          addedDate:  new Date().toISOString(),
+        });
+
+        existingSerials.add(serial);
+        invItem.totalQuantity++;
+        invItem.availableQuantity++;
+        addedCount++;
+      });
+
+      saveAssetUnitsToStorage(units);
+      saveInventoryToStorage(inventory);
+      window.dispatchEvent(new Event("inventory-updated"));
+      setSuccessMsg(`✅ ${addedCount} ${hwType}${addedCount !== 1 ? "s" : ""} added to inventory.`);
+
+    } else if (category === "Software") {
+      let totalLicenses = 0;
+      validated.forEach((row) => {
+        const qty = parseInt(row.quantity) || 1;
+        addSoftwareToInventory({
+          name:              row.name.trim(),
+          subscriptionStart: row.subscriptionStart,
+          subscriptionEnd:   row.subscriptionEnd,
+          quantity:          qty,
+        });
+        totalLicenses += qty;
+      });
+      window.dispatchEvent(new Event("inventory-updated"));
+      setSuccessMsg(`✅ ${totalLicenses} Software license${totalLicenses !== 1 ? "s" : ""} added.`);
+
+    } else {
+      validated.forEach((row) =>
+        addToInventory(row.name.trim(), category, parseInt(row.quantity)),
+      );
+      window.dispatchEvent(new Event("inventory-updated"));
+      const totalQty = validated.reduce((sum, r) => sum + parseInt(r.quantity), 0);
+      setSuccessMsg(
+        `✅ ${validated.length} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added to ${category}.`,
+      );
+    }
+
+    setRows([blankRowForType(rowType)]);
+    setSubmitted(false);
+  }, [rows, rowType, category, hwType]);
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const allValid = useMemo(
+    () => rows.every((r) => Object.keys(validateRow(r, rowType)).length === 0),
+    [rows, rowType],
+  );
+
+  const previewPhotos = photoPreview
+    ? (rows.find((r) => r.id === photoPreview)?.photos ?? [])
+    : [];
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <>
+      <div className="ana-page">
+        <main className="ana-main">
+          <div className="ana-main-header">
+            <h1>Add New Assets — IT Assets</h1>
+          </div>
+
+          {/* ── Step 1: Category + Hardware Type (inline) ── */}
+          <section className="ana-section">
+            <div className="ana-section-head">
+              <span className="ana-section-num">01</span>
+              <h2>Select Category</h2>
+            </div>
+
+            {/* Category chips + hardware-type dropdown on same row */}
+            <div className="ana-category-row">
+              <div className="ana-chip-group">
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    className={`ana-chip ${category === cat ? "selected" : ""}`}
+                    onClick={() => handleCategoryChange(cat)}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Dropdown — only visible when Hardware is selected */}
+              {category === "Hardware" && (
+                <div className="ana-hwtype-dropdown-wrap">
+                  <label className="ana-hwtype-label" htmlFor="hw-type-select">
+                    Hardware Type
+                  </label>
+                  <div className="ana-hwtype-select-wrap">
+                    <select
+                      id="hw-type-select"
+                      className="ana-hwtype-select"
+                      value={hwType}
+                      onChange={handleTypeChange}
+                    >
+                      {HW_TYPES.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                    {/* Custom chevron */}
+                    <span className="ana-hwtype-chevron">▾</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Category + type pill */}
+          <div className="ana-category-pill-row">
+            <span className={`ana-cat-dot ${category.toLowerCase()}`} />
+            <span className="ana-category-pill-label">
+              {category}{category === "Hardware" && ` — ${hwType}`}
+            </span>
+          </div>
+
+          {/* ── Step 2: Asset Table ── */}
+          <section className="ana-section ana-section-table">
+            <div className="ana-section-head">
+              <span className="ana-section-num">02</span>
+              <h2>
+                {category === "Hardware"
+                  ? `Add ${hwType} Units`
+                  : category === "Software"
+                  ? "Add Software Licenses"
+                  : `Add ${category}`}
+              </h2>
+              <span className="ana-row-count">
+                {rows.length} row{rows.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            <div className="ana-table-wrap">
+              <table className="ana-table">
+                <thead>
+                  <tr>
+                    <th className="ana-th-idx">#</th>
+                    {(rowType === "hw" || rowType === "mobile") && (
+                      <>
+                        <th>Brand <span className="req">*</span></th>
+                        <th>Make <span className="req">*</span></th>
+                        <th>Model <span className="req">*</span></th>
+                        <th>Serial Number <span className="req">*</span></th>
+                        {rowType === "mobile" && (
+                          <>
+                            <th>IMEI 1 <span className="req">*</span></th>
+                            <th>IMEI 2</th>
+                          </>
+                        )}
+                        <th>Photos</th>
+                      </>
+                    )}
+                    {rowType === "qty" && (
+                      <>
+                        <th>Asset Name <span className="req">*</span></th>
+                        <th>Quantity <span className="req">*</span></th>
+                        <th>Photos</th>
+                      </>
+                    )}
+                    {rowType === "software" && (
+                      <>
+                        <th>Software Name <span className="req">*</span></th>
+                        <th>Start Date <span className="req">*</span></th>
+                        <th>Valid Till <span className="req">*</span></th>
+                        <th>Licenses <span className="req">*</span></th>
+                      </>
+                    )}
+                    <th className="ana-th-action" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, idx) => (
+                    <tr
+                      key={row.id}
+                      className={Object.keys(row._errors).length ? "row-invalid" : ""}
+                    >
+                      <td className="ana-td-idx">{idx + 1}</td>
+
+                      {(rowType === "hw" || rowType === "mobile") && (
+                        <>
+                          <CellInput value={row.brand}  error={row._errors.brand}  placeholder="Enter Brand"  onChange={(e) => updateRow(row.id, "brand",  e.target.value)} />
+                          <CellInput value={row.make}   error={row._errors.make}   placeholder="Enter Make"   onChange={(e) => updateRow(row.id, "make",   e.target.value)} />
+                          <CellInput value={row.model}  error={row._errors.model}  placeholder="Enter Model"  onChange={(e) => updateRow(row.id, "model",  e.target.value)} />
+                          <CellInput
+                            value={row.serialNumber}
+                            error={row._errors.serialNumber}
+                            placeholder="Serial No."
+                            className="mono"
+                            onChange={(e) => updateRow(row.id, "serialNumber", e.target.value)}
+                          />
+                          {rowType === "mobile" && (
+                            <>
+                              <CellInput
+                                value={row.imei1}
+                                error={row._errors.imei1}
+                                placeholder="15 digits"
+                                maxLength={15}
+                                className="mono"
+                                onChange={(e) =>
+                                  updateRow(row.id, "imei1", e.target.value.replace(/\D/g, "").slice(0, 15))
+                                }
+                              />
+                              <CellInput
+                                value={row.imei2}
+                                error={row._errors.imei2}
+                                placeholder="Optional"
+                                maxLength={15}
+                                className="mono"
+                                onChange={(e) =>
+                                  updateRow(row.id, "imei2", e.target.value.replace(/\D/g, "").slice(0, 15))
+                                }
+                              />
+                            </>
+                          )}
+                        </>
+                      )}
+
+                      {rowType === "qty" && (
+                        <>
+                          <CellInput value={row.name}     error={row._errors.name}     placeholder="Asset name" onChange={(e) => updateRow(row.id, "name",     e.target.value)} />
+                          <CellInput value={row.quantity} error={row._errors.quantity} type="number" min="1" placeholder="Qty" className="ana-qty-input" onChange={(e) => updateRow(row.id, "quantity", e.target.value)} />
+                        </>
+                      )}
+
+                      {rowType === "software" && (
+                        <>
+                          <CellInput value={row.name}              error={row._errors.name}              placeholder="e.g. Microsoft 365" onChange={(e) => updateRow(row.id, "name",              e.target.value)} />
+                          <CellInput value={row.subscriptionStart} error={row._errors.subscriptionStart} type="date"                      onChange={(e) => updateRow(row.id, "subscriptionStart", e.target.value)} />
+                          <CellInput value={row.subscriptionEnd}   error={row._errors.subscriptionEnd}   type="date"                      onChange={(e) => updateRow(row.id, "subscriptionEnd",   e.target.value)} />
+                          <CellInput value={row.quantity}          error={row._errors.quantity}          type="number" min="1" placeholder="1" className="ana-qty-input" onChange={(e) => updateRow(row.id, "quantity", e.target.value)} />
+                        </>
+                      )}
+
+                      {rowType !== "software" && (
+                        <td className="ana-td-photos">
+                          <div className="ana-photo-cell">
+                            <label className="ana-photo-btn">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                style={{ display: "none" }}
+                                onClick={(e) => { e.target.value = null; }}
+                                onChange={(e) => handlePhotoUpload(row.id, e.target.files)}
+                              />
+                              Upload
+                            </label>
+                            {row.photos.length > 0 && (
+                              <button
+                                type="button"
+                                className="ana-photo-count-btn"
+                                onClick={() => setPhotoPreview(row.id)}
+                              >
+                                {row.photos.length} photo{row.photos.length > 1 ? "s" : ""}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
+                      <td className="ana-td-action">
+                        <button
+                          type="button"
+                          className="ana-btn-rm-row"
+                          onClick={() => removeRow(row.id)}
+                          disabled={rows.length === 1}
+                          title="Remove row"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <button type="button" className="ana-btn-add-row" onClick={addRow}>
+              + Add Row
+            </button>
+          </section>
+
+          {/* Footer */}
+          <div className="ana-footer">
+            <div className="ana-footer-info">
+              {!allValid && submitted && (
+                <span className="ana-footer-warn">
+                  Fix validation errors above before submitting
+                </span>
+              )}
+              {successMsg && (
+                <span className="ana-footer-success">{successMsg}</span>
+              )}
+            </div>
+            <div className="ana-footer-actions">
+              <button type="button" className="ana-btn-cancel" onClick={() => navigate(BASE)}>
+                Cancel
+              </button>
+              <button type="button" className="ana-btn-submit" onClick={handleSubmit}>
+                Save to Inventory
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      {photoPreview && (
+        <PhotoModal
+          photos={previewPhotos}
+          onClose={() => setPhotoPreview(null)}
+          onRemovePhoto={(photoIndex) => {
+            removePhoto(photoPreview, photoIndex);
+            if (previewPhotos.length === 1) setPhotoPreview(null);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── AddNewAssets (default export) ───────────────────────────────────────────
+
+export default function AddNewAssets() {
+  const navigate    = useNavigate();
+  const [activeType, setActiveType] = useState("it");
+
+  return (
+    <div className="ana-outer">
+      <div className="ana-top-bar">
+        <button className="ana-back" onClick={() => navigate(BASE)}>
+          ← Back to Inventory
+        </button>
+        <h1 className="ana-top-title">Add New Assets</h1>
+      </div>
+
+      <nav className="ana-type-tabs">
+        {ASSET_TYPES.map((t) => (
+          <button
+            key={t.key}
+            className={`ana-type-tab ${activeType === t.key ? "active" : ""}`}
+            onClick={() => setActiveType(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="ana-type-content">
+        {activeType === "it" ? (
+          <ITAssetsForm />
+        ) : (
+          <WorkInProgress label={ASSET_TYPES.find((t) => t.key === activeType)?.label} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
+
+

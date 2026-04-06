@@ -24,7 +24,7 @@
 .it-panel-content {
   background-color: #fff;
   border-radius: 10px;
-  padding: 25px;
+  padding: 60px 60px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
@@ -40,14 +40,25 @@
   border-radius: 10px;
   padding: 20px;
   color: white;
+  height: 100px;
   text-align: center;
+}
+.it-stat-card:hover {
+    transform: translateY(-8px) scale(1.03);
+    box-shadow: 0 15px 30px rgba(102, 126, 234, 0.5);
+    background: linear-gradient(135deg, #5a67d8, #9f7aea);
+    letter-spacing: 1px;
+    transition: 0.3s;
 }
 
 .it-stat-card h3 {
-  font-size: 14px;
+  font-size: 19px;
   font-weight: 500;
   margin: 0 0 10px 0;
   opacity: 0.9;
+  text-align: center;
+  width: 100%;
+  padding-top: 13px;
 }
 
 .it-stat-card .stat-value {

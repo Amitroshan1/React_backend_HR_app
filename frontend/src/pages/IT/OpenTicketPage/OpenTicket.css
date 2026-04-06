@@ -1,0 +1,606 @@
+/* OpenTicket.css — Clean modern ticket management */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap");
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PAGE
+───────────────────────────────────────────────────────────────────────────── */
+.ot-page {
+  min-height: 100vh;
+  background: #f4f6f9;
+  font-family: "DM Sans", system-ui, sans-serif;
+  padding: 28px 36px 60px;
+  color: #1e293b;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   HEADER
+───────────────────────────────────────────────────────────────────────────── */
+.ot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.ot-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ot-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  color: #475569;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: "DM Sans", inherit;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+.ot-back-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1e293b;
+  transform: translateX(-2px);
+}
+
+.ot-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 2px;
+  letter-spacing: -0.4px;
+}
+
+.ot-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+  font-weight: 400;
+}
+
+/* Stat boxes */
+.ot-header-right {
+  display: flex;
+  gap: 12px;
+}
+
+.ot-stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #fff;
+  border: 1.5px solid #fecaca;
+  border-radius: 12px;
+  padding: 10px 20px;
+  min-width: 80px;
+}
+
+.ot-stat-box.resolved {
+  border-color: #bbf7d0;
+}
+
+.ot-stat-num {
+  font-size: 22px;
+  font-weight: 800;
+  color: #ef4444;
+  line-height: 1;
+  font-family: "DM Mono", monospace;
+}
+
+.ot-stat-box.resolved .ot-stat-num {
+  color: #16a34a;
+}
+
+.ot-stat-label {
+  font-size: 10.5px;
+  color: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-top: 3px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CONTROLS BAR
+───────────────────────────────────────────────────────────────────────────── */
+.ot-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ── Status Tabs ── */
+.ot-tabs {
+  display: flex;
+  gap: 0;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.ot-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: "DM Sans", inherit;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+
+.ot-tab:hover:not(.active) {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.ot-tab.active {
+  background: #6286dc;
+  color: #fff;
+}
+
+.ot-tab-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 1px 7px;
+  border-radius: 20px;
+  font-family: "DM Mono", monospace;
+}
+
+.ot-tab:not(.active) .ot-tab-badge {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* ── Right controls ── */
+.ot-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Search */
+.ot-search-wrap {
+  position: relative;
+  width: 300px;
+  max-width: 100%;
+}
+
+.ot-search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.ot-search-input {
+  width: 100%;
+  padding: 9px 34px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  color: #1e293b;
+  font-size: 13px;
+  font-family: "DM Sans", inherit;
+  outline: none;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+  box-sizing: border-box;
+}
+.ot-search-input::placeholder {
+  color: #94a3b8;
+}
+.ot-search-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.ot-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+
+/* Sort toggle */
+.ot-sort-wrap {
+  display: flex;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ot-sort-btn {
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: "DM Sans", inherit;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.ot-sort-btn:first-child {
+  border-right: 1.5px solid #e2e8f0;
+}
+
+.ot-sort-btn:hover:not(.active) {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.ot-sort-btn.active {
+  background: #3b82f6;
+  color: #fff;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CARD
+───────────────────────────────────────────────────────────────────────────── */
+.ot-card {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.05),
+    0 4px 16px rgba(15, 23, 42, 0.03);
+}
+
+.ot-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: #f8fafc;
+  border-bottom: 1.5px solid #e2e8f0;
+}
+
+.ot-card-head-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ot-card-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+
+.ot-card-desc {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.ot-card-count {
+  font-size: 12px;
+  color: #3b82f6;
+  font-weight: 700;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-family: "DM Mono", monospace;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TABLE
+───────────────────────────────────────────────────────────────────────────── */
+.ot-table-scroll {
+  overflow-x: auto;
+}
+.ot-table-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.ot-table-scroll::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+.ot-table-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+
+.ot-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+.ot-table thead tr {
+  background: #f8fafc;
+}
+
+.ot-table th {
+  padding: 11px 16px;
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-bottom: 1.5px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.ot-table td {
+  padding: 13px 16px;
+  font-size: 13px;
+  color: #334155;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.ot-tr {
+  transition: background 0.12s;
+}
+.ot-tr:hover td {
+  background: #f8fafc;
+}
+.ot-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Cell Styles ── */
+.ot-td-idx {
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: "DM Mono", monospace;
+  text-align: center;
+  width: 36px;
+}
+
+.ot-emp-id {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 12px;
+  font-family: "DM Mono", monospace;
+  background: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 5px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.ot-email {
+  color: #3b82f6;
+  font-size: 12.5px;
+  max-width: 190px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ot-td-query {
+  max-width: 280px;
+}
+
+.ot-query {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+  display: -webkit-box;
+  /* -webkit-line-clamp: 2; */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ot-date {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+  font-family: "DM Mono", monospace;
+}
+
+/* ── Status Badge ── */
+.ot-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ot-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Chat Button ── */
+.ot-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: #f0f9ff;
+  border: 1.5px solid #bae6fd;
+  color: #0891b2;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "DM Sans", inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+.ot-chat-btn:hover {
+  background: #0ea5e9;
+  color: #fff;
+  border-color: #0ea5e9;
+}
+
+/* ── Resolve Button ── */
+.ot-resolve-btn {
+  padding: 5px 14px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  color: #64748b;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: "DM Sans", inherit;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+.ot-resolve-btn:hover {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #fff;
+}
+
+/* ── Resolved Badge ── */
+.ot-resolved-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+  color: #16a34a;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── Empty State ── */
+.ot-empty {
+  text-align: center;
+  padding: 0;
+}
+
+.ot-empty-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 48px 16px;
+}
+
+.ot-empty-icon {
+  font-size: 36px;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.ot-empty-inner p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ot-empty-inner span {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   RESPONSIVE
+───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .ot-page {
+    padding: 20px 20px 48px;
+  }
+}
+
+@media (max-width: 768px) {
+  .ot-page {
+    padding: 16px 14px 48px;
+    gap: 16px;
+  }
+  .ot-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ot-header-left {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .ot-header-right {
+    width: 100%;
+  }
+  .ot-stat-box {
+    flex: 1;
+  }
+  .ot-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ot-controls-right {
+    width: 100%;
+  }
+  .ot-search-wrap {
+    width: 100%;
+  }
+  .ot-title {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .ot-tabs {
+    width: 100%;
+  }
+  .ot-tab {
+    flex: 1;
+    justify-content: center;
+  }
+  .ot-sort-wrap {
+    width: 100%;
+  }
+  .ot-sort-btn {
+    flex: 1;
+    text-align: center;
+  }
+}

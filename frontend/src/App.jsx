@@ -1,9 +1,10 @@
+
 import { Dashboard } from "./pages/Dashboard/Dashboard";
 import { HomePage } from "./pages/HomePage";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { Attendance } from "./pages/Attendance/Attendance";
 import { Wfh } from "./pages/Wfh/Wfh";
-import { Payslip } from "./pages/Payslip/Payslip";
+import { Salary } from "./pages/Salary/Salary";
 import { Leaves } from "./pages/Leaves/Leaves";
 import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
@@ -28,13 +29,23 @@ import { ManagerPerformanceReviews } from "./pages/Manager/ManagerPerformanceRev
 import "./pages/Performance/EmployeePerformance.css";
 import "./pages/Holiday/HolidayCalendarUser.css";
 
-// Employee Management System Components
+// IT Module
+import InventoryDashboard from "./pages/IT/InventoryPage/InventoryDashboard";
+import OpenTicket from "./pages/IT/OpenTicketPage/OpenTicket";
+import ActiveDevice from "./pages/IT/ActiveDevicePage/ActiveDevice";
+import AssetsDashboard from "./pages/IT/AssetsPage/AssetsDashboard";
+import AddSoftWare from "./pages/IT/AssetsPage/AddSoftWare";
+import AddEmployee from "./pages/IT/AssetsPage/AddEmployee";
+import ITEmployeeDetails from "./pages/IT/EmployeeAssetsDetails";
+
+// Admin Employee Management
 import Employee from "./pages/Admin/Employee";
-import EmployeeDetails from "./pages/Admin/EmployeeDetails";
+import AdminEmployeeDetails from "./pages/Admin/EmployeeDetails";
 import AdminLeaves from "./pages/Admin/AdminLeaves";
 import AdminQueries from "./pages/Admin/AdminQueries";
 import AdminClaims from "./pages/Admin/AdminClaims";
 import AdminResignations from "./pages/Admin/AdminResignations";
+
 import SetPassword from "./pages/SetPassword";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -60,37 +71,48 @@ export const App = () => {
       path: "/",
       element: <AppLayout />,
       children: [
-        { path: "dashboard", element: <Dashboard /> },
-        { path: "attendance", element: <Attendance /> },
-        { path: "payslip", element: <Payslip /> },
-        { path: "leaves", element: <Leaves /> },
-        { path: "profile", element: <Profile /> },
-        { path: "change-password", element: <ChangePassword /> },
-        { path: "queries", element: <Queries /> },
-        { path: "queries/inbox", element: <DepartmentQueryInbox /> },
-        { path: "claims", element: <Claims /> },
-        { path: "separation", element: <Separation /> },
-        { path: "wfh", element: <Wfh /> },
-        { path: "performance", element: <EmployeePerformance /> },
-        { path: "holiday-calendar", element: <HolidayCalendarUser /> },
-        { path: "account", element: <Account /> },
-        { path: "hr", element: <Hr /> },
-        { path: "updates", element: <Hr /> },
-        { path: "archive-employees", element: <ArchiveEmployees /> },
-        { path: "archive-employees/:adminId", element: <ArchiveEmployeeDetails /> },
-        { path: "exit-employees", element: <ExitEmployee /> },
-        { path: "admin", element: <Admin /> },
-        { path: "admin/leaves", element: <AdminLeaves /> },
-        { path: "admin/queries", element: <AdminQueries /> },
-        { path: "admin/claims", element: <AdminClaims /> },
-        { path: "admin/resignations", element: <AdminResignations /> },
-        { path: "manager", element: <Manager /> },
-        { path: "manager/performance-reviews", element: <ManagerPerformanceReviews /> },
-        { path: "it", element: <ITPanel /> },
-        { path: "employees", element: <Employee /> },
-        { path: "employee/:id", element: <EmployeeDetails /> },
-      ]
-    }
+        { path: "dashboard",                       element: <Dashboard /> },
+        { path: "attendance",                      element: <Attendance /> },
+        { path: "salary",                          element: <Salary /> },
+        { path: "leaves",                          element: <Leaves /> },
+        { path: "profile",                         element: <Profile /> },
+        { path: "change-password",                 element: <ChangePassword /> },
+        { path: "queries",                         element: <Queries /> },
+        { path: "queries/inbox",                   element: <DepartmentQueryInbox /> },
+        { path: "claims",                          element: <Claims /> },
+        { path: "separation",                      element: <Separation /> },
+        { path: "wfh",                             element: <Wfh /> },
+        { path: "performance",                     element: <EmployeePerformance /> },
+        { path: "holiday-calendar",                element: <HolidayCalendarUser /> },
+        { path: "account",                         element: <Account /> },
+        { path: "hr",                              element: <Hr /> },
+        { path: "updates",                         element: <Hr /> },
+        { path: "archive-employees",               element: <ArchiveEmployees /> },
+        { path: "archive-employees/:adminId",      element: <ArchiveEmployeeDetails /> },
+        { path: "exit-employees",                  element: <ExitEmployee /> },
+        { path: "admin",                           element: <Admin /> },
+        { path: "admin/leaves",                    element: <AdminLeaves /> },
+        { path: "admin/queries",                   element: <AdminQueries /> },
+        { path: "admin/claims",                    element: <AdminClaims /> },
+        { path: "admin/resignations",              element: <AdminResignations /> },
+        { path: "manager",                         element: <Manager /> },
+        { path: "manager/performance-reviews",     element: <ManagerPerformanceReviews /> },
+        { path: "it",                              element: <ITPanel /> },
+
+        // IT Sub-routes
+        { path: "it/inventory/*",                  element: <InventoryDashboard /> },
+        { path: "it/OpenTicket",                   element: <OpenTicket /> },
+        { path: "it/ActiveDevices",                element: <ActiveDevice /> },
+        { path: "it/Assets",                       element: <AssetsDashboard /> },
+        { path: "it/AssetsPage/AddSoftWare",       element: <AddSoftWare /> },
+        { path: "it/AssetsPage/AddEmployee",       element: <AddEmployee /> },
+        { path: "it/employee/:empId",              element: <ITEmployeeDetails /> },
+
+        // Admin Employee Management
+        { path: "employees",                       element: <Employee /> },
+        { path: "employee/:id",                    element: <AdminEmployeeDetails /> },
+      ],
+    },
   ]);
 
   return (
@@ -113,42 +135,56 @@ export const App = () => {
 // import { Payslip } from "./pages/Payslip/Payslip";
 // import { Leaves } from "./pages/Leaves/Leaves";
 // import { Profile } from "./pages/Profile/components/Profile";
-// // import { Profile } from "./pages/Profile/Profile";
+// import ChangePassword from "./pages/Profile/ChangePassword";
 // import { AppLayout } from "./components/layout/AppLayout";
 // import { UserProvider } from "./components/layout/UserContext";
 // import { Queries } from "./pages/Query/Queries";
+// import { DepartmentQueryInbox } from "./pages/Query/DepartmentQueryInbox";
 // import { Claims } from "./pages/Claims/Claims";
 // import { Separation } from "./pages/Separation/Separation";
 // import { Hr } from "./pages/HR/Hr";
 // import { Account } from "./pages/Account/Account";
-// import {Admin} from "./pages/Admin/Admin";
+// import Admin from "./pages/Admin/Admin";
 // import { Manager } from "./pages/Manager/Manager";
 // import { ITPanel } from "./pages/IT/ITPanel";
-// //Added by me
 // import ArchiveEmployees from "./pages/HR/Archive/Archive";
-// import ExitEmployee from "./pages/HR/ExitEmployee"; 
+// import ArchiveEmployeeDetails from "./pages/HR/Archive/ArchiveEmployeeDetails";
+// import ExitEmployee from "./pages/HR/ExitEmployee";
+// import { EmployeePerformance } from "./pages/Performance/EmployeePerformance";
+// import { HolidayCalendarUser } from "./pages/Holiday/HolidayCalendarUser";
+// import { ManagerPerformanceReviews } from "./pages/Manager/ManagerPerformanceReviews";
+// /* Ensure page CSS is in main bundle so it loads in production (fixes CSS missing on deploy) */
+// import "./pages/Performance/EmployeePerformance.css";
+// import "./pages/Holiday/HolidayCalendarUser.css";
 
-
+// // Employee Management System Components
+// import Employee from "./pages/Admin/Employee";
+// import EmployeeDetails from "./pages/Admin/EmployeeDetails";
+// import AdminLeaves from "./pages/Admin/AdminLeaves";
+// import AdminQueries from "./pages/Admin/AdminQueries";
+// import AdminClaims from "./pages/Admin/AdminClaims";
+// import AdminResignations from "./pages/Admin/AdminResignations";
+// import SetPassword from "./pages/SetPassword";
+// import { ToastContainer } from "react-toastify";
+// import "react-toastify/dist/ReactToastify.css";
 
 // // Initialize localStorage on app start - clear old test data
-// // This will clear old data one time and then mark as initialized
 // const isFirstLoad = !localStorage.getItem('_appInitialized');
 // if (isFirstLoad) {
 //   localStorage.setItem('archivedEmployees', JSON.stringify([]));
 //   localStorage.setItem('_appInitialized', 'true');
 // }
 
-
 // export const App = () => {
 //   const router = createBrowserRouter([
-
 //     {
 //       path: "/",
 //       element: <HomePage />,
 //     },
-
-//     // Note: archive & exit are now children of AppLayout so they render inside the shared layout
-
+//     {
+//       path: "/set-password",
+//       element: <SetPassword />,
+//     },
 //     {
 //       path: "/",
 //       element: <AppLayout />,
@@ -158,24 +194,40 @@ export const App = () => {
 //         { path: "payslip", element: <Payslip /> },
 //         { path: "leaves", element: <Leaves /> },
 //         { path: "profile", element: <Profile /> },
+//         { path: "change-password", element: <ChangePassword /> },
 //         { path: "queries", element: <Queries /> },
+//         { path: "queries/inbox", element: <DepartmentQueryInbox /> },
 //         { path: "claims", element: <Claims /> },
 //         { path: "separation", element: <Separation /> },
 //         { path: "wfh", element: <Wfh /> },
+//         { path: "performance", element: <EmployeePerformance /> },
+//         { path: "holiday-calendar", element: <HolidayCalendarUser /> },
 //         { path: "account", element: <Account /> },
 //         { path: "hr", element: <Hr /> },
 //         { path: "updates", element: <Hr /> },
 //         { path: "archive-employees", element: <ArchiveEmployees /> },
+//         { path: "archive-employees/:adminId", element: <ArchiveEmployeeDetails /> },
 //         { path: "exit-employees", element: <ExitEmployee /> },
-//         { path: "admin", element: <Admin/> },
-//         { path: "manager", element: <Manager/> },
-//         { path: "it", element: <ITPanel/> }
+//         { path: "admin", element: <Admin /> },
+//         { path: "admin/leaves", element: <AdminLeaves /> },
+//         { path: "admin/queries", element: <AdminQueries /> },
+//         { path: "admin/claims", element: <AdminClaims /> },
+//         { path: "admin/resignations", element: <AdminResignations /> },
+//         { path: "manager", element: <Manager /> },
+//         { path: "manager/performance-reviews", element: <ManagerPerformanceReviews /> },
+//         { path: "it", element: <ITPanel /> },
+//         { path: "employees", element: <Employee /> },
+//         { path: "employee/:id", element: <EmployeeDetails /> },
 //       ]
 //     }
 //   ]);
+
 //   return (
 //     <UserProvider>
+//       <ToastContainer position="bottom-right" autoClose={3000} hideProgressBar={false} theme="light" />
 //       <RouterProvider router={router} />
 //     </UserProvider>
-//   )
+//   );
 // };
+
+
