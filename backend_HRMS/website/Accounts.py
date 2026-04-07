@@ -1869,10 +1869,41 @@ def download_payroll_slip(payroll_id):
     cum_ded3 = total_ded
 
     leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
-    clpl_balance = float((leave_balance.casual_leave_balance if leave_balance else 0.0) or 0.0) + float(
-        (leave_balance.privilege_leave_balance if leave_balance else 0.0) or 0.0
+    pl_balance = float((leave_balance.privilege_leave_balance if leave_balance else 0.0) or 0.0)
+    cl_balance = float((leave_balance.casual_leave_balance if leave_balance else 0.0) or 0.0)
+
+    # Weekly Off in the PDF should be *weekend-only*, not derived from attendance.
+    # Policy requested:
+    # - For Accounts and HR employees: weekly off = Sundays only
+    # - For all others: weekly off = Saturdays + Sundays
+    emp_type_str = (getattr(admin, "emp_type", None) or "").strip().lower()
+    is_accounts_or_hr = (
+        emp_type_str.startswith("account")
+        or emp_type_str == "hr"
+        or emp_type_str.startswith("human resource")
+        or emp_type_str.startswith("human resources")
     )
-    weekly_off = max(cal_days - int(round(work_days)), 0)
+
+    month_num = int(getattr(payroll, "month_num", 0) or 0)
+    year_int = int(getattr(payroll, "year", 0) or 0)
+    sunday_count = 0
+    saturday_count = 0
+    if month_num >= 1 and month_num <= 12 and year_int > 0:
+        _, month_days = calendar.monthrange(year_int, month_num)
+        for d in range(1, month_days + 1):
+            wd = date(year_int, month_num, d).weekday()  # Mon=0 ... Sun=6
+            if wd == 6:
+                sunday_count += 1
+            elif wd == 5:
+                saturday_count += 1
+    weekly_off_days = sunday_count if is_accounts_or_hr else (sunday_count + saturday_count)
+
+    def _fmt_balance(v):
+        vv = float(v or 0.0)
+        if abs(vv - round(vv)) < 1e-6:
+            return str(int(round(vv)))
+        s = f"{vv:.2f}"
+        return s.rstrip("0").rstrip(".")
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -1886,9 +1917,14 @@ def download_payroll_slip(payroll_id):
     x1 = x0 + usable_w * 0.27
     x2 = x1 + usable_w * 0.115
     x3 = x2 + usable_w * 0.115
-    x4 = x3 + usable_w * 0.27
-    x5 = x4 + usable_w * 0.115
-    x6 = right_margin
+    # Right side (Deductions): shift boundary to reduce the visual gap after the
+    # "Deductions" label and give more width to the "Amount" column so Net Amount
+    # fits cleanly in the last column.
+    #
+    # Total for right half must remain 0.5 * usable_w to keep table width unchanged.
+    x4 = x3 + usable_w * 0.22   # narrower "Deductions" label column
+    x5 = x4 + usable_w * 0.16   # wider "Amount" column
+    x6 = x5 + usable_w * 0.12   # remaining width for "Gross Salary" column
 
     def _clip_text(text, max_chars=42):
         t = str(text or "-").strip()
@@ -1963,27 +1999,43 @@ def download_payroll_slip(payroll_id):
     left_inner_w = left_block_end - left_margin - 14
     right_inner_w = right_margin - right_block_start - 14
     max_left_pt = max(stringWidth(l[0], meta_font, meta_size) for l in meta_left)
-    max_right_pt = max(stringWidth(r[0], meta_font, meta_size) for r in meta_right)
-    # Cap label band so first-column values + Tax Regime column are not squeezed
+    # Left: keep compact so value has enough room.
     meta_left_max_w = min(max_left_pt, left_inner_w * 0.38)
-    meta_right_max_w = min(max_right_pt, right_inner_w * 0.48)
     left_colon_x = left_margin + 2 + meta_left_max_w + 4
     left_val_x = left_colon_x + 6
     left_val_max_w = max(24.0, left_block_end - left_val_x)
 
+    # Right: reserve space for values, widen label band, shrink label font if needed
+    # so long labels (Income Tax Number (PAN), UAN, PRAN) stay on one line.
+    min_value_reserve = 110
+    right_label_band = max(120.0, min(right_inner_w * 0.78, right_inner_w - min_value_reserve))
+    meta_right_font_size = meta_size
+    for sz in (10, 9, 8):
+        wmax = max(stringWidth(r[0], meta_font, sz) for r in meta_right)
+        if wmax <= right_label_band:
+            meta_right_font_size = float(sz)
+            break
+    meta_right_max_w = right_label_band
+    # Slightly larger gap between label and value on the right so
+    # the data sits visually apart from "Tax Regime" text.
     right_colon_x = right_block_start + meta_right_max_w + 4
-    right_val_x = right_colon_x + 6
+    right_val_x = right_colon_x + 10
     right_val_max_w = max(28.0, right_margin - right_val_x - 4)
 
     y_cursor = y
     for i in range(6):
         left_lines = _wrap_lines_pdf(meta_left[i][0], meta_font, meta_size, meta_left_max_w)
-        right_lines = _wrap_lines_pdf(meta_right[i][0], meta_font, meta_size, meta_right_max_w)
+        right_lines = _wrap_lines_pdf(
+            meta_right[i][0], meta_font, meta_right_font_size, meta_right_max_w
+        )
         n_lines = max(len(left_lines), len(right_lines), 1)
         for j, line in enumerate(left_lines):
+            c.setFont(meta_font, meta_size)
             c.drawString(left_margin + 2, y_cursor - j * label_line_step, line)
         for j, line in enumerate(right_lines):
+            c.setFont(meta_font, meta_right_font_size)
             c.drawString(right_block_start, y_cursor - j * label_line_step, line)
+        c.setFont(meta_font, meta_size)
         c.drawString(left_colon_x, y_cursor, ":")
         c.drawString(right_colon_x, y_cursor, ":")
         val_l = _fit_text_pdf(str(meta_left[i][1]), meta_font, meta_size, left_val_max_w)
@@ -2013,11 +2065,11 @@ def download_payroll_slip(payroll_id):
     c.setFont("Helvetica", 10)
     r1, r2, r3 = att_top - 36, att_top - 54, att_top - 72
     c.drawString(att_left + 5, r1, "CL/PL")
-    _amt_right(att_right, r1, f"{clpl_balance:.2f} Days")
+    _amt_right(att_right, r1, f"{_fmt_balance(pl_balance)}/{_fmt_balance(cl_balance)} Days")
     c.drawString(att_left + 5, r2, "Present Days")
     _amt_right(att_right, r2, f"{work_days:.0f} Days")
     c.drawString(att_left + 5, r3, "Weekly Off")
-    _amt_right(att_right, r3, f"{weekly_off} Days")
+    _amt_right(att_right, r3, f"{weekly_off_days} Days")
 
     y = att_bottom - 18
     row_h = 22

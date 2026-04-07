@@ -17,7 +17,7 @@ from .email import send_login_alert_email
 from .models.Admin_models import Admin
 from . import db
 from .models.emp_detail_models import Employee
-from .models.attendance import Punch, Location, LeaveBalance, LeaveApplication
+from .models.attendance import Punch, PunchSession, Location, LeaveBalance, LeaveApplication
 from .compoff_utils import get_effective_comp_balance
 from .models.news_feed import NewsFeed, PaySlip
 from .models.monthly_payroll import MonthlyPayroll
@@ -25,12 +25,21 @@ from .models.query import Query
 from .models.education import Education, UploadDoc
 from .models.prev_com import PreviousCompany
 from .models.master_data import MasterData
-from datetime import datetime, time, date, timedelta
+from datetime import datetime, date, timedelta
 from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from flask import jsonify
 from .utility import is_wfh_allowed, is_on_leave
+from .punch_aggregate import (
+    ensure_punch_sessions_backfill,
+    recompute_punch_aggregate,
+    hms_to_seconds,
+    seconds_to_hms_str,
+    open_punch_session_for_punch,
+    open_punch_session_for_admin,
+    serialize_punch_sessions,
+)
 
 auth = Blueprint('auth', __name__)
 
@@ -218,29 +227,110 @@ def _employee_homepage_impl():
     employee = Employee.query.filter_by(admin_id=admin.id).first()
 
     # ------------------------
-    # 3. TODAY PUNCH
+    # 3. PUNCH / night shift (open session may belong to prior calendar day)
     # ------------------------
     today = date.today()
-    punch = Punch.query.filter_by(
-        admin_id=admin.id,
-        punch_date=today
-    ).first()
-
     working_hours = None
-    if punch and punch.punch_in:
-        try:
-            end_time = punch.punch_out or datetime.now()
-            punch_in_dt = punch.punch_in
-            if isinstance(punch.punch_in, time):
-                punch_in_dt = datetime.combine(today, punch.punch_in)
-            elif not isinstance(punch.punch_in, datetime):
-                punch_in_dt = datetime.combine(today, punch.punch_in) if hasattr(punch.punch_in, 'hour') else punch.punch_in
-            diff = end_time - punch_in_dt
-            calculated = str(diff).split(".")[0]
+    punch_in_display = None
+    punch_out_display = None
+    has_open_session = False
+    requires_repeat_punch_reason = False
+    overnight_attendance_date = None
+    punch_row_for_detail = None
+
+    global_open = open_punch_session_for_admin(admin.id)
+    if global_open and global_open.punch_id:
+        pp = global_open.punch
+        if pp:
+            try:
+                if ensure_punch_sessions_backfill(pp):
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+            global_open = open_punch_session_for_admin(admin.id)
+
+    if global_open:
+        open_sess = global_open
+        pp = open_sess.punch
+        if not pp:
+            global_open = None
+        else:
+            has_open_session = True
+            punch_in_display = open_sess.clock_in
+            punch_out_display = None
+            if pp.punch_date and pp.punch_date < today:
+                overnight_attendance_date = pp.punch_date.isoformat()
+            closed_secs = 0
+            for s in PunchSession.query.filter(
+                PunchSession.punch_id == pp.id,
+                PunchSession.clock_out.isnot(None),
+            ).all():
+                closed_secs += int((s.clock_out - s.clock_in).total_seconds())
+            running = int((datetime.now() - open_sess.clock_in).total_seconds())
+            total_secs = closed_secs + max(0, running)
+            working_hours = seconds_to_hms_str(total_secs)
+            requires_repeat_punch_reason = False
+            punch_row_for_detail = pp
+
+    if not global_open:
+        punch = Punch.query.filter_by(
+            admin_id=admin.id,
+            punch_date=today,
+        ).first()
+
+        if punch and punch.id:
+            try:
+                if ensure_punch_sessions_backfill(punch):
+                    db.session.commit()
+                    punch = Punch.query.filter_by(admin_id=admin.id, punch_date=today).first()
+            except Exception:
+                db.session.rollback()
+
+        if punch and punch.id:
+            open_sess = open_punch_session_for_punch(punch.id)
+            has_open_session = open_sess is not None
+            closed_cnt = (
+                PunchSession.query.filter(
+                    PunchSession.punch_id == punch.id,
+                    PunchSession.clock_out.isnot(None),
+                ).count()
+            )
+            requires_repeat_punch_reason = closed_cnt > 0 and not has_open_session
+
+            closed_secs = 0
+            for s in PunchSession.query.filter(
+                PunchSession.punch_id == punch.id,
+                PunchSession.clock_out.isnot(None),
+            ).all():
+                closed_secs += int((s.clock_out - s.clock_in).total_seconds())
+
+            if open_sess:
+                punch_in_display = open_sess.clock_in
+                punch_out_display = None
+                running = int((datetime.now() - open_sess.clock_in).total_seconds())
+                total_secs = closed_secs + max(0, running)
+            else:
+                punch_in_display = punch.punch_in
+                punch_out_display = punch.punch_out
+                total_secs = closed_secs if closed_cnt else hms_to_seconds(punch.today_work)
+
+            calculated = seconds_to_hms_str(total_secs)
             normalized = _normalize_working_hours(punch.today_work) if punch.today_work else None
-            working_hours = normalized if normalized else calculated
-        except Exception:
-            working_hours = None
+            if has_open_session:
+                working_hours = calculated
+            elif closed_cnt > 0:
+                # Sum of all closed sessions must drive display (not stale punch.today_work)
+                working_hours = calculated
+            else:
+                working_hours = normalized if normalized else calculated
+            punch_row_for_detail = punch
+
+    punch_sessions_json = serialize_punch_sessions(punch_row_for_detail)
+    session_attendance_date = (
+        punch_row_for_detail.punch_date.isoformat()
+        if punch_row_for_detail and getattr(punch_row_for_detail, "punch_date", None)
+        else None
+    )
 
     # ------------------------
     # 4. LEAVE BALANCE + USAGE (from LeaveBalance table)
@@ -335,8 +425,7 @@ def _employee_homepage_impl():
     # ------------------------
     # RESPONSE
     # ------------------------
-    def _punch_iso(p, attr):
-        val = getattr(p, attr, None) if p else None
+    def _punch_iso_val(val):
         if val is None:
             return None
         return val.isoformat() if hasattr(val, "isoformat") else str(val)
@@ -376,9 +465,14 @@ def _employee_homepage_impl():
             "designation": employee.designation if employee else None
         },
         "punch": {
-            "punch_in": _punch_iso(punch, "punch_in"),
-            "punch_out": _punch_iso(punch, "punch_out"),
-            "working_hours": working_hours
+            "punch_in": _punch_iso_val(punch_in_display),
+            "punch_out": _punch_iso_val(punch_out_display),
+            "working_hours": working_hours,
+            "has_open_session": has_open_session,
+            "requires_repeat_punch_reason": requires_repeat_punch_reason,
+            "overnight_attendance_date": overnight_attendance_date,
+            "sessions": punch_sessions_json,
+            "session_attendance_date": session_attendance_date,
         },
         "joining_info": {
             "doj": _safe_doj(admin),
@@ -810,18 +904,6 @@ def punch_in():
 
     today = date.today()
 
-    # Existing punch
-    punch = Punch.query.filter_by(
-        admin_id=employee.id,
-        punch_date=today
-    ).first()
-
-    if punch and punch.punch_in:
-        return jsonify({
-            "success": False,
-            "message": "Already punched in today"
-        }), 400
-
     # ❌ Leave check
     if is_on_leave(employee.id, today):
         return jsonify({
@@ -836,6 +918,51 @@ def punch_in():
             "message": "WFH mode is not approved for today"
         }), 403
 
+    existing_open = open_punch_session_for_admin(employee.id)
+    if existing_open:
+        pd = existing_open.punch.punch_date if existing_open.punch else None
+        if pd == today:
+            return jsonify({
+                "success": False,
+                "message": "Punch out before starting another punch in",
+            }), 400
+        pd_str = pd.isoformat() if pd else "a previous day"
+        return jsonify({
+            "success": False,
+            "message": (
+                f"You still have an open shift from {pd_str} (night shift). "
+                "Punch out to complete it before starting a new punch in."
+            ),
+        }), 400
+
+    punch = Punch.query.filter_by(
+        admin_id=employee.id,
+        punch_date=today
+    ).first()
+
+    if not punch:
+        punch = Punch(admin_id=employee.id, punch_date=today)
+        db.session.add(punch)
+        db.session.flush()
+
+    if ensure_punch_sessions_backfill(punch):
+        db.session.commit()
+        punch = Punch.query.filter_by(admin_id=employee.id, punch_date=today).first()
+
+    closed_count = (
+        PunchSession.query.filter(
+            PunchSession.punch_id == punch.id,
+            PunchSession.clock_out.isnot(None),
+        ).count()
+    )
+    repeat_reason = (data.get("repeat_punch_reason") or data.get("repeat_reason") or "").strip()
+    if closed_count > 0 and len(repeat_reason) < 3:
+        return jsonify({
+            "success": False,
+            "message": "Repeat punch reason is required (at least 3 characters).",
+            "requires_repeat_punch_reason": True,
+        }), 400
+
     office_location = Location.query.first()
     zone = "NO_GPS"
     distance = None
@@ -849,7 +976,6 @@ def punch_in():
     elif office_location is None:
         zone = "NO_OFFICE_CONFIG"
 
-    # Allow punch-in even when outside radius (no reason required)
     status_map = {
         "INSIDE": "inside_geofence",
         "NEAR": "inside_geofence",
@@ -859,32 +985,35 @@ def punch_in():
     }
     location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
 
-    # -------- CREATE / UPDATE PUNCH --------
-    if not punch:
-        punch = Punch(
-            admin_id=employee.id,
-            punch_date=today
-        )
-
-    punch.punch_in = datetime.now()
+    now = datetime.now()
+    sess = PunchSession(
+        punch_id=punch.id,
+        clock_in=now,
+        clock_out=None,
+        repeat_reason=repeat_reason if closed_count > 0 else None,
+        is_wfh=is_wfh,
+        lat=user_lat,
+        lon=user_lon,
+        location_status=location_status,
+    )
+    db.session.add(sess)
     punch.lat = user_lat
     punch.lon = user_lon
-    punch.is_wfh = is_wfh
-    punch.location_status = location_status
-
-
-    db.session.add(punch)
+    recompute_punch_aggregate(punch)
     db.session.commit()
 
-    punch_in_str = punch.punch_in.isoformat() if hasattr(punch.punch_in, 'isoformat') else str(punch.punch_in)
+    punch_in_str = now.isoformat() if hasattr(now, "isoformat") else str(now)
+    tw = punch.today_work or "0:00:00"
     return jsonify({
         "success": True,
         "message": "Punched in; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched in successfully",
         "punch_in": punch_in_str,
+        "today_work": tw,
         "is_wfh": is_wfh,
         "zone": zone,
         "location_status": location_status,
-        "needs_review": zone in ["OUTSIDE", "NO_GPS"]
+        "needs_review": zone in ["OUTSIDE", "NO_GPS"],
+        "requires_repeat_punch_reason": False,
     }), 200
 
 
@@ -906,13 +1035,21 @@ def punch_out():
         if not employee:
             return jsonify({"success": False, "message": "Employee not found"}), 404
 
-        today = date.today()
-        punch = Punch.query.filter_by(admin_id=employee.id, punch_date=today).first()
+        open_sess = open_punch_session_for_admin(employee.id)
+        if not open_sess:
+            return jsonify({"success": False, "message": "No active punch-in found"}), 400
 
-        if not punch or not punch.punch_in:
-            return jsonify({"success": False, "message": "No punch-in found for today"}), 400
+        punch = open_sess.punch
+        if not punch or not punch.id:
+            return jsonify({"success": False, "message": "No punch-in found"}), 400
 
-        # Allow punch-out again: last punch-out is saved (overwrites previous)
+        if ensure_punch_sessions_backfill(punch):
+            db.session.commit()
+            open_sess = open_punch_session_for_admin(employee.id)
+            punch = Punch.query.filter_by(id=punch.id).first()
+            if not open_sess or not punch:
+                return jsonify({"success": False, "message": "No active punch-in found"}), 400
+
         office_location = Location.query.first()
         zone = "NO_GPS"
         if user_lat is not None and user_lon is not None and office_location:
@@ -925,7 +1062,6 @@ def punch_out():
         elif office_location is None:
             zone = "NO_OFFICE_CONFIG"
 
-        # Allow punch-out even when outside radius (no reason required)
         status_map = {
             "INSIDE": "inside_geofence",
             "NEAR": "inside_geofence",
@@ -935,26 +1071,37 @@ def punch_out():
         }
         location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
 
-        # ✅ UPDATE PUNCH-OUT (allow from any location)
-        punch.punch_out = datetime.now()
-        punch.lat = user_lat  # Update location on punch-out
+        now = datetime.now()
+        cin = open_sess.clock_in
+        duration_sec = int((now - cin).total_seconds()) if cin else 0
+        date_changed = bool(cin and cin.date() != now.date())
+        EXTENDED_HOURS_THRESHOLD_SEC = 10 * 3600
+        if duration_sec > EXTENDED_HOURS_THRESHOLD_SEC and date_changed:
+            ext_reason = (data.get("extended_hours_reason") or "").strip()
+            if len(ext_reason) < 3:
+                return jsonify({
+                    "success": False,
+                    "message": (
+                        "This session is over 10 hours and crosses midnight. "
+                        "Please provide a reason (at least 3 characters) to punch out."
+                    ),
+                    "requires_extended_hours_reason": True,
+                }), 400
+            open_sess.extended_hours_reason = ext_reason
+
+        open_sess.clock_out = now
+        open_sess.lat = user_lat
+        open_sess.lon = user_lon
+        open_sess.location_status = location_status
+
+        punch.lat = user_lat
         punch.lon = user_lon
-        punch.location_status = location_status
 
-        # CALCULATE TOTAL TIME
-        if isinstance(punch.punch_in, datetime):
-            diff = punch.punch_out - punch.punch_in
-        else:
-            # If punch_in is time only, combine with date
-            punch_in_dt = datetime.combine(today, punch.punch_in) if isinstance(punch.punch_in, time) else punch.punch_in
-            diff = punch.punch_out - punch_in_dt
-        
-        today_work_str = str(diff).split(".")[0]  # "HH:MM:SS"
-        punch.today_work = today_work_str
-
+        recompute_punch_aggregate(punch)
         db.session.commit()
 
-        punch_out_str = punch.punch_out.isoformat() if hasattr(punch.punch_out, 'isoformat') else str(punch.punch_out)
+        today_work_str = punch.today_work or "0:00:00"
+        punch_out_str = now.isoformat() if hasattr(now, "isoformat") else str(now)
         return jsonify({
             "success": True,
             "message": "Punched out; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched out successfully",

@@ -839,11 +839,11 @@
   min-width: 0;
 }
 
-/* Today's Status (left) + News Feed (right) – same line; let attendance grow so buttons stay visible */
+/* Today's Status (cols 1–3) + News Feed (col 4) – aligns with top cards: Leave + 2 cols left, Manager right */
 .dashboard-content .main-grid .dashboard-top-row,
 .main-grid .dashboard-top-row {
   display: grid !important;
-  grid-template-columns: 1fr 1fr !important;
+  grid-template-columns: 3fr 1fr !important;
   gap: 20px;
   grid-column: span 4;
   align-items: stretch;
@@ -862,17 +862,19 @@
 /* Today's Status: stable height so layout doesn't jump when location error shows/hides */
 .dashboard-content .main-grid .dashboard-top-row .attendance-section,
 .main-grid .dashboard-top-row .attendance-section {
+  align-self: stretch;
   min-height: 400px;
 }
 
-/* News Feed: fixed height container, list scrolls after ~2 items */
+/* News Feed: stretch to match Today's Status row height; list scrolls when many items */
 .dashboard-content .main-grid .dashboard-top-row .news-feed-section,
 .main-grid .dashboard-top-row .news-feed-section {
   display: flex !important;
   flex-direction: column;
+  align-self: stretch !important;
   height: 100% !important;
-  max-height: 400px !important;
-  min-height: 360;
+  max-height: none !important;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -906,6 +908,17 @@
 
 .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Empty news feed: grow with card so bottom aligns with Today's Status */
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-empty,
+.main-grid .dashboard-top-row .news-feed-section .news-feed-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  min-height: 0;
 }
 
 .grid-span-4 {
@@ -996,6 +1009,21 @@
   flex-direction: column;
   gap: 20px;
   padding: 20px 0;
+}
+
+/* When sessions exist: primary (location, stats, buttons) left; sessions list right */
+.attendance-body-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.attendance-body:has(.dashboard-punch-sessions) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, min(36%, 340px));
+  gap: 20px 24px;
+  align-items: start;
 }
 
 /* Top Row: Location + Status */
@@ -1191,6 +1219,141 @@
 .stat-timer {
   color: #3b82f6;
   font-variant-numeric: tabular-nums;
+}
+
+.stat-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
+/* Punch sessions (in → out segments) — below stats when stacked; right column when grid */
+.dashboard-punch-sessions {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  min-width: 0;
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
+}
+
+.attendance-body:has(.dashboard-punch-sessions) .dashboard-punch-sessions {
+  border-left: 1px solid var(--border-light);
+  padding-left: 20px;
+  margin-left: 0;
+  align-self: stretch;
+  max-height: min(420px, 72vh);
+}
+
+@media (max-width: 992px) {
+  .attendance-body:has(.dashboard-punch-sessions) {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .attendance-body:has(.dashboard-punch-sessions) .dashboard-punch-sessions {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--border-light);
+    padding-top: 16px;
+    max-height: min(360px, 55vh);
+    align-self: stretch;
+  }
+}
+
+.dashboard-punch-sessions-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.dashboard-punch-sessions-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dashboard-punch-sessions-date-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.dashboard-punch-sessions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-punch-session-row {
+  background: #f8f9fa;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+
+.dashboard-punch-session-row.is-open {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+}
+
+.dashboard-punch-session-main {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.dashboard-punch-session-range {
+  font-weight: 600;
+  color: var(--text-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-punch-session-duration {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #3b82f6;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-punch-session-live {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #059669;
+}
+
+.dashboard-punch-session-hms {
+  font-size: 1rem;
+}
+
+.dashboard-punch-session-reason {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 /* Action Buttons */
@@ -1756,6 +1919,11 @@
   .manager-card {
     grid-column: span 1;
   }
+  /* Top cards are 2×2; split 50/50 so news feed lines up with the right column (Manager). */
+  .dashboard-content .main-grid .dashboard-top-row,
+  .main-grid .dashboard-top-row {
+    grid-template-columns: 1fr 1fr !important;
+  }
   .main-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
@@ -1934,6 +2102,17 @@
     align-items: stretch;
     gap: 14px;
     padding: 14px 0;
+  }
+  .attendance-body:has(.dashboard-punch-sessions) {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .attendance-body:has(.dashboard-punch-sessions) .dashboard-punch-sessions {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--border-light);
+    padding-top: 14px;
+    max-height: min(320px, 45vh);
   }
   .status-row-top {
     flex-direction: column;
@@ -2271,6 +2450,94 @@
 .dashboard-content .main-grid .recent-box .activity-list li .left,
 .dashboard-content .main-grid .recent-box .activity-list li .time {
   color: #000 !important;
+}
+
+/* Repeat punch-in modal */
+.dashboard-repeat-punch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dashboard-repeat-punch-modal {
+  background: #fff;
+  border-radius: 12px;
+  max-width: 440px;
+  width: 100%;
+  padding: 24px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e2e8f0;
+}
+
+.dashboard-repeat-punch-modal h3 {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  color: #0f172a;
+}
+
+.dashboard-repeat-punch-hint {
+  margin: 0 0 16px;
+  font-size: 0.9rem;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.dashboard-repeat-punch-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 88px;
+  font-family: inherit;
+}
+
+.dashboard-repeat-punch-textarea:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+.dashboard-repeat-punch-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.dashboard-repeat-punch-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.dashboard-repeat-punch-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dashboard-repeat-punch-btn.secondary {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.dashboard-repeat-punch-btn.primary {
+  background: #4f46e5;
+  color: #fff;
+}
+
+.dashboard-repeat-punch-btn.primary:hover:not(:disabled) {
+  background: #4338ca;
 }
 
 

@@ -1,0 +1,267 @@
+.manager-team-attendance {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.manager-team-attendance__scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px 32px;
+  padding: 16px 18px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.manager-team-attendance__scope-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.manager-team-attendance__scope-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.manager-team-attendance__scope-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e40af;
+}
+
+.manager-team-attendance__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.manager-team-attendance__filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.manager-team-attendance__filter select {
+  min-width: 160px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.manager-team-attendance__status {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.manager-team-attendance__error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 14px;
+}
+
+.manager-team-attendance__table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.manager-team-attendance__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.manager-team-attendance__table th,
+.manager-team-attendance__table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.manager-team-attendance__table th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.manager-team-attendance__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.manager-team-attendance__empty {
+  text-align: center;
+  color: #64748b;
+  padding: 28px 16px !important;
+}
+
+.manager-team-attendance__col-sessions {
+  width: 72px;
+}
+
+.manager-team-attendance__cell-toggle {
+  vertical-align: middle;
+  padding: 8px 10px !important;
+}
+
+.manager-team-attendance__expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.manager-team-attendance__expand-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.manager-team-attendance__expand-icon {
+  font-size: 10px;
+  color: #64748b;
+}
+
+.manager-team-attendance__session-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.manager-team-attendance__session-count-muted {
+  color: #94a3b8;
+  font-size: 13px;
+  padding-left: 8px;
+}
+
+.manager-team-attendance__row-expanded td {
+  border-bottom: none;
+}
+
+.manager-team-attendance__total-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manager-team-attendance__open-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.manager-team-attendance__detail-row td {
+  padding: 0 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  background: #f8fafc;
+}
+
+.manager-team-attendance__detail-cell {
+  vertical-align: top;
+}
+
+.manager-team-attendance__sessions-panel {
+  padding: 14px 16px 18px 20px;
+}
+
+.manager-team-attendance__sessions-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.manager-team-attendance__sessions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.manager-team-attendance__session-item {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.manager-team-attendance__session-item.is-open {
+  border-color: #93c5fd;
+  background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+}
+
+.manager-team-attendance__session-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+
+.manager-team-attendance__session-times {
+  font-weight: 600;
+  color: #1e293b;
+  font-variant-numeric: tabular-nums;
+}
+
+.manager-team-attendance__session-dur {
+  font-weight: 600;
+  color: #2563eb;
+  font-variant-numeric: tabular-nums;
+}
+
+.manager-team-attendance__live {
+  color: #059669;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-right: 6px;
+}
+
+.manager-team-attendance__muted {
+  font-weight: 500;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.manager-team-attendance__session-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.manager-team-attendance__session-note strong {
+  color: #475569;
+}

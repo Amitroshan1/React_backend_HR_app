@@ -1,15 +1,20 @@
+import calendar
+from collections import defaultdict
+
 from flask import Blueprint, jsonify, request, current_app, url_for
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload
 from datetime import date, datetime
 
 from . import db
 from .models.Admin_models import Admin
-from .models.attendance import LeaveApplication, WorkFromHomeApplication
+from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .models.probation import ProbationReview
 from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
+from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_aggregate, serialize_punch_sessions
 
 
 manager = Blueprint("manager", __name__)
@@ -58,6 +63,55 @@ def _is_manager_for_target(approver_admin, target_admin):
     if not manager_scope_matches_contact(approver_admin, contact):
         return False
     return is_manager_in_contact(contact, approver_admin)
+
+
+def _team_member_admin_ids(manager_admin):
+    rows = (
+        Admin.query.filter(func.coalesce(Admin.is_exited, False) == False)
+        .order_by(Admin.first_name.asc(), Admin.id.asc())
+        .all()
+    )
+    ids = []
+    for row in rows:
+        if row.id == manager_admin.id:
+            continue
+        if not _is_manager_for_target(manager_admin, row):
+            continue
+        ids.append(row.id)
+    return ids
+
+
+def _display_name_for_admin(admin_row):
+    if not admin_row:
+        return "Unknown"
+    emp = getattr(admin_row, "employee_details", None)
+    if emp and (getattr(emp, "name", None) or "").strip():
+        return (emp.name or "").strip()
+    parts = [
+        (getattr(admin_row, "first_name", None) or "").strip(),
+        (getattr(admin_row, "user_name", None) or "").strip(),
+    ]
+    for p in parts:
+        if p:
+            return p
+    email = (getattr(admin_row, "email", None) or "").strip()
+    return email.split("@")[0] if email else "Unknown"
+
+
+def _wfh_approved_on_day(admin_id, day, wfh_by_admin):
+    for w in wfh_by_admin.get(admin_id, ()):
+        if w.start_date <= day <= w.end_date:
+            return True
+    return False
+
+
+def _location_label(punch):
+    ls = getattr(punch, "location_status", None) or ""
+    if ls:
+        return ls.replace("_", " ")
+    if punch.lat is not None and punch.lon is not None:
+        return f"{punch.lat:.5f}, {punch.lon:.5f}"
+    return ""
 
 
 def _ensure_manager_user():
@@ -581,6 +635,108 @@ def list_team_members():
         )
 
     return jsonify({"success": True, "members": members}), 200
+
+
+@manager.route("/team-attendance", methods=["GET"])
+@jwt_required()
+def team_attendance():
+    """Punch rows for direct reports plus the logged-in manager in a calendar month (NHQ + Engineering only)."""
+    from .manager_utils import manager_can_view_nhq_engineering_team_attendance
+
+    manager_admin, err = _ensure_manager_user()
+    if err:
+        return err
+    if not manager_can_view_nhq_engineering_team_attendance(manager_admin):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Team attendance is only available for NHQ Engineering managers.",
+                }
+            ),
+            403,
+        )
+
+    month = request.args.get("month", type=int)
+    year = request.args.get("year", type=int)
+    today = date.today()
+    if not year or year < 2000 or year > 2100:
+        year = today.year
+    if not month or month < 1 or month > 12:
+        month = today.month
+
+    team_ids = _team_member_admin_ids(manager_admin)
+    mid = getattr(manager_admin, "id", None)
+    if mid is not None and mid not in team_ids:
+        team_ids.append(mid)
+
+    num_days = calendar.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, num_days)
+
+    wfh_rows = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id.in_(team_ids),
+        WorkFromHomeApplication.status == "Approved",
+        WorkFromHomeApplication.start_date <= month_end,
+        WorkFromHomeApplication.end_date >= month_start,
+    ).all()
+    wfh_by_admin = defaultdict(list)
+    for w in wfh_rows:
+        wfh_by_admin[w.admin_id].append(w)
+
+    punches = (
+        Punch.query.options(joinedload(Punch.admin).joinedload(Admin.employee_details))
+        .filter(
+            Punch.admin_id.in_(team_ids),
+            Punch.punch_date >= month_start,
+            Punch.punch_date <= month_end,
+        )
+        .order_by(Punch.punch_date.desc(), Punch.admin_id.asc())
+        .all()
+    )
+
+    for p in punches:
+        if not p.id:
+            continue
+        try:
+            if ensure_punch_sessions_backfill(p):
+                recompute_punch_aggregate(p)
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    out_rows = []
+    for p in punches:
+        adm = p.admin
+        name = _display_name_for_admin(adm)
+        wfh = bool(getattr(p, "is_wfh", False)) or _wfh_approved_on_day(
+            p.admin_id, p.punch_date, wfh_by_admin
+        )
+        sessions = serialize_punch_sessions(p)
+        has_open = any(s.get("is_open") for s in sessions)
+        out_rows.append(
+            {
+                "date": p.punch_date.isoformat() if p.punch_date else "",
+                "name": name,
+                "punch_in": p.punch_in.strftime("%H:%M:%S") if p.punch_in else "",
+                "punch_out": p.punch_out.strftime("%H:%M:%S") if p.punch_out else "",
+                "wfh": "Yes" if wfh else "—",
+                "location": _location_label(p),
+                "total_hours": str(p.today_work) if p.today_work else "",
+                "sessions": sessions,
+                "session_count": len(sessions),
+                "has_open_session": has_open,
+            }
+        )
+
+    return jsonify(
+        {
+            "success": True,
+            "month": month,
+            "year": year,
+            "rows": out_rows,
+        }
+    ), 200
 
 
 @manager.route("/sprint-performance", methods=["GET"])

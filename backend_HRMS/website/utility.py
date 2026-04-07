@@ -1,4 +1,4 @@
-from .models.attendance import LeaveApplication, LeaveBalance, Punch, WorkFromHomeApplication
+from .models.attendance import LeaveApplication, LeaveBalance, Punch, PunchSession, WorkFromHomeApplication
 from datetime import date
 from io import BytesIO
 import xlsxwriter
@@ -13,12 +13,18 @@ from .models.holiday_calendar import HolidayCalendar
 
 
 def is_on_leave(admin_id, today):
-    return LeaveApplication.query.filter(
+    rows = LeaveApplication.query.filter(
         LeaveApplication.admin_id == admin_id,
         LeaveApplication.status == "Approved",
         LeaveApplication.start_date <= today,
         LeaveApplication.end_date >= today
-    ).first() is not None
+    ).all()
+    # Allow punch-in when only Half Day Leave is approved for the day.
+    for lv in rows:
+        leave_type = (getattr(lv, "leave_type", None) or "").strip().lower()
+        if leave_type != "half day leave":
+            return True
+    return False
 
 
 
@@ -398,6 +404,84 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             row += 2
 
         worksheet.set_column(0, num_days + 1, 18)
+
+        # -----------------------------
+        # Second sheet: Session Details
+        # -----------------------------
+        session_ws = workbook.add_worksheet("Session Details")
+        session_headers = [
+            "Date",
+            "Emp ID",
+            "Employee Name",
+            "Session #",
+            "Clock In",
+            "Clock Out",
+            "Duration",
+            "Repeat Reason",
+            "Extended Hours Reason",
+            "Is Open",
+        ]
+        for c, h in enumerate(session_headers):
+            session_ws.write(0, c, h, header_fmt)
+
+        admins_by_id = {a.id: a for a in admins}
+        sessions = (
+            PunchSession.query.join(Punch, PunchSession.punch_id == Punch.id)
+            .filter(
+                Punch.admin_id.in_(admin_ids),
+                Punch.punch_date >= start_date,
+                Punch.punch_date <= end_date,
+            )
+            .order_by(Punch.admin_id.asc(), Punch.punch_date.asc(), PunchSession.clock_in.asc())
+            .all()
+        )
+
+        seq_map = {}  # (admin_id, punch_date) -> session number
+        r = 1
+        for s in sessions:
+            p = getattr(s, "punch", None)
+            if not p:
+                continue
+            a = admins_by_id.get(p.admin_id)
+            if not a:
+                continue
+
+            employee = employees_by_admin_id.get(a.id)
+            emp_code = (employee.emp_id if employee and getattr(employee, "emp_id", None) else None) or a.emp_id or ""
+            emp_name = (employee.name if employee and getattr(employee, "name", None) else None) or a.first_name or ""
+
+            key = (p.admin_id, p.punch_date)
+            seq_map[key] = seq_map.get(key, 0) + 1
+            seq = seq_map[key]
+
+            cin = s.clock_in.strftime("%H:%M:%S") if s.clock_in else ""
+            cout = s.clock_out.strftime("%H:%M:%S") if s.clock_out else ""
+            if s.clock_in and s.clock_out:
+                secs = max(0, int((s.clock_out - s.clock_in).total_seconds()))
+                h, rem = divmod(secs, 3600)
+                m, sec = divmod(rem, 60)
+                dur = f"{h:02d}:{m:02d}:{sec:02d}"
+            else:
+                dur = ""
+
+            session_ws.write(r, 0, p.punch_date.isoformat() if p.punch_date else "", border_fmt)
+            session_ws.write(r, 1, emp_code, border_fmt)
+            session_ws.write(r, 2, emp_name, border_fmt)
+            session_ws.write(r, 3, seq, border_fmt)
+            session_ws.write(r, 4, cin, border_fmt)
+            session_ws.write(r, 5, cout, border_fmt)
+            session_ws.write(r, 6, dur, border_fmt)
+            session_ws.write(r, 7, (s.repeat_reason or ""), border_fmt)
+            session_ws.write(r, 8, (getattr(s, "extended_hours_reason", None) or ""), border_fmt)
+            session_ws.write(r, 9, "Yes" if s.clock_out is None else "No", border_fmt)
+            r += 1
+
+        session_ws.set_column(0, 0, 12)
+        session_ws.set_column(1, 2, 18)
+        session_ws.set_column(3, 3, 10)
+        session_ws.set_column(4, 6, 14)
+        session_ws.set_column(7, 8, 30)
+        session_ws.set_column(9, 9, 10)
 
     output.seek(0)
     return output
@@ -1267,6 +1351,80 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     worksheet.set_column(0, 0, 32)
     last_col = FIRST_EMP_COL + TIME_COLUMNS_PER_PAIR * max(len(admins), 1)
     worksheet.set_column(1, last_col, 14)
+
+    # -----------------------------
+    # Second sheet: Session Details
+    # -----------------------------
+    session_ws = workbook.add_worksheet("Session Details")
+    session_headers = [
+        "Date",
+        "Emp ID",
+        "Employee Name",
+        "Session #",
+        "Clock In",
+        "Clock Out",
+        "Duration",
+        "Repeat Reason",
+        "Extended Hours Reason",
+        "Is Open",
+    ]
+    for c, h in enumerate(session_headers):
+        session_ws.write(0, c, h, header_fmt)
+
+    admins_by_id = {a.id: a for a in admins}
+    session_rows = (
+        PunchSession.query.join(Punch, PunchSession.punch_id == Punch.id)
+        .filter(
+            Punch.admin_id.in_(admin_ids),
+            Punch.punch_date >= month_start,
+            Punch.punch_date <= month_end,
+        )
+        .order_by(Punch.admin_id.asc(), Punch.punch_date.asc(), PunchSession.clock_in.asc())
+        .all()
+    )
+
+    seq_map = {}  # (admin_id, punch_date) -> session sequence
+    r = 1
+    for s in session_rows:
+        p = getattr(s, "punch", None)
+        if not p:
+            continue
+        a = admins_by_id.get(p.admin_id)
+        if not a:
+            continue
+
+        key = (p.admin_id, p.punch_date)
+        seq_map[key] = seq_map.get(key, 0) + 1
+        seq = seq_map[key]
+
+        cin = s.clock_in.strftime("%H:%M:%S") if s.clock_in else ""
+        cout = s.clock_out.strftime("%H:%M:%S") if s.clock_out else ""
+        if s.clock_in and s.clock_out:
+            secs = max(0, int((s.clock_out - s.clock_in).total_seconds()))
+            h, rem = divmod(secs, 3600)
+            m, sec = divmod(rem, 60)
+            dur = f"{h:02d}:{m:02d}:{sec:02d}"
+        else:
+            dur = ""
+
+        session_ws.write(r, 0, p.punch_date.isoformat() if p.punch_date else "", border_fmt)
+        session_ws.write(r, 1, a.emp_id or "", border_fmt)
+        session_ws.write(r, 2, a.first_name or "", border_fmt)
+        session_ws.write(r, 3, seq, border_fmt)
+        session_ws.write(r, 4, cin, border_fmt)
+        session_ws.write(r, 5, cout, border_fmt)
+        session_ws.write(r, 6, dur, border_fmt)
+        session_ws.write(r, 7, (s.repeat_reason or ""), border_fmt)
+        session_ws.write(r, 8, (getattr(s, "extended_hours_reason", None) or ""), border_fmt)
+        session_ws.write(r, 9, "Yes" if s.clock_out is None else "No", border_fmt)
+        r += 1
+
+    session_ws.set_column(0, 0, 12)
+    session_ws.set_column(1, 2, 18)
+    session_ws.set_column(3, 3, 10)
+    session_ws.set_column(4, 6, 14)
+    session_ws.set_column(7, 8, 30)
+    session_ws.set_column(9, 9, 10)
 
     workbook.close()
     output.seek(0)

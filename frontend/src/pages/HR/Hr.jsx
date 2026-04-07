@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
@@ -687,21 +687,125 @@ function HrPunchFormView({ employee, onBack }) {
   const [date, setDate] = useState(today);
   const [punchIn, setPunchIn] = useState('09:00');
   const [punchOut, setPunchOut] = useState('18:00');
+  const [sessions, setSessions] = useState([]);
+  const [loadingPunch, setLoadingPunch] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+
+  const toTime = (iso) => {
+    if (!iso) return '';
+    const s = String(iso).trim();
+    const normalized = s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
+    const d = new Date(normalized);
+    if (Number.isNaN(d.getTime())) return '';
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  const fetchPunchForDate = async (d) => {
+    if (!employee?.id || !d) return;
+    setLoadingPunch(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await fetch(`${HR_API_BASE}/employee/punch/${employee.id}?date=${encodeURIComponent(d)}`, {
+        method: 'GET',
+        headers: { ...getAuthHeaders() },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setSessions([]);
+        setMessage({ type: 'error', text: data.message || 'Failed to load punch data' });
+        return;
+      }
+      const p = data.punch || {};
+      const sess = Array.isArray(p.sessions) ? p.sessions : [];
+      setSessions(
+        sess.map((s) => ({
+          id: s.id ?? null,
+          clock_in: toTime(s.clock_in) || '',
+          clock_out: s.clock_out ? (toTime(s.clock_out) || '') : '',
+          repeat_reason: s.repeat_reason || '',
+          extended_hours_reason: s.extended_hours_reason || '',
+          is_open: !!s.is_open,
+        }))
+      );
+      // Keep the legacy inputs in sync (useful as a quick summary)
+      setPunchIn(toTime(p.punch_in) || '09:00');
+      setPunchOut(toTime(p.punch_out) || '18:00');
+    } catch {
+      setSessions([]);
+      setMessage({ type: 'error', text: 'Network error' });
+    } finally {
+      setLoadingPunch(false);
+    }
+  };
+
+  const punchSummary = useMemo(() => {
+    const list = Array.isArray(sessions) ? sessions : [];
+    const ins = list.map((s) => (s.clock_in || '').trim()).filter(Boolean).sort();
+    const outs = list
+      .map((s) => (s.clock_out || '').trim())
+      .filter(Boolean)
+      .sort();
+    const hasOpen = list.some((s) => (s.clock_in || '').trim() && !(s.clock_out || '').trim());
+    return {
+      punch_in: ins[0] || '',
+      punch_out: hasOpen ? '' : (outs[outs.length - 1] || ''),
+      hasOpen,
+    };
+  }, [sessions]);
+
+  useEffect(() => {
+    fetchPunchForDate(date);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, employee?.id]);
+
+  const updateSession = (idx, patch) => {
+    setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
+
+  const addSession = () => {
+    setSessions((prev) => [
+      ...prev,
+      { id: null, clock_in: '', clock_out: '', repeat_reason: '', extended_hours_reason: '', is_open: false },
+    ]);
+  };
+
+  const removeSession = (idx) => {
+    setSessions((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setMessage({ type: '', text: '' });
     try {
-      const res = await fetch(`${HR_API_BASE}/employee/punch/${employee.id}`, {
+      const hasSessions = Array.isArray(sessions) && sessions.length > 0;
+      const endpoint = hasSessions
+        ? `${HR_API_BASE}/employee/punch/${employee.id}/sessions`
+        : `${HR_API_BASE}/employee/punch/${employee.id}`;
+      const payload = hasSessions
+        ? {
+            date,
+            sessions: sessions.map((s) => ({
+              clock_in: s.clock_in || null,
+              clock_out: s.clock_out || null,
+              repeat_reason: s.repeat_reason || null,
+              extended_hours_reason: s.extended_hours_reason || null,
+            })),
+          }
+        : { date, punch_in: punchIn || null, punch_out: punchOut || null };
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ date, punch_in: punchIn || null, punch_out: punchOut || null }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setMessage({ type: 'success', text: 'Punch updated successfully.' });
+        setMessage({ type: 'success', text: data.message || 'Punch updated successfully.' });
+        await fetchPunchForDate(date);
       } else {
         setMessage({ type: 'error', text: data.message || 'Failed to update punch' });
       }
@@ -752,8 +856,9 @@ function HrPunchFormView({ employee, onBack }) {
                   id="hr-punch-in"
                   type="time"
                   className="hr-punch-form__input hr-punch-form__input--time"
-                  value={punchIn}
-                  onChange={(e) => setPunchIn(e.target.value)}
+                  value={punchSummary.punch_in || punchIn}
+                  readOnly
+                  disabled
                 />
               </div>
               <div className="hr-punch-form__field">
@@ -762,11 +867,108 @@ function HrPunchFormView({ employee, onBack }) {
                   id="hr-punch-out"
                   type="time"
                   className="hr-punch-form__input hr-punch-form__input--time"
-                  value={punchOut}
-                  onChange={(e) => setPunchOut(e.target.value)}
+                  value={punchSummary.punch_out || punchOut}
+                  readOnly
+                  disabled
                 />
               </div>
             </div>
+
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                <div style={{ fontWeight: 700, color: '#1e293b' }}>Sessions</div>
+                <button
+                  type="button"
+                  onClick={addSession}
+                  disabled={submitting || loadingPunch}
+                  className="hr-punch-form__submit"
+                  style={{ width: 'auto', padding: '10px 14px', fontSize: 13 }}
+                >
+                  + Add session
+                </button>
+              </div>
+              {loadingPunch ? (
+                <p style={{ margin: '10px 0 0', color: '#64748b' }}>Loading sessions…</p>
+              ) : sessions.length === 0 ? (
+                <p style={{ margin: '10px 0 0', color: '#64748b' }}>
+                  No sessions found for this date. Add a session to create one.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+                  {sessions.map((s, idx) => (
+                    <div
+                      key={`${s.id ?? 'new'}-${idx}`}
+                      style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 10,
+                        padding: 12,
+                        background: '#fff',
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+                        <div className="hr-punch-form__field" style={{ margin: 0 }}>
+                          <label className="hr-punch-form__label">In</label>
+                          <input
+                            type="time"
+                            className="hr-punch-form__input hr-punch-form__input--time"
+                            value={s.clock_in}
+                            onChange={(e) => updateSession(idx, { clock_in: e.target.value })}
+                            required
+                          />
+                        </div>
+                        <div className="hr-punch-form__field" style={{ margin: 0 }}>
+                          <label className="hr-punch-form__label">Out</label>
+                          <input
+                            type="time"
+                            className="hr-punch-form__input hr-punch-form__input--time"
+                            value={s.clock_out}
+                            onChange={(e) => updateSession(idx, { clock_out: e.target.value })}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeSession(idx)}
+                          disabled={submitting || loadingPunch}
+                          className="hr-punch-form__submit"
+                          style={{
+                            width: 'auto',
+                            padding: '10px 12px',
+                            fontSize: 13,
+                            background: '#ef4444',
+                            boxShadow: 'none',
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, marginTop: 10 }}>
+                        <div className="hr-punch-form__field" style={{ margin: 0 }}>
+                          <label className="hr-punch-form__label">Repeat punch reason (optional)</label>
+                          <input
+                            type="text"
+                            className="hr-punch-form__input"
+                            value={s.repeat_reason}
+                            onChange={(e) => updateSession(idx, { repeat_reason: e.target.value })}
+                            placeholder="Only for 2nd+ punch-in same day"
+                          />
+                        </div>
+                        <div className="hr-punch-form__field" style={{ margin: 0 }}>
+                          <label className="hr-punch-form__label">Extended hours reason (optional)</label>
+                          <input
+                            type="text"
+                            className="hr-punch-form__input"
+                            value={s.extended_hours_reason}
+                            onChange={(e) => updateSession(idx, { extended_hours_reason: e.target.value })}
+                            placeholder="For long sessions crossing midnight"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {message.text && (
               <div className={`hr-punch-form__message hr-punch-form__message--${message.type}`} role="alert">
                 {message.text}

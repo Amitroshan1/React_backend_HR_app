@@ -145,6 +145,23 @@ export async function fetchManagerProfile() {
   return result.profile || null;
 }
 
+export async function fetchManagerTeamAttendance(month, year) {
+  const params = new URLSearchParams();
+  params.set("month", String(month));
+  params.set("year", String(year));
+  const response = await fetch(`${API_BASE}/team-attendance?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      ...authHeaders(),
+    },
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load team attendance");
+  }
+  return result.rows || [];
+}
+
 export async function fetchManagerPerformanceQueue(filters = {}) {
   const params = new URLSearchParams();
   if (filters.month) params.set("month", filters.month);

@@ -4,6 +4,8 @@ from datetime import datetime, date, timedelta
 
 
 class Punch(db.Model, UserMixin):
+    __tablename__ = "punch"
+
     id = db.Column(db.Integer, primary_key=True)
 
     admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
@@ -12,8 +14,7 @@ class Punch(db.Model, UserMixin):
     # ✅ Store full datetime
     punch_in = db.Column(db.DateTime, nullable=True)
     punch_out = db.Column(db.DateTime, nullable=True)
-    today_work = db.Column(db.String(20), nullable=True)  # "HH:MM:SS" format
-    
+    today_work = db.Column(db.String(20), nullable=True)  # "HH:MM:SS" format — sum of closed sessions
 
     lat = db.Column(db.Float, nullable=True)
     lon = db.Column(db.Float, nullable=True)
@@ -22,9 +23,34 @@ class Punch(db.Model, UserMixin):
     location_status = db.deferred(db.Column(db.String(30), nullable=True))
 
     admin = db.relationship('Admin', back_populates='punch_records')
+    sessions = db.relationship(
+        "PunchSession",
+        back_populates="punch",
+        cascade="all, delete-orphan",
+        order_by="PunchSession.clock_in",
+    )
 
     def to_dict(self):
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+
+class PunchSession(db.Model):
+    """One in→out segment per day (Punch). Second+ punch-in same day requires repeat_reason."""
+
+    __tablename__ = "punch_sessions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    punch_id = db.Column(db.Integer, db.ForeignKey("punch.id", ondelete="CASCADE"), nullable=False)
+    clock_in = db.Column(db.DateTime, nullable=False)
+    clock_out = db.Column(db.DateTime, nullable=True)
+    repeat_reason = db.Column(db.String(500), nullable=True)
+    extended_hours_reason = db.Column(db.String(500), nullable=True)
+    is_wfh = db.Column(db.Boolean, nullable=False, default=False)
+    lat = db.Column(db.Float, nullable=True)
+    lon = db.Column(db.Float, nullable=True)
+    location_status = db.Column(db.String(30), nullable=True)
+
+    punch = db.relationship("Punch", back_populates="sessions")
 
 
 class Location(db.Model):

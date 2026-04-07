@@ -6,8 +6,10 @@ import { WFHRequests } from "./comps/LeaveRequests/WFHRequests";
 import { ResignationRequests } from "./comps/LeaveRequests/ResignationRequests";
 import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
 import { ManagerProbationReviews } from "./ManagerProbationReviews";
+import { ManagerTeamAttendance } from "./ManagerTeamAttendance";
 import { ManagerProfileCard } from "./comps/ManagerProfileCard/ManagerProfileCard";
 import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount, fetchProbationReviewsDue } from "./api";
+import { managerCanViewNhqEngineeringTeamAttendance } from "./managerTeamAttendanceEligibility";
 import "./Manager.css";
 
 const APPROVAL_TABS = [
@@ -18,6 +20,7 @@ const APPROVAL_TABS = [
 ];
 const PERFORMANCE_TAB = { key: "performance", label: "Performance", countKey: "performance" };
 const PROBATION_TAB = { key: "probation", label: "Probation", countKey: "probation" };
+const ATTENDANCE_TAB = { key: "attendance", label: "Attendance", countKey: "attendance" };
 
 export const Manager = () => {
   const location = useLocation();
@@ -75,6 +78,15 @@ export const Manager = () => {
       }
     })();
   }, []);
+
+  const showTeamAttendance =
+    !profileLoading && managerCanViewNhqEngineeringTeamAttendance(managerProfile?.scope);
+
+  useEffect(() => {
+    if (!showTeamAttendance && activeTab === ATTENDANCE_TAB.key) {
+      setActiveTab("leave");
+    }
+  }, [showTeamAttendance, activeTab]);
 
   useEffect(() => {
     let isMounted = true;
@@ -146,6 +158,7 @@ export const Manager = () => {
   const getCount = (countKey) => {
     if (countKey === "performance") return pendingPerformanceCount;
     if (countKey === "probation") return probationCount;
+    if (countKey === "attendance") return 0;
     return counts[countKey] ?? 0;
   };
 
@@ -169,6 +182,8 @@ export const Manager = () => {
         return <ManagerPerformanceReviews />;
       case "probation":
         return <ManagerProbationReviews />;
+      case "attendance":
+        return <ManagerTeamAttendance scope={managerProfile?.scope} />;
       default:
         return <LeaveRequests {...panelProps} />;
     }
@@ -232,6 +247,23 @@ export const Manager = () => {
             {getCount(PROBATION_TAB.countKey)}
           </span>
         </button>
+        {showTeamAttendance && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === ATTENDANCE_TAB.key}
+            className={`manager-tab ${activeTab === ATTENDANCE_TAB.key ? "active" : ""}`}
+            onClick={() => setActiveTab(ATTENDANCE_TAB.key)}
+          >
+            {ATTENDANCE_TAB.label}
+            <span
+              className="manager-tab-badge"
+              aria-label="Team attendance"
+            >
+              {getCount(ATTENDANCE_TAB.countKey)}
+            </span>
+          </button>
+        )}
       </div>
 
       {showStatusFilters && (

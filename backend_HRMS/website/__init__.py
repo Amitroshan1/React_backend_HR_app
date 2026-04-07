@@ -130,7 +130,7 @@ def create_app():
     # Import Models
     # ---------------------------
     from .models.Admin_models import Admin
-    from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch
+    from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch, PunchSession
     from .models.query import Query, QueryReply
     from .models.emp_detail_models import Employee
     from .models.education import Education, UploadDoc

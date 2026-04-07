@@ -85,6 +85,83 @@ const formatTimeDifference = (diffMs) => {
     return `${String(hours)}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
 };
 
+/** Backend duration_hms is "H:MM:SS" — sum closed segments for Hours Today + live open */
+const parseHmsToMs = (val) => {
+    if (!val) return 0;
+    const parts = String(val).trim().split(":").map((x) => Number(x));
+    if (parts.length < 2 || parts.some((n) => Number.isNaN(n))) return 0;
+    const h = parts[0] || 0;
+    const m = parts[1] || 0;
+    const s = parts[2] || 0;
+    return (h * 3600 + m * 60 + s) * 1000;
+};
+
+const localIsoDate = (d = new Date()) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
+
+/** Per punch-in → punch-out segments from homepage API (closed = fixed duration; open = live). */
+function PunchSessionsList({ sessions, sessionAttendanceDate, formatTime, formatWorkingHours, formatTimeDifference }) {
+    const list = Array.isArray(sessions) ? sessions : [];
+    if (list.length === 0) return null;
+    const showDateNote =
+        sessionAttendanceDate && sessionAttendanceDate !== localIsoDate();
+    return (
+        <div className="dashboard-punch-sessions">
+            <div className="dashboard-punch-sessions-head">
+                <h3 className="dashboard-punch-sessions-title">Sessions today</h3>
+                {showDateNote && (
+                    <span className="dashboard-punch-sessions-date-note">
+                        Attendance date: {formatDate(`${sessionAttendanceDate}T12:00:00`)}
+                    </span>
+                )}
+            </div>
+            <ul className="dashboard-punch-sessions-list">
+                {list.map((s, idx) => {
+                    const cin = s.clock_in
+                        ? String(s.clock_in).trim()
+                        : "";
+                    const normalizedIn =
+                        cin && cin.includes(" ") && !cin.includes("T") ? cin.replace(" ", "T") : cin;
+                    const t0 = cin ? new Date(normalizedIn).getTime() : NaN;
+                    const liveMs = s.is_open && Number.isFinite(t0) ? Date.now() - t0 : 0;
+                    const durationLabel = s.is_open
+                        ? formatTimeDifference(liveMs)
+                        : formatWorkingHours(s.duration_hms || '0:00:00');
+                    const rangeOut = s.clock_out ? formatTime(s.clock_out) : '—';
+                    return (
+                        <li key={s.id ?? idx} className={`dashboard-punch-session-row${s.is_open ? ' is-open' : ''}`}>
+                            <div className="dashboard-punch-session-main">
+                                <span className="dashboard-punch-session-range">
+                                    {formatTime(s.clock_in)} → {rangeOut}
+                                </span>
+                                <span className="dashboard-punch-session-duration">
+                                    {s.is_open ? (
+                                        <>
+                                            <span className="dashboard-punch-session-live">In progress</span>
+                                            <span className="dashboard-punch-session-hms">{durationLabel}</span>
+                                        </>
+                                    ) : (
+                                        durationLabel
+                                    )}
+                                </span>
+                            </div>
+                            {s.repeat_reason ? (
+                                <p className="dashboard-punch-session-reason">Reason: {s.repeat_reason}</p>
+                            ) : null}
+                            {s.extended_hours_reason ? (
+                                <p className="dashboard-punch-session-reason">Extended hours: {s.extended_hours_reason}</p>
+                            ) : null}
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
+    );
+}
 
 /** Format a date/time for Recent Activity (e.g. "Today", "Yesterday", "2 days ago"). */
 const formatTimeAgo = (isoString) => {
@@ -190,6 +267,10 @@ export const Dashboard = () => {
         last_payslip: null,
     });
     const [punchInDateTime, setPunchInDateTime] = useState(null);
+    const [repeatPunchModalOpen, setRepeatPunchModalOpen] = useState(false);
+    const [repeatPunchReason, setRepeatPunchReason] = useState("");
+    const [extendedHoursModalOpen, setExtendedHoursModalOpen] = useState(false);
+    const [extendedHoursReason, setExtendedHoursReason] = useState("");
     const [newsFeed, setNewsFeed] = useState([]);
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
     const newsFeedListRef = useRef(null);
@@ -213,14 +294,22 @@ export const Dashboard = () => {
                 setDynamicData({
                     user: result.user || {},
                     employee: result.employee || {},
-                    punch: { ...punch, working_hours: workingHours || punch.working_hours },
+                    punch: {
+                        ...punch,
+                        working_hours: workingHours || punch.working_hours,
+                        has_open_session: punch.has_open_session ?? !!(punch.punch_in && !punch.punch_out),
+                        requires_repeat_punch_reason: !!punch.requires_repeat_punch_reason,
+                        sessions: Array.isArray(punch.sessions) ? punch.sessions : [],
+                        session_attendance_date: punch.session_attendance_date || null,
+                    },
                     leave_balance: result.leave_balance || { pl: 'N/A', cl: 'N/A' },
                     managers: result.managers || {},
                     last_leave: result.last_leave || null,
                     last_payslip: result.last_payslip || null,
                 });
-                if (result.punch.punch_in && !result.punch.punch_out) {
-                    setPunchInDateTime(parsePunchInToDate(result.punch.punch_in));
+                const open = punch.has_open_session ?? !!(punch.punch_in && !punch.punch_out);
+                if (open && punch.punch_in) {
+                    setPunchInDateTime(parsePunchInToDate(punch.punch_in));
                 } else {
                     setPunchInDateTime(null);
                 }
@@ -367,27 +456,53 @@ export const Dashboard = () => {
     useEffect(() => {
         let timer;
         // Only start timer if punched in and NOT punched out
-        if (punchInDateTime && !dynamicData.punch.punch_out) {
+        const openSession = dynamicData.punch.has_open_session ?? (!!dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
+        if (punchInDateTime && openSession) {
             timer = setInterval(() => {
-                const now = new Date();
-                const diffMs = now.getTime() - punchInDateTime.getTime();
-                const formattedTime = formatTimeDifference(diffMs);
-                setDynamicData(prev => ({
-                    ...prev,
-                    punch: {
-                        ...prev.punch,
-                        working_hours: formattedTime,
+                const now = Date.now();
+                setDynamicData((prev) => {
+                    const sessions = Array.isArray(prev.punch.sessions) ? prev.punch.sessions : [];
+                    let closedMs = 0;
+                    for (const s of sessions) {
+                        if (!s.is_open && s.duration_hms) {
+                            closedMs += parseHmsToMs(s.duration_hms);
+                        }
                     }
-                }));
-            }, 1000); 
+                    const openSeg = sessions.find((s) => s.is_open);
+                    let liveMs = 0;
+                    if (openSeg?.clock_in) {
+                        const cin = String(openSeg.clock_in).trim();
+                        const normalizedIn = cin.includes(" ") && !cin.includes("T") ? cin.replace(" ", "T") : cin;
+                        const t0 = new Date(normalizedIn).getTime();
+                        if (Number.isFinite(t0)) {
+                            liveMs = Math.max(0, now - t0);
+                        }
+                    }
+                    if (liveMs === 0 && sessions.some((s) => s.is_open) && punchInDateTime) {
+                        liveMs = Math.max(0, now - punchInDateTime.getTime());
+                    }
+                    const totalMs =
+                        sessions.length > 0
+                            ? closedMs + liveMs
+                            : Math.max(0, now - punchInDateTime.getTime());
+                    const formattedTime = formatTimeDifference(totalMs);
+                    return {
+                        ...prev,
+                        punch: {
+                            ...prev.punch,
+                            working_hours: formattedTime,
+                        },
+                    };
+                });
+            }, 1000);
         } else {
             // Stop timer if punched out
-            setDynamicData(prev => ({
+            setDynamicData((prev) => ({
                 ...prev,
                 punch: {
                     ...prev.punch,
                     working_hours: prev.punch.working_hours || '0h 00m 00s',
-                }
+                },
             }));
         }
         return () => {
@@ -395,14 +510,24 @@ export const Dashboard = () => {
                 clearInterval(timer);
             }
         };
-    }, [punchInDateTime, dynamicData.punch.punch_out]); 
-    const handlePunchIn = async (reason = "") => {
+    }, [punchInDateTime, dynamicData.punch.punch_out, dynamicData.punch.has_open_session, dynamicData.punch.punch_in]); 
+    const handlePunchIn = async (geoReason = "", repeatPunchReasonParam = "") => {
         if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
             alert(location.error || "Cannot punch in without location. Please enable location services.");
             return;
         } 
         setIsPunching(true);
         const token = localStorage.getItem('token');
+        const repeatTrim = (repeatPunchReasonParam || "").trim();
+        const payload = {
+            lat: location.lat,
+            lon: location.lon,
+            is_wfh: false,
+            geo_reason: geoReason || null,
+        };
+        if (repeatTrim.length >= 3) {
+            payload.repeat_punch_reason = repeatTrim;
+        }
         try {
             const response = await fetch(`${API_BASE_URL}/employee/punch-in`, {
                 method: 'POST',
@@ -410,31 +535,21 @@ export const Dashboard = () => {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    lat: location.lat,
-                    lon: location.lon,
-                    is_wfh: false, // Assuming office punch-in for now
-                    geo_reason: reason || null
-                })
+                body: JSON.stringify(payload)
             });
             const result = await response.json();
             if (response.ok && result.success) {
-                const newPunchInTime = parsePunchInToDate(result.punch_in) || new Date();
-                setDynamicData(prev => ({
-                    ...prev,
-                    punch: {
-                        ...prev.punch,
-                        punch_in: result.punch_in, 
-                        punch_out: null, 
-                        working_hours: "0h 00m 00s", 
-                    }
-                }));
-                setPunchInDateTime(newPunchInTime);
+                setRepeatPunchModalOpen(false);
+                setRepeatPunchReason("");
                 alert(`Punched In Successfully at ${formatTime(result.punch_in)}!`);
+                await fetchDashboardData(false);
             } else {
                 // If location is out of range, update state
                 if (result.message && result.message.includes("Too far")) {
                     setLocation(prev => ({ ...prev, isInRange: false }));
+                }
+                if (result.requires_repeat_punch_reason) {
+                    setRepeatPunchModalOpen(true);
                 }
                 alert(`Punch In Failed: ${result.message || 'Server error.'}`);
             }
@@ -449,13 +564,14 @@ export const Dashboard = () => {
             setIsPunching(false);
         }
     };
-    const handlePunchOut = async (reason = "") => {
+    const handlePunchOut = async (geoReason = "", extendedHoursReasonParam = "") => {
         if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
             alert(location.error || "Cannot punch out without location. Please enable location services.");
             return;
         } 
         setIsPunching(true);
         const token = localStorage.getItem('token');
+        const extTrim = (extendedHoursReasonParam || "").trim();
         try {
             const response = await fetch(`${API_BASE_URL}/employee/punch-out`, {
                 method: 'POST',
@@ -466,7 +582,8 @@ export const Dashboard = () => {
                 body: JSON.stringify({
                     lat: location.lat,
                     lon: location.lon,
-                    geo_reason: reason || null
+                    geo_reason: geoReason || null,
+                    ...(extTrim.length >= 3 ? { extended_hours_reason: extTrim } : {}),
                 })
             });
             const text = await response.text();
@@ -489,12 +606,18 @@ export const Dashboard = () => {
                     }
                 }));
                 await fetchDashboardData();
+                setExtendedHoursModalOpen(false);
+                setExtendedHoursReason("");
                 alert(`Punched Out Successfully! Total Today's Work: ${result.today_work || 'N/A'}`);
             } else {
                 if (result.message && result.message.includes("Too far")) {
                     setLocation(prev => ({ ...prev, isInRange: false }));
                 }
-                alert(`Punch Out Failed: ${result.message || 'Server error.'}`);
+                if (result.requires_extended_hours_reason) {
+                    setExtendedHoursModalOpen(true);
+                } else {
+                    alert(`Punch Out Failed: ${result.message || 'Server error.'}`);
+                }
             }
         } catch (error) {
             console.error("Punch Out error:", error);
@@ -507,13 +630,42 @@ export const Dashboard = () => {
             setIsPunching(false);
         }
     };
+    const punchHasOpenSession = () =>
+        dynamicData.punch.has_open_session ?? (!!dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
+
     const onPunchInClick = async () => {
-        if (isPunching || !!dynamicData.punch.punch_in) return;
-        await handlePunchIn("");
+        if (isPunching || punchHasOpenSession()) return;
+        if (!location.lat || !location.lon || !location.isAvailable) {
+            alert(location.error || "Cannot punch in without location. Please enable location services.");
+            return;
+        }
+        if (dynamicData.punch.requires_repeat_punch_reason) {
+            setRepeatPunchModalOpen(true);
+            return;
+        }
+        await handlePunchIn("", "");
     };
     const onPunchOutClick = async () => {
-        if (isPunching || !dynamicData.punch.punch_in) return;
+        if (isPunching || !punchHasOpenSession()) return;
         await handlePunchOut("");
+    };
+
+    const submitRepeatPunchIn = async () => {
+        const t = repeatPunchReason.trim();
+        if (t.length < 3) {
+            alert("Please enter a reason (at least 3 characters).");
+            return;
+        }
+        await handlePunchIn("", t);
+    };
+
+    const submitExtendedHoursPunchOut = async () => {
+        const t = extendedHoursReason.trim();
+        if (t.length < 3) {
+            alert("Please enter a reason (at least 3 characters).");
+            return;
+        }
+        await handlePunchOut("", t);
     };
     const dojFormatted = useMemo(() => formatDate(dynamicData.user.doj), [dynamicData.user.doj]);
     const experience = useMemo(() => calculateExperience(dynamicData.user.doj), [dynamicData.user.doj]);
@@ -525,13 +677,11 @@ export const Dashboard = () => {
     const punchInTimeDisplay = useMemo(() => formatTime(dynamicData.punch.punch_in), [dynamicData.punch.punch_in]);
     const todaysDate = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), []);
     const currentStatus = useMemo(() => {
-        if (dynamicData.punch.punch_in) {
-            return dynamicData.punch.punch_out ? "Inactive" : "Active";
-        }
-        return "Inactive";
-    }, [dynamicData.punch.punch_in, dynamicData.punch.punch_out]);
-    const isCheckedIn = dynamicData.punch.punch_in && !dynamicData.punch.punch_out;
-    const isCheckedOut = dynamicData.punch.punch_out;
+        const open = dynamicData.punch.has_open_session ?? (!!dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
+        return open ? "Active" : "Inactive";
+    }, [dynamicData.punch.punch_in, dynamicData.punch.punch_out, dynamicData.punch.has_open_session]);
+    const isCheckedIn = punchHasOpenSession();
+    const isCheckedOut = !punchHasOpenSession() && !!(dynamicData.punch.punch_in || dynamicData.punch.punch_out);
     const isActive = isCheckedIn;
     const managerName = [dynamicData.managers?.l2?.name, dynamicData.managers?.l1?.name, dynamicData.managers?.l3?.name]
         .map((n) => (typeof n === "string" ? n.trim() : n))
@@ -602,58 +752,69 @@ export const Dashboard = () => {
                                 <span className="attendance-date">{todaysDate}</span>
                             </div>
                             <div className="attendance-body">
-                                {/* Location & Status Row */}
-                                <div className="status-row-top">
-                                    <div className="location-badge">
-                                        <span className="location-label">Location</span>
-                                        <span className={`location-pill ${location.isAvailable && location.isInRange ? 'on' : 'off'}`}>
-                                            <span className="location-dot"></span>
-                                            {location.isAvailable && location.isInRange ? 'Within Range' : 'Off'}
-                                        </span>
+                                <div className="attendance-body-primary">
+                                    {/* Location & Status Row */}
+                                    <div className="status-row-top">
+                                        <div className="location-badge">
+                                            <span className="location-label">Location</span>
+                                            <span className={`location-pill ${location.isAvailable && location.isInRange ? 'on' : 'off'}`}>
+                                                <span className="location-dot"></span>
+                                                {location.isAvailable && location.isInRange ? 'Within Range' : 'Off'}
+                                            </span>
+                                        </div>
+                                        <div className={`status-badge-main ${isActive ? 'active' : 'inactive'}`}>
+                                            <span className={`status-pulse-dot ${isActive ? 'active' : ''}`}></span>
+                                            <span className="status-text">{currentStatus}</span>
+                                        </div>
                                     </div>
-                                    <div className={`status-badge-main ${isActive ? 'active' : 'inactive'}`}>
-                                        <span className={`status-pulse-dot ${isActive ? 'active' : ''}`}></span>
-                                        <span className="status-text">{currentStatus}</span>
+
+                                    {location.error && (
+                                        <div className="location-error-banner">
+                                            <span>⚠️</span>
+                                            <span>{location.error}</span>
+                                        </div>
+                                    )}
+
+                                    {/* Stats Grid */}
+                                    <div className="status-stats-grid">
+                                        <div className="status-stat-card">
+                                            <span className="stat-label">Check In</span>
+                                            <span className="stat-value">{punchInTimeDisplay || '--:--:--'}</span>
+                                        </div>
+                                        <div className="status-stat-card highlight">
+                                            <span className="stat-label">Hours Today</span>
+                                            <span className="stat-value stat-timer">{formatWorkingHours(dynamicData.punch.working_hours)}</span>
+                                            <span className="stat-hint">Including all sessions</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="status-action-buttons">
+                                        <button
+                                            className="btn-punch btn-punch-in"
+                                            onClick={onPunchInClick}
+                                            disabled={punchHasOpenSession() || isPunching || !location.isAvailable}
+                                        >
+                                            <FiCheckCircle className="btn-icon" />
+                                            {isPunching && !isCheckedIn ? 'Punching In...' : 'Punch In'}
+                                        </button>
+                                        <button
+                                            className="btn-punch btn-punch-out"
+                                            onClick={onPunchOutClick}
+                                            disabled={!punchHasOpenSession() || isPunching || !location.isAvailable}
+                                        >
+                                            {isPunching && punchHasOpenSession() ? 'Punching Out...' : 'Punch Out'}
+                                        </button>
                                     </div>
                                 </div>
-                                
-                                {location.error && (
-                                    <div className="location-error-banner">
-                                        <span>⚠️</span>
-                                        <span>{location.error}</span>
-                                    </div>
-                                )}
-                                
-                                {/* Stats Grid */}
-                                <div className="status-stats-grid">
-                                    <div className="status-stat-card">
-                                        <span className="stat-label">Check In</span>
-                                        <span className="stat-value">{punchInTimeDisplay || '--:--:--'}</span>
-                                    </div>
-                                    <div className="status-stat-card highlight">
-                                        <span className="stat-label">Hours Today</span>
-                                        <span className="stat-value stat-timer">{formatWorkingHours(dynamicData.punch.working_hours)}</span>
-                                    </div>
-                                </div>
-                                
-                                {/* Action Buttons */}
-                                <div className="status-action-buttons">
-                                    <button 
-                                        className="btn-punch btn-punch-in" 
-                                        onClick={onPunchInClick}
-                                        disabled={!!dynamicData.punch.punch_in || isPunching || !location.isAvailable}
-                                    >
-                                        <FiCheckCircle className="btn-icon" />
-                                        {isPunching && !isCheckedIn ? 'Punching In...' : 'Punch In'}
-                                    </button>
-                                    <button 
-                                        className="btn-punch btn-punch-out"
-                                        onClick={onPunchOutClick}
-                                        disabled={!dynamicData.punch.punch_in || isPunching || !location.isAvailable}
-                                    >
-                                        {isPunching && dynamicData.punch.punch_in ? 'Punching Out...' : 'Punch Out'}
-                                    </button>
-                                </div>
+
+                                <PunchSessionsList
+                                    sessions={dynamicData.punch.sessions}
+                                    sessionAttendanceDate={dynamicData.punch.session_attendance_date}
+                                    formatTime={formatTime}
+                                    formatWorkingHours={formatWorkingHours}
+                                    formatTimeDifference={formatTimeDifference}
+                                />
                             </div>
                             </div>
                             <div 
@@ -838,6 +999,97 @@ export const Dashboard = () => {
                 </div>
             </div>
         </div>
+        {repeatPunchModalOpen && (
+            <div
+                className="dashboard-repeat-punch-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="repeat-punch-title"
+                onClick={() => !isPunching && setRepeatPunchModalOpen(false)}
+            >
+                <div className="dashboard-repeat-punch-modal" onClick={(e) => e.stopPropagation()}>
+                    <h3 id="repeat-punch-title">Punch in again</h3>
+                    <p className="dashboard-repeat-punch-hint">
+                        You already completed a session today. Enter a reason for this punch-in (at least 3 characters).
+                    </p>
+                    <textarea
+                        className="dashboard-repeat-punch-textarea"
+                        value={repeatPunchReason}
+                        onChange={(e) => setRepeatPunchReason(e.target.value)}
+                        placeholder="e.g. Returned for night support / client call"
+                        rows={4}
+                        disabled={isPunching}
+                    />
+                    <div className="dashboard-repeat-punch-actions">
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn secondary"
+                            disabled={isPunching}
+                            onClick={() => {
+                                setRepeatPunchModalOpen(false);
+                                setRepeatPunchReason("");
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn primary"
+                            disabled={isPunching}
+                            onClick={submitRepeatPunchIn}
+                        >
+                            {isPunching ? "Submitting…" : "Confirm punch in"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        {extendedHoursModalOpen && (
+            <div
+                className="dashboard-repeat-punch-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="extended-hours-punch-title"
+                onClick={() => !isPunching && setExtendedHoursModalOpen(false)}
+            >
+                <div className="dashboard-repeat-punch-modal" onClick={(e) => e.stopPropagation()}>
+                    <h3 id="extended-hours-punch-title">Long session — reason required</h3>
+                    <p className="dashboard-repeat-punch-hint">
+                        This punch-in is over 10 hours and crosses midnight (for example, forgot to punch out).
+                        Please explain briefly (at least 3 characters) before punching out.
+                    </p>
+                    <textarea
+                        className="dashboard-repeat-punch-textarea"
+                        value={extendedHoursReason}
+                        onChange={(e) => setExtendedHoursReason(e.target.value)}
+                        placeholder="e.g. Forgot to punch out / on-call overnight"
+                        rows={4}
+                        disabled={isPunching}
+                    />
+                    <div className="dashboard-repeat-punch-actions">
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn secondary"
+                            disabled={isPunching}
+                            onClick={() => {
+                                setExtendedHoursModalOpen(false);
+                                setExtendedHoursReason("");
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn primary"
+                            disabled={isPunching}
+                            onClick={submitExtendedHoursPunchOut}
+                        >
+                            {isPunching ? "Submitting…" : "Confirm punch out"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
         </>
     );
 };

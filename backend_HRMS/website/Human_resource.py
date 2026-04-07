@@ -25,7 +25,14 @@ from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
 from .models.education import UploadDoc, Education
-from .models.attendance import Punch, LeaveApplication, LeaveBalance, Location, WorkFromHomeApplication
+from .models.attendance import (
+    Punch,
+    PunchSession,
+    LeaveApplication,
+    LeaveBalance,
+    Location,
+    WorkFromHomeApplication,
+)
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
 from .models.master_data import MasterData
@@ -35,6 +42,11 @@ from werkzeug.security import generate_password_hash
 import os
 from urllib.parse import unquote
 from . import db
+from .punch_aggregate import (
+    sync_punch_after_hr_manual_edit,
+    recompute_punch_aggregate,
+    serialize_punch_sessions,
+)
 from werkzeug.utils import secure_filename
 
 hr = Blueprint('HumanResource', __name__)
@@ -48,7 +60,10 @@ def hr_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         claims = get_jwt()
-        if claims.get("emp_type") != "Human Resource":
+        emp_type = (claims.get("emp_type") or "").strip().lower().replace("-", " ")
+        emp_type = " ".join(emp_type.split())
+        # Accept common HR labels stored in Admin.emp_type / JWT claims.
+        if emp_type not in {"human resource", "human resources", "hr"}:
             return jsonify({
                 "success": False,
                 "message": "HR access required"
@@ -1591,18 +1606,8 @@ def hr_update_employee_punch(admin_id):
     if punch_out_time is not None:
         punch.punch_out = datetime.combine(punch_date, punch_out_time)
 
-    if punch.punch_in and punch.punch_out:
-        start = punch.punch_in
-        end = punch.punch_out
-        diff = end - start
-        total_seconds = int(diff.total_seconds())
-        if total_seconds < 0:
-            total_seconds += 24 * 3600
-        h, r = divmod(total_seconds, 3600)
-        m, s = divmod(r, 60)
-        punch.today_work = f"{h:02d}:{m:02d}:{s:02d}"
-
     try:
+        sync_punch_after_hr_manual_edit(punch)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -1618,6 +1623,137 @@ def hr_update_employee_punch(admin_id):
             "today_work": punch.today_work,
         },
     }), 200
+
+
+@hr.route("/employee/punch/<int:admin_id>", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_get_employee_punch(admin_id):
+    """Fetch punch + punch_sessions for a specific date (HR use only)."""
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    date_str = (request.args.get("date") or "").strip()
+    if not date_str:
+        return jsonify({"success": False, "message": "date is required (YYYY-MM-DD)"}), 400
+    try:
+        punch_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid date format"}), 400
+
+    punch = Punch.query.filter_by(admin_id=admin_id, punch_date=punch_date).first()
+    sessions = serialize_punch_sessions(punch) if punch else []
+    return jsonify(
+        {
+            "success": True,
+            "punch": {
+                "date": punch_date.isoformat(),
+                "punch_in": punch.punch_in.isoformat() if punch and punch.punch_in else None,
+                "punch_out": punch.punch_out.isoformat() if punch and punch.punch_out else None,
+                "today_work": punch.today_work if punch else None,
+                "sessions": sessions,
+            },
+        }
+    ), 200
+
+
+@hr.route("/employee/punch/<int:admin_id>/sessions", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_replace_employee_punch_sessions(admin_id):
+    """
+    Replace punch_sessions for a given date, then recompute Punch roll-ups.
+    Payload:
+      { date: "YYYY-MM-DD", sessions: [{ clock_in: "HH:MM", clock_out: "HH:MM"|null,
+                                        repeat_reason?: str, extended_hours_reason?: str }] }
+    """
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    data = request.get_json() or {}
+    date_str = (data.get("date") or "").strip()
+    if not date_str:
+        return jsonify({"success": False, "message": "date is required (YYYY-MM-DD)"}), 400
+    try:
+        punch_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid date format"}), 400
+
+    sessions_in = data.get("sessions")
+    if not isinstance(sessions_in, list) or len(sessions_in) == 0:
+        return jsonify({"success": False, "message": "sessions must be a non-empty list"}), 400
+
+    def _parse_time(s):
+        if s is None:
+            return None
+        s = str(s).strip()
+        if not s:
+            return None
+        for fmt in ("%H:%M:%S", "%H:%M"):
+            try:
+                return datetime.strptime(s, fmt).time()
+            except ValueError:
+                continue
+        return None
+
+    punch = Punch.query.filter_by(admin_id=admin_id, punch_date=punch_date).first()
+    if not punch:
+        punch = Punch(admin_id=admin_id, punch_date=punch_date)
+        db.session.add(punch)
+        db.session.flush()
+
+    try:
+        # Replace all existing sessions for this day.
+        PunchSession.query.filter_by(punch_id=punch.id).delete(synchronize_session=False)
+        db.session.flush()
+
+        new_rows = []
+        for i, s in enumerate(sessions_in):
+            cin_t = _parse_time(s.get("clock_in"))
+            if cin_t is None:
+                return jsonify({"success": False, "message": f"Session {i+1}: clock_in is required (HH:MM)"}), 400
+            cout_t = _parse_time(s.get("clock_out"))
+            cin = datetime.combine(punch_date, cin_t)
+            cout = datetime.combine(punch_date, cout_t) if cout_t is not None else None
+            if cout is not None and cout < cin:
+                # Night shift within same attendance day: allow crossing midnight
+                cout = cout + timedelta(days=1)
+            new_rows.append(
+                PunchSession(
+                    punch_id=punch.id,
+                    clock_in=cin,
+                    clock_out=cout,
+                    repeat_reason=(s.get("repeat_reason") or "").strip() or None,
+                    extended_hours_reason=(s.get("extended_hours_reason") or "").strip() or None,
+                    is_wfh=bool(getattr(punch, "is_wfh", False)),
+                )
+            )
+        # Ensure deterministic ordering
+        new_rows.sort(key=lambda r: r.clock_in)
+        for r in new_rows:
+            db.session.add(r)
+
+        recompute_punch_aggregate(punch)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Punch sessions update error: {e}")
+        return jsonify({"success": False, "message": "Failed to save punch sessions"}), 500
+
+    punch = Punch.query.filter_by(admin_id=admin_id, punch_date=punch_date).first()
+    return jsonify(
+        {
+            "success": True,
+            "message": "Punch sessions updated successfully",
+            "punch": {
+                "date": punch_date.isoformat(),
+                "punch_in": punch.punch_in.isoformat() if punch and punch.punch_in else None,
+                "punch_out": punch.punch_out.isoformat() if punch and punch.punch_out else None,
+                "today_work": punch.today_work if punch else None,
+                "sessions": serialize_punch_sessions(punch) if punch else [],
+            },
+        }
+    ), 200
 
 
 @hr.route("/employee/<emp_id>", methods=["GET"])

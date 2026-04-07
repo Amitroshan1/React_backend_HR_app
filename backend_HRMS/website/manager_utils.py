@@ -173,3 +173,14 @@ def user_has_manager_access(admin):
     if not rows:
         return False
     return any(manager_scope_matches_contact(admin, r) for r in rows)
+
+
+def manager_can_view_nhq_engineering_team_attendance(manager_admin):
+    """NHQ + Engineering managers only: team attendance tab on Manager panel."""
+    if not manager_admin:
+        return False
+    return circles_equivalent(
+        getattr(manager_admin, "circle", None), "NHQ"
+    ) and emp_types_equivalent(
+        getattr(manager_admin, "emp_type", None), "Engineering"
+    )
