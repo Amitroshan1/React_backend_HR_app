@@ -71,8 +71,8 @@
 .section-title { font-size: 18px; font-weight: 700; color: #1e293b; margin: 0; }
 
 .table-responsive {
-  /* width: 100%; */
-  /* overflow-x: auto; */
+  width: 100%; 
+  overflow-x: auto;
 }
 
 .results-table {

@@ -128,8 +128,8 @@ export const AppLayout = () => {
     return (
         <div className="main-layout">
             <ScrollToTop />
-            {/* The Header now gets the username from the centralized context */}
-            <Headers username={username} role={empType} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
+            {/* The Header now gets the username and full user object from the centralized context */}
+            <Headers username={username} role={empType} user={userData.user} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
             <div className="content-area">
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}

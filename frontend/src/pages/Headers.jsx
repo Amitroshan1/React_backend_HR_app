@@ -152,7 +152,7 @@ const getPageInfo = (pathname, firstName) => {
     return pathMap[normalizedPath] || { title: 'Portal', subtitle: '' };
 };
 
-export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
+export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [queryUnreadCount, setQueryUnreadCount] = useState(0);
     const [noticeInfo, setNoticeInfo] = useState({
@@ -172,12 +172,12 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
 
     const { title, subtitle, isDashboard } = getPageInfo(location.pathname, firstName);
 
-    // Map role variations to standardized format and route
-    const getRoleInfo = (role) => {
-        if (!role) return { display: "Employee", route: null, hasPanel: false };
-        
-        const normalized = role.toLowerCase().trim();
-        
+    // Map role variations to standardized format and route. Accepts explicit `role` string and full `user` object for fallbacks.
+    const getRoleInfo = (role, user) => {
+        // Build a fallback source string from user object fields if role is missing or generic.
+        const fallbackCandidate = (user && (user.emp_type || user.department || user.role || user.designation || user.title || (user.roles && user.roles.join(' ')))) || role || "";
+        const normalized = String(fallbackCandidate).toLowerCase().trim();
+
         // Map various role formats to standardized format (from admins.emp_type)
         const roleMap = {
             // HR variations
@@ -204,20 +204,36 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
             "administration": { display: "Admin", route: "/admin", hasPanel: true },
         };
         
-        const result = roleMap[normalized] || { display: rawRole, route: null, hasPanel: false };
-        
-        // Debug logging
-        console.log("Header Role Debug:", {
-            receivedRole: role,
-            normalized: normalized,
-            roleInfo: result,
-            hasPanel: result.hasPanel
-        });
-        
+        let result = roleMap[normalized] || { display: rawRole, route: null, hasPanel: false };
+
+        // Fallback: map common variants that include 'it' or 'tech' to IT panel
+        if (!result.hasPanel) {
+            if (normalized.includes("it") || normalized.includes("tech") || normalized.includes("information")) {
+                result = { display: "IT", route: "/it", hasPanel: true };
+            }
+        }
+
+        // Additional fallback: check arrays on the user object
+        if (!result.hasPanel && user) {
+            try {
+                const rolesArr = Array.isArray(user.roles) ? user.roles : (user.roles ? String(user.roles).split(',') : []);
+                const permsArr = Array.isArray(user.permissions) ? user.permissions : (user.permissions ? String(user.permissions).split(',') : []);
+                const combined = [...rolesArr, ...permsArr].map(String).join(' ').toLowerCase();
+                if (combined.includes('it') || combined.includes('information') || combined.includes('tech')) {
+                    result = { display: "IT", route: "/it", hasPanel: true };
+                }
+            } catch (e) {
+                // ignore parsing errors
+            }
+        }
+
+        // Compact debug log for role resolution and key user fields
+        console.log("Header Role Debug:", { receivedRole: role, fallbackCandidate: normalized, roleInfo: result, userFields: { emp_type: user?.emp_type, department: user?.department, roles: user?.roles } });
+
         return result;
     };
 
-    const roleInfo = getRoleInfo(rawRole);
+    const roleInfo = getRoleInfo(rawRole, user);
     const isDepartmentRole = ["hr", "account", "accounts", "it", "admin"].includes(roleInfo.display?.toLowerCase());
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
     const panelLinks = [];
@@ -240,13 +256,26 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
 
         const fetchUnreadCount = async () => {
             if (!token) return;
-            try {
-                const response = await fetch("/api/notifications/unread-count", {
+            try
+             {
+                const response = await fetch("/api/notifications/unread-count",
+                     {
                     method: "GET",
                     headers: { Authorization: `Bearer ${token}` },
                 });
-                const result = await response.json();
-                if (isMounted && response.ok && result.success) {
+                if (!response.ok) {
+                    const body = await response.text();
+                    console.error("Notification count fetch failed:", response.status, body);
+                    return;
+                }
+                let result;
+                try {
+                    result = await response.json();
+                } catch (err) {
+                    console.error("Notification count parse error:", err);
+                    return;
+                }
+                if (isMounted && result && result.success) {
                     setQueryUnreadCount(Number(result.query_unread_count || 0));
                 }
             } catch (error) {
@@ -274,8 +303,19 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess }) => {
                     method: "GET",
                     headers: { Authorization: `Bearer ${token}` },
                 });
-                const result = await response.json();
-                if (isMounted && response.ok && result.success) {
+                if (!response.ok) {
+                    const body = await response.text();
+                    console.error("Notice fetch failed:", response.status, body);
+                    return;
+                }
+                let result;
+                try {
+                    result = await response.json();
+                } catch (err) {
+                    console.error("Notice parse error:", err);
+                    return;
+                }
+                if (isMounted && result && result.success) {
                     const notice = result.notice || {};
                     setNoticeInfo({
                         notice_active: Boolean(notice.notice_active),
@@ -307,6 +347,18 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
     const userAvatar = profilePic || defaultAvatar;
 
     const isBellDisabled = queryUnreadCount === 0;
+
+    // Robust IT panel detection: prefer resolved roleInfo but fallback to checking
+    // the raw role string and common user fields (emp_type, department, roles).
+    const hasITPanel = Boolean(
+        (roleInfo && roleInfo.hasPanel && roleInfo.route === "/it") ||
+        (typeof roleKey === 'string' && roleKey.includes("it")) ||
+        (user && (
+            String(user.emp_type || "").toLowerCase().includes("it") ||
+            String(user.department || "").toLowerCase().includes("it") ||
+            String(user.roles || "").toLowerCase().includes("it")
+        ))
+    );
 
     const handleNotificationClick = () => {
         if (isBellDisabled) return;
@@ -383,6 +435,12 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 </button>
                             )}
                         </div>
+                    )}
+
+                    {hasITPanel && (
+                        <NavLink to="/it" className="it-panel-btn" title="IT Panel">
+                            <FaBriefcase />
+                        </NavLink>
                     )}
 
                     <div

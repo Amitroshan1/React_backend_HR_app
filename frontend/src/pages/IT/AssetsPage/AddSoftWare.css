@@ -1,0 +1,517 @@
+/* AddNewAssetPage.css — Software-only, no sidebar */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap");
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   PAGE LAYOUT
+───────────────────────────────────────────────────────────────────────────── */
+.ana-page {
+  display: flex;
+  min-height: 100vh;
+  background: #f4f6f9;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   MAIN CONTENT
+───────────────────────────────────────────────────────────────────────────── */
+.ana-main {
+  flex: 1;
+  padding: 2px 4px 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Top Back Button ── */
+.ana-back-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  border: 1.5px solid #e2e8f0;
+  color: #475569;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  font-family: "DM Sans", inherit;
+  margin-bottom: 4px;
+}
+.ana-back-top:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+  border-color: #cbd5e1;
+  transform: translateX(-2px);
+}
+
+/* ── Header ── */
+.ana-main-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ana-header-top-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ana-main-header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.5px;
+}
+
+.ana-subtitle {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0;
+  padding-left: 2px;
+}
+
+/* ── Category pill ── */
+.ana-category-pill-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #fdf4ff;
+  border: 1.5px solid #e9d5ff;
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.ana-cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ana-cat-dot.software {
+  background: #7b1fa2;
+}
+
+.ana-category-pill-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #6b21a8;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SECTION
+───────────────────────────────────────────────────────────────────────────── */
+.ana-section {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1.5px solid #e8ecf1;
+  /* padding: 20px; */
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.04),
+    0 4px 16px rgba(15, 23, 42, 0.03);
+  transition: box-shadow 0.2s;
+}
+
+.ana-section:focus-within {
+  box-shadow:
+    0 2px 8px rgba(15, 23, 42, 0.06),
+    0 8px 24px rgba(15, 23, 42, 0.05);
+  border-color: #d1d9e4;
+}
+
+.ana-section-table {
+  padding-bottom: 20px;
+}
+
+.ana-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1.5px solid #f1f5f9;
+}
+
+.ana-section-num {
+  font-size: 10px;
+  font-weight: 800;
+  color: #7b1fa2;
+  letter-spacing: 1.2px;
+  background: #fdf4ff;
+  border: 1.5px solid #e9d5ff;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-family: "DM Mono", monospace;
+}
+
+.ana-section-head h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  flex: 1;
+  letter-spacing: -0.2px;
+}
+
+.ana-row-count {
+  font-size: 11.5px;
+  background: #f1f5f9;
+  color: #64748b;
+  border-radius: 20px;
+  padding: 3px 11px;
+  font-weight: 600;
+  border: 1px solid #e2e8f0;
+}
+
+.req {
+  color: #ef4444;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TABLE
+───────────────────────────────────────────────────────────────────────────── */
+.ana-table-wrap {
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  margin-bottom: 14px;
+  background: #fff;
+}
+
+.ana-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 600px;
+}
+
+.ana-table thead {
+  background: #faf5ff;
+}
+
+.ana-table th {
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7e22ce;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  border-bottom: 1.5px solid #e9d5ff;
+  white-space: nowrap;
+}
+
+.ana-th-idx {
+  width: 40px;
+  text-align: center;
+}
+.ana-th-qty {
+  width: 110px;
+}
+.ana-th-action {
+  width: 44px;
+}
+
+.ana-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.12s;
+}
+.ana-table tbody tr:last-child {
+  border-bottom: none;
+}
+.ana-table tbody tr:hover {
+  background: #fdfaff;
+}
+.ana-table tbody tr.row-invalid {
+  background: #fff8f8;
+}
+
+.ana-table td {
+  padding: 10px 12px;
+  vertical-align: top;
+}
+
+.ana-td-idx {
+  text-align: center;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 700;
+  padding-top: 14px;
+  font-family: "DM Mono", monospace;
+}
+
+/* ── Cell Inputs ── */
+.ana-cell-input {
+  width: 100%;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 8px 11px;
+  font-size: 13px;
+  color: #0f172a;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+  font-family: "DM Sans", inherit;
+  background: #fff;
+  box-sizing: border-box;
+  min-width: 90px;
+}
+
+.ana-cell-input:focus {
+  border-color: #7b1fa2;
+  box-shadow: 0 0 0 3px rgba(123, 31, 162, 0.1);
+  background: #fdfaff;
+}
+
+.ana-cell-input.err {
+  border-color: #ef4444;
+  background: #fff8f8;
+}
+
+.ana-qty-input {
+  max-width: 90px;
+}
+
+.ana-cell-err {
+  display: block;
+  font-size: 10.5px;
+  color: #ef4444;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+/* ── Remove Row Button ── */
+.ana-td-action {
+  text-align: center;
+}
+
+.ana-btn-rm-row {
+  background: none;
+  border: 1.5px solid #fecaca;
+  color: #f87171;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  padding: 0;
+  margin: auto;
+}
+.ana-btn-rm-row:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #ef4444;
+  transform: scale(1.08);
+}
+.ana-btn-rm-row:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+/* ── Add Row Button ── */
+.ana-btn-add-row {
+  background: #faf5ff;
+  border: 2px dashed #c4b5fd;
+  color: #7b1fa2;
+  border-radius: 10px;
+  padding: 11px 24px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  transition: all 0.18s;
+  letter-spacing: 0.1px;
+  font-family: "DM Sans", inherit;
+}
+.ana-btn-add-row:hover {
+  border-color: #7b1fa2;
+  background: #f3e8ff;
+  color: #6b21a8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(123, 31, 162, 0.1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SUMMARY STRIP
+───────────────────────────────────────────────────────────────────────────── */
+.ana-summary-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fdf4ff;
+  border: 1.5px solid #e9d5ff;
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-size: 13.5px;
+  color: #6b21a8;
+}
+
+.ana-summary-icon {
+  font-size: 18px;
+}
+.ana-summary-text {
+  font-weight: 500;
+}
+.ana-summary-text strong {
+  font-weight: 700;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FOOTER
+───────────────────────────────────────────────────────────────────────────── */
+.ana-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1.5px solid #e8ecf1;
+  padding: 14px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 10;
+  box-shadow: 0 -4px 24px rgba(15, 23, 42, 0.06);
+}
+
+.ana-footer-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ana-footer-warn {
+  font-size: 12px;
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.ana-footer-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.ana-btn-cancel {
+  background: #f1f5f9;
+  border: 1.5px solid #e2e8f0;
+  color: #64748b;
+  padding: 10px 22px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  font-family: "DM Sans", inherit;
+}
+.ana-btn-cancel:hover {
+  background: #e2e8f0;
+  color: #374151;
+  border-color: #cbd5e1;
+}
+
+.ana-btn-submit {
+  background: linear-gradient(135deg, #7b1fa2, #6b21a8);
+  border: none;
+  color: #fff;
+  padding: 10px 28px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s;
+  box-shadow: 0 2px 8px rgba(123, 31, 162, 0.3);
+  letter-spacing: 0.1px;
+  font-family: "DM Sans", inherit;
+}
+.ana-btn-submit:hover {
+  background: linear-gradient(135deg, #6b21a8, #581c87);
+  box-shadow: 0 4px 16px rgba(123, 31, 162, 0.4);
+  transform: translateY(-1px);
+}
+.ana-btn-submit:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(123, 31, 162, 0.2);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   RESPONSIVE
+───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ana-main {
+    padding: 20px 20px 120px;
+  }
+  .ana-main-header h1 {
+    font-size: 22px;
+  }
+  .ana-footer {
+    padding: 12px 16px;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .ana-footer-actions {
+    justify-content: flex-end;
+  }
+  .ana-btn-cancel,
+  .ana-btn-submit {
+    flex: 1;
+    text-align: center;
+  }
+}
+
+@media (max-width: 600px) {
+  .ana-main {
+    padding: 14px 12px 120px;
+  }
+  .ana-main-header h1 {
+    font-size: 20px;
+  }
+  .ana-table {
+    min-width: 480px;
+  }
+  .ana-cell-input {
+    min-width: 70px;
+    font-size: 12px;
+    padding: 7px 9px;
+  }
+  .ana-footer-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  .ana-btn-cancel,
+  .ana-btn-submit {
+    width: 100%;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 400px) {
+  .ana-main-header h1 {
+    font-size: 18px;
+  }
+  .ana-subtitle {
+    font-size: 12px;
+  }
+  .ana-table {
+    min-width: 400px;
+  }
+}
+
+
+.ana-banner { padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600; }
+.ana-banner--success { background:#f0fdf4;border:1px solid #bbf7d0;color:#16a34a; }
+.ana-banner--error   { background:#fef2f2;border:1px solid #fecaca;color:#dc2626; } 
