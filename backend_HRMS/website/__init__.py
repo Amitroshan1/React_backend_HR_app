@@ -53,6 +53,10 @@ def create_app():
     app.config["EMAIL_ACCOUNTS"] = os.getenv("EMAIL_ACCOUNTS")
     app.config["EMAIL_IT"] = os.getenv("EMAIL_IT")
     app.config["EMAIL_ADMIN"] = os.getenv("EMAIL_ADMIN")
+    app.config["MANAGER_SELF_APPROVAL_ROLES"] = os.getenv(
+        "MANAGER_SELF_APPROVAL_ROLES",
+        "manager,hr,human resource,admin",
+    )
 
     # Uploads root for payslips/form16 etc. Set UPLOADS_ROOT in production to absolute path if files live elsewhere.
     app.config["UPLOADS_ROOT"] = os.getenv("UPLOADS_ROOT")

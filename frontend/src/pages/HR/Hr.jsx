@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
-  UserCog, Newspaper, FileText, MapPin, Building, 
+  UserCog, Newspaper, FileText, MapPin, 
   FileCheck, Search, ArrowLeft, Download, ChevronDown, Key, Clock 
 } from 'lucide-react';
 import './Hr.css';
@@ -13,7 +13,6 @@ import { UpdateSignUp } from './UpdateSignUp';
 import { AddNewsFeed } from './AddNewsFeed';
 import { UpdateLeave } from './UpdateLeave';
 import { UpdateManager } from './UpdateManager';
-import { AddAssets } from './AddAssets';
 import { AddLocation } from './AddLocation';
 import { AddNoc } from './AddNoc';
 import ExitEmployee from './ExitEmployee';
@@ -1166,7 +1165,6 @@ export const Hr = () => {
     { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
-    { title: 'Add Assets', icon: Building, description: 'Register company assets' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'Add NOC', icon: FileCheck, description: 'No Objection Certificate' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
@@ -1452,8 +1450,6 @@ export const Hr = () => {
     } else if (title === 'Leave Application Updation') {
       setView('leave_updation');
     } else if (title === 'Update Manager') {setView('update_manager');
-    } else if (title === 'Add Assets') {
-    setView('add_assets');
   } else if (title === 'Add Locations') {
     setView('add_location');
   }
@@ -1504,10 +1500,6 @@ if (view === 'leave_updation'){
 
 if (view === 'update_manager') {
   return <UpdateManager onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />;
-}
-
-if (view === 'add_assets') {
-  return <AddAssets onBack={() => setView('updates')} />;
 }
 
 if (view === 'add_location') {

@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload
 from datetime import date, datetime
 
 from . import db
-from .models.Admin_models import Admin
+from .models.Admin_models import Admin, AuditLog
 from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
@@ -55,7 +55,7 @@ def _is_manager_for_target(approver_admin, target_admin):
     if not approver_admin or not target_admin:
         return False
     if approver_admin.id == target_admin.id:
-        return False
+        return _self_approval_allowed_for_admin(approver_admin)
     contact = _get_contact_for_target(target_admin)
     if not contact:
         return False
@@ -63,6 +63,42 @@ def _is_manager_for_target(approver_admin, target_admin):
     if not manager_scope_matches_contact(approver_admin, contact):
         return False
     return is_manager_in_contact(contact, approver_admin)
+
+
+def _self_approval_allowed_for_admin(admin):
+    """Allow self-approval only for explicitly allowed roles configured in app config."""
+    if not admin:
+        return False
+    configured = current_app.config.get("MANAGER_SELF_APPROVAL_ROLES", "")
+    allowed = {
+        str(x).strip().lower().replace("-", " ")
+        for x in str(configured).split(",")
+        if str(x).strip()
+    }
+    role = (getattr(admin, "emp_type", None) or "").strip().lower().replace("-", " ")
+    return role in allowed
+
+
+def _append_self_approval_audit_if_needed(*, approver, target, entity_name, entity_id, action, final_status):
+    if not approver or not target:
+        return
+    if approver.id != target.id:
+        return
+    try:
+        db.session.add(
+            AuditLog(
+                action=(
+                    f"SELF_APPROVAL|entity={entity_name}|entity_id={entity_id}|"
+                    f"action={action}|status={final_status}"
+                ),
+                performed_by=approver.email,
+                target_email=target.email,
+            )
+        )
+    except Exception:
+        current_app.logger.warning(
+            "Failed to append self-approval audit for %s:%s", entity_name, entity_id
+        )
 
 
 def _team_member_admin_ids(manager_admin):
@@ -352,6 +388,14 @@ def act_on_leave_request(leave_id):
             leave_balance.privilege_leave_balance = max(0.0, current_pl - sandwich_pl)
             leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + sandwich_pl
 
+    _append_self_approval_audit_if_needed(
+        approver=approver,
+        target=leave_obj.admin,
+        entity_name="leave",
+        entity_id=leave_obj.id,
+        action=action,
+        final_status=new_status,
+    )
     db.session.commit()
 
     # Fire-and-forget email notification; never break API on failure
@@ -419,6 +463,14 @@ def act_on_wfh_request(wfh_id):
         return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
 
     wfh_obj.status = "Approved" if action == "approve" else "Rejected"
+    _append_self_approval_audit_if_needed(
+        approver=approver,
+        target=wfh_obj.admin,
+        entity_name="wfh",
+        entity_id=wfh_obj.id,
+        action=action,
+        final_status=wfh_obj.status,
+    )
     db.session.commit()
 
     try:
@@ -521,6 +573,14 @@ def act_on_claim_request(claim_id):
     if changed == 0:
         return jsonify({"success": False, "message": "No pending line items to update"}), 409
 
+    _append_self_approval_audit_if_needed(
+        approver=approver,
+        target=claim.admin,
+        entity_name="claim",
+        entity_id=claim.id,
+        action=action,
+        final_status=new_status,
+    )
     db.session.commit()
     return jsonify({"success": True, "message": f"Claim request {new_status.lower()}"}), 200
 
@@ -578,6 +638,14 @@ def act_on_resignation_request(resignation_id):
         return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
 
     resignation.status = "Approved" if action == "approve" else "Rejected"
+    _append_self_approval_audit_if_needed(
+        approver=approver,
+        target=resignation.admin,
+        entity_name="resignation",
+        entity_id=resignation.id,
+        action=action,
+        final_status=resignation.status,
+    )
     db.session.commit()
     return jsonify({"success": True, "message": f"Resignation request {resignation.status.lower()}"}), 200
 

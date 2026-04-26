@@ -5,6 +5,7 @@ Run daily via scheduler or: flask leave-pending-reminder [--run-date YYYY-MM-DD]
 from datetime import datetime, timedelta, time as dt_time
 
 import click
+from flask import current_app
 from sqlalchemy import func, or_
 
 from .. import db
@@ -40,7 +41,7 @@ def _get_contact_for_admin(admin):
     ).first()
 
 
-def run_leave_pending_reminder(run_date):
+def run_leave_pending_reminder(run_date, dry_run=False):
     """
     Find leave applications pending 6+ days (not approved/rejected); send reminder to managers; set pending_reminder_sent_at.
     Returns summary dict.
@@ -64,14 +65,65 @@ def run_leave_pending_reminder(run_date):
     for leave in leaves:
         admin = leave.admin
         if not admin:
+            current_app.logger.info(
+                "leave-pending-reminder: leave_id=%s outcome=skipped reason=no-admin",
+                leave.id,
+            )
             summary["skipped"] += 1
             continue
+
+        # Atomic claim: only one process should send reminder for a leave row.
+        # This prevents duplicate emails when scheduler runs in multiple workers.
+        if not dry_run:
+            claim_ts = datetime.utcnow()
+            claimed = (
+                LeaveApplication.query.filter(
+                    LeaveApplication.id == leave.id,
+                    LeaveApplication.pending_reminder_sent_at.is_(None),
+                )
+                .update(
+                    {"pending_reminder_sent_at": claim_ts},
+                    synchronize_session=False,
+                )
+            )
+            db.session.commit()
+            if claimed == 0:
+                current_app.logger.info(
+                    "leave-pending-reminder: leave_id=%s outcome=skipped reason=already-claimed",
+                    leave.id,
+                )
+                summary["skipped"] += 1
+                continue
+            current_app.logger.info(
+                "leave-pending-reminder: leave_id=%s outcome=claimed",
+                leave.id,
+            )
+        else:
+            current_app.logger.info(
+                "leave-pending-reminder: leave_id=%s outcome=claimed dry_run=1",
+                leave.id,
+            )
+
         contact = _get_contact_for_admin(admin)
         manager_emails = get_manager_emails(contact, exclude_email=admin.email) if contact else []
         if send_leave_pending_reminder(leave, manager_emails, hr_cc=True):
-            leave.pending_reminder_sent_at = datetime.utcnow()
+            current_app.logger.info(
+                "leave-pending-reminder: leave_id=%s outcome=sent",
+                leave.id,
+            )
             summary["reminders_sent"] += 1
         else:
+            if not dry_run:
+                # Release claim so a retry run can send later.
+                LeaveApplication.query.filter(LeaveApplication.id == leave.id).update(
+                    {"pending_reminder_sent_at": None},
+                    synchronize_session=False,
+                )
+                db.session.commit()
+            current_app.logger.info(
+                "leave-pending-reminder: leave_id=%s outcome=skipped reason=send-failed",
+                leave.id,
+            )
             summary["skipped"] += 1
 
     return summary
@@ -93,7 +145,7 @@ def register_leave_pending_reminder_command(app):
             run_date_obj = date.today()
 
         with app.app_context():
-            summary = run_leave_pending_reminder(run_date_obj)
+            summary = run_leave_pending_reminder(run_date_obj, dry_run=dry_run)
             if dry_run:
                 db.session.rollback()
                 click.echo("Dry run. No DB changes committed.")
