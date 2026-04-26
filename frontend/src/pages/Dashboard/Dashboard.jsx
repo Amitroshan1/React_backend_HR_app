@@ -742,6 +742,8 @@ export const Dashboard = () => {
         .find((n) => n) || "N/A";
     const managerDept = dynamicData.user?.circle || "N/A"; 
     const userCircle = (dynamicData.user?.circle || '').trim().toUpperCase();
+    const myEmpId =
+        (dynamicData.user?.emp_id || dynamicData.user?.empId || dynamicData.employee?.emp_id || "").trim();
     if (loading) return (
         <div className="full-height-center">
             <h2 className="loader"></h2>
@@ -980,6 +982,26 @@ export const Dashboard = () => {
                                     <div>
                                         <h4>Raise a Query</h4>
                                         <p>Ask for HR/Admin support</p>
+                                    </div>
+                                </div>
+                                <FiChevronRight className="arrow" />
+                            </NavLink>
+                            <NavLink
+                                to={myEmpId ? `/it/employee/${encodeURIComponent(myEmpId)}` : "#"}
+                                className="action-card nav-link-card"
+                                onClick={(e) => {
+                                    if (!myEmpId) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        alert("Employee ID not found. Please contact IT.");
+                                    }
+                                }}
+                            >
+                                <div className="action-icon-group">
+                                    <div className="action-icon sky"><div className="action-icon-inner"><FiUserCheck /></div></div>
+                                    <div>
+                                        <h4>My Assets</h4>
+                                        <p>View your assigned assets</p>
                                     </div>
                                 </div>
                                 <FiChevronRight className="arrow" />

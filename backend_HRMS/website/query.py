@@ -9,6 +9,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload
 from . import db
 from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
@@ -77,6 +78,22 @@ def _emp_type_to_department(emp_type):
     if normalized == "accounts":
         return "Accounts"
     return None
+
+
+def _department_staff_can_close(emp_type):
+    """Who may close queries on behalf of the department (matches inbox roles + engineering)."""
+    n = _norm(emp_type)
+    return n in {
+        "human resource",
+        "human resources",
+        "hr",
+        "accounts",
+        "engineering",
+        "it",
+        "it department",
+        "admin",
+        "administration",
+    }
 
 
 def _can_access_query(admin, emp_type, query_obj):
@@ -254,21 +271,36 @@ def department_queries():
     if not department:
         return jsonify({"success": False, "message": "Unsupported department role"}), 403
 
-    queries = Query.query.filter_by(
-        department=department
-    ).order_by(Query.created_at.desc()).all()
+    dept_variants = _department_variants(department)
+    queries = (
+        Query.query.options(joinedload(Query.admin))
+        .filter(
+            or_(
+                *[
+                    func.lower(func.coalesce(Query.department, "")) == v
+                    for v in dept_variants
+                ]
+            )
+        )
+        .order_by(Query.created_at.desc())
+        .all()
+    )
+
+    def _serialize_query(q):
+        adm = q.admin
+        return {
+            "id": q.id,
+            "title": q.title,
+            "query_text": q.query_text,
+            "employee": adm.email if adm else None,
+            "emp_id": (adm.emp_id if adm else None) or "",
+            "status": q.status,
+            "created_at": q.created_at.isoformat() if q.created_at else None,
+        }
 
     return jsonify({
         "success": True,
-        "queries": [
-            {
-                "id": q.id,
-                "title": q.title,
-                "employee": q.admin.email,
-                "status": q.status,
-                "created_at": q.created_at
-            } for q in queries
-        ]
+        "queries": [_serialize_query(q) for q in queries]
     }), 200
 
 
@@ -399,7 +431,7 @@ def close_query_api(query_id):
     closed_by_email = claims.get("email")
     closed_by_admin = Admin.query.filter_by(email=closed_by_email).first()
 
-    if emp_type not in ["Human Resource", "Accounts", "Engineering", "IT Department"]:
+    if not _department_staff_can_close(emp_type):
         return jsonify({
             "success": False,
             "message": "Unauthorized"

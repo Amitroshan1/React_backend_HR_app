@@ -1,10 +1,16 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { toast as rtToast } from "react-toastify";
 import {
+  createDeletedLogAPI,
   getAssetUnitsFromStorage,
+  getITApiErrorMessage,
+  saveAssetUnitsToStorage,
   logDeletedAsset,
   deleteAssetUnit,
+  syncDeletedLogsFromAPI,
   syncInventoryCount,
+  syncITDataFromAPI,
 } from "../Data";
 import "./InventoryDashboard.css";
 import "./InRepair.css";
@@ -33,20 +39,8 @@ const getRepairDaysClass = (days) => {
   return "ok";
 };
 
-function readAssetUnits() {
-  try { return JSON.parse(localStorage.getItem("assetUnits") || "[]"); }
-  catch { return []; }
-}
-
-function writeAssetUnits(units) {
-  try { localStorage.setItem("assetUnits", JSON.stringify(units)); }
-  catch (err) { console.error("[InRepair] writeAssetUnits failed:", err); }
-}
-
-function readDeletedAssets() {
-  try { return JSON.parse(localStorage.getItem("deletedAssets") || "[]"); }
-  catch { return []; }
-}
+const readAssetUnits = () => getAssetUnitsFromStorage() || [];
+const writeAssetUnits = (units) => saveAssetUnitsToStorage(units);
 
 function dispatchInventoryUpdate() {
   try { window.dispatchEvent(new Event("inventory-updated")); } catch { /* no-op */ }
@@ -150,7 +144,24 @@ export default function InRepair() {
     setUnits(getAssetUnitsFromStorage() ?? []);
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        await syncITDataFromAPI();
+        await syncDeletedLogsFromAPI();
+      } catch (err) {
+        console.error("[InRepair] API sync failed, using cached data:", err);
+        rtToast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not sync repair list from the server. Showing cached units.",
+          ),
+        );
+      }
+      reload();
+    };
+    load();
+  }, [reload]);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -192,7 +203,7 @@ export default function InRepair() {
     showToast(`${unit.brand || unit.assetName} returned to available ✓`);
   }, [reload, showToast]);
 
-  const handleRemoveConfirm = useCallback((deletedBy, reason) => {
+  const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
     const entry = {
       deletedId:    `del-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       assetName:    removeTarget.assetName || removeTarget.brand || "",
@@ -205,10 +216,25 @@ export default function InRepair() {
       deletedAt:    new Date().toISOString(),
     };
 
-    // Write deletion log
+    // Write deletion log (API first; fallback to local helper).
     try {
-      localStorage.setItem("deletedAssets", JSON.stringify([...readDeletedAssets(), entry]));
-    } catch {
+      await createDeletedLogAPI({
+        delete_code: entry.deletedId,
+        asset_unit_id: removeTarget.id || null,
+        asset_name: entry.assetName,
+        category: entry.category,
+        serial_number: entry.serialNumber,
+        reason: entry.deleteReason,
+      });
+      await syncDeletedLogsFromAPI();
+    } catch (err) {
+      console.error("[InRepair] delete log API failed:", err);
+      rtToast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not save removal log to the server. Saved locally only.",
+        ),
+      );
       try { logDeletedAsset(removeTarget, deletedBy, reason); } catch { /* no-op */ }
     }
 

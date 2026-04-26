@@ -1,7 +1,13 @@
 
 import React, { useState, useCallback, useMemo, memo } from "react";
 import { useNavigate } from "react-router-dom";
-import { addSoftwareToInventory } from "../Data";
+import { toast } from "react-toastify";
+import {
+  createInventoryItemAPI,
+  createSoftwareLicensesAPI,
+  getITApiErrorMessage,
+  syncITDataFromAPI,
+} from "../Data";
 import "./AddSoftWare.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -36,20 +42,21 @@ const createBlankRow = () => ({
 const validateRow = (row) => {
   const errors = {};
 
-  if (!row.name.trim())          errors.name              = "Required";
-  if (!row.subscriptionStart)    errors.subscriptionStart = "Required";
-  if (!row.subscriptionEnd)      errors.subscriptionEnd   = "Required";
+  if (!row.name.trim()) errors.name = "Required";
+  if (!row.subscriptionStart) errors.subscriptionStart = "Required";
+  if (!row.subscriptionEnd) errors.subscriptionEnd = "Required";
 
-  if (
-    row.subscriptionStart &&
-    row.subscriptionEnd   &&
-    row.subscriptionEnd <= row.subscriptionStart
-  ) {
-    errors.subscriptionEnd = "Must be after start date";
+  if (row.subscriptionStart && row.subscriptionEnd) {
+    const ds = new Date(`${row.subscriptionStart}T00:00:00`);
+    const de = new Date(`${row.subscriptionEnd}T00:00:00`);
+    if (!Number.isNaN(ds.getTime()) && !Number.isNaN(de.getTime()) && de <= ds) {
+      errors.subscriptionEnd = "Must be after start date";
+    }
   }
 
   const qty = parseInt(row.quantity, 10);
-  if (!row.quantity || isNaN(qty) || qty < 1) errors.quantity = "Min 1";
+  if (!row.quantity || Number.isNaN(qty) || qty < 1) errors.quantity = "Min 1";
+  if (!Number.isNaN(qty) && qty > 9_999) errors.quantity = "Max 9999";
 
   return errors;
 };
@@ -128,36 +135,44 @@ const AddSoftwarePage = () => {
     try {
       let totalLicenses = 0;
 
-      validated.forEach((row) => {
+      for (const row of validated) {
         const qty = parseInt(row.quantity, 10) || 1;
-
-        addSoftwareToInventory({
-          name:              row.name.trim(),
-          subscriptionStart: row.subscriptionStart,
-          subscriptionEnd:   row.subscriptionEnd,
-          quantity:          qty,
+        const invRes = await createInventoryItemAPI({
+          name: row.name.trim(),
+          category: "Software",
+          inventoryCategory: "IT Assets",
         });
-
+        const inventoryItemId = invRes?.item?.id;
+        if (!inventoryItemId) {
+          throw new Error("Server did not return an inventory item id.");
+        }
+        await createSoftwareLicensesAPI({
+          inventoryItemId,
+          name: row.name.trim(),
+          subscriptionStart: row.subscriptionStart,
+          subscriptionEnd: row.subscriptionEnd,
+          quantity: qty,
+        });
         totalLicenses += qty;
-      });
+      }
 
-      // Notify other dashboards listening for inventory changes
+      await syncITDataFromAPI();
       window.dispatchEvent(new Event("inventory-updated"));
 
-      setBanner({
-        type:    "success",
-        message: `✅ ${totalLicenses} license${totalLicenses !== 1 ? "s" : ""} added to inventory.`,
-      });
+      const msg = `✅ ${totalLicenses} license${totalLicenses !== 1 ? "s" : ""} added to inventory.`;
+      setBanner({ type: "success", message: msg });
+      toast.success(msg);
 
-      // Reset form
       setRows([createBlankRow()]);
       setSubmitted(false);
     } catch (err) {
       console.error("[AddSoftwarePage] handleSubmit error:", err);
+      const detail = getITApiErrorMessage(err, "Could not save to the server.");
       setBanner({
-        type:    "error",
-        message: `❌ Failed to save: ${err?.message || "Unknown error"}. Please try again.`,
+        type: "error",
+        message: `❌ Failed to save: ${detail}`,
       });
+      toast.error(detail);
     } finally {
       setSaving(false);
     }
@@ -249,6 +264,7 @@ const AddSoftwarePage = () => {
                       value={row.quantity}
                       error={row._errors.quantity}
                       min="1"
+                      max="9999"
                       placeholder="1"
                       className="ana-qty-input"
                       onChange={(e) => updateField(row.id, "quantity", e.target.value)}

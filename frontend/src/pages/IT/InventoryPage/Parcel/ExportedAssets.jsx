@@ -1,6 +1,13 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast as rtToast } from "react-toastify";
+import {
+  createParcelExportAPI,
+  getITApiErrorMessage,
+  syncITDataFromAPI,
+  syncParcelsFromAPI,
+} from "../../Data";
 import "./ExportedAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -447,7 +454,21 @@ export default function ReadyForExport() {
   }, []);
 
   useEffect(() => {
-    loadAssets();
+    const bootstrap = async () => {
+      try {
+        await syncITDataFromAPI();
+      } catch (err) {
+        console.error("[ReadyForExport] sync IT data failed:", err);
+        rtToast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not refresh inventory from the server. Showing cached assets if any.",
+          ),
+        );
+      }
+      loadAssets();
+    };
+    bootstrap();
     window.addEventListener("inventory-updated", loadAssets);
     window.addEventListener("storage", loadAssets);
     return () => {
@@ -522,32 +543,19 @@ export default function ReadyForExport() {
 
   // ── Export send — receives exportedBy as 4th argument ─────────────────────
   const handleSend = useCallback(
-    (destination, parcelPhotos, idNo, exportedBy) => {
+    async (destination, parcelPhotos, idNo, exportedBy) => {
       try {
-        const existing = JSON.parse(localStorage.getItem("pcl_exported") || "[]");
-
-        const newEntry = {
-          id:            `EXP-${Date.now()}`,
-          assetName:     [...new Set(selectedAssets.map((a) => a.assetName))].join(", "),
-          count:         selectedAssets.length,
-          to:            destination,
-          date:          new Date().toISOString().split("T")[0],
-          idNo:          idNo || "",
-          exportedBy:    exportedBy || "",
-          serialNumbers: selectedAssets.map((a) => a.serialNo),
-          assets:        selectedAssets.map((a) => ({
-            id:              a.id,
-            assetName:       a.assetName,
-            serialNo:        a.serialNo,
-            brand:           a.brand,
-            model:           a.model,
-            emoji:           a.emoji,
+        await createParcelExportAPI({
+          destination,
+          idNo,
+          exportedBy,
+          photos: parcelPhotos,
+          assets: selectedAssets.map((a) => ({
+            ...a,
             individualPhoto: individualPhotos[a.id] || null,
           })),
-          photos: parcelPhotos,
-        };
-
-        localStorage.setItem("pcl_exported", JSON.stringify([newEntry, ...existing]));
+        });
+        await syncParcelsFromAPI();
         commitExport(selectedAssets, destination);
 
         setShowModal(false);
@@ -560,7 +568,9 @@ export default function ReadyForExport() {
         );
       } catch (e) {
         console.error("[ReadyForExport] Export failed:", e);
-        showToast("❌ Export failed. Please try again.");
+        const msg = getITApiErrorMessage(e, "Export failed. Please try again.");
+        rtToast.error(msg);
+        showToast(`❌ ${msg}`);
       }
     },
     [selectedAssets, individualPhotos, loadAssets, showToast]

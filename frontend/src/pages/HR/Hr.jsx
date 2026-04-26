@@ -20,6 +20,7 @@ import ExitEmployee from './ExitEmployee';
 import AddDeptCircle from './AddDeptCircle';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
+import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -1163,6 +1164,7 @@ export const Hr = () => {
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
+    { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Add Assets', icon: Building, description: 'Register company assets' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
@@ -1447,6 +1449,8 @@ export const Hr = () => {
       setView('newsfeed');
     } else if (title === 'Update Leave') {
       setView('update_leave');
+    } else if (title === 'Leave Application Updation') {
+      setView('leave_updation');
     } else if (title === 'Update Manager') {setView('update_manager');
     } else if (title === 'Add Assets') {
     setView('add_assets');
@@ -1493,6 +1497,9 @@ if (view === 'update_signup') {
 }
 if (view === 'update_leave'){
   return <UpdateLeave onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />
+}
+if (view === 'leave_updation'){
+  return <LeaveApplicationUpdation onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />
 }
 
 if (view === 'update_manager') {

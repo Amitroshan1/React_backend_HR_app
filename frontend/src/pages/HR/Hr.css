@@ -731,7 +731,12 @@
 .update-icon-box {
   background: linear-gradient(135deg, #eef2ff, #e0e7ff);
   color: #4f46e5;
-  padding: 12px;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border-radius: 10px;
   flex-shrink: 0;
 }
@@ -788,7 +793,8 @@
     padding: 16px;
   }
   .update-icon-box {
-    padding: 10px;
+    width: 50px;
+    height: 50px;
   }
 }
 

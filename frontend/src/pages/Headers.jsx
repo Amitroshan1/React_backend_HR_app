@@ -119,7 +119,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link, NavLink, useNavigate } from 'react-router-dom';
 import { toast } from "react-toastify";
-import { FaBell, FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
+import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
 
 const getPageInfo = (pathname, firstName) => {
@@ -234,7 +234,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     };
 
     const roleInfo = getRoleInfo(rawRole, user);
-    const isDepartmentRole = ["hr", "account", "accounts", "it", "admin"].includes(roleInfo.display?.toLowerCase());
+    const queryShortcutAllowed = ["hr", "account", "accounts", "it"].includes(roleInfo.display?.toLowerCase());
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
     const panelLinks = [];
     if (roleInfo.hasPanel && roleInfo.route) panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
@@ -348,25 +348,14 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
 
     const isBellDisabled = queryUnreadCount === 0;
 
-    // Robust IT panel detection: prefer resolved roleInfo but fallback to checking
-    // the raw role string and common user fields (emp_type, department, roles).
-    const hasITPanel = Boolean(
-        (roleInfo && roleInfo.hasPanel && roleInfo.route === "/it") ||
-        (typeof roleKey === 'string' && roleKey.includes("it")) ||
-        (user && (
-            String(user.emp_type || "").toLowerCase().includes("it") ||
-            String(user.department || "").toLowerCase().includes("it") ||
-            String(user.roles || "").toLowerCase().includes("it")
-        ))
-    );
-
-    const handleNotificationClick = () => {
-        if (isBellDisabled) return;
-        if (isDepartmentRole) {
-            navigate("/queries/inbox?from=notification");
+    const isITRole = roleInfo.display?.toLowerCase() === "it";
+    const handleQueryShortcutClick = () => {
+        if (!queryShortcutAllowed) return;
+        if (isITRole) {
+            navigate("/it/OpenTicket");
             return;
         }
-        navigate("/queries?from=notification");
+        navigate("/queries/inbox?from=notification");
     };
 
     const handleRevokeNotice = async () => {
@@ -437,20 +426,19 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                         </div>
                     )}
 
-                    {hasITPanel && (
-                        <NavLink to="/it" className="it-panel-btn" title="IT Panel">
-                            <FaBriefcase />
-                        </NavLink>
+                    {queryShortcutAllowed && (
+                        <button
+                            type="button"
+                            className={`query-shortcut-btn ${isBellDisabled ? "disabled" : ""}`}
+                            title={isITRole ? "IT Queries" : "Department Queries"}
+                            onClick={handleQueryShortcutClick}
+                        >
+                            Query
+                            {queryUnreadCount > 0 && (
+                                <span className="badge">{queryUnreadCount > 99 ? "99+" : queryUnreadCount}</span>
+                            )}
+                        </button>
                     )}
-
-                    <div
-                        className={`notification-wrapper ${isBellDisabled ? "disabled" : ""}`}
-                        title={isBellDisabled ? "No new notifications" : "Notifications"}
-                        onClick={handleNotificationClick}
-                    >
-                        <FaBell className="bell-icon" />
-                        {queryUnreadCount > 0 && <span className="badge">{queryUnreadCount > 99 ? "99+" : queryUnreadCount}</span>}
-                    </div>
                     
                     <div className="divider"></div>
 

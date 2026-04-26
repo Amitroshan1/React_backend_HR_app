@@ -178,6 +178,27 @@
 .notification-wrapper.disabled:hover {
     background: #f8f9fa;
 }
+
+.query-shortcut-btn {
+    position: relative;
+    cursor: pointer;
+    border: none;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
+    transition: all 0.2s ease;
+}
+
+.query-shortcut-btn:hover {
+    filter: brightness(0.96);
+}
+
+.query-shortcut-btn.disabled {
+    opacity: 0.7;
+}
 /* 
 .bell-icon {
     font-size: 1.2rem;

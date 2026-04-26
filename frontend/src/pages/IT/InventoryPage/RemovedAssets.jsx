@@ -1,25 +1,20 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { toast as rtToast } from "react-toastify";
+import {
+  getDeletedAssetsFromStorage,
+  getITApiErrorMessage,
+  syncDeletedLogsFromAPI,
+  wipeAllDeletedLogsAPI,
+  wipeDeletedLogAPI,
+} from "../Data";
 import "./InventoryDashboard.css";
 import "./RemovedAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CATS          = ["All", "Hardware", "Accessories", "Consumables"];
-const DELETED_KEY   = "deletedAssets";
 const SEARCH_FIELDS = ["brand", "assetName", "serialNumber"];
-
-// ─── localStorage helpers ─────────────────────────────────────────────────────
-
-function readDeleted() {
-  try { return JSON.parse(localStorage.getItem(DELETED_KEY)) || []; }
-  catch { return []; }
-}
-
-function writeDeleted(records) {
-  try { localStorage.setItem(DELETED_KEY, JSON.stringify(records)); }
-  catch (err) { console.error("[RemovedAssets] writeDeleted failed:", err); }
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -130,7 +125,20 @@ export default function RemovedAssets() {
   const [wipeTarget,     setWipeTarget]     = useState(undefined);
   const [toast,          setToast]          = useState("");
 
-  const reload = useCallback(() => setRecords(readDeleted()), []);
+  const reload = useCallback(async () => {
+    try {
+      await syncDeletedLogsFromAPI();
+    } catch (err) {
+      console.error("[RemovedAssets] API sync failed, using cached logs:", err);
+      rtToast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not load removal history from the server. Showing cached records.",
+        ),
+      );
+    }
+    setRecords(getDeletedAssetsFromStorage());
+  }, []);
   useEffect(() => { reload(); }, [reload]);
 
   const showToast = useCallback((msg) => {
@@ -157,15 +165,22 @@ export default function RemovedAssets() {
   );
 
   // ── Actions ─────────────────────────────────────────────────────────────────
-  const handleWipeConfirm = useCallback(() => {
-    if (wipeTarget) {
-      writeDeleted(readDeleted().filter((r) => r.deletedId !== wipeTarget.deletedId));
-    } else {
-      writeDeleted([]);
+  const handleWipeConfirm = useCallback(async () => {
+    try {
+      if (wipeTarget) {
+        await wipeDeletedLogAPI(wipeTarget.deletedId);
+      } else {
+        await wipeAllDeletedLogsAPI();
+      }
+      await reload();
+      setWipeTarget(undefined);
+      showToast("Record permanently removed ✓");
+    } catch (err) {
+      console.error("[RemovedAssets] wipe failed:", err);
+      const msg = getITApiErrorMessage(err, "Failed to remove record on the server.");
+      rtToast.error(msg);
+      showToast(msg);
     }
-    reload();
-    setWipeTarget(undefined);
-    showToast("Record permanently removed ✓");
   }, [wipeTarget, reload, showToast]);
 
   // ── Render ──────────────────────────────────────────────────────────────────

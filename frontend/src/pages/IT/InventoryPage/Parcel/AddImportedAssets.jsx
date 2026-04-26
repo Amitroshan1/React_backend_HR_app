@@ -1,6 +1,8 @@
 
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast as rtToast } from "react-toastify";
+import { createParcelImportsAPI, getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
 import "./AddImportedAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -227,7 +229,7 @@ export default function AddImportedAssets() {
   }, []);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setIsSubmitted(true);
 
     const validatedRows = rows.map((r) => ({ ...r, _errors: validateRow(r) }));
@@ -246,16 +248,17 @@ export default function AddImportedAssets() {
     }));
 
     try {
-      const existing = JSON.parse(localStorage.getItem("pcl_imported") || "[]");
-      localStorage.setItem("pcl_imported", JSON.stringify([...newEntries, ...existing]));
-      window.dispatchEvent(new Event("inventory-updated"));
+      await createParcelImportsAPI(newEntries);
+      await syncParcelsFromAPI();
 
       showToast(`✅ ${newEntries.length} import record${newEntries.length !== 1 ? "s" : ""} saved!`);
       setRows([createBlankRow()]);
       setIsSubmitted(false);
     } catch (e) {
       console.error("[AddImportedAssets] Save failed:", e);
-      showToast("❌ Failed to save. Please try again.");
+      const msg = getITApiErrorMessage(e, "Failed to save import records.");
+      rtToast.error(msg);
+      showToast(`❌ ${msg}`);
     }
   };
 

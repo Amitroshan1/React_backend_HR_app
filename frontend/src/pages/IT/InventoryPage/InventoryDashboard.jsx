@@ -1,6 +1,7 @@
 // InventoryDashboard.jsx
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { toast } from "react-toastify";
 import "./InventoryDashboard.css";
 
 import {
@@ -11,6 +12,14 @@ import {
   notifyInventoryChange,
   logDeletedAsset,
   getInventoryCounts,
+  getITApiErrorMessage,
+  syncITDataFromAPI,
+  syncDeletedLogsFromAPI,
+  syncRemovedITFromAPI,
+  setUnitStatusAPI,
+  createDeletedLogAPI,
+  createRemovedAssetAPI,
+  deleteAssetUnitAPI,
 } from "../Data";
 
 import AddNewAssets    from "./AddnewAssets";
@@ -76,15 +85,27 @@ function readRemovedITCount() {
 }
 
 function readLiveCounts() {
+  const inventory = readInventory();
+  const nonSoftware = inventory.filter((i) => !isSoftware(i));
   const counts  = getInventoryCounts();
-  const swTotal = readInventory()
-    .filter(isSoftware)
-    .reduce((sum, i) => sum + (Number(i.totalQuantity) || 0), 0);
+
+  const total = nonSoftware.reduce(
+    (sum, i) => sum + (Number(i.totalQuantity) || 0),
+    0,
+  );
+  const notWorking = nonSoftware.reduce(
+    (sum, i) => sum + (Number(i.notWorkingQuantity) || 0),
+    0,
+  );
+  const inRepair = nonSoftware.reduce(
+    (sum, i) => sum + (Number(i.repairQuantity) || 0),
+    0,
+  );
 
   return {
-    total:            Math.max(0, (counts.total || 0) - swTotal),
-    "not-working":    counts.notWorking    || 0,
-    "in-repair":      counts.inRepair      || 0,
+    total:            Math.max(0, total),
+    "not-working":    Math.max(0, notWorking || counts.notWorking || 0),
+    "in-repair":      Math.max(0, inRepair || counts.inRepair || 0),
     "removed-assets": counts.removedAssets || 0,
     "removed-it":     readRemovedITCount(),
   };
@@ -576,44 +597,57 @@ function useAssetActions(onRefresh) {
     setTimeout(() => setToast(""), 2_800);
   }, []);
 
-  const handleStatusChange = useCallback((row, actionKey, unit) => {
+  const handleStatusChange = useCallback(async (row, actionKey, unit) => {
     if (actionKey === "removed") { setRemoveTarget({ ...row, _selectedUnit: unit }); return; }
 
     const targetStatus = actionKey === "repair" ? "repair" : "notWorking";
     const all          = readUnits();
 
-    if (unit) {
-      // Act on the exact unit chosen in the picker
-      const uid = unit.assetId ?? unit.id;
-      const idx = all.findIndex((u) => (u.assetId ?? u.id) === uid);
-      if (idx >= 0) {
-        all[idx] = {
-          ...all[idx],
-          status:     targetStatus,
-          repairDate: targetStatus === "repair"
-            ? all[idx].repairDate ?? new Date().toISOString()
-            : all[idx].repairDate,
-        };
-        writeUnits(all);
+    const resolveUnit = () => {
+      if (unit) {
+        const uid = unit.assetId ?? unit.id;
+        const idx = all.findIndex((u) => (u.assetId ?? u.id) === uid);
+        return idx >= 0 ? all[idx] : unit;
+      }
+      const matchIdx = findUnitIndex(all, row);
+      return matchIdx >= 0 ? all[matchIdx] : null;
+    };
+
+    const rowUnit = resolveUnit();
+    const serverUnitId = rowUnit != null ? Number(rowUnit.id) : NaN;
+    const canSyncServer = Number.isFinite(serverUnitId) && serverUnitId > 0;
+
+    if (canSyncServer) {
+      try {
+        await setUnitStatusAPI({ unitId: serverUnitId, status: targetStatus });
+        await syncITDataFromAPI();
+      } catch (err) {
+        console.error("[InventoryDashboard] set unit status via API failed:", err);
+        toast.error(
+          getITApiErrorMessage(err, "Could not update this unit on the server."),
+        );
+        return;
       }
     } else {
-      // Fallback: no specific unit selected
-      const matchIdx = findUnitIndex(all, row);
-      if (matchIdx >= 0) {
-        all[matchIdx] = {
-          ...all[matchIdx],
-          status:     targetStatus,
-          repairDate: targetStatus === "repair"
-            ? all[matchIdx].repairDate ?? new Date().toISOString()
-            : all[matchIdx].repairDate,
-        };
-        writeUnits(all);
+      if (rowUnit) {
+        const uid = rowUnit.assetId ?? rowUnit.id;
+        const idx = all.findIndex((u) => (u.assetId ?? u.id) === uid);
+        if (idx >= 0) {
+          all[idx] = {
+            ...all[idx],
+            status:     targetStatus,
+            repairDate: targetStatus === "repair"
+              ? all[idx].repairDate ?? new Date().toISOString()
+              : all[idx].repairDate,
+          };
+          writeUnits(all);
+        }
       } else {
         writeUnits([...all, buildSyntheticUnit(row, targetStatus)]);
       }
+      updateInventoryCounts(row, actionKey);
     }
 
-    updateInventoryCounts(row, actionKey);
     showToast(
       actionKey === "repair"
         ? `✅ "${row.name}" sent to Repair`
@@ -623,17 +657,67 @@ function useAssetActions(onRefresh) {
     onRefresh();
   }, [onRefresh, showToast]);
 
-  const handleRemoveConfirm = useCallback((removedBy, reason) => {
+  const handleRemoveConfirm = useCallback(async (removedBy, reason) => {
     if (!removeTarget) return;
 
     const all          = readUnits();
     const selectedUnit = removeTarget._selectedUnit ?? null;
 
+    let unit = null;
     if (selectedUnit) {
       const uid = selectedUnit.assetId ?? selectedUnit.id;
       const idx = all.findIndex((u) => (u.assetId ?? u.id) === uid);
+      unit = idx >= 0 ? all[idx] : selectedUnit;
+    } else {
+      const matchIdx = findUnitIndex(all, removeTarget);
+      unit = matchIdx >= 0 ? all[matchIdx] : null;
+    }
+
+    const unitIdNum = unit != null ? Number(unit.id) : NaN;
+    const canUseApi = Number.isFinite(unitIdNum) && unitIdNum > 0;
+
+    const entry = {
+      deletedId:    `del-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      assetName:    unit?.assetName || removeTarget.name,
+      brand:        unit?.brand     || removeTarget.name,
+      model:        unit?.model     || "",
+      category:     unit?.category  || removeTarget.inventoryCategory || "Hardware",
+      serialNumber: unit?.serialNumber || "",
+    };
+
+    if (canUseApi) {
+      try {
+        await createDeletedLogAPI({
+          delete_code: entry.deletedId,
+          asset_unit_id: unitIdNum,
+          inventory_item_id: Number(unit.inventoryId) || Number(removeTarget.id) || null,
+          asset_name: entry.assetName,
+          category: entry.category,
+          serial_number: entry.serialNumber,
+          reason,
+        });
+        await createRemovedAssetAPI({
+          asset_unit_id: unitIdNum,
+          inventory_item_id: Number(unit.inventoryId) || Number(removeTarget.id) || null,
+          name: entry.assetName,
+          category: entry.category,
+          reason,
+        });
+        await deleteAssetUnitAPI(unitIdNum);
+        await syncITDataFromAPI();
+        await syncDeletedLogsFromAPI();
+        await syncRemovedITFromAPI();
+      } catch (err) {
+        console.error("[InventoryDashboard] remove via API failed:", err);
+        toast.error(
+          getITApiErrorMessage(err, "Could not remove this asset on the server."),
+        );
+        return;
+      }
+    } else if (unit) {
+      const uid = unit.assetId ?? unit.id;
+      const idx = all.findIndex((u) => (u.assetId ?? u.id) === uid);
       if (idx >= 0) {
-        const unit = all[idx];
         safeLogDeletedAsset(
           {
             ...unit,
@@ -646,35 +730,23 @@ function useAssetActions(onRefresh) {
         );
         writeUnits(all.filter((_, i) => i !== idx));
       }
+      updateInventoryCounts(removeTarget, "removed");
     } else {
-      const matchIdx = findUnitIndex(all, removeTarget);
-      if (matchIdx >= 0) {
-        const unit = all[matchIdx];
-        safeLogDeletedAsset(
-          {
-            ...unit,
-            assetName: unit.assetName || removeTarget.name,
-            brand:     unit.brand     || removeTarget.name,
-            category:  unit.category  || removeTarget.inventoryCategory || "Hardware",
-          },
-          removedBy,
-          reason,
-        );
-        writeUnits(all.filter((_, i) => i !== matchIdx));
-      } else {
-        safeLogDeletedAsset(
-          {
-            assetName: removeTarget.name, brand: removeTarget.name,
-            model: "", category: removeTarget.inventoryCategory || "Hardware",
-            serialNumber: "", id: removeTarget.id,
-          },
-          removedBy,
-          reason,
-        );
-      }
+      safeLogDeletedAsset(
+        {
+          assetName: removeTarget.name,
+          brand: removeTarget.name,
+          model: "",
+          category: removeTarget.inventoryCategory || "Hardware",
+          serialNumber: "",
+          id: removeTarget.id,
+        },
+        removedBy,
+        reason,
+      );
+      updateInventoryCounts(removeTarget, "removed");
     }
 
-    updateInventoryCounts(removeTarget, "removed");
     showToast(`🗑️ "${removeTarget.name}" moved to Removed Assets`);
     setRemoveTarget(null);
     dispatchInventoryUpdate();
@@ -707,6 +779,16 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
 
   useEffect(() => {
     const update = () => setCounts(readLiveCounts());
+    syncITDataFromAPI().then(update).catch((err) => {
+      console.error("[InventoryDashboard] API sync failed, using cached data:", err);
+      toast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not sync IT data from the server. Showing cached inventory.",
+        ),
+      );
+      update();
+    });
     window.addEventListener("inventory-updated", update);
     window.addEventListener("storage",           update);
     return () => {
@@ -858,6 +940,7 @@ function TotalAssetsPage({ category }) {
     const q = searchQuery.trim().toLowerCase();
     return getMappedInventory()
       .filter((a) => a.inventoryCategory === category)
+      .filter((a) => Number(a.total) > 0)
       .filter((a) => {
         if (filter === "Available") return a.available > 0;
         if (filter === "Assigned")  return a.assigned  > 0;
@@ -952,7 +1035,9 @@ function OverviewPage({ category }) {
 
   const assets = useMemo(() => {
     void refreshKey;
-    return getMappedInventory().filter((a) => a.inventoryCategory === category);
+    return getMappedInventory()
+      .filter((a) => a.inventoryCategory === category)
+      .filter((a) => Number(a.total) > 0);
   }, [category, refreshKey]);
 
   return (

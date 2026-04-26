@@ -1,9 +1,16 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { toast as rtToast } from "react-toastify";
 import {
+  createDeletedLogAPI,
+  createRemovedAssetAPI,
   getAssetUnitsFromStorage,
-  logDeletedAsset,
+  getITApiErrorMessage,
   deleteHwUnit,
+  saveAssetUnitsToStorage,
+  setUnitStatusAPI,
+  syncDeletedLogsFromAPI,
+  syncITDataFromAPI,
   syncInventoryCount,
 } from "../Data";
 import "./InventoryDashboard.css";
@@ -17,20 +24,8 @@ const SEARCH_FIELDS      = ["brand", "assetName", "serialNumber"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function readAssetUnits() {
-  try { return JSON.parse(localStorage.getItem("assetUnits") || "[]"); }
-  catch { return []; }
-}
-
-function writeAssetUnits(units) {
-  try { localStorage.setItem("assetUnits", JSON.stringify(units)); }
-  catch (err) { console.error("[NotWorking] writeAssetUnits failed:", err); }
-}
-
-function readDeletedAssets() {
-  try { return JSON.parse(localStorage.getItem("deletedAssets") || "[]"); }
-  catch { return []; }
-}
+const readAssetUnits = () => getAssetUnitsFromStorage() || [];
+const writeAssetUnits = (units) => saveAssetUnitsToStorage(units);
 
 function dispatchInventoryUpdate() {
   try { window.dispatchEvent(new Event("inventory-updated")); } catch { /* no-op */ }
@@ -129,7 +124,24 @@ export default function NotWorking() {
     setUnits(getAssetUnitsFromStorage() ?? []);
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        await syncITDataFromAPI();
+        await syncDeletedLogsFromAPI();
+      } catch (err) {
+        console.error("[NotWorking] API sync failed, using cached data:", err);
+        rtToast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not sync not-working assets from the server. Showing cached units.",
+          ),
+        );
+      }
+      reload();
+    };
+    load();
+  }, [reload]);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -160,7 +172,16 @@ export default function NotWorking() {
   );
 
   // ── Actions ─────────────────────────────────────────────────────────────────
-  const handleSendToRepair = useCallback((unit) => {
+  const handleSendToRepair = useCallback(async (unit) => {
+    try {
+      await setUnitStatusAPI({ unitId: unit.id, status: "repair" });
+      await syncITDataFromAPI();
+    } catch (err) {
+      console.error("[NotWorking] set repair via API failed:", err);
+      rtToast.error(
+        getITApiErrorMessage(err, "Could not move this unit to repair on the server."),
+      );
+    }
     const updated = readAssetUnits().map((u) =>
       u.id === unit.id
         ? { ...u, status: "repair", repairDate: u.repairDate ?? new Date().toISOString() }
@@ -173,7 +194,7 @@ export default function NotWorking() {
     showToast(`${unit.brand || unit.assetName} sent to repair ✓`);
   }, [reload, showToast]);
 
-  const handleRemoveConfirm = useCallback((deletedBy, reason) => {
+  const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
     const entry = {
       deletedId:    `del-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       assetName:    removeTarget.assetName || removeTarget.brand || "",
@@ -187,9 +208,29 @@ export default function NotWorking() {
     };
 
     try {
-      localStorage.setItem("deletedAssets", JSON.stringify([...readDeletedAssets(), entry]));
-    } catch {
-      try { logDeletedAsset(removeTarget, deletedBy, reason); } catch { /* no-op */ }
+      await createDeletedLogAPI({
+        delete_code: entry.deletedId,
+        asset_unit_id: removeTarget.id || null,
+        asset_name: entry.assetName,
+        category: entry.category,
+        serial_number: entry.serialNumber,
+        reason: entry.deleteReason,
+      });
+      await createRemovedAssetAPI({
+        asset_unit_id: removeTarget.id || null,
+        name: entry.assetName,
+        category: entry.category,
+        reason: entry.deleteReason,
+      });
+      await syncDeletedLogsFromAPI();
+    } catch (err) {
+      console.error("[NotWorking] delete log API failed:", err);
+      rtToast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not complete permanent removal on the server. Local changes were applied.",
+        ),
+      );
     }
 
     writeAssetUnits(readAssetUnits().filter((u) => u.id !== removeTarget.id));

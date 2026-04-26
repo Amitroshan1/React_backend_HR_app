@@ -21,7 +21,7 @@
 .ot-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 20px;
   flex-wrap: wrap;
 }
@@ -189,7 +189,7 @@
   max-width: 100%;
 }
 
-.ot-search-icon {
+.ot-search-wrap .ot-search-icon {
   position: absolute;
   left: 11px;
   top: 50%;
@@ -415,6 +415,16 @@
 
 .ot-td-query {
   max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ot-query-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f172a;
+  line-height: 1.35;
 }
 
 .ot-query {
@@ -542,6 +552,195 @@
 .ot-empty-inner span {
   font-size: 12px;
   color: #94a3b8;
+}
+
+/* ── Query chat (same data as Department Inbox) ── */
+.ot-chat-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.ot-chat-panel {
+  width: min(440px, 100%);
+  max-height: min(640px, 90vh);
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.ot-chat-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.ot-chat-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.3;
+}
+
+.ot-chat-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ot-chat-status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.ot-chat-close {
+  border: none;
+  background: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  font-size: 22px;
+  line-height: 1;
+  color: #64748b;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: 1px solid #e2e8f0;
+}
+.ot-chat-close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.ot-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f1f5f9;
+  min-height: 220px;
+}
+
+.ot-chat-loading {
+  margin: 0;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  padding: 24px 8px;
+}
+
+.ot-msg {
+  display: flex;
+}
+.ot-msg--emp {
+  justify-content: flex-start;
+}
+.ot-msg--dept {
+  justify-content: flex-end;
+}
+
+.ot-msg-bubble {
+  max-width: 88%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.ot-msg--emp .ot-msg-bubble {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  color: #1e293b;
+  border-bottom-left-radius: 4px;
+}
+
+.ot-msg--dept .ot-msg-bubble {
+  background: #0ea5e9;
+  border: 1px solid #0284c7;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.ot-msg-from {
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  opacity: 0.85;
+}
+
+.ot-msg-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ot-msg-time {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.ot-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.ot-chat-input {
+  flex: 1;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: "DM Sans", inherit;
+}
+.ot-chat-input:focus {
+  outline: none;
+  border-color: #0ea5e9;
+}
+
+.ot-chat-send {
+  padding: 0 16px;
+  border-radius: 8px;
+  border: none;
+  background: #0ea5e9;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: "DM Sans", inherit;
+}
+.ot-chat-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

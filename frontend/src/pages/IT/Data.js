@@ -9,6 +9,7 @@ export const EMPLOYEES_KEY = "employees";
 export const SOFTWARE_KEY = "softwareInventory";
 export const TICKETS_KEY = "support_tickets";
 export const REMOVED_IT_KEY = "removedITAssets";
+const ASSIGNED_SHAPE_MIGRATION_KEY = "it_assigned_shape_migrated_v1";
 
 const SEED_FLAG_KEY = "app_seeded_v3"; // bumped: employees-only seeding
 
@@ -108,6 +109,73 @@ const initStorage = () => {
 
 // Run on module load.
 initStorage();
+
+const runAssignedToShapeMigrationOnce = () => {
+  try {
+    const done = localStorage.getItem(ASSIGNED_SHAPE_MIGRATION_KEY) === "true";
+    if (done) return;
+
+    const employees = JSON.parse(localStorage.getItem(EMPLOYEES_KEY) || "[]");
+    const byEmpId = new Map();
+    const byAdminId = new Map();
+    for (const e of employees) {
+      const empId = String(e.empId || e.id || "").trim();
+      const adminId = String(e.adminId || "").trim();
+      const name = e.name || "—";
+      if (empId) byEmpId.set(empId.toUpperCase(), { empId, name });
+      if (adminId) byAdminId.set(adminId, { empId: empId || adminId, name });
+    }
+
+    const mapAssignedTo = (assignedTo) => {
+      if (!assignedTo) return assignedTo;
+      if (typeof assignedTo === "object" && assignedTo.empId) return assignedTo;
+
+      const raw = String(assignedTo).trim();
+      if (!raw) return null;
+
+      if (/^\d+$/.test(raw)) {
+        const match = byAdminId.get(raw);
+        return {
+          adminId: Number(raw),
+          empId: match?.empId || raw,
+          name: match?.name || "—",
+        };
+      }
+
+      const match = byEmpId.get(raw.toUpperCase());
+      return {
+        adminId: null,
+        empId: match?.empId || raw,
+        name: match?.name || "—",
+      };
+    };
+
+    const units = JSON.parse(localStorage.getItem(UNITS_KEY) || "[]");
+    let changedUnits = false;
+    const nextUnits = units.map((u) => {
+      if (!u || !u.assignedTo || typeof u.assignedTo === "object") return u;
+      changedUnits = true;
+      return { ...u, assignedTo: mapAssignedTo(u.assignedTo) };
+    });
+    if (changedUnits) localStorage.setItem(UNITS_KEY, JSON.stringify(nextUnits));
+
+    const sw = JSON.parse(localStorage.getItem(SOFTWARE_KEY) || "[]");
+    let changedSw = false;
+    const nextSw = sw.map((s) => {
+      if (!s || !s.assignedTo || typeof s.assignedTo === "object") return s;
+      changedSw = true;
+      return { ...s, assignedTo: mapAssignedTo(s.assignedTo) };
+    });
+    if (changedSw) localStorage.setItem(SOFTWARE_KEY, JSON.stringify(nextSw));
+
+    localStorage.setItem(ASSIGNED_SHAPE_MIGRATION_KEY, "true");
+    sessionStorage.setItem(ASSIGNED_SHAPE_MIGRATION_KEY, "true");
+  } catch (e) {
+    console.warn("[Data] Assigned-shape migration skipped:", e);
+  }
+};
+
+runAssignedToShapeMigrationOnce();
 
 export const resetToSeedData = () => {
   localStorage.removeItem(SEED_FLAG_KEY);
@@ -556,7 +624,7 @@ export const getInventoryCounts = () => {
 
     return {
       total,
-      notWorking: units.filter((u) => u.status === "notWorking").length,
+      notWorking: units.filter((u) => u.status === "notWorking" || u.status === "not-working").length,
       inRepair: units.filter((u) => u.status === "repair").length,
       removedAssets: deleted.length,
       removedIT: removedIT.length,
@@ -740,4 +808,490 @@ export const compressImage = (
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
+  });
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  BACKEND API BRIDGE (IT MODULE)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const IT_API_BASE = "/api/it";
+
+const _tokenHeaders = () => {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+async function _itFetch(path, { method = "GET", body, headers = {} } = {}) {
+  const res = await fetch(`${IT_API_BASE}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ..._tokenHeaders(),
+      ...headers,
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw new Error(data?.message || `IT API request failed (${res.status})`);
+  }
+  return data;
+}
+
+/** User-visible message from IT API / network errors (for react-toastify). */
+export function getITApiErrorMessage(
+  err,
+  fallback = "Something went wrong. Please try again.",
+) {
+  if (err == null) return fallback;
+  if (typeof err === "string") {
+    const s = err.trim();
+    return s || fallback;
+  }
+  const msg = err?.message;
+  if (typeof msg === "string" && msg.trim()) return msg.trim();
+  return fallback;
+}
+
+const _toLocalInventory = (item) => ({
+  id: item.id,
+  name: item.name,
+  category: item.category,
+  inventoryCategory: item.inventory_category || "IT Assets",
+  hwType: item.hw_type || null,
+  totalQuantity: Number(item.totalQuantity ?? item.total_quantity ?? 0),
+  availableQuantity: Number(item.availableQuantity ?? item.available_quantity ?? 0),
+  assignedQuantity: Number(item.assignedQuantity ?? item.assigned_quantity ?? 0),
+  notWorkingQuantity: Number(item.notWorkingQuantity ?? item.not_working_quantity ?? 0),
+  repairQuantity: Number(item.repairQuantity ?? item.repair_quantity ?? 0),
+});
+
+const _toLocalUnit = (u) => ({
+  id: u.id,
+  assetId: u.unitCode || u.unit_code || u.id,
+  inventoryId: u.inventoryId ?? u.inventory_item_id,
+  assetName: u.assetName || "",
+  category: u.category || "Hardware",
+  hwType: u.hwType || null,
+  brand: u.brand || "",
+  make: u.make || "",
+  model: u.model || "",
+  serialNumber: u.serialNumber || "",
+  imei1: u.imei1 || null,
+  imei2: u.imei2 || null,
+  status: u.status || "available",
+  assignedTo:
+    u.assignedTo == null
+      ? null
+      : {
+          adminId: u.assignedTo,
+          empId: u.assignedToEmpId || String(u.assignedTo),
+          name: u.assignedToName || "—",
+        },
+  assignedDate: u.assignedDate || null,
+  assetTag: u.assetTag || "",
+  photos: u.photos || [],
+  assignmentPhotos: u.assignmentPhotos || [],
+  repairDate: u.repairDate || null,
+});
+
+const _toLocalSoftware = (s) => ({
+  id: s.id,
+  inventoryId: s.inventoryId ?? s.inventory_item_id ?? null,
+  name: s.name,
+  subscriptionStart: s.subscriptionStart || null,
+  subscriptionEnd: s.subscriptionEnd || null,
+  status: s.status || "available",
+  assignedTo:
+    s.assignedTo == null
+      ? null
+      : {
+          adminId: s.assignedTo,
+          empId: s.assignedToEmpId || String(s.assignedTo),
+          name: s.assignedToName || "—",
+        },
+});
+
+const _toLocalTicket = (t) => ({
+  id: t.id,
+  empId: String(t.requesterAdminId ?? "—"),
+  email: t.requesterName || "—",
+  query: t.description || t.title || "",
+  date: t.created_at || new Date().toISOString(),
+  status: t.status || "pending",
+});
+
+const _toLocalParcelImport = (r) => ({
+  id: r.importCode || r.id,
+  assetName: r.assetName || "",
+  count: Number(r.count || 0),
+  from: r.from || "",
+  date: (r.date || "").split("T")[0] || "",
+  idNo: r.idNo || "",
+  receivedBy: r.receivedBy || "",
+  photos: r.photos || [],
+});
+
+const _toLocalParcelExport = (r) => ({
+  id: r.exportCode || r.id,
+  assetName: r.assets?.length
+    ? [...new Set(r.assets.map((a) => a.assetName).filter(Boolean))].join(", ")
+    : "",
+  count: Number(r.count || r.assets?.length || 0),
+  to: r.to || "",
+  date: (r.date || "").split("T")[0] || "",
+  idNo: r.idNo || "",
+  exportedBy: r.exportedBy || "",
+  serialNumbers: (r.assets || []).map((a) => a.serialNo).filter(Boolean),
+  assets: (r.assets || []).map((a) => ({
+    id: a.id,
+    assetName: a.assetName || "",
+    serialNo: a.serialNo || "",
+    brand: a.brand || "",
+    model: a.model || "",
+    individualPhoto: a.individualPhoto || null,
+  })),
+  photos: r.photos || [],
+});
+
+export const syncITDataFromAPI = async () => {
+  const [invRes, unitRes, swRes, ticketRes] = await Promise.all([
+    _itFetch("/inventory/items"),
+    _itFetch("/units"),
+    _itFetch("/software/licenses"),
+    _itFetch("/tickets"),
+  ]);
+
+  const inv = (invRes.items || []).map(_toLocalInventory);
+  const units = (unitRes.units || []).map(_toLocalUnit);
+  const sw = (swRes.licenses || []).map(_toLocalSoftware);
+  const tickets = (ticketRes.tickets || []).map(_toLocalTicket);
+
+  saveInventoryToStorage(inv);
+  saveAssetUnitsToStorage(units);
+  saveSoftwareInventory(sw);
+  saveTickets(tickets);
+  notifyInventoryChange();
+};
+
+export const createInventoryItemAPI = async ({
+  name,
+  category,
+  inventoryCategory = "IT Assets",
+  hwType = null,
+  quantity = null,
+}) =>
+  _itFetch("/inventory/items", {
+    method: "POST",
+    body: {
+      name,
+      category,
+      inventory_category: inventoryCategory,
+      hw_type: hwType,
+      initial_quantity: quantity,
+    },
+  });
+
+export const createHardwareUnitsAPI = async ({
+  inventoryItemId,
+  assetName,
+  category = "Hardware",
+  hwType = null,
+  rows = [],
+}) =>
+  _itFetch("/units/bulk", {
+    method: "POST",
+    body: {
+      inventory_item_id: inventoryItemId,
+      units: rows.map((r) => ({
+        unit_code: r.serialNumber,
+        asset_name: assetName,
+        category,
+        hw_type: hwType,
+        brand: r.brand,
+        make: r.make,
+        model: r.model,
+        serial_number: r.serialNumber,
+        imei1: r.imei1 || null,
+        imei2: r.imei2 || null,
+        photos: r.photos || [],
+      })),
+    },
+  });
+
+export const createSoftwareLicensesAPI = async ({
+  inventoryItemId,
+  name,
+  subscriptionStart,
+  subscriptionEnd,
+  quantity,
+}) =>
+  _itFetch("/software/licenses/bulk", {
+    method: "POST",
+    body: {
+      inventory_item_id: inventoryItemId,
+      name,
+      subscription_start: subscriptionStart,
+      subscription_end: subscriptionEnd,
+      quantity,
+    },
+  });
+
+export const resolveTicketAPI = async (ticketId) => {
+  await _itFetch(`/tickets/${ticketId}/resolve`, { method: "PATCH" });
+  const res = await _itFetch("/tickets");
+  const tickets = (res.tickets || []).map(_toLocalTicket);
+  saveTickets(tickets);
+  return tickets;
+};
+
+export const fetchTicketsAPI = async () => {
+  const res = await _itFetch("/tickets");
+  const tickets = (res.tickets || []).map(_toLocalTicket);
+  saveTickets(tickets);
+  return tickets;
+};
+
+export const assignUnitToEmployeeAPI = async ({
+  unitId,
+  adminId,
+  empId,
+  assetTag,
+  assignmentPhotos = [],
+}) =>
+  _itFetch("/assignments/units", {
+    method: "POST",
+    body: {
+      unit_id: unitId,
+      assigned_to_admin_id: adminId || null,
+      assigned_to_emp_id: empId || null,
+      asset_tag: assetTag,
+      assignment_photos: assignmentPhotos,
+    },
+  });
+
+export const assignSoftwareToEmployeeAPI = async ({ licenseId, adminId, empId }) =>
+  _itFetch("/assignments/software", {
+    method: "POST",
+    body: {
+      license_id: licenseId,
+      assigned_to_admin_id: adminId || null,
+      assigned_to_emp_id: empId || null,
+    },
+  });
+
+export const assignInventoryQuantityAPI = async ({
+  inventoryItemId,
+  quantity = 1,
+  action = "assign",
+  adminId = null,
+  empId = null,
+}) =>
+  _itFetch("/assignments/inventory-quantity", {
+    method: "POST",
+    body: {
+      inventory_item_id: inventoryItemId,
+      quantity,
+      action,
+      assigned_to_admin_id: adminId,
+      assigned_to_emp_id: empId,
+    },
+  });
+
+export const createParcelImportsAPI = async (entries = []) =>
+  Promise.all(
+    entries.map((row) =>
+      _itFetch("/parcels/imports", {
+        method: "POST",
+        body: {
+          source: row.from,
+          assetName: row.assetName,
+          count: Number(row.count || 1),
+          idNo: row.idNo || "",
+          date: row.date,
+          received_by_name: String(row.receivedBy || "").trim() || null,
+          received_by_admin_id: Number(row.receivedByAdminId || 0) || null,
+          photos: row.photos || [],
+        },
+      }),
+    ),
+  );
+
+export const createParcelExportAPI = async ({
+  destination,
+  idNo = "",
+  exportedBy = "",
+  exportedByAdminId = null,
+  photos = [],
+  assets = [],
+}) =>
+  _itFetch("/parcels/exports", {
+    method: "POST",
+    body: {
+      destination,
+      idNo,
+      exported_by_name: String(exportedBy || "").trim() || null,
+      exported_by_admin_id: exportedByAdminId,
+      photos,
+      assets: assets.map((a) => ({
+        asset_unit_id: a.asset_unit_id || a.id,
+        assetName: a.assetName,
+        serialNo: a.serialNo,
+        brand: a.brand,
+        model: a.model,
+        individualPhoto: a.individualPhoto || null,
+      })),
+    },
+  });
+
+export const syncParcelsFromAPI = async () => {
+  const [importsRes, exportsRes] = await Promise.all([
+    _itFetch("/parcels/imports"),
+    _itFetch("/parcels/exports"),
+  ]);
+  const imports = (importsRes.imports || []).map(_toLocalParcelImport);
+  const exports = (exportsRes.exports || []).map(_toLocalParcelExport);
+  localStorage.setItem("pcl_imported", JSON.stringify(imports));
+  localStorage.setItem("pcl_exported", JSON.stringify(exports));
+  notifyInventoryChange();
+  return { imports, exports };
+};
+
+export const createRemovedAssetAPI = async (payload) =>
+  _itFetch("/removed-assets", {
+    method: "POST",
+    body: payload,
+  });
+
+const _toLocalDeletedLog = (d) => ({
+  deletedId: d.deleteCode || d.id,
+  assetName: d.assetName || "",
+  brand: d.assetName || "",
+  model: "",
+  category: d.category || "Hardware",
+  serialNumber: d.serialNumber || "",
+  deletedBy: d.deletedByName || "",
+  deleteReason: d.reason || "",
+  deletedAt: d.deletedAt || new Date().toISOString(),
+});
+
+export const createDeletedLogAPI = async (payload) =>
+  _itFetch("/deleted-logs", {
+    method: "POST",
+    body: payload,
+  });
+
+export const syncDeletedLogsFromAPI = async () => {
+  const res = await _itFetch("/deleted-logs");
+  const rows = (res.logs || []).map(_toLocalDeletedLog);
+  localStorage.setItem(DELETED_KEY, JSON.stringify(rows));
+  notifyInventoryChange();
+  return rows;
+};
+
+export const wipeDeletedLogAPI = async (deleteCode) =>
+  _itFetch(`/deleted-logs/${encodeURIComponent(deleteCode)}`, { method: "DELETE" });
+
+export const wipeAllDeletedLogsAPI = async () =>
+  _itFetch("/deleted-logs", { method: "DELETE" });
+
+const _toLocalRemovedIT = (r) => ({
+  id: r.id,
+  name: r.name || "",
+  category: r.category || "Hardware",
+  owner: r.ownerName || "—",
+  ownerId: r.ownerAdminId || null,
+  itReason: r.reason || "",
+  flaggedAt: r.removedAt || new Date().toISOString(),
+});
+
+export const syncRemovedITFromAPI = async () => {
+  const res = await _itFetch("/removed-assets");
+  const rows = (res.removed_assets || []).map(_toLocalRemovedIT);
+  saveRemovedITAssets(rows);
+  notifyInventoryChange();
+  return rows;
+};
+
+export const removeRemovedITAssetAPI = async (removedId) =>
+  _itFetch(`/removed-assets/${removedId}`, { method: "DELETE" });
+
+export const setUnitStatusAPI = async ({ unitId, status }) =>
+  _itFetch(`/units/${unitId}/status`, {
+    method: "PATCH",
+    body: { status },
+  });
+
+export const deleteAssetUnitAPI = async (unitId) =>
+  _itFetch(`/units/${unitId}`, { method: "DELETE" });
+
+export const fetchEmployeeAssetsAPI = async (empId) => {
+  const res = await _itFetch(`/employees/${encodeURIComponent(empId)}/assets`);
+  return res.employee || null;
+};
+
+export const lookupEmployeeByEmpIdOrEmailAPI = async (query) => {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const res = await _itFetch(`/employees/lookup?q=${encodeURIComponent(q)}`);
+  return Array.isArray(res?.employees) ? res.employees : [];
+};
+
+export const returnAssetUnitAPI = async (unitId, status = "available") =>
+  _itFetch(`/assignments/units/${unitId}/return`, {
+    method: "POST",
+    body: { status },
+  });
+
+export const returnSoftwareLicenseAPI = async (licenseId) =>
+  _itFetch(`/assignments/software/${licenseId}/return`, {
+    method: "POST",
+    body: {},
+  });
+
+export const createReturnRequestAPI = async ({
+  reason,
+  assetUnitId = null,
+  softwareLicenseId = null,
+  inventoryItemId = null,
+  quantity = 1,
+}) =>
+  _itFetch("/return-requests", {
+    method: "POST",
+    body: {
+      reason,
+      asset_unit_id: assetUnitId,
+      software_license_id: softwareLicenseId,
+      inventory_item_id: inventoryItemId,
+      quantity,
+    },
+  });
+
+export const listReturnRequestsAPI = async ({ status = "", mine = false } = {}) => {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (mine) params.set("mine", "1");
+  const q = params.toString();
+  const res = await _itFetch(`/return-requests${q ? `?${q}` : ""}`);
+  return Array.isArray(res?.requests) ? res.requests : [];
+};
+
+export const approveReturnRequestAPI = async (requestId) =>
+  _itFetch(`/return-requests/${requestId}/approve`, { method: "PATCH" });
+
+export const rejectReturnRequestAPI = async (requestId, rejectionReason) =>
+  _itFetch(`/return-requests/${requestId}/reject`, {
+    method: "PATCH",
+    body: { rejection_reason: rejectionReason },
+  });
+
+export const completeReturnRequestAPI = async (requestId) =>
+  _itFetch(`/return-requests/${requestId}/complete`, { method: "PATCH" });
+
+export const renewSoftwareLicenseAPI = async ({ licenseId, subscriptionEnd }) =>
+  _itFetch(`/software/licenses/${licenseId}/renew`, {
+    method: "PATCH",
+    body: {
+      subscription_end: subscriptionEnd,
+    },
   });

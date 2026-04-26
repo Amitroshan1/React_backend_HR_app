@@ -664,6 +664,11 @@ export const Queries = () => {
       if (!response.ok || !result.success) {
         throw new Error(result.message || 'Failed to create query');
       }
+      try {
+        window.dispatchEvent(new Event("it-open-tickets-updated"));
+      } catch {
+        /* no-op */
+      }
       await fetchMyQueries();
       setFormData({ department: '', title: '', text: '' });
       setSelectedFiles([]);

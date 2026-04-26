@@ -1,14 +1,16 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
+import { toast } from "react-toastify";
 import {
+  createReturnRequestAPI,
+  fetchEmployeeAssetsAPI,
   getEmployees,
-  saveEmployees,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
-  getSoftwareInventory,
-  returnAssetUnit,
-  returnSoftwareLicense,
+  getITApiErrorMessage,
+  listReturnRequestsAPI,
+  syncITDataFromAPI,
 } from "./Data";
 import "./EmployeeAssetsDetails.css";
 
@@ -64,12 +66,21 @@ const makeAvatar = (name = "") => {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TABS = ["All", "Hardware", "Software", "Accessories", "Consumables"];
+const RETURN_STATUS_TABS = ["All", "Pending", "Approved", "Rejected", "Completed"];
 
 const STATUS_CLS = {
   Assigned: "assigned", Available: "available",
   "Not Working": "not-working", Repair: "repair",
 };
 const statusCls = (s) => STATUS_CLS[s] || "assigned";
+const rrStatusCls = (s) => {
+  const key = String(s || "").toLowerCase();
+  if (key === "pending") return "rr-pending";
+  if (key === "approved") return "rr-approved";
+  if (key === "rejected") return "rr-rejected";
+  if (key === "completed") return "rr-completed";
+  return "rr-pending";
+};
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 const PhotosCell = ({ photos, onOpen }) =>
@@ -111,7 +122,7 @@ const HardwareTable = ({ assets, onRemove, onViewDetails, onOpenPhotos }) => (
               <td><PhotosCell photos={a.photos} onOpen={onOpenPhotos} /></td>
               <td>
                 <button className="ea-btn-remove" onClick={() => onRemove(a.assetId, a.id)}>
-                  Remove
+                  Return
                 </button>
               </td>
             </tr>
@@ -172,7 +183,7 @@ const SoftwareTable = ({ assets, onRemove }) => (
                 </td>
                 <td>
                   <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
-                    Remove
+                    Return
                   </button>
                 </td>
               </tr>
@@ -207,7 +218,7 @@ const NonHardwareTable = ({ assets, onRemove, onOpenPhotos }) => (
               <td><PhotosCell photos={a.photos} onOpen={onOpenPhotos} /></td>
               <td>
                 <button className="ea-btn-remove" onClick={() => onRemove(a.assetId, a.id)}>
-                  Remove
+                  Return
                 </button>
               </td>
             </tr>
@@ -230,20 +241,53 @@ const EmployeeDetails = () => {
   const [imageModal, setImageModal] = useState(null);
   const [hwModal,    setHwModal   ] = useState(null);
   const [hwPhotoIdx, setHwPhotoIdx] = useState(0);
+  const [returnHistory, setReturnHistory] = useState([]);
+  const [returnHistoryFilter, setReturnHistoryFilter] = useState("All");
 
   useEffect(() => {
-    // Priority 1: employee passed via navigate state (from ActiveDevice)
-    const fromState = location.state?.employee;
-    if (fromState) { setEmployee(fromState); setLoading(false); return; }
-    // Priority 2: look up by URL param
-    const id = empId || "";
-    const found = getEmployees().find(
-      (e) =>
-        (e.id    || "").toUpperCase() === id.toUpperCase() ||
-        (e.empId || "").toUpperCase() === id.toUpperCase(),
-    );
-    setEmployee(found || null);
-    setLoading(false);
+    const load = async () => {
+      const id = empId || "";
+      if (!id) {
+        setEmployee(null);
+        setLoading(false);
+        return;
+      }
+      try {
+        await syncITDataFromAPI();
+        const apiEmployee = await fetchEmployeeAssetsAPI(id);
+        setEmployee(apiEmployee || null);
+        const historyRows = await listReturnRequestsAPI({ mine: true });
+        setReturnHistory(Array.isArray(historyRows) ? historyRows : []);
+      } catch (err) {
+        console.error("[EmployeeAssetsDetails] API load failed, using fallback:", err);
+        toast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not load this employee from the server. Showing saved or cached data.",
+          ),
+        );
+        try {
+          const historyRows = await listReturnRequestsAPI({ mine: true });
+          setReturnHistory(Array.isArray(historyRows) ? historyRows : []);
+        } catch {
+          setReturnHistory([]);
+        }
+        const fromState = location.state?.employee;
+        if (fromState) {
+          setEmployee(fromState);
+        } else {
+          const found = getEmployees().find(
+            (e) =>
+              (e.id || "").toUpperCase() === id.toUpperCase() ||
+              (e.empId || "").toUpperCase() === id.toUpperCase(),
+          );
+          setEmployee(found || null);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, [empId, location.state]);
 
   const allAssets = employee?.assignedAssets || [];
@@ -270,20 +314,53 @@ const EmployeeDetails = () => {
     () => filtered.filter((a) => a.category === "Accessories" || a.category === "Consumables"),
     [filtered],
   );
+  const filteredReturnHistory = useMemo(() => {
+    if (returnHistoryFilter === "All") return returnHistory;
+    const wanted = returnHistoryFilter.toLowerCase();
+    return returnHistory.filter((r) => String(r.status || "").toLowerCase() === wanted);
+  }, [returnHistory, returnHistoryFilter]);
 
   const handleRemove = useCallback(
-    (assetId, entryId) => {
-      if (!window.confirm("Remove this asset from the employee?")) return;
-      if (assetId) returnAssetUnit(assetId);
-      const entry = (employee.assignedAssets || []).find((a) => a.id === entryId);
-      if (entry?.category === "Software" && entry?.licenseId)
-        returnSoftwareLicense(entry.licenseId);
-      const updated = {
-        ...employee,
-        assignedAssets: employee.assignedAssets.filter((a) => a.id !== entryId),
-      };
-      saveEmployees(getEmployees().map((e) => (e.id === employee.id ? updated : e)));
-      setEmployee(updated);
+    async (assetId, entryId) => {
+      const entry = (employee?.assignedAssets || []).find(
+        (a) => a.assetId === assetId || a.id === entryId,
+      );
+      if (!entry) return;
+      const reason = window.prompt("Enter reason for return request:");
+      if (reason == null) return;
+      const cleanReason = reason.trim();
+      if (!cleanReason) {
+        toast.error("Reason is required.");
+        return;
+      }
+      try {
+        if (entry.category === "Hardware") {
+          await createReturnRequestAPI({
+            reason: cleanReason,
+            assetUnitId: entry.id,
+          });
+        } else if (entry.category === "Software") {
+          await createReturnRequestAPI({
+            reason: cleanReason,
+            softwareLicenseId: entry.licenseId || entry.id,
+          });
+        } else {
+          toast.error("Return request for this category is not supported yet.");
+          return;
+        }
+        try {
+          const historyRows = await listReturnRequestsAPI({ mine: true });
+          setReturnHistory(Array.isArray(historyRows) ? historyRows : []);
+        } catch {
+          // no-op
+        }
+        toast.success("Return request submitted. IT approval is pending.");
+      } catch (err) {
+        console.error("[EmployeeAssetsDetails] Return request failed:", err);
+        toast.error(
+          getITApiErrorMessage(err, "Could not submit return request."),
+        );
+      }
     },
     [employee],
   );
@@ -418,6 +495,69 @@ const EmployeeDetails = () => {
             assets={filtered} onRemove={handleRemove} onOpenPhotos={openImageModal}
           />
         )}
+      </div>
+
+      {/* ── Return Request History ── */}
+      <div className="assets-section">
+        <h2>Return Request History ({returnHistory.length})</h2>
+        <div className="rr-filter-tabs">
+          {RETURN_STATUS_TABS.map((tab) => (
+            <button
+              key={tab}
+              className={`rr-filter-tab ${returnHistoryFilter === tab ? "active" : ""}`}
+              onClick={() => setReturnHistoryFilter(tab)}
+            >
+              {tab}
+              <span className="count-badge">
+                {tab === "All"
+                  ? returnHistory.length
+                  : returnHistory.filter((r) => String(r.status || "").toLowerCase() === tab.toLowerCase()).length}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="ea-table-wrap">
+          <table className="ea-table rr-table">
+            <thead>
+              <tr>
+                <th>Request Code</th>
+                <th>Asset</th>
+                <th>Reason</th>
+                <th>Status</th>
+                <th>Requested</th>
+                <th>Update</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredReturnHistory.length === 0 ? (
+                <tr><td colSpan={6} className="ea-empty">No return requests yet.</td></tr>
+              ) : (
+                filteredReturnHistory.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.requestCode || "—"}</td>
+                    <td>{r.assetName || "—"} ({r.category || "—"})</td>
+                    <td className="rr-reason-cell">{r.reason || "—"}</td>
+                    <td>
+                      <span className={`rr-status-badge ${rrStatusCls(r.status)}`}>
+                        {r.status || "pending"}
+                      </span>
+                    </td>
+                    <td>{r.createdAt ? new Date(r.createdAt).toLocaleString("en-IN") : "—"}</td>
+                    <td>
+                      {r.status === "rejected"
+                        ? (r.rejectionReason || "Rejected by IT")
+                        : r.status === "completed"
+                          ? "Received by IT"
+                          : r.status === "approved"
+                            ? "Approved. Submit to IT desk."
+                            : "Pending IT review"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* ── Hardware Details Modal ── */}

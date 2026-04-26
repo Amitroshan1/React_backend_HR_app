@@ -1,28 +1,69 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import './ITPanel.css';
+import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import "./ITPanel.css";
+
+const OPEN_TICKETS_ROUTE = "/it/OpenTicket";
+
+const authHeaders = () => {
+  const token = localStorage.getItem("token");
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+};
+
+const countOpenQueries = (queries) =>
+  (queries || []).filter((q) => String(q.status || "").trim().toLowerCase() !== "closed")
+    .length;
 
 export const ITPanel = () => {
   const navigate = useNavigate();
+  const [openTicketCount, setOpenTicketCount] = useState(0);
 
-  // const cards = [
-  //   { title: 'Active Devices', route: '/it/ActiveDevices', value: '156' },
-  //   { title: 'Open Tickets', route: '/it/OpenTicket', value: '12' },
-  //   { title: 'Assets', route: '/it/Assets', value: '24' },
-  //   { title: 'Inventory', route: '/it/inventory', value: '3' },
-  // ];
   const cards = [
-    { title: 'Active Devices', route: '/it/ActiveDevices' },
-    { title: 'Open Tickets', route: '/it/OpenTicket' },
-    { title: 'Assets', route: '/it/Assets'},
-    { title: 'Inventory', route: '/it/inventory'},
+    { title: "Active Devices", route: "/it/ActiveDevices" },
+    { title: "Open Tickets", route: OPEN_TICKETS_ROUTE },
+    { title: "Assets", route: "/it/Assets" },
+    { title: "Inventory", route: "/it/inventory" },
+    { title: "Return Requests", route: "/it/return-requests" },
   ];
+
+  const refreshOpenTicketCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/query/queries", {
+        method: "GET",
+        headers: authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setOpenTicketCount(0);
+        return;
+      }
+      setOpenTicketCount(countOpenQueries(data.queries));
+    } catch {
+      setOpenTicketCount(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshOpenTicketCount();
+  }, [refreshOpenTicketCount]);
+
+  useEffect(() => {
+    const onFocus = () => refreshOpenTicketCount();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshOpenTicketCount]);
+
+  useEffect(() => {
+    const onUpdated = () => refreshOpenTicketCount();
+    window.addEventListener("it-open-tickets-updated", onUpdated);
+    return () => window.removeEventListener("it-open-tickets-updated", onUpdated);
+  }, [refreshOpenTicketCount]);
 
   return (
     <div className="it-panel-container">
       <div className="it-panel-header">
-        <h1>IT Panel</h1>
-        <p>System Administration & Support Management</p>
+        <p className="it-panel-lead">System Administration &amp; Support Management</p>
       </div>
       <div className="it-panel-content">
         <div className="it-stats-grid">
@@ -33,15 +74,20 @@ export const ITPanel = () => {
               role="button"
               tabIndex={0}
               onClick={() => navigate(c.route)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(c.route); }}
-              style={{ cursor: 'pointer' }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") navigate(c.route);
+              }}
             >
+              {c.route === OPEN_TICKETS_ROUTE && openTicketCount > 0 ? (
+                <span className="it-open-ticket-badge" title={`${openTicketCount} open ticket(s)`}>
+                  {openTicketCount > 99 ? "99+" : openTicketCount}
+                </span>
+              ) : null}
               <h3>{c.title}</h3>
-              <p className="stat-value">{c.value}</p>
             </div>
           ))}
         </div>
-              </div>
+      </div>
     </div>
   );
 };

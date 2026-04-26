@@ -48,6 +48,7 @@ def create_app():
     app.config["ZEPTO_BASE_URL"] = os.getenv("ZEPTO_BASE_URL")
     app.config["ZEPTO_CC_HR"] = os.getenv("ZEPTO_CC_HR")
     app.config["ZEPTO_CC_ACCOUNT"] = os.getenv("ZEPTO_CC_ACCOUNT")
+    app.config["ZEPTO_CC_IT"] = os.getenv("ZEPTO_CC_IT")
     app.config["EMAIL_HR"] = os.getenv("EMAIL_HR")
     app.config["EMAIL_ACCOUNTS"] = os.getenv("EMAIL_ACCOUNTS")
     app.config["EMAIL_IT"] = os.getenv("EMAIL_IT")
@@ -144,6 +145,19 @@ def create_app():
     from .models.employee_accounts import EmployeeAccounts
     from .models.ctc_breakup import CTCBreakup
     from .models.monthly_payroll import MonthlyPayroll
+    from .models.it_models import (
+        ITInventoryItem,
+        ITAssetUnit,
+        ITSoftwareLicense,
+        ITAssetAssignment,
+        ITAssetReturnRequest,
+        ITSupportTicket,
+        ITRemovedAsset,
+        ITDeletedAssetLog,
+        ITParcelExport,
+        ITParcelExportItem,
+        ITParcelImport,
+    )
 
     # ---------------------------
     # Flask-Login user loader
@@ -174,6 +188,7 @@ def create_app():
     from .query import query
     from .Accounts import Accounts
     from .manager import manager
+    from .it import it_bp
 
     # from .manager import manager
     from .Admin import admin_bp
@@ -187,8 +202,100 @@ def create_app():
     app.register_blueprint(Accounts, url_prefix="/api/accounts")
     app.register_blueprint(query, url_prefix="/api/query")
     app.register_blueprint(manager, url_prefix="/api/manager")
+    app.register_blueprint(it_bp, url_prefix="/api/it")
     app.register_blueprint(notifications, url_prefix="/api/notifications")
     app.register_blueprint(performance_api, url_prefix="/api/performance")
+
+    # Lightweight schema patch: free-text parcel tracking (no admin FK required)
+    def _ensure_parcel_name_columns():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            tables = set(insp.get_table_names())
+            dialect = db.engine.dialect.name
+
+            def addcol(table, col):
+                if table not in tables:
+                    return
+                existing = {c["name"] for c in insp.get_columns(table)}
+                if col in existing:
+                    return
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} VARCHAR(120) NULL')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR(120) NULL")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s for parcel free-text tracking", table, col)
+
+            addcol("it_parcel_imports", "received_by_name")
+            addcol("it_parcel_exports", "exported_by_name")
+        except Exception as e:
+            app.logger.warning("Parcel name column migration skipped: %s", e)
+
+    def _cleanup_zero_qty_inventory_rows():
+        """
+        Remove legacy zero-quantity Accessories/Consumables rows that have no
+        related units/licenses/logs. This keeps Inventory Overview clean.
+        """
+        try:
+            from .models.it_models import (
+                ITAssetUnit,
+                ITDeletedAssetLog,
+                ITInventoryItem,
+                ITRemovedAsset,
+                ITSoftwareLicense,
+            )
+
+            rows = ITInventoryItem.query.filter(
+                db.func.lower(db.func.coalesce(ITInventoryItem.category, "")).in_(["accessories", "consumables"]),
+                db.func.coalesce(ITInventoryItem.total_quantity, 0) <= 0,
+                db.func.coalesce(ITInventoryItem.available_quantity, 0) <= 0,
+                db.func.coalesce(ITInventoryItem.assigned_quantity, 0) <= 0,
+            ).all()
+
+            removed = 0
+            for item in rows:
+                has_links = any(
+                    (
+                        ITAssetUnit.query.filter_by(inventory_item_id=item.id).first() is not None,
+                        ITSoftwareLicense.query.filter_by(inventory_item_id=item.id).first() is not None,
+                        ITRemovedAsset.query.filter_by(inventory_item_id=item.id).first() is not None,
+                        ITDeletedAssetLog.query.filter_by(inventory_item_id=item.id).first() is not None,
+                    )
+                )
+                if has_links:
+                    continue
+                db.session.delete(item)
+                removed += 1
+
+            if removed:
+                db.session.commit()
+                app.logger.info("Cleaned %s legacy zero-qty inventory row(s)", removed)
+            else:
+                db.session.rollback()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning("Zero-qty inventory cleanup skipped: %s", e)
+
+    def _ensure_it_return_request_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.it_models import ITAssetReturnRequest
+
+            insp = inspect(db.engine)
+            if "it_asset_return_requests" in set(insp.get_table_names()):
+                return
+            ITAssetReturnRequest.__table__.create(bind=db.engine, checkfirst=True)
+            app.logger.info("Created table it_asset_return_requests")
+        except Exception as e:
+            app.logger.warning("IT return request table ensure skipped: %s", e)
+
+    with app.app_context():
+        _ensure_parcel_name_columns()
+        _ensure_it_return_request_table()
+        _cleanup_zero_qty_inventory_rows()
 
     from .commands.leave_accrual import register_leave_accrual_command
     register_leave_accrual_command(app)

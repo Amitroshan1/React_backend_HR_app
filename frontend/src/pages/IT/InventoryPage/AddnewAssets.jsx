@@ -1,15 +1,14 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 import {
-  getAssetUnitsFromStorage,
-  getInventoryFromStorage,
-  saveAssetUnitsToStorage,
-  saveInventoryToStorage,
-  generateInventoryId,
-  addToInventory,
-  addSoftwareToInventory,
+  createHardwareUnitsAPI,
+  createInventoryItemAPI,
+  createSoftwareLicensesAPI,
   compressImage,
+  getITApiErrorMessage,
+  syncITDataFromAPI,
 } from "../Data";
 import "./AddnewAssets.css";
 
@@ -247,107 +246,92 @@ function ITAssetsForm() {
 
   // ── Submit ─────────────────────────────────────────────────────────────────
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     setSubmitted(true);
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, rowType) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
 
-    if (category === "Hardware") {
-      const units     = getAssetUnitsFromStorage();
-      const inventory = getInventoryFromStorage();
-      const existingSerials = new Set(units.map((u) => u.assetId));
-      let addedCount = 0;
+    try {
+      if (category === "Hardware") {
+        const groups = new Map();
+        validated.forEach((row) => {
+          const key = row.brand.trim().toLowerCase();
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(row);
+        });
 
-      validated.forEach((row) => {
-        const serial    = row.serialNumber.trim();
-        const brandName = row.brand.trim();
-        if (!serial || existingSerials.has(serial)) return;
-
-        let invItem = inventory.find(
-          (i) =>
-            i.name.toLowerCase() === brandName.toLowerCase() &&
-            i.category === "Hardware" &&
-            i.hwType   === hwType,
-        );
-
-        if (!invItem) {
-          invItem = {
-            id:                 generateInventoryId(inventory),
-            name:               brandName,
-            category:           "Hardware",
+        let addedCount = 0;
+        for (const [brandKey, groupRows] of groups.entries()) {
+          if (!brandKey) continue;
+          const brandName = groupRows[0].brand.trim();
+          const invRes = await createInventoryItemAPI({
+            name: brandName,
+            category: "Hardware",
+            inventoryCategory: "IT Assets",
             hwType,
-            inventoryCategory:  "IT Assets",
-            totalQuantity:      0,
-            availableQuantity:  0,
-            assignedQuantity:   0,
-            notWorkingQuantity: 0,
-            repairQuantity:     0,
-          };
-          inventory.push(invItem);
+          });
+          const inventoryItemId = invRes?.item?.id;
+          if (!inventoryItemId) continue;
+
+          await createHardwareUnitsAPI({
+            inventoryItemId,
+            assetName: brandName,
+            category: "Hardware",
+            hwType,
+            rows: groupRows,
+          });
+          addedCount += groupRows.length;
         }
 
-        units.push({
-          id:           serial,
-          assetId:      serial,
-          inventoryId:  invItem.id,
-          assetName:    brandName,
-          category:     "Hardware",
-          hwType,
-          brand:        brandName,
-          make:         row.make.trim(),
-          model:        row.model.trim(),
-          serialNumber: serial,
-          ...(hwType === "Mobile" && {
-            imei1: row.imei1.trim(),
-            imei2: row.imei2.trim() || null,
-          }),
-          photos:     row.photos,
-          status:     "available",
-          assignedTo: null,
-          repairDate: null,
-          addedDate:  new Date().toISOString(),
-        });
+        await syncITDataFromAPI();
+        setSuccessMsg(`✅ ${addedCount} ${hwType}${addedCount !== 1 ? "s" : ""} added to inventory.`);
+      } else if (category === "Software") {
+        let totalLicenses = 0;
+        for (const row of validated) {
+          const qty = parseInt(row.quantity, 10) || 1;
+          const invRes = await createInventoryItemAPI({
+            name: row.name.trim(),
+            category: "Software",
+            inventoryCategory: "IT Assets",
+          });
+          const inventoryItemId = invRes?.item?.id;
+          if (!inventoryItemId) continue;
+          await createSoftwareLicensesAPI({
+            inventoryItemId,
+            name: row.name.trim(),
+            subscriptionStart: row.subscriptionStart,
+            subscriptionEnd: row.subscriptionEnd,
+            quantity: qty,
+          });
+          totalLicenses += qty;
+        }
+        await syncITDataFromAPI();
+        setSuccessMsg(`✅ ${totalLicenses} Software license${totalLicenses !== 1 ? "s" : ""} added.`);
+      } else {
+        for (const row of validated) {
+          await createInventoryItemAPI({
+            name: row.name.trim(),
+            category,
+            inventoryCategory: "IT Assets",
+            quantity: parseInt(row.quantity, 10),
+          });
+        }
+        await syncITDataFromAPI();
+        const totalQty = validated.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+        setSuccessMsg(
+          `✅ ${validated.length} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added to ${category}.`,
+        );
+      }
 
-        existingSerials.add(serial);
-        invItem.totalQuantity++;
-        invItem.availableQuantity++;
-        addedCount++;
-      });
-
-      saveAssetUnitsToStorage(units);
-      saveInventoryToStorage(inventory);
-      window.dispatchEvent(new Event("inventory-updated"));
-      setSuccessMsg(`✅ ${addedCount} ${hwType}${addedCount !== 1 ? "s" : ""} added to inventory.`);
-
-    } else if (category === "Software") {
-      let totalLicenses = 0;
-      validated.forEach((row) => {
-        const qty = parseInt(row.quantity) || 1;
-        addSoftwareToInventory({
-          name:              row.name.trim(),
-          subscriptionStart: row.subscriptionStart,
-          subscriptionEnd:   row.subscriptionEnd,
-          quantity:          qty,
-        });
-        totalLicenses += qty;
-      });
-      window.dispatchEvent(new Event("inventory-updated"));
-      setSuccessMsg(`✅ ${totalLicenses} Software license${totalLicenses !== 1 ? "s" : ""} added.`);
-
-    } else {
-      validated.forEach((row) =>
-        addToInventory(row.name.trim(), category, parseInt(row.quantity)),
-      );
-      window.dispatchEvent(new Event("inventory-updated"));
-      const totalQty = validated.reduce((sum, r) => sum + parseInt(r.quantity), 0);
-      setSuccessMsg(
-        `✅ ${validated.length} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added to ${category}.`,
-      );
+      setRows([blankRowForType(rowType)]);
+      setSubmitted(false);
+    } catch (err) {
+      console.error("[AddNewAssets] Failed to save via API:", err);
+      const msg = getITApiErrorMessage(err, "Failed to save assets.");
+      toast.error(msg);
+      setSuccessMsg(`❌ ${msg}`);
     }
-
-    setRows([blankRowForType(rowType)]);
-    setSubmitted(false);
   }, [rows, rowType, category, hwType]);
 
   // ── Derived ────────────────────────────────────────────────────────────────

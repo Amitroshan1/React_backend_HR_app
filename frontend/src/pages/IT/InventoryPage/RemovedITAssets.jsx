@@ -1,12 +1,17 @@
 
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "react-toastify";
 import {
+  createDeletedLogAPI,
   getRemovedITAssets,
-  saveRemovedITAssets,
-  removeFromRemovedIT,
+  getITApiErrorMessage,
+  removeRemovedITAssetAPI,
+  setUnitStatusAPI,
+  syncRemovedITFromAPI,
   getAssetUnitsFromStorage,
   saveAssetUnitsToStorage,
-  logDeletedAsset,
+  syncDeletedLogsFromAPI,
+  syncITDataFromAPI,
 } from "../Data";
 import "./RemovedITAssets.css";
 
@@ -156,23 +161,27 @@ function ActionModal({ asset, onClose, onActionDone }) {
 
   // Send to Repair — moves asset unit to "repair" status in assetUnits
   const handleRepair = () => {
-    const units   = getAssetUnitsFromStorage();
-    const idx     = units.findIndex(
-      (u) => u.id === asset.id || u.assetId === asset.id || u.assetName === asset.name,
-    );
-    if (idx !== -1) {
-      units[idx] = {
-        ...units[idx],
-        status:     "repair",
-        repairDate: new Date().toISOString(),
-        assignedTo: null,
-      };
-      saveAssetUnitsToStorage(units);
-    }
-    // Remove from removed-IT list
-    removeFromRemovedIT(asset.id);
-    setSubmitted("repair");
-    onActionDone?.();
+    void (async () => {
+      try {
+        const units = getAssetUnitsFromStorage();
+        const row = units.find(
+          (u) => u.id === asset.id || u.assetId === asset.id || u.assetName === asset.name,
+        );
+        if (row?.id) {
+          await setUnitStatusAPI({ unitId: row.id, status: "repair" });
+        }
+        if (asset.id) {
+          await removeRemovedITAssetAPI(asset.id);
+        }
+        await syncITDataFromAPI();
+        await syncRemovedITFromAPI();
+        setSubmitted("repair");
+        onActionDone?.();
+      } catch (err) {
+        console.error("[RemovedITAssets] Repair action failed:", err);
+        toast.error(getITApiErrorMessage(err, "Could not send this asset to repair on the server."));
+      }
+    })();
   };
 
   const handleRemoveClick = () => {
@@ -180,28 +189,30 @@ function ActionModal({ asset, onClose, onActionDone }) {
       setShowPermRemove(true);
     } else {
       if (!permReason.trim()) { setError("Please enter a reason."); return; }
-      // Log to deleted assets
-      logDeletedAsset(
-        {
-          assetName:    asset.name,
-          brand:        asset.name,
-          model:        "",
-          category:     asset.category,
-          serialNumber: "",
-        },
-        "IT Panel",
-        permReason.trim(),
-      );
-      // Remove unit from assetUnits if exists
-      const units   = getAssetUnitsFromStorage();
-      const updated = units.filter(
-        (u) => u.id !== asset.id && u.assetId !== asset.id,
-      );
-      saveAssetUnitsToStorage(updated);
-      // Remove from removed-IT list
-      removeFromRemovedIT(asset.id);
-      setSubmitted("removed");
-      onActionDone?.();
+      void (async () => {
+        try {
+          await createDeletedLogAPI({
+            asset_name: asset.name,
+            category: asset.category,
+            reason: permReason.trim(),
+          });
+          await syncDeletedLogsFromAPI();
+          const units = getAssetUnitsFromStorage();
+          const updated = units.filter(
+            (u) => u.id !== asset.id && u.assetId !== asset.id,
+          );
+          saveAssetUnitsToStorage(updated);
+          await removeRemovedITAssetAPI(asset.id);
+          await syncRemovedITFromAPI();
+          setSubmitted("removed");
+          onActionDone?.();
+        } catch (err) {
+          console.error("[RemovedITAssets] Permanent remove failed:", err);
+          toast.error(
+            getITApiErrorMessage(err, "Could not complete removal on the server."),
+          );
+        }
+      })();
     }
   };
 
@@ -329,7 +340,22 @@ export default function RemovedITAssets() {
   }, []);
 
   useEffect(() => {
-    reload();
+    const load = async () => {
+      try {
+        await syncRemovedITFromAPI();
+        await syncITDataFromAPI();
+      } catch (err) {
+        console.error("[RemovedITAssets] API sync failed, using cached data:", err);
+        toast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not sync removed IT assets from the server. Showing cached data.",
+          ),
+        );
+      }
+      reload();
+    };
+    load();
   }, [reload]);
 
   const filteredAssets = assets.filter((asset) => {

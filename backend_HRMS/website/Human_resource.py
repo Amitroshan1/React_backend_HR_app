@@ -19,7 +19,13 @@ import calendar
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from flask_login import current_user
-from .email import update_asset_email,send_asset_assigned_email,send_password_set_email,send_password_reset_email
+from .email import (
+    update_asset_email,
+    send_asset_assigned_email,
+    send_password_set_email,
+    send_password_reset_email,
+    send_hr_leave_updation_email,
+)
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
@@ -48,6 +54,8 @@ from .punch_aggregate import (
     serialize_punch_sessions,
 )
 from werkzeug.utils import secure_filename
+from .leave_attendence import _compute_working_and_sandwich_days
+from .compoff_utils import deduct_comp_leave, restore_comp_leave
 
 hr = Blueprint('HumanResource', __name__)
 
@@ -1890,7 +1898,371 @@ def update_leave_balance(employee_id):
             "success": False,
             "message": str(e) or "Database error"
         }), 500
-    
+
+
+def _round_leave_value(value):
+    return round(float(value or 0.0), 2)
+
+
+def _serialize_leave_updation_row(row):
+    admin = row.admin
+    return {
+        "id": row.id,
+        "admin_id": row.admin_id,
+        "employee_name": admin.first_name if admin else None,
+        "employee_email": admin.email if admin else None,
+        "emp_id": admin.emp_id if admin else None,
+        "circle": admin.circle if admin else None,
+        "emp_type": admin.emp_type if admin else None,
+        "leave_type": row.leave_type,
+        "reason": row.reason,
+        "start_date": row.start_date.isoformat() if row.start_date else None,
+        "end_date": row.end_date.isoformat() if row.end_date else None,
+        "status": row.status,
+        "deducted_days": _round_leave_value(row.deducted_days),
+        "extra_days": _round_leave_value(row.extra_days),
+        "requested_deducted_days": _round_leave_value(getattr(row, "requested_deducted_days", 0.0)),
+        "sandwich_pl_days": _round_leave_value(getattr(row, "sandwich_pl_days", 0.0)),
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def _parse_leave_date_or_400(raw_value, field_name):
+    try:
+        return datetime.strptime(str(raw_value or ""), "%Y-%m-%d").date(), None
+    except Exception:
+        return None, f"Invalid {field_name}. Use YYYY-MM-DD format."
+
+
+def _reverse_approved_leave_effect(leave_obj, leave_balance):
+    if not leave_balance or (leave_obj.status or "") != "Approved":
+        return
+
+    leave_type = leave_obj.leave_type
+    deducted = float(leave_obj.deducted_days or 0.0)
+    requested_deducted = float(getattr(leave_obj, "requested_deducted_days", 0.0) or 0.0)
+    sandwich_pl = float(getattr(leave_obj, "sandwich_pl_days", 0.0) or 0.0)
+    extra_days = float(leave_obj.extra_days or 0.0)
+
+    if leave_type == "Privilege Leave" and deducted > 0:
+        leave_balance.privilege_leave_balance = float(leave_balance.privilege_leave_balance or 0.0) + deducted
+        leave_balance.used_privilege_leave = max(0.0, float(leave_balance.used_privilege_leave or 0.0) - deducted)
+    elif leave_type == "Casual Leave" and requested_deducted > 0:
+        leave_balance.casual_leave_balance = float(leave_balance.casual_leave_balance or 0.0) + requested_deducted
+        leave_balance.used_casual_leave = max(0.0, float(leave_balance.used_casual_leave or 0.0) - requested_deducted)
+    elif leave_type == "Compensatory Leave" and requested_deducted > 0:
+        restore_comp_leave(leave_obj.admin_id, requested_deducted)
+        leave_balance.used_comp_leave = max(0.0, float(leave_balance.used_comp_leave or 0.0) - requested_deducted)
+    elif leave_type == "Half Day Leave" and extra_days < 0.5:
+        if float(leave_balance.used_casual_leave or 0.0) >= 0.5:
+            leave_balance.casual_leave_balance = float(leave_balance.casual_leave_balance or 0.0) + 0.5
+            leave_balance.used_casual_leave = max(0.0, float(leave_balance.used_casual_leave or 0.0) - 0.5)
+        else:
+            leave_balance.privilege_leave_balance = float(leave_balance.privilege_leave_balance or 0.0) + 0.5
+            leave_balance.used_privilege_leave = max(0.0, float(leave_balance.used_privilege_leave or 0.0) - 0.5)
+
+    if sandwich_pl > 0 and leave_type not in ("Privilege Leave", "Optional Leave"):
+        leave_balance.privilege_leave_balance = float(leave_balance.privilege_leave_balance or 0.0) + sandwich_pl
+        leave_balance.used_privilege_leave = max(0.0, float(leave_balance.used_privilege_leave or 0.0) - sandwich_pl)
+
+
+def _compute_leave_projection(*, admin, leave_balance, leave_type, start_date, end_date):
+    if end_date < start_date:
+        return None, "End date cannot be before start date."
+    if not leave_type:
+        return None, "leave_type is required."
+
+    working_days, sandwich_days = _compute_working_and_sandwich_days(
+        emp_type=getattr(admin, "emp_type", None) or "",
+        start_date=start_date,
+        end_date=end_date,
+    )
+    leave_days = float(working_days) + float(sandwich_days)
+    deducted_days = 0.0
+    extra_days = 0.0
+    requested_deducted_days = 0.0
+    sandwich_pl_days = 0.0
+
+    if leave_type == "Privilege Leave":
+        available = float(leave_balance.privilege_leave_balance or 0.0)
+        if leave_days > available:
+            extra_days = leave_days - available
+            deducted_days = available
+        else:
+            deducted_days = leave_days
+        requested_deducted_days = float(deducted_days)
+
+    elif leave_type == "Casual Leave":
+        if working_days > 2:
+            return None, "Casual Leave cannot exceed 2 working days."
+        available = float(leave_balance.casual_leave_balance or 0.0)
+        if working_days > available:
+            return None, "Insufficient Casual Leave balance."
+        requested_deducted_days = float(working_days)
+        deducted_days = requested_deducted_days
+
+    elif leave_type == "Half Day Leave":
+        if (end_date - start_date).days + 1 > 1:
+            return None, "Half Day Leave can only be one day."
+        leave_days = 0.5
+        deducted_days = 0.5
+        requested_deducted_days = 0.5
+        sandwich_days = 0.0
+        cl_available = float(leave_balance.casual_leave_balance or 0.0)
+        pl_available = float(leave_balance.privilege_leave_balance or 0.0)
+        if cl_available < 0.5 and pl_available < 0.5:
+            extra_days = 0.5
+
+    elif leave_type == "Compensatory Leave":
+        available = float(leave_balance.compensatory_leave_balance or 0.0)
+        if available <= 0:
+            return None, "No Compensatory Leave balance available."
+        if working_days > 2:
+            return None, "Maximum 2 Compensatory Leave working days allowed."
+        if leave_days > available:
+            return None, "Insufficient Compensatory Leave balance."
+        requested_deducted_days = float(working_days)
+        deducted_days = requested_deducted_days
+
+    elif leave_type == "Optional Leave":
+        if leave_days > 1:
+            return None, "Optional Leave can only be one day."
+        deducted_days = float(leave_days)
+        requested_deducted_days = float(leave_days)
+        sandwich_days = 0.0
+    else:
+        return None, "Invalid leave type."
+
+    if sandwich_days > 0 and leave_type not in ("Privilege Leave", "Optional Leave"):
+        pl_available = float(leave_balance.privilege_leave_balance or 0.0)
+        pl_used_for_sandwich = min(pl_available, float(sandwich_days))
+        sandwich_pl_days = float(pl_used_for_sandwich)
+        sandwich_lwp = float(sandwich_days) - float(pl_used_for_sandwich)
+        deducted_days = float(deducted_days) + sandwich_pl_days
+        extra_days = float(extra_days) + sandwich_lwp
+
+    return {
+        "deducted_days": _round_leave_value(deducted_days),
+        "extra_days": _round_leave_value(extra_days),
+        "requested_deducted_days": _round_leave_value(requested_deducted_days),
+        "sandwich_pl_days": _round_leave_value(sandwich_pl_days),
+    }, None
+
+
+def _apply_approved_leave_effect(leave_obj, leave_balance):
+    leave_type = leave_obj.leave_type
+    deducted = float(leave_obj.deducted_days or 0.0)
+    requested_deducted = float(getattr(leave_obj, "requested_deducted_days", 0.0) or 0.0)
+    sandwich_pl = float(getattr(leave_obj, "sandwich_pl_days", 0.0) or 0.0)
+
+    if leave_type == "Privilege Leave" and deducted > 0:
+        if float(leave_balance.privilege_leave_balance or 0.0) < deducted:
+            return "Insufficient Privilege Leave balance for approval."
+        leave_balance.privilege_leave_balance = max(0.0, float(leave_balance.privilege_leave_balance or 0.0) - deducted)
+        leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + deducted
+    elif leave_type == "Casual Leave" and requested_deducted > 0:
+        if float(leave_balance.casual_leave_balance or 0.0) < requested_deducted:
+            return "Insufficient Casual Leave balance for approval."
+        leave_balance.casual_leave_balance = max(0.0, float(leave_balance.casual_leave_balance or 0.0) - requested_deducted)
+        leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + requested_deducted
+    elif leave_type == "Compensatory Leave" and requested_deducted > 0:
+        if not deduct_comp_leave(leave_obj.admin_id, requested_deducted):
+            return "Insufficient Compensatory Leave balance (may have expired)."
+        leave_balance.used_comp_leave = float(leave_balance.used_comp_leave or 0.0) + requested_deducted
+    elif leave_type == "Half Day Leave":
+        extra = float(leave_obj.extra_days or 0.0)
+        if extra < 0.5:
+            if float(leave_balance.casual_leave_balance or 0.0) >= 0.5:
+                leave_balance.casual_leave_balance = float(leave_balance.casual_leave_balance or 0.0) - 0.5
+                leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + 0.5
+            elif float(leave_balance.privilege_leave_balance or 0.0) >= 0.5:
+                leave_balance.privilege_leave_balance = float(leave_balance.privilege_leave_balance or 0.0) - 0.5
+                leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + 0.5
+
+    if sandwich_pl > 0 and leave_type not in ("Privilege Leave", "Optional Leave"):
+        if float(leave_balance.privilege_leave_balance or 0.0) < sandwich_pl:
+            return "Insufficient Privilege Leave balance for sandwich adjustment."
+        leave_balance.privilege_leave_balance = max(0.0, float(leave_balance.privilege_leave_balance or 0.0) - sandwich_pl)
+        leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + sandwich_pl
+    return None
+
+
+@hr.route("/leave-updation/requests", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_leave_updation_requests():
+    status = (request.args.get("status") or "all").strip().lower()
+    circle = (request.args.get("circle") or "").strip()
+    emp_type = (request.args.get("emp_type") or "").strip()
+    q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id)
+    if status != "all":
+        q = q.filter(db.func.lower(LeaveApplication.status) == status)
+    if circle:
+        q = q.filter(Admin.circle == circle)
+    if emp_type:
+        q = q.filter(Admin.emp_type == emp_type)
+    rows = q.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).limit(500).all()
+    return jsonify({"success": True, "requests": [_serialize_leave_updation_row(r) for r in rows]}), 200
+
+
+@hr.route("/leave-updation/requests/<int:leave_id>", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def update_leave_application_by_hr(leave_id):
+    leave_obj = LeaveApplication.query.get(leave_id)
+    if not leave_obj:
+        return jsonify({"success": False, "message": "Leave request not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    next_leave_type = (payload.get("leave_type") or leave_obj.leave_type or "").strip()
+    next_status = (payload.get("status") or leave_obj.status or "").strip().title()
+    if next_status not in {"Pending", "Approved", "Rejected"}:
+        return jsonify({"success": False, "message": "status must be Pending, Approved or Rejected"}), 400
+
+    next_start_date = leave_obj.start_date
+    next_end_date = leave_obj.end_date
+    if "start_date" in payload:
+        parsed, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        next_start_date = parsed
+    if "end_date" in payload:
+        parsed, err = _parse_leave_date_or_400(payload.get("end_date"), "end_date")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        next_end_date = parsed
+
+    admin = leave_obj.admin
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found for this leave request"}), 404
+    leave_balance = admin.leave_balance
+    if not leave_balance:
+        return jsonify({"success": False, "message": "Leave balance not configured for employee"}), 400
+
+    old_data = {
+        "status": leave_obj.status,
+        "start_date": leave_obj.start_date.isoformat() if leave_obj.start_date else None,
+        "end_date": leave_obj.end_date.isoformat() if leave_obj.end_date else None,
+        "deducted_days": _round_leave_value(leave_obj.deducted_days),
+        "extra_days": _round_leave_value(leave_obj.extra_days),
+    }
+    reversal_applied = (leave_obj.status or "") == "Approved"
+    _reverse_approved_leave_effect(leave_obj, leave_balance)
+
+    projection, err = _compute_leave_projection(
+        admin=admin,
+        leave_balance=leave_balance,
+        leave_type=next_leave_type,
+        start_date=next_start_date,
+        end_date=next_end_date,
+    )
+    if err:
+        db.session.rollback()
+        return jsonify({"success": False, "message": err}), 400
+
+    leave_obj.leave_type = next_leave_type
+    leave_obj.start_date = next_start_date
+    leave_obj.end_date = next_end_date
+    leave_obj.status = next_status
+    if "reason" in payload and str(payload.get("reason") or "").strip():
+        leave_obj.reason = str(payload.get("reason")).strip()
+    leave_obj.deducted_days = projection["deducted_days"]
+    leave_obj.extra_days = projection["extra_days"]
+    leave_obj.requested_deducted_days = projection["requested_deducted_days"]
+    leave_obj.sandwich_pl_days = projection["sandwich_pl_days"]
+
+    if next_status == "Approved":
+        apply_err = _apply_approved_leave_effect(leave_obj, leave_balance)
+        if apply_err:
+            db.session.rollback()
+            return jsonify({"success": False, "message": apply_err}), 400
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(exc) or "Failed to update leave request"}), 500
+
+    try:
+        hr_email = (get_jwt() or {}).get("email")
+        hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+        send_hr_leave_updation_email(
+            leave_obj=leave_obj,
+            hr_admin=hr_admin,
+            old_data=old_data,
+            adjustment_data={
+                "paid_adjustment": _round_leave_value(float(leave_obj.deducted_days or 0.0) - float(old_data["deducted_days"] or 0.0)),
+                "lwp_adjustment": _round_leave_value(float(leave_obj.extra_days or 0.0) - float(old_data["extra_days"] or 0.0)),
+                "reversal_applied": reversal_applied,
+            },
+        )
+    except Exception:
+        current_app.logger.warning("send_hr_leave_updation_email failed for leave_id=%s", leave_obj.id)
+
+    try:
+        hr_email = (get_jwt() or {}).get("email") or "unknown"
+        compact_reason = str(leave_obj.reason or "").replace("|", "/").replace("\n", " ").strip()
+        if len(compact_reason) > 120:
+            compact_reason = compact_reason[:117] + "..."
+        audit_action = (
+            f"LEAVE_UPDATION|leave_id={leave_obj.id}|"
+            f"status:{old_data.get('status')}->{leave_obj.status}|"
+            f"dates:{old_data.get('start_date')}->{leave_obj.start_date.isoformat()},{old_data.get('end_date')}->{leave_obj.end_date.isoformat()}|"
+            f"paid:{old_data.get('deducted_days')}->{_round_leave_value(leave_obj.deducted_days)}|"
+            f"lwp:{old_data.get('extra_days')}->{_round_leave_value(leave_obj.extra_days)}|"
+            f"reason:{compact_reason}"
+        )
+        db.session.add(
+            AuditLog(
+                action=audit_action,
+                performed_by=hr_email,
+                target_email=admin.email,
+            )
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning("Failed to insert leave updation audit log for leave_id=%s", leave_obj.id)
+
+    return jsonify({
+        "success": True,
+        "message": "Leave request updated successfully.",
+        "request": _serialize_leave_updation_row(leave_obj),
+        "leave_balance": {
+            "privilege_leave_balance": _round_leave_value(leave_balance.privilege_leave_balance),
+            "casual_leave_balance": _round_leave_value(leave_balance.casual_leave_balance),
+            "compensatory_leave_balance": _round_leave_value(leave_balance.compensatory_leave_balance),
+        },
+    }), 200
+
+
+@hr.route("/leave-updation/requests/<int:leave_id>/audit", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_leave_updation_audit(leave_id):
+    leave_obj = LeaveApplication.query.get(leave_id)
+    if not leave_obj:
+        return jsonify({"success": False, "message": "Leave request not found"}), 404
+
+    pattern = f"LEAVE_UPDATION|leave_id={leave_id}|%"
+    rows = (
+        AuditLog.query.filter(AuditLog.action.like(pattern))
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .all()
+    )
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "id": row.id,
+                "action": row.action,
+                "performed_by": row.performed_by,
+                "target_email": row.target_email,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+        )
+    return jsonify({"success": True, "audit": items}), 200
+
 
 
 @hr.route("/news-feed", methods=["POST"])

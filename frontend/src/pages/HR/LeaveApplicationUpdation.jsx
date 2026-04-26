@@ -1,0 +1,369 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Edit3, Search } from "lucide-react";
+import "./LeaveApplicationUpdation.css";
+
+const API_BASE = "/api/HumanResource";
+
+const STATUS_OPTIONS = ["All", "Pending", "Approved", "Rejected"];
+const LEAVE_TYPES = [
+  "Privilege Leave",
+  "Casual Leave",
+  "Half Day Leave",
+  "Compensatory Leave",
+  "Optional Leave",
+];
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const parseAuditAction = (actionText) => {
+  const raw = String(actionText || "");
+  const chunks = raw.split("|");
+  const details = [];
+
+  const pushDetail = (label, fromVal, toVal) => {
+    details.push({
+      label,
+      from: String(fromVal ?? "-"),
+      to: String(toVal ?? "-"),
+    });
+  };
+
+  for (const chunk of chunks) {
+    if (!chunk || chunk === "LEAVE_UPDATION") continue;
+    if (chunk.startsWith("status:")) {
+      const [fromVal, toVal] = chunk.replace("status:", "").split("->");
+      pushDetail("Status", fromVal, toVal);
+    } else if (chunk.startsWith("paid:")) {
+      const [fromVal, toVal] = chunk.replace("paid:", "").split("->");
+      pushDetail("Paid Days", fromVal, toVal);
+    } else if (chunk.startsWith("lwp:")) {
+      const [fromVal, toVal] = chunk.replace("lwp:", "").split("->");
+      pushDetail("LWP", fromVal, toVal);
+    } else if (chunk.startsWith("dates:")) {
+      const value = chunk.replace("dates:", "");
+      const parts = value.split(",");
+      if (parts[0]) {
+        const [fromVal, toVal] = parts[0].split("->");
+        pushDetail("Start Date", fromVal, toVal);
+      }
+      if (parts[1]) {
+        const [fromVal, toVal] = parts[1].split("->");
+        pushDetail("End Date", fromVal, toVal);
+      }
+    } else if (chunk.startsWith("reason:")) {
+      details.push({
+        label: "Reason",
+        from: null,
+        to: chunk.replace("reason:", "").trim() || "-",
+      });
+    }
+  }
+  return details;
+};
+
+export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOptions = [] }) => {
+  const [filters, setFilters] = useState({
+    status: "All",
+    emp_type: empTypeOptions[0] || "",
+    circle: circleOptions[0] || "",
+  });
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [editRow, setEditRow] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [auditRows, setAuditRows] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [form, setForm] = useState({
+    leave_type: "",
+    start_date: "",
+    end_date: "",
+    status: "Pending",
+    reason: "",
+  });
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      if (filters.status && filters.status !== "All") params.set("status", filters.status.toLowerCase());
+      if (filters.emp_type) params.set("emp_type", filters.emp_type);
+      if (filters.circle) params.set("circle", filters.circle);
+      const res = await fetch(`${API_BASE}/leave-updation/requests?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to fetch leave requests");
+      }
+      setRows(data.requests || []);
+    } catch (err) {
+      setRows([]);
+      setError(err.message || "Network error");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.status, filters.emp_type, filters.circle]);
+
+  useEffect(() => {
+    fetchRows();
+  }, [fetchRows]);
+
+  const openEditor = (row) => {
+    setSuccessMessage("");
+    setEditRow(row);
+    setForm({
+      leave_type: row.leave_type || "Privilege Leave",
+      start_date: row.start_date || "",
+      end_date: row.end_date || "",
+      status: row.status || "Pending",
+      reason: row.reason || "",
+    });
+    setAuditRows([]);
+    setAuditLoading(true);
+    fetch(`${API_BASE}/leave-updation/requests/${row.id}/audit`, {
+      headers: getAuthHeaders(),
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if (data.success) setAuditRows(data.audit || []);
+      })
+      .finally(() => setAuditLoading(false));
+  };
+
+  const closeEditor = () => {
+    setEditRow(null);
+    setSaving(false);
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!editRow?.id) return;
+    setSaving(true);
+    setError("");
+    setSuccessMessage("");
+    try {
+      const res = await fetch(`${API_BASE}/leave-updation/requests/${editRow.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to update leave application");
+      }
+      setSuccessMessage("Leave request updated successfully.");
+      closeEditor();
+      await fetchRows();
+    } catch (err) {
+      setError(err.message || "Network error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const stats = useMemo(() => {
+    const total = rows.length;
+    const pending = rows.filter((r) => String(r.status).toLowerCase() === "pending").length;
+    const approved = rows.filter((r) => String(r.status).toLowerCase() === "approved").length;
+    const rejected = rows.filter((r) => String(r.status).toLowerCase() === "rejected").length;
+    return { total, pending, approved, rejected };
+  }, [rows]);
+
+  return (
+    <div className="leave-application-updation-page">
+      <div className="leave-application-updation-shell">
+        <button type="button" className="lau-back-btn" onClick={onBack}>
+          <ArrowLeft size={16} /> Back to Updates
+        </button>
+        <div className="lau-header-card">
+          <h2>Leave Application Updation</h2>
+          <p>HR can update leave dates/type/status and balances will auto-adjust (including reversals).</p>
+        </div>
+
+        <div className="lau-filters">
+          <div>
+            <label>Status</label>
+            <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}>
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label>Employee Type</label>
+            <select value={filters.emp_type} onChange={(e) => setFilters((p) => ({ ...p, emp_type: e.target.value }))}>
+              <option value="">All</option>
+              {empTypeOptions.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label>Circle</label>
+            <select value={filters.circle} onChange={(e) => setFilters((p) => ({ ...p, circle: e.target.value }))}>
+              <option value="">All</option>
+              {circleOptions.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="lau-search-btn" onClick={fetchRows} disabled={loading}>
+            <Search size={16} /> {loading ? "Loading..." : "Search"}
+          </button>
+        </div>
+
+        <div className="lau-stats">
+          <span>Total: {stats.total}</span>
+          <span>Pending: {stats.pending}</span>
+          <span>Approved: {stats.approved}</span>
+          <span>Rejected: {stats.rejected}</span>
+        </div>
+
+        {error && <div className="lau-error">{error}</div>}
+        {successMessage && <div className="lau-success">{successMessage}</div>}
+
+        <div className="lau-table-wrap">
+          <table className="lau-table">
+            <thead>
+              <tr>
+                <th>Emp</th>
+                <th>Type</th>
+                <th>Period</th>
+                <th>Status</th>
+                <th>Paid</th>
+                <th>LWP</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <div className="lau-emp-name">{row.employee_name || "-"}</div>
+                    <small>{row.emp_id || "-"} • {row.circle || "-"}</small>
+                  </td>
+                  <td>{row.leave_type}</td>
+                  <td>{row.start_date} to {row.end_date}</td>
+                  <td><span className={`lau-status ${String(row.status).toLowerCase()}`}>{row.status}</span></td>
+                  <td>{row.deducted_days}</td>
+                  <td>{row.extra_days}</td>
+                  <td>
+                    <button type="button" className="lau-edit-btn" onClick={() => openEditor(row)}>
+                      <Edit3 size={14} /> Update
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && rows.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="lau-empty">No leave requests found for selected filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editRow && (
+        <div className="lau-modal-backdrop" onClick={closeEditor}>
+          <div className="lau-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Update Leave #{editRow.id}</h3>
+            <form onSubmit={handleSave}>
+              <div className="lau-grid">
+                <div>
+                  <label>Leave Type</label>
+                  <select value={form.leave_type} onChange={(e) => setForm((p) => ({ ...p, leave_type: e.target.value }))}>
+                    {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label>Status</label>
+                  <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}>
+                    <option value="Pending">Pending</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Start Date</label>
+                  <input type="date" value={form.start_date} onChange={(e) => setForm((p) => ({ ...p, start_date: e.target.value }))} required />
+                </div>
+                <div>
+                  <label>End Date</label>
+                  <input type="date" value={form.end_date} onChange={(e) => setForm((p) => ({ ...p, end_date: e.target.value }))} required />
+                </div>
+              </div>
+              <div>
+                <label>Reason</label>
+                <textarea
+                  rows={3}
+                  value={form.reason}
+                  onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))}
+                  placeholder="Update reason (optional)"
+                />
+              </div>
+              <div className="lau-modal-actions">
+                <button type="button" className="lau-cancel" onClick={closeEditor}>Cancel</button>
+                <button type="submit" className="lau-save" disabled={saving}>
+                  {saving ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+            <div className="lau-audit-section">
+              <h4>Audit Trail</h4>
+              {auditLoading ? (
+                <p>Loading audit history...</p>
+              ) : auditRows.length === 0 ? (
+                <p>No updates recorded yet.</p>
+              ) : (
+                <div className="lau-audit-table-wrap">
+                  <table className="lau-audit-table">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Updated By</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditRows.map((a) => (
+                        <tr key={a.id}>
+                          <td>{a.created_at ? new Date(a.created_at).toLocaleString() : "-"}</td>
+                          <td>{a.performed_by || "-"}</td>
+                          <td className="lau-audit-action">
+                            <div className="lau-audit-chips">
+                              {parseAuditAction(a.action).map((d, idx) => (
+                                <div key={`${a.id}-${idx}`} className="lau-audit-chip">
+                                  <span className="lau-chip-label">{d.label}</span>
+                                  {d.from == null ? (
+                                    <span className="lau-chip-value">{d.to}</span>
+                                  ) : (
+                                    <>
+                                      <span className="lau-chip-from">{d.from}</span>
+                                      <span className="lau-chip-arrow">{"->"}</span>
+                                      <span className="lau-chip-to">{d.to}</span>
+                                    </>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

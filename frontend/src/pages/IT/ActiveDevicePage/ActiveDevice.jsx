@@ -1,6 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getEmployees, getAssetUnitsFromStorage } from "../Data";
+import { toast } from "react-toastify";
+import {
+  getEmployees,
+  getAssetUnitsFromStorage,
+  getITApiErrorMessage,
+  syncITDataFromAPI,
+} from "../Data";
 import "./ActiveDevice.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -71,34 +77,9 @@ function getMergedActiveDevices() {
       };
     });
 
-  // 2. pcl_assigned_assets (written by AddEmployee save flow)
-  const pcl = JSON.parse(localStorage.getItem("pcl_assigned_assets") || "[]")
-    .filter((a) => {
-      const cat = normCat(a.category);
-      return a.category !== "Software" && CATEGORIES.includes(cat);
-    })
-    .map((a) => {
-      const assetId =
-        a.assetTag ||
-        a.assetInventoryId ||
-        a.id ||
-        "—";
-
-      return {
-        id: assetId,
-        serialNumber: a.serialNumber || "—",
-        name: a.name || "—",
-        category: normCat(a.category),
-        assignedTo: a.empName || "—",
-        assignedDate: a.assignedDate || new Date().toISOString(),
-        empId: a.empId || "—",
-        _unitId: a.id,
-      };
-    });
-
   // Deduplicate by _unitId
   const seen = new Set();
-  return [...units, ...pcl].filter((d) => {
+  return [...units].filter((d) => {
     const key = d._unitId || d.id;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -113,6 +94,18 @@ export default function ActiveDevice({ onBack }) {
   const [activeTab, setActiveTab] = useState("Hardware");
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    syncITDataFromAPI().catch((err) => {
+      console.error("[ActiveDevice] API sync failed, using cached data:", err);
+      toast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not refresh devices from the server. Showing cached assignments.",
+        ),
+      );
+    });
+  }, []);
 
   const allDevices = getMergedActiveDevices();
 

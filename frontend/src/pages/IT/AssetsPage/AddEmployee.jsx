@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 import {
   getEmployees,
   saveEmployees,
@@ -11,9 +12,13 @@ import {
   saveInventoryToStorage,
   getSoftwareInventory,
   saveSoftwareInventory,
-  returnAssetUnit,
+  assignSoftwareToEmployeeAPI,
+  assignInventoryQuantityAPI,
+  assignUnitToEmployeeAPI,
   compressImage,
-  syncCatalogAfterBulkAssign,
+  getITApiErrorMessage,
+  lookupEmployeeByEmpIdOrEmailAPI,
+  syncITDataFromAPI,
   SEED_EMPLOYEES,
 } from "../Data";
 import "./AddEmployee.css";
@@ -100,6 +105,7 @@ const LookupGate = ({ onFound }) => {
   const navigate = useNavigate();
 
   const [query,         setQuery]         = useState("");
+  const [loading,       setLoading]       = useState(false);
   const [notFound,      setNotFound]      = useState(false);
   const [alreadyExists, setAlreadyExists] = useState(null);
 
@@ -119,16 +125,34 @@ const LookupGate = ({ onFound }) => {
   [], // stable — employees don't change while LookupGate is mounted
   );
 
-  const handleSearch = useCallback(() => {
+  const handleSearch = useCallback(async () => {
     const q = query.trim().toLowerCase();
-    if (!q) return;
+    if (!q || loading) return;
 
-    const employees = getEmployeesSafe();
-    const match     = employees.find((emp) => {
-      const id    = (emp.id    || emp.empId || "").toLowerCase();
-      const email = (emp.email || "").toLowerCase();
-      return id === q || email === q;
-    });
+    let match = null;
+    try {
+      setLoading(true);
+      const apiRows = await lookupEmployeeByEmpIdOrEmailAPI(query.trim());
+      match = apiRows.find((emp) => {
+        const id = (emp.id || emp.empId || "").toLowerCase();
+        const email = (emp.email || "").toLowerCase();
+        return id === q || email === q;
+      }) || null;
+    } catch (err) {
+      // Fallback keeps screen usable if lookup API fails temporarily.
+      console.warn("[AddEmployee] lookup API failed; falling back to local store", err);
+    } finally {
+      setLoading(false);
+    }
+
+    if (!match) {
+      const employees = getEmployeesSafe();
+      match = employees.find((emp) => {
+        const id = (emp.id || emp.empId || "").toLowerCase();
+        const email = (emp.email || "").toLowerCase();
+        return id === q || email === q;
+      }) || null;
+    }
 
     if (!match) {
       setNotFound(true);
@@ -144,7 +168,7 @@ const LookupGate = ({ onFound }) => {
 
     clearMessages();
     onFound(match);
-  }, [query, onFound, clearMessages]);
+  }, [query, onFound, clearMessages, loading]);
 
   const handleKeyDown = useCallback(
     (e) => { if (e.key === "Enter") handleSearch(); },
@@ -174,9 +198,9 @@ const LookupGate = ({ onFound }) => {
         <button
           className="ane-lookup-btn"
           onClick={handleSearch}
-          disabled={!query.trim()}
+          disabled={!query.trim() || loading}
         >
-          Fetch Employee
+          {loading ? "Fetching..." : "Fetch Employee"}
         </button>
       </div>
 
@@ -317,6 +341,8 @@ const AddEmployee = () => {
   const [selectedHwUnits,      setSelectedHwUnits]      = useState({});
   const [selectedSw,           setSelectedSw]           = useState([]);
   const [selectedNonHw,        setSelectedNonHw]        = useState([]);
+  const qtyHoldTimeoutRef = useRef(null);
+  const qtyHoldIntervalRef = useRef(null);
 
   // Stable reference to asset units — re-read only when a storage event fires
   // (the useMemo deps include nothing from state so it reads once per mount;
@@ -368,10 +394,14 @@ const AddEmployee = () => {
 
   const hwCount     = Object.keys(selectedHwUnits).length;
   const swCount     = selectedSw.length;
-  const nonHwCount  = selectedNonHw.length;
+  const nonHwCount  = selectedNonHw.reduce((sum, a) => sum + (Number(a.quantity) || 0), 0);
   const totalAssets = hwCount + swCount + nonHwCount;
-  const accCount    = selectedNonHw.filter((a) => a.category === "Accessories").length;
-  const consCount   = selectedNonHw.filter((a) => a.category === "Consumables").length;
+  const accCount    = selectedNonHw
+    .filter((a) => a.category === "Accessories")
+    .reduce((sum, a) => sum + (Number(a.quantity) || 0), 0);
+  const consCount   = selectedNonHw
+    .filter((a) => a.category === "Consumables")
+    .reduce((sum, a) => sum + (Number(a.quantity) || 0), 0);
 
   // ── Duplicate tag detection ───────────────────────────────────────────────
 
@@ -437,7 +467,7 @@ const AddEmployee = () => {
     setSelectedHwUnits((prev) => {
       const next = { ...prev };
       if (next[unit.assetId]) delete next[unit.assetId];
-      else next[unit.assetId] = { unit, assetTag: "" };
+      else next[unit.assetId] = { unit, assetTag: unit.assetId || "" };
       return next;
     });
   }, []);
@@ -478,12 +508,64 @@ const AddEmployee = () => {
         if (!group?.units.length) return prev;
         return [
           ...prev,
-          { assetId: group.inventoryId, assetName, category, inventoryId: group.inventoryId },
+          {
+            assetId: group.inventoryId,
+            assetName,
+            category,
+            inventoryId: group.inventoryId,
+            quantity: 1,
+          },
         ];
       });
     },
     [nonHwGroups],
   );
+
+  const setNonHwQuantity = useCallback((assetName, category, quantity, maxAllowed) => {
+    const key = `${assetName}||${category}`;
+    const nextQty = Math.max(1, Math.min(maxAllowed, Number(quantity) || 1));
+    setSelectedNonHw((prev) =>
+      prev.map((a) =>
+        `${a.assetName}||${a.category}` === key
+          ? { ...a, quantity: nextQty }
+          : a,
+      ),
+    );
+  }, []);
+
+  const adjustNonHwQuantity = useCallback((assetName, category, delta, maxAllowed) => {
+    const key = `${assetName}||${category}`;
+    setSelectedNonHw((prev) =>
+      prev.map((a) => {
+        if (`${a.assetName}||${a.category}` !== key) return a;
+        const current = Math.max(1, Number(a.quantity) || 1);
+        const nextQty = Math.max(1, Math.min(maxAllowed, current + delta));
+        return { ...a, quantity: nextQty };
+      }),
+    );
+  }, []);
+
+  const stopQtyHold = useCallback(() => {
+    if (qtyHoldTimeoutRef.current) {
+      clearTimeout(qtyHoldTimeoutRef.current);
+      qtyHoldTimeoutRef.current = null;
+    }
+    if (qtyHoldIntervalRef.current) {
+      clearInterval(qtyHoldIntervalRef.current);
+      qtyHoldIntervalRef.current = null;
+    }
+  }, []);
+
+  const startQtyHold = useCallback((assetName, category, delta, maxAllowed) => {
+    stopQtyHold();
+    qtyHoldTimeoutRef.current = setTimeout(() => {
+      qtyHoldIntervalRef.current = setInterval(() => {
+        adjustNonHwQuantity(assetName, category, delta, maxAllowed);
+      }, 90);
+    }, 320);
+  }, [adjustNonHwQuantity, stopQtyHold]);
+
+  React.useEffect(() => () => stopQtyHold(), [stopQtyHold]);
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
@@ -551,70 +633,70 @@ const AddEmployee = () => {
     try {
       setSaving(true);
 
-      const assignedToObj = { empId, name: empName };
+      // 1. Persist hardware assignment to backend first.
+      for (const { unit, assetTag, assignmentPhotos } of selectedEntries) {
+        await assignUnitToEmployeeAPI({
+          unitId: unit.id || unit.assetId,
+          empId,
+          assetTag: assetTag.trim(),
+          assignmentPhotos: assignmentPhotos || [],
+        });
+      }
 
-      // 1. Mark hardware units as assigned
+      // Keep local shape in sync for screens that still read local employee data.
       saveAssetUnitsToStorage(
         getAssetUnitsFromStorage().map((u) => {
           const sel = selectedEntries.find((s) => s.unit.assetId === u.assetId);
           if (!sel) return u;
           return {
             ...u,
-            status:           "assigned",
-            assignedTo:       assignedToObj,
-            assignedDate:     new Date().toISOString(),
-            assetTag:         sel.assetTag.trim(),
+            status: "assigned",
+            assignedTo: { empId, name: empName },
+            assignedDate: new Date().toISOString(),
+            assetTag: sel.assetTag.trim(),
             assignmentPhotos: sel.assignmentPhotos || [],
           };
         }),
       );
 
-      // 1b. Sync inventory catalog counts for each assigned HW unit
-      if (selectedEntries.length) {
-        syncCatalogAfterBulkAssign(selectedEntries.map(({ unit }) => unit));
-      }
-
       // 2. Sync Accessories / Consumables inventory counts
       if (selectedNonHw.length) {
         const changes = {};
-        selectedNonHw.forEach(({ assetName, category, inventoryId }) => {
+        selectedNonHw.forEach(({ assetName, category, inventoryId, quantity }) => {
           const key = inventoryId || `${assetName}||${category}`;
           if (!changes[key]) changes[key] = { inventoryId, assetName, category, count: 0 };
-          changes[key].count++;
+          changes[key].count += Math.max(1, Number(quantity) || 1);
         });
-
-        saveInventoryToStorage(
-          getInventoryFromStorage().map((i) => {
-            const change = Object.values(changes).find(
-              (c) =>
-                (c.inventoryId && c.inventoryId === i.id) ||
-                (i.name === c.assetName && i.category === c.category),
-            );
-            if (!change) return i;
-            return {
-              ...i,
-              availableQuantity: Math.max(0, (i.availableQuantity || 0) - change.count),
-              assignedQuantity:  (i.assignedQuantity || 0) + change.count,
-            };
-          }),
-        );
+        for (const change of Object.values(changes)) {
+          const targetInventoryId = change.inventoryId;
+          if (!targetInventoryId) {
+            throw new Error(`Missing inventory id for ${change.assetName}`);
+          }
+          await assignInventoryQuantityAPI({
+            inventoryItemId: targetInventoryId,
+            quantity: change.count,
+            action: "assign",
+            empId,
+          });
+        }
       }
 
-      // 3. Mark software licenses as assigned
+      // 3. Mark software licenses as assigned (API + local mirror)
       if (selectedSw.length) {
         const swInv   = getSoftwareInventory();
         const usedIds = new Set();
 
-        selectedSw.forEach((name) => {
+        for (const name of selectedSw) {
           const license = swInv.find(
             (i) => i.name === name && i.status === "available" && !usedIds.has(i.id),
           );
           if (license) {
+            await assignSoftwareToEmployeeAPI({ licenseId: license.id, empId });
             license.status     = "assigned";
             license.assignedTo = empId;
             usedIds.add(license.id);
           }
-        });
+        }
         saveSoftwareInventory(swInv);
 
         const swCatalog = getInventoryFromStorage();
@@ -634,6 +716,8 @@ const AddEmployee = () => {
         });
         saveInventoryToStorage(swCatalog);
       }
+
+      await syncITDataFromAPI();
 
       // 4. Build assignedAssets array for the employee record
       const assignedAssets = [
@@ -675,13 +759,14 @@ const AddEmployee = () => {
           };
         }),
 
-        ...selectedNonHw.map(({ assetName, category, inventoryId }) => ({
+        ...selectedNonHw.map(({ assetName, category, inventoryId, quantity }) => ({
           id:          generateAssetId(),
           assetId:     null,
           assetTag:    null,
           inventoryId: inventoryId || null,
           name:        assetName,
           category,
+          quantity:    Math.max(1, Number(quantity) || 1),
           status:      "Assigned",
           photos:      [],
           assignedDate: new Date().toISOString(),
@@ -708,7 +793,12 @@ const AddEmployee = () => {
     } catch (err) {
       setSaving(false);
       console.error("[AddEmployee] handleSubmit error:", err);
-      setSubmitError(`Failed to save employee: ${err?.message || "Unknown error"}. Please try again.`);
+      const msg = getITApiErrorMessage(
+        err,
+        "Could not save this employee on the server. Please try again.",
+      );
+      toast.error(msg);
+      setSubmitError(`Failed to save employee: ${msg}`);
     }
   }, [profile, selectedHwUnits, selectedNonHw, selectedSw]);
 
@@ -957,9 +1047,12 @@ const AddEmployee = () => {
                     .filter((g) => g.category === activeTab)
                     .map((g) => {
                       const key     = `${g.assetName}||${g.category}`;
-                      const isChecked = selectedNonHw.some(
+                      const selectedEntry = selectedNonHw.find(
                         (a) => `${a.assetName}||${a.category}` === key,
                       );
+                      const isChecked = !!selectedEntry;
+                      const qty = Math.max(1, Number(selectedEntry?.quantity) || 1);
+                      const maxQty = g.units.length;
                       return (
                         <label
                           key={key}
@@ -975,6 +1068,60 @@ const AddEmployee = () => {
                           </span>
                           <span className="ane-check-name">{g.assetName}</span>
                           <span className="ane-stock-tag in-stock">{g.units.length} available</span>
+                          {isChecked && (
+                            <div
+                              className="ane-qty-stepper"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className="ane-qty-btn"
+                                disabled={qty <= 1}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  adjustNonHwQuantity(g.assetName, g.category, -1, maxQty);
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  startQtyHold(g.assetName, g.category, -1, maxQty);
+                                }}
+                                onMouseUp={stopQtyHold}
+                                onMouseLeave={stopQtyHold}
+                                onTouchStart={(e) => {
+                                  e.preventDefault();
+                                  startQtyHold(g.assetName, g.category, -1, maxQty);
+                                }}
+                                onTouchEnd={stopQtyHold}
+                                onTouchCancel={stopQtyHold}
+                              >
+                                −
+                              </button>
+                              <span className="ane-qty-value">{qty}</span>
+                              <button
+                                type="button"
+                                className="ane-qty-btn"
+                                disabled={qty >= maxQty}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  adjustNonHwQuantity(g.assetName, g.category, 1, maxQty);
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  startQtyHold(g.assetName, g.category, 1, maxQty);
+                                }}
+                                onMouseUp={stopQtyHold}
+                                onMouseLeave={stopQtyHold}
+                                onTouchStart={(e) => {
+                                  e.preventDefault();
+                                  startQtyHold(g.assetName, g.category, 1, maxQty);
+                                }}
+                                onTouchEnd={stopQtyHold}
+                                onTouchCancel={stopQtyHold}
+                              >
+                                +
+                              </button>
+                            </div>
+                          )}
                         </label>
                       );
                     })
@@ -1103,6 +1250,7 @@ const AddEmployee = () => {
                       {selectedNonHw.map((a) => (
                         <span key={a.assetId} className="ane-review-pill">
                           {a.assetName}
+                          <span className="ane-review-pill-cat">x{Math.max(1, Number(a.quantity) || 1)}</span>
                           <span className="ane-review-pill-cat">{a.category}</span>
                         </span>
                       ))}

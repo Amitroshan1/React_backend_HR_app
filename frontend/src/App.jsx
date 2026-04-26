@@ -5,6 +5,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { Attendance } from "./pages/Attendance/Attendance";
 import { Wfh } from "./pages/Wfh/Wfh";
 import { Salary } from "./pages/Salary/Salary";
+import { Payslip } from "./pages/Payslip/Payslip";
 import { Leaves } from "./pages/Leaves/Leaves";
 import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
@@ -37,6 +38,7 @@ import AssetsDashboard from "./pages/IT/AssetsPage/AssetsDashboard";
 import AddSoftWare from "./pages/IT/AssetsPage/AddSoftWare";
 import AddEmployee from "./pages/IT/AssetsPage/AddEmployee";
 import ITEmployeeDetails from "./pages/IT/EmployeeAssetsDetails";
+import ReturnRequests from "./pages/IT/ReturnRequests";
 
 // Admin Employee Management
 import Employee from "./pages/Admin/Employee";
@@ -74,6 +76,7 @@ export const App = () => {
         { path: "dashboard",                       element: <Dashboard /> },
         { path: "attendance",                      element: <Attendance /> },
         { path: "salary",                          element: <Salary /> },
+        { path: "payslip",                         element: <Payslip /> },
         { path: "leaves",                          element: <Leaves /> },
         { path: "profile",                         element: <Profile /> },
         { path: "change-password",                 element: <ChangePassword /> },
@@ -107,6 +110,7 @@ export const App = () => {
         { path: "it/AssetsPage/AddSoftWare",       element: <AddSoftWare /> },
         { path: "it/AssetsPage/AddEmployee",       element: <AddEmployee /> },
         { path: "it/employee/:empId",              element: <ITEmployeeDetails /> },
+        { path: "it/return-requests",              element: <ReturnRequests /> },
 
         // Admin Employee Management
         { path: "employees",                       element: <Employee /> },

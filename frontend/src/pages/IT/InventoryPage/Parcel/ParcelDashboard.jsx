@@ -1,6 +1,8 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
+import { getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
 import "./ParcelDashboard.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -207,7 +209,18 @@ export default function Parcel() {
   const [photoAsset,   setPhotoAsset]   = useState(null);
 
   // ── Data loading ───────────────────────────────────────────────────────────
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
+    try {
+      await syncParcelsFromAPI();
+    } catch (err) {
+      console.error("[ParcelDashboard] API sync failed, using cached parcels:", err);
+      toast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not sync parcels from the server. Showing cached data.",
+        ),
+      );
+    }
     setImportedData(readImported());
     setExportedData(readExported());
   }, []);

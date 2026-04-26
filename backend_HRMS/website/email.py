@@ -79,6 +79,242 @@ def send_email_via_zeptomail(sender_email,
         return False, "Unexpected error while sending email"
 
 
+def send_it_assignment_notification(
+    *,
+    target_admin,
+    actor_admin=None,
+    assignment_kind,
+    unit=None,
+    license_obj=None,
+    inventory_item=None,
+    quantity=None,
+):
+    """
+    Notify manager + employee + IT when IT assigns an asset.
+    TO: manager (first), fallback employee
+    CC: remaining managers, IT actor, employee
+    """
+    try:
+        if not target_admin or not target_admin.email:
+            return False, "Target employee email unavailable"
+
+        manager_contact = ManagerContact.query.filter_by(
+            user_email=target_admin.email
+        ).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=target_admin.circle,
+                user_type=target_admin.emp_type,
+            ).first()
+
+        manager_emails = get_manager_emails(
+            manager_contact, exclude_email=target_admin.email
+        ) if manager_contact else []
+
+        to_email = (manager_emails[0] if manager_emails else (target_admin.email or "")).strip()
+        if not to_email:
+            return False, "No recipient email found"
+
+        cc_emails = []
+        for addr in manager_emails[1:]:
+            if addr:
+                cc_emails.append(addr.strip())
+
+        if actor_admin and actor_admin.email:
+            cc_emails.append(actor_admin.email.strip())
+        if target_admin.email:
+            cc_emails.append(target_admin.email.strip())
+
+        sender_email = (
+            current_app.config.get("ZEPTO_CC_IT")
+            or current_app.config.get("EMAIL_IT")
+            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+        )
+
+        seen = set()
+        deduped_cc = []
+        to_lower = to_email.lower()
+        for email in cc_emails:
+            if not email:
+                continue
+            addr = email.strip()
+            key = addr.lower()
+            if key and key != to_lower and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+
+        emp_name = (target_admin.first_name or target_admin.email or "Employee").strip()
+        actor_name = (
+            ((actor_admin.first_name or "").strip() if actor_admin else "")
+            or (actor_admin.email if actor_admin else "")
+            or "IT Team"
+        )
+
+        details_rows = []
+        if assignment_kind == "unit" and unit is not None:
+            details_rows.extend(
+                [
+                    ("Assignment Type", "Hardware Unit"),
+                    ("Asset Name", unit.asset_name or "-"),
+                    ("Brand / Model", f"{unit.brand or '-'} / {unit.model or '-'}"),
+                    ("Serial Number", unit.serial_number or "-"),
+                    ("Asset Tag", unit.asset_tag or "-"),
+                ]
+            )
+        elif assignment_kind == "software" and license_obj is not None:
+            details_rows.extend(
+                [
+                    ("Assignment Type", "Software License"),
+                    ("Software Name", license_obj.name or "-"),
+                    ("License Code", license_obj.license_code or "-"),
+                    ("Subscription End", str(license_obj.subscription_end or "-")),
+                ]
+            )
+        elif assignment_kind == "inventory_quantity" and inventory_item is not None:
+            details_rows.extend(
+                [
+                    ("Assignment Type", "Accessories / Consumables"),
+                    ("Item Name", inventory_item.name or "-"),
+                    ("Category", inventory_item.category or "-"),
+                    ("Quantity Assigned", str(int(quantity or 0))),
+                ]
+            )
+
+        details_html = "".join(
+            f"<tr><td><strong>{label}</strong></td><td>{value}</td></tr>"
+            for label, value in details_rows
+        )
+
+        subject = f"IT Asset Assigned – {emp_name}"
+        body = f"""
+        <p>Hello,</p>
+        <p>An IT asset has been assigned to <strong>{emp_name}</strong>.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee Name</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Employee ID</strong></td><td>{target_admin.emp_id or '-'}</td></tr>
+            <tr><td><strong>Employee Email</strong></td><td>{target_admin.email or '-'}</td></tr>
+            <tr><td><strong>Department</strong></td><td>{target_admin.emp_type or '-'}</td></tr>
+            <tr><td><strong>Circle</strong></td><td>{target_admin.circle or '-'}</td></tr>
+            <tr><td><strong>Assigned By (IT)</strong></td><td>{actor_name}</td></tr>
+            {details_html}
+            <tr><td><strong>Assigned At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+        </table>
+        <p>Regards,<br><strong>IT Team</strong></p>
+        """
+
+        return send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=deduped_cc or None,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"IT assignment email failed: {e}")
+        return False, str(e)
+
+
+def send_it_return_request_email(*, requester_admin, reason, asset_label):
+    """
+    Notify IT + manager(s) + employee when employee raises return request.
+    TO: IT mailbox
+    CC: managers + employee
+    """
+    try:
+        if not requester_admin:
+            return False, "Requester missing"
+        it_email = (
+            current_app.config.get("ZEPTO_CC_IT")
+            or current_app.config.get("EMAIL_IT")
+            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+        )
+        if not it_email:
+            return False, "IT mailbox not configured"
+
+        manager_contact = ManagerContact.query.filter_by(user_email=requester_admin.email).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=requester_admin.circle,
+                user_type=requester_admin.emp_type,
+            ).first()
+        manager_emails = get_manager_emails(manager_contact, exclude_email=requester_admin.email) if manager_contact else []
+
+        cc_emails = list(manager_emails)
+        if requester_admin.email:
+            cc_emails.append(requester_admin.email.strip())
+
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            k = addr.lower()
+            if k and k not in seen and k != it_email.strip().lower():
+                seen.add(k)
+                deduped_cc.append(addr)
+
+        emp_name = (requester_admin.first_name or requester_admin.email or "Employee").strip()
+        subject = f"Asset Return Request – {emp_name}"
+        body = f"""
+        <p>Hello IT Team,</p>
+        <p>An employee has raised a return request.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee Name</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Employee ID</strong></td><td>{requester_admin.emp_id or '-'}</td></tr>
+            <tr><td><strong>Employee Email</strong></td><td>{requester_admin.email or '-'}</td></tr>
+            <tr><td><strong>Asset</strong></td><td>{asset_label or '-'}</td></tr>
+            <tr><td><strong>Return Reason</strong></td><td>{reason or '-'}</td></tr>
+            <tr><td><strong>Requested At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+        </table>
+        <p>Please review and approve/reject from IT panel.</p>
+        """
+        return send_email_via_zeptomail(
+            sender_email=it_email,
+            subject=subject,
+            body=body,
+            recipient_email=it_email,
+            cc_emails=deduped_cc or None,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"IT return request mail failed: {e}")
+        return False, str(e)
+
+
+def send_it_return_request_status_email(*, requester_admin, status, asset_label, acted_by=None, rejection_reason=None):
+    """Notify employee on approve/reject/complete status update."""
+    try:
+        if not requester_admin or not requester_admin.email:
+            return False, "Requester email missing"
+        it_email = (
+            current_app.config.get("ZEPTO_CC_IT")
+            or current_app.config.get("EMAIL_IT")
+            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+        )
+        actor = (acted_by.first_name or acted_by.email) if acted_by else "IT Team"
+        pretty = {"approved": "Approved", "rejected": "Rejected", "completed": "Completed"}.get(status, status.title())
+        subject = f"Asset Return Request {pretty} – {asset_label or 'Asset'}"
+        body = f"""
+        <p>Hello {requester_admin.first_name or requester_admin.email},</p>
+        <p>Your asset return request has been <strong>{pretty}</strong>.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Asset</strong></td><td>{asset_label or '-'}</td></tr>
+            <tr><td><strong>Status</strong></td><td>{pretty}</td></tr>
+            <tr><td><strong>Processed By</strong></td><td>{actor}</td></tr>
+            {f"<tr><td><strong>Rejection Reason</strong></td><td>{rejection_reason}</td></tr>" if rejection_reason else ""}
+        </table>
+        """
+        return send_email_via_zeptomail(
+            sender_email=it_email,
+            subject=subject,
+            body=body,
+            recipient_email=requester_admin.email,
+            cc_emails=[it_email] if it_email and it_email.strip().lower() != requester_admin.email.strip().lower() else None,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"IT return status mail failed: {e}")
+        return False, str(e)
+
 
 from datetime import datetime, timedelta
 import secrets
@@ -1657,6 +1893,97 @@ def send_leave_decision_email(leave_obj, approver, action: str):
             f"Leave decision email failed for leave_id={getattr(leave_obj, 'id', None)}: {e}"
         )
         return False
+
+
+def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustment_data=None):
+    """
+    Notify employee about HR leave edits.
+    TO: employee
+    CC: mapped manager(s) + employee + HR mailbox
+    """
+    try:
+        admin = getattr(leave_obj, "admin", None)
+        if not admin or not admin.email:
+            return False, "Employee email missing"
+
+        to_email = (admin.email or "").strip()
+        hr_sender = (
+            current_app.config.get("ZEPTO_CC_HR")
+            or current_app.config.get("EMAIL_HR")
+            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+        )
+
+        cc_emails = []
+        hr_cc = current_app.config.get("ZEPTO_CC_HR")
+        if hr_cc and hr_cc.strip().lower() != to_email.lower():
+            cc_emails.append(hr_cc.strip())
+
+        manager_contact = ManagerContact.query.filter_by(user_email=admin.email).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=admin.circle,
+                user_type=admin.emp_type,
+            ).first()
+        if manager_contact:
+            for addr in get_manager_emails(manager_contact, exclude_email=to_email):
+                if addr:
+                    cc_emails.append(addr.strip())
+
+        if admin.email and admin.email.strip().lower() != to_email.lower():
+            cc_emails.append(admin.email.strip())
+
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen and key != to_email.lower():
+                seen.add(key)
+                deduped_cc.append(addr)
+
+        old_data = old_data or {}
+        adjustment_data = adjustment_data or {}
+        actor_name = (getattr(hr_admin, "first_name", None) or getattr(hr_admin, "email", None) or "HR Team")
+
+        reversal_html = ""
+        if adjustment_data:
+            reversal_html = f"""
+            <tr><td><strong>Paid Days Adjustment</strong></td><td>{adjustment_data.get('paid_adjustment', 0)}</td></tr>
+            <tr><td><strong>LWP Adjustment</strong></td><td>{adjustment_data.get('lwp_adjustment', 0)}</td></tr>
+            <tr><td><strong>Reversal Applied</strong></td><td>{'Yes' if adjustment_data.get('reversal_applied') else 'No'}</td></tr>
+            """
+
+        subject = f"Leave Updated by HR – {admin.first_name or admin.email}"
+        body = f"""
+        <p>Hello {admin.first_name or admin.email},</p>
+        <p>Your leave application has been updated by <strong>{actor_name}</strong> from HR.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Application ID</strong></td><td>{leave_obj.id}</td></tr>
+            <tr><td><strong>Previous Status</strong></td><td>{old_data.get('status', '-')}</td></tr>
+            <tr><td><strong>Updated Status</strong></td><td>{leave_obj.status}</td></tr>
+            <tr><td><strong>Previous Period</strong></td><td>{old_data.get('start_date', '-')} to {old_data.get('end_date', '-')}</td></tr>
+            <tr><td><strong>Updated Period</strong></td><td>{leave_obj.start_date} to {leave_obj.end_date}</td></tr>
+            <tr><td><strong>Leave Type</strong></td><td>{leave_obj.leave_type}</td></tr>
+            <tr><td><strong>Paid Days (Deducted)</strong></td><td>{leave_obj.deducted_days}</td></tr>
+            <tr><td><strong>Unpaid Days (LWP)</strong></td><td>{leave_obj.extra_days}</td></tr>
+            {reversal_html}
+            <tr><td><strong>Updated At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+        </table>
+        <p>If this update is unexpected, contact HR immediately.</p>
+        <p>Regards,<br><strong>HR Team</strong></p>
+        """
+        return send_email_via_zeptomail(
+            sender_email=hr_sender,
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=deduped_cc or None,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"HR leave updation email failed: {e}")
+        return False, str(e)
 
 
 def send_compoff_expiry_reminder(admin, gain_date, expiry_date):
