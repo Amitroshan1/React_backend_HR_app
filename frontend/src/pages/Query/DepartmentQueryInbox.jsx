@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { MessageCircle, Send, X } from "lucide-react";
+import { CheckCircle, MessageCircle, Send, X } from "lucide-react";
 import "./DepartmentQueryInbox.css";
 
 const API_BASE_URL = "/api/query";
@@ -10,6 +10,7 @@ export const DepartmentQueryInbox = () => {
   const [chatMessage, setChatMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [closingId, setClosingId] = useState(null);
   const [error, setError] = useState("");
   const chatEndRef = useRef(null);
 
@@ -120,6 +121,30 @@ export const DepartmentQueryInbox = () => {
     }
   };
 
+  const closeQuery = async (id) => {
+    if (!window.confirm("Mark this query as resolved (closed)? Notifications and closure emails will be sent.")) return;
+    setClosingId(id);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/queries/${id}/close`, {
+        method: "POST",
+        headers: { ...getAuthHeaders() },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || "Failed to close query");
+      }
+      await fetchInbox();
+      if (activeChat?.id === id) {
+        await openChat({ id: activeChat.id, title: activeChat.title });
+      }
+    } catch (e) {
+      setError(e.message || "Unable to close query");
+    } finally {
+      setClosingId(null);
+    }
+  };
+
   useEffect(() => {
     fetchInbox();
   }, []);
@@ -179,10 +204,20 @@ export const DepartmentQueryInbox = () => {
                     <td>{q.employee}</td>
                     <td>{getStatusLabel(q.status)}</td>
                     <td>{q.createdAt}</td>
-                    <td>
-                      <button className="dept-chat-btn" onClick={() => openChat(q)}>
+                    <td className="dept-action-cell">
+                      <button type="button" className="dept-chat-btn" onClick={() => openChat(q)}>
                         <MessageCircle size={14} /> Open Chat
                       </button>
+                      {q.status !== "Closed" && (
+                        <button
+                          type="button"
+                          className="dept-close-query-btn"
+                          disabled={closingId === q.id}
+                          onClick={() => closeQuery(q.id)}
+                        >
+                          <CheckCircle size={14} /> {closingId === q.id ? "…" : "Close"}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -199,9 +234,21 @@ export const DepartmentQueryInbox = () => {
               <h3>{activeChat.title}</h3>
               <small>Reply as Department</small>
             </div>
-            <button className="dept-close-btn" onClick={() => setActiveChat(null)}>
-              <X size={18} />
-            </button>
+            <div className="dept-chat-header-actions">
+              {activeChat.status !== "Closed" && (
+                <button
+                  type="button"
+                  className="dept-close-query-btn dept-close-query-btn--compact"
+                  disabled={closingId === activeChat.id}
+                  onClick={() => closeQuery(activeChat.id)}
+                >
+                  <CheckCircle size={14} /> {closingId === activeChat.id ? "Closing…" : "Close query"}
+                </button>
+              )}
+              <button type="button" className="dept-close-btn" onClick={() => setActiveChat(null)} aria-label="Close panel">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div className="dept-chat-messages">

@@ -420,7 +420,7 @@ def reply_query(query_id):
 
 
 
-#close a query by employee
+# close query: query owner (employee) or department staff for that department
 
 @query.route("/queries/<int:query_id>/close", methods=["POST"])
 @jwt_required()
@@ -430,14 +430,20 @@ def close_query_api(query_id):
     emp_type = claims.get("emp_type")
     closed_by_email = claims.get("email")
     closed_by_admin = Admin.query.filter_by(email=closed_by_email).first()
-
-    if not _department_staff_can_close(emp_type):
-        return jsonify({
-            "success": False,
-            "message": "Unauthorized"
-        }), 403
-
     query_obj = Query.query.get_or_404(query_id)
+
+    if not closed_by_admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    if query_obj.status == "Closed":
+        return jsonify({"success": True, "message": "Query already closed"}), 200
+
+    allowed = _can_access_query(closed_by_admin, emp_type, query_obj) and (
+        query_obj.admin_id == closed_by_admin.id
+        or _department_staff_can_close(emp_type)
+    )
+    if not allowed:
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
 
     query_obj.status = "Closed"
 
