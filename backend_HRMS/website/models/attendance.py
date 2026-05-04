@@ -48,7 +48,10 @@ class PunchSession(db.Model):
     is_wfh = db.Column(db.Boolean, nullable=False, default=False)
     lat = db.Column(db.Float, nullable=True)
     lon = db.Column(db.Float, nullable=True)
+    # Legacy: last-written geo (mirrors in while open, out after punch-out). Prefer _in/_out.
     location_status = db.Column(db.String(30), nullable=True)
+    location_status_in = db.Column(db.String(30), nullable=True)
+    location_status_out = db.Column(db.String(30), nullable=True)
 
     punch = db.relationship("Punch", back_populates="sessions")
 

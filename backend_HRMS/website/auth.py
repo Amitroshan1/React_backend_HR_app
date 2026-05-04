@@ -995,6 +995,8 @@ def punch_in():
         lat=user_lat,
         lon=user_lon,
         location_status=location_status,
+        location_status_in=location_status,
+        location_status_out=None,
     )
     db.session.add(sess)
     punch.lat = user_lat
@@ -1012,6 +1014,7 @@ def punch_in():
         "is_wfh": is_wfh,
         "zone": zone,
         "location_status": location_status,
+        "location_status_in": location_status,
         "needs_review": zone in ["OUTSIDE", "NO_GPS"],
         "requires_repeat_punch_reason": False,
     }), 200
@@ -1076,8 +1079,11 @@ def punch_out():
         duration_sec = int((now - cin).total_seconds()) if cin else 0
         date_changed = bool(cin and cin.date() != now.date())
         EXTENDED_HOURS_THRESHOLD_SEC = 10 * 3600
+        auto_cap_reason = "Auto punch-out after 10 hr cap"
         if duration_sec > EXTENDED_HOURS_THRESHOLD_SEC and date_changed:
             ext_reason = (data.get("extended_hours_reason") or "").strip()
+            if len(ext_reason) < 3 and data.get("auto_system_punch_out") is True:
+                ext_reason = auto_cap_reason
             if len(ext_reason) < 3:
                 return jsonify({
                     "success": False,
@@ -1089,9 +1095,13 @@ def punch_out():
                 }), 400
             open_sess.extended_hours_reason = ext_reason
 
+        if data.get("auto_system_punch_out") is True:
+            open_sess.extended_hours_reason = auto_cap_reason
+
         open_sess.clock_out = now
         open_sess.lat = user_lat
         open_sess.lon = user_lon
+        open_sess.location_status_out = location_status
         open_sess.location_status = location_status
 
         punch.lat = user_lat
@@ -1109,6 +1119,7 @@ def punch_out():
             "today_work": today_work_str,
             "zone": zone,
             "location_status": location_status,
+            "location_status_out": location_status,
             "needs_review": zone in ["OUTSIDE", "NO_GPS"]
         }), 200
     except Exception as e:

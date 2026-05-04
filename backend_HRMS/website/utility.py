@@ -1136,7 +1136,43 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     legend_half_day_fmt = workbook.add_format({"border": 1, "bg_color": "#C6E0B4"})
     legend_leave_fmt = workbook.add_format({"border": 1, "bg_color": "#F8CBAD"})
     legend_leave_pending_fmt = workbook.add_format({"border": 1, "bg_color": "#FFD966"})
+    legend_outside_fmt = workbook.add_format({"border": 1, "bg_color": "#FF9999", "bold": True})
     sunday_row_fmt = workbook.add_format({"border": 1, "bg_color": "#D9D9D9"})
+    outside_punch_cell_fmt = workbook.add_format({"border": 1, "bg_color": "#FF9999"})
+
+    def _location_status_is_outside(status):
+        """Client sheet: treat missing/blank geo like outside (red), plus known non‑inside codes."""
+        if status is None or not str(status).strip():
+            return True
+        s = str(status).strip().lower()
+        if s == "inside_geofence":
+            return False
+        return s in ("outside_geofence", "location_not_captured", "office_not_configured")
+
+    def _session_geo_in(sess):
+        if not sess:
+            return None
+        v = (getattr(sess, "location_status_in", None) or "").strip()
+        if v:
+            return v
+        if sess.clock_out is None:
+            return ((getattr(sess, "location_status", None) or "").strip() or None)
+        return None
+
+    def _session_geo_out(sess):
+        if not sess:
+            return None
+        v = (getattr(sess, "location_status_out", None) or "").strip()
+        if v:
+            return v
+        if sess.clock_out is not None:
+            return ((getattr(sess, "location_status", None) or "").strip() or None)
+        return None
+
+    def _same_clock(a, b):
+        if not a or not b:
+            return False
+        return abs((a - b).total_seconds()) < 1.5
 
     # Date range for the month
     num_days = calendar.monthrange(year, month)[1]
@@ -1162,8 +1198,14 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     worksheet.write(2, 0, "HALF DAY", legend_half_day_fmt)
     worksheet.write(3, 0, "LEAVE", legend_leave_fmt)
     worksheet.write(4, 0, "LEAVE PENDING / NOT APPROVED", legend_leave_pending_fmt)
+    worksheet.write(
+        5,
+        0,
+        "OUTSIDE LOCATION / GEO NOT SET",
+        legend_outside_fmt,
+    )
 
-    HEADER_START_ROW = 6   # Row 7 (1‑based) in Excel
+    HEADER_START_ROW = 6   # Row 7 (1‑based): first header row after legend block
     LABEL_COL = 0          # Column A
     FIRST_EMP_COL = 1      # First employee starts at column B
     TIME_COLUMNS_PER_PAIR = 2
@@ -1192,6 +1234,16 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     punch_map = {}
     for p in punches:
         punch_map.setdefault(p.admin_id, {})[p.punch_date] = p
+
+    punch_ids = [p.id for p in punches]
+    sessions_by_punch_id = {}
+    if punch_ids:
+        for sess in (
+            PunchSession.query.filter(PunchSession.punch_id.in_(punch_ids))
+            .order_by(PunchSession.punch_id.asc(), PunchSession.clock_in.asc())
+            .all()
+        ):
+            sessions_by_punch_id.setdefault(sess.punch_id, []).append(sess)
 
     # Build a leave map for all employees: {admin_id: {date: [LeaveApplication,...]}}
     leave_map = {}
@@ -1338,14 +1390,42 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                 worksheet.write(row, base_col,     cell_text, fmt)
                 worksheet.write(row, base_col + 1, "",        fmt)
             else:
-                # Normal punch display in 24-hour format
-                time_in_str = punch.punch_in.strftime("%H:%M") if punch and punch.punch_in else ""
-                time_out_str = punch.punch_out.strftime("%H:%M") if punch and punch.punch_out else ""
+                # Normal punch display — 24-hour clock (HH:MM:SS)
+                time_in_str = (
+                    punch.punch_in.strftime("%H:%M:%S") if punch and punch.punch_in else ""
+                )
+                time_out_str = (
+                    punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else ""
+                )
 
-                fmt = base_fmt
+                sessions_day = (
+                    sessions_by_punch_id.get(punch.id, []) if punch and punch.id else []
+                )
+                first_sess = sessions_day[0] if sessions_day else None
+                closed_sessions = [s for s in sessions_day if s.clock_out is not None]
+                out_sess_for_aggregate = None
+                if punch and punch.punch_out and closed_sessions:
+                    out_sess_for_aggregate = max(closed_sessions, key=lambda x: x.clock_out)
 
-                worksheet.write(row, base_col,     time_in_str,  fmt)
-                worksheet.write(row, base_col + 1, time_out_str, fmt)
+                in_outside = bool(
+                    punch
+                    and punch.punch_in
+                    and first_sess
+                    and _same_clock(first_sess.clock_in, punch.punch_in)
+                    and _location_status_is_outside(_session_geo_in(first_sess))
+                )
+                out_outside = bool(
+                    punch
+                    and punch.punch_out
+                    and out_sess_for_aggregate
+                    and _location_status_is_outside(_session_geo_out(out_sess_for_aggregate))
+                )
+
+                fmt_in = outside_punch_cell_fmt if in_outside else base_fmt
+                fmt_out = outside_punch_cell_fmt if out_outside else base_fmt
+
+                worksheet.write(row, base_col, time_in_str, fmt_in)
+                worksheet.write(row, base_col + 1, time_out_str, fmt_out)
 
     # Adjust column widths
     worksheet.set_column(0, 0, 32)
@@ -1364,6 +1444,8 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
         "Clock In",
         "Clock Out",
         "Duration",
+        "Geo (in)",
+        "Geo (out)",
         "Repeat Reason",
         "Extended Hours Reason",
         "Is Open",
@@ -1411,20 +1493,30 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
         session_ws.write(r, 1, a.emp_id or "", border_fmt)
         session_ws.write(r, 2, a.first_name or "", border_fmt)
         session_ws.write(r, 3, seq, border_fmt)
-        session_ws.write(r, 4, cin, border_fmt)
-        session_ws.write(r, 5, cout, border_fmt)
+        geo_in = _session_geo_in(s) or ""
+        geo_out = _session_geo_out(s) or ""
+        cin_outside = _location_status_is_outside(geo_in)
+        cout_outside = _location_status_is_outside(geo_out)
+        fmt_cin = outside_punch_cell_fmt if cin_outside else border_fmt
+        fmt_cout = outside_punch_cell_fmt if cout_outside else border_fmt
+
+        session_ws.write(r, 4, cin, fmt_cin)
+        session_ws.write(r, 5, cout, fmt_cout)
         session_ws.write(r, 6, dur, border_fmt)
-        session_ws.write(r, 7, (s.repeat_reason or ""), border_fmt)
-        session_ws.write(r, 8, (getattr(s, "extended_hours_reason", None) or ""), border_fmt)
-        session_ws.write(r, 9, "Yes" if s.clock_out is None else "No", border_fmt)
+        session_ws.write(r, 7, geo_in, border_fmt)
+        session_ws.write(r, 8, geo_out, border_fmt)
+        session_ws.write(r, 9, (s.repeat_reason or ""), border_fmt)
+        session_ws.write(r, 10, (getattr(s, "extended_hours_reason", None) or ""), border_fmt)
+        session_ws.write(r, 11, "Yes" if s.clock_out is None else "No", border_fmt)
         r += 1
 
     session_ws.set_column(0, 0, 12)
     session_ws.set_column(1, 2, 18)
     session_ws.set_column(3, 3, 10)
     session_ws.set_column(4, 6, 14)
-    session_ws.set_column(7, 8, 30)
-    session_ws.set_column(9, 9, 10)
+    session_ws.set_column(7, 8, 18)
+    session_ws.set_column(9, 10, 30)
+    session_ws.set_column(11, 11, 10)
 
     workbook.close()
     output.seek(0)

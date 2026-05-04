@@ -1,0 +1,122 @@
+.ex-doc-public {
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px;
+  background: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 40%);
+}
+
+.ex-doc-public__panel {
+  width: 100%;
+  max-width: 520px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 8px 40px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e2e8f0;
+}
+
+.ex-doc-public__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ex-doc-public__brand h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #0f766e;
+}
+
+.ex-doc-public__brand-icon {
+  color: #0d9488;
+}
+
+.ex-doc-public__lead {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #64748b;
+}
+
+.ex-doc-public__muted {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.ex-doc-public__banner {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.ex-doc-public__banner--error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.ex-doc-public__banner--warn {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.ex-doc-public__expiry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: #f1f5f9;
+  border-radius: 8px;
+}
+
+.ex-doc-public__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ex-doc-public__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.ex-doc-public__fname {
+  font-size: 14px;
+  color: #1e293b;
+  word-break: break-word;
+}
+
+.ex-doc-public__dl {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #0d9488;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.ex-doc-public__dl:hover {
+  background: #0f766e;
+}

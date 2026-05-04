@@ -296,9 +296,26 @@ def create_app():
         except Exception as e:
             app.logger.warning("IT return request table ensure skipped: %s", e)
 
+    def _ensure_ex_employee_doc_tables():
+        try:
+            from sqlalchemy import inspect
+            from .models.ex_employee_documents import ExEmployeeDocShare, ExEmployeeDocFile
+
+            insp = inspect(db.engine)
+            tables = set(insp.get_table_names())
+            if "ex_employee_doc_shares" not in tables:
+                ExEmployeeDocShare.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table ex_employee_doc_shares")
+            if "ex_employee_doc_files" not in tables:
+                ExEmployeeDocFile.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table ex_employee_doc_files")
+        except Exception as e:
+            app.logger.warning("ex_employee_doc tables ensure skipped: %s", e)
+
     with app.app_context():
         _ensure_parcel_name_columns()
         _ensure_it_return_request_table()
+        _ensure_ex_employee_doc_tables()
         _cleanup_zero_qty_inventory_rows()
 
     from .commands.leave_accrual import register_leave_accrual_command

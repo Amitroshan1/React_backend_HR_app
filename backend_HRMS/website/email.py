@@ -8,6 +8,7 @@ from .models.manager_model import ManagerContact
 from .manager_utils import get_manager_emails
 from flask import current_app, url_for
 from .models.expense import ExpenseLineItem
+import html
 import requests
 from . import db
 
@@ -2134,6 +2135,67 @@ def send_password_set_email(admin):
         db.session.rollback()
         current_app.logger.warning(f"Password set email failed for {admin.email}: {e}")
         return False
+
+
+def send_ex_employee_documents_email(*, recipient_email, doc_link, document_names):
+    """
+    Notify ex-employee with document names + time-limited link (no HRMS login).
+    CC: ZEPTO_CC_HR env (comma-separated allowed), else EMAIL_HR — skipped if same as recipient.
+    Returns (success: bool, message: str).
+    """
+    names = [html.escape(str(n).strip()) for n in (document_names or []) if str(n or "").strip()]
+    if not names:
+        names = [html.escape("Shared documents")]
+
+    if len(names) == 1:
+        names_block = f"<p><strong>Document shared:</strong> {names[0]}</p>"
+    else:
+        li = "".join(f"<li>{n}</li>" for n in names)
+        names_block = f"<p><strong>Documents shared:</strong></p><ul style=\"margin:8px 0;padding-left:18px;\">{li}</ul>"
+
+    subject = "Documents from Human Resources — secure download"
+    href_attr = doc_link.replace("&", "&amp;")
+    link_text = html.escape(doc_link)
+    body = f"""
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e293b;line-height:1.55;max-width:560px;">
+<p>Good day,</p>
+<p>The Human Resources team is sharing the following with you. Please use it for your records as applicable.</p>
+{names_block}
+<p>Your file(s) are available at the link below. You do <strong>not</strong> need to sign in to HRMS. The link is
+valid for <strong>24 hours</strong> and is intended for you only.</p>
+<p style="margin:14px 0;word-break:break-all;"><a href="{href_attr}" style="color:#0d9488;">{link_text}</a></p>
+<p style="font-size:13px;color:#64748b;">If this message was not meant for you, you may ignore it. For questions, contact HR through your usual official channel.</p>
+<p style="margin-top:18px;">Kind regards,<br /><strong>Human Resources</strong></p>
+</div>
+"""
+    raw_hr_cc = (current_app.config.get("ZEPTO_CC_HR") or "").strip()
+    if not raw_hr_cc:
+        raw_hr_cc = (current_app.config.get("EMAIL_HR") or "").strip()
+    cc_list = []
+    rec_lower = (recipient_email or "").strip().lower()
+    if raw_hr_cc:
+        for part in raw_hr_cc.replace(";", ",").split(","):
+            addr = part.strip()
+            if not addr or "@" not in addr:
+                continue
+            if addr.lower() == rec_lower:
+                continue
+            if addr.lower() not in {e.lower() for e in cc_list}:
+                cc_list.append(addr)
+    cc_emails = cc_list or None
+
+    try:
+        ok, msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=recipient_email,
+            cc_emails=cc_emails,
+        )
+        return ok, msg
+    except Exception as e:
+        current_app.logger.warning("Ex-employee documents email failed for %s: %s", recipient_email, e)
+        return False, str(e)
 
 
 def send_password_reset_email(admin, reset_token):

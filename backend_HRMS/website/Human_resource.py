@@ -9,9 +9,13 @@
 #https://solviotec.com/api/HumanResource
 
 import secrets
-from flask import Blueprint, request, current_app, jsonify,json
-from flask_jwt_extended import jwt_required, get_jwt
-from .email import send_email_via_zeptomail,send_welcome_email
+import hashlib
+import json
+import mimetypes
+import uuid
+from flask import Blueprint, request, current_app, jsonify, send_file
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
+from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
@@ -56,13 +60,50 @@ from .punch_aggregate import (
 from werkzeug.utils import secure_filename
 from .leave_attendence import _compute_working_and_sandwich_days
 from .compoff_utils import deduct_comp_leave, restore_comp_leave
+from .models.ex_employee_documents import ExEmployeeDocFile, ExEmployeeDocShare
 
 hr = Blueprint('HumanResource', __name__)
 
+EX_EMPLOYEE_LINK_TTL_HOURS = 24
+
+
+def _hash_ex_employee_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _ex_employee_uploads_base_dir():
+    return os.path.join(current_app.root_path, "static", "uploads", "ex_employee_docs")
+
+
+def _abs_path_from_rel(rel: str):
+    return os.path.normpath(os.path.join(current_app.root_path, "static", "uploads", rel))
+
+
+def _delete_ex_share_and_files(share: ExEmployeeDocShare):
+    """Remove DB rows and stored files for a share."""
+    sid = share.id
+    file_rows = ExEmployeeDocFile.query.filter_by(share_id=sid).all()
+    for f in file_rows:
+        path = _abs_path_from_rel(f.stored_rel_path)
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+        db.session.delete(f)
+    fresh = ExEmployeeDocShare.query.get(sid)
+    if fresh:
+        db.session.delete(fresh)
+    db.session.commit()
+    try:
+        d = os.path.join(_ex_employee_uploads_base_dir(), str(sid))
+        if os.path.isdir(d) and not os.listdir(d):
+            os.rmdir(d)
+    except OSError:
+        pass
+
 
 from functools import wraps
-from flask_jwt_extended import get_jwt, jwt_required
-from flask import jsonify
 
 def hr_required(fn):
     @wraps(fn)
@@ -78,6 +119,19 @@ def hr_required(fn):
             }), 403
         return fn(*args, **kwargs)
     return wrapper
+
+
+def _delete_punch_for_admin_on_date(admin_id, punch_date):
+    """
+    Remove the Punch row and all PunchSession rows for this employee + calendar date.
+    Returns True if a punch row existed and was removed.
+    """
+    punch = Punch.query.filter_by(admin_id=admin_id, punch_date=punch_date).first()
+    if not punch:
+        return False
+    PunchSession.query.filter_by(punch_id=punch.id).delete(synchronize_session=False)
+    db.session.delete(punch)
+    return True
 
 
 MASTER_TYPE_DEPARTMENT = "department"
@@ -1665,6 +1719,44 @@ def hr_get_employee_punch(admin_id):
     ), 200
 
 
+@hr.route("/employee/punch/<int:admin_id>", methods=["DELETE"])
+@jwt_required()
+@hr_required
+def hr_delete_employee_punch_for_date(admin_id):
+    """Remove all attendance (punch + sessions) for the employee on the given date."""
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    date_str = (request.args.get("date") or "").strip()
+    if not date_str:
+        return jsonify({"success": False, "message": "date is required (YYYY-MM-DD)"}), 400
+    try:
+        punch_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid date format"}), 400
+
+    try:
+        deleted = _delete_punch_for_admin_on_date(admin_id, punch_date)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"HR punch delete error: {e}")
+        return jsonify({"success": False, "message": "Failed to delete attendance for this date"}), 500
+
+    return jsonify(
+        {
+            "success": True,
+            "message": (
+                "Attendance removed for this date."
+                if deleted
+                else "No attendance was recorded for this date."
+            ),
+            "deleted": deleted,
+            "date": punch_date.isoformat(),
+        }
+    ), 200
+
+
 @hr.route("/employee/punch/<int:admin_id>/sessions", methods=["POST"])
 @jwt_required()
 @hr_required
@@ -1674,6 +1766,7 @@ def hr_replace_employee_punch_sessions(admin_id):
     Payload:
       { date: "YYYY-MM-DD", sessions: [{ clock_in: "HH:MM", clock_out: "HH:MM"|null,
                                         repeat_reason?: str, extended_hours_reason?: str }] }
+    If sessions is [], all attendance for that date is removed (no Punch row).
     """
     admin = Admin.query.get(admin_id)
     if not admin:
@@ -1688,8 +1781,30 @@ def hr_replace_employee_punch_sessions(admin_id):
         return jsonify({"success": False, "message": "Invalid date format"}), 400
 
     sessions_in = data.get("sessions")
-    if not isinstance(sessions_in, list) or len(sessions_in) == 0:
-        return jsonify({"success": False, "message": "sessions must be a non-empty list"}), 400
+    if not isinstance(sessions_in, list):
+        return jsonify({"success": False, "message": "sessions must be a list"}), 400
+
+    if len(sessions_in) == 0:
+        try:
+            _delete_punch_for_admin_on_date(admin_id, punch_date)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Punch sessions clear error: {e}")
+            return jsonify({"success": False, "message": "Failed to clear attendance for this date"}), 500
+        return jsonify(
+            {
+                "success": True,
+                "message": "Attendance cleared for this date (no punch data).",
+                "punch": {
+                    "date": punch_date.isoformat(),
+                    "punch_in": None,
+                    "punch_out": None,
+                    "today_work": None,
+                    "sessions": [],
+                },
+            }
+        ), 200
 
     def _parse_time(s):
         if s is None:
@@ -2987,4 +3102,182 @@ def update_employee_api(email_path):
         "message": "Employee record updated successfully"
     }), 200
 
+
+# --------------------------------------------------
+# Ex-employee document sharing (time-limited link, no login)
+# --------------------------------------------------
+@hr.route("/ex-employee-documents/send", methods=["POST"])
+@jwt_required()
+@hr_required
+def send_ex_employee_documents():
+    recipient_email = (request.form.get("recipient_email") or request.form.get("email") or "").strip()
+    if not recipient_email or "@" not in recipient_email:
+        return jsonify({"success": False, "message": "A valid recipient email is required"}), 400
+
+    display_names_raw = request.form.get("display_names") or "[]"
+    try:
+        display_names = json.loads(display_names_raw)
+    except json.JSONDecodeError:
+        return jsonify({"success": False, "message": "Invalid display_names (expect JSON array)"}), 400
+
+    if not isinstance(display_names, list) or len(display_names) == 0:
+        return jsonify({"success": False, "message": "At least one file with a display name is required"}), 400
+
+    uploaded = request.files.getlist("files")
+    if not uploaded or len(uploaded) == 0:
+        return jsonify({"success": False, "message": "At least one file is required"}), 400
+    if len(display_names) != len(uploaded):
+        return jsonify({"success": False, "message": "Each file must have a matching display name"}), 400
+
+    for i, name in enumerate(display_names):
+        dn = str(name or "").strip()
+        if not dn:
+            dn = secure_filename((uploaded[i].filename or f"file_{i + 1}")) or f"document_{i + 1}"
+        if len(dn) > 240:
+            dn = dn[:240]
+        display_names[i] = dn
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_ex_employee_token(raw_token)
+    expires_at = datetime.utcnow() + timedelta(hours=EX_EMPLOYEE_LINK_TTL_HOURS)
+
+    created_by = None
+    try:
+        created_by = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        created_by = None
+
+    share = ExEmployeeDocShare(
+        token_hash=token_hash,
+        recipient_email=recipient_email,
+        expires_at=expires_at,
+        created_by_admin_id=created_by,
+    )
+    db.session.add(share)
+    db.session.flush()
+
+    upload_root = _ex_employee_uploads_base_dir()
+    share_dir = os.path.join(upload_root, str(share.id))
+    os.makedirs(share_dir, exist_ok=True)
+
+    try:
+        for idx, file_storage in enumerate(uploaded):
+            if not file_storage or not file_storage.filename:
+                raise ValueError("Empty file upload")
+            orig_name = secure_filename(file_storage.filename) or f"file_{idx + 1}"
+            disk_name = f"{uuid.uuid4().hex}_{orig_name}"
+            rel_path = os.path.join("ex_employee_docs", str(share.id), disk_name).replace("\\", "/")
+            abs_path = os.path.join(share_dir, disk_name)
+            file_storage.save(abs_path)
+            db.session.add(
+                ExEmployeeDocFile(
+                    share_id=share.id,
+                    display_name=display_names[idx],
+                    stored_rel_path=rel_path,
+                )
+            )
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("ex-employee document upload failed: %s", e)
+        try:
+            if os.path.isdir(share_dir):
+                for fn in os.listdir(share_dir):
+                    try:
+                        os.remove(os.path.join(share_dir, fn))
+                    except OSError:
+                        pass
+                os.rmdir(share_dir)
+        except OSError:
+            pass
+        return jsonify({"success": False, "message": "Failed to store files. Please try again."}), 500
+
+    base_url = current_app.config.get("BASE_URL", "").rstrip("/")
+    doc_link = f"{base_url}/ex-employee-documents?t={raw_token}"
+
+    email_ok, email_msg = send_ex_employee_documents_email(
+        recipient_email=recipient_email,
+        doc_link=doc_link,
+        document_names=list(display_names),
+    )
+
+    if not email_ok:
+        _delete_ex_share_and_files(share)
+        return jsonify(
+            {
+                "success": False,
+                "message": email_msg or "Email could not be sent. Nothing was saved.",
+            }
+        ), 502
+
+    return jsonify(
+        {
+            "success": True,
+            "message": "Documents sent. The recipient has 24 hours to download using the email link.",
+            "expires_at": expires_at.isoformat() + "Z",
+        }
+    ), 201
+
+
+@hr.route("/ex-employee-documents/public/<path:token>", methods=["GET"])
+def ex_employee_documents_public_info(token):
+    """Public: list files for a valid, unexpired token (no auth)."""
+    token = (token or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "Invalid link", "expired": False}), 400
+    th = _hash_ex_employee_token(token)
+    share = ExEmployeeDocShare.query.filter_by(token_hash=th).first()
+    if not share:
+        return jsonify({"success": False, "message": "Invalid or expired link", "expired": True}), 404
+    if datetime.utcnow() > share.expires_at:
+        return jsonify(
+            {
+                "success": False,
+                "message": "This download link has expired. Please contact HR for a new link.",
+                "expired": True,
+            }
+        ), 410
+
+    files = [
+        {"id": f.id, "display_name": f.display_name}
+        for f in sorted(share.files or [], key=lambda x: x.id)
+    ]
+    return jsonify(
+        {
+            "success": True,
+            "expired": False,
+            "expires_at": share.expires_at.isoformat() + "Z",
+            "files": files,
+        }
+    ), 200
+
+
+@hr.route("/ex-employee-documents/public/<path:token>/download/<int:file_id>", methods=["GET"])
+def ex_employee_documents_public_download(token, file_id):
+    """Public: download one file (no auth)."""
+    token = (token or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "Invalid link"}), 400
+    th = _hash_ex_employee_token(token)
+    share = ExEmployeeDocShare.query.filter_by(token_hash=th).first()
+    if not share:
+        return jsonify({"success": False, "message": "Invalid or expired link"}), 404
+    if datetime.utcnow() > share.expires_at:
+        return jsonify({"success": False, "message": "This link has expired"}), 410
+
+    doc_file = ExEmployeeDocFile.query.filter_by(id=file_id, share_id=share.id).first()
+    if not doc_file:
+        return jsonify({"success": False, "message": "File not found"}), 404
+
+    abs_path = _abs_path_from_rel(doc_file.stored_rel_path)
+    if not os.path.isfile(abs_path):
+        return jsonify({"success": False, "message": "File missing on server"}), 404
+
+    mime, _ = mimetypes.guess_type(doc_file.display_name)
+    return send_file(
+        abs_path,
+        mimetype=mime or "application/octet-stream",
+        as_attachment=True,
+        download_name=doc_file.display_name,
+    )
 

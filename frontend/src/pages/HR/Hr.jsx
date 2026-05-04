@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
-  FileCheck, Search, ArrowLeft, Download, ChevronDown, Key, Clock 
+  FileCheck, Search, ArrowLeft, Download, ChevronDown, Key, Clock, Share2, Trash2
 } from 'lucide-react';
 import './Hr.css';
 import './SignUp.css'; 
@@ -20,6 +20,7 @@ import AddDeptCircle from './AddDeptCircle';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
+import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -685,11 +686,12 @@ function HrEmployeeAccountsView({ employee, onBack }) {
 function HrPunchFormView({ employee, onBack }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
-  const [punchIn, setPunchIn] = useState('09:00');
-  const [punchOut, setPunchOut] = useState('18:00');
+  const [punchIn, setPunchIn] = useState('00:00');
+  const [punchOut, setPunchOut] = useState('00:00');
   const [sessions, setSessions] = useState([]);
   const [loadingPunch, setLoadingPunch] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const toTime = (iso) => {
@@ -715,6 +717,8 @@ function HrPunchFormView({ employee, onBack }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         setSessions([]);
+        setPunchIn('00:00');
+        setPunchOut('00:00');
         setMessage({ type: 'error', text: data.message || 'Failed to load punch data' });
         return;
       }
@@ -730,11 +734,13 @@ function HrPunchFormView({ employee, onBack }) {
           is_open: !!s.is_open,
         }))
       );
-      // Keep the legacy inputs in sync (useful as a quick summary)
-      setPunchIn(toTime(p.punch_in) || '09:00');
-      setPunchOut(toTime(p.punch_out) || '18:00');
+      // Summary fields when there are no session rows: show API times or 00:00 (no 9–18 default)
+      setPunchIn(toTime(p.punch_in) || '00:00');
+      setPunchOut(toTime(p.punch_out) || '00:00');
     } catch {
       setSessions([]);
+      setPunchIn('00:00');
+      setPunchOut('00:00');
       setMessage({ type: 'error', text: 'Network error' });
     } finally {
       setLoadingPunch(false);
@@ -768,7 +774,7 @@ function HrPunchFormView({ employee, onBack }) {
   const addSession = () => {
     setSessions((prev) => [
       ...prev,
-      { id: null, clock_in: '', clock_out: '', repeat_reason: '', extended_hours_reason: '', is_open: false },
+      { id: null, clock_in: '00:00', clock_out: '00:00', repeat_reason: '', extended_hours_reason: '', is_open: false },
     ]);
   };
 
@@ -782,20 +788,18 @@ function HrPunchFormView({ employee, onBack }) {
     setMessage({ type: '', text: '' });
     try {
       const hasSessions = Array.isArray(sessions) && sessions.length > 0;
-      const endpoint = hasSessions
-        ? `${HR_API_BASE}/employee/punch/${employee.id}/sessions`
-        : `${HR_API_BASE}/employee/punch/${employee.id}`;
-      const payload = hasSessions
-        ? {
-            date,
-            sessions: sessions.map((s) => ({
+      const endpoint = `${HR_API_BASE}/employee/punch/${employee.id}/sessions`;
+      const payload = {
+        date,
+        sessions: hasSessions
+          ? sessions.map((s) => ({
               clock_in: s.clock_in || null,
               clock_out: s.clock_out || null,
               repeat_reason: s.repeat_reason || null,
               extended_hours_reason: s.extended_hours_reason || null,
-            })),
-          }
-        : { date, punch_in: punchIn || null, punch_out: punchOut || null };
+            }))
+          : [],
+      };
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -813,6 +817,32 @@ function HrPunchFormView({ employee, onBack }) {
       setMessage({ type: 'error', text: 'Network error' });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteAttendanceForDate = async () => {
+    const ok = window.confirm(
+      `Remove all punch data for ${date}?\n\nUse this if attendance was saved on the wrong date. This cannot be undone.`
+    );
+    if (!ok) return;
+    setDeleting(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await fetch(
+        `${HR_API_BASE}/employee/punch/${employee.id}?date=${encodeURIComponent(date)}`,
+        { method: 'DELETE', headers: { ...getAuthHeaders() } }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setMessage({ type: 'success', text: data.message || 'Attendance removed.' });
+        await fetchPunchForDate(date);
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Failed to delete attendance' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Network error' });
+    } finally {
+      setDeleting(false);
     }
   };
   return (
@@ -974,9 +1004,20 @@ function HrPunchFormView({ employee, onBack }) {
                 {message.text}
               </div>
             )}
-            <button type="submit" className="hr-punch-form__submit" disabled={submitting}>
-              {submitting ? 'Saving...' : 'Save Punch'}
-            </button>
+            <div className="hr-punch-form__actions-row">
+              <button type="submit" className="hr-punch-form__submit" disabled={submitting || deleting}>
+                {submitting ? 'Saving...' : 'Save Punch'}
+              </button>
+              <button
+                type="button"
+                className="hr-punch-form__submit hr-punch-form__submit--danger"
+                disabled={submitting || deleting || loadingPunch}
+                onClick={handleDeleteAttendanceForDate}
+              >
+                <Trash2 size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                {deleting ? 'Removing…' : 'Delete attendance for this date'}
+              </button>
+            </div>
           </form>
         </div>
       </div>
@@ -1168,6 +1209,7 @@ export const Hr = () => {
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'Add NOC', icon: FileCheck, description: 'No Objection Certificate' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
+    { title: 'Ex-Employee Document Sharing', icon: Share2, description: 'Send time-limited document links to former staff' },
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
     { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
@@ -1459,6 +1501,9 @@ export const Hr = () => {
   else if (title === 'Exit Employee') { //New Condition For Exit Employee
   setView('exit_employee');
 }
+  else if (title === 'Ex-Employee Document Sharing') {
+    setView('ex_employee_doc_share');
+  }
   else if (title === 'Add Department And Circle') {
   setView('add_dept_circle');
 }
@@ -1477,7 +1522,11 @@ else if (title === 'Holiday Calendar') {
       console.log(`Navigating to ${title}`);
     }
   };
-if (view === 'update_signup') {
+if (view === 'ex_employee_doc_share') {
+    return <ExEmployeeDocumentSharing onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'update_signup') {
     return (
       <UpdateSignUp
         onBack={() => setView('updates')}

@@ -49,6 +49,7 @@ import AdminClaims from "./pages/Admin/AdminClaims";
 import AdminResignations from "./pages/Admin/AdminResignations";
 
 import SetPassword from "./pages/SetPassword";
+import { ExEmployeeDocumentsPublic } from "./pages/HR/ExEmployeeDocumentsPublic";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -68,6 +69,10 @@ export const App = () => {
     {
       path: "/set-password",
       element: <SetPassword />,
+    },
+    {
+      path: "/ex-employee-documents",
+      element: <ExEmployeeDocumentsPublic />,
     },
     {
       path: "/",

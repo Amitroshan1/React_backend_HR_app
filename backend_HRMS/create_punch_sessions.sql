@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS punch_sessions (
     lat DOUBLE NULL,
     lon DOUBLE NULL,
     location_status VARCHAR(30) NULL,
+    location_status_in VARCHAR(30) NULL,
+    location_status_out VARCHAR(30) NULL,
     CONSTRAINT fk_punch_sessions_punch FOREIGN KEY (punch_id) REFERENCES punch(id) ON DELETE CASCADE,
     INDEX ix_punch_sessions_punch_id (punch_id)
 );

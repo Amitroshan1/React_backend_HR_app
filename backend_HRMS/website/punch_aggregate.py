@@ -123,6 +123,9 @@ def serialize_punch_sessions(punch_row):
                 "repeat_reason": (s.repeat_reason or "").strip() or None,
                 "extended_hours_reason": (getattr(s, "extended_hours_reason", None) or "").strip()
                 or None,
+                "location_status": (getattr(s, "location_status", None) or "").strip() or None,
+                "location_status_in": (getattr(s, "location_status_in", None) or "").strip() or None,
+                "location_status_out": (getattr(s, "location_status_out", None) or "").strip() or None,
             }
         )
     return out

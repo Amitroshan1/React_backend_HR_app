@@ -19,6 +19,29 @@ import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
 const API_BASE_URL = "/api/auth";
 
+const TEN_HOURS_MS = 10 * 60 * 60 * 1000;
+/** Stored on PunchSession.extended_hours_reason for 10h auto punch-out */
+const AUTO_10H_CAP_REASON = "Auto punch-out after 10 hr cap";
+
+async function postPunchOutRequest(token, body) {
+  const response = await fetch(`${API_BASE_URL}/employee/punch-out`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let result = {};
+  try {
+    result = text ? JSON.parse(text) : {};
+  } catch (_) {
+    result = { message: `Server error (${response.status})` };
+  }
+  return { ok: response.ok, result };
+}
+
 const parsePunchInToDate = (val) => {
   if (!val) return null;
   try {
@@ -321,6 +344,12 @@ export const Dashboard = () => {
     const [repeatPunchReason, setRepeatPunchReason] = useState("");
     const [extendedHoursModalOpen, setExtendedHoursModalOpen] = useState(false);
     const [extendedHoursReason, setExtendedHoursReason] = useState("");
+    const punchDataRef = useRef({
+        sessions: [],
+        punch_in: null,
+        has_open_session: false,
+    });
+    const autoTenHourInFlightRef = useRef(false);
     const [newsFeed, setNewsFeed] = useState([]);
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
     const newsFeedListRef = useRef(null);
@@ -373,6 +402,19 @@ export const Dashboard = () => {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        punchDataRef.current = {
+            sessions: Array.isArray(dynamicData.punch.sessions)
+                ? dynamicData.punch.sessions
+                : [],
+            punch_in: dynamicData.punch.punch_in || null,
+            has_open_session:
+                dynamicData.punch.has_open_session ??
+                !!(dynamicData.punch.punch_in && !dynamicData.punch.punch_out),
+        };
+    }, [dynamicData.punch]);
+
     const fetchNewsFeed = async () => {
         const token = localStorage.getItem('token');
         if (!token) return;
@@ -507,6 +549,72 @@ export const Dashboard = () => {
         
         return () => clearInterval(locationInterval);
     }, []);
+
+    /** Auto punch-out when the open session exceeds 10 hours; requests GPS then saves via API. */
+    useEffect(() => {
+        if (loading) return;
+        const runCheck = () => {
+            if (autoTenHourInFlightRef.current) return;
+            const p = punchDataRef.current;
+            if (!p.has_open_session) return;
+            const openSeg = p.sessions.find((s) => s.is_open);
+            const cinStr = openSeg?.clock_in || p.punch_in;
+            if (!cinStr) return;
+            const raw = String(cinStr).trim();
+            const normalized =
+                raw.includes(" ") && !raw.includes("T") ? raw.replace(" ", "T") : raw;
+            const t0 = new Date(normalized).getTime();
+            if (!Number.isFinite(t0)) return;
+            if (Date.now() - t0 < TEN_HOURS_MS) return;
+
+            autoTenHourInFlightRef.current = true;
+            const token = localStorage.getItem("token");
+            if (!token) {
+                autoTenHourInFlightRef.current = false;
+                return;
+            }
+
+            const finish = async (lat, lon) => {
+                try {
+                    const body = {
+                        lat,
+                        lon,
+                        geo_reason: null,
+                        auto_system_punch_out: true,
+                        extended_hours_reason: AUTO_10H_CAP_REASON,
+                    };
+                    const { ok, result } = await postPunchOutRequest(token, body);
+                    if (ok && result.success) {
+                        setPunchInDateTime(null);
+                        await fetchDashboardData(false);
+                        alert(
+                            "Your open session exceeded 10 hours. You have been automatically punched out (location saved when GPS was available).",
+                        );
+                    } else if (result?.message) {
+                        console.warn("Auto punch-out failed:", result.message);
+                    }
+                } catch (e) {
+                    console.error("Auto punch-out error:", e);
+                } finally {
+                    autoTenHourInFlightRef.current = false;
+                }
+            };
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => finish(pos.coords.latitude, pos.coords.longitude),
+                    () => finish(null, null),
+                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+                );
+            } else {
+                finish(null, null);
+            }
+        };
+        const id = setInterval(runCheck, 30 * 1000);
+        runCheck();
+        return () => clearInterval(id);
+    }, [loading]);
+
     useEffect(() => {
         let timer;
         // Only start timer if punched in and NOT punched out
@@ -627,27 +735,13 @@ export const Dashboard = () => {
         const token = localStorage.getItem('token');
         const extTrim = (extendedHoursReasonParam || "").trim();
         try {
-            const response = await fetch(`${API_BASE_URL}/employee/punch-out`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    lat: location.lat,
-                    lon: location.lon,
-                    geo_reason: geoReason || null,
-                    ...(extTrim.length >= 3 ? { extended_hours_reason: extTrim } : {}),
-                })
+            const { ok, result } = await postPunchOutRequest(token, {
+                lat: location.lat,
+                lon: location.lon,
+                geo_reason: geoReason || null,
+                ...(extTrim.length >= 3 ? { extended_hours_reason: extTrim } : {}),
             });
-            const text = await response.text();
-            let result;
-            try {
-                result = text ? JSON.parse(text) : {};
-            } catch (_) {
-                throw new Error(`Server error (${response.status}). Check backend logs.`);
-            }
-            if (response.ok && result.success) {
+            if (ok && result.success) {
                 setPunchInDateTime(null);
                 const workHours = formatWorkingHours(result.today_work);
                 setDynamicData(prev => ({
