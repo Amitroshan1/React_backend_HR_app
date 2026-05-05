@@ -18,8 +18,21 @@ export function ManagerProfileCard({ profile, loading }) {
     return null;
   }
 
-  const { name, email, mobile, designation, current_address, scope, photo_url } = profile;
-  const scopeText = [scope?.emp_type, scope?.circle].filter(Boolean).join(" · ") || "—";
+  const { name, email, mobile, designation, current_address, scope, assigned_scopes, photo_url } = profile;
+  const normalizedAssignedScopes = Array.isArray(assigned_scopes)
+    ? assigned_scopes
+        .map((s) => ({
+          emp_type: (s?.emp_type || "").trim(),
+          circle: (s?.circle || "").trim(),
+        }))
+        .filter((s) => s.emp_type || s.circle)
+    : [];
+  const fallbackScope = [scope?.emp_type, scope?.circle].filter(Boolean).join(" · ");
+  const scopeText = normalizedAssignedScopes.length
+    ? normalizedAssignedScopes
+        .map((s) => [s.emp_type, s.circle].filter(Boolean).join(" · "))
+        .join(", ")
+    : (fallbackScope || "—");
   const defaultAvatarUrl = name
     ? `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2563eb&color=fff&size=120`
     : "https://ui-avatars.com/api/?name=Manager&background=2563eb&color=fff&size=120";

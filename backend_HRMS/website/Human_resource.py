@@ -2039,6 +2039,31 @@ def _serialize_leave_updation_row(row):
         "requested_deducted_days": _round_leave_value(getattr(row, "requested_deducted_days", 0.0)),
         "sandwich_pl_days": _round_leave_value(getattr(row, "sandwich_pl_days", 0.0)),
         "created_at": row.created_at.isoformat() if row.created_at else None,
+        "request_type": "leave",
+    }
+
+
+def _serialize_wfh_updation_row(row):
+    admin = row.admin
+    return {
+        "id": row.id,
+        "admin_id": row.admin_id,
+        "employee_name": admin.first_name if admin else None,
+        "employee_email": admin.email if admin else None,
+        "emp_id": admin.emp_id if admin else None,
+        "circle": admin.circle if admin else None,
+        "emp_type": admin.emp_type if admin else None,
+        "leave_type": "Work From Home",
+        "reason": row.reason,
+        "start_date": row.start_date.isoformat() if row.start_date else None,
+        "end_date": row.end_date.isoformat() if row.end_date else None,
+        "status": row.status,
+        "deducted_days": None,
+        "extra_days": None,
+        "requested_deducted_days": None,
+        "sandwich_pl_days": None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "request_type": "wfh",
     }
 
 
@@ -2209,15 +2234,41 @@ def list_leave_updation_requests():
     status = (request.args.get("status") or "all").strip().lower()
     circle = (request.args.get("circle") or "").strip()
     emp_type = (request.args.get("emp_type") or "").strip()
-    q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id)
-    if status != "all":
-        q = q.filter(db.func.lower(LeaveApplication.status) == status)
-    if circle:
-        q = q.filter(Admin.circle == circle)
-    if emp_type:
-        q = q.filter(Admin.emp_type == emp_type)
-    rows = q.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).limit(500).all()
-    return jsonify({"success": True, "requests": [_serialize_leave_updation_row(r) for r in rows]}), 200
+    request_type = (request.args.get("request_type") or "all").strip().lower()
+
+    rows_out = []
+
+    if request_type in ("all", "leave"):
+        q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id)
+        if status != "all":
+            q = q.filter(db.func.lower(LeaveApplication.status) == status)
+        if circle:
+            q = q.filter(Admin.circle == circle)
+        if emp_type:
+            q = q.filter(Admin.emp_type == emp_type)
+        leave_rows = q.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).limit(500).all()
+        rows_out.extend(_serialize_leave_updation_row(r) for r in leave_rows)
+
+    if request_type in ("all", "wfh"):
+        q_wfh = WorkFromHomeApplication.query.join(Admin, WorkFromHomeApplication.admin_id == Admin.id)
+        if status != "all":
+            q_wfh = q_wfh.filter(db.func.lower(WorkFromHomeApplication.status) == status)
+        if circle:
+            q_wfh = q_wfh.filter(Admin.circle == circle)
+        if emp_type:
+            q_wfh = q_wfh.filter(Admin.emp_type == emp_type)
+        wfh_rows = (
+            q_wfh.order_by(WorkFromHomeApplication.created_at.desc(), WorkFromHomeApplication.id.desc())
+            .limit(500)
+            .all()
+        )
+        rows_out.extend(_serialize_wfh_updation_row(r) for r in wfh_rows)
+
+    rows_out.sort(
+        key=lambda x: (x.get("created_at") or "", x.get("id") or 0),
+        reverse=True,
+    )
+    return jsonify({"success": True, "requests": rows_out[:500]}), 200
 
 
 @hr.route("/leave-updation/requests/<int:leave_id>", methods=["PATCH"])
@@ -2360,6 +2411,114 @@ def get_leave_updation_audit(leave_id):
         return jsonify({"success": False, "message": "Leave request not found"}), 404
 
     pattern = f"LEAVE_UPDATION|leave_id={leave_id}|%"
+    rows = (
+        AuditLog.query.filter(AuditLog.action.like(pattern))
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .all()
+    )
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "id": row.id,
+                "action": row.action,
+                "performed_by": row.performed_by,
+                "target_email": row.target_email,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+        )
+    return jsonify({"success": True, "audit": items}), 200
+
+
+@hr.route("/leave-updation/wfh-requests/<int:wfh_id>", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def update_wfh_application_by_hr(wfh_id):
+    wfh_obj = WorkFromHomeApplication.query.get(wfh_id)
+    if not wfh_obj:
+        return jsonify({"success": False, "message": "WFH request not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    next_status = (payload.get("status") or wfh_obj.status or "").strip().title()
+    if next_status not in {"Pending", "Approved", "Rejected"}:
+        return jsonify({"success": False, "message": "status must be Pending, Approved or Rejected"}), 400
+
+    next_start_date = wfh_obj.start_date
+    next_end_date = wfh_obj.end_date
+    if "start_date" in payload:
+        parsed, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        next_start_date = parsed
+    if "end_date" in payload:
+        parsed, err = _parse_leave_date_or_400(payload.get("end_date"), "end_date")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        next_end_date = parsed
+    if next_end_date < next_start_date:
+        return jsonify({"success": False, "message": "End date cannot be before start date."}), 400
+
+    old_data = {
+        "status": wfh_obj.status,
+        "start_date": wfh_obj.start_date.isoformat() if wfh_obj.start_date else None,
+        "end_date": wfh_obj.end_date.isoformat() if wfh_obj.end_date else None,
+        "reason": wfh_obj.reason or "",
+    }
+
+    wfh_obj.start_date = next_start_date
+    wfh_obj.end_date = next_end_date
+    wfh_obj.status = next_status
+    if "reason" in payload and str(payload.get("reason") or "").strip():
+        wfh_obj.reason = str(payload.get("reason")).strip()
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(exc) or "Failed to update WFH request"}), 500
+
+    try:
+        hr_email = (get_jwt() or {}).get("email") or "unknown"
+        compact_reason = str(wfh_obj.reason or "").replace("|", "/").replace("\n", " ").strip()
+        if len(compact_reason) > 120:
+            compact_reason = compact_reason[:117] + "..."
+        audit_action = (
+            f"WFH_UPDATION|wfh_id={wfh_obj.id}|"
+            f"status:{old_data.get('status')}->{wfh_obj.status}|"
+            f"dates:{old_data.get('start_date')}->{wfh_obj.start_date.isoformat()},"
+            f"{old_data.get('end_date')}->{wfh_obj.end_date.isoformat()}|"
+            f"reason:{compact_reason}"
+        )
+        db.session.add(
+            AuditLog(
+                action=audit_action,
+                performed_by=hr_email,
+                target_email=wfh_obj.admin.email if wfh_obj.admin else None,
+            )
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning("Failed to insert WFH updation audit log for wfh_id=%s", wfh_obj.id)
+
+    return jsonify(
+        {
+            "success": True,
+            "message": "WFH request updated successfully.",
+            "request": _serialize_wfh_updation_row(wfh_obj),
+        }
+    ), 200
+
+
+@hr.route("/leave-updation/wfh-requests/<int:wfh_id>/audit", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_wfh_updation_audit(wfh_id):
+    wfh_obj = WorkFromHomeApplication.query.get(wfh_id)
+    if not wfh_obj:
+        return jsonify({"success": False, "message": "WFH request not found"}), 404
+
+    pattern = f"WFH_UPDATION|wfh_id={wfh_id}|%"
     rows = (
         AuditLog.query.filter(AuditLog.action.like(pattern))
         .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())

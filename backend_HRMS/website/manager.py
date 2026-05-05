@@ -13,6 +13,7 @@ from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .models.probation import ProbationReview
+from .models.manager_model import ManagerContact
 from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
 from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_aggregate, serialize_punch_sessions
 
@@ -59,9 +60,7 @@ def _is_manager_for_target(approver_admin, target_admin):
     contact = _get_contact_for_target(target_admin)
     if not contact:
         return False
-    from .manager_utils import is_manager_in_contact, manager_scope_matches_contact
-    if not manager_scope_matches_contact(approver_admin, contact):
-        return False
+    from .manager_utils import is_manager_in_contact
     return is_manager_in_contact(contact, approver_admin)
 
 
@@ -220,6 +219,31 @@ def manager_profile():
     if not designation and (getattr(admin, "emp_type", None) or "").strip():
         designation = (admin.emp_type or "").strip()
 
+    # Assigned manager scopes from ManagerContact where current user is L1/L2/L3.
+    contacts = (
+        ManagerContact.query.filter(
+            or_(
+                ManagerContact.l1_admin_id == admin.id,
+                ManagerContact.l2_admin_id == admin.id,
+                ManagerContact.l3_admin_id == admin.id,
+            )
+        )
+        .order_by(ManagerContact.circle_name.asc(), ManagerContact.user_type.asc(), ManagerContact.id.asc())
+        .all()
+    )
+    assigned_scopes = []
+    seen_scope_keys = set()
+    for c in contacts:
+        circle = (getattr(c, "circle_name", None) or "").strip()
+        emp_type = (getattr(c, "user_type", None) or "").strip()
+        if not circle and not emp_type:
+            continue
+        key = (circle.lower(), emp_type.lower())
+        if key in seen_scope_keys:
+            continue
+        seen_scope_keys.add(key)
+        assigned_scopes.append({"circle": circle or None, "emp_type": emp_type or None})
+
     return jsonify({
         "success": True,
         "profile": {
@@ -232,6 +256,7 @@ def manager_profile():
                 "circle": getattr(admin, "circle", None),
                 "emp_type": getattr(admin, "emp_type", None),
             },
+            "assigned_scopes": assigned_scopes,
             "photo_url": photo_url,
         },
     }), 200

@@ -172,7 +172,10 @@ def user_has_manager_access(admin):
     ).all()
     if not rows:
         return False
-    return any(manager_scope_matches_contact(admin, r) for r in rows)
+    # Manager panel access is assignment-based: if user is linked as L1/L2/L3 in any
+    # ManagerContact row, grant manager access. Per-employee authorization still uses
+    # resolve_manager_contact_for_employee + is_manager_in_contact.
+    return True
 
 
 def manager_can_view_nhq_engineering_team_attendance(manager_admin):

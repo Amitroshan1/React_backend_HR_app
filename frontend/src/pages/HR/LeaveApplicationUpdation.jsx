@@ -5,6 +5,11 @@ import "./LeaveApplicationUpdation.css";
 const API_BASE = "/api/HumanResource";
 
 const STATUS_OPTIONS = ["All", "Pending", "Approved", "Rejected"];
+const REQUEST_TYPE_OPTIONS = [
+  { value: "all", label: "All (Leave + WFH)" },
+  { value: "leave", label: "Leave Only" },
+  { value: "wfh", label: "WFH Only" },
+];
 const LEAVE_TYPES = [
   "Privilege Leave",
   "Casual Leave",
@@ -66,6 +71,7 @@ const parseAuditAction = (actionText) => {
 
 export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOptions = [] }) => {
   const [filters, setFilters] = useState({
+    request_type: "all",
     status: "All",
     emp_type: empTypeOptions[0] || "",
     circle: circleOptions[0] || "",
@@ -91,6 +97,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     setError("");
     try {
       const params = new URLSearchParams();
+      if (filters.request_type) params.set("request_type", filters.request_type);
       if (filters.status && filters.status !== "All") params.set("status", filters.status.toLowerCase());
       if (filters.emp_type) params.set("emp_type", filters.emp_type);
       if (filters.circle) params.set("circle", filters.circle);
@@ -99,7 +106,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to fetch leave requests");
+        throw new Error(data.message || "Failed to fetch requests");
       }
       setRows(data.requests || []);
     } catch (err) {
@@ -108,7 +115,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     } finally {
       setLoading(false);
     }
-  }, [filters.status, filters.emp_type, filters.circle]);
+  }, [filters.request_type, filters.status, filters.emp_type, filters.circle]);
 
   useEffect(() => {
     fetchRows();
@@ -126,7 +133,11 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     });
     setAuditRows([]);
     setAuditLoading(true);
-    fetch(`${API_BASE}/leave-updation/requests/${row.id}/audit`, {
+    const isWfh = String(row.request_type || "").toLowerCase() === "wfh";
+    const auditUrl = isWfh
+      ? `${API_BASE}/leave-updation/wfh-requests/${row.id}/audit`
+      : `${API_BASE}/leave-updation/requests/${row.id}/audit`;
+    fetch(auditUrl, {
       headers: getAuthHeaders(),
     })
       .then((res) => res.json().catch(() => ({})))
@@ -148,16 +159,30 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     setError("");
     setSuccessMessage("");
     try {
-      const res = await fetch(`${API_BASE}/leave-updation/requests/${editRow.id}`, {
+      const isWfh = String(editRow.request_type || "").toLowerCase() === "wfh";
+      const editUrl = isWfh
+        ? `${API_BASE}/leave-updation/wfh-requests/${editRow.id}`
+        : `${API_BASE}/leave-updation/requests/${editRow.id}`;
+      const payload = isWfh
+        ? {
+            start_date: form.start_date,
+            end_date: form.end_date,
+            status: form.status,
+            reason: form.reason,
+          }
+        : form;
+      const res = await fetch(editUrl, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to update leave application");
+        throw new Error(data.message || "Failed to update request");
       }
-      setSuccessMessage("Leave request updated successfully.");
+      setSuccessMessage(
+        isWfh ? "WFH request updated successfully." : "Leave request updated successfully."
+      );
       closeEditor();
       await fetchRows();
     } catch (err) {
@@ -182,11 +207,22 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
           <ArrowLeft size={16} /> Back to Updates
         </button>
         <div className="lau-header-card">
-          <h2>Leave Application Updation</h2>
-          <p>HR can update leave dates/type/status and balances will auto-adjust (including reversals).</p>
+          <h2>Leave/WFH Application Updation</h2>
+          <p>HR can update Leave/WFH dates, reason, and status (leave balances auto-adjust including reversals).</p>
         </div>
 
         <div className="lau-filters">
+          <div>
+            <label>Request Type</label>
+            <select
+              value={filters.request_type}
+              onChange={(e) => setFilters((p) => ({ ...p, request_type: e.target.value }))}
+            >
+              {REQUEST_TYPE_OPTIONS.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <label>Status</label>
             <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}>
@@ -248,11 +284,11 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
                     <div className="lau-emp-name">{row.employee_name || "-"}</div>
                     <small>{row.emp_id || "-"} • {row.circle || "-"}</small>
                   </td>
-                  <td>{row.leave_type}</td>
+                  <td>{row.leave_type || (String(row.request_type).toLowerCase() === "wfh" ? "Work From Home" : "-")}</td>
                   <td>{row.start_date} to {row.end_date}</td>
                   <td><span className={`lau-status ${String(row.status).toLowerCase()}`}>{row.status}</span></td>
-                  <td>{row.deducted_days}</td>
-                  <td>{row.extra_days}</td>
+                  <td>{row.deducted_days == null ? "-" : row.deducted_days}</td>
+                  <td>{row.extra_days == null ? "-" : row.extra_days}</td>
                   <td>
                     <button type="button" className="lau-edit-btn" onClick={() => openEditor(row)}>
                       <Edit3 size={14} /> Update
@@ -262,7 +298,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
               ))}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="lau-empty">No leave requests found for selected filters.</td>
+                  <td colSpan={7} className="lau-empty">No requests found for selected filters.</td>
                 </tr>
               )}
             </tbody>
@@ -273,15 +309,17 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
       {editRow && (
         <div className="lau-modal-backdrop" onClick={closeEditor}>
           <div className="lau-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Update Leave #{editRow.id}</h3>
+            <h3>{String(editRow.request_type || "").toLowerCase() === "wfh" ? `Update WFH #${editRow.id}` : `Update Leave #${editRow.id}`}</h3>
             <form onSubmit={handleSave}>
               <div className="lau-grid">
-                <div>
-                  <label>Leave Type</label>
-                  <select value={form.leave_type} onChange={(e) => setForm((p) => ({ ...p, leave_type: e.target.value }))}>
-                    {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
+                {String(editRow.request_type || "").toLowerCase() !== "wfh" && (
+                  <div>
+                    <label>Leave Type</label>
+                    <select value={form.leave_type} onChange={(e) => setForm((p) => ({ ...p, leave_type: e.target.value }))}>
+                      {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label>Status</label>
                   <select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}>
