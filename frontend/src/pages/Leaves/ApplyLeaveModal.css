@@ -7,9 +7,9 @@
     background-color: rgba(0, 0, 0, 0.5); 
     display: flex;
     justify-content: center;
-    align-items: center;
-    z-index: 9999; 
-    padding: 24px;
+    align-items: flex-start;
+    z-index: 2147483647; 
+    padding: 84px 24px 24px;
     overflow-y: auto;
 }
 
@@ -25,6 +25,8 @@
     transition: transform 0.3s ease-out;
     transform: scale(1);
     margin: 0;
+    position: relative;
+    z-index: 2147483647;
 }
 
 /* --- HEADER AND TEXT (Unchanged) --- */
@@ -439,6 +441,13 @@
     .button {
         padding: 10px 12px;
         font-size: 14px;
+    }
+}
+
+/* Keep enough top gap below fixed app header on desktop/tablet */
+@media (min-width: 601px) {
+    .modal-overlay {
+        padding-top: 96px;
     }
 }
 
