@@ -7,9 +7,10 @@
     background-color: rgba(0, 0, 0, 0.5); 
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     z-index: 1000; 
     padding: 20px;
+    overflow-y: auto;
 }
 
 .modal-content {
@@ -23,6 +24,7 @@
     padding: 25px;
     transition: transform 0.3s ease-out;
     transform: scale(1);
+    margin: auto 0;
 }
 
 /* --- HEADER AND TEXT (Unchanged) --- */
