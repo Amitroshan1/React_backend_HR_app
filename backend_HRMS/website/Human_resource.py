@@ -2792,7 +2792,7 @@ def create_assessment_invite():
         )
 
     base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
-    link = f"{base_url}/assessment/{raw_token}"
+    link = f"{base_url}/assessment?t={raw_token}"
     return jsonify(
         {
             "success": True,

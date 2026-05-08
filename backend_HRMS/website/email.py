@@ -2237,7 +2237,7 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
     """Send candidate assessment link mail (tokenized URL)."""
     try:
         base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
-        assessment_url = f"{base_url}/assessment/{token}"
+        assessment_url = f"{base_url}/assessment?t={token}"
         sender_email = (
             current_app.config.get("ZEPTO_SENDER_EMAIL")
             or current_app.config.get("EMAIL_HR")

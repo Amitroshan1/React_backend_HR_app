@@ -80,6 +80,10 @@ export const App = () => {
       element: <AssessmentTestPublic />,
     },
     {
+      path: "/assessment",
+      element: <AssessmentTestPublic />,
+    },
+    {
       path: "/",
       element: <AppLayout />,
       children: [

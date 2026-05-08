@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./AssessmentTestPublic.css";
 
 const API_BASE = "/api/HumanResource/assessment/public";
@@ -14,7 +14,9 @@ const parseApiUtcMs = (value) => {
 };
 
 export default function AssessmentTestPublic() {
-  const { token } = useParams();
+  const { token: tokenParam } = useParams();
+  const [searchParams] = useSearchParams();
+  const token = (tokenParam || searchParams.get("t") || "").trim();
   const navigate = useNavigate();
   const [invite, setInvite] = useState(null);
   const [questions, setQuestions] = useState(null);
