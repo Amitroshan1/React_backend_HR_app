@@ -2889,6 +2889,7 @@ def get_assessment_invite_detail(invite_id):
                 "manual_score": invite.manual_score,
                 "total_score": invite.total_score,
                 "avg_score": invite.avg_score,
+                "questions": _assessment_questions_payload(),
             },
         }
     ), 200

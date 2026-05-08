@@ -152,33 +152,110 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const objectiveMax = sec1Qs.length + sec2ObjectiveQs.length + sec3Qs.length;
   const overallMax = objectiveMax + sec2ManualQs.length;
 
+  const getObjectiveQuestionsByNumbers = (questionNumbers) => {
+    const sections = selected?.questions || {};
+    const all = [...(sections.section_1 || []), ...(sections.section_2 || []), ...(sections.section_3 || [])];
+    const wanted = new Set(questionNumbers.map((n) => Number(n)));
+    return all.filter((q) => wanted.has(Number(q.number)));
+  };
+
   const renderObjectiveSection = (questionNumbers, title) => (
     <div style={{ marginTop: 14 }}>
       <h4 style={{ margin: "0 0 8px" }}>{title}</h4>
       <div style={{ maxHeight: 190, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
-        {questionNumbers.map((q) => {
-          const b = (selected?.auto_breakdown || {})[String(q)] || {};
-          const given = b.given == null ? "-" : String(b.given);
-          const expected = b.expected == null ? "-" : String(b.expected);
+        {getObjectiveQuestionsByNumbers(questionNumbers).map((q) => {
+          const qNo = Number(q.number);
+          const b = (selected?.auto_breakdown || {})[String(qNo)] || {};
+          const optionList = Array.isArray(q.options) ? q.options : [];
+          const givenIdx = b.given == null ? null : Number(b.given);
+          const expectedVal = b.expected;
+          const expectedIdx = typeof expectedVal === "number" ? expectedVal : Number(expectedVal);
+          const givenText = givenIdx && optionList[givenIdx - 1] ? `${givenIdx}. ${optionList[givenIdx - 1]}` : (b.given == null ? "-" : String(b.given));
+          const expectedText =
+            expectedVal === "Any selected option"
+              ? "Any selected option"
+              : (expectedIdx && optionList[expectedIdx - 1] ? `${expectedIdx}. ${optionList[expectedIdx - 1]}` : (expectedVal == null ? "-" : String(expectedVal)));
           const correct = !!b.correct;
           return (
             <div
-              key={q}
+              key={qNo}
               style={{
                 display: "grid",
-                gridTemplateColumns: "80px 1fr 1fr 90px",
-                gap: 8,
-                alignItems: "center",
-                padding: "6px 4px",
+                gridTemplateColumns: "1fr 260px",
+                gap: 10,
+                alignItems: "start",
+                padding: "10px 8px",
                 borderBottom: "1px solid #f1f5f9",
+                background: "#fff",
+                borderRadius: 8,
+                marginBottom: 8,
               }}
             >
-              <strong>Q{q}</strong>
-              <span>Given: {given}</span>
-              <span>Expected: {expected}</span>
-              <span style={{ color: correct ? "#15803d" : "#b91c1c", fontWeight: 700 }}>
-                {correct ? "Correct" : "Wrong"}
-              </span>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Q{qNo}. {q.question}</div>
+                {optionList.length > 0 && (
+                  <div style={{ color: "#475569", fontSize: 13 }}>
+                    {optionList.map((opt, idx) => {
+                      const optNo = idx + 1;
+                      const isChosen = givenIdx === optNo;
+                      const isExpected =
+                        expectedVal !== "Any selected option" && expectedIdx === optNo;
+                      const chosenCorrect = isChosen && correct;
+                      const chosenWrong = isChosen && !correct;
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            marginBottom: 3,
+                            padding: "2px 6px",
+                            borderRadius: 6,
+                            border: isChosen ? "1px solid" : "1px solid transparent",
+                            borderColor: chosenCorrect
+                              ? "#86efac"
+                              : chosenWrong
+                                ? "#fca5a5"
+                                : isExpected
+                                  ? "#bfdbfe"
+                                  : "transparent",
+                            background: chosenCorrect
+                              ? "#f0fdf4"
+                              : chosenWrong
+                                ? "#fef2f2"
+                                : isExpected
+                                  ? "#eff6ff"
+                                  : "transparent",
+                            color: chosenCorrect
+                              ? "#166534"
+                              : chosenWrong
+                                ? "#b91c1c"
+                                : "#475569",
+                            fontWeight: isChosen ? 700 : 500,
+                          }}
+                        >
+                          {optNo}. {opt}
+                          {isChosen ? (chosenCorrect ? "  (Chosen - Correct)" : "  (Chosen)") : ""}
+                          {!isChosen && isExpected ? "  (Expected)" : ""}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div
+                style={{
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                  background: "#f8fafc",
+                  fontSize: 13,
+                }}
+              >
+                <div><strong>Expected:</strong> {expectedText}</div>
+                <div style={{ marginTop: 4 }}><strong>Chosen:</strong> {givenText}</div>
+                <div style={{ marginTop: 6, fontWeight: 700, color: correct ? "#15803d" : "#b91c1c" }}>
+                  {correct ? "Correct" : "Wrong"}
+                </div>
+              </div>
             </div>
           );
         })}
