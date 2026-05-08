@@ -292,6 +292,75 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     );
   };
 
+  if (selected) {
+    return (
+      <div className="hr-main-container" style={{ maxWidth: 1200, margin: "0 auto" }}>
+        <button className="btn-back-updates" onClick={() => setSelected(null)}>
+          <ArrowLeft size={16} /> Back to Invite List
+        </button>
+        <h2 style={{ marginTop: 8 }}>Review Submission</h2>
+        <p style={{ color: "#64748b", marginBottom: 10 }}>
+          {selected.full_name} ({selected.candidate_email})
+        </p>
+        <p>
+          Status: {selected.status} | Submitted:{" "}
+          {selected.submitted_at ? new Date(selected.submitted_at).toLocaleString() : "-"}
+        </p>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, minmax(140px, 1fr))",
+            gap: 10,
+            background: "#f8fafc",
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 10,
+          }}
+        >
+          <div><strong>Objective Score</strong><br />{selected.auto_score ?? 0} / {objectiveMax}</div>
+          <div><strong>Manual Score (draft)</strong><br />{manualDraftTotal.toFixed(2)} / {sec2ManualQs.length}</div>
+          <div><strong>Current Total</strong><br />{selected.total_score ?? 0} / {overallMax}</div>
+          <div><strong>Current Avg %</strong><br />{selected.avg_score ?? 0}%</div>
+        </div>
+
+        {renderObjectiveSection(sec1Qs, "Section 1 (Q1-Q25) Auto Analysis")}
+        {renderObjectiveSection(sec2ObjectiveQs, "Section 2A (Q26-Q33) Auto Analysis")}
+        {renderObjectiveSection(sec3Qs, "Section 3 (Q63-Q87) Auto Analysis")}
+
+        <h4 style={{ marginTop: 16, marginBottom: 8 }}>Section 2B (Q34-Q62) Manual Marks</h4>
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 8, background: "#fff" }}>
+          {sec2ManualQs.map((q) => (
+            <div key={q} style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 10, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>Q{q}</div>
+                <textarea rows={2} value={String((selected.answers || {})[String(q)] || "")} readOnly />
+              </div>
+              <div>
+                <label>Marks</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={marks[String(q)] ?? ""}
+                  onChange={(e) => setMarks((p) => ({ ...p, [String(q)]: e.target.value }))}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="lau-modal-actions" style={{ marginTop: 12 }}>
+          <button className="lau-cancel" onClick={() => setSelected(null)}>Back</button>
+          <button className="lau-save" disabled={evaluating} onClick={handleEvaluate}>
+            {evaluating ? "Saving..." : "Submit Evaluation"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="hr-main-container" style={{ maxWidth: 1200, margin: "0 auto" }}>
       <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Updates</button>
@@ -399,66 +468,6 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
         </table>
       </div>
 
-      {selected && (
-        <div className="lau-modal-backdrop" onClick={() => setSelected(null)}>
-          <div className="lau-modal" style={{ maxWidth: 980 }} onClick={(e) => e.stopPropagation()}>
-            <h3>Evaluate: {selected.full_name} ({selected.candidate_email})</h3>
-            <p>
-              Status: {selected.status} | Submitted:{" "}
-              {selected.submitted_at ? new Date(selected.submitted_at).toLocaleString() : "-"}
-            </p>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, minmax(140px, 1fr))",
-                gap: 10,
-                background: "#f8fafc",
-                border: "1px solid #e5e7eb",
-                borderRadius: 8,
-                padding: 10,
-                marginBottom: 10,
-              }}
-            >
-              <div><strong>Objective Score</strong><br />{selected.auto_score ?? 0} / {objectiveMax}</div>
-              <div><strong>Manual Score (draft)</strong><br />{manualDraftTotal.toFixed(2)} / {sec2ManualQs.length}</div>
-              <div><strong>Current Total</strong><br />{selected.total_score ?? 0} / {overallMax}</div>
-              <div><strong>Current Avg %</strong><br />{selected.avg_score ?? 0}%</div>
-            </div>
-
-            {renderObjectiveSection(sec1Qs, "Section 1 (Q1-Q25) Auto Analysis")}
-            {renderObjectiveSection(sec2ObjectiveQs, "Section 2A (Q26-Q33) Auto Analysis")}
-            {renderObjectiveSection(sec3Qs, "Section 3 (Q63-Q87) Auto Analysis")}
-
-            <h4 style={{ marginTop: 16, marginBottom: 8 }}>Section 2B (Q34-Q62) Manual Marks</h4>
-            <div style={{ maxHeight: 320, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
-              {sec2ManualQs.map((q) => (
-                <div key={q} style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 10, marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>Q{q}</div>
-                    <textarea rows={2} value={String((selected.answers || {})[String(q)] || "")} readOnly />
-                  </div>
-                  <div>
-                    <label>Marks</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={marks[String(q)] ?? ""}
-                      onChange={(e) => setMarks((p) => ({ ...p, [String(q)]: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="lau-modal-actions">
-              <button className="lau-cancel" onClick={() => setSelected(null)}>Close</button>
-              <button className="lau-save" disabled={evaluating} onClick={handleEvaluate}>
-                {evaluating ? "Saving..." : "Submit Evaluation"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
