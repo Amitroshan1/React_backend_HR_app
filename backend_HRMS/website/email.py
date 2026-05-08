@@ -2233,7 +2233,7 @@ def send_password_reset_email(admin, reset_token):
         return False
 
 
-def send_assessment_invite_email(*, to_email, candidate_name, department, token, valid_hours=24):
+def send_assessment_invite_email(*, to_email, candidate_name, department, token, valid_hours=24, cc_emails=None):
     """Send candidate assessment link mail (tokenized URL)."""
     try:
         base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
@@ -2251,12 +2251,39 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
         <p>This link is valid for <strong>{int(valid_hours)}</strong> hours and one attempt only.</p>
         <p>Regards,<br><strong>HR Team</strong></p>
         """
+        cc_candidates = []
+        configured_hr = (
+            current_app.config.get("ZEPTO_CC_HR")
+            or current_app.config.get("EMAIL_HR")
+            or ""
+        ).strip()
+        if configured_hr:
+            for part in configured_hr.replace(";", ",").split(","):
+                addr = (part or "").strip()
+                if addr and "@" in addr:
+                    cc_candidates.append(addr)
+
+        for addr in (cc_emails or []):
+            mail = (addr or "").strip()
+            if mail and "@" in mail:
+                cc_candidates.append(mail)
+
+        seen = set()
+        deduped_cc = []
+        to_lower = (to_email or "").strip().lower()
+        for addr in cc_candidates:
+            key = addr.lower()
+            if not key or key == to_lower or key in seen:
+                continue
+            seen.add(key)
+            deduped_cc.append(addr)
+
         ok, _msg = send_email_via_zeptomail(
             sender_email=sender_email,
             subject=subject,
             body=body,
             recipient_email=(to_email or "").strip(),
-            cc_emails=None,
+            cc_emails=deduped_cc or None,
         )
         return ok
     except Exception as e:

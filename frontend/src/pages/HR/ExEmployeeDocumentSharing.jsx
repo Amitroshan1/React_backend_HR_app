@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Mail, Plus, Trash2, Send } from 'lucide-react';
 import './ExEmployeeDocumentSharing.css';
 
@@ -13,6 +13,11 @@ export function ExEmployeeDocumentSharing({ onBack }) {
   const [rows, setRows] = useState([newRow()]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [historyRows, setHistoryRows] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historyStatus, setHistoryStatus] = useState('all');
+  const [historyQuery, setHistoryQuery] = useState('');
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
@@ -86,6 +91,7 @@ export function ExEmployeeDocumentSharing({ onBack }) {
         });
         setRecipientEmail('');
         setRows([newRow()]);
+        await loadHistory();
       } else {
         setMessage({
           type: 'error',
@@ -98,6 +104,45 @@ export function ExEmployeeDocumentSharing({ onBack }) {
       setSubmitting(false);
     }
   };
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError('');
+    try {
+      const res = await fetch(`${HR_API_BASE}/ex-employee-documents/history?limit=100`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Could not load history.');
+      }
+      setHistoryRows(Array.isArray(data.history) ? data.history : []);
+    } catch (err) {
+      setHistoryRows([]);
+      setHistoryError(err.message || 'Could not load history.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [getAuthHeaders]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const filteredHistoryRows = useMemo(() => {
+    const q = historyQuery.trim().toLowerCase();
+    return historyRows.filter((row) => {
+      const matchesStatus =
+        historyStatus === 'all'
+          ? true
+          : historyStatus === 'active'
+            ? !row.is_expired
+            : !!row.is_expired;
+      if (!matchesStatus) return false;
+      if (!q) return true;
+      return String(row.recipient_email || '').toLowerCase().includes(q);
+    });
+  }, [historyRows, historyStatus, historyQuery]);
 
   return (
     <div className="ex-doc-share">
@@ -189,6 +234,102 @@ export function ExEmployeeDocumentSharing({ onBack }) {
             {submitting ? 'Sending…' : 'Send email with link'}
           </button>
         </form>
+      </div>
+
+      <div className="ex-doc-share__history-card">
+        <div className="ex-doc-share__history-head">
+          <h2 className="ex-doc-share__history-title">Shared History</h2>
+          <button
+            type="button"
+            className="ex-doc-share__history-refresh"
+            onClick={loadHistory}
+            disabled={historyLoading}
+          >
+            {historyLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        <div className="ex-doc-share__history-filters">
+          <label>
+            Status
+            <select
+              value={historyStatus}
+              onChange={(e) => setHistoryStatus(e.target.value)}
+              className="ex-doc-share__history-select"
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+            </select>
+          </label>
+          <label>
+            Recipient search
+            <input
+              type="text"
+              value={historyQuery}
+              onChange={(e) => setHistoryQuery(e.target.value)}
+              className="ex-doc-share__history-search"
+              placeholder="Search by recipient email"
+            />
+          </label>
+        </div>
+
+        {historyError && (
+          <div className="ex-doc-share__msg ex-doc-share__msg--error" role="alert">
+            {historyError}
+          </div>
+        )}
+
+        {!historyError && historyLoading && (
+          <p className="ex-doc-share__history-muted">Loading shared history…</p>
+        )}
+
+        {!historyError && !historyLoading && historyRows.length === 0 && (
+          <p className="ex-doc-share__history-muted">No document links shared yet.</p>
+        )}
+
+        {!historyError && !historyLoading && historyRows.length > 0 && filteredHistoryRows.length === 0 && (
+          <p className="ex-doc-share__history-muted">No history rows match your filter/search.</p>
+        )}
+
+        {!historyError && !historyLoading && filteredHistoryRows.length > 0 && (
+          <div className="ex-doc-share__history-table-wrap">
+            <table className="ex-doc-share__history-table">
+              <thead>
+                <tr>
+                  <th>Recipient</th>
+                  <th>Documents</th>
+                  <th>Shared At</th>
+                  <th>Expires At</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredHistoryRows.map((h) => (
+                  <tr key={h.share_id}>
+                    <td>{h.recipient_email || '-'}</td>
+                    <td>
+                      <div className="ex-doc-share__history-docs">
+                        {(h.documents || []).map((d) => (
+                          <span key={d.id} className="ex-doc-share__history-chip">
+                            {d.display_name}
+                          </span>
+                        ))}
+                        {(!h.documents || h.documents.length === 0) && '-'}
+                      </div>
+                    </td>
+                    <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '-'}</td>
+                    <td>{h.expires_at ? new Date(h.expires_at).toLocaleString() : '-'}</td>
+                    <td>
+                      <span className={`ex-doc-share__status ${h.is_expired ? 'expired' : 'active'}`}>
+                        {h.is_expired ? 'Expired' : 'Active'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

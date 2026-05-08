@@ -2778,6 +2778,11 @@ def create_assessment_invite():
         department=department,
         token=raw_token,
         valid_hours=ASSESSMENT_LINK_TTL_HOURS,
+        cc_emails=[
+            (get_jwt() or {}).get("email"),
+            current_app.config.get("ZEPTO_CC_HR"),
+            current_app.config.get("EMAIL_HR"),
+        ],
     )
     if not mail_ok:
         current_app.logger.warning("Assessment invite email send failed for %s", candidate_email)
@@ -2787,7 +2792,12 @@ def create_assessment_invite():
     return jsonify(
         {
             "success": True,
-            "message": "Assessment link sent successfully.",
+            "message": (
+                "Assessment link sent successfully."
+                if mail_ok
+                else "Invite created, but email delivery failed. Please verify recipient/SMTP and retry."
+            ),
+            "email_sent": bool(mail_ok),
             "invite": {
                 "id": invite.id,
                 "full_name": invite.full_name,
@@ -2877,6 +2887,31 @@ def get_assessment_invite_detail(invite_id):
             },
         }
     ), 200
+
+
+@hr.route("/assessment/invites/<int:invite_id>", methods=["DELETE"])
+@jwt_required()
+@hr_required
+def delete_assessment_invite(invite_id):
+    invite = AssessmentInvite.query.get(invite_id)
+    if not invite:
+        return jsonify({"success": False, "message": "Invite not found"}), 404
+
+    selfie_path = (invite.selfie_path or "").strip()
+    if selfie_path:
+        try:
+            uploads_root = current_app.config.get("UPLOAD_FOLDER")
+            if not uploads_root:
+                uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+            abs_selfie = os.path.join(uploads_root, selfie_path.replace("/", os.sep))
+            if os.path.isfile(abs_selfie):
+                os.remove(abs_selfie)
+        except Exception as e:
+            current_app.logger.warning("Failed to remove assessment selfie for invite %s: %s", invite_id, e)
+
+    db.session.delete(invite)
+    db.session.commit()
+    return jsonify({"success": True, "message": "Assessment invite deleted successfully."}), 200
 
 
 @hr.route("/assessment/invites/<int:invite_id>/evaluate", methods=["POST"])
@@ -3989,4 +4024,43 @@ def ex_employee_documents_public_download(token, file_id):
         as_attachment=True,
         download_name=doc_file.display_name,
     )
+
+
+@hr.route("/ex-employee-documents/history", methods=["GET"])
+@jwt_required()
+@hr_required
+def ex_employee_documents_history():
+    limit_raw = request.args.get("limit", 100)
+    try:
+        limit = int(limit_raw)
+    except (TypeError, ValueError):
+        limit = 100
+    if limit < 1:
+        limit = 1
+    if limit > 500:
+        limit = 500
+
+    now = datetime.utcnow()
+    shares = (
+        ExEmployeeDocShare.query.order_by(ExEmployeeDocShare.created_at.desc(), ExEmployeeDocShare.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    items = []
+    for share in shares:
+        files = sorted(share.files or [], key=lambda f: f.id)
+        items.append(
+            {
+                "share_id": share.id,
+                "recipient_email": share.recipient_email,
+                "created_at": share.created_at.isoformat() + "Z" if share.created_at else None,
+                "expires_at": share.expires_at.isoformat() + "Z" if share.expires_at else None,
+                "is_expired": bool(share.expires_at and now > share.expires_at),
+                "document_count": len(files),
+                "documents": [{"id": f.id, "display_name": f.display_name} for f in files],
+            }
+        )
+
+    return jsonify({"success": True, "history": items}), 200
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 
 const HR_API_BASE = "/api/HumanResource";
 
@@ -21,6 +21,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("success");
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
   const [marks, setMarks] = useState({});
@@ -49,6 +50,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     e.preventDefault();
     setError("");
     setMessage("");
+    setMessageType("success");
     setSubmitting(true);
     try {
       const res = await fetch(`${HR_API_BASE}/assessment/invite`, {
@@ -58,7 +60,9 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to send invite");
-      setMessage("Assessment invite sent successfully.");
+      const mailSent = data.email_sent !== false;
+      setMessage(data.message || (mailSent ? "Assessment invite sent successfully." : "Invite created, but email delivery failed."));
+      setMessageType(mailSent ? "success" : "warning");
       setForm((p) => ({ ...p, full_name: "", email: "" }));
       await fetchRows();
     } catch (e2) {
@@ -87,6 +91,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     if (!selected?.id) return;
     setEvaluating(true);
     setError("");
+    setMessageType("success");
     try {
       const res = await fetch(`${HR_API_BASE}/assessment/invites/${selected.id}/evaluate`, {
         method: "POST",
@@ -102,6 +107,30 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
       setError(e.message || "Failed to evaluate");
     } finally {
       setEvaluating(false);
+    }
+  };
+
+  const handleDeleteInvite = async (inviteRow) => {
+    if (!inviteRow?.id) return;
+    const ok = window.confirm(`Delete invite for ${inviteRow.full_name || "candidate"}? This cannot be undone.`);
+    if (!ok) return;
+    setError("");
+    setMessage("");
+    setMessageType("success");
+    try {
+      const res = await fetch(`${HR_API_BASE}/assessment/invites/${inviteRow.id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to delete invite");
+      setMessage(data.message || "Invite deleted.");
+      if (selected?.id === inviteRow.id) {
+        setSelected(null);
+      }
+      await fetchRows();
+    } catch (e) {
+      setError(e.message || "Failed to delete invite");
     }
   };
 
@@ -215,7 +244,25 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
         <button className="btn-create-account" disabled={submitting}>{submitting ? "Sending..." : "Send Link"}</button>
       </form>
 
-      {message && <div className="lau-success" style={{ marginTop: 10 }}>{message}</div>}
+      {message && (
+        <div
+          className={messageType === "warning" ? "" : "lau-success"}
+          style={
+            messageType === "warning"
+              ? {
+                  marginTop: 10,
+                  background: "#fffbeb",
+                  color: "#92400e",
+                  border: "1px solid #fcd34d",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                }
+              : { marginTop: 10 }
+          }
+        >
+          {message}
+        </div>
+      )}
       {error && <div className="lau-error" style={{ marginTop: 10 }}>{error}</div>}
 
       <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, overflow: "auto" }}>
@@ -243,14 +290,25 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 <td>{r.total_score ?? "-"}</td>
                 <td>{r.avg_score ?? "-"}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="lau-edit-btn"
-                    onClick={() => openSubmission(r.id)}
-                    disabled={r.status !== "submitted"}
-                  >
-                    Review
-                  </button>
+                  <div style={{ display: "inline-flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      className="lau-edit-btn"
+                      onClick={() => openSubmission(r.id)}
+                      disabled={r.status !== "submitted"}
+                    >
+                      Review
+                    </button>
+                    <button
+                      type="button"
+                      className="lau-edit-btn"
+                      onClick={() => handleDeleteInvite(r)}
+                      title="Delete invite"
+                      style={{ color: "#b91c1c" }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
