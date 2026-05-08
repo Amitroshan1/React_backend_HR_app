@@ -2772,7 +2772,7 @@ def create_assessment_invite():
     db.session.add(invite)
     db.session.commit()
 
-    mail_ok = send_assessment_invite_email(
+    mail_ok, provider_msg = send_assessment_invite_email(
         to_email=candidate_email,
         candidate_name=full_name,
         department=department,
@@ -2785,7 +2785,11 @@ def create_assessment_invite():
         ],
     )
     if not mail_ok:
-        current_app.logger.warning("Assessment invite email send failed for %s", candidate_email)
+        current_app.logger.warning(
+            "Assessment invite email send failed for %s. Provider response: %s",
+            candidate_email,
+            provider_msg,
+        )
 
     base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
     link = f"{base_url}/assessment/{raw_token}"
@@ -2798,6 +2802,7 @@ def create_assessment_invite():
                 else "Invite created, but email delivery failed. Please verify recipient/SMTP and retry."
             ),
             "email_sent": bool(mail_ok),
+            "email_provider_message": provider_msg or "",
             "invite": {
                 "id": invite.id,
                 "full_name": invite.full_name,

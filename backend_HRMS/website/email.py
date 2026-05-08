@@ -2239,8 +2239,8 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
         base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
         assessment_url = f"{base_url}/assessment/{token}"
         sender_email = (
-            current_app.config.get("EMAIL_HR")
-            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+            current_app.config.get("ZEPTO_SENDER_EMAIL")
+            or current_app.config.get("EMAIL_HR")
         )
         subject = "Assessment Test Link (Valid for 24 hours)"
         body = f"""
@@ -2278,17 +2278,17 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
             seen.add(key)
             deduped_cc.append(addr)
 
-        ok, _msg = send_email_via_zeptomail(
+        ok, provider_msg = send_email_via_zeptomail(
             sender_email=sender_email,
             subject=subject,
             body=body,
             recipient_email=(to_email or "").strip(),
             cc_emails=deduped_cc or None,
         )
-        return ok
+        return bool(ok), str(provider_msg or "")
     except Exception as e:
         current_app.logger.warning("send_assessment_invite_email failed: %s", e)
-        return False
+        return False, str(e)
 
 
 def send_assessment_submitted_email_to_hr(*, candidate_name, candidate_email, department):

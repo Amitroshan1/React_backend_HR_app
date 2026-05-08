@@ -61,7 +61,9 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to send invite");
       const mailSent = data.email_sent !== false;
-      setMessage(data.message || (mailSent ? "Assessment invite sent successfully." : "Invite created, but email delivery failed."));
+      const providerMsg = String(data.email_provider_message || "").trim();
+      const baseMsg = data.message || (mailSent ? "Assessment invite sent successfully." : "Invite created, but email delivery failed.");
+      setMessage(providerMsg ? `${baseMsg} (${providerMsg})` : baseMsg);
       setMessageType(mailSent ? "success" : "warning");
       setForm((p) => ({ ...p, full_name: "", email: "" }));
       await fetchRows();
@@ -304,9 +306,9 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                       className="lau-edit-btn"
                       onClick={() => handleDeleteInvite(r)}
                       title="Delete invite"
-                      style={{ color: "#b91c1c" }}
+                      style={{ color: "#b91c1c", borderColor: "#fecaca", background: "#fff1f2" }}
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} /> Delete
                     </button>
                   </div>
                 </td>
