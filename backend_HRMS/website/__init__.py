@@ -149,6 +149,7 @@ def create_app():
     from .models.employee_accounts import EmployeeAccounts
     from .models.ctc_breakup import CTCBreakup
     from .models.monthly_payroll import MonthlyPayroll
+    from .models.assessment import AssessmentInvite
     from .models.it_models import (
         ITInventoryItem,
         ITAssetUnit,
@@ -312,10 +313,24 @@ def create_app():
         except Exception as e:
             app.logger.warning("ex_employee_doc tables ensure skipped: %s", e)
 
+    def _ensure_assessment_tables():
+        try:
+            from sqlalchemy import inspect
+            from .models.assessment import AssessmentInvite
+
+            insp = inspect(db.engine)
+            tables = set(insp.get_table_names())
+            if "assessment_invites" not in tables:
+                AssessmentInvite.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table assessment_invites")
+        except Exception as e:
+            app.logger.warning("assessment table ensure skipped: %s", e)
+
     with app.app_context():
         _ensure_parcel_name_columns()
         _ensure_it_return_request_table()
         _ensure_ex_employee_doc_tables()
+        _ensure_assessment_tables()
         _cleanup_zero_qty_inventory_rows()
 
     from .commands.leave_accrual import register_leave_accrual_command

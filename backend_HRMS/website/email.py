@@ -2231,3 +2231,71 @@ def send_password_reset_email(admin, reset_token):
     except Exception as e:
         current_app.logger.warning(f"Password reset email failed for {admin.email}: {e}")
         return False
+
+
+def send_assessment_invite_email(*, to_email, candidate_name, department, token, valid_hours=24):
+    """Send candidate assessment link mail (tokenized URL)."""
+    try:
+        base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
+        assessment_url = f"{base_url}/assessment/{token}"
+        sender_email = (
+            current_app.config.get("EMAIL_HR")
+            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+        )
+        subject = "Assessment Test Link (Valid for 24 hours)"
+        body = f"""
+        <p>Hello {html.escape(candidate_name or 'Candidate')},</p>
+        <p>Your assessment link is ready.</p>
+        <p><strong>Department:</strong> {html.escape(department or '-')}</p>
+        <p><a href="{assessment_url}" target="_blank">Click here to open your assessment</a></p>
+        <p>This link is valid for <strong>{int(valid_hours)}</strong> hours and one attempt only.</p>
+        <p>Regards,<br><strong>HR Team</strong></p>
+        """
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=subject,
+            body=body,
+            recipient_email=(to_email or "").strip(),
+            cc_emails=None,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning("send_assessment_invite_email failed: %s", e)
+        return False
+
+
+def send_assessment_submitted_email_to_hr(*, candidate_name, candidate_email, department):
+    """Notify HR mailbox when candidate submits assessment."""
+    try:
+        to_email = (
+            current_app.config.get("EMAIL_HR")
+            or current_app.config.get("ZEPTO_CC_HR")
+            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+        )
+        if not to_email:
+            return False
+        sender_email = current_app.config.get("ZEPTO_SENDER_EMAIL") or to_email
+        subject = "Assessment Submitted by Candidate"
+        submitted_on = datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC")
+        body = f"""
+        <p>Hello HR Team,</p>
+        <p>An assessment has been submitted.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Name</strong></td><td>{html.escape(candidate_name or '-')}</td></tr>
+            <tr><td><strong>Email</strong></td><td>{html.escape(candidate_email or '-')}</td></tr>
+            <tr><td><strong>Department</strong></td><td>{html.escape(department or '-')}</td></tr>
+            <tr><td><strong>Submitted At</strong></td><td>{submitted_on}</td></tr>
+        </table>
+        <p>Regards,<br><strong>Assessment System</strong></p>
+        """
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=None,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning("send_assessment_submitted_email_to_hr failed: %s", e)
+        return False

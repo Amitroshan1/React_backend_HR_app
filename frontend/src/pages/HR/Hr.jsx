@@ -21,6 +21,7 @@ import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
 import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
+import { HRAssessmentInvite } from './HRAssessmentInvite';
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -1205,6 +1206,7 @@ export const Hr = () => {
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
+    { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 24-hour assessment links and evaluate submissions' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'Add NOC', icon: FileCheck, description: 'No Objection Certificate' },
@@ -1491,6 +1493,8 @@ export const Hr = () => {
       setView('update_leave');
     } else if (title === 'Leave Application Updation') {
       setView('leave_updation');
+    } else if (title === 'Assessment Invite') {
+      setView('assessment_invite');
     } else if (title === 'Update Manager') {setView('update_manager');
   } else if (title === 'Add Locations') {
     setView('add_location');
@@ -1545,6 +1549,9 @@ if (view === 'update_leave'){
 }
 if (view === 'leave_updation'){
   return <LeaveApplicationUpdation onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />
+}
+if (view === 'assessment_invite'){
+  return <HRAssessmentInvite onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} />
 }
 
 if (view === 'update_manager') {

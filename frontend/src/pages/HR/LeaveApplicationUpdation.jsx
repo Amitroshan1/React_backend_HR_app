@@ -200,6 +200,10 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     return { total, pending, approved, rejected };
   }, [rows]);
 
+  const setStatusFilter = (nextStatus) => {
+    setFilters((p) => ({ ...p, status: nextStatus }));
+  };
+
   return (
     <div className="leave-application-updation-page">
       <div className="leave-application-updation-shell">
@@ -225,7 +229,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
           </div>
           <div>
             <label>Status</label>
-            <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}>
+            <select value={filters.status} onChange={(e) => setStatusFilter(e.target.value)}>
               {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
@@ -255,10 +259,34 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
         </div>
 
         <div className="lau-stats">
-          <span>Total: {stats.total}</span>
-          <span>Pending: {stats.pending}</span>
-          <span>Approved: {stats.approved}</span>
-          <span>Rejected: {stats.rejected}</span>
+          <button
+            type="button"
+            className={`lau-stat-pill ${filters.status === "All" ? "active" : ""}`}
+            onClick={() => setStatusFilter("All")}
+          >
+            Total: {stats.total}
+          </button>
+          <button
+            type="button"
+            className={`lau-stat-pill ${filters.status === "Pending" ? "active" : ""}`}
+            onClick={() => setStatusFilter("Pending")}
+          >
+            Pending: {stats.pending}
+          </button>
+          <button
+            type="button"
+            className={`lau-stat-pill ${filters.status === "Approved" ? "active" : ""}`}
+            onClick={() => setStatusFilter("Approved")}
+          >
+            Approved: {stats.approved}
+          </button>
+          <button
+            type="button"
+            className={`lau-stat-pill ${filters.status === "Rejected" ? "active" : ""}`}
+            onClick={() => setStatusFilter("Rejected")}
+          >
+            Rejected: {stats.rejected}
+          </button>
         </div>
 
         {error && <div className="lau-error">{error}</div>}

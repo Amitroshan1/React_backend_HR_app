@@ -11,6 +11,7 @@
 import secrets
 import hashlib
 import json
+import base64
 import mimetypes
 import uuid
 from flask import Blueprint, request, current_app, jsonify, send_file
@@ -29,6 +30,8 @@ from .email import (
     send_password_set_email,
     send_password_reset_email,
     send_hr_leave_updation_email,
+    send_assessment_invite_email,
+    send_assessment_submitted_email_to_hr,
 )
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
 from .models.emp_detail_models import Employee,Asset
@@ -61,6 +64,7 @@ from werkzeug.utils import secure_filename
 from .leave_attendence import _compute_working_and_sandwich_days
 from .compoff_utils import deduct_comp_leave, restore_comp_leave
 from .models.ex_employee_documents import ExEmployeeDocFile, ExEmployeeDocShare
+from .models.assessment import AssessmentInvite
 
 hr = Blueprint('HumanResource', __name__)
 
@@ -2536,6 +2540,552 @@ def get_wfh_updation_audit(wfh_id):
             }
         )
     return jsonify({"success": True, "audit": items}), 200
+
+
+ASSESSMENT_LINK_TTL_HOURS = 24
+ASSESSMENT_DURATION_MINUTES = 180
+ASSESSMENT_ANY_OPTION_CORRECT_QS = tuple(range(26, 34))
+ASSESSMENT_MANUAL_QS = tuple(range(34, 63))
+ASSESSMENT_OBJECTIVE_ANSWER_KEY = {
+    1: 2, 2: 1, 3: 3, 4: 4, 5: 2, 6: 3, 7: 3, 8: 1, 9: 3, 10: 1,
+    11: 2, 12: 4, 13: 2, 14: 3, 15: 1, 16: 1, 17: 3, 18: 4, 19: 2, 20: 3,
+    21: 2, 22: 3, 23: 3, 24: 3, 25: 4,
+    63: 2, 64: 2, 65: 2, 66: 3, 67: 3, 68: 2, 69: 4, 70: 2, 71: 4, 72: 3,
+    73: 2, 74: 1, 75: 4, 76: 3, 77: 1, 78: 2, 79: 3, 80: 4, 81: 4, 82: 3,
+    83: 2, 84: 4, 85: 1, 86: 4, 87: 2,
+}
+
+
+def _assessment_questions_payload():
+    section_1 = [
+        {"number": 1, "type": "mcq", "question": "Round off 1.26 to the nearest tenth (i.e. to 1 decimal place).", "options": ["1.2", "1.3", "1", "2"]},
+        {"number": 2, "type": "mcq", "question": "What is 15 % of 200?", "options": ["30", "15", "1.5", "3.0"]},
+        {"number": 3, "type": "mcq", "question": "Identify the figure that completes the pattern.", "options": ["1", "2", "3", "4"]},
+        {"number": 4, "type": "mcq", "question": "Ratio of total sales of branch B2 (both years) to B4 (both years).", "options": ["2.3", "3.5", "4.5", "7.9"]},
+        {"number": 5, "type": "mcq", "question": "Choose the alternative that resembles the mirror image.", "options": ["1", "2", "3", "4"]},
+        {"number": 6, "type": "mcq", "question": "Find the number of triangles in the figure.", "options": ["16", "22", "28", "32"]},
+        {"number": 7, "type": "mcq", "question": "Which one will replace the question mark?", "options": ["25", "35", "41", "47"]},
+        {"number": 8, "type": "mcq", "question": "If sugar content of Batch A with 100 ml of extract is 10 percent, batch B: 200 ml, 12 percent, Batch C: 500 ml, 18 percent ; Batch D : 700 ml, 22 percent, what is the weighted average sugar content of all the batches together?", "options": ["69.5", "79.5", "65.5", "70"]},
+        {"number": 9, "type": "mcq", "question": "Weighted average for exams (82%, 84%, final 91% weighted twice).", "options": ["84.75%", "85.25%", "87%", "85.67%"]},
+        {"number": 10, "type": "mcq", "question": "Teacher weight when class mean increases by 0.5 kg.", "options": ["63 KG", "74 KG", "84 KG", "65 KG"]},
+        {"number": 11, "type": "mcq", "question": "Correct mean after 165 was miscopied as 135.", "options": ["145 cm", "151 cm", "160 cm", "165 cm"]},
+        {"number": 12, "type": "mcq", "question": "Find the number of triangles in the figure.", "options": ["8", "10", "12", "14"]},
+        {"number": 13, "type": "mcq", "question": "0.032 / 100", "options": ["3.2", "0.00032", "0.0032", "32"]},
+        {"number": 14, "type": "mcq", "question": "New person weight if avg of 8 increases by 2.5 kg (replacing 65 kg).", "options": ["76 kg", "76.5 kg", "85 kg", "Data inadequate", "None of these"]},
+        {"number": 15, "type": "mcq", "question": "Required 6th month sale for average Rs. 6500.", "options": ["4991", "5991", "6001", "6991"]},
+        {"number": 16, "type": "mcq", "question": "Correct average when 37 kg was read as 73 kg.", "options": ["49 kg", "51 kg", "50.5 kg", "None of these"]},
+        {"number": 17, "type": "mcq", "question": "Mix 10% and 50% salt solutions to make 200 ml at 25%.", "options": ["65 mL + 135 mL", "50 mL + 150 mL", "75 mL + 125 mL", "80 mL + 120 mL"]},
+        {"number": 18, "type": "mcq", "question": "Average of 4 numbers is 20; remove one gives 15. Removed number?", "options": ["10", "15", "30", "35", "45"]},
+        {"number": 19, "type": "mcq", "question": "Average mass of 50 cars (1200 kg) and 10 trucks (3000 kg).", "options": ["1200 kg", "1500 kg", "1800 kg", "2100 kg", "2400 kg"]},
+        {"number": 20, "type": "mcq", "question": "Garden length with 10x12 trees and given spacing.", "options": ["20 m", "22 m", "24 m", "26 m"]},
+        {"number": 21, "type": "mcq", "question": "Average of 7 is 18; first 3 avg 14, last 3 avg 19. Middle number?", "options": ["42", "57", "27", "None of these"]},
+        {"number": 22, "type": "mcq", "question": "If sugar content of Batch A with 100 ml of extract is 10 percent, batch B: 200 ml, 12 percent, Batch C: 500 ml, 18 percent ; Batch D : 700 ml, 22 percent, what is the total extracted volume of liquid?", "options": ["1212", "1111", "1222", "1122"]},
+        {"number": 23, "type": "mcq", "question": "The following table shows the prices per 100 gram of coffee of different brands. Using quantities as weights find the Weighted Average.", "options": ["4.49", "2.46", "3.46", "3.49"]},
+        {"number": 24, "type": "mcq", "question": "Runs needed in 10th innings to raise mean from 58 to 61.", "options": ["75", "85", "88", "90"]},
+        {"number": 25, "type": "mcq", "question": "(1+2) x 3 - 4 /5", "options": ["31/5", "1", "-3/5", "41/5"]},
+    ]
+
+    section_2 = [
+        {"number": 26, "type": "mcq", "question": "I get my best ideas by", "options": ["talking to others", "thinking by myself in my own space", "going to the net and researching", "reading"]},
+        {"number": 27, "type": "mcq", "question": "If a question is asked by your Boss that you have no clue about, you will", "options": ["ask colleagues for the answer", "ask your Boss for the answer", "Research on the net for the answer", "Buy some books and research the question."]},
+        {"number": 28, "type": "mcq", "question": "My preferred way of learning and understanding things is", "options": ["Conversing with people to have different opinions", "Learning and understanding by myself without engaging or interacting with people", "Reading extensively on the subject by buying books, on the internet, and researching articles."]},
+        {"number": 29, "type": "mcq", "question": "What are your lifelong dreams?", "options": ["Learning over Earning", "Earning over Learning", "To enjoy life to the fullest", "Retire early"]},
+        {"number": 30, "type": "mcq", "question": "How will your juniors describe you?", "options": ["An easy-going boss", "A boss who is very tough on deadlines and execution", "A boss who demands 200 percent hard work, drives you relentlessly, and is always after achievement of targets", "A boss who is very likable, easy to convince, and not very demanding"]},
+        {"number": 31, "type": "mcq", "question": "How would your superiors describe you?", "options": ["A meticulous planner", "A laid-back character", "An absolute execution machine: give him/her a job and he/she will do it perfectly without reminders or supervision", "A nice, easy-going person", "A brilliant thinker and problem solver, but a poor executor"]},
+        {"number": 32, "type": "mcq", "question": "What was the assessment of your school/college teachers about you", "options": ["Brilliant student", "Good student", "Average student", "Below average student"]},
+        {"number": 33, "type": "mcq", "question": "Which describes you best", "options": ["An easy-going, fun-loving person", "An average person", "A very driven, hard-charging individual", "Willing to go through any hardship and unlimited hard work to secure success"]},
+        {"number": 34, "type": "subjective", "question": "How will you organize your relevant department (steps in serial order)?"},
+        {"number": 35, "type": "subjective", "question": "Write an application for sudden leave and reasons for the same."},
+        {"number": 36, "type": "subjective", "question": "How do you track task completion and pending tasks?"},
+        {"number": 37, "type": "subjective", "question": "Biggest challenge of your life and how you overcame it."},
+        {"number": 38, "type": "subjective", "question": "Most interesting thing you have done in your professional career."},
+        {"number": 39, "type": "subjective", "question": "Last book you read and key learnings."},
+        {"number": 40, "type": "subjective", "question": "Competitive sport experience and learnings (if any)."},
+        {"number": 41, "type": "subjective", "question": "Tools/apps/checklists you use to plan and track tasks."},
+        {"number": 42, "type": "subjective", "question": "Example where others said it would not work, but you succeeded."},
+        {"number": 43, "type": "subjective", "question": "Biggest achievement in life and professional life."},
+        {"number": 44, "type": "subjective", "question": "Favorite subject and why."},
+        {"number": 45, "type": "subjective", "question": "Biggest disappointment and whether due to inability or bad luck."},
+        {"number": 46, "type": "subjective", "question": "Highest number of hours worked in a day and days at a stretch."},
+        {"number": 47, "type": "subjective", "question": "Maximum daily and weekly working hours you are prepared for."},
+        {"number": 48, "type": "subjective", "question": "Major weaknesses and how you will convert them to strengths."},
+        {"number": 49, "type": "subjective", "question": "Most interesting thing you learned in the past 1 year."},
+        {"number": 50, "type": "subjective", "question": "Characteristics of the best boss you ever had."},
+        {"number": 51, "type": "subjective", "question": "New-you strengths vs old-you (three years ago)."},
+        {"number": 52, "type": "subjective", "question": "Who do you go to for advice and why?"},
+        {"number": 53, "type": "subjective", "question": "On a scale of 1-10, how lucky are you? Why?"},
+        {"number": 54, "type": "subjective", "question": "Three areas of improvement you want to work on."},
+        {"number": 55, "type": "subjective", "question": "A time when you got tough/brutal feedback from your boss."},
+        {"number": 56, "type": "subjective", "question": "Looking back, what would you do differently in life?"},
+        {"number": 57, "type": "subjective", "question": "Describe your biggest work failure and how you handled it."},
+        {"number": 58, "type": "subjective", "question": "A goal you recently achieved and what worked in your plan."},
+        {"number": 59, "type": "subjective", "question": "A time you suggested an improvement in your project."},
+        {"number": 60, "type": "subjective", "question": "A time you had to handle several projects at once."},
+        {"number": 61, "type": "subjective", "question": "A disagreement with another engineer and how you resolved it."},
+        {"number": 62, "type": "subjective", "question": "A major obstacle during a project and the steps you took."},
+    ]
+
+    section_3 = [
+        {"number": 63, "type": "mcq", "question": "Choose the correctly spelled word.", "options": ["conspicuos", "conspicuous", "cospicuous", "conspiuous"]},
+        {"number": 64, "type": "mcq", "question": "Find the correct spelling.", "options": ["Battallion", "Battalion", "Bettalion", "Battalean"]},
+        {"number": 65, "type": "mcq", "question": "Find the correct spelling.", "options": ["Ammalgamation", "Amalgamation", "Amallgamation", "Amalgamattion"]},
+        {"number": 66, "type": "mcq", "question": "With little money but ___ time you can visit ___ museums.", "options": ["little, much", "few, little", "much, few", "much, little"]},
+        {"number": 67, "type": "mcq", "question": "If your requests are met with repeated ___, leave him/her alone.", "options": ["hypotheses", "negatives", "rebuffs", "blunts"]},
+        {"number": 68, "type": "mcq", "question": "Peter is a good friend ___ lives in Italy, a country ___ I have never visited.", "options": ["who, what", "who, which", "that, which", "and, which"]},
+        {"number": 69, "type": "mcq", "question": "In each question below, there is a sentence, of which some parts have been jumbled up. Rearrange these parts labelled P, Q, R and S to produce the correct sequence. (I saw that ...)", "options": ["QPSR", "QRPS", "SPQR", "SRPQ"]},
+        {"number": 70, "type": "mcq", "question": "Which the following sentences contains an error? A. The design was one of the most unique. B. The design was the most unique. C. The design was unique.", "options": ["A and C", "A and B", "B and C", "None"]},
+        {"number": 71, "type": "mcq", "question": "He ___ a glass of fruit juice before he ___ to the airport.", "options": ["drink, drive", "drink, drove", "drinking, drive", "drank, drove"]},
+        {"number": 72, "type": "mcq", "question": "When she ___ learning English she ___ already learned French.", "options": ["Start, Has already learne", "Starts, Has already learning", "Started, Had already learned", "Start, Has already learned"]},
+        {"number": 73, "type": "mcq", "question": "I ___ school dances; they're loud, hot and crowded.", "options": ["not enjoy", "don't enjoy", "doesn't enjoy", "am not enjoying"]},
+        {"number": 74, "type": "mcq", "question": "Conjugate correctly: When he ___, his mother ___ breakfast.", "options": ["Woke up; Had already prepared", "Wake up; Had already prepared", "Woke up; Had prepared", "Woke up; Had prepared already"]},
+        {"number": 75, "type": "mcq", "question": "Mishra ___ for Bombay before Praveen reached the station.", "options": ["have left", "has left", "left", "had left"]},
+        {"number": 76, "type": "mcq", "question": "The president ___ for about half an hour when trouble started.", "options": ["has been speaking", "have been speaking", "had been speaking", "was speaking"]},
+        {"number": 77, "type": "mcq", "question": "Come with me.", "options": ["Home", "Over", "Into the store"]},
+        {"number": 78, "type": "mcq", "question": "I've decided to go ___ business with John Clarke.", "options": ["Over", "Into", "Around", "With"]},
+        {"number": 79, "type": "mcq", "question": "Fill prepositions: ... arrived ___ the party.", "options": ["on,at,in,on", "at,in,on,at", "on,in,on,at", "at,in,on,in"]},
+        {"number": 80, "type": "mcq", "question": "English ___ all over the world.", "options": ["Speaks", "Is Speak", "Is Speaking", "Is Spoken"]},
+        {"number": 81, "type": "mcq", "question": "Synonyms of Fostering", "options": ["Safeguarding", "Neglecting", "Ignoring", "Nuturing"]},
+        {"number": 82, "type": "mcq", "question": "Our Sir teaches Mathematics ___ English.", "options": ["Across", "Beside", "Besides", "Both"]},
+        {"number": 83, "type": "mcq", "question": "Antonym of Foremost.", "options": ["Hindmost", "Unimportant", "Disposed", "Mature"]},
+        {"number": 84, "type": "mcq", "question": "Ram was/ senior to / Sam in college (error spotting).", "options": ["Ram was", "Senior to", "Sam in college", "No Error"]},
+        {"number": 85, "type": "mcq", "question": "Find the correct spelling.", "options": ["Obsolete", "Obsoliete", "Obsolite", "Obsoletie"]},
+        {"number": 86, "type": "mcq", "question": "Find the correct spelling.", "options": ["Accquaintance", "Acqquaintance", "Acquainttance", "Acquaintance"]},
+        {"number": 87, "type": "mcq", "question": "You should always be faithful ___ your promise.", "options": ["on", "to", "with", "over"]},
+    ]
+
+    return {"section_1": section_1, "section_2": section_2, "section_3": section_3}
+
+
+def _assessment_hash_token(raw_token: str) -> str:
+    return hashlib.sha256((raw_token or "").encode("utf-8")).hexdigest()
+
+
+def _assessment_load_answers(invite):
+    if not invite or not invite.answers_json:
+        return {}
+    try:
+        parsed = json.loads(invite.answers_json)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return {}
+
+
+def _assessment_save_selfie(invite_id, selfie_data_url):
+    if not selfie_data_url or not isinstance(selfie_data_url, str):
+        return None, "Selfie image is required."
+    payload = selfie_data_url.strip()
+    if "," in payload:
+        _meta, payload = payload.split(",", 1)
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except Exception:
+        return None, "Invalid selfie image format."
+
+    uploads_root = current_app.config.get("UPLOAD_FOLDER")
+    if not uploads_root:
+        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    target_dir = os.path.join(uploads_root, "assessment_selfies")
+    os.makedirs(target_dir, exist_ok=True)
+    filename = f"assessment_{invite_id}_{uuid.uuid4().hex}.jpg"
+    path = os.path.join(target_dir, filename)
+    with open(path, "wb") as f:
+        f.write(raw)
+    return f"assessment_selfies/{filename}", None
+
+
+def _assessment_auto_score(answers):
+    score = 0
+    breakdown = {}
+    for qn, expected in ASSESSMENT_OBJECTIVE_ANSWER_KEY.items():
+        got = answers.get(str(qn))
+        try:
+            got_int = int(got)
+        except Exception:
+            got_int = None
+        ok = got_int == expected
+        breakdown[str(qn)] = {"expected": expected, "given": got_int, "correct": bool(ok)}
+        if ok:
+            score += 1
+    for qn in ASSESSMENT_ANY_OPTION_CORRECT_QS:
+        got = answers.get(str(qn))
+        try:
+            got_int = int(got)
+        except Exception:
+            got_int = None
+        ok = got_int is not None and got_int > 0
+        breakdown[str(qn)] = {
+            "expected": "Any selected option",
+            "given": got_int,
+            "correct": bool(ok),
+        }
+        if ok:
+            score += 1
+    return float(score), breakdown
+
+
+def _assessment_invite_public_payload(invite):
+    now = datetime.utcnow()
+    seconds_left = max(0, int((invite.expires_at - now).total_seconds())) if invite.expires_at else 0
+    return {
+        "id": invite.id,
+        "full_name": invite.full_name,
+        "candidate_email": invite.candidate_email,
+        "department": invite.department,
+        "status": invite.status,
+        "duration_minutes": invite.duration_minutes,
+        "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+        "started_at": invite.started_at.isoformat() if invite.started_at else None,
+        "submitted_at": invite.submitted_at.isoformat() if invite.submitted_at else None,
+        "seconds_left_to_expiry": seconds_left,
+        "attempt_no": invite.attempt_no,
+        "camera_granted": bool(invite.camera_granted),
+        "mic_granted": bool(invite.mic_granted),
+    }
+
+
+@hr.route("/assessment/invite", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_assessment_invite():
+    data = request.get_json(silent=True) or {}
+    full_name = (data.get("full_name") or data.get("name") or "").strip()
+    department = (data.get("department") or "").strip()
+    candidate_email = (data.get("email") or "").strip().lower()
+    if not full_name or not department or not candidate_email:
+        return jsonify({"success": False, "message": "name, department and email are required"}), 400
+    if "@" not in candidate_email:
+        return jsonify({"success": False, "message": "Invalid email"}), 400
+
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = _assessment_hash_token(raw_token)
+    invite = AssessmentInvite(
+        full_name=full_name,
+        department=department,
+        candidate_email=candidate_email,
+        token_hash=token_hash,
+        expires_at=datetime.utcnow() + timedelta(hours=ASSESSMENT_LINK_TTL_HOURS),
+        duration_minutes=ASSESSMENT_DURATION_MINUTES,
+        status="invited",
+    )
+    db.session.add(invite)
+    db.session.commit()
+
+    mail_ok = send_assessment_invite_email(
+        to_email=candidate_email,
+        candidate_name=full_name,
+        department=department,
+        token=raw_token,
+        valid_hours=ASSESSMENT_LINK_TTL_HOURS,
+    )
+    if not mail_ok:
+        current_app.logger.warning("Assessment invite email send failed for %s", candidate_email)
+
+    base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
+    link = f"{base_url}/assessment/{raw_token}"
+    return jsonify(
+        {
+            "success": True,
+            "message": "Assessment link sent successfully.",
+            "invite": {
+                "id": invite.id,
+                "full_name": invite.full_name,
+                "email": invite.candidate_email,
+                "department": invite.department,
+                "status": invite.status,
+                "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+                "duration_minutes": invite.duration_minutes,
+                "link": link,
+            },
+        }
+    ), 200
+
+
+@hr.route("/assessment/invites", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_assessment_invites():
+    rows = (
+        AssessmentInvite.query.order_by(AssessmentInvite.created_at.desc(), AssessmentInvite.id.desc())
+        .limit(500)
+        .all()
+    )
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": r.id,
+                "full_name": r.full_name,
+                "candidate_email": r.candidate_email,
+                "department": r.department,
+                "status": r.status,
+                "attempt_no": r.attempt_no,
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+                "auto_score": r.auto_score,
+                "manual_score": r.manual_score,
+                "total_score": r.total_score,
+                "avg_score": r.avg_score,
+            }
+        )
+    return jsonify({"success": True, "invites": out}), 200
+
+
+@hr.route("/assessment/invites/<int:invite_id>", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_assessment_invite_detail(invite_id):
+    invite = AssessmentInvite.query.get(invite_id)
+    if not invite:
+        return jsonify({"success": False, "message": "Invite not found"}), 404
+    answers = _assessment_load_answers(invite)
+    auto_score, breakdown = _assessment_auto_score(answers)
+    manual_marks = {}
+    if invite.manual_marks_json:
+        try:
+            parsed = json.loads(invite.manual_marks_json)
+            if isinstance(parsed, dict):
+                manual_marks = parsed
+        except Exception:
+            manual_marks = {}
+    return jsonify(
+        {
+            "success": True,
+            "invite": {
+                "id": invite.id,
+                "full_name": invite.full_name,
+                "candidate_email": invite.candidate_email,
+                "department": invite.department,
+                "status": invite.status,
+                "attempt_no": invite.attempt_no,
+                "duration_minutes": invite.duration_minutes,
+                "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+                "started_at": invite.started_at.isoformat() if invite.started_at else None,
+                "submitted_at": invite.submitted_at.isoformat() if invite.submitted_at else None,
+                "selfie_path": invite.selfie_path,
+                "camera_granted": bool(invite.camera_granted),
+                "mic_granted": bool(invite.mic_granted),
+                "answers": answers,
+                "auto_breakdown": breakdown,
+                "auto_score": auto_score,
+                "manual_marks": manual_marks,
+                "manual_score": invite.manual_score,
+                "total_score": invite.total_score,
+                "avg_score": invite.avg_score,
+            },
+        }
+    ), 200
+
+
+@hr.route("/assessment/invites/<int:invite_id>/evaluate", methods=["POST"])
+@jwt_required()
+@hr_required
+def evaluate_assessment_invite(invite_id):
+    invite = AssessmentInvite.query.get(invite_id)
+    if not invite:
+        return jsonify({"success": False, "message": "Invite not found"}), 404
+    if invite.status != "submitted":
+        return jsonify({"success": False, "message": "Candidate has not submitted yet"}), 400
+    data = request.get_json(silent=True) or {}
+    marks = data.get("marks") or {}
+    if not isinstance(marks, dict):
+        return jsonify({"success": False, "message": "marks must be an object"}), 400
+
+    manual_total = 0.0
+    normalized = {}
+    for qn in ASSESSMENT_MANUAL_QS:
+        raw = marks.get(str(qn), marks.get(qn, 0))
+        try:
+            val = float(raw or 0)
+        except Exception:
+            val = 0.0
+        if val < 0:
+            val = 0.0
+        normalized[str(qn)] = round(val, 2)
+        manual_total += val
+
+    answers = _assessment_load_answers(invite)
+    auto_score, _breakdown = _assessment_auto_score(answers)
+    total = float(auto_score or 0.0) + float(manual_total)
+    max_total = len(ASSESSMENT_OBJECTIVE_ANSWER_KEY) + float(len(ASSESSMENT_ANY_OPTION_CORRECT_QS) + len(ASSESSMENT_MANUAL_QS))
+    avg = round((total / max_total) * 100.0, 2) if max_total else 0.0
+
+    invite.manual_marks_json = json.dumps(normalized)
+    invite.manual_score = round(manual_total, 2)
+    invite.auto_score = round(auto_score, 2)
+    invite.total_score = round(total, 2)
+    invite.avg_score = avg
+    invite.evaluated_at = datetime.utcnow()
+    invite.evaluated_by = (get_jwt() or {}).get("email")
+    db.session.commit()
+    return jsonify(
+        {
+            "success": True,
+            "message": "Assessment evaluated successfully.",
+            "scores": {
+                "auto_score": invite.auto_score,
+                "manual_score": invite.manual_score,
+                "total_score": invite.total_score,
+                "avg_score": invite.avg_score,
+            },
+        }
+    ), 200
+
+
+@hr.route("/assessment/public/status", methods=["GET"])
+def assessment_public_status():
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    if invite.expires_at and datetime.utcnow() > invite.expires_at and invite.status != "submitted":
+        invite.status = "expired"
+        db.session.commit()
+    return jsonify({"success": True, "invite": _assessment_invite_public_payload(invite)}), 200
+
+
+@hr.route("/assessment/public/questions", methods=["GET"])
+def assessment_public_questions():
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    if invite.status == "submitted":
+        return jsonify({"success": False, "message": "Test already submitted", "status": "submitted"}), 409
+    if invite.expires_at and datetime.utcnow() > invite.expires_at:
+        invite.status = "expired"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Link expired"}), 410
+    return jsonify(
+        {
+            "success": True,
+            "invite": _assessment_invite_public_payload(invite),
+            "questions": _assessment_questions_payload(),
+        }
+    ), 200
+
+
+@hr.route("/assessment/public/start", methods=["POST"])
+def assessment_public_start():
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    if invite.status == "submitted":
+        return jsonify({"success": False, "message": "Test already submitted"}), 409
+    if invite.expires_at and datetime.utcnow() > invite.expires_at:
+        invite.status = "expired"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Link expired"}), 410
+
+    selfie_data_url = data.get("selfie_data_url")
+    if not invite.selfie_path:
+        selfie_path, err = _assessment_save_selfie(invite.id, selfie_data_url)
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        invite.selfie_path = selfie_path
+    invite.camera_granted = bool(data.get("camera_granted"))
+    invite.mic_granted = bool(data.get("mic_granted"))
+    if not invite.started_at:
+        invite.started_at = datetime.utcnow()
+    if invite.status not in ("submitted", "expired"):
+        invite.status = "started"
+    db.session.commit()
+    return jsonify({"success": True, "invite": _assessment_invite_public_payload(invite)}), 200
+
+
+@hr.route("/assessment/public/save-answer", methods=["POST"])
+def assessment_public_save_answer():
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or "").strip()
+    answers_patch = data.get("answers") or {}
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    if not isinstance(answers_patch, dict):
+        return jsonify({"success": False, "message": "answers must be an object"}), 400
+
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    if invite.status == "submitted":
+        return jsonify({"success": False, "message": "Test already submitted"}), 409
+    if invite.expires_at and datetime.utcnow() > invite.expires_at:
+        invite.status = "expired"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Link expired"}), 410
+    if not invite.started_at:
+        return jsonify({"success": False, "message": "Test has not started"}), 400
+
+    current_answers = _assessment_load_answers(invite)
+    for k, v in answers_patch.items():
+        qn = str(k).strip()
+        if not qn:
+            continue
+        current_answers[qn] = v
+    invite.answers_json = json.dumps(current_answers)
+    db.session.commit()
+    return jsonify({"success": True}), 200
+
+
+@hr.route("/assessment/public/submit", methods=["POST"])
+def assessment_public_submit():
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or "").strip()
+    answers = data.get("answers") or {}
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    if not isinstance(answers, dict):
+        return jsonify({"success": False, "message": "answers must be an object"}), 400
+
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    if invite.status == "submitted":
+        return jsonify({"success": False, "message": "Test already submitted"}), 409
+    if invite.expires_at and datetime.utcnow() > invite.expires_at:
+        invite.status = "expired"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Link expired"}), 410
+    if not invite.started_at:
+        return jsonify({"success": False, "message": "Test has not started"}), 400
+
+    invite.answers_json = json.dumps(answers)
+    auto_score, _breakdown = _assessment_auto_score(answers)
+    invite.auto_score = round(auto_score, 2)
+    invite.manual_score = invite.manual_score or 0.0
+    invite.total_score = round(float(invite.auto_score or 0.0) + float(invite.manual_score or 0.0), 2)
+    max_total = len(ASSESSMENT_OBJECTIVE_ANSWER_KEY) + float(len(ASSESSMENT_ANY_OPTION_CORRECT_QS) + len(ASSESSMENT_MANUAL_QS))
+    invite.avg_score = round((invite.total_score / max_total) * 100.0, 2) if max_total else 0.0
+    invite.submitted_at = datetime.utcnow()
+    invite.status = "submitted"
+    db.session.commit()
+
+    if not invite.hr_notified_at:
+        ok = send_assessment_submitted_email_to_hr(
+            candidate_name=invite.full_name,
+            candidate_email=invite.candidate_email,
+            department=invite.department,
+        )
+        if ok:
+            invite.hr_notified_at = datetime.utcnow()
+            db.session.commit()
+
+    return jsonify(
+        {
+            "success": True,
+            "message": "Test submitted successfully.",
+            "invite": _assessment_invite_public_payload(invite),
+        }
+    ), 200
 
 
 
