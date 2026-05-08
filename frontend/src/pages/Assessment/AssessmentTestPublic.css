@@ -1,0 +1,133 @@
+.assessment-shell {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 20px 14px 40px;
+}
+
+.assessment-card,
+.assessment-main {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.06);
+  padding: 20px;
+}
+
+.assessment-list {
+  margin: 0 0 16px;
+  padding-left: 22px;
+  line-height: 1.7;
+}
+
+.assessment-timer {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.assessment-section-title {
+  margin: 18px 0 10px;
+  color: #0f172a;
+}
+
+.assessment-q-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #ffffff;
+}
+
+.assessment-question {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.assessment-option {
+  display: block;
+  margin: 6px 0;
+  color: #334155;
+}
+
+.assessment-option input {
+  margin-right: 8px;
+}
+
+.assessment-textarea {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.assessment-textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.assessment-btn {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.assessment-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.assessment-btn-primary {
+  border: none;
+  color: #ffffff;
+  background: linear-gradient(90deg, #4f46e5, #2563eb, #14b8a6);
+}
+
+.assessment-submit {
+  margin-top: 12px;
+}
+
+.assessment-video-wrap {
+  margin-top: 12px;
+}
+
+.assessment-video {
+  width: min(460px, 100%);
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #0f172a;
+}
+
+.assessment-actions-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.assessment-ok {
+  color: #047857;
+  font-weight: 600;
+}
+
+.assessment-error {
+  margin-top: 10px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 8px 10px;
+}

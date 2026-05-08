@@ -279,6 +279,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               <th>Total</th>
               <th>Avg %</th>
               <th>Action</th>
+              <th>Delete</th>
             </tr>
           </thead>
           <tbody>
@@ -292,30 +293,30 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 <td>{r.total_score ?? "-"}</td>
                 <td>{r.avg_score ?? "-"}</td>
                 <td>
-                  <div style={{ display: "inline-flex", gap: 8 }}>
-                    <button
-                      type="button"
-                      className="lau-edit-btn"
-                      onClick={() => openSubmission(r.id)}
-                      disabled={r.status !== "submitted"}
-                    >
-                      Review
-                    </button>
-                    <button
-                      type="button"
-                      className="lau-edit-btn"
-                      onClick={() => handleDeleteInvite(r)}
-                      title="Delete invite"
-                      style={{ color: "#b91c1c", borderColor: "#fecaca", background: "#fff1f2" }}
-                    >
-                      <Trash2 size={14} /> Delete
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="lau-edit-btn"
+                    onClick={() => openSubmission(r.id)}
+                    disabled={r.status !== "submitted"}
+                  >
+                    Review
+                  </button>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="lau-edit-btn"
+                    onClick={() => handleDeleteInvite(r)}
+                    title="Delete invite"
+                    style={{ color: "#b91c1c", borderColor: "#fecaca", background: "#fff1f2" }}
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
                 </td>
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={8} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
+              <tr><td colSpan={9} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
             )}
           </tbody>
         </table>

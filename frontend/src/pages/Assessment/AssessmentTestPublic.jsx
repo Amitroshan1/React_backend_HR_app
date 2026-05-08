@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import "./AssessmentTestPublic.css";
 
 const API_BASE = "/api/HumanResource/assessment/public";
+
+const parseApiUtcMs = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return NaN;
+  // Backend currently sends naive ISO (UTC without timezone); force UTC parsing.
+  const normalized =
+    /[zZ]$|[+\-]\d{2}:\d{2}$/.test(raw) ? raw : `${raw}Z`;
+  return new Date(normalized).getTime();
+};
 
 export default function AssessmentTestPublic() {
   const { token } = useParams();
@@ -67,7 +77,8 @@ export default function AssessmentTestPublic() {
   useEffect(() => {
     if (stage !== "test" || !invite?.started_at) return undefined;
     const dur = Number(invite.duration_minutes || 180);
-    const startedMs = new Date(invite.started_at).getTime();
+    const startedMs = parseApiUtcMs(invite.started_at);
+    if (!Number.isFinite(startedMs)) return undefined;
     const tick = () => {
       const rem = Math.max(0, Math.floor((startedMs + dur * 60 * 1000 - Date.now()) / 1000));
       setRemainingSec(rem);
@@ -188,15 +199,16 @@ export default function AssessmentTestPublic() {
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }, [remainingSec]);
 
-  if (stage === "loading") return <div style={{ padding: 20 }}>Loading assessment...</div>;
-  if (stage === "blocked") return <div style={{ padding: 20 }}><h2>Unable to continue</h2><p>{error || "Access blocked."}</p></div>;
-  if (stage === "submitted") return <div style={{ padding: 20 }}><h2>Test submitted successfully</h2><p>Thank you. Attempt {invite?.attempt_no || 1} completed.</p></div>;
+  if (stage === "loading") return <div className="assessment-shell"><div className="assessment-card"><p>Loading assessment...</p></div></div>;
+  if (stage === "blocked") return <div className="assessment-shell"><div className="assessment-card"><h2>Unable to continue</h2><p>{error || "Access blocked."}</p></div></div>;
+  if (stage === "submitted") return <div className="assessment-shell"><div className="assessment-card"><h2>Test submitted successfully</h2><p>Thank you. Attempt {invite?.attempt_no || 1} completed.</p></div></div>;
 
   if (stage === "instructions") {
     return (
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: 20 }}>
+      <div className="assessment-shell">
+        <div className="assessment-card">
         <h2>Assessment Instructions</h2>
-        <ul>
+        <ul className="assessment-list">
           <li>Single attempt only. Do not refresh or close the browser.</li>
           <li>No cheating, no switching tabs, no external help.</li>
           <li>Total duration: {invite?.duration_minutes || 180} minutes.</li>
@@ -208,42 +220,46 @@ export default function AssessmentTestPublic() {
           <li>Answers are auto-saved periodically, but submit before timer ends.</li>
           <li>Once submitted, test cannot be reopened.</li>
         </ul>
-        <button onClick={() => setStage("permissions")}>Proceed</button>
+        <button className="assessment-btn assessment-btn-primary" onClick={() => setStage("permissions")}>Proceed</button>
+        </div>
       </div>
     );
   }
 
   if (stage === "permissions") {
     return (
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: 20 }}>
+      <div className="assessment-shell">
+        <div className="assessment-card">
         <h2>Permissions & Photo Capture</h2>
-        <button onClick={startDevices}>Enable Camera + Microphone</button>
-        <div style={{ marginTop: 12 }}>
-          <video ref={videoRef} autoPlay muted style={{ width: 360, borderRadius: 8, border: "1px solid #ddd" }} />
+        <button className="assessment-btn assessment-btn-primary" onClick={startDevices}>Enable Camera + Microphone</button>
+        <div className="assessment-video-wrap">
+          <video ref={videoRef} autoPlay muted className="assessment-video" />
         </div>
-        <div style={{ marginTop: 8 }}>
-          <button onClick={captureSelfie} disabled={!cameraGranted}>Capture Photo</button>
-          {selfieDataUrl ? <span style={{ marginLeft: 8, color: "green" }}>Photo captured</span> : null}
+        <div className="assessment-actions-row">
+          <button className="assessment-btn" onClick={captureSelfie} disabled={!cameraGranted}>Capture Photo</button>
+          {selfieDataUrl ? <span className="assessment-ok">Photo captured</span> : null}
         </div>
-        <div style={{ marginTop: 16 }}>
-          <button onClick={startAssessment} disabled={!cameraGranted || !micGranted || !selfieDataUrl}>Start Assessment</button>
+        <div className="assessment-actions-row">
+          <button className="assessment-btn assessment-btn-primary" onClick={startAssessment} disabled={!cameraGranted || !micGranted || !selfieDataUrl}>Start Assessment</button>
         </div>
-        {error ? <div style={{ color: "#b91c1c", marginTop: 10 }}>{error}</div> : null}
+        {error ? <div className="assessment-error">{error}</div> : null}
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
-      <div style={{ position: "sticky", top: 0, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10, zIndex: 10 }}>
+    <div className="assessment-shell">
+      <div className="assessment-main">
+      <div className="assessment-timer">
         <strong>Time Left: {timerText}</strong>
       </div>
-      <h3 style={{ marginTop: 16 }}>Section 1 (Q1-25) - MCQ</h3>
+      <h3 className="assessment-section-title">Section 1 (Q1-25) - MCQ</h3>
       {(questions?.section_1 || []).map((q) => (
-        <div key={q.number} style={{ border: "1px solid #e5e7eb", padding: 10, borderRadius: 8, marginBottom: 8 }}>
-          <div>{q.number}. {q.question}</div>
+        <div key={q.number} className="assessment-q-card">
+          <div className="assessment-question">{q.number}. {q.question}</div>
           {(q.options || []).map((opt, idx) => (
-            <label key={idx} style={{ display: "block" }}>
+            <label key={idx} className="assessment-option">
               <input
                 type="radio"
                 name={`q_${q.number}`}
@@ -256,13 +272,13 @@ export default function AssessmentTestPublic() {
         </div>
       ))}
 
-      <h3 style={{ marginTop: 16 }}>Section 2 (Q26-62) - Mixed</h3>
+      <h3 className="assessment-section-title">Section 2 (Q26-62) - Mixed</h3>
       {(questions?.section_2 || []).map((q) => (
-        <div key={q.number} style={{ border: "1px solid #e5e7eb", padding: 10, borderRadius: 8, marginBottom: 8 }}>
-          <div>{q.number}. {q.question}</div>
+        <div key={q.number} className="assessment-q-card">
+          <div className="assessment-question">{q.number}. {q.question}</div>
           {q.type === "mcq" ? (
             (q.options || []).map((opt, idx) => (
-              <label key={idx} style={{ display: "block" }}>
+              <label key={idx} className="assessment-option">
                 <input
                   type="radio"
                   name={`q_${q.number}`}
@@ -275,7 +291,7 @@ export default function AssessmentTestPublic() {
           ) : (
             <textarea
               rows={3}
-              style={{ width: "100%" }}
+              className="assessment-textarea"
               value={String(answers[String(q.number)] || "")}
               onChange={(e) => setAnswers((p) => ({ ...p, [String(q.number)]: e.target.value }))}
             />
@@ -283,12 +299,12 @@ export default function AssessmentTestPublic() {
         </div>
       ))}
 
-      <h3 style={{ marginTop: 16 }}>Section 3 (Q63-87) - MCQ</h3>
+      <h3 className="assessment-section-title">Section 3 (Q63-87) - MCQ</h3>
       {(questions?.section_3 || []).map((q) => (
-        <div key={q.number} style={{ border: "1px solid #e5e7eb", padding: 10, borderRadius: 8, marginBottom: 8 }}>
-          <div>{q.number}. {q.question}</div>
+        <div key={q.number} className="assessment-q-card">
+          <div className="assessment-question">{q.number}. {q.question}</div>
           {(q.options || []).map((opt, idx) => (
-            <label key={idx} style={{ display: "block" }}>
+            <label key={idx} className="assessment-option">
               <input
                 type="radio"
                 name={`q_${q.number}`}
@@ -301,10 +317,11 @@ export default function AssessmentTestPublic() {
         </div>
       ))}
 
-      {error ? <div style={{ color: "#b91c1c" }}>{error}</div> : null}
-      <button onClick={handleSubmit} style={{ marginTop: 12 }} disabled={submitting}>
+      {error ? <div className="assessment-error">{error}</div> : null}
+      <button className="assessment-btn assessment-btn-primary assessment-submit" onClick={handleSubmit} disabled={submitting}>
         {submitting ? "Submitting..." : "Submit Test"}
       </button>
+      </div>
     </div>
   );
 }
