@@ -9,11 +9,15 @@ from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication,
 from flask_jwt_extended import jwt_required, get_jwt
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
-from .models.seperation import Resignation, Noc_Upload
+from .models.seperation import Resignation, Noc_Upload, NocDepartmentRequest
 from .models.holiday_calendar import HolidayCalendar
-from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email
+from .models.manager_model import ManagerContact
+from sqlalchemy import or_, func
+from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email,send_noc_request_email
+from .manager_utils import get_manager_emails
 from .utility import generate_attendance_excel, send_excel_file
 from . import db
+from .noc_department_service import reject_pending_noc_rows_for_resignation
 from flask import jsonify
 from datetime import date, datetime, timedelta
 import calendar
@@ -159,6 +163,89 @@ def _serialize_notice(resignation):
         "days_left": days_left,
         "can_revoke": _is_active_resignation_status(status),
     }
+
+
+_NOC_KEY_LABELS = {
+    "HR": "Human Resource",
+    "ACCOUNTS": "Accounts",
+    "MANAGER": "Reporting Manager(s)",
+    "IT": "IT Department",
+}
+
+
+def _normalize_noc_department_key(raw):
+    if raw is None:
+        return None
+    x = str(raw).strip().lower()
+    if x in ("hr", "human resource", "human resources"):
+        return "HR"
+    if x in ("accounts", "account"):
+        return "ACCOUNTS"
+    if x in ("manager", "reporting manager"):
+        return "MANAGER"
+    if x in ("it", "it department"):
+        return "IT"
+    return None
+
+
+def _admin_emails_for_emp_type_tokens(lower_tokens):
+    if not lower_tokens:
+        return []
+    filters = [func.lower(func.coalesce(Admin.emp_type, "")) == t for t in lower_tokens]
+    rows = (
+        Admin.query.filter(or_(*filters))
+        .filter(or_(Admin.is_exited == False, Admin.is_exited.is_(None)))
+        .all()
+    )
+    out = []
+    seen = set()
+    for a in rows:
+        em = (a.email or "").strip()
+        if em and em.lower() not in seen:
+            seen.add(em.lower())
+            out.append(em)
+    return out
+
+
+def _manager_emails_for_noc(admin):
+    mc = ManagerContact.query.filter_by(user_email=admin.email).first()
+    if not mc:
+        mc = ManagerContact.query.filter_by(
+            circle_name=admin.circle,
+            user_type=admin.emp_type,
+        ).first()
+    if not mc:
+        return []
+    return get_manager_emails(mc, exclude_email=admin.email)
+
+
+def _expand_noc_email_recipients(admin, ordered_keys):
+    """ordered_keys: unique HR | ACCOUNTS | MANAGER | IT in UI order."""
+    labels = []
+    emails = []
+    seen_e = set()
+
+    for nk in ordered_keys:
+        labels.append(_NOC_KEY_LABELS.get(nk, nk))
+        chunk = []
+        if nk == "HR":
+            chunk = _admin_emails_for_emp_type_tokens(
+                ["human resource", "human resources", "hr"]
+            )
+        elif nk == "ACCOUNTS":
+            chunk = _admin_emails_for_emp_type_tokens(["accounts"])
+        elif nk == "IT":
+            chunk = _admin_emails_for_emp_type_tokens(["it", "it department"])
+        elif nk == "MANAGER":
+            chunk = _manager_emails_for_noc(admin)
+
+        for em in chunk:
+            el = em.lower()
+            if el not in seen_e:
+                seen_e.add(el)
+                emails.append(em)
+
+    return labels, emails
 
 
 
@@ -1139,6 +1226,111 @@ def submit_resignation():
         }), 500
 
 
+@leave.route("/seperation/noc-request", methods=["POST"])
+@jwt_required()
+def submit_noc_request_email():
+    """Employee applies for NOC: email selected departments + CC chain."""
+    email_claim = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email_claim).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    data = request.get_json() or {}
+    raw_deps = data.get("departments") or data.get("department")
+
+    if isinstance(raw_deps, str):
+        raw_deps = [raw_deps]
+    elif not isinstance(raw_deps, list):
+        raw_deps = []
+
+    if not raw_deps:
+        return jsonify({"success": False, "message": "Select at least one department"}), 400
+
+    resignation = (
+        Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
+    )
+    if not resignation or not _is_active_resignation_status(resignation.status):
+        return jsonify(
+            {
+                "success": False,
+                "message": "No active resignation found. Submit your resignation first.",
+            }
+        ), 400
+
+    noc_date_obj = resignation.resignation_date
+    if noc_date_obj is None:
+        return jsonify(
+            {"success": False, "message": "Resignation date is missing. Contact HR."}
+        ), 400
+
+    normalized_ordered = []
+    seen_k = set()
+    for raw in raw_deps:
+        nk = _normalize_noc_department_key(raw)
+        if nk is None:
+            return jsonify({"success": False, "message": f"Invalid department: {raw}"}), 400
+        if nk not in seen_k:
+            seen_k.add(nk)
+            normalized_ordered.append(nk)
+
+    labels, recipients = _expand_noc_email_recipients(admin, normalized_ordered)
+    if not recipients:
+        return jsonify(
+            {
+                "success": False,
+                "mail_sent": False,
+                "message": "Mail could not be sent to the selected departments. Please contact HR.",
+            }
+        ), 200
+
+    # In-app queue rows for selected departments (HR, Accounts, Manager, IT).
+    try:
+        NocDepartmentRequest.query.filter(
+            NocDepartmentRequest.admin_id == admin.id,
+            NocDepartmentRequest.resignation_id == resignation.id,
+            NocDepartmentRequest.department_key.in_(normalized_ordered),
+            NocDepartmentRequest.status == "Pending",
+        ).delete(synchronize_session=False)
+        now_ts = datetime.now()
+        for nk in normalized_ordered:
+            db.session.add(
+                NocDepartmentRequest(
+                    admin_id=admin.id,
+                    resignation_id=resignation.id,
+                    department_key=nk,
+                    noc_date=noc_date_obj,
+                    status="Pending",
+                    requested_at=now_ts,
+                )
+            )
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("NOC department request persist failed: %s", e)
+        return jsonify(
+            {"success": False, "message": "Unable to record NOC department requests. Please try again."}
+        ), 500
+
+    ok, _mail_msg = send_noc_request_email(
+        admin, resignation, noc_date_obj, labels, recipients
+    )
+    if not ok:
+        return jsonify(
+            {
+                "success": False,
+                "mail_sent": False,
+                "message": "Mail could not be sent to the selected departments. Please try again later or contact HR.",
+            }
+        ), 200
+
+    return jsonify(
+        {
+            "success": True,
+            "mail_sent": True,
+            "message": "NOC request email sent.",
+        }
+    ), 200
+
 
 @leave.route("/seperation", methods=["GET"])
 @jwt_required()
@@ -1251,6 +1443,7 @@ def revoke_resignation():
             }), 400
 
         resignation.status = "Revoked"
+        reject_pending_noc_rows_for_resignation(resignation.id)
         db.session.commit()
 
         # Best-effort email notification on revoke

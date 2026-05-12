@@ -25,6 +25,7 @@ export const ITPanel = () => {
     { title: "Assets", route: "/it/Assets" },
     { title: "Inventory", route: "/it/inventory" },
     { title: "Return Requests", route: "/it/return-requests" },
+    { title: "NOC Request", route: "/it/noc-requests" },
   ];
 
   const refreshOpenTicketCount = useCallback(async () => {

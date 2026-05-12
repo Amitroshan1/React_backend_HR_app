@@ -23,6 +23,80 @@
   font-size: 0.92rem;
 }
 
+.dept-query-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  margin-top: 14px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.dept-query-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.dept-query-filter-field label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.dept-query-filter-field input[type="month"],
+.dept-query-filter-field select {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.92rem;
+  background: #fff;
+  color: #111827;
+}
+
+.dept-query-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.dept-filter-apply {
+  border: none;
+  background: linear-gradient(135deg, #2563eb, #059669);
+  color: #fff;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.dept-filter-apply:hover {
+  filter: brightness(1.05);
+}
+
+.dept-filter-reset {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.dept-filter-reset:hover {
+  background: #f1f5f9;
+}
+
 .dept-query-error {
   margin-top: 12px;
   background: #fef2f2;

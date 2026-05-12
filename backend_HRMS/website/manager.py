@@ -1,7 +1,8 @@
 import calendar
+import os
 from collections import defaultdict
 
-from flask import Blueprint, jsonify, request, current_app, url_for
+from flask import Blueprint, jsonify, request, current_app, url_for, send_file
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
@@ -12,6 +13,13 @@ from .models.Admin_models import Admin, AuditLog
 from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
+from .noc_department_service import (
+    download_noc_document,
+    list_noc_requests,
+    reject_pending_noc_rows_for_resignation,
+    upload_noc_document,
+)
+from .commands.probation import dedupe_probation_review_rows
 from .models.probation import ProbationReview
 from .models.manager_model import ManagerContact
 from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
@@ -663,6 +671,8 @@ def act_on_resignation_request(resignation_id):
         return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
 
     resignation.status = "Approved" if action == "approve" else "Rejected"
+    if resignation.status == "Rejected":
+        reject_pending_noc_rows_for_resignation(resignation.id)
     _append_self_approval_audit_if_needed(
         approver=approver,
         target=resignation.admin,
@@ -673,6 +683,51 @@ def act_on_resignation_request(resignation_id):
     )
     db.session.commit()
     return jsonify({"success": True, "message": f"Resignation request {resignation.status.lower()}"}), 200
+
+
+@manager.route("/noc-requests", methods=["GET"])
+@jwt_required()
+def list_noc_department_requests():
+    """Reporting managers only — rows where department_key is MANAGER (direct/reporting context)."""
+    approver, err = _ensure_manager_user()
+    if err:
+        return err
+
+    status_raw = (request.args.get("status") or "All").strip()
+    items = list_noc_requests("manager", approver, status_raw)
+    return jsonify({"success": True, "requests": items}), 200
+
+
+@manager.route("/noc-requests/<int:req_id>/upload", methods=["POST"])
+@jwt_required()
+def upload_noc_department_document(req_id):
+    approver, err = _ensure_manager_user()
+    if err:
+        return err
+
+    file = request.files.get("file")
+    out = upload_noc_document("manager", approver, req_id, file)
+    code = out.pop("http", 200)
+    return jsonify({k: v for k, v in out.items()}), code
+
+
+@manager.route("/noc-requests/<int:req_id>/download", methods=["GET"])
+@jwt_required()
+def download_noc_department_document(req_id):
+    approver, err = _ensure_manager_user()
+    if err:
+        return err
+
+    out = download_noc_document("manager", approver, req_id)
+    if not out.get("success"):
+        return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
+
+    return send_file(
+        out["path"],
+        as_attachment=True,
+        download_name=out["download_name"],
+        mimetype="application/octet-stream",
+    )
 
 
 @manager.route("/team-members", methods=["GET"])
@@ -886,6 +941,13 @@ def probation_reviews_due():
     admin, err = _ensure_manager_user()
     if err:
         return err
+
+    removed = dedupe_probation_review_rows()
+    if removed:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     rows = (
         ProbationReview.query.filter(

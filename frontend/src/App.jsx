@@ -39,6 +39,7 @@ import AddSoftWare from "./pages/IT/AssetsPage/AddSoftWare";
 import AddEmployee from "./pages/IT/AssetsPage/AddEmployee";
 import ITEmployeeDetails from "./pages/IT/EmployeeAssetsDetails";
 import ReturnRequests from "./pages/IT/ReturnRequests";
+import ITNocRequests from "./pages/IT/ITNocRequests";
 
 // Admin Employee Management
 import Employee from "./pages/Admin/Employee";
@@ -125,6 +126,7 @@ export const App = () => {
         { path: "it/AssetsPage/AddEmployee",       element: <AddEmployee /> },
         { path: "it/employee/:empId",              element: <ITEmployeeDetails /> },
         { path: "it/return-requests",              element: <ReturnRequests /> },
+        { path: "it/noc-requests",                 element: <ITNocRequests /> },
 
         // Admin Employee Management
         { path: "employees",                       element: <Employee /> },

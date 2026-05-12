@@ -12,6 +12,9 @@ export const DepartmentQueryInbox = () => {
   const [isSending, setIsSending] = useState(false);
   const [closingId, setClosingId] = useState(null);
   const [error, setError] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [filterCircle, setFilterCircle] = useState("");
+  const [circleOptions, setCircleOptions] = useState([]);
   const chatEndRef = useRef(null);
 
   const getAuthHeaders = () => {
@@ -32,14 +35,30 @@ export const DepartmentQueryInbox = () => {
     return "New";
   };
 
-  const fetchInbox = async () => {
+  const fetchInbox = async (overrides) => {
+    const month =
+      overrides && Object.prototype.hasOwnProperty.call(overrides, "month")
+        ? overrides.month
+        : filterMonth;
+    const circle =
+      overrides && Object.prototype.hasOwnProperty.call(overrides, "circle")
+        ? overrides.circle
+        : filterCircle;
+
     setIsLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/queries`, {
-        method: "GET",
-        headers: { ...getAuthHeaders() },
-      });
+      const params = new URLSearchParams();
+      if (month) params.set("month", month);
+      if (circle) params.set("circle", circle);
+      const qs = params.toString();
+      const response = await fetch(
+        qs ? `${API_BASE_URL}/queries?${qs}` : `${API_BASE_URL}/queries`,
+        {
+          method: "GET",
+          headers: { ...getAuthHeaders() },
+        }
+      );
       const result = await response.json();
       if (!response.ok || !result.success) {
         throw new Error(result.message || "Failed to load department queries");
@@ -147,7 +166,42 @@ export const DepartmentQueryInbox = () => {
 
   useEffect(() => {
     fetchInbox();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only; filters refreshed via Apply / Reset
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = localStorage.getItem("token");
+    if (!token) return undefined;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/master-options", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && data.success && Array.isArray(data.circles)) {
+          setCircleOptions(data.circles);
+        }
+      } catch (_) {
+        /* circles optional for filtering */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const applyFilters = () => {
+    fetchInbox();
+  };
+
+  const resetFilters = () => {
+    setFilterMonth("");
+    setFilterCircle("");
+    fetchInbox({ month: "", circle: "" });
+  };
+
+  const hasActiveFilters = Boolean(filterMonth || filterCircle);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -175,6 +229,41 @@ export const DepartmentQueryInbox = () => {
           <p>Only queries assigned to your department are shown.</p>
         </div>
 
+        <div className="dept-query-filters">
+          <div className="dept-query-filter-field">
+            <label htmlFor="dept-query-month">Month</label>
+            <input
+              id="dept-query-month"
+              type="month"
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+            />
+          </div>
+          <div className="dept-query-filter-field">
+            <label htmlFor="dept-query-circle">Circle</label>
+            <select
+              id="dept-query-circle"
+              value={filterCircle}
+              onChange={(e) => setFilterCircle(e.target.value)}
+            >
+              <option value="">All circles</option>
+              {circleOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="dept-query-filter-actions">
+            <button type="button" className="dept-filter-apply" onClick={applyFilters}>
+              Apply filters
+            </button>
+            <button type="button" className="dept-filter-reset" onClick={resetFilters}>
+              Reset
+            </button>
+          </div>
+        </div>
+
         {error && <div className="dept-query-error">{error}</div>}
 
         <div className="dept-query-table-wrap">
@@ -195,7 +284,11 @@ export const DepartmentQueryInbox = () => {
                 </tr>
               ) : queries.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="dept-empty">No queries for your department.</td>
+                  <td colSpan="5" className="dept-empty">
+                    {hasActiveFilters
+                      ? "No queries match your filters."
+                      : "No queries for your department."}
+                  </td>
                 </tr>
               ) : (
                 queries.map((q) => (

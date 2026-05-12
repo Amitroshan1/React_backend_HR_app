@@ -34,3 +34,24 @@ class Noc_Upload(db.Model):
 
     admin = db.relationship('Admin', back_populates='noc_upload')
 
+
+class NocDepartmentRequest(db.Model):
+    """Per-department NOC line item when an employee requests NOC from HR/Accounts/Manager/IT."""
+
+    __tablename__ = 'noc_department_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
+    resignation_id = db.Column(db.Integer, db.ForeignKey('resignations.id'), nullable=False)
+    department_key = db.Column(db.String(20), nullable=False)
+    noc_date = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(20), default='Pending')
+    requested_at = db.Column(db.DateTime, default=datetime.now)
+    file_path = db.Column(db.String(255), nullable=True)
+    uploaded_at = db.Column(db.DateTime, nullable=True)
+    uploaded_by_admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=True)
+
+    employee = db.relationship('Admin', foreign_keys=[admin_id])
+    resignation = db.relationship('Resignation', foreign_keys=[resignation_id])
+    uploaded_by = db.relationship('Admin', foreign_keys=[uploaded_by_admin_id])
+

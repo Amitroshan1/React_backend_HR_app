@@ -261,6 +261,14 @@
   cursor: pointer;
 }
 
+.separation-page-wrapper .radio-card input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #4f46e5;
+  cursor: pointer;
+}
+
 .separation-page-wrapper .radio-card .radio-ui {
   display: none;
 }
@@ -304,6 +312,28 @@
 .separation-page-wrapper .input-success {
   border-color: #16a34a !important;
   background: #f0fdf4;
+}
+
+.separation-page-wrapper .noc-date-readonly {
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.separation-page-wrapper .section-hint-inline {
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--sep-text-muted);
+}
+
+.separation-page-wrapper .section-hint.subtle {
+  margin-top: 0;
+  margin-bottom: 18px;
+  font-size: 0.8rem;
 }
 
 /* ===== BUTTONS (primary = gradient Dashboard style) ===== */
@@ -356,6 +386,33 @@
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
+}
+
+/* NOC “Send email” primary CTA — full width of card, clearer idle/disabled states */
+.separation-page-wrapper .btn.btn-noc-send {
+  width: 100%;
+  margin-top: 10px;
+  padding: 13px 22px;
+  font-size: 0.95rem;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 3px 12px rgba(59, 130, 246, 0.28);
+}
+
+.separation-page-wrapper .btn.btn-noc-send:hover:not(:disabled) {
+  box-shadow: 0 6px 18px rgba(59, 130, 246, 0.38);
+}
+
+.separation-page-wrapper .btn.btn-noc-send:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+}
+
+.separation-page-wrapper .btn.btn-noc-send:disabled {
+  background: linear-gradient(to right, #e2e8f0, #f1f5f9) !important;
+  color: #94a3b8 !important;
+  border: 1px solid #e2e8f0;
+  opacity: 1;
 }
 
 .separation-page-wrapper .btn-row {

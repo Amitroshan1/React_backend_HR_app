@@ -1689,7 +1689,8 @@
 }
 
 .hr-employee-accounts-form .form-group input,
-.hr-employee-accounts-form .form-group textarea {
+.hr-employee-accounts-form .form-group textarea,
+.hr-employee-accounts-form .form-group select {
   width: 100%;
   border: 1px solid #dbe3ef;
   border-radius: 8px;
@@ -1705,7 +1706,8 @@
 }
 
 .hr-employee-accounts-form .form-group input:focus,
-.hr-employee-accounts-form .form-group textarea:focus {
+.hr-employee-accounts-form .form-group textarea:focus,
+.hr-employee-accounts-form .form-group select:focus {
   outline: none;
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);

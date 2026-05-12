@@ -836,6 +836,7 @@ export const Dashboard = () => {
         .find((n) => n) || "N/A";
     const managerDept = dynamicData.user?.circle || "N/A"; 
     const userCircle = (dynamicData.user?.circle || '').trim().toUpperCase();
+    const showWfhQuickAction = userCircle === "NHQ";
     const myEmpId =
         (dynamicData.user?.emp_id || dynamicData.user?.empId || dynamicData.employee?.emp_id || "").trim();
     if (loading) return (
@@ -1050,6 +1051,7 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                            {showWfhQuickAction ? (
                             <NavLink to="/wfh" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon green"><div className="action-icon-inner"><FiHome /></div></div>
@@ -1060,6 +1062,7 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                            ) : null}
                             <NavLink to="/attendance" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon sky"><div className="action-icon-inner"><FiClock /></div></div>

@@ -191,7 +191,7 @@ export const Wfh = () => {
     }
     try {
       const res = await fetch(`${API_BASE_URL}/wfh`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       let json = {};
       try {

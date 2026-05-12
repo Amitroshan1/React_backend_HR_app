@@ -5,6 +5,13 @@ from .. import db
 
 class ProbationReview(db.Model):
     __tablename__ = "probation_reviews"
+    __table_args__ = (
+        db.UniqueConstraint(
+            "admin_id",
+            "probation_end_date",
+            name="uq_probation_reviews_admin_probation_end",
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     admin_id = db.Column(

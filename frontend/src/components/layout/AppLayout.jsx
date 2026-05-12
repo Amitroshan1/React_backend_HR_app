@@ -106,6 +106,15 @@ export const AppLayout = () => {
         return url ? `${url}?v=${photoVersion}&t=${Date.now()}` : null;
     }, [userData.user?.photo_url, photoVersion]);
 
+    /** Merge employee profile fields used by Headers for panel routing (emp_type alone may be "Super Admin"). */
+    const headerUser = useMemo(
+        () => ({
+            ...userData.user,
+            designation: userData.user?.designation ?? userData.employee?.designation ?? null,
+        }),
+        [userData.user, userData.employee]
+    );
+
     /* Don't show any protected UI or loading when not authenticated */
     if (!hasToken) {
         return null;
@@ -129,7 +138,7 @@ export const AppLayout = () => {
         <div className="main-layout">
             <ScrollToTop />
             {/* The Header now gets the username and full user object from the centralized context */}
-            <Headers username={username} role={empType} user={userData.user} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
+            <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
             <div className="content-area">
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}

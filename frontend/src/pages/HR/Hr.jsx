@@ -14,7 +14,6 @@ import { AddNewsFeed } from './AddNewsFeed';
 import { UpdateLeave } from './UpdateLeave';
 import { UpdateManager } from './UpdateManager';
 import { AddLocation } from './AddLocation';
-import { AddNoc } from './AddNoc';
 import ExitEmployee from './ExitEmployee';
 import AddDeptCircle from './AddDeptCircle';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
@@ -22,6 +21,8 @@ import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
 import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
+import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
+import '../IT/ReturnRequests.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -406,6 +407,8 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
 }
 
 // ----- HR Employee Accounts profile (from Search Employee -> Employee Accounts) -----
+const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
+
 function HrEmployeeAccountsView({ employee, onBack }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -590,7 +593,20 @@ function HrEmployeeAccountsView({ employee, onBack }) {
               </div>
               <div className="form-group">
                 <label>Tax Regime</label>
-                <input value={form.tax_regime} onChange={(e) => setForm((p) => ({ ...p, tax_regime: e.target.value }))} />
+                <select
+                  value={form.tax_regime}
+                  onChange={(e) => setForm((p) => ({ ...p, tax_regime: e.target.value }))}
+                >
+                  <option value="">— Select —</option>
+                  {TAX_REGIME_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  {form.tax_regime && !TAX_REGIME_OPTIONS.includes(form.tax_regime) ? (
+                    <option value={form.tax_regime}>{form.tax_regime}</option>
+                  ) : null}
+                </select>
               </div>
             </div>
             <div className="form-row">
@@ -1209,7 +1225,7 @@ export const Hr = () => {
     { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 24-hour assessment links and evaluate submissions' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
-    { title: 'Add NOC', icon: FileCheck, description: 'No Objection Certificate' },
+    { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
     { title: 'Ex-Employee Document Sharing', icon: Share2, description: 'Send time-limited document links to former staff' },
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
@@ -1496,11 +1512,11 @@ export const Hr = () => {
     } else if (title === 'Assessment Invite') {
       setView('assessment_invite');
     } else if (title === 'Update Manager') {setView('update_manager');
-  } else if (title === 'Add Locations') {
+  }   else if (title === 'Add Locations') {
     setView('add_location');
   }
-  else if (title === 'Add NOC') {
-    setView('add_noc');
+  else if (title === 'NOC Requests') {
+    setView('noc_requests');
   }
   else if (title === 'Exit Employee') { //New Condition For Exit Employee
   setView('exit_employee');
@@ -1591,8 +1607,29 @@ if (view === 'add_circle_type') {
     </div>
   );
 }
-if (view === 'add_noc') {
-return <AddNoc onBack={() => setView('updates')} />;
+if (view === 'noc_requests') {
+  return (
+    <div className="hr-main-container fade-in">
+      <div className="rr-page" style={{ minHeight: 'auto', padding: '20px' }}>
+        <div className="rr-topbar" style={{ marginBottom: 8 }}>
+          <button type="button" className="rr-back-btn" onClick={() => setView('updates')}>
+            <ArrowLeft size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            Back to Updates
+          </button>
+          <h1 style={{ margin: 0, fontSize: 22, color: '#0f172a' }}>NOC Requests (Human Resource)</h1>
+        </div>
+        <p style={{ color: '#64748b', marginBottom: 16, maxWidth: 720 }}>
+          Separation NOC requests routed to HR. Upload clearance documents when status is Pending.
+        </p>
+        <DepartmentNocPanel
+          apiBase="/api/HumanResource"
+          statusFilter="All"
+          variant="table"
+          requireResignationApprovedToDownload
+        />
+      </div>
+    </div>
+  );
 }
 
   // ----- Search Employee actions: Profile, Attendance, Punch In/Out -----

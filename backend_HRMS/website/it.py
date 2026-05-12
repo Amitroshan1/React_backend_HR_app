@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import get_jwt_identity, jwt_required
+from flask import Blueprint, current_app, jsonify, request, send_file
+from flask_jwt_extended import get_jwt_identity, jwt_required, get_jwt
 
 from . import db
 from .models.Admin_models import Admin
@@ -23,6 +23,7 @@ from .email import (
     send_it_return_request_email,
     send_it_return_request_status_email,
 )
+from .noc_department_service import download_noc_document, list_noc_requests, upload_noc_document
 
 
 it_bp = Blueprint("it", __name__)
@@ -1392,4 +1393,74 @@ def create_parcel_export():
     db.session.commit()
     row = ITParcelExport.query.get(row.id)
     return _ok({"export": _serialize_parcel_export(row)}, "Parcel export created", 201)
+
+
+def _norm_emp_type_label(s):
+    return " ".join(((s or "").strip().lower().replace("-", " ")).split())
+
+
+def _ensure_it_staff_admin():
+    claims = get_jwt()
+    email = (claims.get("email") or "").strip()
+    if not email:
+        return None, _err("Unauthorized", 401)
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return None, _err("Employee not found", 404)
+    et = _norm_emp_type_label(admin.emp_type or "")
+    if et not in ("it", "it department", "information technology"):
+        return None, _err("IT access required", 403)
+    return admin, None
+
+
+@it_bp.route("/noc-requests", methods=["GET"])
+@jwt_required()
+def it_list_noc_department_requests():
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    status_raw = (request.args.get("status") or "All").strip()
+    try:
+        items = list_noc_requests("it", admin, status_raw)
+        return _ok({"requests": items})
+    except Exception:
+        current_app.logger.exception("it_list_noc_department_requests")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Unable to load NOC requests. Check that database migrations include noc_department_requests.",
+                }
+            ),
+            500,
+        )
+
+
+@it_bp.route("/noc-requests/<int:req_id>/upload", methods=["POST"])
+@jwt_required()
+def it_upload_noc_department_document(req_id):
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    file = request.files.get("file")
+    out = upload_noc_document("it", admin, req_id, file)
+    code = out.pop("http", 200)
+    return jsonify({k: v for k, v in out.items()}), code
+
+
+@it_bp.route("/noc-requests/<int:req_id>/download", methods=["GET"])
+@jwt_required()
+def it_download_noc_department_document(req_id):
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    out = download_noc_document("it", admin, req_id)
+    if not out.get("success"):
+        return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
+    return send_file(
+        out["path"],
+        as_attachment=True,
+        download_name=out["download_name"],
+        mimetype="application/octet-stream",
+    )
 

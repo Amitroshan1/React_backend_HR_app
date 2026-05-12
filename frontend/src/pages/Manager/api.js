@@ -5,6 +5,27 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Parse JSON from a fetch Response; fail clearly when the server returns HTML (e.g. SPA index or error page). */
+async function parseApiJson(response) {
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return {};
+  }
+  if (trimmed.startsWith("<")) {
+    const hint =
+      response.status === 404
+        ? "API not found (404). Ensure the backend is running and /api is proxied to Flask."
+        : `Server returned a web page instead of JSON (${response.status}). Check login and backend logs.`;
+    throw new Error(hint);
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw new Error(`Invalid response from server (${response.status}). Expected JSON.`);
+  }
+}
+
 const endpointMap = {
   leave: {
     list: "/leave-requests",
@@ -22,14 +43,43 @@ const endpointMap = {
     list: "/resignation-requests",
     action: (id) => `/resignation-requests/${id}/action`,
   },
+  noc: {
+    list: "/noc-requests",
+  },
 };
+
+export async function fetchDepartmentNocRequests(apiBase = API_BASE, statusFilter = "Pending") {
+  let st = statusFilter || "Pending";
+  if (st === "Approved") st = "Uploaded";
+  const params = new URLSearchParams();
+  params.set("status", st);
+
+  const response = await fetch(`${apiBase}/noc-requests?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      ...authHeaders(),
+    },
+  });
+
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load requests");
+  }
+  return result.requests || [];
+}
 
 export async function fetchManagerRequests(type, statusFilter = "Pending") {
   const config = endpointMap[type];
   if (!config) throw new Error(`Unsupported manager request type: ${type}`);
 
+  if (type === "noc") {
+    return fetchDepartmentNocRequests(API_BASE, statusFilter);
+  }
+
   const params = new URLSearchParams();
-  params.set("status", statusFilter || "Pending");
+  let st = statusFilter || "Pending";
+  params.set("status", st);
 
   const response = await fetch(`${API_BASE}${config.list}?${params.toString()}`, {
     method: "GET",
@@ -47,7 +97,9 @@ export async function fetchManagerRequests(type, statusFilter = "Pending") {
 
 export async function actOnManagerRequest(type, id, action) {
   const config = endpointMap[type];
-  if (!config) throw new Error(`Unsupported manager request type: ${type}`);
+  if (!config || typeof config.action !== "function") {
+    throw new Error(`Unsupported manager request type: ${type}`);
+  }
 
   const response = await fetch(`${API_BASE}${config.action(id)}`, {
     method: "POST",
@@ -65,12 +117,29 @@ export async function actOnManagerRequest(type, id, action) {
   return result;
 }
 
+export async function uploadNocDepartmentRequest(requestId, file, apiBase = API_BASE) {
+  const token = localStorage.getItem("token");
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${apiBase}/noc-requests/${requestId}/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}`, Accept: "application/json" } : { Accept: "application/json" },
+    body: formData,
+  });
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to upload NOC document");
+  }
+  return result;
+}
+
 export async function fetchPendingCounts() {
-  const [leave, wfh, claim, resignation] = await Promise.all([
+  const [leave, wfh, claim, resignation, noc] = await Promise.all([
     fetchManagerRequests("leave", "Pending"),
     fetchManagerRequests("wfh", "Pending"),
     fetchManagerRequests("claim", "Pending"),
     fetchManagerRequests("resignation", "Pending"),
+    fetchManagerRequests("noc", "Pending"),
   ]);
 
   return {
@@ -78,6 +147,7 @@ export async function fetchPendingCounts() {
     wfh: wfh.length,
     claim: claim.length,
     resignation: resignation.length,
+    noc: noc.length,
   };
 }
 

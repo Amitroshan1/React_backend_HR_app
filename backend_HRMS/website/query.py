@@ -8,7 +8,7 @@
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt
-from sqlalchemy import func, or_
+from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import joinedload
 from . import db
 from .models.Admin_models import Admin
@@ -272,19 +272,39 @@ def department_queries():
         return jsonify({"success": False, "message": "Unsupported department role"}), 403
 
     dept_variants = _department_variants(department)
-    queries = (
-        Query.query.options(joinedload(Query.admin))
-        .filter(
-            or_(
-                *[
-                    func.lower(func.coalesce(Query.department, "")) == v
-                    for v in dept_variants
-                ]
+    q = Query.query.options(joinedload(Query.admin)).filter(
+        or_(
+            *[
+                func.lower(func.coalesce(Query.department, "")) == v
+                for v in dept_variants
+            ]
+        )
+    )
+
+    month_str = (request.args.get("month") or "").strip()
+    if month_str:
+        try:
+            year_m, month_m = map(int, month_str.split("-"))
+            if not (1 <= month_m <= 12):
+                raise ValueError()
+            q = q.filter(
+                extract("year", Query.created_at) == year_m,
+                extract("month", Query.created_at) == month_m,
+            )
+        except ValueError:
+            return jsonify(
+                {"success": False, "message": "Invalid month format. Use YYYY-MM"}
+            ), 400
+
+    circle_param = (request.args.get("circle") or "").strip()
+    if circle_param:
+        q = q.filter(
+            Query.admin.has(
+                func.lower(func.coalesce(Admin.circle, "")) == circle_param.lower()
             )
         )
-        .order_by(Query.created_at.desc())
-        .all()
-    )
+
+    queries = q.order_by(Query.created_at.desc()).all()
 
     def _serialize_query(q):
         adm = q.admin

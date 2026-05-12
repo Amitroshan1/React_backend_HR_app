@@ -1307,6 +1307,88 @@ def send_resignation_email(admin, resignation):
         return False, str(e)
 
 
+def send_noc_request_email(admin, resignation, noc_date, department_names, recipient_emails):
+    """
+    Notify selected departments to provide NOC for a separating employee.
+
+    TO: first resolved recipient.
+    CC: all other resolved recipients, HR CC config (if set), and the employee requester.
+    """
+    try:
+        if not recipient_emails:
+            return False, "No recipient emails resolved"
+
+        to_email = (recipient_emails[0] or "").strip()
+        if not to_email:
+            return False, "Invalid recipient email"
+
+        cc_set = []
+        seen = {to_email.lower()}
+        for addr in recipient_emails[1:]:
+            a = (addr or "").strip()
+            if a and a.lower() not in seen:
+                seen.add(a.lower())
+                cc_set.append(a)
+
+        hr_cc = current_app.config.get("ZEPTO_CC_HR")
+        if hr_cc and hr_cc.strip().lower() not in seen:
+            cc_set.append(hr_cc.strip())
+            seen.add(hr_cc.strip().lower())
+
+        emp = (admin.email or "").strip()
+        if emp and emp.lower() not in seen:
+            cc_set.append(emp)
+
+        noc_str = noc_date.strftime("%d-%m-%Y") if hasattr(noc_date, "strftime") else str(noc_date)
+        res_date = resignation.resignation_date.strftime("%d-%m-%Y") if resignation.resignation_date else "—"
+        dept_items = "".join(f"<li>{html.escape(str(d))}</li>" for d in (department_names or []))
+        reason_html = html.escape(resignation.reason or "").replace("\n", "<br>")
+
+        subject = f"NOC Request – {admin.first_name or 'Employee'} ({admin.emp_id or admin.id})"
+
+        body = f"""
+        <p>Hi,</p>
+
+        <p>
+            <strong>{html.escape(admin.first_name or '')}</strong>
+            (Emp ID: <strong>{html.escape(str(admin.emp_id or ''))}</strong>,
+            Email: <strong>{html.escape(admin.email or '')}</strong>)
+            has requested a <strong>No Objection Certificate (NOC)</strong> as part of separation.
+        </p>
+
+        <p><strong>NOC Date requested:</strong> {html.escape(noc_str)}</p>
+
+        <p><strong>Departments selected for NOC:</strong></p>
+        <ul>{dept_items}</ul>
+
+        <p><strong>Separation details</strong></p>
+        <table cellpadding="8" cellspacing="0" border="1">
+            <tr><td><strong>Resignation date</strong></td><td>{html.escape(res_date)}</td></tr>
+            <tr><td><strong>Reason</strong></td><td>{reason_html}</td></tr>
+            <tr><td><strong>Circle</strong></td><td>{html.escape(admin.circle or '')}</td></tr>
+            <tr><td><strong>Department</strong></td><td>{html.escape(admin.emp_type or '')}</td></tr>
+        </table>
+
+        <p>Please review and provide NOC clearance as applicable.</p>
+
+        <br>
+        <p>Regards,<br><strong>HRMS System</strong></p>
+        """
+
+        ok, msg = send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=cc_set or None,
+        )
+        return ok, msg
+
+    except Exception as e:
+        current_app.logger.error(f"NOC request email error: {e}")
+        return False, str(e)
+
+
 def send_resignation_revoked_email(admin, resignation):
     """
     Notify manager(s) and HR that an employee has revoked their resignation.
@@ -2020,10 +2102,10 @@ def send_compoff_expiry_reminder(admin, gain_date, expiry_date):
 def send_probation_reminder_email(admin, probation_end_date, manager_emails):
     """
     Send to HR and concerned manager(s): employee will complete 6-month probation on probation_end_date.
-    manager_emails: list of manager email addresses to notify.
+    One email: primary recipient is first manager (L1 order); other managers + HR are CC (deduped).
     """
     try:
-        hr_email = current_app.config.get("EMAIL_HR")
+        hr_email = (current_app.config.get("EMAIL_HR") or "").strip()
         emp_name = (getattr(admin, "first_name", None) or "").strip() or (admin.email or "Employee")
         doj = getattr(admin, "doj", None)
         doj_str = doj.isoformat() if doj and hasattr(doj, "isoformat") else "N/A"
@@ -2041,20 +2123,44 @@ def send_probation_reminder_email(admin, probation_end_date, manager_emails):
         <p>Please submit your review from the Manager panel (Probation Reviews) at least 15 days before the probation end date.</p>
         <p>— HRMS</p>
         """
-        all_recipients = [e for e in manager_emails if e]
-        if hr_email and hr_email not in all_recipients:
-            all_recipients.append(hr_email)
-        if not all_recipients:
-            current_app.logger.warning("Probation reminder: no HR or manager email configured")
-            return False
-        for recipient in all_recipients:
-            send_email_via_zeptomail(
-                sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
-                subject=subject,
-                body=body,
-                recipient_email=recipient,
-            )
-        return True
+
+        mgr_ordered = []
+        seen_lower = set()
+        for e in manager_emails or []:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen_lower:
+                seen_lower.add(key)
+                mgr_ordered.append(addr)
+
+        if mgr_ordered:
+            primary = mgr_ordered[0]
+            cc_list = []
+            for addr in mgr_ordered[1:]:
+                if addr.lower() != primary.lower():
+                    cc_list.append(addr)
+            if hr_email:
+                hr_low = hr_email.lower()
+                if hr_low != primary.lower() and hr_low not in {c.lower() for c in cc_list}:
+                    cc_list.append(hr_email)
+            cc_emails = cc_list if cc_list else None
+        else:
+            if not hr_email:
+                current_app.logger.warning("Probation reminder: no HR or manager email configured")
+                return False
+            primary = hr_email
+            cc_emails = None
+
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=primary,
+            cc_emails=cc_emails,
+        )
+        return ok
     except Exception as e:
         current_app.logger.warning(f"Probation reminder email failed: {e}")
         return False
@@ -2137,7 +2243,7 @@ def send_password_set_email(admin):
         return False
 
 
-def send_ex_employee_documents_email(*, recipient_email, doc_link, document_names):
+def send_ex_employee_documents_email(*, recipient_email, doc_link, document_names, valid_hours=48):
     """
     Notify ex-employee with document names + time-limited link (no HRMS login).
     CC: ZEPTO_CC_HR env (comma-separated allowed), else EMAIL_HR — skipped if same as recipient.
@@ -2162,7 +2268,7 @@ def send_ex_employee_documents_email(*, recipient_email, doc_link, document_name
 <p>The Human Resources team is sharing the following with you. Please use it for your records as applicable.</p>
 {names_block}
 <p>Your file(s) are available at the link below. You do <strong>not</strong> need to sign in to HRMS. The link is
-valid for <strong>24 hours</strong> and is intended for you only.</p>
+valid for <strong>{valid_hours} hours</strong> and is intended for you only.</p>
 <p style="margin:14px 0;word-break:break-all;"><a href="{href_attr}" style="color:#0d9488;">{link_text}</a></p>
 <p style="font-size:13px;color:#64748b;">If this message was not meant for you, you may ignore it. For questions, contact HR through your usual official channel.</p>
 <p style="margin-top:18px;">Kind regards,<br /><strong>Human Resources</strong></p>

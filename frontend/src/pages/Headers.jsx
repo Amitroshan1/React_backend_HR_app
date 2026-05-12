@@ -172,63 +172,113 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
     const { title, subtitle, isDashboard } = getPageInfo(location.pathname, firstName);
 
-    // Map role variations to standardized format and route. Accepts explicit `role` string and full `user` object for fallbacks.
+    // Map role variations to standardized format and route. Uses emp_type, designation, department, etc.
     const getRoleInfo = (role, user) => {
-        // Build a fallback source string from user object fields if role is missing or generic.
-        const fallbackCandidate = (user && (user.emp_type || user.department || user.role || user.designation || user.title || (user.roles && user.roles.join(' ')))) || role || "";
-        const normalized = String(fallbackCandidate).toLowerCase().trim();
-
-        // Map various role formats to standardized format (from admins.emp_type)
         const roleMap = {
-            // HR variations
-            "hr": { display: "HR", route: "/hr", hasPanel: true },
+            hr: { display: "HR", route: "/hr", hasPanel: true },
             "human resource": { display: "HR", route: "/hr", hasPanel: true },
             "human resources": { display: "HR", route: "/hr", hasPanel: true },
-            
-            // Manager variations
-            "manager": { display: "Manager", route: "/manager", hasPanel: true },
-            "managers": { display: "Manager", route: "/manager", hasPanel: true },
-            
-            // Account variations
-            "account": { display: "Account", route: "/account", hasPanel: true },
-            "accounts": { display: "Account", route: "/account", hasPanel: true },
-            "accountant": { display: "Account", route: "/account", hasPanel: true },
-            
-            // IT variations
-            "it": { display: "IT", route: "/it", hasPanel: true },
-            "information technology": { display: "IT", route: "/it", hasPanel: true },
-            
-            // Admin variations
-            "admin": { display: "Admin", route: "/admin", hasPanel: true },
-            "administrator": { display: "Admin", route: "/admin", hasPanel: true },
-            "administration": { display: "Admin", route: "/admin", hasPanel: true },
-        };
-        
-        let result = roleMap[normalized] || { display: rawRole, route: null, hasPanel: false };
 
-        // Fallback: map common variants that include 'it' or 'tech' to IT panel
-        if (!result.hasPanel) {
-            if (normalized.includes("it") || normalized.includes("tech") || normalized.includes("information")) {
+            manager: { display: "Manager", route: "/manager", hasPanel: true },
+            managers: { display: "Manager", route: "/manager", hasPanel: true },
+
+            account: { display: "Account", route: "/account", hasPanel: true },
+            accounts: { display: "Account", route: "/account", hasPanel: true },
+            accountant: { display: "Account", route: "/account", hasPanel: true },
+
+            it: { display: "IT", route: "/it", hasPanel: true },
+            "information technology": { display: "IT", route: "/it", hasPanel: true },
+
+            admin: { display: "Admin", route: "/admin", hasPanel: true },
+            administrator: { display: "Admin", route: "/admin", hasPanel: true },
+            administration: { display: "Admin", route: "/admin", hasPanel: true },
+        };
+
+        /** When emp_type is generic (Super Admin), infer HR / IT / Accounts from title text. */
+        const inferPanelFromKeywords = (raw) => {
+            const s = String(raw ?? "").trim();
+            if (!s) return null;
+            const n = s.toLowerCase();
+            if (/\bhuman\s+resources?\b|\bhr\b/i.test(s)) {
+                return { display: "HR", route: "/hr", hasPanel: true };
+            }
+            if (/\bit\s+department\b|\binformation\s+technology\b|(^|\s)it(\s|$)/i.test(n)) {
+                return { display: "IT", route: "/it", hasPanel: true };
+            }
+            if (/\baccounts\b|\baccountant\b|(^|\s)account(\s|$)/i.test(s)) {
+                return { display: "Account", route: "/account", hasPanel: true };
+            }
+            return null;
+        };
+
+        const orderedCandidates = [];
+        const push = (v) => {
+            if (v == null || v === "") return;
+            const t = String(v).trim();
+            if (!t || orderedCandidates.includes(t)) return;
+            orderedCandidates.push(t);
+        };
+
+        push(role);
+        if (user) {
+            push(user.emp_type);
+            push(user.designation);
+            push(user.department);
+            push(user.role);
+            push(user.title);
+            if (Array.isArray(user.roles)) user.roles.forEach((r) => push(r));
+            else if (user.roles) push(String(user.roles));
+        }
+
+        let result = { display: role || "Employee", route: null, hasPanel: false };
+
+        for (const cand of orderedCandidates) {
+            const normalized = String(cand).toLowerCase().trim();
+            const exact = roleMap[normalized];
+            if (exact?.hasPanel) {
+                result = exact;
+                break;
+            }
+            const inferred = inferPanelFromKeywords(cand);
+            if (inferred?.hasPanel) {
+                result = inferred;
+                break;
+            }
+        }
+
+        const primaryNorm = String(orderedCandidates[0] ?? "").toLowerCase().trim();
+        if (!result.hasPanel && primaryNorm) {
+            if (primaryNorm.includes("it") || primaryNorm.includes("tech") || primaryNorm.includes("information")) {
                 result = { display: "IT", route: "/it", hasPanel: true };
             }
         }
 
-        // Additional fallback: check arrays on the user object
         if (!result.hasPanel && user) {
             try {
-                const rolesArr = Array.isArray(user.roles) ? user.roles : (user.roles ? String(user.roles).split(',') : []);
-                const permsArr = Array.isArray(user.permissions) ? user.permissions : (user.permissions ? String(user.permissions).split(',') : []);
-                const combined = [...rolesArr, ...permsArr].map(String).join(' ').toLowerCase();
-                if (combined.includes('it') || combined.includes('information') || combined.includes('tech')) {
+                const rolesArr = Array.isArray(user.roles) ? user.roles : user.roles ? String(user.roles).split(",") : [];
+                const permsArr = Array.isArray(user.permissions) ? user.permissions : user.permissions ? String(user.permissions).split(",") : [];
+                const combined = [...rolesArr, ...permsArr].map(String).join(" ").toLowerCase();
+                if (combined.includes("it") || combined.includes("information") || combined.includes("tech")) {
                     result = { display: "IT", route: "/it", hasPanel: true };
                 }
+                if (!result.hasPanel && (combined.includes("human resource") || combined.includes(" hr"))) {
+                    result = { display: "HR", route: "/hr", hasPanel: true };
+                }
             } catch (e) {
-                // ignore parsing errors
+                /* ignore */
             }
         }
 
-        // Compact debug log for role resolution and key user fields
-        console.log("Header Role Debug:", { receivedRole: role, fallbackCandidate: normalized, roleInfo: result, userFields: { emp_type: user?.emp_type, department: user?.department, roles: user?.roles } });
+        if (!result.hasPanel) {
+            result = { display: role || "Employee", route: null, hasPanel: false };
+        }
+
+        console.log("Header Role Debug:", {
+            receivedRole: role,
+            candidates: orderedCandidates,
+            roleInfo: result,
+            userFields: { emp_type: user?.emp_type, designation: user?.designation, department: user?.department },
+        });
 
         return result;
     };
@@ -502,4 +552,5 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
             </div>
         </header>
     );
+};
 };

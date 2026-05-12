@@ -48,6 +48,7 @@ from .models.attendance import (
 )
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
+from .noc_department_service import download_noc_document, list_noc_requests, upload_noc_document
 from .models.master_data import MasterData
 from .models.leave_accrual_log import LeaveAccrualLog
 from .models.holiday_calendar import HolidayCalendar
@@ -68,7 +69,7 @@ from .models.assessment import AssessmentInvite
 
 hr = Blueprint('HumanResource', __name__)
 
-EX_EMPLOYEE_LINK_TTL_HOURS = 24
+EX_EMPLOYEE_LINK_TTL_HOURS = 48
 
 
 def _hash_ex_employee_token(raw_token: str) -> str:
@@ -1276,10 +1277,12 @@ def search_employees():
             "message": "circle and emp_type are required"
         }), 400
 
-    admins = Admin.query.filter_by(
-        circle=circle,
-        emp_type=emp_type
-    ).all()
+    admins = (
+        Admin.query.filter_by(circle=circle, emp_type=emp_type)
+        .filter(db.func.coalesce(Admin.is_exited, False) == False)
+        .filter(db.func.coalesce(Admin.is_active, True) == True)
+        .all()
+    )
 
     if not admins:
         return jsonify({
@@ -1317,11 +1320,13 @@ def download_excel_hr_api():
             "message": "circle and emp_type are required"
         }), 400
 
-    # Step 1: Fetch employees directly from Admin
-    admins = Admin.query.filter_by(
-        circle=circle,
-        emp_type=emp_type
-    ).all()
+    # Step 1: Fetch active non-exited employees only (same rules as /search)
+    admins = (
+        Admin.query.filter_by(circle=circle, emp_type=emp_type)
+        .filter(db.func.coalesce(Admin.is_exited, False) == False)
+        .filter(db.func.coalesce(Admin.is_active, True) == True)
+        .all()
+    )
 
     if not admins:
         return jsonify({
@@ -3715,6 +3720,50 @@ def upload_noc():
     return jsonify({"success": True, "message": "NOC file uploaded successfully"}), 201
 
 
+@hr.route("/noc-requests", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_list_noc_department_requests():
+    """HR panel — only Human Resource department_key rows."""
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    status_raw = (request.args.get("status") or "All").strip()
+    items = list_noc_requests("hr", admin, status_raw)
+    return jsonify({"success": True, "requests": items}), 200
+
+
+@hr.route("/noc-requests/<int:req_id>/upload", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_upload_noc_department_document(req_id):
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    file = request.files.get("file")
+    out = upload_noc_document("hr", admin, req_id, file)
+    code = out.pop("http", 200)
+    return jsonify({k: v for k, v in out.items()}), code
+
+
+@hr.route("/noc-requests/<int:req_id>/download", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_download_noc_department_document(req_id):
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    out = download_noc_document("hr", admin, req_id)
+    if not out.get("success"):
+        return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
+    return send_file(
+        out["path"],
+        as_attachment=True,
+        download_name=out["download_name"],
+        mimetype="application/octet-stream",
+    )
+
+
 @hr.route("/employee/search", methods=["GET"])
 @jwt_required()
 @hr_required
@@ -3949,6 +3998,7 @@ def send_ex_employee_documents():
         recipient_email=recipient_email,
         doc_link=doc_link,
         document_names=list(display_names),
+        valid_hours=EX_EMPLOYEE_LINK_TTL_HOURS,
     )
 
     if not email_ok:
@@ -3963,7 +4013,7 @@ def send_ex_employee_documents():
     return jsonify(
         {
             "success": True,
-            "message": "Documents sent. The recipient has 24 hours to download using the email link.",
+            "message": f"Documents sent. The recipient has {EX_EMPLOYEE_LINK_TTL_HOURS} hours to download using the email link.",
             "expires_at": expires_at.isoformat() + "Z",
         }
     ), 201

@@ -87,7 +87,7 @@ export function ExEmployeeDocumentSharing({ onBack }) {
       if (res.ok && data.success) {
         setMessage({
           type: 'success',
-          text: data.message || 'Email sent. Link is valid for 24 hours.',
+          text: data.message || 'Email sent. Link is valid for 48 hours.',
         });
         setRecipientEmail('');
         setRows([newRow()]);
@@ -158,7 +158,7 @@ export function ExEmployeeDocumentSharing({ onBack }) {
           <div>
             <h1 className="ex-doc-share__title">Ex-Employee Document Sharing</h1>
             <p className="ex-doc-share__subtitle">
-              Send a secure download link (24 hours) to a former employee&apos;s email. No HRMS login
+              Send a secure download link (48 hours) to a former employee&apos;s email. No HRMS login
               required for them.
             </p>
           </div>

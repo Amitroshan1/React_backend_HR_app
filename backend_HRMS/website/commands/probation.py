@@ -19,6 +19,48 @@ PROBATION_MONTHS = 6
 REMINDER_DAYS_BEFORE = 15
 
 
+def dedupe_probation_review_rows():
+    """
+    Merge duplicate ProbationReview rows for the same (admin_id, probation_end_date).
+    Keeps one canonical row (prefer one with reviewed_at, else lowest id), merges reminder_sent_at.
+    Returns number of duplicate rows removed (0 if none).
+    """
+    dup_groups = (
+        db.session.query(
+            ProbationReview.admin_id,
+            ProbationReview.probation_end_date,
+            func.count(ProbationReview.id),
+        )
+        .group_by(ProbationReview.admin_id, ProbationReview.probation_end_date)
+        .having(func.count(ProbationReview.id) > 1)
+        .all()
+    )
+    removed = 0
+    for admin_id, end_date, _cnt in dup_groups:
+        rows = (
+            ProbationReview.query.filter_by(admin_id=admin_id, probation_end_date=end_date)
+            .order_by(ProbationReview.id.asc())
+            .all()
+        )
+        if len(rows) < 2:
+            continue
+        reviewed = [r for r in rows if r.reviewed_at]
+        if reviewed:
+            keeper = min(reviewed, key=lambda r: r.id)
+        else:
+            keeper = rows[0]
+        others = [r for r in rows if r.id != keeper.id]
+        latest_reminder = keeper.reminder_sent_at
+        for r in rows:
+            if r.reminder_sent_at and (latest_reminder is None or r.reminder_sent_at > latest_reminder):
+                latest_reminder = r.reminder_sent_at
+        keeper.reminder_sent_at = latest_reminder
+        for r in others:
+            db.session.delete(r)
+            removed += 1
+    return removed
+
+
 def _get_contact_for_admin(admin):
     """ManagerContact for this employee (circle + emp_type + optional user_email)."""
     circle = (getattr(admin, "circle", None) or "").strip().lower()
@@ -46,7 +88,18 @@ def run_probation_reminder(run_date):
     Find employees whose 6-month probation ends in 15 days; create ProbationReview, send email to HR + manager.
     Returns summary dict.
     """
-    summary = {"run_date": run_date.isoformat(), "reminders_sent": 0, "skipped_no_doj": 0, "skipped_already_sent": 0}
+    summary = {
+        "run_date": run_date.isoformat(),
+        "reminders_sent": 0,
+        "skipped_no_doj": 0,
+        "skipped_already_sent": 0,
+        "dedupe_removed": 0,
+    }
+    merged = dedupe_probation_review_rows()
+    summary["dedupe_removed"] = merged
+    if merged:
+        db.session.flush()
+
     reminder_date = run_date  # we run for run_date; reminder_date = probation_end - 15
     # So probation_end_date = reminder_date + 15. We want employees with probation_end_date = run_date + 15.
     probation_end_date = run_date + timedelta(days=REMINDER_DAYS_BEFORE)
@@ -92,6 +145,14 @@ def run_probation_reminder(run_date):
 
 
 def register_probation_command(app):
+    @app.cli.command("probation-dedupe")
+    def probation_dedupe_command():
+        """Merge duplicate probation_reviews rows (same employee + probation end date)."""
+        with app.app_context():
+            n = dedupe_probation_review_rows()
+            db.session.commit()
+            click.echo(f"probation-dedupe: removed {n} duplicate row(s).")
+
     @app.cli.command("probation-reminder")
     @click.option("--run-date", default=None, help="Date to run for (YYYY-MM-DD). Default: today.")
     @click.option("--dry-run", is_flag=True, help="Do not commit changes.")
@@ -116,5 +177,6 @@ def register_probation_command(app):
                 f"probation-reminder: date={summary['run_date']}, "
                 f"reminders_sent={summary['reminders_sent']}, "
                 f"skipped_no_doj={summary['skipped_no_doj']}, "
-                f"skipped_already_sent={summary['skipped_already_sent']}"
+                f"skipped_already_sent={summary['skipped_already_sent']}, "
+                f"dedupe_removed={summary['dedupe_removed']}"
             )

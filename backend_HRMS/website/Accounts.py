@@ -28,8 +28,10 @@ from .models.attendance import Punch, LeaveApplication,LeaveBalance
 from .models.news_feed import NewsFeed, PaySlip, Form16
 from werkzeug.security import generate_password_hash
 import os
+from functools import wraps
 from io import BytesIO
 from . import db
+from .noc_department_service import download_noc_document, list_noc_requests, upload_noc_document
 from werkzeug.utils import secure_filename
 from sqlalchemy import func, or_
 from .models.expense import ExpenseLineItem
@@ -42,6 +44,21 @@ from reportlab.pdfgen import canvas
 
 
 Accounts = Blueprint('Accounts', __name__)
+
+
+def accounts_department_required(fn):
+    """Accounts-only (not HR-only) for Accounts department NOC queue."""
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        claims = get_jwt()
+        emp_type = (claims.get("emp_type") or "").strip().lower().replace("-", " ")
+        emp_type = " ".join(emp_type.split())
+        if emp_type not in {"account", "accounts", "accountant"}:
+            return jsonify({"success": False, "message": "Accounts access required"}), 403
+        return fn(*args, **kwargs)
+
+    return wrapper
 
 
 def _accounts_can_access_any_profile(admin):
@@ -2353,3 +2370,46 @@ def put_employee_accounts_profile():
         "message": "Profile saved",
         "profile": row.to_dict(),
     }), 200
+
+
+@Accounts.route("/noc-requests", methods=["GET"])
+@jwt_required()
+@accounts_department_required
+def accounts_list_noc_department_requests():
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    status_raw = (request.args.get("status") or "All").strip()
+    items = list_noc_requests("accounts", admin, status_raw)
+    return jsonify({"success": True, "requests": items}), 200
+
+
+@Accounts.route("/noc-requests/<int:req_id>/upload", methods=["POST"])
+@jwt_required()
+@accounts_department_required
+def accounts_upload_noc_department_document(req_id):
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    file = request.files.get("file")
+    out = upload_noc_document("accounts", admin, req_id, file)
+    code = out.pop("http", 200)
+    return jsonify({k: v for k, v in out.items()}), code
+
+
+@Accounts.route("/noc-requests/<int:req_id>/download", methods=["GET"])
+@jwt_required()
+@accounts_department_required
+def accounts_download_noc_department_document(req_id):
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    out = download_noc_document("accounts", admin, req_id)
+    if not out.get("success"):
+        return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
+    return send_file(
+        out["path"],
+        as_attachment=True,
+        download_name=out["download_name"],
+        mimetype="application/octet-stream",
+    )

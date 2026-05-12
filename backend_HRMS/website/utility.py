@@ -1,4 +1,11 @@
-from .models.attendance import LeaveApplication, LeaveBalance, Punch, PunchSession, WorkFromHomeApplication
+from .models.attendance import (
+    CompOffGain,
+    LeaveApplication,
+    LeaveBalance,
+    Punch,
+    PunchSession,
+    WorkFromHomeApplication,
+)
 from datetime import date
 from io import BytesIO
 import xlsxwriter
@@ -9,6 +16,7 @@ from .models.Admin_models import Admin
 from .models.emp_detail_models import Employee
 from . import db
 from .models.holiday_calendar import HolidayCalendar
+from collections import defaultdict
 
 
 
@@ -1111,6 +1119,185 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
     return output
 
 
+def _month_date_bounds(year, month):
+    num_days = calendar.monthrange(year, month)[1]
+    return date(year, month, 1), date(year, month, num_days)
+
+
+def _calendar_dates_inclusive(start_d, end_d):
+    """Sorted list of calendar dates from start_d to end_d inclusive."""
+    if start_d > end_d:
+        return []
+    out = []
+    cur = start_d
+    while cur <= end_d:
+        out.append(cur)
+        cur += timedelta(days=1)
+    return out
+
+
+def _format_day_month(d):
+    if not d:
+        return ""
+    return f"{d.day} {calendar.month_abbr[d.month]}"
+
+
+def _format_date_run(dates):
+    """Format sorted date list as '6 Apr', '6–8 Apr', or '6, 15 Apr'."""
+    if not dates:
+        return ""
+    dates = sorted(set(dates))
+    groups = []
+    span_start = span_end = dates[0]
+    for d in dates[1:]:
+        if (d - span_end).days == 1:
+            span_end = d
+        else:
+            groups.append((span_start, span_end))
+            span_start = span_end = d
+    groups.append((span_start, span_end))
+    bits = []
+    for a, b in groups:
+        if a == b:
+            bits.append(_format_day_month(a))
+        else:
+            mo = calendar.month_abbr[a.month]
+            if a.month == b.month:
+                bits.append(f"{a.day}–{b.day} {mo}")
+            else:
+                bits.append(f"{_format_day_month(a)} – {_format_day_month(b)}")
+    return ", ".join(bits)
+
+
+def _simulate_comp_off_fifo(admin_id):
+    """
+    Replay compensatory leave deductions in approval/start order, assigning each
+    deducted slice to CompOffGain rows ordered by expiry_date (same as deduct_comp_leave).
+    Returns list of (leave_application, gain_date, amount).
+    """
+    gains = (
+        CompOffGain.query.filter_by(admin_id=admin_id)
+        .order_by(CompOffGain.expiry_date.asc(), CompOffGain.id.asc())
+        .all()
+    )
+    remaining = {g.id: 1.0 for g in gains}
+    leaves = (
+        LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin_id,
+            LeaveApplication.leave_type == "Compensatory Leave",
+            LeaveApplication.status == "Approved",
+        )
+        .order_by(LeaveApplication.start_date.asc(), LeaveApplication.id.asc())
+        .all()
+    )
+    rows = []
+    for lv in leaves:
+        need = float(lv.deducted_days or 0)
+        if need <= 1e-9:
+            continue
+        for g in gains:
+            if need <= 1e-9:
+                break
+            if remaining[g.id] <= 1e-9:
+                continue
+            if g.expiry_date < lv.start_date:
+                continue
+            take = min(need, remaining[g.id])
+            remaining[g.id] -= take
+            need -= take
+            rows.append((lv, g.gain_date, take))
+    return rows
+
+
+def _fmt_take_days(t):
+    if abs(t - round(t)) < 1e-6:
+        return str(int(round(t)))
+    return f"{t:.1f}".rstrip("0").rstrip(".")
+
+
+def _client_leave_row_summary(admin_id, year, month):
+    """Casual + Privilege approved days in month — count | dates pairs."""
+    ms, me = _month_date_bounds(year, month)
+    parts = []
+    for lt in ("Casual Leave", "Privilege Leave"):
+        leaves = (
+            LeaveApplication.query.filter(
+                LeaveApplication.admin_id == admin_id,
+                LeaveApplication.leave_type == lt,
+                LeaveApplication.status == "Approved",
+                LeaveApplication.start_date <= me,
+                LeaveApplication.end_date >= ms,
+            )
+            .order_by(LeaveApplication.start_date.asc(), LeaveApplication.id.asc())
+            .all()
+        )
+        for lv in leaves:
+            block = _calendar_dates_inclusive(
+                max(lv.start_date, ms), min(lv.end_date, me)
+            )
+            if not block:
+                continue
+            n = len(block)
+            parts.append(f"{n} | {_format_date_run(block)}")
+    return "; ".join(parts)
+
+
+def _client_half_day_row_summary(admin_id, year, month):
+    ms, me = _month_date_bounds(year, month)
+    leaves = (
+        LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin_id,
+            LeaveApplication.leave_type == "Half Day Leave",
+            LeaveApplication.status == "Approved",
+            LeaveApplication.start_date <= me,
+            LeaveApplication.end_date >= ms,
+        )
+        .order_by(LeaveApplication.start_date.asc(), LeaveApplication.id.asc())
+        .all()
+    )
+    parts = []
+    for lv in leaves:
+        for d in _calendar_dates_inclusive(
+            max(lv.start_date, ms), min(lv.end_date, me)
+        ):
+            parts.append(f"0.5 | {_format_day_month(d)}")
+    return "; ".join(parts)
+
+
+def _client_comp_off_row_summary(admin_id, year, month):
+    """Comp off taken in month with earned-on (gain) date per FIFO slice."""
+    ms, me = _month_date_bounds(year, month)
+    alloc_rows = _simulate_comp_off_fifo(admin_id)
+    grouped = defaultdict(list)
+    for lv, gain_date, take in alloc_rows:
+        grouped[lv.id].append((gain_date, float(take)))
+
+    parts = []
+    for lv_id, chunk_list in grouped.items():
+        lv = next((l for l, _, _ in alloc_rows if l.id == lv_id), None)
+        if not lv:
+            continue
+        dates_full = _calendar_dates_inclusive(lv.start_date, lv.end_date)
+        di = 0
+        for gain_date, take in chunk_list:
+            need = float(take)
+            got = []
+            while need > 1e-9 and di < len(dates_full):
+                step = min(1.0, need)
+                got.append(dates_full[di])
+                need -= step
+                di += 1
+            in_month = [d for d in got if ms <= d <= me]
+            if not in_month:
+                continue
+            ratio = (len(in_month) / len(got)) if got else 1.0
+            shown_take = take * ratio
+            tk = _fmt_take_days(shown_take)
+            earned = _format_day_month(gain_date)
+            parts.append(f"{tk} | {_format_date_run(in_month)} — earned {earned}")
+    return "; ".join(parts)
+
+
 def generate_client_attendance_excel(admins, year, month, project_name=None, place=None):
     """
     Generate a client-facing attendance sheet with multiple employees
@@ -1136,18 +1323,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     legend_half_day_fmt = workbook.add_format({"border": 1, "bg_color": "#C6E0B4"})
     legend_leave_fmt = workbook.add_format({"border": 1, "bg_color": "#F8CBAD"})
     legend_leave_pending_fmt = workbook.add_format({"border": 1, "bg_color": "#FFD966"})
-    legend_outside_fmt = workbook.add_format({"border": 1, "bg_color": "#FF9999", "bold": True})
     sunday_row_fmt = workbook.add_format({"border": 1, "bg_color": "#D9D9D9"})
-    outside_punch_cell_fmt = workbook.add_format({"border": 1, "bg_color": "#FF9999"})
-
-    def _location_status_is_outside(status):
-        """Client sheet: treat missing/blank geo like outside (red), plus known non‑inside codes."""
-        if status is None or not str(status).strip():
-            return True
-        s = str(status).strip().lower()
-        if s == "inside_geofence":
-            return False
-        return s in ("outside_geofence", "location_not_captured", "office_not_configured")
 
     def _session_geo_in(sess):
         if not sess:
@@ -1168,11 +1344,6 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
         if sess.clock_out is not None:
             return ((getattr(sess, "location_status", None) or "").strip() or None)
         return None
-
-    def _same_clock(a, b):
-        if not a or not b:
-            return False
-        return abs((a - b).total_seconds()) < 1.5
 
     # Date range for the month
     num_days = calendar.monthrange(year, month)[1]
@@ -1198,14 +1369,8 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     worksheet.write(2, 0, "HALF DAY", legend_half_day_fmt)
     worksheet.write(3, 0, "LEAVE", legend_leave_fmt)
     worksheet.write(4, 0, "LEAVE PENDING / NOT APPROVED", legend_leave_pending_fmt)
-    worksheet.write(
-        5,
-        0,
-        "OUTSIDE LOCATION / GEO NOT SET",
-        legend_outside_fmt,
-    )
 
-    HEADER_START_ROW = 6   # Row 7 (1‑based): first header row after legend block
+    HEADER_START_ROW = 5   # First header row after legend block
     LABEL_COL = 0          # Column A
     FIRST_EMP_COL = 1      # First employee starts at column B
     TIME_COLUMNS_PER_PAIR = 2
@@ -1234,16 +1399,6 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     punch_map = {}
     for p in punches:
         punch_map.setdefault(p.admin_id, {})[p.punch_date] = p
-
-    punch_ids = [p.id for p in punches]
-    sessions_by_punch_id = {}
-    if punch_ids:
-        for sess in (
-            PunchSession.query.filter(PunchSession.punch_id.in_(punch_ids))
-            .order_by(PunchSession.punch_id.asc(), PunchSession.clock_in.asc())
-            .all()
-        ):
-            sessions_by_punch_id.setdefault(sess.punch_id, []).append(sess)
 
     # Build a leave map for all employees: {admin_id: {date: [LeaveApplication,...]}}
     leave_map = {}
@@ -1389,6 +1544,10 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
 
                 worksheet.write(row, base_col,     cell_text, fmt)
                 worksheet.write(row, base_col + 1, "",        fmt)
+            elif is_sunday:
+                # Same visual style as a calendar holiday; label both Punch In and Punch Out
+                worksheet.write(row, base_col, "Weekend Off", legend_holiday_fmt)
+                worksheet.write(row, base_col + 1, "Weekend Off", legend_holiday_fmt)
             else:
                 # Normal punch display — 24-hour clock (HH:MM:SS)
                 time_in_str = (
@@ -1398,34 +1557,62 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                     punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else ""
                 )
 
-                sessions_day = (
-                    sessions_by_punch_id.get(punch.id, []) if punch and punch.id else []
-                )
-                first_sess = sessions_day[0] if sessions_day else None
-                closed_sessions = [s for s in sessions_day if s.clock_out is not None]
-                out_sess_for_aggregate = None
-                if punch and punch.punch_out and closed_sessions:
-                    out_sess_for_aggregate = max(closed_sessions, key=lambda x: x.clock_out)
+                worksheet.write(row, base_col, time_in_str, base_fmt)
+                worksheet.write(row, base_col + 1, time_out_str, base_fmt)
 
-                in_outside = bool(
-                    punch
-                    and punch.punch_in
-                    and first_sess
-                    and _same_clock(first_sess.clock_in, punch.punch_in)
-                    and _location_status_is_outside(_session_geo_in(first_sess))
-                )
-                out_outside = bool(
-                    punch
-                    and punch.punch_out
-                    and out_sess_for_aggregate
-                    and _location_status_is_outside(_session_geo_out(out_sess_for_aggregate))
-                )
+    # ----- Summary rows (Leave / Comp off / Half day) per employee -----
+    TABLE_HEADER_ROW_FIXED = HEADER_START_ROW + 7
+    first_day_row_fixed = TABLE_HEADER_ROW_FIXED + 1
+    summary_leave_row = first_day_row_fixed + num_days
+    summary_comp_row = summary_leave_row + 1
+    summary_half_row = summary_comp_row + 1
 
-                fmt_in = outside_punch_cell_fmt if in_outside else base_fmt
-                fmt_out = outside_punch_cell_fmt if out_outside else base_fmt
+    summary_label_fmt = workbook.add_format(
+        {
+            "bold": True,
+            "border": 1,
+            "bg_color": "#D9D9D9",
+            "align": "left",
+            "valign": "vcenter",
+        }
+    )
+    summary_body_fmt = workbook.add_format(
+        {"border": 1, "text_wrap": True, "valign": "top"}
+    )
 
-                worksheet.write(row, base_col, time_in_str, fmt_in)
-                worksheet.write(row, base_col + 1, time_out_str, fmt_out)
+    worksheet.write(summary_leave_row, LABEL_COL, "Leave", summary_label_fmt)
+    worksheet.write(summary_comp_row, LABEL_COL, "Comp off", summary_label_fmt)
+    worksheet.write(summary_half_row, LABEL_COL, "Half day", summary_label_fmt)
+
+    for emp_index, admin in enumerate(admins):
+        base_col = FIRST_EMP_COL + emp_index * TIME_COLUMNS_PER_PAIR
+        leave_txt = _client_leave_row_summary(admin.id, year, month)
+        comp_txt = _client_comp_off_row_summary(admin.id, year, month)
+        half_txt = _client_half_day_row_summary(admin.id, year, month)
+        worksheet.merge_range(
+            summary_leave_row,
+            base_col,
+            summary_leave_row,
+            base_col + 1,
+            leave_txt or "—",
+            summary_body_fmt,
+        )
+        worksheet.merge_range(
+            summary_comp_row,
+            base_col,
+            summary_comp_row,
+            base_col + 1,
+            comp_txt or "—",
+            summary_body_fmt,
+        )
+        worksheet.merge_range(
+            summary_half_row,
+            base_col,
+            summary_half_row,
+            base_col + 1,
+            half_txt or "—",
+            summary_body_fmt,
+        )
 
     # Adjust column widths
     worksheet.set_column(0, 0, 32)
@@ -1495,13 +1682,9 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
         session_ws.write(r, 3, seq, border_fmt)
         geo_in = _session_geo_in(s) or ""
         geo_out = _session_geo_out(s) or ""
-        cin_outside = _location_status_is_outside(geo_in)
-        cout_outside = _location_status_is_outside(geo_out)
-        fmt_cin = outside_punch_cell_fmt if cin_outside else border_fmt
-        fmt_cout = outside_punch_cell_fmt if cout_outside else border_fmt
 
-        session_ws.write(r, 4, cin, fmt_cin)
-        session_ws.write(r, 5, cout, fmt_cout)
+        session_ws.write(r, 4, cin, border_fmt)
+        session_ws.write(r, 5, cout, border_fmt)
         session_ws.write(r, 6, dur, border_fmt)
         session_ws.write(r, 7, geo_in, border_fmt)
         session_ws.write(r, 8, geo_out, border_fmt)

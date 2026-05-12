@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 import './Account.css';
 import { useUser } from '../../components/layout/UserContext';
+import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
+
+const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
 
 export const Account = ()  => {
   const { userData } = useUser();
@@ -20,6 +23,10 @@ export const Account = ()  => {
     ((userData?.user?.emp_type || '') + '')
       .trim()
       .toLowerCase() === 'human resources';
+
+  const isAccountsDept = ['account', 'accounts', 'accountant'].includes(
+    ((userData?.user?.emp_type || '') + '').trim().toLowerCase()
+  );
 
   const getStoredAccountContext = () => {
     try {
@@ -1406,6 +1413,20 @@ export const Account = ()  => {
         ))}
       </div>
 
+      {isAccountsDept && (
+        <div className="table-container-card" style={{ marginBottom: '1.25rem' }}>
+          <div className="card-header-row">
+            <h3 className="section-title">Separation — NOC requests</h3>
+          </div>
+          <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: 14 }}>
+            Accounts department NOC clearances from separating employees (email may still include others).
+          </p>
+          <button type="button" className="btn-primary" onClick={() => setCurrentView('noc_requests')}>
+            Open NOC requests
+          </button>
+        </div>
+      )}
+
       <div className="accounts-grid">
         <div className="table-container-card">
           <div className="card-header-row">
@@ -2502,6 +2523,19 @@ export const Account = ()  => {
   return (
     <div className="hr-main-container">
       {currentView === 'main' && renderMainView()}
+      {currentView === 'noc_requests' && (
+        <div className="fade-in">
+          <button type="button" className="btn-back" onClick={() => setCurrentView('main')}>
+            <ArrowLeft size={18} /> Back to Dashboard
+          </button>
+          <div className="table-container-card" style={{ marginTop: 16 }}>
+            <div className="card-header-row">
+              <h3 className="section-title">NOC Requests (Accounts)</h3>
+            </div>
+            <DepartmentNocPanel apiBase="/api/accounts" />
+          </div>
+        </div>
+      )}
       {currentView === 'employees' && renderEmployeesView()}
       {currentView === 'addPayslip' && renderAddPayslip()}
       {currentView === 'bulkPayslip' && renderBulkPayslip()}
@@ -2576,13 +2610,27 @@ export const Account = ()  => {
                   </div>
                   <div className="input-group">
                     <label>Tax Regime</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.tax_regime}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, tax_regime: e.target.value }))}
-                        placeholder="Old / New"
-                        disabled={!isHr}
-                      />
+                    <select
+                      className="custom-select"
+                      value={accountsProfileForm.tax_regime}
+                      onChange={(e) =>
+                        setAccountsProfileForm((p) => ({ ...p, tax_regime: e.target.value }))
+                      }
+                      disabled={!isHr}
+                    >
+                      <option value="">— Select —</option>
+                      {TAX_REGIME_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                      {accountsProfileForm.tax_regime &&
+                      !TAX_REGIME_OPTIONS.includes(accountsProfileForm.tax_regime) ? (
+                        <option value={accountsProfileForm.tax_regime}>
+                          {accountsProfileForm.tax_regime}
+                        </option>
+                      ) : null}
+                    </select>
                   </div>
                 </div>
 
