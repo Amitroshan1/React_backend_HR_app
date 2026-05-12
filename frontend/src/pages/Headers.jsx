@@ -553,4 +553,3 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
         </header>
     );
 };
-};

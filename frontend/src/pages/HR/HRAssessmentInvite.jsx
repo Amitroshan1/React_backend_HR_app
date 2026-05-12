@@ -12,6 +12,7 @@ const STATUS_STYLES = {
   invited: { bg: "#eff6ff", fg: "#1d4ed8", border: "#bfdbfe", label: "Invited" },
   started: { bg: "#fffbeb", fg: "#b45309", border: "#fde68a", label: "In Progress" },
   submitted: { bg: "#f0fdf4", fg: "#15803d", border: "#bbf7d0", label: "Submitted" },
+  disqualified: { bg: "#fef2f2", fg: "#b91c1c", border: "#fecaca", label: "Disqualified" },
   evaluated: { bg: "#f5f3ff", fg: "#6d28d9", border: "#ddd6fe", label: "Evaluated" },
 };
 
@@ -307,6 +308,25 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
           {selected.submitted_at ? new Date(selected.submitted_at).toLocaleString() : "-"}
         </p>
 
+        {selected.integrity && (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: "1px solid #fecaca",
+              background: "#fff1f2",
+              color: "#991b1b",
+              fontSize: 14,
+            }}
+          >
+            <strong>Integrity log</strong>
+            <pre style={{ margin: "8px 0 0", whiteSpace: "pre-wrap", fontSize: 12 }}>
+              {JSON.stringify(selected.integrity, null, 2)}
+            </pre>
+          </div>
+        )}
+
         <div
           style={{
             display: "grid",
@@ -443,7 +463,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                     type="button"
                     className="lau-edit-btn"
                     onClick={() => openSubmission(r.id)}
-                    disabled={r.status !== "submitted"}
+                    disabled={r.status !== "submitted" && r.status !== "disqualified"}
                   >
                     Review
                   </button>

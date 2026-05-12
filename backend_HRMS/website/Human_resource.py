@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 import calendar
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 from flask_login import current_user
 from .email import (
     update_asset_email,
@@ -70,6 +71,42 @@ from .models.assessment import AssessmentInvite
 hr = Blueprint('HumanResource', __name__)
 
 EX_EMPLOYEE_LINK_TTL_HOURS = 48
+
+
+def _hr_session_geo_in(sess):
+    """Location label for punch-in (matches utility.py session helpers)."""
+    if not sess:
+        return ""
+    v = (getattr(sess, "location_status_in", None) or "").strip()
+    if v:
+        return v
+    if sess.clock_out is None:
+        return (getattr(sess, "location_status", None) or "").strip()
+    return ""
+
+
+def _hr_session_geo_out(sess):
+    """Location label for punch-out (matches utility.py session helpers)."""
+    if not sess:
+        return ""
+    v = (getattr(sess, "location_status_out", None) or "").strip()
+    if v:
+        return v
+    if sess.clock_out is not None:
+        return (getattr(sess, "location_status", None) or "").strip()
+    return ""
+
+
+def _hr_punch_location_in_out(punch):
+    """First session → in status; last session → out status."""
+    if not punch:
+        return "", ""
+    sessions = getattr(punch, "sessions", None) or []
+    if not sessions:
+        return "", ""
+    ordered = sorted(sessions, key=lambda s: s.clock_in)
+    first, last = ordered[0], ordered[-1]
+    return _hr_session_geo_in(first), _hr_session_geo_out(last)
 
 
 def _hash_ex_employee_token(raw_token: str) -> str:
@@ -1440,10 +1477,14 @@ def display_details_api():
         month_start = date(year, month, 1)
         month_end = date(year, month, num_days)
 
-        punches = Punch.query.filter(
-            Punch.admin_id == user_id,
-            Punch.punch_date.between(month_start, month_end)
-        ).all()
+        punches = (
+            Punch.query.options(joinedload(Punch.sessions))
+            .filter(
+                Punch.admin_id == user_id,
+                Punch.punch_date.between(month_start, month_end),
+            )
+            .all()
+        )
 
         leaves = LeaveApplication.query.filter(
             LeaveApplication.admin_id == user_id,
@@ -1466,17 +1507,41 @@ def display_details_api():
             current_day = date(year, month, d)
             punch = punch_map.get(current_day)
             is_wfh = any(wfh.start_date <= current_day <= wfh.end_date for wfh in wfh_apps)
+            on_leave = any(lv.start_date <= current_day <= lv.end_date for lv in leaves)
+
+            loc_in, loc_out = _hr_punch_location_in_out(punch) if punch else ("", "")
+            legacy_loc = (getattr(punch, "location_status", None) or "").strip() if punch else ""
+            if punch and not loc_in and not loc_out and legacy_loc:
+                loc_in = loc_out = legacy_loc
+
+            if on_leave:
+                punch_in_s = "On leave"
+                punch_out_s = "On leave"
+                if not loc_in:
+                    loc_in = "–"
+                if not loc_out:
+                    loc_out = "–"
+            else:
+                punch_in_s = punch.punch_in.strftime("%H:%M:%S") if punch and punch.punch_in else ""
+                punch_out_s = punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else ""
+
+            if loc_in and loc_out:
+                combined_loc = f"{loc_in} / {loc_out}"
+            elif loc_in or loc_out:
+                combined_loc = loc_in or loc_out
+            else:
+                combined_loc = legacy_loc
 
             attendance.append({
                 "date": current_day.isoformat(),
-                "punch_in": punch.punch_in.strftime("%H:%M:%S") if punch and punch.punch_in else "",
-                "punch_out": punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else "",
-                "location_status": (getattr(punch, "location_status", None) or "") if punch else "",
+                "punch_in": punch_in_s,
+                "punch_out": punch_out_s,
+                "location_status": combined_loc or legacy_loc,
+                "location_status_in": loc_in,
+                "location_status_out": loc_out,
                 "today_work": str(punch.today_work) if punch and punch.today_work else "",
                 "is_wfh": is_wfh,
-                "on_leave": any(
-                    lv.start_date <= current_day <= lv.end_date for lv in leaves
-                )
+                "on_leave": on_leave,
             })
 
         summary = calculate_month_summary(user_id, year, month)
@@ -2677,6 +2742,13 @@ def _assessment_load_answers(invite):
     return {}
 
 
+def _assessment_answers_for_scoring(answers):
+    """Strip reserved meta keys (e.g. __integrity) from stored answers before auto-scoring."""
+    if not isinstance(answers, dict):
+        return {}
+    return {str(k): v for k, v in answers.items() if not str(k).startswith("__")}
+
+
 def _assessment_save_selfie(invite_id, selfie_data_url):
     if not selfie_data_url or not isinstance(selfie_data_url, str):
         return None, "Selfie image is required."
@@ -2701,6 +2773,7 @@ def _assessment_save_selfie(invite_id, selfie_data_url):
 
 
 def _assessment_auto_score(answers):
+    answers = _assessment_answers_for_scoring(answers or {})
     score = 0
     breakdown = {}
     for qn, expected in ASSESSMENT_OBJECTIVE_ANSWER_KEY.items():
@@ -2739,6 +2812,7 @@ def _assessment_invite_public_payload(invite):
         "candidate_email": invite.candidate_email,
         "department": invite.department,
         "status": invite.status,
+        "disqualified": invite.status == "disqualified",
         "duration_minutes": invite.duration_minutes,
         "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
         "started_at": invite.started_at.isoformat() if invite.started_at else None,
@@ -2860,7 +2934,8 @@ def get_assessment_invite_detail(invite_id):
     invite = AssessmentInvite.query.get(invite_id)
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
-    answers = _assessment_load_answers(invite)
+    answers = dict(_assessment_load_answers(invite))
+    integrity = answers.pop("__integrity", None)
     auto_score, breakdown = _assessment_auto_score(answers)
     manual_marks = {}
     if invite.manual_marks_json:
@@ -2888,6 +2963,7 @@ def get_assessment_invite_detail(invite_id):
                 "camera_granted": bool(invite.camera_granted),
                 "mic_granted": bool(invite.mic_granted),
                 "answers": answers,
+                "integrity": integrity,
                 "auto_breakdown": breakdown,
                 "auto_score": auto_score,
                 "manual_marks": manual_marks,
@@ -2932,7 +3008,7 @@ def evaluate_assessment_invite(invite_id):
     invite = AssessmentInvite.query.get(invite_id)
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
-    if invite.status != "submitted":
+    if invite.status not in ("submitted", "disqualified"):
         return jsonify({"success": False, "message": "Candidate has not submitted yet"}), 400
     data = request.get_json(silent=True) or {}
     marks = data.get("marks") or {}
@@ -2988,7 +3064,7 @@ def assessment_public_status():
     invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
     if not invite:
         return jsonify({"success": False, "message": "Invalid link"}), 404
-    if invite.expires_at and datetime.utcnow() > invite.expires_at and invite.status != "submitted":
+    if invite.expires_at and datetime.utcnow() > invite.expires_at and invite.status not in ("submitted", "disqualified"):
         invite.status = "expired"
         db.session.commit()
     return jsonify({"success": True, "invite": _assessment_invite_public_payload(invite)}), 200
@@ -3002,8 +3078,14 @@ def assessment_public_questions():
     invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
     if not invite:
         return jsonify({"success": False, "message": "Invalid link"}), 404
-    if invite.status == "submitted":
-        return jsonify({"success": False, "message": "Test already submitted", "status": "submitted"}), 409
+    if invite.status in ("submitted", "disqualified"):
+        return jsonify(
+            {
+                "success": False,
+                "message": "Test already submitted" if invite.status == "submitted" else "This attempt was disqualified",
+                "status": invite.status,
+            }
+        ), 409
     if invite.expires_at and datetime.utcnow() > invite.expires_at:
         invite.status = "expired"
         db.session.commit()
@@ -3026,8 +3108,13 @@ def assessment_public_start():
     invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
     if not invite:
         return jsonify({"success": False, "message": "Invalid link"}), 404
-    if invite.status == "submitted":
-        return jsonify({"success": False, "message": "Test already submitted"}), 409
+    if invite.status in ("submitted", "disqualified"):
+        return jsonify(
+            {
+                "success": False,
+                "message": "Test already submitted" if invite.status == "submitted" else "This attempt was disqualified",
+            }
+        ), 409
     if invite.expires_at and datetime.utcnow() > invite.expires_at:
         invite.status = "expired"
         db.session.commit()
@@ -3043,7 +3130,7 @@ def assessment_public_start():
     invite.mic_granted = bool(data.get("mic_granted"))
     if not invite.started_at:
         invite.started_at = datetime.utcnow()
-    if invite.status not in ("submitted", "expired"):
+    if invite.status not in ("submitted", "disqualified", "expired"):
         invite.status = "started"
     db.session.commit()
     return jsonify({"success": True, "invite": _assessment_invite_public_payload(invite)}), 200
@@ -3062,7 +3149,7 @@ def assessment_public_save_answer():
     invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
     if not invite:
         return jsonify({"success": False, "message": "Invalid link"}), 404
-    if invite.status == "submitted":
+    if invite.status in ("submitted", "disqualified"):
         return jsonify({"success": False, "message": "Test already submitted"}), 409
     if invite.expires_at and datetime.utcnow() > invite.expires_at:
         invite.status = "expired"
@@ -3095,7 +3182,7 @@ def assessment_public_submit():
     invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
     if not invite:
         return jsonify({"success": False, "message": "Invalid link"}), 404
-    if invite.status == "submitted":
+    if invite.status in ("submitted", "disqualified"):
         return jsonify({"success": False, "message": "Test already submitted"}), 409
     if invite.expires_at and datetime.utcnow() > invite.expires_at:
         invite.status = "expired"
@@ -3104,15 +3191,19 @@ def assessment_public_submit():
     if not invite.started_at:
         return jsonify({"success": False, "message": "Test has not started"}), 400
 
-    invite.answers_json = json.dumps(answers)
-    auto_score, _breakdown = _assessment_auto_score(answers)
+    disqualified = bool(data.get("disqualified"))
+    merged = _assessment_load_answers(invite)
+    if isinstance(answers, dict):
+        merged.update(answers)
+    invite.answers_json = json.dumps(merged)
+    auto_score, _breakdown = _assessment_auto_score(merged)
     invite.auto_score = round(auto_score, 2)
     invite.manual_score = invite.manual_score or 0.0
     invite.total_score = round(float(invite.auto_score or 0.0) + float(invite.manual_score or 0.0), 2)
     max_total = len(ASSESSMENT_OBJECTIVE_ANSWER_KEY) + float(len(ASSESSMENT_ANY_OPTION_CORRECT_QS) + len(ASSESSMENT_MANUAL_QS))
     invite.avg_score = round((invite.total_score / max_total) * 100.0, 2) if max_total else 0.0
     invite.submitted_at = datetime.utcnow()
-    invite.status = "submitted"
+    invite.status = "disqualified" if disqualified else "submitted"
     db.session.commit()
 
     if not invite.hr_notified_at:
@@ -3125,10 +3216,15 @@ def assessment_public_submit():
             invite.hr_notified_at = datetime.utcnow()
             db.session.commit()
 
+    msg = (
+        "Attempt closed: disqualified after repeated focus loss (e.g. switching tabs)."
+        if disqualified
+        else "Test submitted successfully."
+    )
     return jsonify(
         {
             "success": True,
-            "message": "Test submitted successfully.",
+            "message": msg,
             "invite": _assessment_invite_public_payload(invite),
         }
     ), 200

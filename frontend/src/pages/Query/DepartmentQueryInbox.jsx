@@ -23,7 +23,15 @@ export const DepartmentQueryInbox = () => {
   };
 
   const formatDateTime = (value) => {
-    if (!value) return "";
+    if (value == null || value === "") return "";
+    if (typeof value === "string") {
+      let s = value.trim();
+      if (!s) return "";
+      if (/^\d{4}-\d{2}-\d{2} \d/.test(s)) s = s.replace(" ", "T");
+      const date = new Date(s);
+      if (Number.isNaN(date.getTime())) return s;
+      return date.toLocaleString();
+    }
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
     return date.toLocaleString();
@@ -70,7 +78,7 @@ export const DepartmentQueryInbox = () => {
         employee: q.employee || "Employee",
         status: q.status,
         createdAtRaw: q.created_at,
-        createdAt: formatDateTime(q.created_at),
+        createdAt: formatDateTime(q.created_at) || "—",
       }));
 
       mapped.sort((a, b) => new Date(b.createdAtRaw) - new Date(a.createdAtRaw));

@@ -9,7 +9,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import extract, func, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from . import db
 from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
@@ -28,6 +28,18 @@ import uuid
 query = Blueprint('query', __name__)
 
 MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
+
+
+def _query_list_effective_created_at(q):
+    """List views need a stable created time; legacy rows may have NULL queries.created_at."""
+    if getattr(q, "created_at", None):
+        return q.created_at
+    reps = [
+        r.created_at
+        for r in (getattr(q, "replies", None) or [])
+        if getattr(r, "created_at", None)
+    ]
+    return min(reps) if reps else None
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
 DEPARTMENT_ROLES = {
     "human resource",
@@ -232,26 +244,34 @@ def my_queries():
     page = int(request.args.get("page", 1))
     limit = int(request.args.get("limit", 10))
 
-    pagination = Query.query.filter_by(
-        admin_id=admin.id
-    ).order_by(Query.created_at.desc()).paginate(
-        page=page, per_page=limit, error_out=False
+    pagination = (
+        Query.query.options(selectinload(Query.replies))
+        .filter_by(admin_id=admin.id)
+        .order_by(Query.created_at.desc())
+        .paginate(page=page, per_page=limit, error_out=False)
     )
 
-    return jsonify({
-        "success": True,
-        "total": pagination.total,
-        "queries": [
+    queries_out = []
+    for q in pagination.items:
+        eff = _query_list_effective_created_at(q)
+        queries_out.append(
             {
                 "id": q.id,
                 "title": q.title,
                 "department": q.department,
                 "query_text": q.query_text,
                 "status": q.status,
-                "created_at": q.created_at
-            } for q in pagination.items
-        ]
-    }), 200
+                "created_at": eff.isoformat() if eff else None,
+            }
+        )
+
+    return jsonify(
+        {
+            "success": True,
+            "total": pagination.total,
+            "queries": queries_out,
+        }
+    ), 200
 
 
 
@@ -272,7 +292,7 @@ def department_queries():
         return jsonify({"success": False, "message": "Unsupported department role"}), 403
 
     dept_variants = _department_variants(department)
-    q = Query.query.options(joinedload(Query.admin)).filter(
+    q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
         or_(
             *[
                 func.lower(func.coalesce(Query.department, "")) == v
@@ -308,6 +328,7 @@ def department_queries():
 
     def _serialize_query(q):
         adm = q.admin
+        eff_created = _query_list_effective_created_at(q)
         return {
             "id": q.id,
             "title": q.title,
@@ -315,7 +336,7 @@ def department_queries():
             "employee": adm.email if adm else None,
             "emp_id": (adm.emp_id if adm else None) or "",
             "status": q.status,
-            "created_at": q.created_at.isoformat() if q.created_at else None,
+            "created_at": eff_created.isoformat() if eff_created else None,
         }
 
     return jsonify({

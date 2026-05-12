@@ -381,7 +381,8 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
                   <th>Date</th>
                   <th>Punch In</th>
                   <th>Punch Out</th>
-                  <th>Location Status</th>
+                  <th>Location (Punch In)</th>
+                  <th>Location (Punch Out)</th>
                   <th>Work from home</th>
                   <th>Working hour</th>
                 </tr>
@@ -392,7 +393,8 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
                     <td>{row.date}</td>
                     <td>{row.punch_in || '–'}</td>
                     <td>{row.punch_out || '–'}</td>
-                    <td>{row.location_status || '–'}</td>
+                    <td>{row.location_status_in || '–'}</td>
+                    <td>{row.location_status_out || '–'}</td>
                     <td>{row.is_wfh ? 'WFH' : '–'}</td>
                     <td>{row.today_work || '–'}</td>
                   </tr>
@@ -1749,8 +1751,17 @@ if (view === 'noc_requests') {
       <div className="signup-page-container">
 
         <div className="signup-content-wrapper">
-          <button className="btn-back-updates" onClick={() => { setSignupEditEmail(null); setView('updates'); }}>
-            <ArrowLeft size={16} /> Back to Updates
+          <button
+            type="button"
+            className="btn-back-updates"
+            onClick={() => {
+              const backToUpdateSignUpSearch = !!signupEditEmail;
+              setSignupEditEmail(null);
+              setSignupError("");
+              setView(backToUpdateSignUpSearch ? "update_signup" : "updates");
+            }}
+          >
+            <ArrowLeft size={16} /> {isEditMode ? "Back to Search" : "Back to Updates"}
           </button>
 
           <div className="signup-card">

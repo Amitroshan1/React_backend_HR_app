@@ -92,8 +92,9 @@ def send_it_assignment_notification(
 ):
     """
     Notify manager + employee + IT when IT assigns an asset.
+    From: ZEPTO_SENDER_EMAIL
     TO: manager (first), fallback employee
-    CC: remaining managers, IT actor, employee
+    CC: remaining managers, IT actor, employee, IT mailbox (when configured)
     """
     try:
         if not target_admin or not target_admin.email:
@@ -126,11 +127,15 @@ def send_it_assignment_notification(
         if target_admin.email:
             cc_emails.append(target_admin.email.strip())
 
-        sender_email = (
-            current_app.config.get("ZEPTO_CC_IT")
-            or current_app.config.get("EMAIL_IT")
-            or current_app.config.get("ZEPTO_SENDER_EMAIL")
-        )
+        it_mailbox = (
+            current_app.config.get("ZEPTO_CC_IT") or current_app.config.get("EMAIL_IT") or ""
+        ).strip()
+        if it_mailbox:
+            cc_emails.append(it_mailbox)
+
+        zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not zepto_from:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
 
         seen = set()
         deduped_cc = []
@@ -204,7 +209,7 @@ def send_it_assignment_notification(
         """
 
         return send_email_via_zeptomail(
-            sender_email=sender_email,
+            sender_email=zepto_from,
             subject=subject,
             body=body,
             recipient_email=to_email,
@@ -218,6 +223,7 @@ def send_it_assignment_notification(
 def send_it_return_request_email(*, requester_admin, reason, asset_label):
     """
     Notify IT + manager(s) + employee when employee raises return request.
+    From: ZEPTO_SENDER_EMAIL
     TO: IT mailbox
     CC: managers + employee
     """
@@ -231,6 +237,10 @@ def send_it_return_request_email(*, requester_admin, reason, asset_label):
         )
         if not it_email:
             return False, "IT mailbox not configured"
+
+        zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not zepto_from:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
 
         manager_contact = ManagerContact.query.filter_by(user_email=requester_admin.email).first()
         if not manager_contact:
@@ -271,7 +281,7 @@ def send_it_return_request_email(*, requester_admin, reason, asset_label):
         <p>Please review and approve/reject from IT panel.</p>
         """
         return send_email_via_zeptomail(
-            sender_email=it_email,
+            sender_email=zepto_from,
             subject=subject,
             body=body,
             recipient_email=it_email,
@@ -283,7 +293,7 @@ def send_it_return_request_email(*, requester_admin, reason, asset_label):
 
 
 def send_it_return_request_status_email(*, requester_admin, status, asset_label, acted_by=None, rejection_reason=None):
-    """Notify employee on approve/reject/complete status update."""
+    """Notify employee on approve/reject/complete status update. From: ZEPTO_SENDER_EMAIL; CC IT when configured."""
     try:
         if not requester_admin or not requester_admin.email:
             return False, "Requester email missing"
@@ -292,6 +302,10 @@ def send_it_return_request_status_email(*, requester_admin, status, asset_label,
             or current_app.config.get("EMAIL_IT")
             or current_app.config.get("ZEPTO_SENDER_EMAIL")
         )
+        zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not zepto_from:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
+
         actor = (acted_by.first_name or acted_by.email) if acted_by else "IT Team"
         pretty = {"approved": "Approved", "rejected": "Rejected", "completed": "Completed"}.get(status, status.title())
         subject = f"Asset Return Request {pretty} – {asset_label or 'Asset'}"
@@ -306,7 +320,7 @@ def send_it_return_request_status_email(*, requester_admin, status, asset_label,
         </table>
         """
         return send_email_via_zeptomail(
-            sender_email=it_email,
+            sender_email=zepto_from,
             subject=subject,
             body=body,
             recipient_email=requester_admin.email,
@@ -1043,6 +1057,10 @@ def send_claim_submission_email(header):
 
 
 def asset_email(sender_email, recipient_email, first_name):
+    """sender_email argument is ignored; Zepto From is always ZEPTO_SENDER_EMAIL."""
+    from_addr = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    if not from_addr:
+        return False
     subject = "New Asset Assigned to You"
     body = f"""
     <p>Dear {first_name},</p>
@@ -1051,7 +1069,7 @@ def asset_email(sender_email, recipient_email, first_name):
     """
 
     success, message = Company_verify_oauth2_and_send_email(
-        sender_email=sender_email,
+        sender_email=from_addr,
         subject=subject,
         body=body,
         recipient_email=recipient_email
@@ -1061,6 +1079,10 @@ def asset_email(sender_email, recipient_email, first_name):
 
 
 def update_asset_email(sender_email, recipient_email, first_name):
+    """sender_email argument is ignored; Zepto From is always ZEPTO_SENDER_EMAIL."""
+    from_addr = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    if not from_addr:
+        return False
     subject = "Your Asset Has Been Updated"
     body = f"""
     <p>Dear {first_name},</p>
@@ -1069,7 +1091,7 @@ def update_asset_email(sender_email, recipient_email, first_name):
     """
 
     success, message = Company_verify_oauth2_and_send_email(
-        sender_email=sender_email,
+        sender_email=from_addr,
         subject=subject,
         body=body,
         recipient_email=recipient_email
@@ -1981,8 +2003,9 @@ def send_leave_decision_email(leave_obj, approver, action: str):
 def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustment_data=None):
     """
     Notify employee about HR leave edits.
+    From: ZEPTO_SENDER_EMAIL (Zepto-verified sender only).
     TO: employee
-    CC: mapped manager(s) + employee + HR mailbox
+    CC: HR mailbox (ZEPTO_CC_HR or EMAIL_HR) + mapped manager(s)
     """
     try:
         admin = getattr(leave_obj, "admin", None)
@@ -1990,16 +2013,14 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
             return False, "Employee email missing"
 
         to_email = (admin.email or "").strip()
-        hr_sender = (
-            current_app.config.get("ZEPTO_CC_HR")
-            or current_app.config.get("EMAIL_HR")
-            or current_app.config.get("ZEPTO_SENDER_EMAIL")
-        )
+        sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not sender_email:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
 
         cc_emails = []
-        hr_cc = current_app.config.get("ZEPTO_CC_HR")
-        if hr_cc and hr_cc.strip().lower() != to_email.lower():
-            cc_emails.append(hr_cc.strip())
+        hr_cc = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
+        if hr_cc and hr_cc.lower() != to_email.lower():
+            cc_emails.append(hr_cc)
 
         manager_contact = ManagerContact.query.filter_by(user_email=admin.email).first()
         if not manager_contact:
@@ -2011,9 +2032,6 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
             for addr in get_manager_emails(manager_contact, exclude_email=to_email):
                 if addr:
                     cc_emails.append(addr.strip())
-
-        if admin.email and admin.email.strip().lower() != to_email.lower():
-            cc_emails.append(admin.email.strip())
 
         seen = set()
         deduped_cc = []
@@ -2058,7 +2076,7 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
         <p>Regards,<br><strong>HR Team</strong></p>
         """
         return send_email_via_zeptomail(
-            sender_email=hr_sender,
+            sender_email=sender_email,
             subject=subject,
             body=body,
             recipient_email=to_email,
@@ -2344,10 +2362,9 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
     try:
         base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
         assessment_url = f"{base_url}/assessment?t={token}"
-        sender_email = (
-            current_app.config.get("ZEPTO_SENDER_EMAIL")
-            or current_app.config.get("EMAIL_HR")
-        )
+        sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not sender_email:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
         subject = "Assessment Test Link (Valid for 24 hours)"
         body = f"""
         <p>Hello {html.escape(candidate_name or 'Candidate')},</p>
@@ -2407,7 +2424,10 @@ def send_assessment_submitted_email_to_hr(*, candidate_name, candidate_email, de
         )
         if not to_email:
             return False
-        sender_email = current_app.config.get("ZEPTO_SENDER_EMAIL") or to_email
+        sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not sender_email:
+            current_app.logger.warning("send_assessment_submitted_email_to_hr: ZEPTO_SENDER_EMAIL not configured")
+            return False
         subject = "Assessment Submitted by Candidate"
         submitted_on = datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC")
         body = f"""

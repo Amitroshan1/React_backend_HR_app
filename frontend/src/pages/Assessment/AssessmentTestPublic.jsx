@@ -31,6 +31,21 @@ export default function AssessmentTestPublic() {
   const autosaveRef = useRef(null);
   const [remainingSec, setRemainingSec] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const answersRef = useRef({});
+  const tabLeaveStrikesRef = useRef(0);
+  const tabLeaveEventsRef = useRef([]);
+  const visibilityDebounceRef = useRef(null);
+  const [tabSwitchWarnOpen, setTabSwitchWarnOpen] = useState(false);
+  const [submitOutcome, setSubmitOutcome] = useState(null); // "ok" | "disqualified" | null
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  useEffect(() => {
+    submittingRef.current = submitting;
+  }, [submitting]);
 
   const fetchStatus = async () => {
     const res = await fetch(`${API_BASE}/status?token=${encodeURIComponent(token)}`);
@@ -54,6 +69,12 @@ export default function AssessmentTestPublic() {
         if (!mounted) return;
         setInvite(status);
         if (status.status === "submitted") {
+          setSubmitOutcome("ok");
+          setStage("submitted");
+          return;
+        }
+        if (status.status === "disqualified") {
+          setSubmitOutcome("disqualified");
           setStage("submitted");
           return;
         }
@@ -76,6 +97,43 @@ export default function AssessmentTestPublic() {
     return () => { mounted = false; };
   }, [token]);
 
+  const handleSubmit = async (opts = {}) => {
+    const disqualified = opts.disqualified === true;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    if (autosaveRef.current) clearInterval(autosaveRef.current);
+
+    const base = { ...answersRef.current };
+    const events = tabLeaveEventsRef.current;
+    if (events.length > 0 || disqualified) {
+      base.__integrity = {
+        tab_hide_timestamps_utc: [...events],
+        tab_hide_count: events.length,
+        disqualified: !!disqualified,
+      };
+    }
+
+    const res = await fetch(`${API_BASE}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, answers: base, disqualified }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      setError(data.message || "Submit failed");
+      setSubmitting(false);
+      submittingRef.current = false;
+      return;
+    }
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+    setInvite(data.invite);
+    setSubmitOutcome(data.invite?.disqualified ? "disqualified" : "ok");
+    setStage("submitted");
+    setSubmitting(false);
+    submittingRef.current = false;
+  };
+
   useEffect(() => {
     if (stage !== "test" || !invite?.started_at) return undefined;
     const dur = Number(invite.duration_minutes || 180);
@@ -85,7 +143,7 @@ export default function AssessmentTestPublic() {
       const rem = Math.max(0, Math.floor((startedMs + dur * 60 * 1000 - Date.now()) / 1000));
       setRemainingSec(rem);
       if (rem <= 0) {
-        handleSubmit();
+        handleSubmit({});
       }
     };
     tick();
@@ -93,6 +151,32 @@ export default function AssessmentTestPublic() {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, invite?.started_at, invite?.duration_minutes]);
+
+  useEffect(() => {
+    if (stage !== "test") return undefined;
+    const onVis = () => {
+      if (document.visibilityState !== "hidden") return;
+      if (submittingRef.current) return;
+      if (visibilityDebounceRef.current) clearTimeout(visibilityDebounceRef.current);
+      visibilityDebounceRef.current = setTimeout(() => {
+        tabLeaveEventsRef.current.push(new Date().toISOString());
+        tabLeaveStrikesRef.current += 1;
+        const strike = tabLeaveStrikesRef.current;
+        if (strike >= 2) {
+          setTabSwitchWarnOpen(false);
+          handleSubmit({ disqualified: true });
+        } else {
+          setTabSwitchWarnOpen(true);
+        }
+      }, 200);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      if (visibilityDebounceRef.current) clearTimeout(visibilityDebounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
 
   useEffect(() => {
     if (stage !== "test") return undefined;
@@ -154,11 +238,13 @@ export default function AssessmentTestPublic() {
       }
       setInvite(data.invite);
       setStage("test");
+      tabLeaveStrikesRef.current = 0;
+      tabLeaveEventsRef.current = [];
       autosaveRef.current = setInterval(async () => {
         await fetch(`${API_BASE}/save-answer`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, answers }),
+          body: JSON.stringify({ token, answers: answersRef.current }),
         });
       }, 12000);
     } catch (e) {
@@ -173,27 +259,6 @@ export default function AssessmentTestPublic() {
     }
   }, []);
 
-  const handleSubmit = async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    if (autosaveRef.current) clearInterval(autosaveRef.current);
-    const res = await fetch(`${API_BASE}/submit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, answers }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-      setError(data.message || "Submit failed");
-      setSubmitting(false);
-      return;
-    }
-    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-    setInvite(data.invite);
-    setStage("submitted");
-    setSubmitting(false);
-  };
-
   const timerText = useMemo(() => {
     const h = Math.floor(remainingSec / 3600);
     const m = Math.floor((remainingSec % 3600) / 60);
@@ -203,7 +268,21 @@ export default function AssessmentTestPublic() {
 
   if (stage === "loading") return <div className="assessment-shell"><div className="assessment-card"><p>Loading assessment...</p></div></div>;
   if (stage === "blocked") return <div className="assessment-shell"><div className="assessment-card"><h2>Unable to continue</h2><p>{error || "Access blocked."}</p></div></div>;
-  if (stage === "submitted") return <div className="assessment-shell"><div className="assessment-card"><h2>Test submitted successfully</h2><p>Thank you. Attempt {invite?.attempt_no || 1} completed.</p></div></div>;
+  if (stage === "submitted") {
+    const disq = submitOutcome === "disqualified";
+    return (
+      <div className="assessment-shell">
+        <div className="assessment-card">
+          <h2>{disq ? "Attempt disqualified" : "Test submitted successfully"}</h2>
+          <p>
+            {disq
+              ? "This attempt was closed because the assessment window lost focus more than once (for example, switching browser tabs). HR has been notified."
+              : `Thank you. Attempt ${invite?.attempt_no || 1} completed.`}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (stage === "instructions") {
     return (
@@ -212,7 +291,8 @@ export default function AssessmentTestPublic() {
         <h2>Assessment Instructions</h2>
         <ul className="assessment-list">
           <li>Single attempt only. Do not refresh or close the browser.</li>
-          <li>No cheating, no switching tabs, no external help.</li>
+          <li>Stay on this tab for the entire test. The first time you leave this tab you will see a warning; leaving again will disqualify this attempt and auto-submit your answers.</li>
+          <li>No cheating, no external help.</li>
           <li>Total duration: {invite?.duration_minutes || 180} minutes.</li>
           <li>Sections: Q1-25 MCQ, Q26-33 MCQ, Q34-62 descriptive, Q63-87 MCQ.</li>
           <li>Your camera photo capture is mandatory before starting.</li>
@@ -252,6 +332,20 @@ export default function AssessmentTestPublic() {
 
   return (
     <div className="assessment-shell">
+      {tabSwitchWarnOpen ? (
+        <div className="assessment-modal-backdrop" role="presentation">
+          <div className="assessment-modal" role="dialog" aria-modal="true" aria-labelledby="assessment-tab-warn-title">
+            <h3 id="assessment-tab-warn-title">Assessment focus warning</h3>
+            <p>
+              You left this assessment tab or minimized the window. If you do that again, this attempt will be
+              <strong> disqualified</strong> and your answers will be submitted automatically for HR review.
+            </p>
+            <button type="button" className="assessment-btn assessment-btn-primary" onClick={() => setTabSwitchWarnOpen(false)}>
+              I understand — continue
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="assessment-main">
       <div className="assessment-timer">
         <strong>Time Left: {timerText}</strong>
@@ -320,11 +414,10 @@ export default function AssessmentTestPublic() {
       ))}
 
       {error ? <div className="assessment-error">{error}</div> : null}
-      <button className="assessment-btn assessment-btn-primary assessment-submit" onClick={handleSubmit} disabled={submitting}>
+      <button className="assessment-btn assessment-btn-primary assessment-submit" onClick={() => handleSubmit({})} disabled={submitting}>
         {submitting ? "Submitting..." : "Submit Test"}
       </button>
       </div>
     </div>
   );
 }
-

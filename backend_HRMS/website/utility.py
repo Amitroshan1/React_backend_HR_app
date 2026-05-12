@@ -17,6 +17,7 @@ from .models.emp_detail_models import Employee
 from . import db
 from .models.holiday_calendar import HolidayCalendar
 from collections import defaultdict
+from sqlalchemy.orm import joinedload
 
 
 
@@ -251,6 +252,39 @@ def calculate_month_summary(admin_id, year, month):
 
 
 
+def _excel_session_geo_in(sess):
+    if not sess:
+        return ""
+    v = (getattr(sess, "location_status_in", None) or "").strip()
+    if v:
+        return v
+    if sess.clock_out is None:
+        return (getattr(sess, "location_status", None) or "").strip()
+    return ""
+
+
+def _excel_session_geo_out(sess):
+    if not sess:
+        return ""
+    v = (getattr(sess, "location_status_out", None) or "").strip()
+    if v:
+        return v
+    if sess.clock_out is not None:
+        return (getattr(sess, "location_status", None) or "").strip()
+    return ""
+
+
+def _excel_punch_location_in_out(punch):
+    if not punch:
+        return "", ""
+    sessions = getattr(punch, "sessions", None) or []
+    if not sessions:
+        return "", ""
+    ordered = sorted(sessions, key=lambda s: s.clock_in)
+    first, last = ordered[0], ordered[-1]
+    return _excel_session_geo_in(first), _excel_session_geo_out(last)
+
+
 def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -290,12 +324,16 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
         days = [f"{d} {calendar.day_abbr[date(year, month, d).weekday()][0]}"
                 for d in range(1, num_days + 1)]
 
-        # Fetch punches
-        punches = Punch.query.filter(
-            Punch.admin_id.in_([a.id for a in admins]),
-            Punch.punch_date >= start_date,
-            Punch.punch_date <= end_date
-        ).all()
+        # Fetch punches (sessions for per-day location in/out)
+        punches = (
+            Punch.query.options(joinedload(Punch.sessions))
+            .filter(
+                Punch.admin_id.in_([a.id for a in admins]),
+                Punch.punch_date >= start_date,
+                Punch.punch_date <= end_date,
+            )
+            .all()
+        )
 
         punch_map = {}
         for p in punches:
@@ -304,6 +342,21 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
         admin_ids = [a.id for a in admins]
         employee_rows = Employee.query.filter(Employee.admin_id.in_(admin_ids)).all()
         employees_by_admin_id = {e.admin_id: e for e in employee_rows}
+
+        # Approved leave calendar days per admin (matches HR Attendance API)
+        leave_days_by_admin = defaultdict(set)
+        leaves_in_month = LeaveApplication.query.filter(
+            LeaveApplication.admin_id.in_(admin_ids),
+            LeaveApplication.status == "Approved",
+            LeaveApplication.start_date <= end_date,
+            LeaveApplication.end_date >= start_date,
+        ).all()
+        for lv in leaves_in_month:
+            cur = lv.start_date
+            while cur <= lv.end_date:
+                if start_date <= cur <= end_date:
+                    leave_days_by_admin[lv.admin_id].add(cur)
+                cur += timedelta(days=1)
 
         def parse_today_work_to_seconds(val):
             if not val:
@@ -340,19 +393,39 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             # Punch rows
             in_times = []
             out_times = []
+            loc_in_times = []
+            loc_out_times = []
             totals = []
 
             # Per-admin punches mapped by day (1..num_days)
             admin_punches = punch_map.get(admin.id, {})
 
             for d in range(1, num_days + 1):
+                current_day_date = date(year, month, d)
+                on_leave_day = current_day_date in leave_days_by_admin.get(admin.id, set())
                 punch = admin_punches.get(d)
+
+                loc_in, loc_out = "", ""
                 if punch:
+                    loc_in, loc_out = _excel_punch_location_in_out(punch)
+                    legacy_loc = (getattr(punch, "location_status", None) or "").strip()
+                    if not loc_in and not loc_out and legacy_loc:
+                        loc_in = loc_out = legacy_loc
+
+                if on_leave_day:
+                    in_times.append("On leave")
+                    out_times.append("On leave")
+                    totals.append("–")
+                    loc_in_times.append(loc_in or "–")
+                    loc_out_times.append(loc_out or "–")
+                elif punch:
                     in_t = punch.punch_in.strftime("%I:%M %p") if punch.punch_in else ""
                     out_t = punch.punch_out.strftime("%I:%M %p") if punch.punch_out else ""
 
                     in_times.append(in_t)
                     out_times.append(out_t)
+                    loc_in_times.append(loc_in)
+                    loc_out_times.append(loc_out)
 
                     total_text = ""
                     secs = parse_today_work_to_seconds(punch.today_work)
@@ -368,6 +441,8 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
                 else:
                     in_times.append("")
                     out_times.append("")
+                    loc_in_times.append("")
+                    loc_out_times.append("")
                     totals.append("")
 
             worksheet.write(row, 0, "Days", header_fmt)
@@ -375,7 +450,13 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
                 worksheet.write(row, col, dval, header_fmt)
             row += 1
 
-            for label, data in [("InTime", in_times), ("OutTime", out_times), ("Total", totals)]:
+            for label, data in [
+                ("InTime", in_times),
+                ("OutTime", out_times),
+                ("Location (In)", loc_in_times),
+                ("Location (Out)", loc_out_times),
+                ("Total", totals),
+            ]:
                 worksheet.write(row, 0, label, header_fmt)
                 for col, val in enumerate(data, start=1):
                     worksheet.write(row, col, val, absent_fmt if not val else border_fmt)
