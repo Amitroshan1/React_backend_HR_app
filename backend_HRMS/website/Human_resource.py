@@ -4007,7 +4007,8 @@ def search_employee_api():
         Admin.query.filter(
             Admin.emp_type == emp_type,
             Admin.circle == circle,
-            # Treat NULL as not exited; include only active/non-exited employees
+            # Treat NULL as legacy-active/non-exited; exclude explicitly inactive or exited employees.
+            or_(Admin.is_active == True, Admin.is_active.is_(None)),
             or_(Admin.is_exited == False, Admin.is_exited.is_(None))
         ).all()
     )

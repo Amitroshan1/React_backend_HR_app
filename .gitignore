@@ -1,0 +1,3 @@
+backend_HRMS/.venv/
+**/__pycache__/
+*.py[cod]
