@@ -31,7 +31,16 @@ const ArchiveEmployeeDetails = () => {
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (!res.ok || !data.success) {
-          setError(data.message || 'Failed to load archived employee');
+          const msg =
+            data.message ||
+            data.msg ||
+            data.error ||
+            (res.status === 401 || res.status === 422
+              ? 'Session expired or invalid. Please sign in again.'
+              : res.status === 403
+                ? 'You do not have permission to view this archive record.'
+                : `Unable to load archived employee (${res.status}).`);
+          setError(msg);
           return;
         }
         setEmployee(data.employee);

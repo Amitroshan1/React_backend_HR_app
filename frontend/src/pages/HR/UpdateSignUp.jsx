@@ -7,12 +7,19 @@ const API_BASE = '/api/HumanResource';
 const EMP_TYPE_OPTIONS = ['Software Developer', 'Human Resource', 'Accounts', 'Admin'];
 const CIRCLE_OPTIONS = ['NHQ', 'Delhi', 'Mumbai', 'Bangalore', 'Hyderabad'];
 
-export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee, empTypeOptions = EMP_TYPE_OPTIONS, circleOptions = CIRCLE_OPTIONS }) => {
-  const [filters, setFilters] = useState({
-    emp_type: empTypeOptions[0] || EMP_TYPE_OPTIONS[0],
-    circle: circleOptions[0] || CIRCLE_OPTIONS[0],
-  });
-  const [employees, setEmployees] = useState([]);
+export const UpdateSignUp = ({
+  onBack,
+  onOpenSignupForEmployee,
+  empTypeOptions = EMP_TYPE_OPTIONS,
+  circleOptions = CIRCLE_OPTIONS,
+  persistedSearch = null,
+  onPersistSearch,
+}) => {
+  const [filters, setFilters] = useState(() => ({
+    emp_type: persistedSearch?.filters?.emp_type ?? empTypeOptions[0] ?? EMP_TYPE_OPTIONS[0],
+    circle: persistedSearch?.filters?.circle ?? circleOptions[0] ?? CIRCLE_OPTIONS[0],
+  }));
+  const [employees, setEmployees] = useState(() => persistedSearch?.employees ?? []);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [detailLoadingEmail, setDetailLoadingEmail] = useState(null); // email of row being loaded
@@ -40,14 +47,21 @@ export const UpdateSignUp = ({ onBack, onOpenSignupForEmployee, empTypeOptions =
         setEmployees([]);
         return;
       }
-      setEmployees(data.employees || []);
+      const list = data.employees || [];
+      setEmployees(list);
+      if (onPersistSearch) {
+        onPersistSearch({
+          filters: { emp_type: filters.emp_type, circle: filters.circle },
+          employees: list,
+        });
+      }
     } catch {
       setSearchError('Network error. Please try again.');
       setEmployees([]);
     } finally {
       setSearchLoading(false);
     }
-  }, [filters.emp_type, filters.circle, getAuthHeaders]);
+  }, [filters.emp_type, filters.circle, getAuthHeaders, onPersistSearch]);
 
   React.useEffect(() => {
     setFilters((prev) => ({

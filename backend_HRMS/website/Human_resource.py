@@ -1085,6 +1085,54 @@ def mark_employee_exit():
     
 
 
+@hr.route("/archive/employee/<int:admin_id>/rejoin", methods=["POST"])
+@jwt_required()
+@hr_required
+def rejoin_archived_employee(admin_id):
+    """
+    Restore an exited employee to active status. Profile/related data unchanged;
+    EmployeeExitHistory rows are kept for audit. Clears latest exit fields on Admin.
+    """
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if not getattr(admin, "is_exited", None):
+        return jsonify(
+            {
+                "success": False,
+                "message": "This employee is not in the exit archive (already active or not exited).",
+            }
+        ), 409
+
+    try:
+        hr_email = get_jwt().get("email")
+        admin.is_exited = False
+        admin.is_active = True
+        admin.exit_date = None
+        admin.exit_type = None
+        admin.exit_reason = None
+
+        db.session.add(
+            AuditLog(
+                action="EMPLOYEE_REJOINED",
+                performed_by=hr_email,
+                target_email=admin.email,
+            )
+        )
+        db.session.commit()
+        return jsonify(
+            {
+                "success": True,
+                "message": "Employee restored as active. All profile data is preserved; past exit history remains for audit.",
+                "admin_id": admin.id,
+            }
+        ), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Rejoin error: {e}")
+        return jsonify({"success": False, "message": "Unable to restore employee"}), 500
+
+
 @hr.route("/employee-archive", methods=["GET"])
 @jwt_required()
 @hr_required
@@ -1187,6 +1235,24 @@ def get_employee_exit_history(admin_id):
 
 
 
+def _archive_upload_docs_payload(admin):
+    """UploadDoc rows use fixed columns (aadhaar_front, pan_front, …), not doc_type/file_path."""
+    out = []
+    for row in admin.document_details:
+        pairs = [
+            ("Aadhaar (front)", getattr(row, "aadhaar_front", None)),
+            ("Aadhaar (back)", getattr(row, "aadhaar_back", None)),
+            ("PAN (front)", getattr(row, "pan_front", None)),
+            ("PAN (back)", getattr(row, "pan_back", None)),
+            ("Appointment letter", getattr(row, "appointment_letter", None)),
+            ("Passbook (front)", getattr(row, "passbook_front", None)),
+        ]
+        for doc_type, path in pairs:
+            if path:
+                out.append({"doc_type": doc_type, "file": path, "uploaded_at": None})
+    return out
+
+
 @hr.route("/archive/employee/<int:employee_id>", methods=["GET"])
 @jwt_required()
 @hr_required
@@ -1194,7 +1260,7 @@ def get_archived_employee_profile(employee_id):
 
     admin = Admin.query.get(employee_id)
 
-    if not admin or not admin.is_exited:
+    if not admin or not getattr(admin, "is_exited", None):
         return jsonify({
             "success": False,
             "message": "Archived employee not found"
@@ -1231,19 +1297,26 @@ def get_archived_employee_profile(employee_id):
         "dob": f.dob.isoformat() if f.dob else None
     } for f in admin.family_details]
 
-    # ---------------- DOCUMENTS ----------------
-    documents = [{
-        "doc_type": d.doc_type,
-        "file": d.file_path,
-        "uploaded_at": d.created_at.isoformat()
-    } for d in admin.document_details]
+    # ---------------- DOCUMENTS (UploadDoc schema) ----------------
+    documents = _archive_upload_docs_payload(admin)
 
-    # ---------------- EDUCATION ----------------
-    education = [{
-        "degree": e.degree,
-        "institute": e.institute,
-        "year": e.year
-    } for e in admin.education_details]
+    # ---------------- EDUCATION (Education model: qualification, institution, …) ----------------
+    education = []
+    for e in admin.education_details:
+        education.append({
+            "degree": e.qualification,
+            "institute": e.institution,
+            "year": str(e.end.year) if getattr(e, "end", None) else None,
+        })
+
+    # ---------------- PREVIOUS EMPLOYMENT (archive UI) ----------------
+    previous_employment = [{
+        "companyName": pc.com_name,
+        "designation": pc.designation,
+        "doj": pc.doj.isoformat() if pc.doj else None,
+        "dateOfLeaving": pc.dol.isoformat() if pc.dol else None,
+        "experienceYears": None,
+    } for pc in admin.previous_companies]
 
     # ---------------- LEAVES ----------------
     leaves = [{
@@ -1255,27 +1328,36 @@ def get_archived_employee_profile(employee_id):
 
     # ---------------- ASSETS ----------------
     assets = [{
-        "asset_name": a.asset_name,
-        "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None
+        "asset_name": a.name,
+        "assigned_date": a.issue_date.isoformat() if a.issue_date else None
     } for a in admin.assets]
 
     # ---------------- PERFORMANCE ----------------
-    performance = [{
-        "id": p.id,
-        "month": p.month,
-        "achievements": p.achievements,
-        "challenges": p.challenges,
-        "goals_next_month": p.goals_next_month,
-        "suggestion_improvement": p.suggestion_improvement,
-        "status": p.status,
-        "submitted_at": p.submitted_at.isoformat() if p.submitted_at else None,
-        "review": {
-            "manager_id": p.review.manager_id,
-            "rating": p.review.rating,
-            "comments": p.review.comments,
-            "reviewed_at": p.review.reviewed_at.isoformat() if p.review.reviewed_at else None
-        } if getattr(p, "review", None) else None
-    } for p in admin.performances]
+    performance = []
+    for p in admin.performances:
+        rev_payload = None
+        try:
+            rv = getattr(p, "review", None)
+            if rv is not None:
+                rev_payload = {
+                    "manager_id": rv.manager_id,
+                    "rating": rv.rating,
+                    "comments": rv.comments,
+                    "reviewed_at": rv.reviewed_at.isoformat() if rv.reviewed_at else None,
+                }
+        except Exception:
+            rev_payload = None
+        performance.append({
+            "id": p.id,
+            "month": p.month,
+            "achievements": p.achievements,
+            "challenges": p.challenges,
+            "goals_next_month": p.goals_next_month,
+            "suggestion_improvement": p.suggestion_improvement,
+            "status": p.status,
+            "submitted_at": p.submitted_at.isoformat() if p.submitted_at else None,
+            "review": rev_payload,
+        })
 
     # ---------------- QUERIES ----------------
     queries = [{
@@ -1293,6 +1375,7 @@ def get_archived_employee_profile(employee_id):
             "family": family,
             "documents": documents,
             "education": education,
+            "previous_employment": previous_employment,
             "leaves": leaves,
             "assets": assets,
             "performance": performance,
@@ -2749,6 +2832,52 @@ def _assessment_answers_for_scoring(answers):
     return {str(k): v for k, v in answers.items() if not str(k).startswith("__")}
 
 
+def _assessment_integrity_summary(invite):
+    """Compact counts for list views (parsed from stored answers_json)."""
+    data = _assessment_load_answers(invite)
+    if not isinstance(data, dict):
+        return None
+    meta = data.get("__integrity")
+    if not isinstance(meta, dict):
+        return None
+
+    def _count(seq, key):
+        if meta.get(key) is not None:
+            try:
+                return max(0, int(meta.get(key)))
+            except (TypeError, ValueError):
+                pass
+        if isinstance(seq, list):
+            return len(seq)
+        return 0
+
+    tab_ts = meta.get("tab_hide_timestamps_utc") or []
+    blur_ts = meta.get("window_blur_timestamps_utc") or []
+    paste_ts = meta.get("paste_attempt_timestamps_utc") or []
+    tab_n = _count(tab_ts, "tab_hide_count")
+    blur_n = _count(blur_ts, "window_blur_count")
+    paste_n = _count(paste_ts, "paste_attempt_count")
+    try:
+        clip_n = max(0, int(meta.get("clipboard_shortcut_blocks") or 0))
+    except (TypeError, ValueError):
+        clip_n = 0
+    try:
+        ctx_n = max(0, int(meta.get("context_menu_blocks") or 0))
+    except (TypeError, ValueError):
+        ctx_n = 0
+    dq = bool(meta.get("disqualified"))
+    if not dq and tab_n == 0 and blur_n == 0 and paste_n == 0 and clip_n == 0 and ctx_n == 0:
+        return None
+    return {
+        "disqualified": dq,
+        "tab_hide_count": tab_n,
+        "window_blur_count": blur_n,
+        "paste_attempt_count": paste_n,
+        "clipboard_shortcut_blocks": clip_n,
+        "context_menu_blocks": ctx_n,
+    }
+
+
 def _assessment_save_selfie(invite_id, selfie_data_url):
     if not selfie_data_url or not isinstance(selfie_data_url, str):
         return None, "Selfie image is required."
@@ -2922,6 +3051,7 @@ def list_assessment_invites():
                 "manual_score": r.manual_score,
                 "total_score": r.total_score,
                 "avg_score": r.avg_score,
+                "integrity_summary": _assessment_integrity_summary(r),
             }
         )
     return jsonify({"success": True, "invites": out}), 200
@@ -3161,7 +3291,7 @@ def assessment_public_save_answer():
     current_answers = _assessment_load_answers(invite)
     for k, v in answers_patch.items():
         qn = str(k).strip()
-        if not qn:
+        if not qn or qn.startswith("__"):
             continue
         current_answers[qn] = v
     invite.answers_json = json.dumps(current_answers)

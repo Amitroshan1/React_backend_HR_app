@@ -105,6 +105,8 @@ const ExitEmployee = ({onBack}) => {
 
   useEffect(() => {
     loadActiveEmployees();
+    window.addEventListener('employeeRejoined', loadActiveEmployees);
+    return () => window.removeEventListener('employeeRejoined', loadActiveEmployees);
   }, [loadActiveEmployees]);
 
   useEffect(() => {

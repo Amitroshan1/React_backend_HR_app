@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, ShieldAlert, Trash2 } from "lucide-react";
 
 const HR_API_BASE = "/api/HumanResource";
 
@@ -15,6 +15,181 @@ const STATUS_STYLES = {
   disqualified: { bg: "#fef2f2", fg: "#b91c1c", border: "#fecaca", label: "Disqualified" },
   evaluated: { bg: "#f5f3ff", fg: "#6d28d9", border: "#ddd6fe", label: "Evaluated" },
 };
+
+function formatIntegrityTimestamp(iso) {
+  if (iso == null || String(iso).trim() === "") return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+}
+
+function hasIntegrityContent(inv) {
+  if (!inv || typeof inv !== "object") return false;
+  const n = (k) => {
+    const v = inv[k];
+    const x = Number(v);
+    return Number.isFinite(x) && x > 0;
+  };
+  const arr = (k) => Array.isArray(inv[k]) && inv[k].length > 0;
+  return (
+    !!inv.disqualified ||
+    arr("tab_hide_timestamps_utc") ||
+    n("tab_hide_count") ||
+    arr("window_blur_timestamps_utc") ||
+    n("window_blur_count") ||
+    arr("paste_attempt_timestamps_utc") ||
+    n("paste_attempt_count") ||
+    n("clipboard_shortcut_blocks") ||
+    n("context_menu_blocks")
+  );
+}
+
+function IntegrityListBadges({ summary }) {
+  if (!summary) {
+    return <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>;
+  }
+  const chip = (label, fg, bg, border) => (
+    <span
+      key={label}
+      style={{
+        display: "inline-block",
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "2px 8px",
+        borderRadius: 9999,
+        color: fg,
+        background: bg,
+        border: `1px solid ${border}`,
+      }}
+    >
+      {label}
+    </span>
+  );
+  const out = [];
+  if (summary.disqualified) out.push(chip("Disqualified", "#991b1b", "#fef2f2", "#fecaca"));
+  if (summary.tab_hide_count > 0) out.push(chip(`Tab ${summary.tab_hide_count}`, "#9a3412", "#ffedd5", "#fdba74"));
+  if (summary.window_blur_count > 0) out.push(chip(`Blur ${summary.window_blur_count}`, "#6b21a8", "#f3e8ff", "#d8b4fe"));
+  if (summary.paste_attempt_count > 0) out.push(chip(`Paste ${summary.paste_attempt_count}`, "#1e3a8a", "#dbeafe", "#93c5fd"));
+  if (summary.clipboard_shortcut_blocks > 0) out.push(chip(`Keys ${summary.clipboard_shortcut_blocks}`, "#854d0e", "#fef9c3", "#fde047"));
+  if (summary.context_menu_blocks > 0) out.push(chip(`Menu ${summary.context_menu_blocks}`, "#0f766e", "#ccfbf1", "#5eead4"));
+  if (out.length === 0) return <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>;
+  return <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{out}</span>;
+}
+
+function IntegrityReviewPanel({ integrity }) {
+  if (!hasIntegrityContent(integrity)) return null;
+
+  const tabTs = Array.isArray(integrity.tab_hide_timestamps_utc) ? integrity.tab_hide_timestamps_utc : [];
+  const blurTs = Array.isArray(integrity.window_blur_timestamps_utc) ? integrity.window_blur_timestamps_utc : [];
+  const pasteTs = Array.isArray(integrity.paste_attempt_timestamps_utc) ? integrity.paste_attempt_timestamps_utc : [];
+  const tabN = Number(integrity.tab_hide_count) || tabTs.length;
+  const blurN = Number(integrity.window_blur_count) || blurTs.length;
+  const pasteN = Number(integrity.paste_attempt_count) || pasteTs.length;
+  const clipN = Number(integrity.clipboard_shortcut_blocks) || 0;
+  const ctxN = Number(integrity.context_menu_blocks) || 0;
+  const dq = !!integrity.disqualified;
+
+  const stat = (label, value, hint) => (
+    <div
+      key={label}
+      style={{
+        border: "1px solid #e2e8f0",
+        borderRadius: 8,
+        padding: "8px 10px",
+        background: "#fff",
+      }}
+    >
+      <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 2 }}>{value}</div>
+      {hint ? <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{hint}</div> : null}
+    </div>
+  );
+
+  const tsBlock = (title, items) => (
+    <details style={{ marginTop: 8, border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 10px", background: "#fafafa" }}>
+      <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#334155" }}>
+        {title} ({items.length})
+      </summary>
+      {items.length === 0 ? (
+        <p style={{ margin: "8px 0 0", fontSize: 12, color: "#94a3b8" }}>None recorded.</p>
+      ) : (
+        <ol style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 12, color: "#475569", maxHeight: 160, overflow: "auto" }}>
+          {items.map((t, i) => (
+            <li key={`${title}-${i}`}>{formatIntegrityTimestamp(t)}</li>
+          ))}
+        </ol>
+      )}
+    </details>
+  );
+
+  return (
+    <div
+      style={{
+        marginBottom: 16,
+        padding: "14px 16px",
+        borderRadius: 10,
+        border: dq ? "1px solid #fecaca" : "1px solid #cbd5e1",
+        background: dq ? "#fff1f2" : "#f8fafc",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <ShieldAlert size={20} color={dq ? "#b91c1c" : "#475569"} aria-hidden />
+        <strong style={{ fontSize: 15, color: "#0f172a" }}>Proctoring &amp; integrity</strong>
+        {dq ? (
+          <span
+            style={{
+              marginLeft: 4,
+              fontSize: 11,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: "#b91c1c",
+              color: "#fff",
+            }}
+          >
+            Disqualified attempt
+          </span>
+        ) : null}
+      </div>
+      <p style={{ margin: "0 0 10px", fontSize: 13, color: "#475569", lineHeight: 1.45 }}>
+        Logged automatically during the test (tab visibility, window focus, paste, keyboard shortcuts, and context menu). Timestamps are from the candidate&apos;s browser in UTC where provided.
+      </p>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+          gap: 8,
+        }}
+      >
+        {stat("Tab hides", tabN, "Leaving the assessment tab / hidden document")}
+        {stat("Window blur", blurN, "Focus left window while tab still visible")}
+        {stat("Paste blocked", pasteN, "Paste attempts")}
+        {stat("Copy/cut keys", clipN, "Ctrl/Cmd+C/V/X blocked")}
+        {stat("Right-click", ctxN, "Context menu blocked")}
+      </div>
+      {tsBlock("Tab hide times (UTC)", tabTs)}
+      {tsBlock("Window blur times (UTC)", blurTs)}
+      {tsBlock("Paste attempt times (UTC)", pasteTs)}
+      <details style={{ marginTop: 10 }}>
+        <summary style={{ cursor: "pointer", fontSize: 12, color: "#64748b" }}>Raw integrity JSON</summary>
+        <pre
+          style={{
+            margin: "8px 0 0",
+            padding: 10,
+            background: "#0f172a",
+            color: "#e2e8f0",
+            borderRadius: 8,
+            fontSize: 11,
+            overflow: "auto",
+            maxHeight: 220,
+          }}
+        >
+          {JSON.stringify(integrity, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+}
 
 export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const [form, setForm] = useState({ full_name: "", email: "", department: empTypeOptions[0] || "" });
@@ -308,24 +483,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
           {selected.submitted_at ? new Date(selected.submitted_at).toLocaleString() : "-"}
         </p>
 
-        {selected.integrity && (
-          <div
-            style={{
-              marginBottom: 12,
-              padding: "10px 12px",
-              borderRadius: 8,
-              border: "1px solid #fecaca",
-              background: "#fff1f2",
-              color: "#991b1b",
-              fontSize: 14,
-            }}
-          >
-            <strong>Integrity log</strong>
-            <pre style={{ margin: "8px 0 0", whiteSpace: "pre-wrap", fontSize: 12 }}>
-              {JSON.stringify(selected.integrity, null, 2)}
-            </pre>
-          </div>
-        )}
+        <IntegrityReviewPanel integrity={selected.integrity} />
 
         <div
           style={{
@@ -441,6 +599,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               <th>Email</th>
               <th>Department</th>
               <th>Status</th>
+              <th>Proctoring</th>
               <th>Submitted</th>
               <th>Total</th>
               <th>Avg %</th>
@@ -455,6 +614,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 <td>{r.candidate_email}</td>
                 <td>{r.department}</td>
                 <td>{renderStatusBadge(r.status)}</td>
+                <td style={{ minWidth: 140 }}><IntegrityListBadges summary={r.integrity_summary} /></td>
                 <td>{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-"}</td>
                 <td>{r.total_score ?? "-"}</td>
                 <td>{r.avg_score ?? "-"}</td>
@@ -482,7 +642,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={9} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
+              <tr><td colSpan={10} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
             )}
           </tbody>
         </table>

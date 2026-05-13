@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, Calendar, ArrowLeft } from 'lucide-react';
+import { Search, ArrowLeft, UserRoundPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import './Archive.css';
 
@@ -24,6 +24,7 @@ const ArchiveEmployees = () => {
   const [showCircleList, setShowCircleList] = useState(false);
   
   const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
+  const [rejoiningId, setRejoiningId] = useState(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -134,6 +135,36 @@ const ArchiveEmployees = () => {
   const handleViewDetails = (employee) => {
     if (!employee?.id) return;
     navigate(`/archive-employees/${employee.id}`);
+  };
+
+  const handleRejoin = async (emp) => {
+    if (!emp?.id) return;
+    const ok = window.confirm(
+      `Rejoin “${emp.name}” (${emp.email})?\n\n` +
+        'They will be restored as an active employee with the same profile and records. ' +
+        'Past exit history stays in the system for audit.'
+    );
+    if (!ok) return;
+    setRejoiningId(emp.id);
+    setError('');
+    try {
+      const res = await fetch(`${HR_API_BASE}/archive/employee/${emp.id}/rejoin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: '{}',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setError(data.message || data.msg || 'Could not restore employee');
+        return;
+      }
+      await loadArchivedEmployees();
+      window.dispatchEvent(new Event('employeeRejoined'));
+    } catch {
+      setError('Network error while restoring employee');
+    } finally {
+      setRejoiningId(null);
+    }
   };
 
   const openExitHistory = async (employee, e) => {
@@ -370,6 +401,7 @@ const ArchiveEmployees = () => {
                 <th>Circle</th>
                 <th>Employee Type</th>
                 <th>Email</th>
+                <th>Rejoin</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -377,13 +409,13 @@ const ArchiveEmployees = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="no-data">
+                  <td colSpan="7" className="no-data">
                     Loading archived employees...
                   </td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="no-data">
+                  <td colSpan="7" className="no-data">
                     No archived employees found
                   </td>
                 </tr>
@@ -413,6 +445,18 @@ const ArchiveEmployees = () => {
 
                     <td className="employee-email">
                       {emp.email}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="archive-rejoin-btn"
+                        onClick={() => handleRejoin(emp)}
+                        disabled={rejoiningId === emp.id}
+                        title="Restore as active employee (same profile data)"
+                      >
+                        <UserRoundPlus size={16} aria-hidden />
+                        {rejoiningId === emp.id ? 'Restoring…' : 'Rejoin'}
+                      </button>
                     </td>
                     <td>
                       <button

@@ -1090,6 +1090,8 @@ export const Hr = () => {
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [signupEditEmail, setSignupEditEmail] = useState(null); // when set, signup form is in "update" mode
+  /** Last Update SignUp search (filters + rows) so returning from edit keeps results without re-searching. */
+  const [updateSignupSearchSnapshot, setUpdateSignupSearchSnapshot] = useState(null);
 
   const [resetPasswordEmail, setResetPasswordEmail] = useState('');
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
@@ -1171,6 +1173,20 @@ export const Hr = () => {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setSignupSuccess(true);
+          setUpdateSignupSearchSnapshot((prev) => {
+            if (!prev?.employees?.length || !signupEditEmail) return prev;
+            const emailLower = signupEditEmail.toLowerCase();
+            const nextEmployees = prev.employees.map((emp) =>
+              (emp.email || '').toLowerCase() === emailLower
+                ? {
+                    ...emp,
+                    emp_id: emp_id.trim(),
+                    first_name: first_name.trim(),
+                  }
+                : emp
+            );
+            return { ...prev, employees: nextEmployees };
+          });
         } else {
           setSignupError(data.message || 'Failed to update employee.');
         }
@@ -1503,6 +1519,7 @@ export const Hr = () => {
       setView('signup');
     } 
     else if (title === 'Update_SignUp') {
+      setUpdateSignupSearchSnapshot(null);
       setView('update_signup');
     }
     else if (title === 'News Feed') {
@@ -1555,6 +1572,8 @@ if (view === 'ex_employee_doc_share') {
         onOpenSignupForEmployee={openSignupForEdit}
         empTypeOptions={masterOptions.departments}
         circleOptions={masterOptions.circles}
+        persistedSearch={updateSignupSearchSnapshot}
+        onPersistSearch={setUpdateSignupSearchSnapshot}
       />
     );
   }

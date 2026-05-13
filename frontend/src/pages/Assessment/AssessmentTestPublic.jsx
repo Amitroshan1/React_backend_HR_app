@@ -38,6 +38,12 @@ export default function AssessmentTestPublic() {
   const visibilityDebounceRef = useRef(null);
   const [tabSwitchWarnOpen, setTabSwitchWarnOpen] = useState(false);
   const [submitOutcome, setSubmitOutcome] = useState(null); // "ok" | "disqualified" | null
+  const testRootRef = useRef(null);
+  const windowBlurEventsRef = useRef([]);
+  const pasteAttemptsRef = useRef([]);
+  const clipboardShortcutBlocksRef = useRef(0);
+  const contextMenuBlocksRef = useRef(0);
+  const blurDebounceRef = useRef(null);
 
   useEffect(() => {
     answersRef.current = answers;
@@ -105,11 +111,26 @@ export default function AssessmentTestPublic() {
     if (autosaveRef.current) clearInterval(autosaveRef.current);
 
     const base = { ...answersRef.current };
-    const events = tabLeaveEventsRef.current;
-    if (events.length > 0 || disqualified) {
+    const tabEvents = tabLeaveEventsRef.current;
+    const blurEv = windowBlurEventsRef.current;
+    const pasteEv = pasteAttemptsRef.current;
+    const hasIntegrity =
+      disqualified ||
+      tabEvents.length > 0 ||
+      blurEv.length > 0 ||
+      pasteEv.length > 0 ||
+      clipboardShortcutBlocksRef.current > 0 ||
+      contextMenuBlocksRef.current > 0;
+    if (hasIntegrity) {
       base.__integrity = {
-        tab_hide_timestamps_utc: [...events],
-        tab_hide_count: events.length,
+        tab_hide_timestamps_utc: [...tabEvents],
+        tab_hide_count: tabEvents.length,
+        window_blur_timestamps_utc: [...blurEv],
+        window_blur_count: blurEv.length,
+        paste_attempt_timestamps_utc: [...pasteEv],
+        paste_attempt_count: pasteEv.length,
+        clipboard_shortcut_blocks: clipboardShortcutBlocksRef.current,
+        context_menu_blocks: contextMenuBlocksRef.current,
         disqualified: !!disqualified,
       };
     }
@@ -178,6 +199,62 @@ export default function AssessmentTestPublic() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  /** Browser-only integrity: log blur; block paste, copy/cut shortcuts, and context menu inside the test surface. */
+  useEffect(() => {
+    if (stage !== "test") return undefined;
+
+    const logBlur = () => {
+      if (submittingRef.current) return;
+      if (blurDebounceRef.current) clearTimeout(blurDebounceRef.current);
+      blurDebounceRef.current = setTimeout(() => {
+        if (document.visibilityState === "visible") {
+          windowBlurEventsRef.current.push(new Date().toISOString());
+        }
+      }, 400);
+    };
+
+    const onPaste = (e) => {
+      const root = testRootRef.current;
+      if (!root || !e.target || !root.contains(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pasteAttemptsRef.current.push(new Date().toISOString());
+    };
+
+    const onCopyCut = (e) => {
+      const root = testRootRef.current;
+      if (!root || !e.target || !root.contains(e.target)) return;
+      if (e.ctrlKey || e.metaKey) {
+        const k = e.key || "";
+        if (["c", "C", "v", "V", "x", "X"].includes(k)) {
+          e.preventDefault();
+          e.stopPropagation();
+          clipboardShortcutBlocksRef.current += 1;
+        }
+      }
+    };
+
+    const onContextMenu = (e) => {
+      const root = testRootRef.current;
+      if (!root || !e.target || !root.contains(e.target)) return;
+      e.preventDefault();
+      contextMenuBlocksRef.current += 1;
+    };
+
+    window.addEventListener("blur", logBlur);
+    document.addEventListener("paste", onPaste, true);
+    document.addEventListener("keydown", onCopyCut, true);
+    document.addEventListener("contextmenu", onContextMenu, true);
+
+    return () => {
+      window.removeEventListener("blur", logBlur);
+      document.removeEventListener("paste", onPaste, true);
+      document.removeEventListener("keydown", onCopyCut, true);
+      document.removeEventListener("contextmenu", onContextMenu, true);
+      if (blurDebounceRef.current) clearTimeout(blurDebounceRef.current);
+    };
+  }, [stage]);
+
   useEffect(() => {
     if (stage !== "test") return undefined;
     const onPop = () => {
@@ -240,6 +317,10 @@ export default function AssessmentTestPublic() {
       setStage("test");
       tabLeaveStrikesRef.current = 0;
       tabLeaveEventsRef.current = [];
+      windowBlurEventsRef.current = [];
+      pasteAttemptsRef.current = [];
+      clipboardShortcutBlocksRef.current = 0;
+      contextMenuBlocksRef.current = 0;
       autosaveRef.current = setInterval(async () => {
         await fetch(`${API_BASE}/save-answer`, {
           method: "POST",
@@ -292,6 +373,7 @@ export default function AssessmentTestPublic() {
         <ul className="assessment-list">
           <li>Single attempt only. Do not refresh or close the browser.</li>
           <li>Stay on this tab for the entire test. The first time you leave this tab you will see a warning; leaving again will disqualify this attempt and auto-submit your answers.</li>
+          <li>Copy, cut, and paste are disabled during the test. Right-click is disabled on the test page. Other focus changes may be logged for review.</li>
           <li>No cheating, no external help.</li>
           <li>Total duration: {invite?.duration_minutes || 180} minutes.</li>
           <li>Sections: Q1-25 MCQ, Q26-33 MCQ, Q34-62 descriptive, Q63-87 MCQ.</li>
@@ -346,7 +428,7 @@ export default function AssessmentTestPublic() {
           </div>
         </div>
       ) : null}
-      <div className="assessment-main">
+      <div className="assessment-main" ref={testRootRef}>
       <div className="assessment-timer">
         <strong>Time Left: {timerText}</strong>
       </div>
