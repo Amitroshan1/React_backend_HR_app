@@ -43,20 +43,50 @@ def _query_list_effective_created_at(q):
     return min(reps) if reps else None
 
 
-def _backfill_missing_query_created_at():
-    """Repair legacy rows created before queries.created_at had a reliable default."""
+def _repair_query_created_at_from_history():
+    """Repair legacy query timestamps from existing historical events, never from current time."""
     rows = (
         Query.query.options(selectinload(Query.replies))
-        .filter(Query.created_at.is_(None))
         .all()
     )
     if not rows:
         return
 
-    now = datetime.now()
+    notification_dates = {
+        query_id: created_at
+        for query_id, created_at in (
+            db.session.query(Notification.entity_id, func.min(Notification.created_at))
+            .filter(
+                Notification.entity_type == "query",
+                Notification.entity_id.isnot(None),
+                Notification.created_at.isnot(None),
+            )
+            .group_by(Notification.entity_id)
+            .all()
+        )
+    }
+
+    changed = False
     for row in rows:
-        row.created_at = _query_list_effective_created_at(row) or now
-    db.session.commit()
+        candidates = []
+        notification_created_at = notification_dates.get(row.id)
+        if notification_created_at:
+            candidates.append(notification_created_at)
+        candidates.extend(
+            r.created_at
+            for r in (getattr(row, "replies", None) or [])
+            if getattr(r, "created_at", None)
+        )
+        if not candidates:
+            continue
+
+        historical_created_at = min(candidates)
+        if row.created_at is None or historical_created_at < row.created_at:
+            row.created_at = historical_created_at
+            changed = True
+
+    if changed:
+        db.session.commit()
 
 
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
@@ -262,7 +292,7 @@ def my_queries():
     admin = Admin.query.filter_by(email=email).first()
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
-    _backfill_missing_query_created_at()
+    _repair_query_created_at_from_history()
 
     page = int(request.args.get("page", 1))
     limit = int(request.args.get("limit", 10))
@@ -314,7 +344,7 @@ def department_queries():
     if not department:
         return jsonify({"success": False, "message": "Unsupported department role"}), 403
 
-    _backfill_missing_query_created_at()
+    _repair_query_created_at_from_history()
 
     dept_variants = _department_variants(department)
     q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
