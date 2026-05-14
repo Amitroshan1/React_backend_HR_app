@@ -1,5 +1,7 @@
-
 from .. import db
+from datetime import datetime
+
+
 class Query(db.Model):
     __tablename__ = 'queries'
 
@@ -11,7 +13,7 @@ class Query(db.Model):
     query_text = db.Column(db.Text, nullable=False)
 
     status = db.Column(db.String(20), default='New')
-    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    created_at = db.Column(db.DateTime, default=datetime.now, server_default=db.func.now())
     photo = db.Column(db.Text)
 
     # 🔥 FIX HERE (removed backref)
@@ -37,7 +39,7 @@ class QueryReply(db.Model):
 
     reply_text = db.Column(db.Text, nullable=False)
     user_type = db.Column(db.String(20), nullable=False)
-    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    created_at = db.Column(db.DateTime, default=datetime.now, server_default=db.func.now())
 
     parent_query = db.relationship(
         'Query',

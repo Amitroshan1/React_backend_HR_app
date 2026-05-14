@@ -18,6 +18,7 @@ from .email import notify_query_event, send_query_closed_email
 from .models.manager_model import ManagerContact
 from .manager_utils import get_manager_detail
 from werkzeug.utils import secure_filename
+from datetime import datetime
 import json
 import os
 import uuid
@@ -40,6 +41,24 @@ def _query_list_effective_created_at(q):
         if getattr(r, "created_at", None)
     ]
     return min(reps) if reps else None
+
+
+def _backfill_missing_query_created_at():
+    """Repair legacy rows created before queries.created_at had a reliable default."""
+    rows = (
+        Query.query.options(selectinload(Query.replies))
+        .filter(Query.created_at.is_(None))
+        .all()
+    )
+    if not rows:
+        return
+
+    now = datetime.now()
+    for row in rows:
+        row.created_at = _query_list_effective_created_at(row) or now
+    db.session.commit()
+
+
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
 DEPARTMENT_ROLES = {
     "human resource",
@@ -202,6 +221,7 @@ def create_query_api():
         title=title,
         department=department,
         query_text=query_text,
+        created_at=datetime.now(),
         photo=json.dumps(saved_files) if saved_files else None
     )
 
@@ -240,6 +260,9 @@ def create_query_api():
 def my_queries():
     email = get_jwt().get("email")
     admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+    _backfill_missing_query_created_at()
 
     page = int(request.args.get("page", 1))
     limit = int(request.args.get("limit", 10))
@@ -291,6 +314,8 @@ def department_queries():
     if not department:
         return jsonify({"success": False, "message": "Unsupported department role"}), 403
 
+    _backfill_missing_query_created_at()
+
     dept_variants = _department_variants(department)
     q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
         or_(
@@ -301,6 +326,14 @@ def department_queries():
         )
     )
 
+    reply_created_at_subquery = (
+        db.session.query(func.min(QueryReply.created_at))
+        .filter(QueryReply.query_id == Query.id)
+        .correlate(Query)
+        .scalar_subquery()
+    )
+    effective_created_at = func.coalesce(Query.created_at, reply_created_at_subquery)
+
     month_str = (request.args.get("month") or "").strip()
     if month_str:
         try:
@@ -308,8 +341,8 @@ def department_queries():
             if not (1 <= month_m <= 12):
                 raise ValueError()
             q = q.filter(
-                extract("year", Query.created_at) == year_m,
-                extract("month", Query.created_at) == month_m,
+                extract("year", effective_created_at) == year_m,
+                extract("month", effective_created_at) == month_m,
             )
         except ValueError:
             return jsonify(
@@ -318,13 +351,14 @@ def department_queries():
 
     circle_param = (request.args.get("circle") or "").strip()
     if circle_param:
+        circle_param_lower = circle_param.lower()
         q = q.filter(
             Query.admin.has(
-                func.lower(func.coalesce(Admin.circle, "")) == circle_param.lower()
+                func.lower(func.trim(func.coalesce(Admin.circle, ""))) == circle_param_lower
             )
         )
 
-    queries = q.order_by(Query.created_at.desc()).all()
+    queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
 
     def _serialize_query(q):
         adm = q.admin
