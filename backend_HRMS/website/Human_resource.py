@@ -2695,7 +2695,7 @@ def get_wfh_updation_audit(wfh_id):
     return jsonify({"success": True, "audit": items}), 200
 
 
-ASSESSMENT_LINK_TTL_HOURS = 24
+ASSESSMENT_LINK_TTL_MINUTES = 15
 ASSESSMENT_DURATION_MINUTES = 180
 ASSESSMENT_ANY_OPTION_CORRECT_QS = tuple(range(26, 34))
 ASSESSMENT_MANUAL_QS = tuple(range(34, 63))
@@ -2901,6 +2901,44 @@ def _assessment_save_selfie(invite_id, selfie_data_url):
     return f"assessment_selfies/{filename}", None
 
 
+ASSESSMENT_RECORDING_MAX_BYTES = 800 * 1024 * 1024  # 800 MB — long tests; tune server/proxy if needed
+
+
+def _assessment_save_recording_file(invite_id, file_storage):
+    """Persist candidate session recording; returns relative path under uploads root."""
+    if not file_storage or not getattr(file_storage, "filename", None):
+        return None, "No recording file provided."
+    uploads_root = current_app.config.get("UPLOAD_FOLDER")
+    if not uploads_root:
+        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    target_dir = os.path.join(uploads_root, "assessment_recordings")
+    os.makedirs(target_dir, exist_ok=True)
+    safe_base = secure_filename(file_storage.filename) or "recording.webm"
+    lower = safe_base.lower()
+    if not lower.endswith((".webm", ".mp4", ".mkv")):
+        safe_base = f"{safe_base}.webm"
+    filename = f"assessment_{invite_id}_{uuid.uuid4().hex}_{safe_base}"
+    abs_path = os.path.join(target_dir, filename)
+    file_storage.save(abs_path)
+    try:
+        sz = os.path.getsize(abs_path)
+    except OSError:
+        sz = 0
+    if sz > ASSESSMENT_RECORDING_MAX_BYTES:
+        try:
+            os.remove(abs_path)
+        except OSError:
+            pass
+        return None, "Recording file is too large."
+    if sz < 256:
+        try:
+            os.remove(abs_path)
+        except OSError:
+            pass
+        return None, "Recording file is empty or invalid."
+    return f"assessment_recordings/{filename}", None
+
+
 def _assessment_auto_score(answers):
     answers = _assessment_answers_for_scoring(answers or {})
     score = 0
@@ -2973,7 +3011,7 @@ def create_assessment_invite():
         department=department,
         candidate_email=candidate_email,
         token_hash=token_hash,
-        expires_at=datetime.utcnow() + timedelta(hours=ASSESSMENT_LINK_TTL_HOURS),
+        expires_at=datetime.utcnow() + timedelta(minutes=ASSESSMENT_LINK_TTL_MINUTES),
         duration_minutes=ASSESSMENT_DURATION_MINUTES,
         status="invited",
     )
@@ -2985,7 +3023,7 @@ def create_assessment_invite():
         candidate_name=full_name,
         department=department,
         token=raw_token,
-        valid_hours=ASSESSMENT_LINK_TTL_HOURS,
+        valid_minutes=ASSESSMENT_LINK_TTL_MINUTES,
         cc_emails=[
             (get_jwt() or {}).get("email"),
             current_app.config.get("ZEPTO_CC_HR"),
@@ -3052,6 +3090,8 @@ def list_assessment_invites():
                 "total_score": r.total_score,
                 "avg_score": r.avg_score,
                 "integrity_summary": _assessment_integrity_summary(r),
+                "has_recording": bool((getattr(r, "recording_path", None) or "").strip()),
+                "has_selfie": bool((getattr(r, "selfie_path", None) or "").strip()),
             }
         )
     return jsonify({"success": True, "invites": out}), 200
@@ -3090,6 +3130,8 @@ def get_assessment_invite_detail(invite_id):
                 "started_at": invite.started_at.isoformat() if invite.started_at else None,
                 "submitted_at": invite.submitted_at.isoformat() if invite.submitted_at else None,
                 "selfie_path": invite.selfie_path,
+                "has_selfie": bool((getattr(invite, "selfie_path", None) or "").strip()),
+                "has_recording": bool((invite.recording_path or "").strip()),
                 "camera_granted": bool(invite.camera_granted),
                 "mic_granted": bool(invite.mic_granted),
                 "answers": answers,
@@ -3104,6 +3146,64 @@ def get_assessment_invite_detail(invite_id):
             },
         }
     ), 200
+
+
+@hr.route("/assessment/invites/<int:invite_id>/recording", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_assessment_invite_recording(invite_id):
+    """HR-only: stream session recording captured during the test."""
+    invite = AssessmentInvite.query.get(invite_id)
+    if not invite:
+        return jsonify({"success": False, "message": "Invite not found"}), 404
+    rel = (getattr(invite, "recording_path", None) or "").strip()
+    if not rel:
+        return jsonify({"success": False, "message": "No session recording for this invite"}), 404
+    uploads_root = current_app.config.get("UPLOAD_FOLDER")
+    if not uploads_root:
+        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    abs_path = os.path.join(uploads_root, rel.replace("/", os.sep))
+    if not os.path.isfile(abs_path):
+        return jsonify({"success": False, "message": "Recording file missing"}), 404
+    mt, _enc = mimetypes.guess_type(abs_path)
+    if not mt or not mt.startswith("video/"):
+        mt = "video/webm"
+    return send_file(
+        abs_path,
+        mimetype=mt,
+        as_attachment=False,
+        download_name=os.path.basename(abs_path),
+        conditional=True,
+    )
+
+
+@hr.route("/assessment/invites/<int:invite_id>/selfie", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_assessment_invite_selfie(invite_id):
+    """HR-only: pre-test verification photo saved when the candidate started the test."""
+    invite = AssessmentInvite.query.get(invite_id)
+    if not invite:
+        return jsonify({"success": False, "message": "Invite not found"}), 404
+    rel = (getattr(invite, "selfie_path", None) or "").strip()
+    if not rel:
+        return jsonify({"success": False, "message": "No verification photo for this invite"}), 404
+    uploads_root = current_app.config.get("UPLOAD_FOLDER")
+    if not uploads_root:
+        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    abs_path = os.path.join(uploads_root, rel.replace("/", os.sep))
+    if not os.path.isfile(abs_path):
+        return jsonify({"success": False, "message": "Photo file missing"}), 404
+    mt, _enc = mimetypes.guess_type(abs_path)
+    if not mt or not mt.startswith("image/"):
+        mt = "image/jpeg"
+    return send_file(
+        abs_path,
+        mimetype=mt,
+        as_attachment=False,
+        download_name=os.path.basename(abs_path),
+        conditional=True,
+    )
 
 
 @hr.route("/assessment/invites/<int:invite_id>", methods=["DELETE"])
@@ -3125,6 +3225,18 @@ def delete_assessment_invite(invite_id):
                 os.remove(abs_selfie)
         except Exception as e:
             current_app.logger.warning("Failed to remove assessment selfie for invite %s: %s", invite_id, e)
+
+    recording_path = (getattr(invite, "recording_path", None) or "").strip()
+    if recording_path:
+        try:
+            uploads_root = current_app.config.get("UPLOAD_FOLDER")
+            if not uploads_root:
+                uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+            abs_rec = os.path.join(uploads_root, recording_path.replace("/", os.sep))
+            if os.path.isfile(abs_rec):
+                os.remove(abs_rec)
+        except Exception as e:
+            current_app.logger.warning("Failed to remove assessment recording for invite %s: %s", invite_id, e)
 
     db.session.delete(invite)
     db.session.commit()
@@ -3358,6 +3470,33 @@ def assessment_public_submit():
             "invite": _assessment_invite_public_payload(invite),
         }
     ), 200
+
+
+@hr.route("/assessment/public/upload-recording", methods=["POST"])
+def assessment_public_upload_recording():
+    """Candidate uploads session video after submit (multipart: token + file)."""
+    token = (request.form.get("token") or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    if invite.status not in ("submitted", "disqualified"):
+        return jsonify({"success": False, "message": "Submit the assessment before uploading a recording"}), 400
+    if (getattr(invite, "recording_path", None) or "").strip():
+        return jsonify({"success": False, "message": "Recording already uploaded"}), 409
+
+    cl = request.content_length
+    if cl is not None and cl > ASSESSMENT_RECORDING_MAX_BYTES:
+        return jsonify({"success": False, "message": "Recording file is too large"}), 413
+
+    file = request.files.get("file")
+    rel, err = _assessment_save_recording_file(invite.id, file)
+    if err:
+        return jsonify({"success": False, "message": err}), 400
+    invite.recording_path = rel
+    db.session.commit()
+    return jsonify({"success": True, "message": "Recording saved"}), 200
 
 
 

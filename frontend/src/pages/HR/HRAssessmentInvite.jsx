@@ -202,6 +202,12 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const [selected, setSelected] = useState(null);
   const [marks, setMarks] = useState({});
   const [evaluating, setEvaluating] = useState(false);
+  const [recordingVideoUrl, setRecordingVideoUrl] = useState(null);
+  const [recordingLoading, setRecordingLoading] = useState(false);
+  const [recordingError, setRecordingError] = useState("");
+  const [selfiePreviewUrl, setSelfiePreviewUrl] = useState(null);
+  const [selfieLoading, setSelfieLoading] = useState(false);
+  const [selfieError, setSelfieError] = useState("");
 
   const fetchRows = async () => {
     setLoading(true);
@@ -221,6 +227,98 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     fetchRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!selected?.id || !selected?.has_recording) {
+      setRecordingVideoUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setRecordingLoading(false);
+      setRecordingError("");
+      return undefined;
+    }
+    let objectUrl = null;
+    let cancelled = false;
+    setRecordingLoading(true);
+    setRecordingError("");
+    setRecordingVideoUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    fetch(`${HR_API_BASE}/assessment/invites/${selected.id}/recording`, { headers: getAuthHeaders() })
+      .then((res) => {
+        if (!res.ok) {
+          return res.json().then((j) => {
+            throw new Error(j.message || `HTTP ${res.status}`);
+          }).catch(() => {
+            throw new Error(`Unable to load recording (${res.status})`);
+          });
+        }
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled || !blob || blob.size === 0) return;
+        objectUrl = URL.createObjectURL(blob);
+        setRecordingVideoUrl(objectUrl);
+      })
+      .catch((e) => {
+        if (!cancelled) setRecordingError(e.message || "Failed to load recording");
+      })
+      .finally(() => {
+        if (!cancelled) setRecordingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [selected?.id, selected?.has_recording]);
+
+  useEffect(() => {
+    if (!selected?.id || !selected?.has_selfie) {
+      setSelfiePreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setSelfieLoading(false);
+      setSelfieError("");
+      return undefined;
+    }
+    let objectUrl = null;
+    let cancelled = false;
+    setSelfieLoading(true);
+    setSelfieError("");
+    setSelfiePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    fetch(`${HR_API_BASE}/assessment/invites/${selected.id}/selfie`, { headers: getAuthHeaders() })
+      .then((res) => {
+        if (!res.ok) {
+          return res.json().then((j) => {
+            throw new Error(j.message || `HTTP ${res.status}`);
+          }).catch(() => {
+            throw new Error(`Unable to load photo (${res.status})`);
+          });
+        }
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled || !blob || blob.size === 0) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSelfiePreviewUrl(objectUrl);
+      })
+      .catch((e) => {
+        if (!cancelled) setSelfieError(e.message || "Failed to load verification photo");
+      })
+      .finally(() => {
+        if (!cancelled) setSelfieLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [selected?.id, selected?.has_selfie]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -474,16 +572,92 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
         <button className="btn-back-updates" onClick={() => setSelected(null)}>
           <ArrowLeft size={16} /> Back to Invite List
         </button>
-        <h2 style={{ marginTop: 8 }}>Review Submission</h2>
-        <p style={{ color: "#64748b", marginBottom: 10 }}>
-          {selected.full_name} ({selected.candidate_email})
-        </p>
-        <p>
-          Status: {selected.status} | Submitted:{" "}
-          {selected.submitted_at ? new Date(selected.submitted_at).toLocaleString() : "-"}
-        </p>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 20,
+            flexWrap: "wrap",
+            marginTop: 8,
+          }}
+        >
+          <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+            <h2 style={{ margin: 0 }}>Review Submission</h2>
+            <p style={{ color: "#64748b", margin: "8px 0 0" }}>
+              {selected.full_name} ({selected.candidate_email})
+            </p>
+            <p style={{ margin: "8px 0 0" }}>
+              Status: {selected.status} | Submitted:{" "}
+              {selected.submitted_at ? new Date(selected.submitted_at).toLocaleString() : "-"}
+            </p>
+          </div>
+          <div style={{ flex: "0 0 auto", textAlign: "right", alignSelf: "flex-start" }}>
+            {selfieLoading ? (
+              <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>Loading photo…</p>
+            ) : null}
+            {selfieError ? (
+              <p style={{ fontSize: 12, color: "#b91c1c", margin: 0, maxWidth: 200 }}>{selfieError}</p>
+            ) : null}
+            {selfiePreviewUrl ? (
+              <figure style={{ margin: 0 }}>
+                <img
+                  src={selfiePreviewUrl}
+                  alt="Candidate verification photo taken before the test started"
+                  style={{
+                    width: 140,
+                    height: 140,
+                    objectFit: "cover",
+                    borderRadius: 10,
+                    border: "2px solid #e2e8f0",
+                    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.1)",
+                    display: "block",
+                    marginLeft: "auto",
+                  }}
+                />
+                <figcaption style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>
+                  Pre-test verification photo
+                </figcaption>
+              </figure>
+            ) : !selected.has_selfie ? (
+              <span style={{ fontSize: 12, color: "#94a3b8" }}>No verification photo</span>
+            ) : null}
+          </div>
+        </div>
 
         <IntegrityReviewPanel integrity={selected.integrity} />
+
+        {selected.has_recording ? (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: "14px 16px",
+              borderRadius: 10,
+              border: "1px solid #cbd5e1",
+              background: "#f8fafc",
+            }}
+          >
+            <strong style={{ fontSize: 15, color: "#0f172a", display: "block", marginBottom: 8 }}>
+              Session recording (HR only)
+            </strong>
+            <p style={{ margin: "0 0 10px", fontSize: 13, color: "#475569" }}>
+              Video captured from the candidate&apos;s camera and microphone during the test until submit.
+            </p>
+            {recordingLoading ? <p style={{ fontSize: 13, color: "#64748b" }}>Loading recording…</p> : null}
+            {recordingError ? <p style={{ fontSize: 13, color: "#b91c1c" }}>{recordingError}</p> : null}
+            {recordingVideoUrl ? (
+              <video
+                key={recordingVideoUrl}
+                src={recordingVideoUrl}
+                controls
+                playsInline
+                style={{ width: "100%", maxHeight: 420, borderRadius: 8, background: "#000" }}
+              />
+            ) : null}
+          </div>
+        ) : selected.status === "submitted" || selected.status === "disqualified" ? (
+          <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16 }}>No session recording file for this attempt.</p>
+        ) : null}
 
         <div
           style={{
@@ -543,7 +717,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     <div className="hr-main-container" style={{ maxWidth: 1200, margin: "0 auto" }}>
       <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Updates</button>
       <h2 style={{ marginTop: 8 }}>Assessment Invite</h2>
-      <p style={{ color: "#64748b" }}>Send 24-hour test links and evaluate submissions.</p>
+      <p style={{ color: "#64748b" }}>Send 15-minute test links and evaluate submissions.</p>
 
       <form onSubmit={handleSend} style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10, background: "#fff", padding: 12, borderRadius: 10, border: "1px solid #e5e7eb" }}>
         <input
@@ -601,6 +775,8 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               <th>Status</th>
               <th>Proctoring</th>
               <th>Submitted</th>
+              <th>Photo</th>
+              <th>Recording</th>
               <th>Total</th>
               <th>Avg %</th>
               <th>Action</th>
@@ -616,6 +792,8 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 <td>{renderStatusBadge(r.status)}</td>
                 <td style={{ minWidth: 140 }}><IntegrityListBadges summary={r.integrity_summary} /></td>
                 <td>{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-"}</td>
+                <td>{r.has_selfie ? "Yes" : "—"}</td>
+                <td>{r.has_recording ? "Yes" : "—"}</td>
                 <td>{r.total_score ?? "-"}</td>
                 <td>{r.avg_score ?? "-"}</td>
                 <td>
@@ -642,7 +820,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={10} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
+              <tr><td colSpan={12} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
             )}
           </tbody>
         </table>

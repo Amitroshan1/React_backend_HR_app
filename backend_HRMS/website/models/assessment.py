@@ -21,6 +21,7 @@ class AssessmentInvite(db.Model):
     camera_granted = db.Column(db.Boolean, nullable=False, default=False)
     mic_granted = db.Column(db.Boolean, nullable=False, default=False)
     selfie_path = db.Column(db.String(300), nullable=True)
+    recording_path = db.Column(db.String(300), nullable=True)
 
     answers_json = db.Column(db.Text, nullable=True)  # JSON serialized answers by question number
     auto_score = db.Column(db.Float, nullable=True)

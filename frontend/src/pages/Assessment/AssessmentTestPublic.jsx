@@ -28,6 +28,7 @@ export default function AssessmentTestPublic() {
   const [selfieDataUrl, setSelfieDataUrl] = useState("");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const recorderBoxRef = useRef(null);
   const autosaveRef = useRef(null);
   const [remainingSec, setRemainingSec] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -38,6 +39,7 @@ export default function AssessmentTestPublic() {
   const visibilityDebounceRef = useRef(null);
   const [tabSwitchWarnOpen, setTabSwitchWarnOpen] = useState(false);
   const [submitOutcome, setSubmitOutcome] = useState(null); // "ok" | "disqualified" | null
+  const [postSubmitWarning, setPostSubmitWarning] = useState("");
   const testRootRef = useRef(null);
   const windowBlurEventsRef = useRef([]);
   const pasteAttemptsRef = useRef([]);
@@ -103,6 +105,88 @@ export default function AssessmentTestPublic() {
     return () => { mounted = false; };
   }, [token]);
 
+  const finalizeSessionRecording = () =>
+    new Promise((resolve) => {
+      const box = recorderBoxRef.current;
+      recorderBoxRef.current = null;
+      if (!box || !box.mr) {
+        resolve(null);
+        return;
+      }
+      const { mr, chunks, mimeType } = box;
+      const buildBlob = () => {
+        const mime = (mr.mimeType && mr.mimeType.split(";")[0].trim()) || mimeType || "video/webm";
+        const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
+        return blob && blob.size > 512 ? blob : null;
+      };
+      if (mr.state === "inactive") {
+        resolve(buildBlob());
+        return;
+      }
+      try {
+        if (typeof mr.requestData === "function") mr.requestData();
+      } catch {
+        /* ignore */
+      }
+      mr.onstop = () => resolve(buildBlob());
+      try {
+        mr.stop();
+      } catch {
+        resolve(buildBlob());
+      }
+    });
+
+  const beginSessionRecording = () => {
+    const stream = streamRef.current;
+    if (!stream || typeof MediaRecorder === "undefined") return;
+    let mimeType = "video/webm";
+    const candidates = [
+      "video/webm;codecs=vp8,opus",
+      "video/webm;codecs=vp9,opus",
+      "video/webm",
+    ];
+    for (let i = 0; i < candidates.length; i += 1) {
+      if (MediaRecorder.isTypeSupported(candidates[i])) {
+        mimeType = candidates[i];
+        break;
+      }
+    }
+    try {
+      const opts = { mimeType };
+      try {
+        opts.videoBitsPerSecond = 1_000_000;
+      } catch {
+        /* ignore */
+      }
+      const mr = new MediaRecorder(stream, opts);
+      const chunks = [];
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size) chunks.push(e.data);
+      };
+      mr.onerror = () => {};
+      mr.start(60_000);
+      recorderBoxRef.current = { mr, chunks, mimeType };
+    } catch {
+      /* optional proctoring recording */
+    }
+  };
+
+  const uploadSessionRecording = async (blob) => {
+    if (!blob || !token) return { ok: false, message: "No recording" };
+    const fd = new FormData();
+    fd.append("token", token);
+    fd.append("file", blob, "session.webm");
+    const res = await fetch(`${API_BASE}/upload-recording`, {
+      method: "POST",
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      return { ok: false, message: data.message || "Recording upload failed" };
+    }
+    return { ok: true, message: "" };
+  };
+
   const handleSubmit = async (opts = {}) => {
     const disqualified = opts.disqualified === true;
     if (submittingRef.current) return;
@@ -147,12 +231,28 @@ export default function AssessmentTestPublic() {
       submittingRef.current = false;
       return;
     }
+
+    let recordingWarning = "";
+    try {
+      const blob = await finalizeSessionRecording();
+      if (blob && blob.size > 0) {
+        const up = await uploadSessionRecording(blob);
+        if (!up.ok) recordingWarning = up.message || "";
+      }
+    } catch {
+      recordingWarning = "Recording could not be processed.";
+    }
+
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     setInvite(data.invite);
     setSubmitOutcome(data.invite?.disqualified ? "disqualified" : "ok");
     setStage("submitted");
     setSubmitting(false);
     submittingRef.current = false;
+    setPostSubmitWarning(recordingWarning || "");
+    if (recordingWarning) {
+      setError("");
+    }
   };
 
   useEffect(() => {
@@ -315,6 +415,7 @@ export default function AssessmentTestPublic() {
       }
       setInvite(data.invite);
       setStage("test");
+      beginSessionRecording();
       tabLeaveStrikesRef.current = 0;
       tabLeaveEventsRef.current = [];
       windowBlurEventsRef.current = [];
@@ -335,6 +436,15 @@ export default function AssessmentTestPublic() {
 
   useEffect(() => () => {
     if (autosaveRef.current) clearInterval(autosaveRef.current);
+    const box = recorderBoxRef.current;
+    if (box?.mr && box.mr.state !== "inactive") {
+      try {
+        box.mr.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    recorderBoxRef.current = null;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
     }
@@ -360,6 +470,11 @@ export default function AssessmentTestPublic() {
               ? "This attempt was closed because the assessment window lost focus more than once (for example, switching browser tabs). HR has been notified."
               : `Thank you. Attempt ${invite?.attempt_no || 1} completed.`}
           </p>
+          {postSubmitWarning ? (
+            <p className="assessment-error" style={{ marginTop: 12 }}>
+              {postSubmitWarning} You can contact HR if this was unexpected.
+            </p>
+          ) : null}
         </div>
       </div>
     );
@@ -379,6 +494,7 @@ export default function AssessmentTestPublic() {
           <li>Sections: Q1-25 MCQ, Q26-33 MCQ, Q34-62 descriptive, Q63-87 MCQ.</li>
           <li>Your camera photo capture is mandatory before starting.</li>
           <li>Camera and microphone permissions are required.</li>
+          <li>Camera and microphone stay active during the test; your session may be video-recorded for HR review until you submit.</li>
           <li>Do not use mobile phones, notes, external websites, or AI tools.</li>
           <li>Any malpractice may lead to disqualification.</li>
           <li>Answers are auto-saved periodically, but submit before timer ends.</li>

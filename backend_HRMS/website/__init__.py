@@ -315,14 +315,29 @@ def create_app():
 
     def _ensure_assessment_tables():
         try:
-            from sqlalchemy import inspect
+            from sqlalchemy import inspect, text
             from .models.assessment import AssessmentInvite
 
             insp = inspect(db.engine)
             tables = set(insp.get_table_names())
+            dialect = db.engine.dialect.name
             if "assessment_invites" not in tables:
                 AssessmentInvite.__table__.create(bind=db.engine, checkfirst=True)
                 app.logger.info("Created table assessment_invites")
+            else:
+                existing = {c["name"] for c in insp.get_columns("assessment_invites")}
+                if "recording_path" not in existing:
+                    if dialect == "postgresql":
+                        stmt = text(
+                            'ALTER TABLE "assessment_invites" ADD COLUMN recording_path VARCHAR(300) NULL'
+                        )
+                    else:
+                        stmt = text(
+                            "ALTER TABLE assessment_invites ADD COLUMN recording_path VARCHAR(300) NULL"
+                        )
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column assessment_invites.recording_path")
         except Exception as e:
             app.logger.warning("assessment table ensure skipped: %s", e)
 

@@ -1240,7 +1240,7 @@ export const Hr = () => {
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
-    { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 24-hour assessment links and evaluate submissions' },
+    { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 15-minute assessment links and evaluate submissions' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },

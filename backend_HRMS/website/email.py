@@ -2357,7 +2357,7 @@ def send_password_reset_email(admin, reset_token):
         return False
 
 
-def send_assessment_invite_email(*, to_email, candidate_name, department, token, valid_hours=24, cc_emails=None):
+def send_assessment_invite_email(*, to_email, candidate_name, department, token, valid_minutes=15, cc_emails=None):
     """Send candidate assessment link mail (tokenized URL)."""
     try:
         base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
@@ -2365,13 +2365,14 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
         sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
         if not sender_email:
             return False, "ZEPTO_SENDER_EMAIL not configured"
-        subject = "Assessment Test Link (Valid for 24 hours)"
+        vm = max(1, int(valid_minutes))
+        subject = f"Assessment Test Link (Valid for {vm} minutes)"
         body = f"""
         <p>Hello {html.escape(candidate_name or 'Candidate')},</p>
         <p>Your assessment link is ready.</p>
         <p><strong>Department:</strong> {html.escape(department or '-')}</p>
         <p><a href="{assessment_url}" target="_blank">Click here to open your assessment</a></p>
-        <p>This link is valid for <strong>{int(valid_hours)}</strong> hours and one attempt only.</p>
+        <p>This link is valid for <strong>{vm}</strong> minutes and one attempt only.</p>
         <p>Regards,<br><strong>HR Team</strong></p>
         """
         cc_candidates = []
