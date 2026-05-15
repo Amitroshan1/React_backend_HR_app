@@ -51,6 +51,15 @@ def run_daily_hr_jobs():
             log.exception("scheduler: leave-pending-reminder failed: %s", e)
 
         try:
+            from .Human_resource import purge_expired_assessment_recordings
+
+            purged = purge_expired_assessment_recordings()
+            if purged:
+                log.info("scheduler: purged %s expired assessment recording(s)", purged)
+        except Exception as e:
+            log.exception("scheduler: assessment-recording-purge failed: %s", e)
+
+        try:
             db.session.commit()
         except Exception as e:
             log.exception("scheduler: commit failed: %s", e)

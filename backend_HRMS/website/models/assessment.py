@@ -22,6 +22,8 @@ class AssessmentInvite(db.Model):
     mic_granted = db.Column(db.Boolean, nullable=False, default=False)
     selfie_path = db.Column(db.String(300), nullable=True)
     recording_path = db.Column(db.String(300), nullable=True)
+    # First time HR opened the session recording; file is removed this many days after (see Human_resource).
+    recording_first_viewed_at = db.Column(db.DateTime, nullable=True)
 
     answers_json = db.Column(db.Text, nullable=True)  # JSON serialized answers by question number
     auto_score = db.Column(db.Float, nullable=True)

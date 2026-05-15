@@ -21,7 +21,7 @@ from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitH
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 from flask_login import current_user
@@ -2902,6 +2902,74 @@ def _assessment_save_selfie(invite_id, selfie_data_url):
 
 
 ASSESSMENT_RECORDING_MAX_BYTES = 800 * 1024 * 1024  # 800 MB — long tests; tune server/proxy if needed
+# Days after first HR view of the recording before the file is removed (disk + DB path).
+ASSESSMENT_RECORDING_HR_RETENTION_DAYS = 3
+
+
+def _assessment_uploads_root():
+    uploads_root = current_app.config.get("UPLOAD_FOLDER")
+    if not uploads_root:
+        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    return uploads_root
+
+
+def _assessment_remove_recording_disk(uploads_root, rel):
+    rel = (rel or "").strip()
+    if not rel:
+        return
+    abs_rec = os.path.join(uploads_root, rel.replace("/", os.sep))
+    if os.path.isfile(abs_rec):
+        try:
+            os.remove(abs_rec)
+        except OSError as e:
+            current_app.logger.warning("Failed to remove assessment recording file %s: %s", abs_rec, e)
+
+
+def _assessment_clear_recording_fields(invite, uploads_root=None):
+    """Remove recording file from disk and clear path + first-view timestamp on the invite."""
+    root = uploads_root if uploads_root is not None else _assessment_uploads_root()
+    rel = (getattr(invite, "recording_path", None) or "").strip()
+    _assessment_remove_recording_disk(root, rel)
+    invite.recording_path = None
+    invite.recording_first_viewed_at = None
+
+
+def _assessment_recording_hr_retention_expired(invite):
+    viewed = getattr(invite, "recording_first_viewed_at", None)
+    if not viewed:
+        return False
+    return datetime.utcnow() - viewed >= timedelta(days=ASSESSMENT_RECORDING_HR_RETENTION_DAYS)
+
+
+def purge_expired_assessment_recordings():
+    """Remove session recordings past HR first-view retention. Safe to run from the daily scheduler."""
+    cutoff = datetime.utcnow() - timedelta(days=ASSESSMENT_RECORDING_HR_RETENTION_DAYS)
+    uploads_root = _assessment_uploads_root()
+    rows = (
+        AssessmentInvite.query.filter(
+            and_(
+                AssessmentInvite.recording_path.isnot(None),
+                AssessmentInvite.recording_path != "",
+                AssessmentInvite.recording_first_viewed_at.isnot(None),
+                AssessmentInvite.recording_first_viewed_at <= cutoff,
+            )
+        )
+        .all()
+    )
+    if not rows:
+        return 0
+    for inv in rows:
+        try:
+            _assessment_clear_recording_fields(inv, uploads_root)
+        except Exception as e:
+            current_app.logger.warning("purge_expired_assessment_recordings invite %s: %s", inv.id, e)
+    try:
+        db.session.commit()
+    except Exception as e:
+        current_app.logger.warning("purge_expired_assessment_recordings commit: %s", e)
+        db.session.rollback()
+        return 0
+    return len(rows)
 
 
 def _assessment_save_recording_file(invite_id, file_storage):
@@ -3152,19 +3220,37 @@ def get_assessment_invite_detail(invite_id):
 @jwt_required()
 @hr_required
 def get_assessment_invite_recording(invite_id):
-    """HR-only: stream session recording captured during the test."""
+    """HR-only: stream session recording captured during the test.
+
+    Sets ``recording_first_viewed_at`` on first successful open; removes the file after
+    ``ASSESSMENT_RECORDING_HR_RETENTION_DAYS`` from that moment (enforced here and by daily purge).
+    """
     invite = AssessmentInvite.query.get(invite_id)
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
     rel = (getattr(invite, "recording_path", None) or "").strip()
     if not rel:
         return jsonify({"success": False, "message": "No session recording for this invite"}), 404
-    uploads_root = current_app.config.get("UPLOAD_FOLDER")
-    if not uploads_root:
-        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    uploads_root = _assessment_uploads_root()
+
+    if _assessment_recording_hr_retention_expired(invite):
+        _assessment_clear_recording_fields(invite, uploads_root)
+        db.session.commit()
+        return jsonify(
+            {
+                "success": False,
+                "message": "This recording was removed after the retention period from the first HR view.",
+            }
+        ), 404
+
     abs_path = os.path.join(uploads_root, rel.replace("/", os.sep))
     if not os.path.isfile(abs_path):
         return jsonify({"success": False, "message": "Recording file missing"}), 404
+
+    if invite.recording_first_viewed_at is None:
+        invite.recording_first_viewed_at = datetime.utcnow()
+        db.session.commit()
+
     mt, _enc = mimetypes.guess_type(abs_path)
     if not mt or not mt.startswith("video/"):
         mt = "video/webm"
@@ -3214,29 +3300,22 @@ def delete_assessment_invite(invite_id):
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
 
+    uploads_root = _assessment_uploads_root()
     selfie_path = (invite.selfie_path or "").strip()
     if selfie_path:
         try:
-            uploads_root = current_app.config.get("UPLOAD_FOLDER")
-            if not uploads_root:
-                uploads_root = os.path.join(current_app.root_path, "static", "uploads")
             abs_selfie = os.path.join(uploads_root, selfie_path.replace("/", os.sep))
             if os.path.isfile(abs_selfie):
                 os.remove(abs_selfie)
         except Exception as e:
             current_app.logger.warning("Failed to remove assessment selfie for invite %s: %s", invite_id, e)
 
-    recording_path = (getattr(invite, "recording_path", None) or "").strip()
-    if recording_path:
-        try:
-            uploads_root = current_app.config.get("UPLOAD_FOLDER")
-            if not uploads_root:
-                uploads_root = os.path.join(current_app.root_path, "static", "uploads")
-            abs_rec = os.path.join(uploads_root, recording_path.replace("/", os.sep))
-            if os.path.isfile(abs_rec):
-                os.remove(abs_rec)
-        except Exception as e:
-            current_app.logger.warning("Failed to remove assessment recording for invite %s: %s", invite_id, e)
+    try:
+        rel_rec = (getattr(invite, "recording_path", None) or "").strip()
+        if rel_rec:
+            _assessment_remove_recording_disk(uploads_root, rel_rec)
+    except Exception as e:
+        current_app.logger.warning("Failed to remove assessment recording for invite %s: %s", invite_id, e)
 
     db.session.delete(invite)
     db.session.commit()
@@ -3495,6 +3574,7 @@ def assessment_public_upload_recording():
     if err:
         return jsonify({"success": False, "message": err}), 400
     invite.recording_path = rel
+    invite.recording_first_viewed_at = None
     db.session.commit()
     return jsonify({"success": True, "message": "Recording saved"}), 200
 

@@ -27,6 +27,7 @@ export default function AssessmentTestPublic() {
   const [micGranted, setMicGranted] = useState(false);
   const [selfieDataUrl, setSelfieDataUrl] = useState("");
   const videoRef = useRef(null);
+  const livePreviewRef = useRef(null);
   const streamRef = useRef(null);
   const recorderBoxRef = useRef(null);
   const autosaveRef = useRef(null);
@@ -272,6 +273,16 @@ export default function AssessmentTestPublic() {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, invite?.started_at, invite?.duration_minutes]);
+
+  useEffect(() => {
+    if (stage !== "test") return undefined;
+    const stream = streamRef.current;
+    const el = livePreviewRef.current;
+    if (stream && el && el.srcObject !== stream) {
+      el.srcObject = stream;
+    }
+    return undefined;
+  }, [stage]);
 
   useEffect(() => {
     if (stage !== "test") return undefined;
@@ -544,6 +555,14 @@ export default function AssessmentTestPublic() {
           </div>
         </div>
       ) : null}
+      <video
+        ref={livePreviewRef}
+        className="assessment-live-preview"
+        autoPlay
+        muted
+        playsInline
+        aria-hidden="true"
+      />
       <div className="assessment-main" ref={testRootRef}>
       <div className="assessment-timer">
         <strong>Time Left: {timerText}</strong>

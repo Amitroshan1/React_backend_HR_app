@@ -111,6 +111,30 @@
   background: #0f172a;
 }
 
+.assessment-live-preview {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  width: 160px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+  z-index: 50;
+  background: #0f172a;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .assessment-live-preview {
+    width: 120px;
+    height: 90px;
+    bottom: 12px;
+    right: 12px;
+  }
+}
+
 .assessment-actions-row {
   margin-top: 10px;
   display: flex;

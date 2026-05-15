@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ShieldAlert, Trash2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Play, ShieldAlert, Trash2 } from "lucide-react";
 
 const HR_API_BASE = "/api/HumanResource";
 
@@ -205,6 +205,8 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const [recordingVideoUrl, setRecordingVideoUrl] = useState(null);
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingError, setRecordingError] = useState("");
+  const [recordingModalOpen, setRecordingModalOpen] = useState(false);
+  const recordingVideoRef = useRef(null);
   const [selfiePreviewUrl, setSelfiePreviewUrl] = useState(null);
   const [selfieLoading, setSelfieLoading] = useState(false);
   const [selfieError, setSelfieError] = useState("");
@@ -229,50 +231,67 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   }, []);
 
   useEffect(() => {
-    if (!selected?.id || !selected?.has_recording) {
-      setRecordingVideoUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      setRecordingLoading(false);
-      setRecordingError("");
-      return undefined;
-    }
-    let objectUrl = null;
-    let cancelled = false;
-    setRecordingLoading(true);
-    setRecordingError("");
+    setRecordingModalOpen(false);
     setRecordingVideoUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-    fetch(`${HR_API_BASE}/assessment/invites/${selected.id}/recording`, { headers: getAuthHeaders() })
-      .then((res) => {
-        if (!res.ok) {
-          return res.json().then((j) => {
-            throw new Error(j.message || `HTTP ${res.status}`);
-          }).catch(() => {
-            throw new Error(`Unable to load recording (${res.status})`);
-          });
-        }
-        return res.blob();
-      })
-      .then((blob) => {
-        if (cancelled || !blob || blob.size === 0) return;
-        objectUrl = URL.createObjectURL(blob);
-        setRecordingVideoUrl(objectUrl);
-      })
-      .catch((e) => {
-        if (!cancelled) setRecordingError(e.message || "Failed to load recording");
-      })
-      .finally(() => {
-        if (!cancelled) setRecordingLoading(false);
-      });
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    setRecordingLoading(false);
+    setRecordingError("");
+  }, [selected?.id]);
+
+  const closeRecordingModal = useCallback(() => {
+    try {
+      recordingVideoRef.current?.pause?.();
+    } catch {
+      /* ignore */
+    }
+    setRecordingModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!recordingModalOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") closeRecordingModal();
     };
-  }, [selected?.id, selected?.has_recording]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [recordingModalOpen, closeRecordingModal]);
+
+  const openRecordingPlayer = useCallback(async () => {
+    if (!selected?.id || !selected.has_recording) return;
+    if (recordingLoading) return;
+    setRecordingError("");
+    if (recordingVideoUrl) {
+      setRecordingModalOpen(true);
+      return;
+    }
+    setRecordingLoading(true);
+    try {
+      const res = await fetch(`${HR_API_BASE}/assessment/invites/${selected.id}/recording`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        let msg = `Unable to load recording (${res.status})`;
+        try {
+          const j = await res.json();
+          if (j.message) msg = j.message;
+        } catch {
+          /* use default */
+        }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      if (!blob || blob.size === 0) throw new Error("Recording file is empty.");
+      const url = URL.createObjectURL(blob);
+      setRecordingVideoUrl(url);
+      setRecordingModalOpen(true);
+    } catch (e) {
+      setRecordingError(e.message || "Failed to load recording");
+    } finally {
+      setRecordingLoading(false);
+    }
+  }, [selected?.id, selected?.has_recording, recordingVideoUrl, recordingLoading]);
 
   useEffect(() => {
     if (!selected?.id || !selected?.has_selfie) {
@@ -643,17 +662,17 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
             <p style={{ margin: "0 0 10px", fontSize: 13, color: "#475569" }}>
               Video captured from the candidate&apos;s camera and microphone during the test until submit.
             </p>
-            {recordingLoading ? <p style={{ fontSize: 13, color: "#64748b" }}>Loading recording…</p> : null}
-            {recordingError ? <p style={{ fontSize: 13, color: "#b91c1c" }}>{recordingError}</p> : null}
-            {recordingVideoUrl ? (
-              <video
-                key={recordingVideoUrl}
-                src={recordingVideoUrl}
-                controls
-                playsInline
-                style={{ width: "100%", maxHeight: 420, borderRadius: 8, background: "#000" }}
-              />
-            ) : null}
+            <button
+              type="button"
+              className="lau-edit-btn"
+              onClick={openRecordingPlayer}
+              disabled={recordingLoading}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <Play size={16} />
+              {recordingLoading ? "Loading…" : "Play session recording"}
+            </button>
+            {recordingError ? <p style={{ fontSize: 13, color: "#b91c1c", margin: "10px 0 0" }}>{recordingError}</p> : null}
           </div>
         ) : selected.status === "submitted" || selected.status === "disqualified" ? (
           <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16 }}>No session recording file for this attempt.</p>
@@ -709,6 +728,54 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
             {evaluating ? "Saving..." : "Submit Evaluation"}
           </button>
         </div>
+
+        {recordingModalOpen && recordingVideoUrl ? (
+          <div
+            role="presentation"
+            onClick={closeRecordingModal}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 2000,
+              background: "rgba(15, 23, 42, 0.55)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Session recording"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "100%",
+                maxWidth: 960,
+                background: "#fff",
+                borderRadius: 12,
+                padding: 16,
+                boxShadow: "0 25px 50px -12px rgba(15, 23, 42, 0.35)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <strong style={{ fontSize: 16 }}>Session recording</strong>
+                <button type="button" className="lau-cancel" onClick={closeRecordingModal}>
+                  Close
+                </button>
+              </div>
+              <video
+                ref={recordingVideoRef}
+                key={recordingVideoUrl}
+                src={recordingVideoUrl}
+                controls
+                playsInline
+                autoPlay
+                style={{ width: "100%", maxHeight: "min(70vh, 520px)", borderRadius: 8, background: "#000" }}
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -775,8 +842,6 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               <th>Status</th>
               <th>Proctoring</th>
               <th>Submitted</th>
-              <th>Photo</th>
-              <th>Recording</th>
               <th>Total</th>
               <th>Avg %</th>
               <th>Action</th>
@@ -792,8 +857,6 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 <td>{renderStatusBadge(r.status)}</td>
                 <td style={{ minWidth: 140 }}><IntegrityListBadges summary={r.integrity_summary} /></td>
                 <td>{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-"}</td>
-                <td>{r.has_selfie ? "Yes" : "—"}</td>
-                <td>{r.has_recording ? "Yes" : "—"}</td>
                 <td>{r.total_score ?? "-"}</td>
                 <td>{r.avg_score ?? "-"}</td>
                 <td>
@@ -820,7 +883,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={12} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
+              <tr><td colSpan={10} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
             )}
           </tbody>
         </table>

@@ -338,6 +338,19 @@ def create_app():
                     with db.engine.begin() as conn:
                         conn.execute(stmt)
                     app.logger.info("Added column assessment_invites.recording_path")
+                existing = {c["name"] for c in insp.get_columns("assessment_invites")}
+                if "recording_first_viewed_at" not in existing:
+                    if dialect == "postgresql":
+                        stmt = text(
+                            'ALTER TABLE "assessment_invites" ADD COLUMN recording_first_viewed_at TIMESTAMP NULL'
+                        )
+                    else:
+                        stmt = text(
+                            "ALTER TABLE assessment_invites ADD COLUMN recording_first_viewed_at DATETIME NULL"
+                        )
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column assessment_invites.recording_first_viewed_at")
         except Exception as e:
             app.logger.warning("assessment table ensure skipped: %s", e)
 
