@@ -684,12 +684,18 @@ def signup_api():
             db.session.add(admin)
             db.session.flush()  # get admin.id
 
-            # Initialize leave balance
+            # Initialize leave balance (all NOT NULL columns — matches leave_accrual / compoff_utils)
             leave_balance = LeaveBalance(
                 admin_id=admin.id,
                 privilege_leave_balance=0.0,
                 casual_leave_balance=0.0,
-                compensatory_leave_balance=0.0
+                compensatory_leave_balance=0.0,
+                total_privilege_leave=0.0,
+                total_casual_leave=0.0,
+                total_compensatory_leave=0.0,
+                used_privilege_leave=0.0,
+                used_casual_leave=0.0,
+                used_comp_leave=0.0,
             )
             db.session.add(leave_balance)
 

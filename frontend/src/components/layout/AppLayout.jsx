@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
+import { AppFooter } from "./AppFooter";
 // import "../../pages/style/Dashboard.css"
 import "../../pages/Dashboard/Dashboard.css"
 
@@ -135,7 +136,7 @@ export const AppLayout = () => {
         empType: empType
     });
     return (
-        <div className="main-layout">
+        <div className="main-layout app-layout">
             <ScrollToTop />
             {/* The Header now gets the username and full user object from the centralized context */}
             <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
@@ -143,6 +144,7 @@ export const AppLayout = () => {
             <div className="content-area">
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
                 <Outlet />
+                <AppFooter />
             </div>
         </div>
     );

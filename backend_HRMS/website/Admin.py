@@ -2,10 +2,11 @@
 Admin panel API: dashboard stats, employee list, and employee detail.
 Access restricted to users with emp_type Admin / Administrator / Administration.
 """
+import os
 from datetime import date
 from calendar import monthrange
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import func
 
@@ -17,6 +18,11 @@ from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .models.news_feed import PaySlip
 from .models.emp_detail_models import Employee, Asset
+from .models.deployed_customer import (
+    DeployedCustomer,
+    PLAN_ORDER,
+    PLAN_LABELS,
+)
 
 
 admin_bp = Blueprint("admin", __name__)
@@ -45,6 +51,27 @@ def _admin_required(fn):
             }), 403
         return fn(*args, **kwargs)
     return wrapper
+
+
+def _deployment_guide_enabled():
+    return bool(current_app.config.get("SHOW_DEPLOYMENT_GUIDE"))
+
+
+def _can_view_deployment_guide(claims=None):
+    """Vendor ops: Admin role on instance with SHOW_DEPLOYMENT_GUIDE=1."""
+    if not _deployment_guide_enabled():
+        return False
+    if claims is None:
+        claims = get_jwt() or {}
+    emp_type = _norm(claims.get("emp_type") or "")
+    if emp_type not in ADMIN_EMP_TYPES and "super" not in emp_type:
+        return False
+    raw = (os.getenv("DEPLOYMENT_GUIDE_EMAILS") or "").strip()
+    if not raw:
+        return True
+    allowed = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    email = (claims.get("email") or "").strip().lower()
+    return email in allowed if email else False
 
 
 def _base_employee_query():
@@ -488,4 +515,171 @@ def get_employee_detail(admin_id):
             "payslips": payslips_data,
             "assets": assets_data,
         },
+    }), 200
+
+
+# --------------------------------------------------
+# New customer deployment guide (vendor master instance only)
+# --------------------------------------------------
+@admin_bp.route("/deployment-guide/access", methods=["GET"])
+@jwt_required()
+@_admin_required
+def deployment_guide_access():
+    return jsonify({
+        "success": True,
+        "can_view_deployment_guide": _can_view_deployment_guide(),
+    }), 200
+
+
+@admin_bp.route("/deployment-guide", methods=["GET"])
+@jwt_required()
+@_admin_required
+def deployment_guide_content():
+    if not _can_view_deployment_guide():
+        return jsonify({
+            "success": False,
+            "message": "Deployment guide is not available on this instance",
+        }), 403
+    from .deployment_guide_data import DEPLOYMENT_GUIDE
+    return jsonify({
+        "success": True,
+        "guide": DEPLOYMENT_GUIDE,
+        "doc_path": "docs/NEW_CUSTOMER_DEPLOYMENT.md",
+    }), 200
+
+
+def _customers_access_denied():
+    return jsonify({
+        "success": False,
+        "message": "Customer registry is not available on this instance",
+    }), 403
+
+
+def _parse_plan(value):
+    plan = _norm(value or "")
+    if plan not in PLAN_ORDER:
+        return None
+    return plan
+
+
+def _parse_date(value):
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+# --------------------------------------------------
+# Deployed customers (vendor master instance only)
+# --------------------------------------------------
+@admin_bp.route("/customers", methods=["GET"])
+@jwt_required()
+@_admin_required
+def list_deployed_customers():
+    if not _can_view_deployment_guide():
+        return _customers_access_denied()
+    rows = (
+        DeployedCustomer.query.order_by(
+            DeployedCustomer.company_name.asc()
+        ).all()
+    )
+    from .deployment_guide_data import DEPLOYMENT_GUIDE
+    plans = DEPLOYMENT_GUIDE.get("plans") or [
+        {"id": k, "label": v, "notes": ""} for k, v in PLAN_LABELS.items()
+    ]
+    return jsonify({
+        "success": True,
+        "customers": [r.to_dict() for r in rows],
+        "plans": plans,
+    }), 200
+
+
+@admin_bp.route("/customers", methods=["POST"])
+@jwt_required()
+@_admin_required
+def create_deployed_customer():
+    if not _can_view_deployment_guide():
+        return _customers_access_denied()
+    data = request.get_json(silent=True) or {}
+    company_name = (data.get("company_name") or "").strip()
+    if not company_name:
+        return jsonify({"success": False, "message": "Company name is required"}), 400
+    plan = _parse_plan(data.get("plan"))
+    if not plan:
+        return jsonify({
+            "success": False,
+            "message": "Plan must be basic, essential, or enterprise",
+        }), 400
+    row = DeployedCustomer(
+        company_name=company_name,
+        plan=plan,
+        app_url=(data.get("app_url") or "").strip() or None,
+        database_name=(data.get("database_name") or "").strip() or None,
+        contact_email=(data.get("contact_email") or "").strip() or None,
+        notes=(data.get("notes") or "").strip() or None,
+        status=(data.get("status") or "active").strip() or "active",
+        go_live_date=_parse_date(data.get("go_live_date")),
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "message": "Customer added",
+        "customer": row.to_dict(),
+    }), 201
+
+
+@admin_bp.route("/customers/<int:customer_id>", methods=["PATCH"])
+@jwt_required()
+@_admin_required
+def update_deployed_customer(customer_id):
+    if not _can_view_deployment_guide():
+        return _customers_access_denied()
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    data = request.get_json(silent=True) or {}
+
+    if "plan" in data:
+        new_plan = _parse_plan(data.get("plan"))
+        if not new_plan:
+            return jsonify({
+                "success": False,
+                "message": "Invalid plan",
+            }), 400
+        current = (row.plan or "basic").lower()
+        if current not in PLAN_ORDER:
+            current = "basic"
+        if new_plan not in row.upgrade_options() and new_plan != current:
+            return jsonify({
+                "success": False,
+                "message": "Can only upgrade to a higher plan or keep the current plan",
+            }), 400
+        row.plan = new_plan
+
+    if "company_name" in data:
+        name = (data.get("company_name") or "").strip()
+        if name:
+            row.company_name = name
+    if "app_url" in data:
+        row.app_url = (data.get("app_url") or "").strip() or None
+    if "database_name" in data:
+        row.database_name = (data.get("database_name") or "").strip() or None
+    if "contact_email" in data:
+        row.contact_email = (data.get("contact_email") or "").strip() or None
+    if "notes" in data:
+        row.notes = (data.get("notes") or "").strip() or None
+    if "status" in data:
+        row.status = (data.get("status") or row.status).strip() or row.status
+    if "go_live_date" in data:
+        row.go_live_date = _parse_date(data.get("go_live_date"))
+
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "message": "Customer updated",
+        "customer": row.to_dict(),
     }), 200

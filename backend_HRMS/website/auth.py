@@ -455,6 +455,7 @@ def _employee_homepage_impl():
             "email": getattr(admin, "email", None),
             "emp_id": getattr(admin, "emp_id", None),
             "emp_type": getattr(admin, "emp_type", None),
+            "mobile": getattr(admin, "mobile", None),
             # Prefer employee job title for UI/routing when emp_type is generic (e.g. Super Admin + HR role).
             "designation": (getattr(employee, "designation", None) if employee else None),
             "department": getattr(admin, "emp_type", None),

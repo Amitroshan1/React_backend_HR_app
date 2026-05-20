@@ -48,6 +48,8 @@ import AdminLeaves from "./pages/Admin/AdminLeaves";
 import AdminQueries from "./pages/Admin/AdminQueries";
 import AdminClaims from "./pages/Admin/AdminClaims";
 import AdminResignations from "./pages/Admin/AdminResignations";
+import AdminDeploymentGuide from "./pages/Admin/AdminDeploymentGuide";
+import AdminCustomers from "./pages/Admin/AdminCustomers";
 
 import SetPassword from "./pages/SetPassword";
 import { ExEmployeeDocumentsPublic } from "./pages/HR/ExEmployeeDocumentsPublic";
@@ -109,6 +111,8 @@ export const App = () => {
         { path: "archive-employees/:adminId",      element: <ArchiveEmployeeDetails /> },
         { path: "exit-employees",                  element: <ExitEmployee /> },
         { path: "admin",                           element: <Admin /> },
+        { path: "admin/customers",                 element: <AdminCustomers /> },
+        { path: "admin/deployment-guide",          element: <AdminDeploymentGuide /> },
         { path: "admin/leaves",                    element: <AdminLeaves /> },
         { path: "admin/queries",                   element: <AdminQueries /> },
         { path: "admin/claims",                    element: <AdminClaims /> },

@@ -61,6 +61,11 @@ def create_app():
     # Uploads root for payslips/form16 etc. Set UPLOADS_ROOT in production to absolute path if files live elsewhere.
     app.config["UPLOADS_ROOT"] = os.getenv("UPLOADS_ROOT")
 
+    # Vendor master instance: show "New customer deployment" in Admin panel (0 on per-customer servers)
+    app.config["SHOW_DEPLOYMENT_GUIDE"] = os.getenv("SHOW_DEPLOYMENT_GUIDE", "0").strip() in (
+        "1", "true", "yes", "on",
+    )
+
     # ---------------------------
     # Enable CORS
     # ---------------------------
@@ -354,11 +359,80 @@ def create_app():
         except Exception as e:
             app.logger.warning("assessment table ensure skipped: %s", e)
 
+    def _ensure_deployed_customers_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.deployed_customer import DeployedCustomer
+
+            insp = inspect(db.engine)
+            if "deployed_customers" in set(insp.get_table_names()):
+                return
+            DeployedCustomer.__table__.create(bind=db.engine, checkfirst=True)
+            app.logger.info("Created table deployed_customers")
+        except Exception as e:
+            app.logger.warning("deployed_customers table ensure skipped: %s", e)
+
+    def _ensure_leave_balance_defaults():
+        """Align leave_balances total/used columns with model (DEFAULT 0, no data change)."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.attendance import LeaveBalance
+
+            insp = inspect(db.engine)
+            tables = set(insp.get_table_names())
+            if "leave_balances" not in tables:
+                LeaveBalance.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table leave_balances")
+                return
+
+            dialect = db.engine.dialect.name
+            float_type = "DOUBLE" if dialect == "mysql" else "FLOAT"
+            for col in (
+                "total_privilege_leave",
+                "total_casual_leave",
+                "total_compensatory_leave",
+                "used_privilege_leave",
+                "used_casual_leave",
+                "used_comp_leave",
+            ):
+                existing = {c["name"] for c in insp.get_columns("leave_balances")}
+                if col not in existing:
+                    if dialect == "mysql":
+                        stmt = text(
+                            f"ALTER TABLE leave_balances ADD COLUMN {col} "
+                            f"{float_type} NOT NULL DEFAULT 0"
+                        )
+                    else:
+                        stmt = text(
+                            f'ALTER TABLE leave_balances ADD COLUMN "{col}" '
+                            f"{float_type} NOT NULL DEFAULT 0"
+                        )
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column leave_balances.%s", col)
+                else:
+                    if dialect == "mysql":
+                        stmt = text(
+                            f"ALTER TABLE leave_balances MODIFY {col} "
+                            f"{float_type} NOT NULL DEFAULT 0"
+                        )
+                    else:
+                        stmt = text(
+                            f'ALTER TABLE leave_balances ALTER COLUMN "{col}" '
+                            f"SET DEFAULT 0"
+                        )
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+        except Exception as e:
+            app.logger.warning("leave_balances defaults ensure skipped: %s", e)
+
     with app.app_context():
         _ensure_parcel_name_columns()
         _ensure_it_return_request_table()
         _ensure_ex_employee_doc_tables()
         _ensure_assessment_tables()
+        _ensure_deployed_customers_table()
+        _ensure_leave_balance_defaults()
         _cleanup_zero_qty_inventory_rows()
 
     from .commands.leave_accrual import register_leave_accrual_command

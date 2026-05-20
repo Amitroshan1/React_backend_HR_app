@@ -1,6 +1,6 @@
 import "./ManagerProfileCard.css";
 
-export function ManagerProfileCard({ profile, loading }) {
+export function ManagerProfileCard({ profile, loading, showScope = true }) {
   if (loading) {
     return (
       <div className="manager-profile-card manager-profile-card--loading">
@@ -89,10 +89,12 @@ export function ManagerProfileCard({ profile, loading }) {
             <span className="manager-profile-card__value manager-profile-card__address">{current_address}</span>
           </div>
         )}
-        <div className="manager-profile-card__row manager-profile-card__scope-row">
-          <span className="manager-profile-card__label">Data visible for</span>
-          <span className="manager-profile-card__value manager-profile-card__scope">{scopeText}</span>
-        </div>
+        {showScope && (
+          <div className="manager-profile-card__row manager-profile-card__scope-row">
+            <span className="manager-profile-card__label">Data visible for</span>
+            <span className="manager-profile-card__value manager-profile-card__scope">{scopeText}</span>
+          </div>
+        )}
       </div>
     </div>
   );

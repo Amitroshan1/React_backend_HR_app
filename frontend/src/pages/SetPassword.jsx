@@ -1,7 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { AppFooter } from '../components/layout/AppFooter';
 
 const API = '/api/auth/set-password';
+
+const pageShellStyle = {
+  minHeight: '100vh',
+  display: 'flex',
+  flexDirection: 'column',
+  background: '#f5f7fa',
+};
+
+const pageBodyStyle = {
+  flex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 20,
+};
+
+const cardStyle = {
+  background: '#fff',
+  padding: 32,
+  borderRadius: 12,
+  boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+  maxWidth: 400,
+  width: '100%',
+};
 
 const SetPassword = () => {
   const [searchParams] = useSearchParams();
@@ -76,68 +101,76 @@ const SetPassword = () => {
 
   if (!token) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f7fa', padding: 20 }}>
-        <div style={{ background: '#fff', padding: 32, borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', maxWidth: 400 }}>
-          <h2 style={{ margin: '0 0 12px', color: '#2c3e50' }}>Set password</h2>
-          <p style={{ color: '#e74c3c', margin: 0 }}>Invalid or missing reset link. Please ask HR to send a new password reset link.</p>
-          <a href="/" style={{ display: 'inline-block', marginTop: 16, color: '#3498db' }}>Back to login</a>
+      <div style={pageShellStyle}>
+        <div style={pageBodyStyle}>
+          <div style={cardStyle}>
+            <h2 style={{ margin: '0 0 12px', color: '#2c3e50' }}>Set password</h2>
+            <p style={{ color: '#e74c3c', margin: 0 }}>Invalid or missing reset link. Please ask HR to send a new password reset link.</p>
+            <a href="/" style={{ display: 'inline-block', marginTop: 16, color: '#3498db' }}>Back to login</a>
+          </div>
         </div>
+        <AppFooter />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f7fa', padding: 20 }}>
-      <div style={{ background: '#fff', padding: 32, borderRadius: 12, boxShadow: '0 2px 12px rgba(0,0,0,0.08)', maxWidth: 400, width: '100%' }}>
-        <h2 style={{ margin: '0 0 8px', color: '#2c3e50' }}>Set new password</h2>
-        <p style={{ color: '#7f8c8d', fontSize: 14, margin: '0 0 24px' }}>This link expires in 1 hour.</p>
-        {message && <p style={{ color: '#27ae60', marginBottom: 16 }}>{message}</p>}
-        {error && <p style={{ color: '#e74c3c', marginBottom: 16 }}>{error}</p>}
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, color: '#2c3e50' }}>New password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters, with upper, lower, number, special"
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid #dfe6e9', borderRadius: 8, fontSize: 14 }}
-              autoComplete="new-password"
-            />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, color: '#2c3e50' }}>Confirm password</label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Confirm new password"
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid #dfe6e9', borderRadius: 8, fontSize: 14 }}
-              autoComplete="new-password"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              background: '#3498db',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 8,
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {loading ? 'Updating…' : 'Set password'}
-          </button>
-        </form>
-        <a href="/" style={{ display: 'inline-block', marginTop: 16, color: '#3498db', fontSize: 14 }}>Back to login</a>
+    <div style={pageShellStyle}>
+      <div style={pageBodyStyle}>
+        <div style={cardStyle}>
+          <h2 style={{ margin: '0 0 8px', color: '#2c3e50' }}>Set new password</h2>
+          <p style={{ color: '#7f8c8d', fontSize: 14, margin: '0 0 24px' }}>This link expires in 1 hour.</p>
+          {message && <p style={{ color: '#27ae60', marginBottom: 16 }}>{message}</p>}
+          {error && <p style={{ color: '#e74c3c', marginBottom: 16 }}>{error}</p>}
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, color: '#2c3e50' }}>New password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 8 characters, with upper, lower, number, special"
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid #dfe6e9', borderRadius: 8, fontSize: 14 }}
+                autoComplete="new-password"
+              />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, color: '#2c3e50' }}>Confirm password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm new password"
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid #dfe6e9', borderRadius: 8, fontSize: 14 }}
+                autoComplete="new-password"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                background: '#3498db',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {loading ? 'Updating…' : 'Set password'}
+            </button>
+          </form>
+          <a href="/" style={{ display: 'inline-block', marginTop: 16, color: '#3498db', fontSize: 14 }}>Back to login</a>
+        </div>
       </div>
+      <AppFooter />
     </div>
   );
 };
 
 export default SetPassword;
+
+

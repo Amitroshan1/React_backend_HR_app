@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUser } from '../../components/layout/UserContext';
+import { ManagerProfileCard } from '../Manager/comps/ManagerProfileCard/ManagerProfileCard';
 import './Admin.css';
 
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -9,6 +11,7 @@ const FALLBACK_CIRCLES = ['North', 'South', 'East', 'West'];
 
 const Admin = () => {
   const navigate = useNavigate();
+  const { userData, loadingUser, photoVersion } = useUser();
   const [employeeTypeOptions, setEmployeeTypeOptions] = useState(['All', ...FALLBACK_EMP_TYPES]);
   const [circleOptions, setCircleOptions] = useState(['All', ...FALLBACK_CIRCLES]);
   const [employeeType, setEmployeeType] = useState('All');
@@ -21,10 +24,19 @@ const Admin = () => {
     total_resignations: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [canViewDeploymentGuide, setCanViewDeploymentGuide] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
+      fetch('/api/admin/deployment-guide/access', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data.success) setCanViewDeploymentGuide(Boolean(data.can_view_deployment_guide));
+        });
+
       fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => res.json().catch(() => ({})))
         .then((data) => {
@@ -72,14 +84,58 @@ const Admin = () => {
   const handleClaimsClick = () => navigate('/admin/claims');
   const handleResignationsClick = () => navigate('/admin/resignations');
 
+  const adminProfile = useMemo(() => {
+    const user = userData?.user || {};
+    const employee = userData?.employee || {};
+    let photoUrl = user.photo_url || null;
+    if (photoUrl && photoVersion) {
+      const sep = photoUrl.includes('?') ? '&' : '?';
+      photoUrl = `${photoUrl}${sep}v=${photoVersion}`;
+    }
+    return {
+      name: user.name || user.first_name || user.user_name || 'Admin',
+      email: user.email || '',
+      mobile: user.mobile || employee.mobile || '',
+      designation: user.department || user.emp_type || employee.designation || 'Admin',
+      photo_url: photoUrl,
+    };
+  }, [userData, photoVersion]);
+
   return (
     <div className="admin-container">
-      {/* Filters Section */}
+      <div className="admin-top-row">
+        <div className="admin-top-row__profile">
+          <ManagerProfileCard
+            profile={adminProfile}
+            loading={loadingUser}
+            showScope={false}
+          />
+        </div>
+        {canViewDeploymentGuide && (
+          <div className="admin-top-row__deploy">
+            <button
+              type="button"
+              className="admin-deploy-card"
+              onClick={() => navigate('/admin/customers')}
+            >
+              <span className="admin-deploy-card__icon" aria-hidden>
+                🚀
+              </span>
+              <span className="admin-deploy-card__body">
+                <strong>New customer deployment</strong>
+                <span>Separate server &amp; database per company</span>
+                <span className="admin-deploy-card__cta">Manage customers →</span>
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="filters-section">
         <div className="filter-group">
           <label>Employee Type:</label>
-          <select 
-            value={employeeType} 
+          <select
+            value={employeeType}
             onChange={(e) => setEmployeeType(e.target.value)}
             className="filter-selectt"
           >
@@ -91,8 +147,8 @@ const Admin = () => {
 
         <div className="filter-group">
           <label>Circle:</label>
-          <select 
-            value={circle} 
+          <select
+            value={circle}
             onChange={(e) => setCircle(e.target.value)}
             className="filter-selectt"
           >
@@ -103,7 +159,6 @@ const Admin = () => {
         </div>
       </div>
 
-      {/* Statistics Cards */}
       <div className="cards-grid">
         <div className="stat-card employees-card" onClick={handleEmployeesClick}>
           <div className="card-icon">👥</div>

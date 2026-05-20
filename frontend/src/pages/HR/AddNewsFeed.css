@@ -257,6 +257,33 @@
   background: #fee2e2;
 }
 
+.newsfeed-send-email-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.newsfeed-send-email-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--nf-text-dark);
+  cursor: pointer;
+}
+
+.newsfeed-send-email-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.newsfeed-send-email-hint {
+  font-size: 0.85rem;
+  color: var(--nf-text-muted);
+  line-height: 1.4;
+}
+
 @media (max-width: 768px) {
   .newsfeed-page-container { padding: 16px 16px 24px; }
   .announcement-card { padding: 20px; }

@@ -9,75 +9,177 @@ from .manager_utils import get_manager_emails
 from flask import current_app, url_for
 from .models.expense import ExpenseLineItem
 import html
+import base64
+import mimetypes
+import os
 import requests
+from sqlalchemy import func
 from . import db
 
 
 
-def send_email_via_zeptomail(sender_email,
+ZEPTO_MAX_CC_PER_MESSAGE = 48
+
+
+def _zeptomail_post_payload(payload):
+    url = current_app.config.get(
+        "ZEPTO_BASE_URL",
+        "https://api.zeptomail.in/v1.1/email",
+    )
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "authorization": current_app.config["ZEPTO_API_KEY"],
+    }
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    if response.status_code in (200, 201):
+        return True, "Email sent successfully"
+    return False, f"ZeptoMail error: {response.text}"
+
+
+def _zeptomail_attachment_from_path(abs_path):
+    if not abs_path or not os.path.isfile(abs_path):
+        return None
+    mime, _enc = mimetypes.guess_type(abs_path)
+    if not mime:
+        mime = "application/octet-stream"
+    name = os.path.basename(abs_path)
+    with open(abs_path, "rb") as f:
+        content_b64 = base64.b64encode(f.read()).decode("ascii")
+    return {"name": name, "content": content_b64, "mime_type": mime}
+
+
+def send_email_via_zeptomail(
+    sender_email,
     subject,
     body,
     recipient_email,
-    cc_emails=None
+    cc_emails=None,
+    attachments=None,
+    from_name=None,
 ):
     """
     Sends email using Zoho ZeptoMail API
     Returns: (success: bool, message: str)
     """
-    
     try:
-        url = current_app.config.get(
-            "ZEPTO_BASE_URL",
-            "https://api.zeptomail.in/v1.1/email"
-        )
-
-        headers = {
-            "accept": "application/json",
-            "content-type": "application/json",
-            "authorization": current_app.config["ZEPTO_API_KEY"]
-        }
-
+        display_name = (from_name or subject or "Notification").strip()
         payload = {
             "from": {
                 "address": sender_email,
-                "name": subject
+                "name": display_name,
             },
             "to": [
                 {
                     "email_address": {
-                        "address": recipient_email
+                        "address": recipient_email,
                     }
                 }
             ],
             "subject": subject,
-            "htmlbody": body
+            "htmlbody": body,
         }
 
         if cc_emails:
             payload["cc"] = [
-                {
-                    "email_address": {
-                        "address": email
-                    }
-                }
+                {"email_address": {"address": email}}
                 for email in cc_emails
+                if email
             ]
 
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=10
-        )
+        if attachments:
+            payload["attachments"] = attachments
 
-        if response.status_code in (200, 201):
-            return True, "Email sent successfully"
-
-        return False, f"ZeptoMail error: {response.text}"
+        return _zeptomail_post_payload(payload)
 
     except Exception as e:
         current_app.logger.error(f"ZeptoMail send failed: {e}")
         return False, "Unexpected error while sending email"
+
+
+def news_feed_employee_emails(circle, emp_type):
+    """Active employees with email, filtered like dashboard news feed visibility."""
+    q = Admin.query.filter(
+        Admin.is_active.is_(True),
+        db.or_(Admin.is_exited.is_(False), Admin.is_exited.is_(None)),
+        Admin.email.isnot(None),
+        Admin.email != "",
+    )
+    circle_val = (circle or "").strip()
+    if circle_val and circle_val.lower() != "all":
+        q = q.filter(func.lower(func.coalesce(Admin.circle, "")) == circle_val.lower())
+    emp_val = (emp_type or "").strip()
+    if emp_val and emp_val.lower() not in ("all", "all employees"):
+        q = q.filter(Admin.emp_type == emp_val)
+    emails = []
+    seen = set()
+    for row in q.all():
+        addr = (row.email or "").strip().lower()
+        if not addr or addr in seen:
+            continue
+        seen.add(addr)
+        emails.append(addr)
+    return sorted(emails)
+
+
+def send_news_feed_announcement_email(title, content, circle, emp_type, attachment_abs_path=None):
+    """
+    Announcement email: From ZEPTO_SENDER_EMAIL, To ZEPTO_CC_HR, CC filtered employees (+ HR in CC on first batch).
+    Returns (success, message, recipient_count).
+    """
+    zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    hr_email = (current_app.config.get("ZEPTO_CC_HR") or "").strip().lower()
+    if not zepto_from:
+        return False, "ZEPTO_SENDER_EMAIL not configured", 0
+    if not hr_email:
+        return False, "ZEPTO_CC_HR not configured", 0
+
+    employee_emails = news_feed_employee_emails(circle, emp_type)
+    employee_emails = [e for e in employee_emails if e and e != hr_email]
+    if not employee_emails:
+        return False, "No employee email addresses found for the selected filters", 0
+
+    subject = (title or "Announcement").strip()
+    safe_content = html.escape((content or "").strip()).replace("\n", "<br>")
+    sender_name = (current_app.config.get("ZEPTO_SENDER_NAME") or "HR Team").strip()
+    body = f"""
+    <p>Dear Team,</p>
+    <div>{safe_content}</div>
+    <br>
+    <p>
+        Regards,<br>
+        <strong>HR Team</strong><br>
+        {html.escape(sender_name)}
+    </p>
+    """
+
+    attachment = _zeptomail_attachment_from_path(attachment_abs_path)
+    attachments = [attachment] if attachment else None
+
+    cc_all = list(dict.fromkeys(employee_emails))
+    total_recipients = 1 + len(cc_all)
+
+    chunks = [
+        cc_all[i : i + ZEPTO_MAX_CC_PER_MESSAGE]
+        for i in range(0, len(cc_all), ZEPTO_MAX_CC_PER_MESSAGE)
+    ]
+    if not chunks:
+        chunks = [[]]
+
+    for idx, cc_chunk in enumerate(chunks):
+        ok, msg = send_email_via_zeptomail(
+            sender_email=zepto_from,
+            subject=subject,
+            body=body,
+            recipient_email=hr_email,
+            cc_emails=cc_chunk,
+            attachments=attachments if idx == 0 else None,
+            from_name=sender_name,
+        )
+        if not ok:
+            return False, msg, 0
+
+    return True, "Email sent successfully", total_recipients
 
 
 def send_it_assignment_notification(

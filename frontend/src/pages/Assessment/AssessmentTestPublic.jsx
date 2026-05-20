@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./AssessmentTestPublic.css";
+import { AppFooter } from "../../components/layout/AppFooter";
 
 const API_BASE = "/api/HumanResource/assessment/public";
 
@@ -468,11 +469,12 @@ export default function AssessmentTestPublic() {
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }, [remainingSec]);
 
-  if (stage === "loading") return <div className="assessment-shell"><div className="assessment-card"><p>Loading assessment...</p></div></div>;
-  if (stage === "blocked") return <div className="assessment-shell"><div className="assessment-card"><h2>Unable to continue</h2><p>{error || "Access blocked."}</p></div></div>;
+  if (stage === "loading") return (<><div className="assessment-shell"><div className="assessment-card"><p>Loading assessment...</p></div></div><AppFooter /></>);
+  if (stage === "blocked") return (<><div className="assessment-shell"><div className="assessment-card"><h2>Unable to continue</h2><p>{error || "Access blocked."}</p></div></div><AppFooter /></>);
   if (stage === "submitted") {
     const disq = submitOutcome === "disqualified";
     return (
+      <>
       <div className="assessment-shell">
         <div className="assessment-card">
           <h2>{disq ? "Attempt disqualified" : "Test submitted successfully"}</h2>
@@ -488,11 +490,14 @@ export default function AssessmentTestPublic() {
           ) : null}
         </div>
       </div>
+      <AppFooter />
+      </>
     );
   }
 
   if (stage === "instructions") {
     return (
+      <>
       <div className="assessment-shell">
         <div className="assessment-card">
         <h2>Assessment Instructions</h2>
@@ -514,11 +519,14 @@ export default function AssessmentTestPublic() {
         <button className="assessment-btn assessment-btn-primary" onClick={() => setStage("permissions")}>Proceed</button>
         </div>
       </div>
+      <AppFooter />
+      </>
     );
   }
 
   if (stage === "permissions") {
     return (
+      <>
       <div className="assessment-shell">
         <div className="assessment-card">
         <h2>Permissions & Photo Capture</h2>
@@ -536,10 +544,13 @@ export default function AssessmentTestPublic() {
         {error ? <div className="assessment-error">{error}</div> : null}
         </div>
       </div>
+      <AppFooter />
+      </>
     );
   }
 
   return (
+    <>
     <div className="assessment-shell">
       {tabSwitchWarnOpen ? (
         <div className="assessment-modal-backdrop" role="presentation">
@@ -635,6 +646,8 @@ export default function AssessmentTestPublic() {
         {submitting ? "Submitting..." : "Submit Test"}
       </button>
       </div>
+      <AppFooter />
     </div>
+    </>
   );
 }

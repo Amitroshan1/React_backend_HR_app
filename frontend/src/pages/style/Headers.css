@@ -404,8 +404,8 @@
 }
 
 /* Responsive: same breakpoints as global design system */
-/* Content area: fixed below header so scrollbar starts after header */
-.main-layout .content-area {
+/* Scrollable page content; footer sits at end of scroll (inside content-area) */
+.app-layout > .content-area {
     position: fixed;
     top: var(--header-height);
     left: 0;
@@ -414,6 +414,8 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding-top: 12px;
+    padding-bottom: 24px;
+    box-sizing: border-box;
 }
 
 @media (max-width: 768px) {

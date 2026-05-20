@@ -1,0 +1,209 @@
+.deploy-guide-page {
+  padding: 20px 40px;
+  max-width: 960px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: #f5f7fa;
+}
+
+.deploy-guide-header {
+  margin-bottom: 24px;
+}
+
+.deploy-guide-header h1 {
+  font-size: 26px;
+  color: #1e293b;
+  margin: 12px 0 8px;
+}
+
+.deploy-guide-sub {
+  color: #64748b;
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+
+.deploy-guide-back {
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+}
+
+.deploy-guide-back:hover {
+  text-decoration: underline;
+}
+
+.deploy-guide-progress-bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.deploy-guide-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2563eb, #0d9488);
+  transition: width 0.3s ease;
+}
+
+.deploy-guide-progress-text {
+  font-size: 13px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.deploy-guide-reset {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.deploy-guide-customer-card,
+.deploy-guide-section,
+.deploy-guide-env-card,
+.deploy-guide-plans-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.deploy-guide-customer-card h2,
+.deploy-guide-env-card h2,
+.deploy-guide-plans-card h2 {
+  font-size: 16px;
+  margin: 0 0 16px;
+  color: #334155;
+}
+
+.deploy-guide-customer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 640px) {
+  .deploy-guide-customer-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.deploy-guide-customer-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+}
+
+.deploy-guide-customer-grid input,
+.deploy-guide-customer-grid select {
+  padding: 8px 10px;
+  border: 1.5px solid #dfe6ee;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.deploy-guide-customer-summary {
+  margin: 16px 0 0;
+  font-size: 14px;
+  color: #334155;
+}
+
+.deploy-guide-section h3 {
+  font-size: 15px;
+  margin: 0 0 12px;
+  color: #1e293b;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.deploy-guide-section-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.deploy-guide-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.deploy-guide-checklist li {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.deploy-guide-checklist li.done span {
+  text-decoration: line-through;
+  color: #94a3b8;
+}
+
+.deploy-guide-checklist label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  cursor: pointer;
+  font-size: 14px;
+  color: #334155;
+}
+
+.deploy-guide-checklist input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.deploy-guide-env-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.deploy-guide-env-table th,
+.deploy-guide-env-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.deploy-guide-env-table code {
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.deploy-guide-plans-card ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.deploy-guide-footer {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 8px;
+}
+
+.deploy-guide-muted,
+.deploy-guide-error {
+  padding: 40px;
+  text-align: center;
+}
+
+.deploy-guide-error {
+  color: #dc2626;
+}

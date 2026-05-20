@@ -57,6 +57,7 @@ img {
   --header-height: 80px;
   --content-max-width: 1400px;
   --spacing-page: 24px;
+  --app-footer-height: 48px;
   --breakpoint-sm: 576px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 992px;

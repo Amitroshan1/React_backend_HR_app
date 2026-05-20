@@ -46,6 +46,8 @@ from reportlab.pdfgen import canvas
 Accounts = Blueprint('Accounts', __name__)
 
 
+
+
 def accounts_department_required(fn):
     """Accounts-only (not HR-only) for Accounts department NOC queue."""
 

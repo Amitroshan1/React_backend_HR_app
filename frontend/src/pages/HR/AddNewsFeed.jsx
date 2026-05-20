@@ -19,9 +19,10 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   });
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState('No file chosen');
+  const [sendEmail, setSendEmail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -125,7 +126,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setSuccess(false);
+    setSuccessMessage('');
     if (!form.title?.trim() || !form.content?.trim()) {
       setError('Title and content are required.');
       return;
@@ -142,6 +143,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
       body.append('content', form.content.trim());
       body.append('circle', form.circle);
       body.append('emp_type', form.emp_type === 'All Employees' ? 'All' : form.emp_type);
+      body.append('send_email', sendEmail ? 'true' : 'false');
       if (file) body.append('file', file);
 
       const res = await fetch(`${API_BASE}/news-feed`, {
@@ -151,8 +153,9 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
-        setSuccess(true);
+        setSuccessMessage(data.message || 'News feed posted successfully.');
         setForm({ circle: form.circle, emp_type: form.emp_type, title: '', content: '' });
+        setSendEmail(false);
         setFile(null);
         setFileName('No file chosen');
         const fileInput = document.getElementById('news-file');
@@ -177,9 +180,9 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
 
         <div className="announcement-card">
           <form className="newsfeed-form" onSubmit={handleSubmit}>
-            {success && (
+            {successMessage && (
               <div className="newsfeed-success" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
-                News feed posted successfully.
+                {successMessage}
               </div>
             )}
             {error && (
@@ -241,6 +244,20 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
                   onChange={handleFileChange}
                 />
               </div>
+            </div>
+
+            <div className="form-item newsfeed-send-email-row">
+              <label className="newsfeed-send-email-label">
+                <input
+                  type="checkbox"
+                  checked={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.checked)}
+                />
+                Send email
+              </label>
+              <span className="newsfeed-send-email-hint">
+                When enabled, employees matching Circle and Employee Type receive this announcement by email.
+              </span>
             </div>
 
             <div className="form-submit">

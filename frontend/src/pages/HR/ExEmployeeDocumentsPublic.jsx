@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { FileText, Download, Clock } from 'lucide-react';
 import './ExEmployeeDocumentsPublic.css';
+import { AppFooter } from '../../components/layout/AppFooter';
 
 const API_BASE = '/api/HumanResource';
 
@@ -113,6 +114,7 @@ export function ExEmployeeDocumentsPublic() {
           </ul>
         )}
       </div>
+      <AppFooter />
     </div>
   );
 }
