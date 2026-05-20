@@ -4310,8 +4310,12 @@ def update_employee_api(email_path):
         }), 404
 
     data = request.get_json() or {}
+    if not data:
+        return jsonify({
+            "success": False,
+            "message": "No fields to update"
+        }), 400
 
-    proposed_emp_type = None
     if "emp_type" in data:
         proposed_emp_type = str(data.get("emp_type") or "").strip()
         if not proposed_emp_type or not _is_allowed_master_value(MASTER_TYPE_DEPARTMENT, proposed_emp_type):
@@ -4319,8 +4323,8 @@ def update_employee_api(email_path):
                 "success": False,
                 "message": "Invalid employee type. Please select a configured department."
             }), 400
+        admin.emp_type = proposed_emp_type[:50]
 
-    proposed_circle = None
     if "circle" in data:
         proposed_circle = str(data.get("circle") or "").strip()
         if not proposed_circle or not _is_allowed_master_value(MASTER_TYPE_CIRCLE, proposed_circle):
@@ -4328,20 +4332,41 @@ def update_employee_api(email_path):
                 "success": False,
                 "message": "Invalid circle. Please select a configured circle."
             }), 400
+        admin.circle = proposed_circle[:50]
 
-    admin.user_name = str(data.get("user_name", admin.user_name) or "").strip() or admin.user_name
-    admin.first_name = str(data.get("first_name", admin.first_name) or "").strip() or admin.first_name
-    admin.emp_id = str(data.get("emp_id", admin.emp_id) or "").strip() or admin.emp_id
-    admin.mobile = str(data.get("mobile", admin.mobile) or "").strip() or admin.mobile
+    if "user_name" in data:
+        val = str(data.get("user_name") or "").strip()
+        if val:
+            admin.user_name = val[:120]
 
-    if proposed_circle is not None:
-        admin.circle = proposed_circle
+    if "first_name" in data:
+        val = str(data.get("first_name") or "").strip()
+        if val:
+            admin.first_name = val[:150]
 
-    if proposed_emp_type is not None:
-        admin.emp_type = proposed_emp_type
+    if "emp_id" in data:
+        val = str(data.get("emp_id") or "").strip()
+        if val:
+            admin.emp_id = val[:10]
 
-    if "doj" in data:
-        admin.doj = datetime.fromisoformat(data["doj"]).date()
+    if "mobile" in data:
+        val = str(data.get("mobile") or "").strip().replace(" ", "")[:15]
+        if val:
+            if len(val) != 10 or not val.isdigit():
+                return jsonify({
+                    "success": False,
+                    "message": "Mobile number must be exactly 10 digits."
+                }), 400
+            admin.mobile = val
+
+    if "doj" in data and data.get("doj"):
+        try:
+            admin.doj = datetime.fromisoformat(str(data["doj"]).strip()[:10]).date()
+        except (ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "message": "Invalid DOJ format (YYYY-MM-DD)"
+            }), 400
 
     if data.get("password"):
         admin.set_password(data["password"])

@@ -1090,6 +1090,8 @@ export const Hr = () => {
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [signupEditEmail, setSignupEditEmail] = useState(null); // when set, signup form is in "update" mode
+  /** Snapshot when opening edit — used to send only changed fields on update. */
+  const [signupEditOriginal, setSignupEditOriginal] = useState(null);
   /** Last Update SignUp search (filters + rows) so returning from edit keeps results without re-searching. */
   const [updateSignupSearchSnapshot, setUpdateSignupSearchSnapshot] = useState(null);
 
@@ -1099,7 +1101,7 @@ export const Hr = () => {
   const [resetPasswordError, setResetPasswordError] = useState('');
 
   const openSignupForEdit = (employeeData) => {
-    setSignupForm({
+    const snapshot = {
       user_name: employeeData.user_name || '',
       first_name: employeeData.first_name || '',
       email: employeeData.email || '',
@@ -1108,6 +1110,10 @@ export const Hr = () => {
       doj: (employeeData.doj || '').slice(0, 10),
       emp_type: employeeData.emp_type || '',
       circle: employeeData.circle || '',
+    };
+    setSignupEditOriginal(snapshot);
+    setSignupForm({
+      ...snapshot,
       password: '',
       confirmPassword: ''
     });
@@ -1115,6 +1121,28 @@ export const Hr = () => {
     setSignupSuccess(false);
     setSignupError('');
     setView('signup');
+  };
+
+  const buildEmployeeUpdatePayload = (form, original) => {
+    const norm = (v) => (v ?? '').toString().trim();
+    const normDoj = (v) => norm(v).slice(0, 10);
+    const payload = {};
+    const fields = [
+      ['user_name', norm(form.user_name)],
+      ['first_name', norm(form.first_name)],
+      ['emp_id', norm(form.emp_id)],
+      ['mobile', norm(form.mobile).replace(/\s/g, '')],
+      ['doj', normDoj(form.doj)],
+      ['emp_type', norm(form.emp_type)],
+      ['circle', norm(form.circle)],
+    ];
+    for (const [key, value] of fields) {
+      const prev = key === 'doj' ? normDoj(original[key]) : norm(original[key]);
+      if (value && value !== prev) {
+        payload[key] = value;
+      }
+    }
+    return payload;
   };
 
   const handleSignupChange = (e) => {
@@ -1132,14 +1160,25 @@ export const Hr = () => {
     e.preventDefault();
     setSignupError('');
     const { user_name, first_name, email, emp_id, mobile, doj, emp_type, circle, password, confirmPassword } = signupForm;
-    if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle) {
-      setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Employee Type, Circle).');
-      return;
+    const isUpdate = !!signupEditEmail;
+
+    if (!isUpdate) {
+      if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle) {
+        setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Employee Type, Circle).');
+        return;
+      }
+      if (mobile.length !== 10) {
+        setSignupError('Mobile number must be exactly 10 digits.');
+        return;
+      }
+    } else {
+      const mobileTrim = (mobile || '').trim().replace(/\s/g, '');
+      if (mobileTrim && mobileTrim.length !== 10) {
+        setSignupError('Mobile number must be exactly 10 digits.');
+        return;
+      }
     }
-    if (mobile.length !== 10) {
-      setSignupError('Mobile number must be exactly 10 digits.');
-      return;
-    }
+
     if (password && password !== confirmPassword) {
       setSignupError('Password and Confirm Password do not match.');
       return;
@@ -1152,22 +1191,24 @@ export const Hr = () => {
     setSignupSubmitting(true);
     try {
       if (signupEditEmail) {
-        // Update existing employee
+        const updateBody = signupEditOriginal
+          ? buildEmployeeUpdatePayload(signupForm, signupEditOriginal)
+          : {};
+        if (password?.trim()) {
+          updateBody.password = password.trim();
+        }
+        if (Object.keys(updateBody).length === 0) {
+          setSignupError('No changes to save. Edit a field or set a new password.');
+          setSignupSubmitting(false);
+          return;
+        }
+        // Update existing employee (partial — only changed fields)
         const res = await fetch(
           `${HR_API_BASE}/employee/by-email/${encodeURIComponent(signupEditEmail)}`,
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              user_name: user_name.trim(),
-              first_name: first_name.trim(),
-              emp_id: emp_id.trim(),
-              mobile: mobile.trim().replace(/\s/g, ''),
-              doj,
-              emp_type,
-              circle,
-              ...(password?.trim() ? { password: password.trim() } : {})
-            })
+            body: JSON.stringify(updateBody)
           }
         );
         const data = await res.json().catch(() => ({}));
@@ -1776,6 +1817,7 @@ if (view === 'noc_requests') {
             onClick={() => {
               const backToUpdateSignUpSearch = !!signupEditEmail;
               setSignupEditEmail(null);
+              setSignupEditOriginal(null);
               setSignupError("");
               setView(backToUpdateSignUpSearch ? "update_signup" : "updates");
             }}
@@ -1786,7 +1828,7 @@ if (view === 'noc_requests') {
           <div className="signup-card">
             <div className="card-header">
               <h2>{isEditMode ? 'Update Employee Details' : 'Create New Employee Account'}</h2>
-              <p>{isEditMode ? 'Modify details and save to update the employee record.' : 'Fill in the details to register a new employee'}</p>
+              <p>{isEditMode ? 'Change only the fields you need; other details stay as they are.' : 'Fill in the details to register a new employee'}</p>
             </div>
             {signupSuccess && (
               <div className="signup-success-msg" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
@@ -1801,40 +1843,40 @@ if (view === 'noc_requests') {
             <form className="signup-form" onSubmit={handleSignupSubmit}>
               <div className="form-row">
                 <div className="form-group">
-                  <label>UserName <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>UserName {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <input name="user_name" type="text" placeholder="Create Unique UserName" value={signupForm.user_name} onChange={handleSignupChange} />
                 </div>
                 <div className="form-group">
-                  <label>Full Name <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>Full Name {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <input name="first_name" type="text" placeholder="Enter your Full Name" value={signupForm.first_name} onChange={handleSignupChange} />
                 </div>
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Email <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>Email {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <input name="email" type="email" placeholder="Enter your Email ID" value={signupForm.email} onChange={handleSignupChange} readOnly={isEditMode} disabled={isEditMode} style={isEditMode ? { opacity: 0.9, cursor: 'not-allowed' } : {}} />
                 </div>
                 <div className="form-group">
-                  <label>Employee ID <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>Employee ID {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <input name="emp_id" type="text" placeholder="Enter your Employee ID" value={signupForm.emp_id} onChange={handleSignupChange} />
                 </div>
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Mobile Number <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>Mobile Number {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <input name="mobile" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={10} placeholder="Enter 10-digit Mobile Number" value={signupForm.mobile} onChange={handleSignupChange} />
                 </div>
                 <div className="form-group">
-                  <label>Date of Joining <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>Date of Joining {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <input name="doj" type="date" value={signupForm.doj} onChange={handleSignupChange} />
                 </div>
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Employee Type <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>Employee Type {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <select name="emp_type" value={signupForm.emp_type} onChange={handleSignupChange}>
                     <option value="">Select Employee Type</option>
                     {masterOptions.departments.map((item) => (
@@ -1843,7 +1885,7 @@ if (view === 'noc_requests') {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Circle <span style={{ color: '#b91c1c' }}>*</span></label>
+                  <label>Circle {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <select name="circle" value={signupForm.circle} onChange={handleSignupChange}>
                     <option value="">Choose Your Circle</option>
                     {masterOptions.circles.map((item) => (
