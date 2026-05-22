@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Play, ShieldAlert, Trash2 } from "lucide-react";
+import { getAssessmentFigureSrc } from "../../utils/assessmentFigures";
+import "./HRAssessmentInvite.css";
+import "./LeaveApplicationUpdation.css";
 
 const HR_API_BASE = "/api/HumanResource";
-const ASSESSMENT_FIGURE_API = `${HR_API_BASE}/assessment/public`;
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
@@ -76,19 +78,8 @@ function IntegrityListBadges({ summary }) {
   return <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{out}</span>;
 }
 
-function assessmentFigureSrc(imageUrl) {
-  const url = String(imageUrl || "").trim();
-  if (!url) return "";
-  if (url.startsWith("/api/")) return url;
-  const name = url.split("/").filter(Boolean).pop();
-  if (name && /^q\d{2}\.svg$/i.test(name)) {
-    return `${ASSESSMENT_FIGURE_API}/figures/${name}`;
-  }
-  return url;
-}
-
 function AssessmentReviewFigure({ q }) {
-  const src = assessmentFigureSrc(q?.image_url);
+  const src = getAssessmentFigureSrc(q?.number, q?.image_url);
   if (!src) return null;
   return (
     <div
@@ -881,59 +872,68 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   }
 
   return (
-    <div className="hr-main-container" style={{ maxWidth: 1200, margin: "0 auto" }}>
+    <div className="hr-main-container assessment-invite-page">
       <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Updates</button>
-      <h2 style={{ marginTop: 8 }}>Assessment Invite</h2>
-      <p style={{ color: "#64748b" }}>Send 15-minute test links and evaluate submissions.</p>
+      <header className="assessment-invite-header">
+        <h2>Assessment Invite</h2>
+        <p>Send 15-minute test links and evaluate submissions.</p>
+      </header>
 
-      <form onSubmit={handleSend} style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(160px, 1fr))", gap: 10, background: "#fff", padding: 12, borderRadius: 10, border: "1px solid #e5e7eb" }}>
-        <input
-          placeholder="Candidate Name"
-          value={form.full_name}
-          onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
-          required
-        />
-        <select
-          value={form.department}
-          onChange={(e) => setForm((p) => ({ ...p, department: e.target.value }))}
-          required
-        >
-          <option value="">Select Department</option>
-          {empTypeOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <input
-          type="email"
-          placeholder="Candidate Email"
-          value={form.email}
-          onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-          required
-        />
-        <button className="btn-create-account" disabled={submitting}>{submitting ? "Sending..." : "Send Link"}</button>
+      <form className="assessment-invite-form" onSubmit={handleSend}>
+        <div className="assessment-invite-field">
+          <label htmlFor="assessment-candidate-name">Candidate name</label>
+          <input
+            id="assessment-candidate-name"
+            className="assessment-invite-input"
+            placeholder="e.g. Priya Sharma"
+            value={form.full_name}
+            onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
+            required
+          />
+        </div>
+        <div className="assessment-invite-field">
+          <label htmlFor="assessment-department">Department</label>
+          <select
+            id="assessment-department"
+            className="assessment-invite-select"
+            value={form.department}
+            onChange={(e) => setForm((p) => ({ ...p, department: e.target.value }))}
+            required
+          >
+            <option value="">Select department</option>
+            {empTypeOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div className="assessment-invite-field">
+          <label htmlFor="assessment-candidate-email">Candidate email</label>
+          <input
+            id="assessment-candidate-email"
+            type="email"
+            className="assessment-invite-input"
+            placeholder="name@example.com"
+            value={form.email}
+            onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+            required
+          />
+        </div>
+        <button type="submit" className="assessment-invite-submit" disabled={submitting}>
+          {submitting ? "Sending…" : "Send link"}
+        </button>
       </form>
 
-      {message && (
+      {message ? (
         <div
-          className={messageType === "warning" ? "" : "lau-success"}
-          style={
-            messageType === "warning"
-              ? {
-                  marginTop: 10,
-                  background: "#fffbeb",
-                  color: "#92400e",
-                  border: "1px solid #fcd34d",
-                  borderRadius: 8,
-                  padding: "10px 12px",
-                }
-              : { marginTop: 10 }
-          }
+          className={`assessment-invite-alert ${
+            messageType === "warning" ? "assessment-invite-alert--warning" : "assessment-invite-alert--success"
+          }`}
         >
           {message}
         </div>
-      )}
-      {error && <div className="lau-error" style={{ marginTop: 10 }}>{error}</div>}
+      ) : null}
+      {error ? <div className="assessment-invite-alert assessment-invite-alert--error">{error}</div> : null}
 
-      <div style={{ marginTop: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, overflow: "auto" }}>
-        <table className="results-table" style={{ width: "100%" }}>
+      <div className="assessment-invite-table-wrap">
+        <table className="assessment-invite-table">
           <thead>
             <tr>
               <th>Name</th>
@@ -972,10 +972,9 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 <td>
                   <button
                     type="button"
-                    className="lau-edit-btn"
+                    className="lau-edit-btn assessment-invite-delete-btn"
                     onClick={() => handleDeleteInvite(r)}
                     title="Delete invite"
-                    style={{ color: "#b91c1c", borderColor: "#fecaca", background: "#fff1f2" }}
                   >
                     <Trash2 size={14} /> Delete
                   </button>
@@ -983,7 +982,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={10} style={{ textAlign: "center", padding: 16 }}>No invites found.</td></tr>
+              <tr><td colSpan={10} className="assessment-invite-table-empty">No invites found.</td></tr>
             )}
           </tbody>
         </table>

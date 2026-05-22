@@ -3086,9 +3086,12 @@ ASSESSMENT_RECORDING_HR_RETENTION_DAYS = 3
 
 
 def _assessment_uploads_root():
-    uploads_root = current_app.config.get("UPLOAD_FOLDER")
-    if not uploads_root:
-        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    custom = (current_app.config.get("UPLOADS_ROOT") or "").strip()
+    if custom:
+        uploads_root = os.path.abspath(custom)
+    else:
+        uploads_root = os.path.abspath(os.path.join(current_app.root_path, "static", "uploads"))
+    os.makedirs(uploads_root, exist_ok=True)
     return uploads_root
 
 
@@ -3153,20 +3156,31 @@ def purge_expired_assessment_recordings():
 
 def _assessment_save_recording_file(invite_id, file_storage):
     """Persist candidate session recording; returns relative path under uploads root."""
-    if not file_storage or not getattr(file_storage, "filename", None):
+    if not file_storage:
         return None, "No recording file provided."
-    uploads_root = current_app.config.get("UPLOAD_FOLDER")
-    if not uploads_root:
-        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+    try:
+        uploads_root = _assessment_uploads_root()
+    except OSError as e:
+        current_app.logger.exception("assessment recording: uploads root unavailable")
+        return None, f"Server cannot store recordings: {e}"
     target_dir = os.path.join(uploads_root, "assessment_recordings")
-    os.makedirs(target_dir, exist_ok=True)
-    safe_base = secure_filename(file_storage.filename) or "recording.webm"
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError as e:
+        current_app.logger.exception("assessment recording: cannot create directory")
+        return None, f"Server cannot store recordings: {e}"
+    raw_name = getattr(file_storage, "filename", None) or "session.webm"
+    safe_base = secure_filename(raw_name) or "recording.webm"
     lower = safe_base.lower()
     if not lower.endswith((".webm", ".mp4", ".mkv")):
         safe_base = f"{safe_base}.webm"
     filename = f"assessment_{invite_id}_{uuid.uuid4().hex}_{safe_base}"
     abs_path = os.path.join(target_dir, filename)
-    file_storage.save(abs_path)
+    try:
+        file_storage.save(abs_path)
+    except OSError as e:
+        current_app.logger.exception("assessment recording save failed invite=%s", invite_id)
+        return None, f"Could not save recording on server: {e}"
     try:
         sz = os.path.getsize(abs_path)
     except OSError:
@@ -3177,7 +3191,7 @@ def _assessment_save_recording_file(invite_id, file_storage):
         except OSError:
             pass
         return None, "Recording file is too large."
-    if sz < 256:
+    if sz < 32:
         try:
             os.remove(abs_path)
         except OSError:
@@ -3828,12 +3842,19 @@ def assessment_public_upload_recording():
         return jsonify({"success": False, "message": "Recording file is too large"}), 413
 
     file = request.files.get("file")
+    if not file:
+        return jsonify({"success": False, "message": "Recording file is required"}), 400
     rel, err = _assessment_save_recording_file(invite.id, file)
     if err:
         return jsonify({"success": False, "message": err}), 400
     invite.recording_path = rel
     invite.recording_first_viewed_at = None
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("assessment recording db commit failed invite=%s", invite.id)
+        return jsonify({"success": False, "message": f"Could not save recording: {e}"}), 500
     return jsonify({"success": True, "message": "Recording saved"}), 200
 
 

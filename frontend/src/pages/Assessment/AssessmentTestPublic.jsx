@@ -2,22 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./AssessmentTestPublic.css";
 import { AppFooter } from "../../components/layout/AppFooter";
+import { getAssessmentFigureSrc } from "../../utils/assessmentFigures";
 
 const API_BASE = "/api/HumanResource/assessment/public";
 
-function assessmentFigureSrc(q) {
-  const url = String(q?.image_url || "").trim();
-  if (!url) return "";
-  if (url.startsWith("/api/")) return url;
-  const name = url.split("/").filter(Boolean).pop();
-  if (name && /^q\d{2}\.svg$/i.test(name)) {
-    return `${API_BASE}/figures/${name}`;
-  }
-  return url;
-}
-
 function AssessmentFigure({ q }) {
-  const src = assessmentFigureSrc(q);
+  const src = getAssessmentFigureSrc(q?.number, q?.image_url);
   if (!src) return null;
   return (
     <div className="assessment-figure-wrap">
@@ -148,22 +138,28 @@ export default function AssessmentTestPublic() {
       const buildBlob = () => {
         const mime = (mr.mimeType && mr.mimeType.split(";")[0].trim()) || mimeType || "video/webm";
         const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
-        return blob && blob.size > 512 ? blob : null;
+        return blob && blob.size > 64 ? blob : null;
       };
+      const finish = () => resolve(buildBlob());
       if (mr.state === "inactive") {
-        resolve(buildBlob());
+        finish();
         return;
       }
+      const timeout = setTimeout(finish, 5000);
       try {
         if (typeof mr.requestData === "function") mr.requestData();
       } catch {
         /* ignore */
       }
-      mr.onstop = () => resolve(buildBlob());
+      mr.onstop = () => {
+        clearTimeout(timeout);
+        setTimeout(finish, 200);
+      };
       try {
         mr.stop();
       } catch {
-        resolve(buildBlob());
+        clearTimeout(timeout);
+        finish();
       }
     });
 
@@ -195,7 +191,7 @@ export default function AssessmentTestPublic() {
         if (e.data && e.data.size) chunks.push(e.data);
       };
       mr.onerror = () => {};
-      mr.start(60_000);
+      mr.start(15_000);
       recorderBoxRef.current = { mr, chunks, mimeType };
     } catch {
       /* optional proctoring recording */
@@ -203,19 +199,32 @@ export default function AssessmentTestPublic() {
   };
 
   const uploadSessionRecording = async (blob) => {
-    if (!blob || !token) return { ok: false, message: "No recording" };
+    if (!blob || !token) return { ok: false, message: "No recording captured" };
     const fd = new FormData();
     fd.append("token", token);
     fd.append("file", blob, "session.webm");
-    const res = await fetch(`${API_BASE}/upload-recording`, {
-      method: "POST",
-      body: fd,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-      return { ok: false, message: data.message || "Recording upload failed" };
+    let lastMsg = "Recording upload failed";
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 800 * attempt));
+      }
+      const res = await fetch(`${API_BASE}/upload-recording`, { method: "POST", body: fd });
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = {};
+      }
+      if (res.ok && data.success) return { ok: true, message: "" };
+      lastMsg =
+        data.message ||
+        (res.status === 413
+          ? "Recording file is too large for the server."
+          : `Recording upload failed (HTTP ${res.status})`);
+      if (res.status < 500) break;
     }
-    return { ok: true, message: "" };
+    return { ok: false, message: lastMsg };
   };
 
   const handleSubmit = async (opts = {}) => {
@@ -265,16 +274,24 @@ export default function AssessmentTestPublic() {
 
     let recordingWarning = "";
     try {
+      const recBox = recorderBoxRef.current;
+      if (recBox?.mr && typeof recBox.mr.requestData === "function") {
+        try {
+          recBox.mr.requestData();
+        } catch {
+          /* ignore */
+        }
+      }
       const blob = await finalizeSessionRecording();
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       if (blob && blob.size > 0) {
         const up = await uploadSessionRecording(blob);
-        if (!up.ok) recordingWarning = up.message || "";
+        if (!up.ok) recordingWarning = up.message || "Recording upload failed";
       }
     } catch {
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       recordingWarning = "Recording could not be processed.";
     }
-
-    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
     setInvite(data.invite);
     setSubmitOutcome(data.invite?.disqualified ? "disqualified" : "ok");
     setStage("submitted");

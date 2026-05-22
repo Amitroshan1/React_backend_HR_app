@@ -54,7 +54,6 @@ ESSENTIAL_DISABLED = frozenset({
     "it_panel",
     "dashboard_my_assets",
     "hr_assessment_invite",
-    "hr_add_dept_circle",
     "hr_ex_employee_docs",
     "query_all_departments",
     "hr_employee_accounts",

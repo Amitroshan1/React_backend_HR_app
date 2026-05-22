@@ -1,12 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 140" width="420" height="140">
-  <text x="210" y="28" text-anchor="middle" font-size="26" font-weight="bold" letter-spacing="3">ANS43Q12</text>
-  <text x="210" y="48" text-anchor="middle" font-size="11" fill="#64748b">Which option is the mirror image?</text>
-  <text x="30" y="95" font-size="12" font-weight="600">A)</text>
-  <text x="30" y="118" font-size="14" transform="scale(-1,1) translate(-60,0)">21Q34SNA</text>
-  <text x="120" y="95" font-size="12" font-weight="600">B)</text>
-  <text x="120" y="118" font-size="14">ANS43Q12</text>
-  <text x="210" y="95" font-size="12" font-weight="600">C)</text>
-  <text x="210" y="118" font-size="14" transform="scale(-1,1) translate(-420,0)">21Q34SNA</text>
-  <text x="300" y="95" font-size="12" font-weight="600">D)</text>
-  <text x="300" y="118" font-size="14" transform="scale(1,-1) translate(0,-236)">ANS43Q12</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 170" width="680" height="170">
+  <text x="340" y="30" text-anchor="middle" font-size="26" font-weight="bold" letter-spacing="2" font-family="Georgia, 'Times New Roman', serif">ANS43Q12</text>
+  <text x="340" y="50" text-anchor="middle" font-size="11" fill="#64748b" font-family="system-ui, sans-serif">Which option is the mirror image?</text>
+
+  <line x1="170" y1="62" x2="170" y2="158" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="340" y1="62" x2="340" y2="158" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="510" y1="62" x2="510" y2="158" stroke="#e2e8f0" stroke-width="1"/>
+
+  <!-- A) horizontal mirror -->
+  <text x="24" y="78" font-size="12" font-weight="600" fill="#334155" font-family="system-ui, sans-serif">A)</text>
+  <g transform="translate(85, 108)">
+    <g transform="scale(-1, 1)">
+      <text x="0" y="0" text-anchor="middle" font-size="15" font-weight="bold" font-family="Georgia, 'Times New Roman', serif">ANS43Q12</text>
+    </g>
+  </g>
+
+  <!-- B) same as stem (not a mirror) -->
+  <text x="194" y="78" font-size="12" font-weight="600" fill="#334155" font-family="system-ui, sans-serif">B)</text>
+  <text x="255" y="108" text-anchor="middle" font-size="15" font-weight="bold" font-family="Georgia, 'Times New Roman', serif">ANS43Q12</text>
+
+  <!-- C) horizontal mirror -->
+  <text x="364" y="78" font-size="12" font-weight="600" fill="#334155" font-family="system-ui, sans-serif">C)</text>
+  <g transform="translate(425, 108)">
+    <g transform="scale(-1, 1)">
+      <text x="0" y="0" text-anchor="middle" font-size="15" font-weight="bold" font-family="Georgia, 'Times New Roman', serif">ANS43Q12</text>
+    </g>
+  </g>
+
+  <!-- D) vertical flip -->
+  <text x="534" y="78" font-size="12" font-weight="600" fill="#334155" font-family="system-ui, sans-serif">D)</text>
+  <g transform="translate(595, 108)">
+    <g transform="scale(1, -1)">
+      <text x="0" y="0" text-anchor="middle" font-size="15" font-weight="bold" font-family="Georgia, 'Times New Roman', serif">ANS43Q12</text>
+    </g>
+  </g>
 </svg>
