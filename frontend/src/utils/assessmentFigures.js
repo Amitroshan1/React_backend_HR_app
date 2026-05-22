@@ -1,4 +1,4 @@
-import q03 from "../assets/assessment-figures/q03.svg";
+import q03 from "../assets/assessment-figures/q03.png";
 import q04 from "../assets/assessment-figures/q04.svg";
 import q05 from "../assets/assessment-figures/q05.svg";
 import q06 from "../assets/assessment-figures/q06.svg";
@@ -27,7 +27,7 @@ export function getAssessmentFigureSrc(questionNumber, imageUrl) {
   if (!url) return "";
   if (url.startsWith("/api/")) return url;
   const name = url.split("/").filter(Boolean).pop();
-  if (name && /^q\d{2}\.svg$/i.test(name)) {
+  if (name && /^q\d{2}\.(svg|png)$/i.test(name)) {
     return `${API_FIGURE_BASE}/${name}`;
   }
   if (url.startsWith("/assessment-figures/")) {

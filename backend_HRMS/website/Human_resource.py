@@ -2851,7 +2851,16 @@ ASSESSMENT_ANY_OPTION_CORRECT_QS = tuple(range(26, 34))
 ASSESSMENT_MANUAL_QS = tuple(range(34, 63))
 ASSESSMENT_FIGURE_BASE = "/api/HumanResource/assessment/public/figures"
 ASSESSMENT_QUESTIONS_WITH_FIGURES = (3, 4, 5, 6, 7, 12, 23)
-ASSESSMENT_FIGURE_FILENAMES = {f"q{n:02d}.svg" for n in ASSESSMENT_QUESTIONS_WITH_FIGURES}
+ASSESSMENT_FIGURE_FILES = {
+    3: "q03.png",
+    4: "q04.svg",
+    5: "q05.svg",
+    6: "q06.svg",
+    7: "q07.svg",
+    12: "q12.svg",
+    23: "q23.svg",
+}
+ASSESSMENT_FIGURE_FILENAMES = frozenset(ASSESSMENT_FIGURE_FILES.values())
 
 ASSESSMENT_OBJECTIVE_ANSWER_KEY = {
     1: 2, 2: 1, 3: 3, 4: 4, 5: 2, 6: 3, 7: 3, 8: 1, 9: 3, 10: 1,
@@ -2879,8 +2888,8 @@ def _assessment_figures_directory():
 def _assessment_attach_figures(questions):
     for q in questions:
         num = q.get("number")
-        if num in ASSESSMENT_QUESTIONS_WITH_FIGURES:
-            q["image_url"] = f"{ASSESSMENT_FIGURE_BASE}/q{int(num):02d}.svg"
+        if num in ASSESSMENT_FIGURE_FILES:
+            q["image_url"] = f"{ASSESSMENT_FIGURE_BASE}/{ASSESSMENT_FIGURE_FILES[int(num)]}"
     return questions
 
 
@@ -3631,7 +3640,8 @@ def assessment_public_figure(filename):
     full_path = os.path.join(directory, safe)
     if not os.path.isfile(full_path):
         return jsonify({"success": False, "message": "Figure file missing"}), 404
-    return send_from_directory(directory, safe, mimetype="image/svg+xml")
+    mime = "image/png" if safe.lower().endswith(".png") else "image/svg+xml"
+    return send_from_directory(directory, safe, mimetype=mime)
 
 
 @hr.route("/assessment/public/status", methods=["GET"])
