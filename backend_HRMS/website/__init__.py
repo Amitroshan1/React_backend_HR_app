@@ -66,6 +66,11 @@ def create_app():
         "1", "true", "yes", "on",
     )
 
+    _raw_plan = os.getenv("CUSTOMER_PLAN", "essential").strip().lower()
+    app.config["CUSTOMER_PLAN"] = (
+        _raw_plan if _raw_plan in ("basic", "essential", "enterprise") else "essential"
+    )
+
     # ---------------------------
     # Enable CORS
     # ---------------------------

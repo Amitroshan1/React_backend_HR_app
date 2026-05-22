@@ -17,6 +17,7 @@ import { MdBadge, MdCalendarToday } from "react-icons/md";
 import { GiReceiveMoney } from "react-icons/gi";
 import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
+import { hasFeature } from "../../utils/planFeatures";
 const API_BASE_URL = "/api/auth";
 
 const TEN_HOURS_MS = 10 * 60 * 60 * 1000;
@@ -1031,6 +1032,7 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                            {hasFeature("dashboard_payslip") ? (
                             <NavLink to="/payslip" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon orange"><div className="action-icon-inner"><GiReceiveMoney /></div></div>
@@ -1041,6 +1043,7 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                            ) : null}
                             <NavLink to="/profile" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon sky"><div className="action-icon-inner"><FiUser /></div></div>
@@ -1083,6 +1086,7 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                            {hasFeature("dashboard_my_assets") ? (
                             <NavLink
                                 to={myEmpId ? `/it/employee/${encodeURIComponent(myEmpId)}` : "#"}
                                 className="action-card nav-link-card"
@@ -1103,6 +1107,8 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                            ) : null}
+                             {hasFeature("dashboard_claims") ? (
                              <NavLink to="/claims" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon orange"><div className="action-icon-inner"><FiDollarSign /></div></div>
@@ -1113,6 +1119,7 @@ export const Dashboard = () => {
                                 </div>
                                 <FiChevronRight className="arrow" />
                             </NavLink>
+                             ) : null}
                             <NavLink to="/change-password" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon blue"><div className="action-icon-inner"><FiKey /></div></div>

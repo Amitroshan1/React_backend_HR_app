@@ -73,6 +73,25 @@ hr = Blueprint('HumanResource', __name__)
 EX_EMPLOYEE_LINK_TTL_HOURS = 48
 
 
+@hr.before_request
+def _hr_plan_guard():
+    from flask import request
+    from .plan_features import has_feature, plan_forbidden_response
+
+    if request.method == "OPTIONS":
+        return None
+    path = request.path or ""
+    if "/assessment/public" in path:
+        return None
+    if "/assessment/" in path and not has_feature("hr_assessment_invite"):
+        return plan_forbidden_response("hr_assessment_invite")
+    if "/ex-employee-documents/" in path and not has_feature("hr_ex_employee_docs"):
+        return plan_forbidden_response("hr_ex_employee_docs")
+    if request.method == "POST" and "/master/" in path and not has_feature("hr_add_dept_circle"):
+        return plan_forbidden_response("hr_add_dept_circle")
+    return None
+
+
 def _hr_session_geo_in(sess):
     """Location label for punch-in (matches utility.py session helpers)."""
     if not sess:
@@ -95,6 +114,14 @@ def _hr_session_geo_out(sess):
     if sess.clock_out is not None:
         return (getattr(sess, "location_status", None) or "").strip()
     return ""
+
+
+def _enabled_non_exited_admin_filters():
+    """Enabled employees: not exited and not explicitly disabled (is_active=False)."""
+    return (
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None)),
+        or_(Admin.is_active == True, Admin.is_active.is_(None)),
+    )
 
 
 def _hr_punch_location_in_out(punch):
@@ -402,6 +429,89 @@ def seed_holidays_for_year():
     ), 200
 
 
+@hr.route("/holidays", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_holiday():
+    data = request.get_json(silent=True) or {}
+    year = _parse_year_or_400(data.get("year"))
+    if not year:
+        return jsonify({"success": False, "message": "Invalid year. Allowed range: 2000-2100"}), 400
+
+    holiday_name = str(data.get("holiday_name") or "").strip()
+    if not holiday_name:
+        return jsonify({"success": False, "message": "holiday_name is required"}), 400
+
+    raw_date = str(data.get("holiday_date") or "").strip()
+    if not raw_date:
+        return jsonify({"success": False, "message": "holiday_date is required (YYYY-MM-DD)"}), 400
+    try:
+        parsed_date = datetime.fromisoformat(raw_date[:10]).date()
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "holiday_date must be YYYY-MM-DD"}), 400
+    if parsed_date.year != year:
+        return jsonify(
+            {
+                "success": False,
+                "message": f"holiday_date year ({parsed_date.year}) must match selected year ({year})",
+            }
+        ), 400
+
+    is_optional = bool(data.get("is_optional", False))
+
+    existing = HolidayCalendar.query.filter(
+        HolidayCalendar.year == year,
+        db.func.lower(HolidayCalendar.holiday_name) == holiday_name.lower(),
+    ).first()
+    if existing:
+        if existing.is_active:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": f"Holiday '{holiday_name}' already exists for {year}",
+                }
+            ), 409
+        existing.holiday_name = holiday_name[:120]
+        existing.holiday_date = parsed_date
+        existing.is_optional = is_optional
+        existing.is_active = True
+        db.session.commit()
+        return jsonify(
+            {
+                "success": True,
+                "message": "Holiday restored",
+                "holiday": _serialize_holiday(existing),
+            }
+        ), 200
+
+    row = HolidayCalendar(
+        year=year,
+        holiday_name=holiday_name[:120],
+        holiday_date=parsed_date,
+        is_optional=is_optional,
+        is_active=True,
+    )
+    try:
+        db.session.add(row)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Holiday '{holiday_name}' already exists for {year}",
+            }
+        ), 409
+
+    return jsonify(
+        {
+            "success": True,
+            "message": "Holiday added successfully",
+            "holiday": _serialize_holiday(row),
+        }
+    ), 201
+
+
 @hr.route("/holidays/<int:holiday_id>", methods=["PUT"])
 @jwt_required()
 @hr_required
@@ -416,6 +526,19 @@ def update_holiday(holiday_id):
         holiday_name = str(data.get("holiday_name") or "").strip()
         if not holiday_name:
             return jsonify({"success": False, "message": "holiday_name cannot be empty"}), 400
+        dup = HolidayCalendar.query.filter(
+            HolidayCalendar.year == row.year,
+            HolidayCalendar.id != row.id,
+            HolidayCalendar.is_active.is_(True),
+            db.func.lower(HolidayCalendar.holiday_name) == holiday_name.lower(),
+        ).first()
+        if dup:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": f"Holiday '{holiday_name}' already exists for {row.year}",
+                }
+            ), 409
         row.holiday_name = holiday_name[:120]
 
     if "holiday_date" in data:
@@ -436,6 +559,26 @@ def update_holiday(holiday_id):
 
     db.session.commit()
     return jsonify({"success": True, "holiday": _serialize_holiday(row)}), 200
+
+
+@hr.route("/holidays/<int:holiday_id>", methods=["DELETE"])
+@jwt_required()
+@hr_required
+def delete_holiday(holiday_id):
+    row = HolidayCalendar.query.get(holiday_id)
+    if not row:
+        return jsonify({"success": False, "message": "Holiday not found"}), 404
+    if not row.is_active:
+        return jsonify({"success": False, "message": "Holiday already removed"}), 409
+
+    row.is_active = False
+    db.session.commit()
+    return jsonify(
+        {
+            "success": True,
+            "message": f"Removed: {row.holiday_name}",
+        }
+    ), 200
 
 
 @hr.route("/master/options", methods=["GET"])
@@ -859,8 +1002,7 @@ def hr_dashboard_api():
     # 1️⃣.b Joinings Today (Admin DOJ exactly today, active/non-exited only)
     employees_joining_today = Admin.query.filter(
         Admin.doj == today,
-        Admin.is_active == True,
-        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+        *_enabled_non_exited_admin_filters(),
     ).all()
 
     # 2️⃣ Birthdays (Employee DOB)
@@ -869,26 +1011,27 @@ def hr_dashboard_api():
         db.extract("day", Employee.dob) == current_day
     ).all()
 
-    # 3️⃣ Total Employees (active only)
-    # Count only active, non-exited employees so HR dashboard shows active headcount
-    total_employees = Admin.query.filter(
-        Admin.is_active == True,
-        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
-    ).count()
+    # 3️⃣ Total Employees (enabled only — same rules as /search and /employee/search)
+    enabled_filters = _enabled_non_exited_admin_filters()
+    total_employees = Admin.query.filter(*enabled_filters).count()
 
-    # 4️⃣ New Joinees (last 30 days, active only)
+    # 4️⃣ New Joinees (last 30 days, enabled only)
     thirty_days_ago = today - timedelta(days=30)
     new_joinees_count = Admin.query.filter(
         Admin.doj >= thirty_days_ago,
-        Admin.is_active == True,
-        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+        *enabled_filters,
     ).count()
 
-    # 5️⃣ Today's Punch-in Count
-    today_punch_count = Punch.query.filter(
-        Punch.punch_date == today,
-        Punch.punch_in.isnot(None)
-    ).count()
+    # 5️⃣ Today's Punch-in Count (enabled employees only)
+    today_punch_count = (
+        Punch.query.join(Admin, Punch.admin_id == Admin.id)
+        .filter(
+            Punch.punch_date == today,
+            Punch.punch_in.isnot(None),
+            *enabled_filters,
+        )
+        .count()
+    )
 
     anniversaries_list = []
     for e in employees_with_anniversaries:
@@ -927,8 +1070,9 @@ def hr_dashboard_api():
         "date": today.isoformat(),
         "counts": {
             "total_employees": total_employees,
+            "enabled_employees": total_employees,
             "new_joinees_last_30_days": new_joinees_count,
-            "today_punch_in_count": today_punch_count
+            "today_punch_in_count": today_punch_count,
         },
         "anniversaries": anniversaries_list,
         "birthdays": birthdays_list,
@@ -2705,6 +2849,9 @@ ASSESSMENT_LINK_TTL_MINUTES = 15
 ASSESSMENT_DURATION_MINUTES = 180
 ASSESSMENT_ANY_OPTION_CORRECT_QS = tuple(range(26, 34))
 ASSESSMENT_MANUAL_QS = tuple(range(34, 63))
+ASSESSMENT_FIGURE_BASE = "/assessment-figures"
+ASSESSMENT_QUESTIONS_WITH_FIGURES = (3, 4, 5, 6, 7, 12, 23)
+
 ASSESSMENT_OBJECTIVE_ANSWER_KEY = {
     1: 2, 2: 1, 3: 3, 4: 4, 5: 2, 6: 3, 7: 3, 8: 1, 9: 3, 10: 1,
     11: 2, 12: 4, 13: 2, 14: 3, 15: 1, 16: 1, 17: 3, 18: 4, 19: 2, 20: 3,
@@ -2713,6 +2860,14 @@ ASSESSMENT_OBJECTIVE_ANSWER_KEY = {
     73: 2, 74: 1, 75: 4, 76: 3, 77: 1, 78: 2, 79: 3, 80: 4, 81: 4, 82: 3,
     83: 2, 84: 4, 85: 1, 86: 4, 87: 2,
 }
+
+
+def _assessment_attach_figures(questions):
+    for q in questions:
+        num = q.get("number")
+        if num in ASSESSMENT_QUESTIONS_WITH_FIGURES:
+            q["image_url"] = f"{ASSESSMENT_FIGURE_BASE}/q{int(num):02d}.svg"
+    return questions
 
 
 def _assessment_questions_payload():
@@ -2812,7 +2967,11 @@ def _assessment_questions_payload():
         {"number": 87, "type": "mcq", "question": "You should always be faithful ___ your promise.", "options": ["on", "to", "with", "over"]},
     ]
 
-    return {"section_1": section_1, "section_2": section_2, "section_3": section_3}
+    return {
+        "section_1": _assessment_attach_figures(section_1),
+        "section_2": section_2,
+        "section_3": section_3,
+    }
 
 
 def _assessment_hash_token(raw_token: str) -> str:
@@ -3044,9 +3203,60 @@ def _assessment_auto_score(answers):
     return float(score), breakdown
 
 
+def _assessment_session_deadline(invite):
+    """End of in-progress attempt (started_at + test duration)."""
+    if not invite.started_at:
+        return None
+    dur = int(invite.duration_minutes or ASSESSMENT_DURATION_MINUTES)
+    return invite.started_at + timedelta(minutes=dur)
+
+
+def _assessment_link_open_expired(invite, now=None):
+    """True if invite was never started and the 15-minute open window passed."""
+    now = now or datetime.utcnow()
+    if invite.started_at or invite.status in ("submitted", "disqualified", "expired"):
+        return False
+    return bool(invite.expires_at and now > invite.expires_at)
+
+
+def _assessment_session_expired(invite, now=None):
+    """True if a started attempt ran past its allowed test duration."""
+    now = now or datetime.utcnow()
+    if invite.status in ("submitted", "disqualified"):
+        return False
+    deadline = _assessment_session_deadline(invite)
+    if not deadline:
+        return _assessment_link_open_expired(invite, now)
+    return now > deadline
+
+
+def _assessment_public_access_expired(invite, now=None):
+    if invite.status in ("submitted", "disqualified"):
+        return False
+    if invite.started_at:
+        return _assessment_session_expired(invite, now)
+    return _assessment_link_open_expired(invite, now)
+
+
+def _assessment_extend_session_expiry(invite):
+    """After start, link TTL becomes full test duration (not 15 minutes)."""
+    if not invite.started_at:
+        return
+    dur = int(invite.duration_minutes or ASSESSMENT_DURATION_MINUTES)
+    session_end = invite.started_at + timedelta(minutes=dur)
+    if not invite.expires_at or invite.expires_at < session_end:
+        invite.expires_at = session_end
+
+
 def _assessment_invite_public_payload(invite):
     now = datetime.utcnow()
-    seconds_left = max(0, int((invite.expires_at - now).total_seconds())) if invite.expires_at else 0
+    if invite.status in ("submitted", "disqualified"):
+        deadline = invite.expires_at
+    elif invite.started_at:
+        deadline = _assessment_session_deadline(invite)
+    else:
+        deadline = invite.expires_at
+    seconds_left = max(0, int((deadline - now).total_seconds())) if deadline else 0
     return {
         "id": invite.id,
         "full_name": invite.full_name,
@@ -3059,6 +3269,7 @@ def _assessment_invite_public_payload(invite):
         "started_at": invite.started_at.isoformat() if invite.started_at else None,
         "submitted_at": invite.submitted_at.isoformat() if invite.submitted_at else None,
         "seconds_left_to_expiry": seconds_left,
+        "link_open_minutes": ASSESSMENT_LINK_TTL_MINUTES,
         "attempt_no": invite.attempt_no,
         "camera_granted": bool(invite.camera_granted),
         "mic_granted": bool(invite.mic_granted),
@@ -3391,7 +3602,7 @@ def assessment_public_status():
     invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
     if not invite:
         return jsonify({"success": False, "message": "Invalid link"}), 404
-    if invite.expires_at and datetime.utcnow() > invite.expires_at and invite.status not in ("submitted", "disqualified"):
+    if _assessment_public_access_expired(invite) and invite.status not in ("submitted", "disqualified"):
         invite.status = "expired"
         db.session.commit()
     return jsonify({"success": True, "invite": _assessment_invite_public_payload(invite)}), 200
@@ -3413,10 +3624,15 @@ def assessment_public_questions():
                 "status": invite.status,
             }
         ), 409
-    if invite.expires_at and datetime.utcnow() > invite.expires_at:
+    if _assessment_link_open_expired(invite):
         invite.status = "expired"
         db.session.commit()
-        return jsonify({"success": False, "message": "Link expired"}), 410
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Link expired. Please ask HR for a new invite (valid {ASSESSMENT_LINK_TTL_MINUTES} minutes to start).",
+            }
+        ), 410
     return jsonify(
         {
             "success": True,
@@ -3442,10 +3658,19 @@ def assessment_public_start():
                 "message": "Test already submitted" if invite.status == "submitted" else "This attempt was disqualified",
             }
         ), 409
-    if invite.expires_at and datetime.utcnow() > invite.expires_at:
+    if _assessment_link_open_expired(invite) and not invite.started_at:
         invite.status = "expired"
         db.session.commit()
-        return jsonify({"success": False, "message": "Link expired"}), 410
+        return jsonify(
+            {
+                "success": False,
+                "message": f"Link expired. Please ask HR for a new invite (valid {ASSESSMENT_LINK_TTL_MINUTES} minutes to start).",
+            }
+        ), 410
+    if invite.started_at and _assessment_session_expired(invite):
+        invite.status = "expired"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Test time has ended."}), 410
 
     selfie_data_url = data.get("selfie_data_url")
     if not invite.selfie_path:
@@ -3457,6 +3682,7 @@ def assessment_public_start():
     invite.mic_granted = bool(data.get("mic_granted"))
     if not invite.started_at:
         invite.started_at = datetime.utcnow()
+    _assessment_extend_session_expiry(invite)
     if invite.status not in ("submitted", "disqualified", "expired"):
         invite.status = "started"
     db.session.commit()
@@ -3478,12 +3704,12 @@ def assessment_public_save_answer():
         return jsonify({"success": False, "message": "Invalid link"}), 404
     if invite.status in ("submitted", "disqualified"):
         return jsonify({"success": False, "message": "Test already submitted"}), 409
-    if invite.expires_at and datetime.utcnow() > invite.expires_at:
-        invite.status = "expired"
-        db.session.commit()
-        return jsonify({"success": False, "message": "Link expired"}), 410
     if not invite.started_at:
         return jsonify({"success": False, "message": "Test has not started"}), 400
+    if _assessment_session_expired(invite):
+        invite.status = "expired"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Test time has ended."}), 410
 
     current_answers = _assessment_load_answers(invite)
     for k, v in answers_patch.items():
@@ -3511,12 +3737,12 @@ def assessment_public_submit():
         return jsonify({"success": False, "message": "Invalid link"}), 404
     if invite.status in ("submitted", "disqualified"):
         return jsonify({"success": False, "message": "Test already submitted"}), 409
-    if invite.expires_at and datetime.utcnow() > invite.expires_at:
-        invite.status = "expired"
-        db.session.commit()
-        return jsonify({"success": False, "message": "Link expired"}), 410
     if not invite.started_at:
         return jsonify({"success": False, "message": "Test has not started"}), 400
+    if _assessment_session_expired(invite):
+        invite.status = "expired"
+        db.session.commit()
+        return jsonify({"success": False, "message": "Test time has ended."}), 410
 
     disqualified = bool(data.get("disqualified"))
     merged = _assessment_load_answers(invite)

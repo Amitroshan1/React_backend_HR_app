@@ -121,6 +121,7 @@ import { useLocation, Link, NavLink, useNavigate } from 'react-router-dom';
 import { toast } from "react-toastify";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
+import { hasFeature, clearPlanContext } from "../utils/planFeatures";
 
 const getPageInfo = (pathname, firstName) => {
     const normalizedPath = pathname.toLowerCase();
@@ -286,9 +287,20 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     const roleInfo = getRoleInfo(rawRole, user);
     const queryShortcutAllowed = ["hr", "account", "accounts", "it"].includes(roleInfo.display?.toLowerCase());
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
+    const panelRouteAllowed = (route) => {
+        if (route === "/hr") return hasFeature("hr_panel");
+        if (route === "/account") return hasFeature("account_panel");
+        if (route === "/it") return hasFeature("it_panel");
+        return true;
+    };
+
     const panelLinks = [];
-    if (roleInfo.hasPanel && roleInfo.route) panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
-    if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) panelLinks.push({ display: "Manager", route: "/manager" });
+    if (roleInfo.hasPanel && roleInfo.route && panelRouteAllowed(roleInfo.route)) {
+        panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
+    }
+    if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {
+        panelLinks.push({ display: "Manager", route: "/manager" });
+    }
     const isSpecialRole = panelLinks.length > 0;
 
     useEffect(() => {
@@ -390,6 +402,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         toast.info("Logged out successfully");
         localStorage.removeItem('token');
         localStorage.removeItem('lastActivityAt');
+        clearPlanContext();
         navigate('/');
     };
 

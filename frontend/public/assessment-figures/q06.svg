@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 280" width="280" height="280">
+  <polygon points="140,20 260,140 140,260 20,140" fill="#f8fafc" stroke="#1e293b" stroke-width="2"/>
+  <line x1="140" y1="20" x2="140" y2="260" stroke="#64748b" stroke-width="1"/>
+  <line x1="20" y1="140" x2="260" y2="140" stroke="#64748b" stroke-width="1"/>
+  <line x1="80" y1="80" x2="200" y2="200" stroke="#94a3b8" stroke-width="1"/>
+  <line x1="200" y1="80" x2="80" y2="200" stroke="#94a3b8" stroke-width="1"/>
+  <text x="140" y="155" text-anchor="middle" font-size="13" fill="#64748b">Count all triangles</text>
+</svg>

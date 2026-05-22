@@ -74,9 +74,13 @@ def get_master_options():
         .order_by(MasterData.name.asc())
         .all()
     )
+    from .plan_features import filter_query_departments
+
+    departments = filter_query_departments([r.name for r in dept_rows])
+
     return jsonify({
         "success": True,
-        "departments": [r.name for r in dept_rows],
+        "departments": departments,
         "circles": [r.name for r in circle_rows],
     }), 200
 
@@ -173,9 +177,12 @@ def validate_user():
     )
 
 
+    from .plan_features import plan_payload
+
     return jsonify({
         "success": True,
-        "token": access_token
+        "token": access_token,
+        **plan_payload(),
     }), 200
 
 
@@ -202,6 +209,8 @@ def employee_homepage():
 
 
 def _employee_homepage_impl():
+    from .plan_features import plan_payload
+
     try:
         raw_id = get_jwt_identity()
         admin_id = int(raw_id) if raw_id is not None else None
@@ -391,26 +400,33 @@ def _employee_homepage_impl():
             "file_path": last_payslip.file_path,
         }
 
-    payroll_rows = (
-        MonthlyPayroll.query
-        .filter_by(admin_id=admin.id)
-        .order_by(MonthlyPayroll.year.desc(), MonthlyPayroll.month_num.desc(), MonthlyPayroll.id.desc())
-        .limit(12)
-        .all()
-    )
+    from .plan_features import has_feature
+
     my_payroll_history = []
-    for row in payroll_rows:
-        my_payroll_history.append({
-            "id": row.id,
-            "month": row.month,
-            "month_num": row.month_num,
-            "year": row.year,
-            "actual_working_days": float(row.actual_working_days or 0),
-            "gross_salary_for_month": float(row.gross_salary_for_month or 0),
-            "deductions_total_final": float(row.deductions_total_final or 0),
-            "net_salary_final": float(row.net_salary_final or 0),
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-        })
+    if has_feature("payslip_payroll_history"):
+        payroll_rows = (
+            MonthlyPayroll.query
+            .filter_by(admin_id=admin.id)
+            .order_by(
+                MonthlyPayroll.year.desc(),
+                MonthlyPayroll.month_num.desc(),
+                MonthlyPayroll.id.desc(),
+            )
+            .limit(12)
+            .all()
+        )
+        for row in payroll_rows:
+            my_payroll_history.append({
+                "id": row.id,
+                "month": row.month,
+                "month_num": row.month_num,
+                "year": row.year,
+                "actual_working_days": float(row.actual_working_days or 0),
+                "gross_salary_for_month": float(row.gross_salary_for_month or 0),
+                "deductions_total_final": float(row.deductions_total_final or 0),
+                "net_salary_final": float(row.net_salary_final or 0),
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            })
 
     # ------------------------
     # 7. JOINING INFO (DOJ + years of service)
@@ -497,6 +513,7 @@ def _employee_homepage_impl():
         "last_leave": last_leave_data,
         "last_payslip": last_payslip_data,
         "my_payroll_history": my_payroll_history,
+        **plan_payload(),
     }), 200
 
 

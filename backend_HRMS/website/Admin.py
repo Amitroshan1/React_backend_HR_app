@@ -75,9 +75,10 @@ def _can_view_deployment_guide(claims=None):
 
 
 def _base_employee_query():
-    """Active, non-exited employees only."""
+    """Enabled, non-exited employees only (excludes is_active=False)."""
     return Admin.query.filter(
         db.func.coalesce(Admin.is_exited, False) == False,
+        db.func.coalesce(Admin.is_active, True) == True,
     )
 
 

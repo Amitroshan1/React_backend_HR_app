@@ -97,10 +97,11 @@ DEPLOYMENT_GUIDE = {
         {"key": "BASE_URL", "hint": "https://hr.customer.com"},
         {"key": "CORS_ORIGINS", "hint": "https://hr.customer.com"},
         {"key": "SHOW_DEPLOYMENT_GUIDE", "hint": "0 on customer servers; 1 on vendor master only"},
+        {"key": "CUSTOMER_PLAN", "hint": "basic | essential | enterprise — must match sold plan"},
     ],
     "plans": [
         {"id": "basic", "label": "Basic", "notes": "Core HR, attendance, leave"},
-        {"id": "essential", "label": "Essential", "notes": "Basic + payroll, IT, performance (as sold)"},
-        {"id": "enterprise", "label": "Enterprise", "notes": "Full suite + custom domain / SLA"},
+        {"id": "essential", "label": "Essential", "notes": "Basic + uploaded payslips, claims, Accounts panel (limited), HR+Accounts queries"},
+        {"id": "enterprise", "label": "Enterprise", "notes": "All modules enabled (HR, Accounts, IT, payroll, queries, assets, claims)"},
     ],
 }

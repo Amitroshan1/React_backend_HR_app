@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { hasFeature, clearPlanContext } from "../../utils/planFeatures";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 import { AppFooter } from "./AppFooter";
@@ -28,7 +29,25 @@ const ScrollToTop = () => {
 
 export const AppLayout = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { userData, loadingUser, photoVersion } = useUser();
+
+    useEffect(() => {
+        const path = location.pathname || "";
+        if (path.startsWith("/account") && !hasFeature("account_panel")) {
+            navigate("/dashboard", { replace: true });
+            return;
+        }
+        if (path.startsWith("/it") && !hasFeature("it_panel")) {
+            navigate("/dashboard", { replace: true });
+        }
+        if (path === "/payslip" && !hasFeature("dashboard_payslip")) {
+            navigate("/dashboard", { replace: true });
+        }
+        if (path === "/claims" && !hasFeature("dashboard_claims")) {
+            navigate("/dashboard", { replace: true });
+        }
+    }, [location.pathname, navigate]);
 
     /* No token: redirect to login immediately (direct URL, Back after logout) – no dashboard or loading state */
     const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
@@ -58,6 +77,7 @@ export const AppLayout = () => {
             localStorage.setItem("sessionExpired", "1");
             localStorage.removeItem("token");
             localStorage.removeItem(ACTIVITY_KEY);
+            clearPlanContext();
             navigate("/");
         };
 

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 160" width="480" height="160">
+  <g transform="translate(20,20)">
+    <polygon points="60,0 120,100 0,100" fill="#eff6ff" stroke="#1e40af" stroke-width="2"/>
+    <text x="15" y="55" font-size="14" font-weight="bold">5</text>
+    <text x="105" y="55" font-size="14" font-weight="bold">3</text>
+    <text x="52" y="115" font-size="14" font-weight="bold">4</text>
+    <text x="48" y="58" font-size="18" font-weight="bold">19</text>
+  </g>
+  <g transform="translate(170,20)">
+    <polygon points="60,0 120,100 0,100" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+    <text x="15" y="55" font-size="14" font-weight="bold">7</text>
+    <text x="105" y="55" font-size="14" font-weight="bold">5</text>
+    <text x="52" y="115" font-size="14" font-weight="bold">6</text>
+    <text x="52" y="58" font-size="22" font-weight="bold" fill="#dc2626">?</text>
+  </g>
+  <g transform="translate(320,20)">
+    <polygon points="60,0 120,100 0,100" fill="#ecfdf5" stroke="#047857" stroke-width="2"/>
+    <text x="15" y="55" font-size="14" font-weight="bold">6</text>
+    <text x="105" y="55" font-size="14" font-weight="bold">4</text>
+    <text x="52" y="115" font-size="14" font-weight="bold">5</text>
+    <text x="48" y="58" font-size="18" font-weight="bold">29</text>
+  </g>
+</svg>

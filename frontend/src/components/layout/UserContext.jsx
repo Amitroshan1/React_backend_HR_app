@@ -1,4 +1,5 @@
 import { createContext, useState, useEffect, useContext, useCallback } from 'react'
+import { setPlanContext, clearPlanContext } from '../../utils/planFeatures';
 const API_BASE_URL = "/api/auth";
 const UserContext = createContext();
 export const useUser = () => useContext(UserContext);
@@ -14,6 +15,7 @@ export const UserProvider = ({ children }) => {
     const fetchCoreUserData = async () => {
         const token = localStorage.getItem('token');
         if (!token) {
+            clearPlanContext();
             setLoadingUser(false);
             return;
         }
@@ -26,16 +28,21 @@ export const UserProvider = ({ children }) => {
                 // Token missing/expired/invalid: clear it so app can re-login cleanly.
                 localStorage.removeItem('token');
                 localStorage.removeItem('lastActivityAt');
+                clearPlanContext();
                 throw new Error("Unauthorized (token invalid or expired).");
             }
             if (!response.ok) throw new Error("Failed to fetch user data.");
             const result = await response.json();
             if (result.success) {
+                setPlanContext(result.plan, result.features);
                 setUserData({
                     user: result.user || {},
                     employee: result.employee || {},
                     leave_balance: result.leave_balance || { pl: 'N/A', cl: 'N/A' },
                     managers: result.managers || {},
+                    plan: result.plan || 'essential',
+                    plan_label: result.plan_label || '',
+                    features: result.features || [],
                 });
             }
         } catch (err) {

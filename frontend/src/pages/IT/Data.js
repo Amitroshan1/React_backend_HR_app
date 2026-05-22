@@ -128,7 +128,9 @@ const runAssignedToShapeMigrationOnce = () => {
 
     const mapAssignedTo = (assignedTo) => {
       if (!assignedTo) return assignedTo;
-      if (typeof assignedTo === "object" && assignedTo.empId) return assignedTo;
+      if (assignedTo != null && typeof assignedTo === "object" && assignedTo.empId) {
+        return assignedTo;
+      }
 
       const raw = String(assignedTo).trim();
       if (!raw) return null;
@@ -153,7 +155,9 @@ const runAssignedToShapeMigrationOnce = () => {
     const units = JSON.parse(localStorage.getItem(UNITS_KEY) || "[]");
     let changedUnits = false;
     const nextUnits = units.map((u) => {
-      if (!u || !u.assignedTo || typeof u.assignedTo === "object") return u;
+      if (!u || !u.assignedTo || (u.assignedTo != null && typeof u.assignedTo === "object")) {
+        return u;
+      }
       changedUnits = true;
       return { ...u, assignedTo: mapAssignedTo(u.assignedTo) };
     });
@@ -162,7 +166,9 @@ const runAssignedToShapeMigrationOnce = () => {
     const sw = JSON.parse(localStorage.getItem(SOFTWARE_KEY) || "[]");
     let changedSw = false;
     const nextSw = sw.map((s) => {
-      if (!s || !s.assignedTo || typeof s.assignedTo === "object") return s;
+      if (!s || !s.assignedTo || (s.assignedTo != null && typeof s.assignedTo === "object")) {
+        return s;
+      }
       changedSw = true;
       return { ...s, assignedTo: mapAssignedTo(s.assignedTo) };
     });

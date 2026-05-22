@@ -224,6 +224,20 @@ def create_query_api():
             "message": "title, department and query_text are required"
         }), 400
 
+    from .plan_features import (
+        has_feature,
+        is_allowed_query_department,
+        plan_forbidden_response,
+    )
+
+    if not is_allowed_query_department(department):
+        required = (
+            "query_hr_and_accounts"
+            if has_feature("query_hr_and_accounts")
+            else "query_all_departments"
+        )
+        return plan_forbidden_response(required)
+
     files = request.files.getlist("files") if request.files else []
     saved_files = []
 

@@ -5,6 +5,23 @@ import { AppFooter } from "../../components/layout/AppFooter";
 
 const API_BASE = "/api/HumanResource/assessment/public";
 
+function AssessmentFigure({ q }) {
+  if (!q?.image_url) return null;
+  return (
+    <div className="assessment-figure-wrap">
+      {q.image_instruction ? (
+        <p className="assessment-figure-hint">{q.image_instruction}</p>
+      ) : null}
+      <img
+        src={q.image_url}
+        alt={`Figure for question ${q.number}`}
+        className="assessment-figure"
+        loading="lazy"
+      />
+    </div>
+  );
+}
+
 const parseApiUtcMs = (value) => {
   const raw = String(value || "").trim();
   if (!raw) return NaN;
@@ -506,7 +523,10 @@ export default function AssessmentTestPublic() {
           <li>Stay on this tab for the entire test. The first time you leave this tab you will see a warning; leaving again will disqualify this attempt and auto-submit your answers.</li>
           <li>Copy, cut, and paste are disabled during the test. Right-click is disabled on the test page. Other focus changes may be logged for review.</li>
           <li>No cheating, no external help.</li>
-          <li>Total duration: {invite?.duration_minutes || 180} minutes.</li>
+          <li>
+            Open and start within {invite?.link_open_minutes || 15} minutes of receiving the email.
+            Test duration after start: {invite?.duration_minutes || 180} minutes.
+          </li>
           <li>Sections: Q1-25 MCQ, Q26-33 MCQ, Q34-62 descriptive, Q63-87 MCQ.</li>
           <li>Your camera photo capture is mandatory before starting.</li>
           <li>Camera and microphone permissions are required.</li>
@@ -582,6 +602,7 @@ export default function AssessmentTestPublic() {
       {(questions?.section_1 || []).map((q) => (
         <div key={q.number} className="assessment-q-card">
           <div className="assessment-question">{q.number}. {q.question}</div>
+          <AssessmentFigure q={q} />
           {(q.options || []).map((opt, idx) => (
             <label key={idx} className="assessment-option">
               <input
@@ -600,6 +621,7 @@ export default function AssessmentTestPublic() {
       {(questions?.section_2 || []).map((q) => (
         <div key={q.number} className="assessment-q-card">
           <div className="assessment-question">{q.number}. {q.question}</div>
+          <AssessmentFigure q={q} />
           {q.type === "mcq" ? (
             (q.options || []).map((opt, idx) => (
               <label key={idx} className="assessment-option">
@@ -627,6 +649,7 @@ export default function AssessmentTestPublic() {
       {(questions?.section_3 || []).map((q) => (
         <div key={q.number} className="assessment-q-card">
           <div className="assessment-question">{q.number}. {q.question}</div>
+          <AssessmentFigure q={q} />
           {(q.options || []).map((opt, idx) => (
             <label key={idx} className="assessment-option">
               <input

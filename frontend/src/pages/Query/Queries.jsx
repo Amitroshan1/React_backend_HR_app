@@ -491,11 +491,38 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle } from 'lucide-react';
 import './Queries.css';
+import { hasFeature } from '../../utils/planFeatures';
 
 const API_BASE_URL = '/api/query';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
 
 const FALLBACK_DEPARTMENTS = ['Human Resource', 'Accounts', 'IT Department', 'Administration'];
+
+const isHrDepartmentName = (name) => {
+  const n = String(name || '').trim().toLowerCase();
+  return n === 'human resource' || n === 'human resources' || n === 'hr' || n.includes('human resource');
+};
+
+const isAccountsDepartmentName = (name) => {
+  const n = String(name || '').trim().toLowerCase();
+  return (
+    n === 'account' ||
+    n === 'accounts' ||
+    n === 'accountant' ||
+    n.startsWith('account') ||
+    n.includes('accounts')
+  );
+};
+
+const filterQueryDepartments = (list) => {
+  if (hasFeature('query_all_departments')) return list;
+  if (hasFeature('query_hr_and_accounts')) {
+    const filtered = list.filter((d) => isHrDepartmentName(d) || isAccountsDepartmentName(d));
+    return filtered.length ? filtered : ['Human Resource', 'Accounts'];
+  }
+  const hrOnly = list.filter(isHrDepartmentName);
+  return hrOnly.length ? hrOnly : ['Human Resource'];
+};
 
 export const Queries = () => {
   const location = useLocation();
@@ -518,7 +545,21 @@ export const Queries = () => {
     if (token) {
       fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
         .then((res) => res.json().catch(() => ({})))
-        .then((data) => { if (data.success && data.departments?.length) setDepartments(data.departments); });
+        .then((data) => {
+          if (!data.success || !data.departments?.length) return;
+          const list = filterQueryDepartments(data.departments);
+          setDepartments(list);
+          if (!hasFeature('query_all_departments')) {
+            const allowed = (dept) =>
+              hasFeature('query_hr_and_accounts')
+                ? isHrDepartmentName(dept) || isAccountsDepartmentName(dept)
+                : isHrDepartmentName(dept);
+            setFormData((prev) => ({
+              ...prev,
+              department: prev.department && allowed(prev.department) ? prev.department : list[0],
+            }));
+          }
+        });
     }
   }, []);
 
@@ -762,6 +803,9 @@ export const Queries = () => {
     }
   };
 
+  const hrOnlyQuery = !hasFeature('query_all_departments') && !hasFeature('query_hr_and_accounts');
+  const hrAccountsQuery = !hasFeature('query_all_departments') && hasFeature('query_hr_and_accounts');
+
   return (
     <div className="query-dashboard-container">
       <div className="query-inner">
@@ -771,13 +815,30 @@ export const Queries = () => {
             <div className="query-form-wrap">
               <div className="query-card-header">
                 <h2 className="query-section-title">Raise a Query</h2>
+                {hrOnlyQuery && (
+                  <p className="query-hint" style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                    Queries on Basic plan are sent to Human Resource only.
+                  </p>
+                )}
+                {hrAccountsQuery && (
+                  <p className="query-hint" style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                    Queries can be raised for Human Resource or Accounts only.
+                  </p>
+                )}
               </div>
               {actionError && <div className="query-error">{actionError}</div>}
               <form onSubmit={handleSubmit} className="query-form">
                 <div className="query-form-row">
                   <div className="query-form-group">
                     <label className="query-label">Department</label>
-                    <select className="query-input" value={formData.department} onChange={(e) => setFormData({...formData, department: e.target.value})} required>
+                    <select
+                      className="query-input"
+                      value={formData.department}
+                      onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                      required
+                      disabled={hrOnlyQuery}
+                      style={hrOnlyQuery ? { opacity: 0.9 } : undefined}
+                    >
                       <option value="">Select Department</option>
                       {departments.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>

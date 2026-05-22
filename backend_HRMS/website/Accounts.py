@@ -46,6 +46,28 @@ from reportlab.pdfgen import canvas
 Accounts = Blueprint('Accounts', __name__)
 
 
+_ACCOUNTS_ROUTE_FEATURES = (
+    ("account_payroll", ("/payroll", "/payroll-summary")),
+    ("account_ctc_breakup", ("/ctc-breakup",)),
+    ("account_for_client", ("/download-excel-client",)),
+)
+
+
+@Accounts.before_request
+def _accounts_plan_guard():
+    from flask import request
+    from .plan_features import has_feature, plan_forbidden_response
+
+    if request.method == "OPTIONS":
+        return None
+    if not has_feature("account_panel"):
+        return plan_forbidden_response("account_panel")
+
+    path = (request.path or "").lower()
+    for feature, prefixes in _ACCOUNTS_ROUTE_FEATURES:
+        if any(p in path for p in prefixes) and not has_feature(feature):
+            return plan_forbidden_response(feature)
+    return None
 
 
 def accounts_department_required(fn):
@@ -1424,8 +1446,8 @@ def payroll_summary():
     current_year = str(now.year)
 
     total_employees = Admin.query.filter(
-        Admin.is_active == True,
-        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+        db.func.coalesce(Admin.is_exited, False) == False,
+        db.func.coalesce(Admin.is_active, True) == True,
     ).count()
 
     payslips_generated = PaySlip.query.filter_by(

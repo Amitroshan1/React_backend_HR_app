@@ -184,6 +184,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
+import { setPlanContext } from "../utils/planFeatures";
 
 import "./style/HeroSection.css";
 
@@ -309,6 +310,7 @@ export const HeroSection = () => {
     if (data.success) {
       localStorage.setItem("token", data.token);
       localStorage.setItem("lastActivityAt", String(Date.now()));
+      setPlanContext(data.plan, data.features);
       await refreshUserData();
       toast.success("Login successful!");
       navigate("/dashboard", { replace: true }); // replace login in history so Back doesn't show login again

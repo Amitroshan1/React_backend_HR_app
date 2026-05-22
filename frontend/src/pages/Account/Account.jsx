@@ -7,6 +7,7 @@ import {
 import './Account.css';
 import { useUser } from '../../components/layout/UserContext';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
+import { hasFeature } from '../../utils/planFeatures';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
 
@@ -326,6 +327,10 @@ export const Account = ()  => {
   };
 
   const handleDownloadClientAttendanceExcel = () => {
+    if (!hasFeature('account_for_client')) {
+      alert('For Client export is not included in your subscription plan.');
+      return;
+    }
     if (!selectedDept || !selectedCircle) {
       alert('Please select department and circle first.');
       return;
@@ -588,6 +593,10 @@ export const Account = ()  => {
   };
 
   const handleOpenCtcBreakup = (emp) => {
+    if (!hasFeature('account_ctc_breakup')) {
+      alert('CTC Breakup is not included in your subscription plan.');
+      return;
+    }
     setPreviousView(currentView);
     setSelectedEmployee(emp);
     setCtcForm({
@@ -1003,6 +1012,10 @@ export const Account = ()  => {
   };
 
   const handleOpenBulkPayroll = () => {
+    if (!hasFeature('account_payroll')) {
+      alert('Payroll is not included in your subscription plan.');
+      return;
+    }
     const now = new Date();
     const monthName = now.toLocaleString('en-US', { month: 'long' });
     setPreviousView(currentView);
@@ -1521,7 +1534,7 @@ export const Account = ()  => {
                 <th>Bank Details</th>
                 <th>Update</th>
                 <th>Form 16</th>
-                <th>CTC Breakup</th>
+                {hasFeature('account_ctc_breakup') ? <th>CTC Breakup</th> : null}
                 <th>Working Days</th>
               </tr>
             </thead>
@@ -1544,14 +1557,16 @@ export const Account = ()  => {
                       Add Form16
                     </button>
                   </td>
-                  <td>
-                    <button
-                      className="text-link"
-                      onClick={() => handleOpenCtcBreakup(emp)}
-                    >
-                      CTC Breakup
-                    </button>
-                  </td>
+                  {hasFeature('account_ctc_breakup') ? (
+                    <td>
+                      <button
+                        className="text-link"
+                        onClick={() => handleOpenCtcBreakup(emp)}
+                      >
+                        CTC Breakup
+                      </button>
+                    </td>
+                  ) : null}
                   <td>{emp.workingDays}</td>
                 </tr>
               ))}
@@ -1563,18 +1578,22 @@ export const Account = ()  => {
            <button className="btn-success" onClick={handleDownloadAttendanceExcel}>
              <Download size={16}/> Attendance Excel
            </button>
+           {hasFeature('account_for_client') ? (
            <button className="btn-secondary" onClick={handleDownloadClientAttendanceExcel}>
              <Download size={16}/> For Client
            </button>
+           ) : null}
            <button className="btn-warning" onClick={handleOpenBulkPayslip}>
              <Upload size={16}/> Bulk Payslips
            </button>
            <button className="btn-primary" onClick={handleOpenBulkForm16}>
              <Upload size={16}/> Bulk Form 16
            </button>
+           {hasFeature('account_payroll') ? (
            <button className="btn-secondary" onClick={handleOpenBulkPayroll} disabled={isBulkPayrollGenerating}>
              <Calculator size={16}/> Payroll
            </button>
+           ) : null}
         </div>
       </div>
     </div>
@@ -2549,7 +2568,11 @@ export const Account = ()  => {
             <button className="btn-back" onClick={() => setCurrentView('employees')}><ArrowLeft size={18}/> Back</button>
             <div className="table-container-card">
               <div className="card-header-row">
-                <h3 className="section-title">Employee Accounts Profile</h3>
+                <h3 className="section-title">
+                  {hasFeature('account_full_employee_view')
+                    ? 'Employee Accounts Profile'
+                    : 'Uploaded Documents'}
+                </h3>
               </div>
               <p style={{ marginTop: 0, color: '#64748b' }}>
                 {selectedEmployee?.name || 'Employee'} ({selectedEmployee?.id || '-'}) — {selectedEmployee?.email || '-'}
@@ -2559,6 +2582,8 @@ export const Account = ()  => {
               {accountsProfileError && <div className="q-error">{accountsProfileError}</div>}
               {accountsProfileSuccess && <div className="q-success">{accountsProfileSuccess}</div>}
 
+              {hasFeature('account_full_employee_view') && (
+              <>
               <div className={`accounts-two-col-grid ${isHr ? '' : 'accounts-readonly'}`}>
                 <div>
                   <div className="input-group">
@@ -2727,12 +2752,12 @@ export const Account = ()  => {
                   null
                 )}
               </div>
-            </div>
+              </>
+              )}
 
-            <div className="table-container-card" style={{ marginTop: '16px' }}>
-              <div className="card-header-row">
-                <h3 className="section-title">Uploaded Documents</h3>
-              </div>
+              {hasFeature('account_full_employee_view') ? (
+                <h4 className="section-title" style={{ marginTop: '16px' }}>Uploaded Documents</h4>
+              ) : null}
               {(() => {
                 const docs = selectedEmployee?.documents || {};
                 const docItems = [

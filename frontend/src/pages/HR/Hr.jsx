@@ -23,6 +23,7 @@ import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
+import { hasFeature } from '../../utils/planFeatures';
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -1264,12 +1265,10 @@ export const Hr = () => {
     }
   };
 
-  const employeeDetailsOptions = ['Profile', 'Attendance', 'Punch In/Out', 'Employee Accounts'];
-
   const [selectedEmployeeForAction, setSelectedEmployeeForAction] = useState(null);
 
   const stats = [
-    { title: 'Total Employees', value: String(counts.total_employees), subtitle: 'All active', icon: Users, color: 'blue' },
+    { title: 'Total Employees', value: String(counts.enabled_employees ?? counts.total_employees), subtitle: 'Enabled employees', icon: Users, color: 'blue' },
     { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green' },
     { title: 'Active Today', value: String(counts.today_punch_in_count), subtitle: 'Punched in today', icon: UserCheck, color: 'teal' },
   ];
@@ -1290,6 +1289,22 @@ export const Hr = () => {
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
     { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
+  ];
+
+  const isUpdateOptionAllowed = (title) => {
+    if (title === 'Assessment Invite') return hasFeature('hr_assessment_invite');
+    if (title === 'Add Department And Circle') return hasFeature('hr_add_dept_circle');
+    if (title === 'Ex-Employee Document Sharing') return hasFeature('hr_ex_employee_docs');
+    return true;
+  };
+
+  const visibleUpdateOptions = updateOptions.filter((o) => isUpdateOptionAllowed(o.title));
+
+  const employeeDetailsOptions = [
+    'Profile',
+    'Attendance',
+    'Punch In/Out',
+    ...(hasFeature('hr_employee_accounts') ? ['Employee Accounts'] : []),
   ];
 
   const handleSearch = async () => {
@@ -1436,7 +1451,13 @@ export const Hr = () => {
         }
         const data = await res.json();
         if (cancelled || !data.success) return;
-        setCounts(data.counts || {});
+        setCounts({
+          total_employees: 0,
+          enabled_employees: 0,
+          new_joinees_last_30_days: 0,
+          today_punch_in_count: 0,
+          ...(data.counts || {}),
+        });
         setBirthdays(data.birthdays || []);
         setAnniversaries(data.anniversaries || []);
         setDashboardError(null);
@@ -1549,10 +1570,20 @@ export const Hr = () => {
     if (option === 'Profile') setView('employee_profile');
     else if (option === 'Attendance') setView('employee_attendance');
     else if (option === 'Punch In/Out') setView('punch_form');
-    else if (option === 'Employee Accounts') setView('employee_accounts');
+    else if (option === 'Employee Accounts') {
+      if (!hasFeature('hr_employee_accounts')) {
+        alert('Employee Accounts is not included in your subscription plan.');
+        return;
+      }
+      setView('employee_accounts');
+    }
   };
 
   const handleUpdateCardClick = (title) => {
+    if (!isUpdateOptionAllowed(title)) {
+      alert('This feature is not included in your subscription plan.');
+      return;
+    }
     if (title === 'Sign Up') {
       setSignupSuccess(false);
       setSignupError('');
@@ -1927,7 +1958,7 @@ if (view === 'noc_requests') {
           <ArrowLeft size={18} /> Back to HR Panel
         </button>
         <div className="updates-grid">
-          {updateOptions.map((option) => (
+          {visibleUpdateOptions.map((option) => (
             <div key={option.title} className="update-card" onClick={() => handleUpdateCardClick(option.title)}>
               <div className="update-icon-box">
                 <option.icon size={24} />
@@ -2021,7 +2052,7 @@ if (view === 'noc_requests') {
         <div className="stat-card stat-card-updates clickable" onClick={() => setView('updates')}>
           <div className="stat-content">
             <p className="stat-label">Updates</p>
-            <h3 className="stat-value">{updateOptions.length}</h3>
+            <h3 className="stat-value">{visibleUpdateOptions.length}</h3>
             <p className="stat-sub">Click to manage</p>
           </div>
           <div className="stat-icon-bg stat-icon-updates">

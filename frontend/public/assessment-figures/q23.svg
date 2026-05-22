@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 200" width="520" height="200">
+  <text x="260" y="18" text-anchor="middle" font-size="12" font-weight="600">Coffee prices per 100g (use quantities as weights)</text>
+  <rect x="40" y="30" width="440" height="28" fill="#1e40af"/>
+  <text x="55" y="49" fill="#fff" font-size="11" font-weight="bold">Brand</text>
+  <text x="150" y="49" fill="#fff" font-size="11" font-weight="bold">Price (Rs/100g)</text>
+  <text x="280" y="49" fill="#fff" font-size="11" font-weight="bold">Qty (g)</text>
+  <text x="400" y="49" fill="#fff" font-size="11" font-weight="bold">Weight</text>
+  <g font-size="11" fill="#0f172a">
+    <rect x="40" y="58" width="440" height="24" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="55" y="74">Brand A</text><text x="150" y="74">120</text><text x="280" y="74">200</text><text x="400" y="74">200</text>
+    <rect x="40" y="82" width="440" height="24" fill="#fff" stroke="#e2e8f0"/>
+    <text x="55" y="98">Brand B</text><text x="150" y="98">95</text><text x="280" y="98">150</text><text x="400" y="98">150</text>
+    <rect x="40" y="106" width="440" height="24" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="55" y="122">Brand C</text><text x="150" y="122">110</text><text x="280" y="122">300</text><text x="400" y="122">300</text>
+    <rect x="40" y="130" width="440" height="24" fill="#fff" stroke="#e2e8f0"/>
+    <text x="55" y="146">Brand D</text><text x="150" y="146">130</text><text x="280" y="146">100</text><text x="400" y="146">100</text>
+  </g>
+  <text x="260" y="175" text-anchor="middle" font-size="10" fill="#64748b">Compute weighted average price from the table above</text>
+</svg>

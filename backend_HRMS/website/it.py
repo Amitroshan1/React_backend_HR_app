@@ -29,6 +29,17 @@ from .noc_department_service import download_noc_document, list_noc_requests, up
 it_bp = Blueprint("it", __name__)
 
 
+@it_bp.before_request
+def _it_plan_guard():
+    from .plan_features import has_feature, plan_forbidden_response
+
+    if request.method == "OPTIONS":
+        return None
+    if not has_feature("it_panel"):
+        return plan_forbidden_response("it_panel")
+    return None
+
+
 def _ok(payload=None, message="OK", code=200):
     body = {"success": True, "message": message}
     if payload:

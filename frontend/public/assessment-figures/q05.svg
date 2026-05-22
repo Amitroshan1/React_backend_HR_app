@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 140" width="420" height="140">
+  <text x="210" y="28" text-anchor="middle" font-size="26" font-weight="bold" letter-spacing="3">ANS43Q12</text>
+  <text x="210" y="48" text-anchor="middle" font-size="11" fill="#64748b">Which option is the mirror image?</text>
+  <text x="30" y="95" font-size="12" font-weight="600">A)</text>
+  <text x="30" y="118" font-size="14" transform="scale(-1,1) translate(-60,0)">21Q34SNA</text>
+  <text x="120" y="95" font-size="12" font-weight="600">B)</text>
+  <text x="120" y="118" font-size="14">ANS43Q12</text>
+  <text x="210" y="95" font-size="12" font-weight="600">C)</text>
+  <text x="210" y="118" font-size="14" transform="scale(-1,1) translate(-420,0)">21Q34SNA</text>
+  <text x="300" y="95" font-size="12" font-weight="600">D)</text>
+  <text x="300" y="118" font-size="14" transform="scale(1,-1) translate(0,-236)">ANS43Q12</text>
+</svg>

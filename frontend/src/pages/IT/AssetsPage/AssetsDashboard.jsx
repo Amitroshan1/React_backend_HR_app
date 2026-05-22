@@ -266,6 +266,19 @@ function daysLeft(end) {
   return Math.ceil((new Date(end) - Date.now()) / 864e5);
 }
 
+/** typeof null === "object" in JS — use this before reading .empId on assignedTo. */
+function isAssignedToObject(assignedTo) {
+  return assignedTo != null && typeof assignedTo === "object";
+}
+
+function formatAssignedToLabel(assignedTo) {
+  if (!assignedTo) return "—";
+  if (isAssignedToObject(assignedTo)) {
+    return assignedTo.empId || assignedTo.name || "—";
+  }
+  return String(assignedTo);
+}
+
 /** Lowercased concatenation of fields used by main table search (Available + Assigned). */
 function assetSearchBlob(a) {
   const parts = [
@@ -336,7 +349,7 @@ function buildAssignedData() {
     let empName = "—";
     let adminId = null;
 
-    if (typeof assignedTo === "object") {
+    if (isAssignedToObject(assignedTo)) {
       adminId = assignedTo.adminId || assignedTo.id || null;
       empId = assignedTo.empId || "—";
       empName = assignedTo.name || "—";
@@ -427,14 +440,18 @@ function AvailableDetailPanel({ item, onClose }) {
       );
 
   const hwAvail = units.filter((u) => u.status === "available");
-  const hwAssigned = units.filter((u) => u.status === "assigned");
+  const hwAssigned = units.filter(
+    (u) => u.status === "assigned" && u.assignedTo,
+  );
   const hwNotWorking = units.filter((u) => u.status === "not-working");
   const hwRepair = units.filter((u) => u.status === "repair");
 
   const swSeats = isSoftware
     ? (getSoftwareInventory() || []).filter((s) => s.name === item.name)
     : [];
-  const swAssigned = swSeats.filter((s) => s.status === "assigned");
+  const swAssigned = swSeats.filter(
+    (s) => s.status === "assigned" && s.assignedTo,
+  );
   const swAvail = swSeats.filter((s) => s.status === "available");
 
   const tabCounts = {
@@ -556,11 +573,7 @@ function AvailableDetailPanel({ item, onClose }) {
                         </td>
                         <td>{fmt(s.subscriptionStart)}</td>
                         <td>{fmt(s.subscriptionEnd || s.licenseExpiry)}</td>
-                        <td>
-                          {typeof s.assignedTo === "object"
-                            ? s.assignedTo.empId || s.assignedTo.name || "—"
-                            : s.assignedTo || "—"}
-                        </td>
+                        <td>{formatAssignedToLabel(s.assignedTo)}</td>
                       </tr>
                     );
                   })}
@@ -885,7 +898,7 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
 
   const assignedEmpId = useCallback((assignedTo) => {
     if (!assignedTo) return "";
-    if (typeof assignedTo === "object") {
+    if (isAssignedToObject(assignedTo)) {
       return String(assignedTo.empId || assignedTo.id || "").trim();
     }
     return String(assignedTo).trim();
@@ -990,8 +1003,9 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
   const handleRemoveFromIT = useCallback(
     async (unit, removedBy, reason) => {
       const isSw = normCat(unit.category) === "Software";
-      const ownerAdminId =
-        typeof unit.assignedTo === "object" ? unit.assignedTo.adminId || null : null;
+      const ownerAdminId = isAssignedToObject(unit.assignedTo)
+        ? unit.assignedTo.adminId || null
+        : null;
       const cleanReason = String(reason || "").trim();
 
       try {

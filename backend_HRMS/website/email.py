@@ -2468,13 +2468,13 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
         if not sender_email:
             return False, "ZEPTO_SENDER_EMAIL not configured"
         vm = max(1, int(valid_minutes))
-        subject = f"Assessment Test Link (Valid for {vm} minutes)"
+        subject = f"Assessment Test Link (Start within {vm} minutes)"
         body = f"""
         <p>Hello {html.escape(candidate_name or 'Candidate')},</p>
         <p>Your assessment link is ready.</p>
         <p><strong>Department:</strong> {html.escape(department or '-')}</p>
         <p><a href="{assessment_url}" target="_blank">Click here to open your assessment</a></p>
-        <p>This link is valid for <strong>{vm}</strong> minutes and one attempt only.</p>
+        <p>This link must be opened and started within <strong>{vm}</strong> minutes. After you start, you have the full test duration to complete and submit (see instructions on the assessment page).</p>
         <p>Regards,<br><strong>HR Team</strong></p>
         """
         cc_candidates = []

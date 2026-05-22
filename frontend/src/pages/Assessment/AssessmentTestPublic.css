@@ -50,6 +50,28 @@
   color: #111827;
 }
 
+.assessment-figure-wrap {
+  margin: 10px 0 12px;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.assessment-figure-hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.assessment-figure {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
 .assessment-option {
   display: block;
   margin: 6px 0;

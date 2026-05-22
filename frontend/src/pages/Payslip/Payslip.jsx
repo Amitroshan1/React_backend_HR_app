@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useUser } from "../../components/layout/UserContext";
+import { hasFeature } from "../../utils/planFeatures";
 import "./Payslip.css";
 
 const API_BASE_URL = "/api/accounts";
@@ -52,17 +53,25 @@ export const Payslip = () => {
         }
         setLoading(true);
         setError("");
-        Promise.all([
+        const showPayrollHistory = hasFeature("payslip_payroll_history");
+        const requests = [
             fetch(`${API_BASE_URL}/payslip/history/${userId}`, {
                 method: "GET",
                 headers: { Authorization: `Bearer ${token}` },
             }).then((res) => res.json()),
-            fetch(`${AUTH_API_BASE_URL}/employee/homepage`, {
-                method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
-            }).then((res) => res.json()).catch(() => ({})),
-        ])
-            .then(([result, dashboardResult]) => {
+        ];
+        if (showPayrollHistory) {
+            requests.push(
+                fetch(`${AUTH_API_BASE_URL}/employee/homepage`, {
+                    method: "GET",
+                    headers: { Authorization: `Bearer ${token}` },
+                }).then((res) => res.json()).catch(() => ({}))
+            );
+        }
+        Promise.all(requests)
+            .then((results) => {
+                const result = results[0];
+                const dashboardResult = showPayrollHistory ? results[1] : {};
                 if (result.success && Array.isArray(result.history)) {
                     setHistory(result.history);
                 } else {
@@ -70,9 +79,10 @@ export const Payslip = () => {
                     setHistory([]);
                 }
 
-                const payrollRows = Array.isArray(dashboardResult?.my_payroll_history)
-                    ? dashboardResult.my_payroll_history
-                    : [];
+                const payrollRows =
+                    showPayrollHistory && Array.isArray(dashboardResult?.my_payroll_history)
+                        ? dashboardResult.my_payroll_history
+                        : [];
                 setPayrollHistory(payrollRows);
             })
             .catch((err) => {
@@ -220,6 +230,7 @@ export const Payslip = () => {
                         </>
                     )}
 
+                    {hasFeature("payslip_payroll_history") && (
                     <div className="payroll-history-block">
                         <h3 className="payroll-history-title">Payroll History</h3>
                         {loading ? (
@@ -264,6 +275,7 @@ export const Payslip = () => {
                             </div>
                         )}
                     </div>
+                    )}
                 </div>
             </div>
         </div>
