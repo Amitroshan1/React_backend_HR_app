@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, Play, ShieldAlert, Trash2 } from "lucide-react";
 
 const HR_API_BASE = "/api/HumanResource";
+const ASSESSMENT_FIGURE_API = `${HR_API_BASE}/assessment/public`;
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
@@ -73,6 +74,40 @@ function IntegrityListBadges({ summary }) {
   if (summary.context_menu_blocks > 0) out.push(chip(`Menu ${summary.context_menu_blocks}`, "#0f766e", "#ccfbf1", "#5eead4"));
   if (out.length === 0) return <span style={{ color: "#94a3b8", fontSize: 12 }}>—</span>;
   return <span style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{out}</span>;
+}
+
+function assessmentFigureSrc(imageUrl) {
+  const url = String(imageUrl || "").trim();
+  if (!url) return "";
+  if (url.startsWith("/api/")) return url;
+  const name = url.split("/").filter(Boolean).pop();
+  if (name && /^q\d{2}\.svg$/i.test(name)) {
+    return `${ASSESSMENT_FIGURE_API}/figures/${name}`;
+  }
+  return url;
+}
+
+function AssessmentReviewFigure({ q }) {
+  const src = assessmentFigureSrc(q?.image_url);
+  if (!src) return null;
+  return (
+    <div
+      style={{
+        margin: "8px 0 10px",
+        padding: 10,
+        background: "#f8fafc",
+        border: "1px solid #e2e8f0",
+        borderRadius: 8,
+        overflowX: "auto",
+      }}
+    >
+      <img
+        src={src}
+        alt={`Figure for question ${q.number}`}
+        style={{ display: "block", maxWidth: "100%", height: "auto", margin: "0 auto" }}
+      />
+    </div>
+  );
 }
 
 function IntegrityReviewPanel({ integrity }) {
@@ -445,17 +480,38 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const objectiveMax = sec1Qs.length + sec2ObjectiveQs.length + sec3Qs.length;
   const overallMax = objectiveMax + sec2ManualQs.length;
 
-  const getObjectiveQuestionsByNumbers = (questionNumbers) => {
+  const questionsByNumber = useMemo(() => {
+    const map = new Map();
     const sections = selected?.questions || {};
-    const all = [...(sections.section_1 || []), ...(sections.section_2 || []), ...(sections.section_3 || [])];
-    const wanted = new Set(questionNumbers.map((n) => Number(n)));
-    return all.filter((q) => wanted.has(Number(q.number)));
+    for (const key of ["section_1", "section_2", "section_3"]) {
+      for (const q of sections[key] || []) {
+        map.set(Number(q.number), q);
+      }
+    }
+    return map;
+  }, [selected?.questions]);
+
+  const manualReviewQuestions = useMemo(() => {
+    const fromPayload = (selected?.questions?.section_2 || []).filter(
+      (q) => Number(q.number) >= 34 && Number(q.number) <= 62
+    );
+    if (fromPayload.length > 0) {
+      return [...fromPayload].sort((a, b) => Number(a.number) - Number(b.number));
+    }
+    return sec2ManualQs.map((n) => questionsByNumber.get(n) || { number: n, question: "", type: "subjective" });
+  }, [selected?.questions, sec2ManualQs, questionsByNumber]);
+
+  const getObjectiveQuestionsByNumbers = (questionNumbers) => {
+    const wanted = questionNumbers.map((n) => Number(n));
+    return wanted
+      .map((n) => questionsByNumber.get(n))
+      .filter(Boolean);
   };
 
   const renderObjectiveSection = (questionNumbers, title) => (
     <div style={{ marginTop: 14 }}>
       <h4 style={{ margin: "0 0 8px" }}>{title}</h4>
-      <div style={{ maxHeight: 190, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 8, background: "#fafafa" }}>
         {getObjectiveQuestionsByNumbers(questionNumbers).map((q) => {
           const qNo = Number(q.number);
           const b = (selected?.auto_breakdown || {})[String(qNo)] || {};
@@ -486,6 +542,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
             >
               <div>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>Q{qNo}. {q.question}</div>
+                <AssessmentReviewFigure q={q} />
                 {optionList.length > 0 && (
                   <div style={{ color: "#475569", fontSize: 13 }}>
                     {optionList.map((opt, idx) => {
@@ -702,24 +759,67 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
 
         <h4 style={{ marginTop: 16, marginBottom: 8 }}>Section 2B (Q34-Q62) Manual Marks</h4>
         <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 8, background: "#fff" }}>
-          {sec2ManualQs.map((q) => (
-            <div key={q} style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 10, marginBottom: 8 }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>Q{q}</div>
-                <textarea rows={2} value={String((selected.answers || {})[String(q)] || "")} readOnly />
+          {manualReviewQuestions.map((q) => {
+            const qNo = Number(q.number);
+            const answerRaw = (selected.answers || {})[String(qNo)];
+            const answerText = answerRaw == null ? "" : String(answerRaw);
+            const hasAnswer = answerText.trim().length > 0;
+            const rowMinRows = Math.min(12, Math.max(3, Math.ceil(answerText.length / 72) || 3));
+            return (
+              <div
+                key={qNo}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 120px",
+                  gap: 12,
+                  marginBottom: 14,
+                  paddingBottom: 14,
+                  borderBottom: "1px solid #f1f5f9",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a", lineHeight: 1.4 }}>
+                    Q{qNo}. {q.question || "(Question text unavailable)"}
+                  </div>
+                  <AssessmentReviewFigure q={q} />
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>Candidate answer</div>
+                  {hasAnswer ? (
+                    <textarea
+                      rows={rowMinRows}
+                      value={answerText}
+                      readOnly
+                      style={{
+                        width: "100%",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: 8,
+                        padding: 10,
+                        fontSize: 14,
+                        lineHeight: 1.5,
+                        resize: "vertical",
+                        background: "#f8fafc",
+                        color: "#0f172a",
+                      }}
+                    />
+                  ) : (
+                    <p style={{ margin: 0, fontSize: 14, color: "#94a3b8", fontStyle: "italic" }}>
+                      No answer submitted.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>Marks</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={marks[String(qNo)] ?? ""}
+                    onChange={(e) => setMarks((p) => ({ ...p, [String(qNo)]: e.target.value }))}
+                    style={{ width: "100%", marginTop: 4 }}
+                  />
+                </div>
               </div>
-              <div>
-                <label>Marks</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={marks[String(q)] ?? ""}
-                  onChange={(e) => setMarks((p) => ({ ...p, [String(q)]: e.target.value }))}
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="lau-modal-actions" style={{ marginTop: 12 }}>

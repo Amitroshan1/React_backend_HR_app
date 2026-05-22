@@ -5,15 +5,27 @@ import { AppFooter } from "../../components/layout/AppFooter";
 
 const API_BASE = "/api/HumanResource/assessment/public";
 
+function assessmentFigureSrc(q) {
+  const url = String(q?.image_url || "").trim();
+  if (!url) return "";
+  if (url.startsWith("/api/")) return url;
+  const name = url.split("/").filter(Boolean).pop();
+  if (name && /^q\d{2}\.svg$/i.test(name)) {
+    return `${API_BASE}/figures/${name}`;
+  }
+  return url;
+}
+
 function AssessmentFigure({ q }) {
-  if (!q?.image_url) return null;
+  const src = assessmentFigureSrc(q);
+  if (!src) return null;
   return (
     <div className="assessment-figure-wrap">
       {q.image_instruction ? (
         <p className="assessment-figure-hint">{q.image_instruction}</p>
       ) : null}
       <img
-        src={q.image_url}
+        src={src}
         alt={`Figure for question ${q.number}`}
         className="assessment-figure"
         loading="lazy"

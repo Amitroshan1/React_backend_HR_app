@@ -14,7 +14,7 @@ import json
 import base64
 import mimetypes
 import uuid
-from flask import Blueprint, request, current_app, jsonify, send_file
+from flask import Blueprint, request, current_app, jsonify, send_file, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
@@ -2849,8 +2849,9 @@ ASSESSMENT_LINK_TTL_MINUTES = 15
 ASSESSMENT_DURATION_MINUTES = 180
 ASSESSMENT_ANY_OPTION_CORRECT_QS = tuple(range(26, 34))
 ASSESSMENT_MANUAL_QS = tuple(range(34, 63))
-ASSESSMENT_FIGURE_BASE = "/assessment-figures"
+ASSESSMENT_FIGURE_BASE = "/api/HumanResource/assessment/public/figures"
 ASSESSMENT_QUESTIONS_WITH_FIGURES = (3, 4, 5, 6, 7, 12, 23)
+ASSESSMENT_FIGURE_FILENAMES = {f"q{n:02d}.svg" for n in ASSESSMENT_QUESTIONS_WITH_FIGURES}
 
 ASSESSMENT_OBJECTIVE_ANSWER_KEY = {
     1: 2, 2: 1, 3: 3, 4: 4, 5: 2, 6: 3, 7: 3, 8: 1, 9: 3, 10: 1,
@@ -2860,6 +2861,19 @@ ASSESSMENT_OBJECTIVE_ANSWER_KEY = {
     73: 2, 74: 1, 75: 4, 76: 3, 77: 1, 78: 2, 79: 3, 80: 4, 81: 4, 82: 3,
     83: 2, 84: 4, 85: 1, 86: 4, 87: 2,
 }
+
+
+def _assessment_figures_directory():
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(here, "..", ".."))
+    candidates = [
+        os.path.join(repo_root, "frontend", "public", "assessment-figures"),
+        os.path.join(current_app.root_path, "static", "assessment-figures"),
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            return path
+    return candidates[0]
 
 
 def _assessment_attach_figures(questions):
@@ -3592,6 +3606,18 @@ def evaluate_assessment_invite(invite_id):
             },
         }
     ), 200
+
+
+@hr.route("/assessment/public/figures/<filename>", methods=["GET"])
+def assessment_public_figure(filename):
+    safe = os.path.basename((filename or "").strip())
+    if safe not in ASSESSMENT_FIGURE_FILENAMES:
+        return jsonify({"success": False, "message": "Not found"}), 404
+    directory = _assessment_figures_directory()
+    full_path = os.path.join(directory, safe)
+    if not os.path.isfile(full_path):
+        return jsonify({"success": False, "message": "Figure file missing"}), 404
+    return send_from_directory(directory, safe, mimetype="image/svg+xml")
 
 
 @hr.route("/assessment/public/status", methods=["GET"])
