@@ -192,6 +192,20 @@
   }
 }
 
+@media (min-width: 1200px) {
+  .expense-claims-filters {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.expense-claims-filters .expense-claims-month-input {
+  cursor: pointer;
+}
+
+.expense-claims-filters .expense-claims-month-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
 .expense-claims-filters .input-group {
   margin-bottom: 0;
   min-width: 0;

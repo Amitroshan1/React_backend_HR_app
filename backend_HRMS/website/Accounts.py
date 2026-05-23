@@ -1504,8 +1504,36 @@ def list_expense_claims():
     circle = (request.args.get("circle") or "").strip()
     emp_type = (request.args.get("emp_type") or "").strip()
     q = (request.args.get("q") or "").strip()
+    month_year_raw = (request.args.get("month_year") or "").strip()
+    month_raw = (request.args.get("month") or "All").strip()
+    year_raw = (request.args.get("year") or "All").strip()
     from_date_raw = (request.args.get("from_date") or "").strip()
     to_date_raw = (request.args.get("to_date") or "").strip()
+
+    filter_month = None
+    filter_year = None
+    if month_year_raw:
+        try:
+            parts = month_year_raw.split("-")
+            if len(parts) < 2:
+                raise ValueError("month_year must be YYYY-MM")
+            filter_year = int(parts[0])
+            filter_month = int(parts[1])
+            if filter_month < 1 or filter_month > 12:
+                raise ValueError("invalid month")
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid month_year (YYYY-MM)"}), 400
+    else:
+        if month_raw.lower() != "all":
+            try:
+                filter_month = _parse_month_to_num(month_raw)
+            except ValueError:
+                return jsonify({"success": False, "message": "Invalid month"}), 400
+        if year_raw.lower() != "all":
+            try:
+                filter_year = int(str(year_raw).strip())
+            except ValueError:
+                return jsonify({"success": False, "message": "Invalid year"}), 400
 
     from_date = None
     to_date = None
@@ -1566,6 +1594,10 @@ def list_expense_claims():
                 continue
             if to_date and li.date and li.date > to_date:
                 continue
+            if filter_month and (not li.date or li.date.month != filter_month):
+                continue
+            if filter_year and (not li.date or li.date.year != filter_year):
+                continue
             file_path = claim_attach_storage_name(li.Attach_file) if li.Attach_file else None
             items_out.append(
                 {
@@ -1582,7 +1614,7 @@ def list_expense_claims():
                 }
             )
 
-        if (from_date or to_date) and not items_out:
+        if (from_date or to_date or filter_month or filter_year) and not items_out:
             continue
 
         claims_out.append(

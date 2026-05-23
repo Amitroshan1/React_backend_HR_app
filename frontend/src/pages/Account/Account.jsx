@@ -95,6 +95,7 @@ export const Account = ()  => {
   const [expenseClaimFilters, setExpenseClaimFilters] = useState({
     circle: 'All',
     emp_type: 'All',
+    month_year: '',
     q: '',
   });
   const [expenseClaimFilterOptions, setExpenseClaimFilterOptions] = useState({
@@ -382,6 +383,9 @@ export const Account = ()  => {
       }
       if (expenseClaimFilters.emp_type && expenseClaimFilters.emp_type !== 'All') {
         params.set('emp_type', expenseClaimFilters.emp_type);
+      }
+      if (expenseClaimFilters.month_year) {
+        params.set('month_year', expenseClaimFilters.month_year);
       }
       if (expenseClaimFilters.q.trim()) {
         params.set('q', expenseClaimFilters.q.trim());
@@ -2693,7 +2697,7 @@ export const Account = ()  => {
     }, delay);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, expenseClaimFilters.circle, expenseClaimFilters.emp_type, expenseClaimFilters.q]);
+  }, [currentView, expenseClaimFilters.circle, expenseClaimFilters.emp_type, expenseClaimFilters.month_year, expenseClaimFilters.q]);
 
   const renderExpenseClaims = () => (
     <div className="fade-in">
@@ -2732,6 +2736,15 @@ export const Account = ()  => {
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
+          </div>
+          <div className="input-group expense-claims-month-year">
+            <label>Month &amp; Year</label>
+            <input
+              type="month"
+              className="custom-select expense-claims-month-input"
+              value={expenseClaimFilters.month_year}
+              onChange={(e) => setExpenseClaimFilters((p) => ({ ...p, month_year: e.target.value }))}
+            />
           </div>
           <div className="input-group expense-claims-search">
             <label>Search</label>
