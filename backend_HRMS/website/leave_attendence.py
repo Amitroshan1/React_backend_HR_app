@@ -14,6 +14,7 @@ from .models.holiday_calendar import HolidayCalendar
 from .models.manager_model import ManagerContact
 from sqlalchemy import or_, func
 from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email,send_noc_request_email
+from .expense_utils import claim_attach_storage_name
 from .manager_utils import get_manager_emails
 from .utility import generate_attendance_excel, send_excel_file
 from . import db
@@ -1058,10 +1059,11 @@ def submit_expense_claim():
             if index < len(files):
                 file = files[index]
                 if file and file.filename:
-                    filename = secure_filename(
+                    basename = secure_filename(
                         f"{data.get('emp_id')}_{header.id}_{index+1}_{file.filename}"
                     )
-                    file.save(os.path.join(upload_folder, filename))
+                    file.save(os.path.join(upload_folder, basename))
+                    filename = claim_attach_storage_name(basename)
 
             try:
                 item_date = datetime.strptime(

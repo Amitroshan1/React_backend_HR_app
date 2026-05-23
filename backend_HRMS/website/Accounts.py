@@ -6,7 +6,7 @@
 
 from flask import Blueprint, request, current_app, jsonify,json, send_from_directory, send_file
 from flask_jwt_extended import jwt_required, get_jwt
-from .email import send_email_via_zeptomail,send_welcome_email,send_payslip_uploaded_email,send_form16_uploaded_email
+from .email import send_email_via_zeptomail,send_welcome_email,send_payslip_uploaded_email,send_form16_uploaded_email,send_claim_line_item_decision_email
 from .models.Admin_models import Admin
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
@@ -20,6 +20,7 @@ from .utility import (
     calculate_monthly_payroll_from_ctc_and_attendance,
     calculate_actual_working_days_Accounts,
 )
+from .circle_transfer_utils import fetch_admins_for_attendance_export
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
@@ -34,7 +35,8 @@ from . import db
 from .noc_department_service import download_noc_document, list_noc_requests, upload_noc_document
 from werkzeug.utils import secure_filename
 from sqlalchemy import func, or_
-from .models.expense import ExpenseLineItem
+from .models.expense import ExpenseLineItem, ExpenseClaimHeader
+from .expense_utils import claim_attach_storage_name
 from .models.employee_accounts import EmployeeAccounts
 from .models.ctc_breakup import CTCBreakup
 from .models.monthly_payroll import MonthlyPayroll
@@ -1262,6 +1264,16 @@ def serve_uploaded_file(relative_path):
         except Exception:
             pass
 
+    # Claim receipts: stored under uploads/expenses/; DB may hold basename or expenses/name
+    if "/" not in normalized:
+        expense_rel = os.path.join("expenses", normalized)
+        expense_full = os.path.join(static_uploads_root, expense_rel)
+        if os.path.isfile(expense_full):
+            try:
+                return send_from_directory(static_uploads_root, expense_rel, as_attachment=False)
+            except Exception:
+                pass
+
     return jsonify({
         "success": False,
         "message": "File not found on server."
@@ -1336,19 +1348,6 @@ def download_excel_acc_api():
             "message": "circle and emp_type are required"
         }), 400
 
-    admins = Admin.query.filter(
-        Admin.circle == circle,
-        Admin.emp_type == emp_type,
-        Admin.is_active == True,
-        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
-    ).all()
-
-    if not admins:
-        return jsonify({
-            "success": False,
-            "message": "No employees found"
-        }), 404
-
     if month_str:
         try:
             year, month = map(int, month_str.split("-"))
@@ -1360,6 +1359,14 @@ def download_excel_acc_api():
     else:
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
         year, month = now.year, now.month
+
+    admins = fetch_admins_for_attendance_export(circle, emp_type, year, month)
+
+    if not admins:
+        return jsonify({
+            "success": False,
+            "message": "No employees found"
+        }), 404
 
     output = generate_attendance_excel_Accounts(
         admins=admins,
@@ -1390,19 +1397,6 @@ def download_excel_client_api():
             "message": "circle and emp_type are required"
         }), 400
 
-    admins = Admin.query.filter(
-        Admin.circle == circle,
-        Admin.emp_type == emp_type,
-        Admin.is_active == True,
-        or_(Admin.is_exited == False, Admin.is_exited.is_(None))
-    ).all()
-
-    if not admins:
-        return jsonify({
-            "success": False,
-            "message": "No employees found"
-        }), 404
-
     if month_str:
         try:
             year, month = map(int, month_str.split("-"))
@@ -1415,10 +1409,20 @@ def download_excel_client_api():
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
         year, month = now.year, now.month
 
+    admins = fetch_admins_for_attendance_export(circle, emp_type, year, month)
+
+    if not admins:
+        return jsonify({
+            "success": False,
+            "message": "No employees found"
+        }), 404
+
     output = generate_client_attendance_excel(
         admins=admins,
         year=year,
-        month=month
+        month=month,
+        circle=circle,
+        emp_type=emp_type,
     )
 
     filename = f"Client_Attendance_{circle}_{emp_type}_{calendar.month_name[month]}_{year}.xlsx"
@@ -1472,6 +1476,235 @@ def payroll_summary():
             "ytd_expenses": float(ytd_expenses or 0)
         }
     }), 200
+
+
+def _claim_status_from_line_items(items):
+    if not items:
+        return "Pending"
+    statuses = {str(i.status or "Pending") for i in items}
+    if statuses == {"Approved"}:
+        return "Approved"
+    if statuses == {"Rejected"}:
+        return "Rejected"
+    if "Pending" in statuses:
+        return "Pending"
+    return "Partially Approved"
+
+
+@Accounts.route("/expense-claims", methods=["GET"])
+@jwt_required()
+def list_expense_claims():
+    """Accounts: list all expense claims with optional filters."""
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    status = (request.args.get("status") or "All").strip()
+    circle = (request.args.get("circle") or "").strip()
+    emp_type = (request.args.get("emp_type") or "").strip()
+    q = (request.args.get("q") or "").strip()
+    from_date_raw = (request.args.get("from_date") or "").strip()
+    to_date_raw = (request.args.get("to_date") or "").strip()
+
+    from_date = None
+    to_date = None
+    try:
+        if from_date_raw:
+            from_date = datetime.fromisoformat(from_date_raw[:10]).date()
+        if to_date_raw:
+            to_date = datetime.fromisoformat(to_date_raw[:10]).date()
+    except ValueError:
+        return jsonify({"success": False, "message": "Invalid from_date or to_date (YYYY-MM-DD)"}), 400
+
+    rows = (
+        ExpenseClaimHeader.query
+        .join(Admin, ExpenseClaimHeader.admin_id == Admin.id)
+        .order_by(ExpenseClaimHeader.id.desc())
+        .all()
+    )
+
+    claims_out = []
+    for row in rows:
+        emp = row.admin
+        if circle and circle.lower() != "all":
+            if (getattr(emp, "circle", None) or "").strip().lower() != circle.lower():
+                continue
+        if emp_type and emp_type.lower() != "all":
+            if (getattr(emp, "emp_type", None) or "").strip().lower() != emp_type.lower():
+                continue
+        if q:
+            like = q.lower()
+            haystack = " ".join(
+                filter(
+                    None,
+                    [
+                        row.employee_name,
+                        row.emp_id,
+                        row.email,
+                        row.project_name,
+                        getattr(emp, "first_name", None),
+                        getattr(emp, "email", None),
+                    ],
+                )
+            ).lower()
+            if like not in haystack:
+                continue
+
+        line_items = (
+            ExpenseLineItem.query.filter_by(claim_id=row.id)
+            .order_by(ExpenseLineItem.sr_no.asc())
+            .all()
+        )
+        derived_status = _claim_status_from_line_items(line_items)
+        if status and status.lower() != "all" and derived_status.lower() != status.lower():
+            continue
+
+        items_out = []
+        for li in line_items:
+            if from_date and li.date and li.date < from_date:
+                continue
+            if to_date and li.date and li.date > to_date:
+                continue
+            file_path = claim_attach_storage_name(li.Attach_file) if li.Attach_file else None
+            items_out.append(
+                {
+                    "id": li.id,
+                    "sr_no": li.sr_no,
+                    "date": li.date.isoformat() if li.date else None,
+                    "purpose": li.purpose,
+                    "amount": float(li.amount or 0),
+                    "currency": li.currency,
+                    "status": li.status,
+                    "attach_file": li.Attach_file,
+                    "file_path": file_path,
+                    "rejection_reason": getattr(li, "rejection_reason", None),
+                }
+            )
+
+        if (from_date or to_date) and not items_out:
+            continue
+
+        claims_out.append(
+            {
+                "id": row.id,
+                "employee_name": row.employee_name or (emp.first_name if emp else ""),
+                "employee_email": row.email or (emp.email if emp else ""),
+                "emp_id": row.emp_id or (emp.emp_id if emp else ""),
+                "circle": emp.circle if emp else None,
+                "emp_type": emp.emp_type if emp else None,
+                "designation": row.designation,
+                "project_name": row.project_name,
+                "country_state": row.country_state,
+                "travel_from_date": row.travel_from_date.isoformat() if row.travel_from_date else None,
+                "travel_to_date": row.travel_to_date.isoformat() if row.travel_to_date else None,
+                "status": derived_status,
+                "line_items": items_out,
+                "total_amount": sum(i["amount"] for i in items_out),
+            }
+        )
+
+    filter_options = {
+        "circles": sorted(
+            {
+                (a.circle or "").strip()
+                for a in Admin.query.filter(
+                    db.func.coalesce(Admin.is_exited, False) == False,
+                    db.func.coalesce(Admin.is_active, True) == True,
+                ).all()
+                if (a.circle or "").strip()
+            }
+        ),
+        "emp_types": sorted(
+            {
+                (a.emp_type or "").strip()
+                for a in Admin.query.filter(
+                    db.func.coalesce(Admin.is_exited, False) == False,
+                    db.func.coalesce(Admin.is_active, True) == True,
+                ).all()
+                if (a.emp_type or "").strip()
+            }
+        ),
+    }
+
+    return jsonify(
+        {
+            "success": True,
+            "count": len(claims_out),
+            "filter_options": filter_options,
+            "claims": claims_out,
+        }
+    ), 200
+
+
+@Accounts.route("/expense-claims/line-items/<int:line_item_id>/action", methods=["POST"])
+@jwt_required()
+def act_on_expense_claim_line_item(line_item_id):
+    """Accounts: approve or reject a single expense claim line item."""
+    email = get_jwt().get("email")
+    approver = Admin.query.filter_by(email=email).first()
+    if not approver:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "").strip().lower()
+    rejection_reason = (data.get("rejection_reason") or "").strip()
+
+    if action not in ("approve", "reject"):
+        return jsonify({"success": False, "message": "action must be approve or reject"}), 400
+    if action == "reject" and not rejection_reason:
+        return jsonify({"success": False, "message": "Rejection reason is required"}), 400
+
+    line_item = ExpenseLineItem.query.get(line_item_id)
+    if not line_item:
+        return jsonify({"success": False, "message": "Expense line item not found"}), 404
+    if (line_item.status or "Pending") != "Pending":
+        return jsonify({"success": False, "message": "Only pending items can be updated"}), 409
+
+    claim = ExpenseClaimHeader.query.get(line_item.claim_id)
+    if not claim:
+        return jsonify({"success": False, "message": "Claim not found"}), 404
+
+    employee = claim.admin or Admin.query.get(claim.admin_id)
+    if not employee:
+        return jsonify({"success": False, "message": "Employee not found for this claim"}), 404
+
+    new_status = "Approved" if action == "approve" else "Rejected"
+    line_item.status = new_status
+    line_item.rejection_reason = rejection_reason if action == "reject" else None
+
+    db.session.commit()
+
+    try:
+        send_claim_line_item_decision_email(
+            line_item=line_item,
+            claim_header=claim,
+            employee=employee,
+            approver=approver,
+            action=action,
+            rejection_reason=rejection_reason if action == "reject" else None,
+        )
+    except Exception as e:
+        current_app.logger.warning(
+            "Claim line item email failed (line_item_id=%s): %s", line_item_id, e
+        )
+
+    all_items = ExpenseLineItem.query.filter_by(claim_id=claim.id).all()
+    claim_status = _claim_status_from_line_items(all_items)
+
+    return jsonify(
+        {
+            "success": True,
+            "message": f"Expense item {new_status.lower()}",
+            "line_item": {
+                "id": line_item.id,
+                "status": line_item.status,
+                "rejection_reason": line_item.rejection_reason,
+            },
+            "claim_status": claim_status,
+            "claim_id": claim.id,
+        }
+    ), 200
 
 
 def _parse_month_to_num(month_val):

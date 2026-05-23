@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
-  FileCheck, Search, ArrowLeft, Download, ChevronDown, Key, Clock, Share2, Trash2
+  FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2
 } from 'lucide-react';
 import './Hr.css';
 import './SignUp.css'; 
@@ -21,6 +21,7 @@ import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
 import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
+import { CircleTransferHistory } from './CircleTransferHistory';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
@@ -1093,6 +1094,9 @@ export const Hr = () => {
   const [signupEditEmail, setSignupEditEmail] = useState(null); // when set, signup form is in "update" mode
   /** Snapshot when opening edit — used to send only changed fields on update. */
   const [signupEditOriginal, setSignupEditOriginal] = useState(null);
+  /** Required when circle changes in edit mode (business effective date). */
+  const [circleEffectiveFrom, setCircleEffectiveFrom] = useState('');
+  const [circleTransferNotes, setCircleTransferNotes] = useState('');
   /** Last Update SignUp search (filters + rows) so returning from edit keeps results without re-searching. */
   const [updateSignupSearchSnapshot, setUpdateSignupSearchSnapshot] = useState(null);
 
@@ -1113,6 +1117,8 @@ export const Hr = () => {
       circle: employeeData.circle || '',
     };
     setSignupEditOriginal(snapshot);
+    setCircleEffectiveFrom(new Date().toISOString().slice(0, 10));
+    setCircleTransferNotes('');
     setSignupForm({
       ...snapshot,
       password: '',
@@ -1198,6 +1204,17 @@ export const Hr = () => {
         if (password?.trim()) {
           updateBody.password = password.trim();
         }
+        if (updateBody.circle) {
+          if (!circleEffectiveFrom) {
+            setSignupError('Please enter the effective date when the employee started working in the new circle.');
+            setSignupSubmitting(false);
+            return;
+          }
+          updateBody.circle_effective_from = circleEffectiveFrom;
+          if (circleTransferNotes.trim()) {
+            updateBody.circle_transfer_notes = circleTransferNotes.trim();
+          }
+        }
         if (Object.keys(updateBody).length === 0) {
           setSignupError('No changes to save. Edit a field or set a new password.');
           setSignupSubmitting(false);
@@ -1277,6 +1294,7 @@ export const Hr = () => {
     { title: 'Sign Up', icon: UserPlus, description: 'New employee registration' },
     { title: 'Reset Employee Password', icon: Key, description: 'Send password reset link (1 hour)' },
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
+    { title: 'Circle Transfer History', icon: ArrowRightLeft, description: 'View circle changes with effective dates' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
@@ -1594,6 +1612,9 @@ export const Hr = () => {
       setUpdateSignupSearchSnapshot(null);
       setView('update_signup');
     }
+    else if (title === 'Circle Transfer History') {
+      setView('circle_transfer_history');
+    }
     else if (title === 'News Feed') {
       setView('newsfeed');
     } else if (title === 'Update Leave') {
@@ -1635,6 +1656,15 @@ else if (title === 'Holiday Calendar') {
   };
 if (view === 'ex_employee_doc_share') {
     return <ExEmployeeDocumentSharing onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'circle_transfer_history') {
+    return (
+      <CircleTransferHistory
+        onBack={() => setView('updates')}
+        circleOptions={masterOptions.circles}
+      />
+    );
   }
 
   if (view === 'update_signup') {
@@ -1838,6 +1868,11 @@ if (view === 'noc_requests') {
   // VIEW 1: SIGN UP PAGE (create new or update existing)
   if (view === 'signup') {
     const isEditMode = !!signupEditEmail;
+    const normCircle = (v) => (v ?? '').toString().trim().toLowerCase();
+    const circleChangedInEdit =
+      isEditMode &&
+      signupEditOriginal &&
+      normCircle(signupForm.circle) !== normCircle(signupEditOriginal.circle);
     return (
       <div className="signup-page-container">
 
@@ -1849,6 +1884,8 @@ if (view === 'noc_requests') {
               const backToUpdateSignUpSearch = !!signupEditEmail;
               setSignupEditEmail(null);
               setSignupEditOriginal(null);
+              setCircleEffectiveFrom('');
+              setCircleTransferNotes('');
               setSignupError("");
               setView(backToUpdateSignUpSearch ? "update_signup" : "updates");
             }}
@@ -1925,6 +1962,47 @@ if (view === 'noc_requests') {
                   </select>
                 </div>
               </div>
+
+              {circleChangedInEdit ? (
+                <div
+                  className="form-row"
+                  style={{
+                    marginTop: 4,
+                    padding: '12px 14px',
+                    background: '#eff6ff',
+                    borderRadius: 8,
+                    border: '1px solid #bfdbfe',
+                  }}
+                >
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label>
+                      Effective from <span style={{ color: '#b91c1c' }}>*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={circleEffectiveFrom}
+                      onChange={(e) => {
+                        setCircleEffectiveFrom(e.target.value);
+                        setSignupError('');
+                      }}
+                      required
+                    />
+                    <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: '#475569' }}>
+                      Date the employee actually started in the new circle (may be earlier than today if HR is updating late).
+                    </p>
+                  </div>
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label>Note (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Late HR update"
+                      value={circleTransferNotes}
+                      onChange={(e) => setCircleTransferNotes(e.target.value)}
+                      maxLength={500}
+                    />
+                  </div>
+                </div>
+              ) : null}
 
               <div className="form-row">
                 <div className="form-group">

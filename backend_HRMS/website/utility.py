@@ -8,6 +8,7 @@ from .models.attendance import (
 )
 from datetime import date
 from io import BytesIO
+import calendar
 import xlsxwriter
 import pandas as pd
 import re
@@ -18,6 +19,108 @@ from . import db
 from .models.holiday_calendar import HolidayCalendar
 from collections import defaultdict
 from sqlalchemy.orm import joinedload
+
+from .circle_transfer_utils import (
+    any_transfer_in_month_for_admins,
+    circle_on_date,
+    circle_transfer_export_rows,
+    fmt_short_date,
+    month_circle_note,
+    preload_circle_history,
+)
+
+
+def add_circle_transfers_worksheet(workbook, admins, emp_type, circle, year, month, history_by_admin=None):
+    """Add 'Circle Transfers' sheet with circle change details for the export month."""
+    from .circle_transfer_utils import _fmt_dt
+
+    history_by_admin = history_by_admin or preload_circle_history([a.id for a in admins])
+    ws = workbook.add_worksheet("Circle Transfers")
+    title_fmt = workbook.add_format({"bold": True, "font_size": 12})
+    header_fmt = workbook.add_format(
+        {"bold": True, "border": 1, "align": "center", "valign": "vcenter", "bg_color": "#D9E1F2", "text_wrap": True}
+    )
+    cell_fmt = workbook.add_format({"border": 1, "valign": "top", "text_wrap": True})
+    yes_fmt = workbook.add_format({"border": 1, "bg_color": "#C6EFCE", "align": "center"})
+    note_fmt = workbook.add_format({"italic": True, "font_color": "#475569", "text_wrap": True})
+
+    month_label = f"{calendar.month_name[month]} {year}"
+    headers = [
+        "S.No",
+        "Emp ID",
+        "Employee Name",
+        "Email",
+        "Current Circle",
+        "Month summary",
+        "Change type",
+        "From Circle",
+        "To Circle",
+        "Effective From",
+        "Effective To",
+        "Active in month (from)",
+        "Active in month (to)",
+        "Days in month",
+        "In this export",
+        "Recorded by (HR)",
+        "Recorded at (system)",
+        "HR notes",
+    ]
+    last_col = len(headers) - 1
+    ws.merge_range(0, 0, 0, last_col, f"Circle transfer details — {month_label}", title_fmt)
+    ws.merge_range(1, 0, 1, last_col, f"Export filter: Circle = {circle}  |  Employee type = {emp_type}", title_fmt)
+    ws.merge_range(
+        2,
+        0,
+        2,
+        last_col,
+        "Effective From/To = business dates (when the employee actually worked in that circle). "
+        "Recorded At = when HR saved the change in the system.",
+        note_fmt,
+    )
+    start_row = 4
+    for col, h in enumerate(headers):
+        ws.write(start_row, col, h, header_fmt)
+
+    detail_rows = circle_transfer_export_rows(
+        admins, circle, year, month, history_by_admin
+    )
+    row = start_row + 1
+    for idx, item in enumerate(detail_rows, start=1):
+        eff_from = item["effective_from"]
+        eff_to = item["effective_to"]
+        in_export = "Yes" if item.get("in_export_circle") else "No"
+        values = [
+            idx,
+            item.get("emp_id", ""),
+            item.get("employee_name", ""),
+            item.get("email", ""),
+            item.get("current_circle", ""),
+            item.get("month_summary", ""),
+            item.get("change_type", ""),
+            item.get("from_circle", ""),
+            item.get("to_circle", ""),
+            fmt_short_date(eff_from) if eff_from else "—",
+            fmt_short_date(eff_to) if eff_to else "Open",
+            fmt_short_date(item["active_in_month_from"]),
+            fmt_short_date(item["active_in_month_to"]),
+            item.get("days_in_month", ""),
+            in_export,
+            item.get("recorded_by", ""),
+            _fmt_dt(item.get("recorded_at")),
+            item.get("notes", ""),
+        ]
+        for col, val in enumerate(values):
+            fmt = yes_fmt if col == 14 and val == "Yes" else cell_fmt
+            ws.write(row, col, val, fmt)
+        row += 1
+
+    if not detail_rows:
+        ws.merge_range(row, 0, row, last_col, "No employees in this export.", note_fmt)
+
+    widths = [6, 12, 22, 28, 14, 36, 14, 12, 12, 14, 14, 16, 16, 10, 12, 18, 20, 32]
+    for col, w in enumerate(widths):
+        ws.set_column(col, col, w)
+    ws.freeze_panes(start_row + 1, 0)
 
 
 
@@ -306,11 +409,15 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
         green_fmt  = workbook.add_format({'border': 1, 'bg_color': '#C6EFCE', 'bold': True})
         red_fmt    = workbook.add_format({'border': 1, 'bg_color': '#F8CBAD', 'bold': True})
         blue_fmt   = workbook.add_format({'border': 1, 'bg_color': '#BDD7EE', 'bold': True})
+        note_fmt   = workbook.add_format({'italic': True, 'font_color': '#1e40af', 'text_wrap': True})
+        circle_other_fmt = workbook.add_format({'border': 1, 'bg_color': '#FEF3C7', 'align': 'center'})
 
         # Dates
         num_days = calendar.monthrange(year, month)[1]
         start_date = date(year, month, 1)
         end_date = date(year, month, num_days)
+        filter_circle_lower = (circle or "").strip().lower()
+        history_by_admin = preload_circle_history([a.id for a in admins])
 
         # Header Info
         worksheet.write(0, 0, "emp_type", bold_fmt)
@@ -319,6 +426,16 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
         worksheet.write(0, 4, circle)
         worksheet.write(0, 6, "Month", bold_fmt)
         worksheet.write(0, 7, f"{calendar.month_name[month]} {year}", title_fmt)
+
+        data_start_row = 2
+        if any_transfer_in_month_for_admins(admins, year, month, history_by_admin):
+            worksheet.merge_range(
+                1, 0, 1, min(num_days + 2, 12),
+                "Note: Some employees changed circle during this month. "
+                "See 'Circle during month' and daily 'Circle' row under each employee.",
+                note_fmt,
+            )
+            data_start_row = 3
 
         # Day labels
         days = [f"{d} {calendar.day_abbr[date(year, month, d).weekday()][0]}"
@@ -371,8 +488,9 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             return h * 3600 + mi * 60 + sec
 
         # Start writing
-        row = 2
+        row = data_start_row
         for admin in admins:
+            admin_history = history_by_admin.get(admin.id)
 
             employee = employees_by_admin_id.get(admin.id)
             if employee:
@@ -390,18 +508,27 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             # Move to next row for the day headers so the name row remains visible
             row += 1
 
+            circle_note = month_circle_note(admin, year, month, admin_history)
+            if circle_note:
+                worksheet.write(row, 0, "Circle during month:", bold_fmt)
+                worksheet.merge_range(row, 1, row, min(num_days + 1, 10), circle_note, border_fmt)
+                row += 1
+
             # Punch rows
             in_times = []
             out_times = []
             loc_in_times = []
             loc_out_times = []
             totals = []
+            circle_days = []
 
             # Per-admin punches mapped by day (1..num_days)
             admin_punches = punch_map.get(admin.id, {})
 
             for d in range(1, num_days + 1):
                 current_day_date = date(year, month, d)
+                day_circle = circle_on_date(admin, current_day_date, admin_history) or ""
+                circle_days.append(day_circle)
                 on_leave_day = current_day_date in leave_days_by_admin.get(admin.id, set())
                 punch = admin_punches.get(d)
 
@@ -462,6 +589,13 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
                     worksheet.write(row, col, val, absent_fmt if not val else border_fmt)
                 row += 1
 
+            worksheet.write(row, 0, "Circle", header_fmt)
+            for col, val in enumerate(circle_days, start=1):
+                c_lower = (val or "").strip().lower()
+                fmt = circle_other_fmt if c_lower and c_lower != filter_circle_lower else border_fmt
+                worksheet.write(row, col, val or "", fmt)
+            row += 1
+
             row += 1
 
             # SUMMARY
@@ -494,8 +628,12 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
 
         worksheet.set_column(0, num_days + 1, 18)
 
+        add_circle_transfers_worksheet(
+            workbook, admins, emp_type, circle, year, month, history_by_admin
+        )
+
         # -----------------------------
-        # Second sheet: Session Details
+        # Session Details
         # -----------------------------
         session_ws = workbook.add_worksheet("Session Details")
         session_headers = [
@@ -1115,18 +1253,33 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
     })
     cell_fmt = workbook.add_format({'border': 1})
     title_fmt = workbook.add_format({'bold': True, 'font_size': 12})
+    note_fmt = workbook.add_format({'italic': True, 'font_color': '#1e40af', 'text_wrap': True})
+    wrap_fmt = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'top'})
+
+    history_by_admin = preload_circle_history([a.id for a in admins])
+    last_col_letter = "N"
 
     # -------- HEADER --------
-    worksheet.merge_range('A1:M1', f"Employee Domain: {emp_type}", title_fmt)
-    worksheet.merge_range('A2:M2', f"Circle: {circle}", title_fmt)
-    worksheet.merge_range('A3:M3', f"Month: {calendar.month_name[month]} {year}", title_fmt)
+    worksheet.merge_range(f'A1:{last_col_letter}1', f"Employee Domain: {emp_type}", title_fmt)
+    worksheet.merge_range(f'A2:{last_col_letter}2', f"Circle: {circle}", title_fmt)
+    worksheet.merge_range(f'A3:{last_col_letter}3', f"Month: {calendar.month_name[month]} {year}", title_fmt)
+
+    row = 3
+    if any_transfer_in_month_for_admins(admins, year, month, history_by_admin):
+        worksheet.merge_range(
+            f'A4:{last_col_letter}4',
+            "Note: Some employees changed circle during this month. See column 'Circle during month'.",
+            note_fmt,
+        )
+        row = 4
 
     # -------- TABLE HEADER --------
-    row = 4
+    row += 1
     headers = [
         "S.No",
         "Month",
         "Employee Name",
+        "Circle during month",
         "Total Days in Month",
         "Actual Working Days",
         "Total Absent Days",
@@ -1154,6 +1307,7 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
 
         # Employee name (Admin model; no Signup)
         emp_name = admin.first_name or "N/A"
+        circle_note = month_circle_note(admin, year, month, history_by_admin.get(admin.id)) or (admin.circle or "")
 
         # Attendance totals (Accounts HRMS logic) + continuous weekend-absence penalty
         working_days_expected, absent_days = calculate_attendance_Accounts(admin.id, emp_type, year, month)
@@ -1175,10 +1329,11 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
         total_applied_leave = applied_cl + applied_pl + applied_comp
 
         # -------- WRITE ROW --------
-        worksheet.write_row(row, 0, [
-            idx,
-            f"{calendar.month_name[month]} {year}",
-            emp_name,
+        worksheet.write(row, 0, idx, cell_fmt)
+        worksheet.write(row, 1, f"{calendar.month_name[month]} {year}", cell_fmt)
+        worksheet.write(row, 2, emp_name, cell_fmt)
+        worksheet.write(row, 3, circle_note, wrap_fmt)
+        worksheet.write_row(row, 4, [
             total_days,
             actual_working_days,
             absent_days,
@@ -1188,12 +1343,16 @@ def generate_attendance_excel_Accounts(admins, emp_type, circle, year, month):
             applied_cl,
             applied_pl,
             applied_comp,
-            total_applied_leave
+            total_applied_leave,
         ], cell_fmt)
 
         row += 1
 
-    worksheet.set_column(0, 12, 22)
+    worksheet.set_column(0, 13, 22)
+    worksheet.set_column(3, 3, 36)
+    add_circle_transfers_worksheet(
+        workbook, admins, emp_type, circle, year, month, history_by_admin
+    )
     workbook.close()
     output.seek(0)
 
@@ -1379,7 +1538,7 @@ def _client_comp_off_row_summary(admin_id, year, month):
     return "; ".join(parts)
 
 
-def generate_client_attendance_excel(admins, year, month, project_name=None, place=None):
+def generate_client_attendance_excel(admins, year, month, project_name=None, place=None, circle=None, emp_type=None):
     """
     Generate a client-facing attendance sheet with multiple employees
     laid out horizontally on a single worksheet.
@@ -1461,9 +1620,24 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
         "Month/Year",
         "Project Name",
         "Place",
+        "Circle during month",
         "Date of Joining",
         "Date of Deputation",
     ]
+    TABLE_HEADER_ROW = HEADER_START_ROW + len(labels) + 1
+
+    history_by_admin = preload_circle_history([a.id for a in admins])
+    if any_transfer_in_month_for_admins(admins, year, month, history_by_admin):
+        transfer_note_fmt = workbook.add_format(
+            {"italic": True, "font_color": "#1e40af", "text_wrap": True, "border": 1}
+        )
+        worksheet.merge_range(
+            5, 0, 5, 6,
+            "Note: Some employees changed circle during this month. See 'Circle during month' for date ranges.",
+            transfer_note_fmt,
+        )
+        HEADER_START_ROW = 6
+        TABLE_HEADER_ROW = HEADER_START_ROW + len(labels) + 1
 
     # Left label band
     for idx, label in enumerate(labels):
@@ -1507,60 +1681,31 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             worksheet.write(r, base_col + 1, "", border_fmt)
 
         month_label = f"{calendar.month_name[month]} {year}"
-
-        # Merge the two columns for each label row and write the employee-specific values
-        worksheet.merge_range(
-            HEADER_START_ROW + 0,
-            base_col,
-            HEADER_START_ROW + 0,
-            base_col + 1,
-            admin.first_name or "N/A",
-            border_fmt,
-        )
-        worksheet.merge_range(
-            HEADER_START_ROW + 1,
-            base_col,
-            HEADER_START_ROW + 1,
-            base_col + 1,
-            month_label,
-            border_fmt,
-        )
-        worksheet.merge_range(
-            HEADER_START_ROW + 2,
-            base_col,
-            HEADER_START_ROW + 2,
-            base_col + 1,
-            project_name or "",
-            border_fmt,
-        )
-        worksheet.merge_range(
-            HEADER_START_ROW + 3,
-            base_col,
-            HEADER_START_ROW + 3,
-            base_col + 1,
-            place or (admin.circle or ""),
-            border_fmt,
-        )
         doj = getattr(admin, "doj", None)
-        worksheet.merge_range(
-            HEADER_START_ROW + 4,
-            base_col,
-            HEADER_START_ROW + 4,
-            base_col + 1,
+        circle_note = month_circle_note(
+            admin, year, month, history_by_admin.get(admin.id)
+        ) or (admin.circle or "")
+
+        header_values = [
+            admin.first_name or "N/A",
+            month_label,
+            project_name or "",
+            place or (admin.circle or ""),
+            circle_note,
             doj.isoformat() if doj and hasattr(doj, "isoformat") else "",
-            border_fmt,
-        )
-        worksheet.merge_range(
-            HEADER_START_ROW + 5,
-            base_col,
-            HEADER_START_ROW + 5,
-            base_col + 1,
             "",
-            border_fmt,
-        )
+        ]
+        for idx, val in enumerate(header_values):
+            worksheet.merge_range(
+                HEADER_START_ROW + idx,
+                base_col,
+                HEADER_START_ROW + idx,
+                base_col + 1,
+                val,
+                border_fmt,
+            )
 
         # Single-row table header directly under header block for this employee
-        TABLE_HEADER_ROW = HEADER_START_ROW + 7
         if emp_index == 0:
             # Only once for Day_Date
             worksheet.write(TABLE_HEADER_ROW, LABEL_COL, "Day_Date", header_fmt)
@@ -1642,7 +1787,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                 worksheet.write(row, base_col + 1, time_out_str, base_fmt)
 
     # ----- Summary rows (Leave / Comp off / Half day) per employee -----
-    TABLE_HEADER_ROW_FIXED = HEADER_START_ROW + 7
+    TABLE_HEADER_ROW_FIXED = TABLE_HEADER_ROW
     first_day_row_fixed = TABLE_HEADER_ROW_FIXED + 1
     summary_leave_row = first_day_row_fixed + num_days
     summary_comp_row = summary_leave_row + 1
@@ -1700,8 +1845,14 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     last_col = FIRST_EMP_COL + TIME_COLUMNS_PER_PAIR * max(len(admins), 1)
     worksheet.set_column(1, last_col, 14)
 
+    export_circle = circle or (admins[0].circle if admins else "")
+    export_emp_type = emp_type or (admins[0].emp_type if admins else "")
+    add_circle_transfers_worksheet(
+        workbook, admins, export_emp_type, export_circle, year, month, history_by_admin
+    )
+
     # -----------------------------
-    # Second sheet: Session Details
+    # Session Details
     # -----------------------------
     session_ws = workbook.add_worksheet("Session Details")
     session_headers = [

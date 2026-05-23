@@ -8,6 +8,7 @@ from .models.manager_model import ManagerContact
 from .manager_utils import get_manager_emails
 from flask import current_app, url_for
 from .models.expense import ExpenseLineItem
+from .expense_utils import claim_attach_static_filename
 import html
 import base64
 import mimetypes
@@ -1067,10 +1068,11 @@ def send_claim_submission_email(header):
 
         line_items_html = ""
         for item in items:
+            static_fn = claim_attach_static_filename(item.Attach_file)
             file_link = (
-                f'<a href="{url_for("static", filename="uploads/" + item.Attach_file, _external=True)}" '
+                f'<a href="{url_for("static", filename=static_fn, _external=True)}" '
                 f'style="color:#007bff;" target="_blank">Download File</a>'
-                if item.Attach_file else "No attachment"
+                if static_fn else "No attachment"
             )
 
             line_items_html += f"""
@@ -1154,6 +1156,128 @@ def send_claim_submission_email(header):
 
     except Exception as e:
         current_app.logger.error(f"Claim Email Error: {e}")
+        return False
+
+
+def send_claim_line_item_decision_email(
+    *,
+    line_item,
+    claim_header,
+    employee,
+    approver,
+    action,
+    rejection_reason=None,
+):
+    """Notify employee and manager when Accounts approves/rejects a claim line item."""
+    try:
+        if not employee:
+            return False
+
+        to_email = (employee.email or claim_header.email or "").strip()
+        if not to_email:
+            return False
+
+        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        cc_emails = []
+        if hr_email and hr_email.strip().lower() != to_email.lower():
+            cc_emails.append(hr_email.strip())
+
+        manager_contact = ManagerContact.query.filter_by(user_email=employee.email).first()
+        if not manager_contact:
+            manager_contact = ManagerContact.query.filter_by(
+                circle_name=employee.circle,
+                user_type=employee.emp_type,
+            ).first()
+
+        if manager_contact:
+            for addr in get_manager_emails(manager_contact, exclude_email=to_email):
+                if addr and addr.lower() != to_email.lower():
+                    cc_emails.append(addr)
+
+        seen = set()
+        deduped_cc = []
+        for e in cc_emails:
+            if not e:
+                continue
+            addr = e.strip()
+            key = addr.lower()
+            if key and key not in seen:
+                seen.add(key)
+                deduped_cc.append(addr)
+
+        status_text = "approved" if action == "approve" else "rejected"
+        approver_name = html.escape((approver.first_name or approver.email or "Accounts").strip())
+        emp_name = html.escape((employee.first_name or employee.email or "").strip())
+        purpose = html.escape(line_item.purpose or "")
+        project = html.escape(claim_header.project_name or "")
+        country_state = html.escape(claim_header.country_state or "")
+        reason_block = ""
+        if action == "reject" and rejection_reason:
+            reason_block = f"""
+            <tr><td><strong>Rejection Reason</strong></td>
+            <td>{html.escape(rejection_reason.strip())}</td></tr>
+            """
+
+        static_fn = claim_attach_static_filename(line_item.Attach_file)
+        file_link = (
+            f'<a href="{url_for("static", filename=static_fn, _external=True)}" '
+            f'style="color:#007bff;" target="_blank">Download attachment</a>'
+            if static_fn
+            else "No attachment"
+        )
+
+        subject = (
+            f"Expense Claim Item {status_text.capitalize()}: "
+            f"{employee.first_name or employee.emp_id} – Item #{line_item.sr_no}"
+        )
+
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif;">
+            <p>Hello {emp_name},</p>
+            <p>Your expense claim line item has been <strong>{status_text}</strong> by Accounts ({approver_name}).</p>
+
+            <table border="1" cellpadding="8" cellspacing="0" width="100%">
+                <tr><td><strong>Employee</strong></td><td>{emp_name} ({html.escape(employee.emp_id or "")})</td></tr>
+                <tr><td><strong>Project</strong></td><td>{project}</td></tr>
+                <tr><td><strong>Country / State</strong></td><td>{country_state}</td></tr>
+                <tr>
+                    <td><strong>Travel Dates</strong></td>
+                    <td>{claim_header.travel_from_date} to {claim_header.travel_to_date}</td>
+                </tr>
+            </table>
+
+            <br>
+            <p><strong>Expense line item:</strong></p>
+            <table border="1" cellpadding="8" cellspacing="0" width="100%">
+                <tr><td><strong>Sr. No.</strong></td><td>{line_item.sr_no}</td></tr>
+                <tr><td><strong>Date</strong></td><td>{line_item.date}</td></tr>
+                <tr><td><strong>Purpose</strong></td><td>{purpose}</td></tr>
+                <tr><td><strong>Amount</strong></td><td>{line_item.amount} {line_item.currency}</td></tr>
+                <tr><td><strong>Status</strong></td><td>{line_item.status}</td></tr>
+                <tr><td><strong>Attachment</strong></td><td>{file_link}</td></tr>
+                {reason_block}
+            </table>
+
+            <p>Please log in to the HRMS portal for more details.</p>
+        </body>
+        </html>
+        """
+
+        send_email_via_zeptomail(
+            sender_email=current_app.config["ZEPTO_SENDER_EMAIL"],
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=deduped_cc or None,
+        )
+        return True
+    except Exception as e:
+        current_app.logger.warning(
+            "Claim line item decision email failed (line_item_id=%s): %s",
+            getattr(line_item, "id", None),
+            e,
+        )
         return False
 
 

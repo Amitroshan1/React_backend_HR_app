@@ -18,6 +18,7 @@ from flask import Blueprint, request, current_app, jsonify, send_file, send_from
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
+from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
@@ -35,6 +36,7 @@ from .email import (
     send_assessment_submitted_email_to_hr,
 )
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
+from .circle_transfer_utils import fetch_admins_for_attendance_export
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
@@ -206,6 +208,94 @@ def _delete_punch_for_admin_on_date(admin_id, punch_date):
 MASTER_TYPE_DEPARTMENT = "department"
 MASTER_TYPE_CIRCLE = "circle"
 MASTER_TYPES = {MASTER_TYPE_DEPARTMENT, MASTER_TYPE_CIRCLE}
+
+
+def _norm_circle_name(value):
+    return (value or "").strip().lower()
+
+
+def _serialize_circle_history_row(row, admin=None):
+    adm = admin or row.admin
+    return {
+        "id": row.id,
+        "admin_id": row.admin_id,
+        "emp_id": getattr(adm, "emp_id", None) if adm else None,
+        "employee_name": getattr(adm, "first_name", None) if adm else None,
+        "employee_email": getattr(adm, "email", None) if adm else None,
+        "from_circle": row.from_circle,
+        "to_circle": row.to_circle,
+        "effective_from": row.effective_from.isoformat() if row.effective_from else None,
+        "effective_to": row.effective_to.isoformat() if row.effective_to else None,
+        "notes": row.notes,
+        "recorded_by": row.recorded_by,
+        "recorded_at": row.recorded_at.isoformat() if row.recorded_at else None,
+    }
+
+
+def _close_open_circle_segment(admin_id, new_effective_from):
+    open_row = (
+        EmployeeCircleHistory.query.filter_by(admin_id=admin_id, effective_to=None)
+        .order_by(EmployeeCircleHistory.effective_from.desc())
+        .first()
+    )
+    if not open_row or not new_effective_from:
+        return
+    prev_end = new_effective_from - timedelta(days=1)
+    if open_row.effective_from and prev_end >= open_row.effective_from:
+        open_row.effective_to = prev_end
+    else:
+        open_row.effective_to = new_effective_from
+
+
+def _log_initial_circle_assignment(admin, recorded_by, notes=None):
+    circle = (getattr(admin, "circle", None) or "").strip()
+    if not circle or not getattr(admin, "id", None):
+        return
+    effective = getattr(admin, "doj", None) or date.today()
+    db.session.add(
+        EmployeeCircleHistory(
+            admin_id=admin.id,
+            from_circle=None,
+            to_circle=circle[:50],
+            effective_from=effective,
+            effective_to=None,
+            notes=(notes or "Initial circle on onboarding")[:500],
+            recorded_by=recorded_by,
+        )
+    )
+
+
+def _apply_circle_transfer(admin, new_circle, effective_from, recorded_by, notes=None):
+    """Update admin.circle and append history when circle actually changes."""
+    old_circle = (getattr(admin, "circle", None) or "").strip()
+    new_circle = (new_circle or "").strip()
+    if not new_circle:
+        return False, "New circle is required."
+    if _norm_circle_name(old_circle) == _norm_circle_name(new_circle):
+        admin.circle = new_circle[:50]
+        return True, None
+
+    if not effective_from:
+        return False, "circle_effective_from is required when changing circle."
+
+    if getattr(admin, "doj", None) and effective_from < admin.doj:
+        return False, "Effective date cannot be before date of joining."
+
+    _close_open_circle_segment(admin.id, effective_from)
+    db.session.add(
+        EmployeeCircleHistory(
+            admin_id=admin.id,
+            from_circle=old_circle[:50] if old_circle else None,
+            to_circle=new_circle[:50],
+            effective_from=effective_from,
+            effective_to=None,
+            notes=(notes or "").strip()[:500] or None,
+            recorded_by=recorded_by,
+        )
+    )
+    admin.circle = new_circle[:50]
+    return True, None
+
 
 HOLIDAY_DATE_TEMPLATES = [
     {"holiday_name": "NEW YEAR DAY", "month": 1, "day": 1, "is_optional": False},
@@ -789,9 +879,33 @@ def signup_api():
             admin.emp_id = emp_id
             admin.doj = doj
             admin.emp_type = emp_type
-            admin.circle = circle
             admin.is_active = True
             admin.is_exited = False
+
+            if _norm_circle_name(admin.circle) != _norm_circle_name(circle):
+                eff_raw = data.get("circle_effective_from")
+                try:
+                    eff_date = (
+                        datetime.fromisoformat(str(eff_raw).strip()[:10]).date()
+                        if eff_raw
+                        else (admin.doj or date.today())
+                    )
+                except (ValueError, TypeError):
+                    return jsonify({
+                        "success": False,
+                        "message": "Invalid circle_effective_from (YYYY-MM-DD)",
+                    }), 400
+                ok, err = _apply_circle_transfer(
+                    admin,
+                    circle,
+                    eff_date,
+                    hr_email,
+                    data.get("circle_transfer_notes"),
+                )
+                if not ok:
+                    return jsonify({"success": False, "message": err}), 400
+            else:
+                admin.circle = circle
 
             # Password logic
             if data.get("password"):
@@ -843,6 +957,7 @@ def signup_api():
             db.session.add(leave_balance)
 
             action = "CREATE_NEW_EMPLOYEE"
+            _log_initial_circle_assignment(admin, hr_email)
 
         # ======================================================
         # AUDIT LOG
@@ -1590,21 +1705,7 @@ def download_excel_hr_api():
             "message": "circle and emp_type are required"
         }), 400
 
-    # Step 1: Fetch active non-exited employees only (same rules as /search)
-    admins = (
-        Admin.query.filter_by(circle=circle, emp_type=emp_type)
-        .filter(db.func.coalesce(Admin.is_exited, False) == False)
-        .filter(db.func.coalesce(Admin.is_active, True) == True)
-        .all()
-    )
-
-    if not admins:
-        return jsonify({
-            "success": False,
-            "message": "No employees found"
-        }), 404
-
-    # Step 2: Resolve month
+    # Step 1: Resolve month
     if month_str:
         try:
             year, month = map(int, month_str.split("-"))
@@ -1616,6 +1717,15 @@ def download_excel_hr_api():
     else:
         now = datetime.now(ZoneInfo("Asia/Kolkata"))
         year, month = now.year, now.month
+
+    # Step 2: Employees in this circle during the month (incl. mid-month transfers)
+    admins = fetch_admins_for_attendance_export(circle, emp_type, year, month)
+
+    if not admins:
+        return jsonify({
+            "success": False,
+            "message": "No employees found"
+        }), 404
 
     # Step 3: Generate Excel
     output = generate_attendance_excel(
@@ -4615,7 +4725,33 @@ def update_employee_api(email_path):
                 "success": False,
                 "message": "Invalid circle. Please select a configured circle."
             }), 400
-        admin.circle = proposed_circle[:50]
+        old_circle = (admin.circle or "").strip()
+        if _norm_circle_name(old_circle) != _norm_circle_name(proposed_circle):
+            eff_raw = data.get("circle_effective_from")
+            if not eff_raw:
+                return jsonify({
+                    "success": False,
+                    "message": "circle_effective_from is required when changing circle (YYYY-MM-DD).",
+                }), 400
+            try:
+                effective_from = datetime.fromisoformat(str(eff_raw).strip()[:10]).date()
+            except (ValueError, TypeError):
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid circle_effective_from (YYYY-MM-DD)",
+                }), 400
+            hr_email = (get_jwt() or {}).get("email") or "unknown"
+            ok, err = _apply_circle_transfer(
+                admin,
+                proposed_circle,
+                effective_from,
+                hr_email,
+                data.get("circle_transfer_notes"),
+            )
+            if not ok:
+                return jsonify({"success": False, "message": err}), 400
+        else:
+            admin.circle = proposed_circle[:50]
 
     if "user_name" in data:
         val = str(data.get("user_name") or "").strip()
@@ -4659,6 +4795,83 @@ def update_employee_api(email_path):
     return jsonify({
         "success": True,
         "message": "Employee record updated successfully"
+    }), 200
+
+
+@hr.route("/circle-transfers", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_circle_transfers():
+    """HR: list circle transfer history (optional filters)."""
+    circle = (request.args.get("circle") or "").strip()
+    q = (request.args.get("q") or "").strip()
+    from_eff = (request.args.get("effective_from") or "").strip()
+    to_eff = (request.args.get("effective_to") or "").strip()
+
+    query = EmployeeCircleHistory.query.options(joinedload(EmployeeCircleHistory.admin))
+    needs_admin_join = bool(q) or (circle and circle.lower() != "all")
+    if needs_admin_join:
+        query = query.join(Admin, EmployeeCircleHistory.admin_id == Admin.id)
+    if circle and circle.lower() != "all":
+        query = query.filter(
+            or_(
+                db.func.lower(EmployeeCircleHistory.from_circle) == circle.lower(),
+                db.func.lower(EmployeeCircleHistory.to_circle) == circle.lower(),
+            )
+        )
+    if q:
+        like = f"%{q.lower()}%"
+        query = query.filter(
+            or_(
+                db.func.lower(Admin.first_name).like(like),
+                db.func.lower(Admin.email).like(like),
+                db.func.lower(db.func.coalesce(Admin.emp_id, "")).like(like),
+            )
+        )
+    if from_eff:
+        try:
+            query = query.filter(EmployeeCircleHistory.effective_from >= datetime.fromisoformat(from_eff[:10]).date())
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid effective_from date"}), 400
+    if to_eff:
+        try:
+            query = query.filter(EmployeeCircleHistory.effective_from <= datetime.fromisoformat(to_eff[:10]).date())
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid effective_to date"}), 400
+
+    rows = query.order_by(EmployeeCircleHistory.effective_from.desc(), EmployeeCircleHistory.id.desc()).limit(500).all()
+    return jsonify({
+        "success": True,
+        "count": len(rows),
+        "transfers": [_serialize_circle_history_row(r) for r in rows],
+    }), 200
+
+
+@hr.route("/employee/by-email/<path:email_path>/circle-history", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_employee_circle_history(email_path):
+    email = unquote(email_path).strip()
+    admin = Admin.query.filter(
+        Admin.email == email,
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None)),
+    ).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    rows = (
+        EmployeeCircleHistory.query.filter_by(admin_id=admin.id)
+        .order_by(EmployeeCircleHistory.effective_from.desc(), EmployeeCircleHistory.id.desc())
+        .all()
+    )
+    return jsonify({
+        "success": True,
+        "employee": {
+            "email": admin.email,
+            "emp_id": admin.emp_id,
+            "first_name": admin.first_name,
+            "current_circle": admin.circle,
+        },
+        "history": [_serialize_circle_history_row(r, admin) for r in rows],
     }), 200
 
 

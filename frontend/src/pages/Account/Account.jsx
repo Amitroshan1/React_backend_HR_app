@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
-  ArrowLeft, Upload, Search
+  ArrowLeft, Upload
 } from 'lucide-react';
 import './Account.css';
 import { useUser } from '../../components/layout/UserContext';
@@ -89,6 +89,23 @@ export const Account = ()  => {
   const [payrollHistoryRows, setPayrollHistoryRows] = useState([]);
   const [payrollHistoryLoading, setPayrollHistoryLoading] = useState(false);
   const [payrollHistoryError, setPayrollHistoryError] = useState('');
+  const [expenseClaims, setExpenseClaims] = useState([]);
+  const [expenseClaimsLoading, setExpenseClaimsLoading] = useState(false);
+  const [expenseClaimsError, setExpenseClaimsError] = useState('');
+  const [expenseClaimFilters, setExpenseClaimFilters] = useState({
+    circle: 'All',
+    emp_type: 'All',
+    q: '',
+  });
+  const [expenseClaimFilterOptions, setExpenseClaimFilterOptions] = useState({
+    circles: [],
+    emp_types: [],
+  });
+  const [expandedClaimIds, setExpandedClaimIds] = useState({});
+  const [claimLineActionModal, setClaimLineActionModal] = useState(null);
+  const [claimRejectionReason, setClaimRejectionReason] = useState('');
+  const [claimLineActionLoading, setClaimLineActionLoading] = useState(null);
+  const [claimLineActionError, setClaimLineActionError] = useState('');
   const [bulkForm16Year, setBulkForm16Year] = useState(`${new Date().getFullYear()}-${new Date().getFullYear() + 1}`);
   const [bulkForm16Files, setBulkForm16Files] = useState([]);
   const [isBulkForm16Uploading, setIsBulkForm16Uploading] = useState(false);
@@ -183,7 +200,7 @@ export const Account = ()  => {
     { title: 'Total Employees', value: statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
     { title: 'Employees Paid', value: paidRatio, subtitle: 'Current month', icon: <DollarSign size={20} /> },
     { title: 'Payslips Generated', value: statsData.payslips_generated, subtitle: 'Current month', icon: <FileText size={20} /> },
-    { title: 'Expense Claims', value: formatCurrency(statsData.ytd_expenses), subtitle: 'YTD total', icon: <TrendingUp size={20} /> },
+    { title: 'Expense Claims', value: formatCurrency(statsData.ytd_expenses), subtitle: 'YTD total', icon: <TrendingUp size={20} />, clickable: true },
   ];
 
   useEffect(() => {
@@ -314,6 +331,188 @@ export const Account = ()  => {
     } catch (e) {
       alert(e.message || 'Unable to open file');
     }
+  };
+
+  const downloadProtectedFile = async (filePath, downloadName) => {
+    const url = buildFileUrl(filePath);
+    if (!url) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Session expired. Please login again.');
+      return;
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        let msg = 'Unable to download file';
+        try {
+          const j = await res.json();
+          msg = j?.message || j?.msg || msg;
+        } catch {
+          // ignore
+        }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = downloadName || filePath.split('/').pop() || 'attachment';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (e) {
+      alert(e.message || 'Unable to download file');
+    }
+  };
+
+  const loadExpenseClaims = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setExpenseClaimsLoading(true);
+    setExpenseClaimsError('');
+    try {
+      const params = new URLSearchParams();
+      if (expenseClaimFilters.circle && expenseClaimFilters.circle !== 'All') {
+        params.set('circle', expenseClaimFilters.circle);
+      }
+      if (expenseClaimFilters.emp_type && expenseClaimFilters.emp_type !== 'All') {
+        params.set('emp_type', expenseClaimFilters.emp_type);
+      }
+      if (expenseClaimFilters.q.trim()) {
+        params.set('q', expenseClaimFilters.q.trim());
+      }
+      const response = await fetch(`${API_BASE_URL}/expense-claims?${params.toString()}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load expense claims');
+      }
+      setExpenseClaims(result.claims || []);
+      setExpenseClaimFilterOptions(result.filter_options || { circles: [], emp_types: [] });
+    } catch (error) {
+      console.error('Expense claims error:', error);
+      setExpenseClaims([]);
+      setExpenseClaimsError(error.message || 'Unable to load expense claims');
+    } finally {
+      setExpenseClaimsLoading(false);
+    }
+  };
+
+  const handleOpenExpenseClaims = () => {
+    setPreviousView('main');
+    setCurrentView('expenseClaims');
+  };
+
+  const toggleClaimExpanded = (claimId) => {
+    setExpandedClaimIds((prev) => ({ ...prev, [claimId]: !prev[claimId] }));
+  };
+
+  const claimStatusBadgeClass = (status) => {
+    const s = (status || '').toLowerCase();
+    if (s === 'approved') return 'badge-processed';
+    if (s === 'rejected') return 'badge-rejected';
+    if (s.includes('partial')) return 'badge-partial';
+    return 'badge-pending';
+  };
+
+  const formatClaimDate = (value) => {
+    if (!value) return '-';
+    try {
+      return new Date(value).toLocaleDateString('en-IN');
+    } catch {
+      return value;
+    }
+  };
+
+  const updateClaimLineItemInState = (claimId, lineItemId, patch, claimStatus) => {
+    setExpenseClaims((prev) =>
+      prev.map((claim) => {
+        if (claim.id !== claimId) return claim;
+        const line_items = (claim.line_items || []).map((li) =>
+          li.id === lineItemId ? { ...li, ...patch } : li
+        );
+        return {
+          ...claim,
+          line_items,
+          status: claimStatus || claim.status,
+        };
+      })
+    );
+  };
+
+  const actOnClaimLineItem = async (claimId, lineItemId, action, rejectionReason = '') => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Session expired. Please login again.');
+      return;
+    }
+    setClaimLineActionLoading(lineItemId);
+    setClaimLineActionError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/expense-claims/line-items/${lineItemId}/action`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action,
+          rejection_reason: rejectionReason || undefined,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Unable to update claim item');
+      }
+      updateClaimLineItemInState(
+        claimId,
+        lineItemId,
+        {
+          status: result.line_item?.status,
+          rejection_reason: result.line_item?.rejection_reason || null,
+        },
+        result.claim_status
+      );
+      setClaimLineActionModal(null);
+      setClaimRejectionReason('');
+    } catch (error) {
+      setClaimLineActionError(error.message || 'Unable to update claim item');
+    } finally {
+      setClaimLineActionLoading(null);
+    }
+  };
+
+  const handleApproveClaimLineItem = (claimId, lineItemId) => {
+    if (!window.confirm('Approve this expense line item?')) return;
+    actOnClaimLineItem(claimId, lineItemId, 'approve');
+  };
+
+  const handleOpenRejectClaimModal = (claimId, lineItemId) => {
+    setClaimLineActionError('');
+    setClaimRejectionReason('');
+    setClaimLineActionModal({ claimId, lineItemId });
+  };
+
+  const handleConfirmRejectClaimLineItem = () => {
+    if (!claimLineActionModal) return;
+    const reason = claimRejectionReason.trim();
+    if (!reason) {
+      setClaimLineActionError('Please enter a reason for rejection.');
+      return;
+    }
+    actOnClaimLineItem(
+      claimLineActionModal.claimId,
+      claimLineActionModal.lineItemId,
+      'reject',
+      reason
+    );
   };
 
   const handleDownloadAttendanceExcel = () => {
@@ -1415,7 +1614,23 @@ export const Account = ()  => {
       <div className="hr-stats-grid">
         {statsError && <div className="q-error">{statsError}</div>}
         {stats.map((stat, i) => (
-          <div key={i} className="stat-card">
+          <div
+            key={i}
+            className={`stat-card${stat.clickable ? ' stat-card-clickable' : ''}`}
+            role={stat.clickable ? 'button' : undefined}
+            tabIndex={stat.clickable ? 0 : undefined}
+            onClick={stat.clickable ? handleOpenExpenseClaims : undefined}
+            onKeyDown={
+              stat.clickable
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleOpenExpenseClaims();
+                    }
+                  }
+                : undefined
+            }
+          >
             <div>
               <p className="stat-label">{stat.title}</p>
               <h3 className="stat-value">{stat.value}</h3>
@@ -2470,6 +2685,249 @@ export const Account = ()  => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, bulkPayrollMonth, bulkPayrollYear, selectedCircle, selectedDept]);
 
+  useEffect(() => {
+    if (currentView !== 'expenseClaims') return undefined;
+    const delay = expenseClaimFilters.q.trim() ? 400 : 0;
+    const timer = window.setTimeout(() => {
+      loadExpenseClaims();
+    }, delay);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, expenseClaimFilters.circle, expenseClaimFilters.emp_type, expenseClaimFilters.q]);
+
+  const renderExpenseClaims = () => (
+    <div className="fade-in">
+      <button type="button" className="btn-back" onClick={() => setCurrentView('main')}>
+        <ArrowLeft size={18} /> Back to Dashboard
+      </button>
+
+      <div className="table-container-card" style={{ marginTop: 16 }}>
+        <div className="card-header-row">
+          <h3 className="section-title">Expense Claims</h3>
+        </div>
+
+        <div className="expense-claims-filters">
+          <div className="input-group">
+            <label>Circle</label>
+            <select
+              className="custom-select"
+              value={expenseClaimFilters.circle}
+              onChange={(e) => setExpenseClaimFilters((p) => ({ ...p, circle: e.target.value }))}
+            >
+              <option value="All">All</option>
+              {(expenseClaimFilterOptions.circles || []).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div className="input-group">
+            <label>Emp Type</label>
+            <select
+              className="custom-select"
+              value={expenseClaimFilters.emp_type}
+              onChange={(e) => setExpenseClaimFilters((p) => ({ ...p, emp_type: e.target.value }))}
+            >
+              <option value="All">All</option>
+              {(expenseClaimFilterOptions.emp_types || []).map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div className="input-group expense-claims-search">
+            <label>Search</label>
+            <input
+              className="custom-select"
+              placeholder="Name, emp ID, email, project"
+              value={expenseClaimFilters.q}
+              onChange={(e) => setExpenseClaimFilters((p) => ({ ...p, q: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        {expenseClaimsError && <div className="q-error">{expenseClaimsError}</div>}
+        {expenseClaimsLoading && <p style={{ color: '#64748b' }}>Loading expense claims...</p>}
+
+        <div className="table-responsive">
+          <table className="results-table">
+            <thead className="thead-teal">
+              <tr>
+                <th width="40"></th>
+                <th>Employee</th>
+                <th>Emp ID</th>
+                <th>Circle</th>
+                <th>Department</th>
+                <th>Project</th>
+                <th>Travel</th>
+                <th>Status</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!expenseClaimsLoading && expenseClaims.length === 0 && (
+                <tr>
+                  <td colSpan="9" style={{ padding: 18, color: '#64748b' }}>
+                    No expense claims found.
+                  </td>
+                </tr>
+              )}
+              {expenseClaims.map((claim) => {
+                const expanded = !!expandedClaimIds[claim.id];
+                return (
+                  <React.Fragment key={claim.id}>
+                    <tr>
+                      <td>
+                        <button type="button" className="btn-icon" onClick={() => toggleClaimExpanded(claim.id)}>
+                          {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                        </button>
+                      </td>
+                      <td className="font-bold">{claim.employee_name || '-'}</td>
+                      <td>{claim.emp_id || '-'}</td>
+                      <td>{claim.circle || '-'}</td>
+                      <td>{claim.emp_type || '-'}</td>
+                      <td>{claim.project_name || '-'}</td>
+                      <td>
+                        {formatClaimDate(claim.travel_from_date)} – {formatClaimDate(claim.travel_to_date)}
+                      </td>
+                      <td>
+                        <span className={claimStatusBadgeClass(claim.status)}>{claim.status}</span>
+                      </td>
+                      <td>
+                        {(claim.line_items?.[0]?.currency || 'INR')} {Number(claim.total_amount || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <tr>
+                        <td colSpan="9" style={{ background: '#f8fafc', padding: 0 }}>
+                          <table className="results-table expense-claims-lines">
+                            <thead>
+                              <tr>
+                                <th>Sr.</th>
+                                <th>Date</th>
+                                <th>Purpose</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Attachment</th>
+                                <th>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(claim.line_items || []).map((item) => (
+                                <tr key={item.id}>
+                                  <td>{item.sr_no}</td>
+                                  <td>{formatClaimDate(item.date)}</td>
+                                  <td>
+                                    <div>{item.purpose || '-'}</div>
+                                    {item.status === 'Rejected' && item.rejection_reason ? (
+                                      <p className="claim-rejection-note">Reason: {item.rejection_reason}</p>
+                                    ) : null}
+                                  </td>
+                                  <td>{item.currency || 'INR'} {Number(item.amount || 0).toFixed(2)}</td>
+                                  <td>
+                                    <span className={claimStatusBadgeClass(item.status)}>{item.status}</span>
+                                  </td>
+                                  <td>
+                                    {item.file_path ? (
+                                      <button
+                                        type="button"
+                                        className="text-link"
+                                        onClick={() => downloadProtectedFile(item.file_path, item.file_path.split('/').pop())}
+                                      >
+                                        <Download size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                                        Download
+                                      </button>
+                                    ) : (
+                                      '-'
+                                    )}
+                                  </td>
+                                  <td>
+                                    {(item.status || 'Pending') === 'Pending' ? (
+                                      <div className="claim-line-actions">
+                                        <button
+                                          type="button"
+                                          className="mini-btn approve"
+                                          disabled={claimLineActionLoading === item.id}
+                                          onClick={() => handleApproveClaimLineItem(claim.id, item.id)}
+                                        >
+                                          Approve
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="mini-btn reject"
+                                          disabled={claimLineActionLoading === item.id}
+                                          onClick={() => handleOpenRejectClaimModal(claim.id, item.id)}
+                                        >
+                                          Reject
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      '-'
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {claimLineActionModal && (
+        <div className="claim-reject-modal-overlay" role="presentation" onClick={() => setClaimLineActionModal(null)}>
+          <div
+            className="claim-reject-modal"
+            role="dialog"
+            aria-labelledby="claim-reject-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4 id="claim-reject-title">Reject expense item</h4>
+            <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: 14 }}>
+              Provide a reason for rejection. This will be emailed to the employee and their manager.
+            </p>
+            <div className="input-group">
+              <label>Rejection reason</label>
+              <textarea
+                className="custom-select claim-reject-textarea"
+                rows={4}
+                value={claimRejectionReason}
+                onChange={(e) => setClaimRejectionReason(e.target.value)}
+                placeholder="Enter reason for rejection..."
+              />
+            </div>
+            {claimLineActionError && <div className="q-error">{claimLineActionError}</div>}
+            <div className="claim-reject-modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setClaimLineActionModal(null);
+                  setClaimRejectionReason('');
+                  setClaimLineActionError('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={claimLineActionLoading === claimLineActionModal.lineItemId}
+                onClick={handleConfirmRejectClaimLineItem}
+              >
+                Confirm reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const renderPayrollHistory = () => (
     <div className="fade-in">
       <button className="btn-back" onClick={() => setCurrentView(previousView || 'bulkPayroll')}>
@@ -2561,6 +3019,7 @@ export const Account = ()  => {
       {currentView === 'bulkForm16' && renderBulkForm16()}
       {currentView === 'bulkPayroll' && renderBulkPayroll()}
       {currentView === 'payrollHistory' && renderPayrollHistory()}
+      {currentView === 'expenseClaims' && renderExpenseClaims()}
       {currentView === 'addForm16' && renderAddForm16()}
       {currentView === 'ctcBreakup' && renderCtcBreakup()}
       {currentView === 'viewPayslip' && (

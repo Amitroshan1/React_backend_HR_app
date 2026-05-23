@@ -162,6 +162,7 @@ def create_app():
     from .models.ctc_breakup import CTCBreakup
     from .models.monthly_payroll import MonthlyPayroll
     from .models.assessment import AssessmentInvite
+    from .models.employee_circle_history import EmployeeCircleHistory
     from .models.it_models import (
         ITInventoryItem,
         ITAssetUnit,
@@ -250,6 +251,28 @@ def create_app():
             addcol("it_parcel_exports", "exported_by_name")
         except Exception as e:
             app.logger.warning("Parcel name column migration skipped: %s", e)
+
+    def _ensure_expense_line_item_rejection_reason():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "expense_line_item"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "rejection_reason" in existing:
+                return
+            dialect = db.engine.dialect.name
+            if dialect == "postgresql":
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN rejection_reason TEXT NULL')
+            else:
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN rejection_reason TEXT NULL")
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            app.logger.info("Added column %s.rejection_reason", table)
+        except Exception as e:
+            app.logger.warning("expense_line_item rejection_reason migration skipped: %s", e)
 
     def _cleanup_zero_qty_inventory_rows():
         """
@@ -366,6 +389,19 @@ def create_app():
         except Exception as e:
             app.logger.warning("assessment table ensure skipped: %s", e)
 
+    def _ensure_employee_circle_history_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.employee_circle_history import EmployeeCircleHistory
+
+            insp = inspect(db.engine)
+            if "employee_circle_history" in set(insp.get_table_names()):
+                return
+            EmployeeCircleHistory.__table__.create(bind=db.engine, checkfirst=True)
+            app.logger.info("Created table employee_circle_history")
+        except Exception as e:
+            app.logger.warning("employee_circle_history table ensure skipped: %s", e)
+
     def _ensure_deployed_customers_table():
         try:
             from sqlalchemy import inspect
@@ -435,9 +471,11 @@ def create_app():
 
     with app.app_context():
         _ensure_parcel_name_columns()
+        _ensure_expense_line_item_rejection_reason()
         _ensure_it_return_request_table()
         _ensure_ex_employee_doc_tables()
         _ensure_assessment_tables()
+        _ensure_employee_circle_history_table()
         _ensure_deployed_customers_table()
         _ensure_leave_balance_defaults()
         _cleanup_zero_qty_inventory_rows()
