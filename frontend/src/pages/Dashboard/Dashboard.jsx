@@ -206,21 +206,6 @@ function PunchSessionsList({ sessions, sessionAttendanceDate, formatTime, format
                             {s.extended_hours_reason ? (
                                 <p className="dashboard-punch-session-reason">Extended hours: {s.extended_hours_reason}</p>
                             ) : null}
-                            {s.is_open && s.session_cap_hours ? (
-                                <p className="dashboard-punch-session-reason" style={{ color: '#64748b' }}>
-                                    Auto punch-out by{' '}
-                                    {s.session_auto_close_at
-                                        ? new Date(s.session_auto_close_at).toLocaleString('en-IN', {
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                            day: 'numeric',
-                                            month: 'short',
-                                          })
-                                        : `~${s.session_cap_hours}h`}
-                                    {' '}
-                                    (10h total today across all sessions; server checks every 2 min)
-                                </p>
-                            ) : null}
                         </li>
                     );
                 })}
