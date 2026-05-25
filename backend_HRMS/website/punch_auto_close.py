@@ -192,13 +192,21 @@ def process_auto_punch_outs():
             db.session.flush()
 
         try:
+            if open_sess.lat is not None and open_sess.lon is not None:
+                from .auth import resolve_geofence_for_coordinates
+
+                geo = resolve_geofence_for_coordinates(open_sess.lat, open_sess.lon)
+                loc_out = geo["location_status"]
+            else:
+                loc_out = open_sess.location_status_in or open_sess.location_status
+
             close_punch_session(
                 open_sess,
                 punch,
                 is_auto=True,
                 lat=open_sess.lat,
                 lon=open_sess.lon,
-                location_status_out=open_sess.location_status_in or open_sess.location_status,
+                location_status_out=loc_out,
                 extended_hours_reason=reason,
                 now=now,
                 clock_out_at=out_at,

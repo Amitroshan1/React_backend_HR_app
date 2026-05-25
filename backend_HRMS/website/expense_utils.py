@@ -7,6 +7,8 @@ CLAIM_EXPENSES_SUBDIR = "expenses"
 EXPENSE_CLAIM_TEMPLATE = (
     Path(__file__).resolve().parent / "templates" / "Expenses_Claim_Form_FT.xlsx"
 )
+# Template M28 uses #,##0 (no decimals); override on all amount/total cells.
+MONEY_NUMBER_FORMAT = "#,##0.00"
 
 
 def claim_attach_static_filename(stored_name):
@@ -50,6 +52,9 @@ def generate_expense_claim_excel(header, line_items, *, circle=None, emp_type=No
         if not d:
             return ""
         return d.strftime("%d:%m:%Y")
+
+    def apply_money_format(cell):
+        cell.number_format = MONEY_NUMBER_FORMAT
 
     def clear_advance_payment_block(worksheet):
         """Remove template sample advance amounts (e.g. 124000 in Q22)."""
@@ -117,27 +122,27 @@ def generate_expense_claim_excel(header, line_items, *, circle=None, emp_type=No
             column=8,
             value="Printed Receipts" if li.Attach_file else "No Receipts",
         )
-        amt = float(li.amount or 0)
+        amt = round(float(li.amount or 0), 2)
         cur = (li.currency or "INR").strip().upper()
         if cur == "USD":
-            ws.cell(row=r, column=11, value=amt)
+            cell = ws.cell(row=r, column=11, value=amt)
+            apply_money_format(cell)
         elif cur in ("EUR", "EURO"):
-            ws.cell(row=r, column=12, value=amt)
+            cell = ws.cell(row=r, column=12, value=amt)
+            apply_money_format(cell)
         else:
-            ws.cell(row=r, column=13, value=amt)
+            cell = ws.cell(row=r, column=13, value=amt)
+            apply_money_format(cell)
 
     last_item_row = data_start + n - 1 if n else data_start
-    total_inr = 0.0
-    for li in items:
-        cur = (li.currency or "INR").strip().upper()
-        if cur in ("INR", ""):
-            total_inr += float(li.amount or 0)
 
     if n:
         ws[f"J{sum_row}"] = f"=SUM(J{data_start}:J{last_item_row})"
         ws[f"K{sum_row}"] = f"=SUM(K{data_start}:K{last_item_row})"
         ws[f"L{sum_row}"] = f"=SUM(L{data_start}:L{last_item_row})"
         ws[f"M{sum_row}"] = f"=SUM(M{data_start}:M{last_item_row})"
+        for col in (10, 11, 12, 13):
+            apply_money_format(ws.cell(row=sum_row, column=col))
 
     for col in (10, 11, 12, 13):  # J, K, L, M — Advance Taken (B) left blank
         ws.cell(row=advance_row, column=col, value=None)
@@ -147,8 +152,8 @@ def generate_expense_claim_excel(header, line_items, *, circle=None, emp_type=No
     ws[f"L{net_row}"] = f"=L{sum_row}-IF(ISBLANK(L{advance_row}),0,L{advance_row})"
     if n:
         ws[f"M{net_row}"] = f"=M{sum_row}-IF(ISBLANK(M{advance_row}),0,M{advance_row})"
-        if total_inr:
-            ws[f"M{net_row}"] = round(total_inr, 2)
+        for col in (10, 11, 12, 13):
+            apply_money_format(ws.cell(row=net_row, column=col))
 
     output = BytesIO()
     wb.save(output)

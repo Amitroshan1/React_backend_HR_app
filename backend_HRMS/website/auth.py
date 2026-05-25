@@ -817,15 +817,129 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 GEOFENCE_GRACE_METERS = 100
+DEFAULT_OFFICE_RADIUS_METERS = 100
+
+
+def _parse_lat(val):
+    if val is None or val == "":
+        return None
+    try:
+        f = float(val)
+        if -90 <= f <= 90:
+            return f
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _parse_lon(val):
+    if val is None or val == "":
+        return None
+    try:
+        f = float(val)
+        if -180 <= f <= 180:
+            return f
+    except (TypeError, ValueError):
+        pass
+    return None
+
 
 def compute_zone(distance, radius, grace=GEOFENCE_GRACE_METERS):
-    if distance is None or radius is None:
+    if distance is None:
         return "NO_GPS"
+    if radius is None:
+        radius = DEFAULT_OFFICE_RADIUS_METERS
     if distance <= radius:
         return "INSIDE"
     if distance <= (radius + grace):
         return "NEAR"
     return "OUTSIDE"
+
+
+def zone_to_location_status(zone):
+    """DB label for punch session geo — outside_geofence only when truly outside."""
+    return {
+        "INSIDE": "inside_geofence",
+        "NEAR": "inside_geofence",
+        "OUTSIDE": "outside_geofence",
+        "NO_GPS": "gps_unavailable",
+        "NO_OFFICE_CONFIG": "office_not_configured",
+    }.get(zone or "", "location_not_captured")
+
+
+def resolve_geofence_for_coordinates(lat, lon):
+    """
+    Pick best office from all configured locations (same logic as /employee/location-check).
+    Returns zone, distance_meters, radius_meters, in_range, location_status.
+    """
+    user_lat = _parse_lat(lat)
+    user_lon = _parse_lon(lon)
+    if user_lat is None or user_lon is None:
+        return {
+            "zone": "NO_GPS",
+            "distance_meters": None,
+            "radius_meters": None,
+            "in_range": False,
+            "location_status": zone_to_location_status("NO_GPS"),
+        }
+
+    offices = Location.query.all()
+    if not offices:
+        return {
+            "zone": "NO_OFFICE_CONFIG",
+            "distance_meters": None,
+            "radius_meters": None,
+            "in_range": False,
+            "location_status": zone_to_location_status("NO_OFFICE_CONFIG"),
+        }
+
+    best_zone = None
+    best_distance = None
+    best_radius = None
+
+    for office in offices:
+        if office.latitude is None or office.longitude is None:
+            continue
+        radius = office.radius if office.radius is not None else DEFAULT_OFFICE_RADIUS_METERS
+        distance = calculate_distance(
+            user_lat, user_lon, office.latitude, office.longitude
+        )
+        zone = compute_zone(distance, radius)
+
+        if best_zone is None:
+            best_zone = zone
+            best_distance = distance
+            best_radius = radius
+            continue
+
+        current_in_range = zone in ("INSIDE", "NEAR")
+        best_in_range = best_zone in ("INSIDE", "NEAR")
+        if current_in_range and not best_in_range:
+            best_zone = zone
+            best_distance = distance
+            best_radius = radius
+        elif current_in_range == best_in_range and distance < best_distance:
+            best_zone = zone
+            best_distance = distance
+            best_radius = radius
+
+    if best_zone is None:
+        return {
+            "zone": "NO_OFFICE_CONFIG",
+            "distance_meters": None,
+            "radius_meters": None,
+            "in_range": False,
+            "location_status": zone_to_location_status("NO_OFFICE_CONFIG"),
+        }
+
+    return {
+        "zone": best_zone,
+        "distance_meters": int(best_distance) if best_distance is not None else None,
+        "radius_meters": best_radius,
+        "in_range": best_zone in ("INSIDE", "NEAR"),
+        "location_status": zone_to_location_status(best_zone),
+    }
+
 
 def needs_reason_for_zone(zone):
     return zone in ["OUTSIDE", "NO_GPS"]
@@ -835,76 +949,19 @@ def needs_reason_for_zone(zone):
 @jwt_required()
 def location_check():
     """Check if user's lat/lon is within office range. Used by dashboard for punch-in/out buttons."""
-    lat = request.args.get('lat', type=float)
-    lon = request.args.get('lon', type=float)
-    if lat is None or lon is None:
-        return jsonify({
-            "success": True,
-            "zone": "NO_GPS",
-            "in_range": False,
-            "distance_meters": None,
-            "radius_meters": None,
-            "grace_meters": GEOFENCE_GRACE_METERS,
-            "requires_reason": True,
-            "message": "Location not captured"
-        }), 200
-    offices = Location.query.all()
-    if not offices:
-        return jsonify({
-            "success": True,
-            "zone": "NO_OFFICE_CONFIG",
-            "in_range": False,
-            "distance_meters": None,
-            "radius_meters": None,
-            "grace_meters": GEOFENCE_GRACE_METERS,
-            "requires_reason": False,
-            "message": "Office location not configured"
-        }), 200
-
-    # Evaluate all configured locations and pick the best match:
-    # - Prefer any office where zone is INSIDE/NEAR (in_range)
-    # - Among those, choose the one with smallest distance
-    # - If none are INSIDE/NEAR, pick the closest office overall
-    best_zone = None
-    best_distance = None
-    best_radius = None
-
-    for office in offices:
-        distance = calculate_distance(lat, lon, office.latitude, office.longitude)
-        zone = compute_zone(distance, office.radius)
-
-        if best_zone is None:
-            best_zone = zone
-            best_distance = distance
-            best_radius = office.radius
-            continue
-
-        # Prefer INSIDE/NEAR over OUTSIDE/NO_GPS; within same class choose closest
-        current_in_range = zone in ["INSIDE", "NEAR"]
-        best_in_range = best_zone in ["INSIDE", "NEAR"]
-
-        if current_in_range and not best_in_range:
-            best_zone = zone
-            best_distance = distance
-            best_radius = office.radius
-        elif current_in_range == best_in_range and distance < best_distance:
-            best_zone = zone
-            best_distance = distance
-            best_radius = office.radius
-
-    zone = best_zone
-    distance = best_distance
-    radius = best_radius
-
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
+    geo = resolve_geofence_for_coordinates(lat, lon)
+    zone = geo["zone"]
     return jsonify({
         "success": True,
         "zone": zone,
-        "in_range": zone in ["INSIDE", "NEAR"],
-        "distance_meters": int(distance) if distance is not None else None,
-        "radius_meters": radius,
+        "in_range": geo["in_range"],
+        "distance_meters": geo["distance_meters"],
+        "radius_meters": geo["radius_meters"],
         "grace_meters": GEOFENCE_GRACE_METERS,
         "requires_reason": needs_reason_for_zone(zone),
-        "message": f"{zone} zone"
+        "message": f"{zone} zone",
     }), 200
 
 
@@ -914,8 +971,8 @@ def punch_in():
 
     data = request.get_json() or {}
 
-    user_lat = data.get("lat")
-    user_lon = data.get("lon")
+    user_lat = _parse_lat(data.get("lat"))
+    user_lon = _parse_lon(data.get("lon"))
     is_wfh = bool(data.get("is_wfh", False))
     geo_reason = (data.get("geo_reason") or "").strip()
 
@@ -987,27 +1044,9 @@ def punch_in():
             "requires_repeat_punch_reason": True,
         }), 400
 
-    office_location = Location.query.first()
-    zone = "NO_GPS"
-    distance = None
-    if user_lat is not None and user_lon is not None and office_location:
-        distance = calculate_distance(
-            user_lat, user_lon,
-            office_location.latitude,
-            office_location.longitude
-        )
-        zone = compute_zone(distance, office_location.radius)
-    elif office_location is None:
-        zone = "NO_OFFICE_CONFIG"
-
-    status_map = {
-        "INSIDE": "inside_geofence",
-        "NEAR": "inside_geofence",
-        "OUTSIDE": "outside_geofence",
-        "NO_GPS": "outside_geofence",
-        "NO_OFFICE_CONFIG": "office_not_configured"
-    }
-    location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
+    geo = resolve_geofence_for_coordinates(user_lat, user_lon)
+    zone = geo["zone"]
+    location_status = geo["location_status"]
 
     now = datetime.now()
     sess = PunchSession(
@@ -1051,8 +1090,8 @@ def punch_out():
     try:
         data = request.get_json() or {}
         
-        user_lat = data.get("lat")
-        user_lon = data.get("lon")
+        user_lat = _parse_lat(data.get("lat"))
+        user_lon = _parse_lon(data.get("lon"))
         geo_reason = (data.get("geo_reason") or "").strip()
 
         # Get logged-in user email from JWT
@@ -1077,26 +1116,9 @@ def punch_out():
             if not open_sess or not punch:
                 return jsonify({"success": False, "message": "No active punch-in found"}), 400
 
-        office_location = Location.query.first()
-        zone = "NO_GPS"
-        if user_lat is not None and user_lon is not None and office_location:
-            distance = calculate_distance(
-                user_lat, user_lon,
-                office_location.latitude,
-                office_location.longitude
-            )
-            zone = compute_zone(distance, office_location.radius)
-        elif office_location is None:
-            zone = "NO_OFFICE_CONFIG"
-
-        status_map = {
-            "INSIDE": "inside_geofence",
-            "NEAR": "inside_geofence",
-            "OUTSIDE": "outside_geofence",
-            "NO_GPS": "outside_geofence",
-            "NO_OFFICE_CONFIG": "office_not_configured"
-        }
-        location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
+        geo = resolve_geofence_for_coordinates(user_lat, user_lon)
+        zone = geo["zone"]
+        location_status = geo["location_status"]
 
         now = datetime.now()
         is_auto = data.get("auto_system_punch_out") is True
