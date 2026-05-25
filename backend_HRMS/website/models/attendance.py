@@ -45,6 +45,7 @@ class PunchSession(db.Model):
     clock_out = db.Column(db.DateTime, nullable=True)
     repeat_reason = db.Column(db.String(500), nullable=True)
     extended_hours_reason = db.Column(db.String(500), nullable=True)
+    auto_punched_out = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
     is_wfh = db.Column(db.Boolean, nullable=False, default=False)
     lat = db.Column(db.Float, nullable=True)
     lon = db.Column(db.Float, nullable=True)

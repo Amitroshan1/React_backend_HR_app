@@ -1936,3 +1936,10 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     workbook.close()
     output.seek(0)
     return output
+
+
+def generate_expense_claim_excel(header, line_items, *, circle=None, emp_type=None, claim_status=None):
+    """Re-export for backward compatibility."""
+    from .expense_utils import generate_expense_claim_excel as _gen
+
+    return _gen(header, line_items, circle=circle, emp_type=emp_type, claim_status=claim_status)

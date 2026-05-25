@@ -40,6 +40,10 @@ from .punch_aggregate import (
     open_punch_session_for_admin,
     serialize_punch_sessions,
 )
+from .punch_auto_close import (
+    close_punch_session,
+    validate_manual_punch_out_extended_reason,
+)
 
 auth = Blueprint('auth', __name__)
 
@@ -1095,39 +1099,31 @@ def punch_out():
         location_status = status_map.get(zone, "LOCATION_NOT_CAPTURED")
 
         now = datetime.now()
-        cin = open_sess.clock_in
-        duration_sec = int((now - cin).total_seconds()) if cin else 0
-        date_changed = bool(cin and cin.date() != now.date())
-        EXTENDED_HOURS_THRESHOLD_SEC = 10 * 3600
-        auto_cap_reason = "Auto punch-out after 10 hr cap"
-        if duration_sec > EXTENDED_HOURS_THRESHOLD_SEC and date_changed:
-            ext_reason = (data.get("extended_hours_reason") or "").strip()
-            if len(ext_reason) < 3 and data.get("auto_system_punch_out") is True:
-                ext_reason = auto_cap_reason
-            if len(ext_reason) < 3:
-                return jsonify({
-                    "success": False,
-                    "message": (
-                        "This session is over 10 hours and crosses midnight. "
-                        "Please provide a reason (at least 3 characters) to punch out."
-                    ),
-                    "requires_extended_hours_reason": True,
-                }), 400
-            open_sess.extended_hours_reason = ext_reason
+        is_auto = data.get("auto_system_punch_out") is True
 
-        if data.get("auto_system_punch_out") is True:
-            open_sess.extended_hours_reason = auto_cap_reason
+        err_body, err_code = validate_manual_punch_out_extended_reason(open_sess, data, now)
+        if err_body:
+            return jsonify(err_body), err_code
 
-        open_sess.clock_out = now
-        open_sess.lat = user_lat
-        open_sess.lon = user_lon
-        open_sess.location_status_out = location_status
-        open_sess.location_status = location_status
+        ext_reason = None
+        if is_auto:
+            ext_trim = (data.get("extended_hours_reason") or "").strip()
+            ext_reason = ext_trim or None
+        else:
+            ext_trim = (data.get("extended_hours_reason") or "").strip()
+            if len(ext_trim) >= 3:
+                ext_reason = ext_trim
 
-        punch.lat = user_lat
-        punch.lon = user_lon
-
-        recompute_punch_aggregate(punch)
+        close_punch_session(
+            open_sess,
+            punch,
+            is_auto=is_auto,
+            lat=user_lat,
+            lon=user_lon,
+            location_status_out=location_status,
+            extended_hours_reason=ext_reason,
+            now=now,
+        )
         db.session.commit()
 
         today_work_str = punch.today_work or "0:00:00"

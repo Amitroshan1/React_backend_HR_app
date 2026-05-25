@@ -101,6 +101,8 @@ def open_punch_session_for_admin(admin_id):
 
 def serialize_punch_sessions(punch_row):
     """Build JSON list for dashboard: each in→out segment with duration (closed) or is_open."""
+    from .punch_auto_close import session_auto_close_deadline, session_cap_hours_display
+
     if not punch_row or not getattr(punch_row, "id", None):
         return []
     rows = (
@@ -113,6 +115,7 @@ def serialize_punch_sessions(punch_row):
         dur = None
         if s.clock_out and s.clock_in:
             dur = seconds_to_hms_str(int((s.clock_out - s.clock_in).total_seconds()))
+        deadline = session_auto_close_deadline(s) if s.clock_out is None else None
         out.append(
             {
                 "id": s.id,
@@ -123,6 +126,9 @@ def serialize_punch_sessions(punch_row):
                 "repeat_reason": (s.repeat_reason or "").strip() or None,
                 "extended_hours_reason": (getattr(s, "extended_hours_reason", None) or "").strip()
                 or None,
+                "auto_punched_out": bool(getattr(s, "auto_punched_out", False)),
+                "session_cap_hours": session_cap_hours_display(s) if s.clock_out is None else None,
+                "session_auto_close_at": deadline.isoformat() if deadline else None,
                 "location_status": (getattr(s, "location_status", None) or "").strip() or None,
                 "location_status_in": (getattr(s, "location_status_in", None) or "").strip() or None,
                 "location_status_out": (getattr(s, "location_status_out", None) or "").strip() or None,

@@ -274,6 +274,32 @@ def create_app():
         except Exception as e:
             app.logger.warning("expense_line_item rejection_reason migration skipped: %s", e)
 
+    def _ensure_punch_session_auto_punched_out():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "punch_sessions"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "auto_punched_out" in existing:
+                return
+            dialect = db.engine.dialect.name
+            if dialect == "postgresql":
+                stmt = text(
+                    f'ALTER TABLE "{table}" ADD COLUMN auto_punched_out BOOLEAN NOT NULL DEFAULT FALSE'
+                )
+            else:
+                stmt = text(
+                    f"ALTER TABLE {table} ADD COLUMN auto_punched_out TINYINT(1) NOT NULL DEFAULT 0"
+                )
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            app.logger.info("Added column %s.auto_punched_out", table)
+        except Exception as e:
+            app.logger.warning("punch_sessions auto_punched_out migration skipped: %s", e)
+
     def _cleanup_zero_qty_inventory_rows():
         """
         Remove legacy zero-quantity Accessories/Consumables rows that have no
@@ -472,6 +498,7 @@ def create_app():
     with app.app_context():
         _ensure_parcel_name_columns()
         _ensure_expense_line_item_rejection_reason()
+        _ensure_punch_session_auto_punched_out()
         _ensure_it_return_request_table()
         _ensure_ex_employee_doc_tables()
         _ensure_assessment_tables()
@@ -505,7 +532,13 @@ def create_app():
             "trigger": "cron",
             "hour": 6,
             "minute": 0,
-        }
+        },
+        {
+            "id": "auto_punch_out_scan",
+            "func": "website.scheduler:run_auto_punch_out_job",
+            "trigger": "interval",
+            "minutes": 2,
+        },
     ]
     scheduler.init_app(app)
     scheduler.start()

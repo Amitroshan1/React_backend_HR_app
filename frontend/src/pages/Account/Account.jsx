@@ -107,6 +107,7 @@ export const Account = ()  => {
   const [claimRejectionReason, setClaimRejectionReason] = useState('');
   const [claimLineActionLoading, setClaimLineActionLoading] = useState(null);
   const [claimLineActionError, setClaimLineActionError] = useState('');
+  const [claimExcelDownloading, setClaimExcelDownloading] = useState(null);
   const [bulkForm16Year, setBulkForm16Year] = useState(`${new Date().getFullYear()}-${new Date().getFullYear() + 1}`);
   const [bulkForm16Files, setBulkForm16Files] = useState([]);
   const [isBulkForm16Uploading, setIsBulkForm16Uploading] = useState(false);
@@ -432,6 +433,58 @@ export const Account = ()  => {
       return new Date(value).toLocaleDateString('en-IN');
     } catch {
       return value;
+    }
+  };
+
+  const handleDownloadClaimExcel = async (claim) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Session expired. Please login again.');
+      return;
+    }
+    const claimId = claim?.id;
+    if (!claimId) return;
+
+    setClaimExcelDownloading(claimId);
+    try {
+      const response = await fetch(`${API_BASE_URL}/expense-claims/${claimId}/excel`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!response.ok || contentType.includes('application/json')) {
+        let message = 'Unable to download claim excel';
+        try {
+          const err = await response.json();
+          message = err.message || message;
+        } catch {
+          // keep fallback
+        }
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i);
+      const empPart = (claim.emp_id || 'claim').replace(/\s+/g, '_');
+      const fileName = match
+        ? decodeURIComponent(match[1].replace(/"/g, ''))
+        : `Expense_Claim_${empPart}_${claimId}.xlsx`;
+
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Claim excel download error:', error);
+      alert(error.message || 'Unable to download claim excel');
+    } finally {
+      setClaimExcelDownloading(null);
     }
   };
 
@@ -2773,12 +2826,13 @@ export const Account = ()  => {
                 <th>Travel</th>
                 <th>Status</th>
                 <th>Total</th>
+                <th>Download</th>
               </tr>
             </thead>
             <tbody>
               {!expenseClaimsLoading && expenseClaims.length === 0 && (
                 <tr>
-                  <td colSpan="9" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="10" style={{ padding: 18, color: '#64748b' }}>
                     No expense claims found.
                   </td>
                 </tr>
@@ -2807,10 +2861,20 @@ export const Account = ()  => {
                       <td>
                         {(claim.line_items?.[0]?.currency || 'INR')} {Number(claim.total_amount || 0).toFixed(2)}
                       </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="text-link"
+                          disabled={claimExcelDownloading === claim.id}
+                          onClick={() => handleDownloadClaimExcel(claim)}
+                        >
+                          {claimExcelDownloading === claim.id ? 'Downloading…' : 'Claim in excel'}
+                        </button>
+                      </td>
                     </tr>
                     {expanded && (
                       <tr>
-                        <td colSpan="9" style={{ background: '#f8fafc', padding: 0 }}>
+                        <td colSpan="10" style={{ background: '#f8fafc', padding: 0 }}>
                           <table className="results-table expense-claims-lines">
                             <thead>
                               <tr>

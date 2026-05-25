@@ -12,6 +12,7 @@ from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
 from .email import asset_email,update_asset_email
+from .expense_utils import generate_expense_claim_excel
 from .utility import (
     generate_attendance_excel_Accounts,
     generate_client_attendance_excel,
@@ -1667,6 +1668,41 @@ def list_expense_claims():
             "claims": claims_out,
         }
     ), 200
+
+
+@Accounts.route("/expense-claims/<int:claim_id>/excel", methods=["GET"])
+@jwt_required()
+def download_expense_claim_excel(claim_id):
+    """Accounts: download one expense claim as Excel."""
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    row = ExpenseClaimHeader.query.get(claim_id)
+    if not row:
+        return jsonify({"success": False, "message": "Claim not found"}), 404
+
+    emp = row.admin
+    line_items = (
+        ExpenseLineItem.query.filter_by(claim_id=row.id)
+        .order_by(ExpenseLineItem.sr_no.asc())
+        .all()
+    )
+    if not line_items:
+        return jsonify({"success": False, "message": "No line items for this claim"}), 404
+
+    status = _claim_status_from_line_items(line_items)
+    output = generate_expense_claim_excel(
+        row,
+        line_items,
+        circle=getattr(emp, "circle", None) if emp else None,
+        emp_type=getattr(emp, "emp_type", None) if emp else None,
+        claim_status=status,
+    )
+    safe_emp = (row.emp_id or "claim").replace("/", "-")
+    filename = f"Expense_Claim_{safe_emp}_{claim_id}.xlsx"
+    return send_excel_file(output, filename)
 
 
 @Accounts.route("/expense-claims/line-items/<int:line_item_id>/action", methods=["POST"])

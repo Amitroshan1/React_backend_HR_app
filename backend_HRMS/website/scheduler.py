@@ -64,3 +64,21 @@ def run_daily_hr_jobs():
         except Exception as e:
             log.exception("scheduler: commit failed: %s", e)
             db.session.rollback()
+
+
+def run_auto_punch_out_job():
+    """Every few minutes: auto punch-out when punch-day total work reaches 10h."""
+    if _app is None:
+        return
+    with _app.app_context():
+        from . import db
+        from .punch_auto_close import process_auto_punch_outs
+
+        log = _app.logger
+        try:
+            n = process_auto_punch_outs()
+            if n:
+                log.info("scheduler: auto punch-out closed %s session(s)", n)
+        except Exception as e:
+            log.exception("scheduler: auto-punch-out failed: %s", e)
+            db.session.rollback()
