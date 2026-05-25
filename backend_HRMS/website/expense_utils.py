@@ -51,8 +51,24 @@ def generate_expense_claim_excel(header, line_items, *, circle=None, emp_type=No
             return ""
         return d.strftime("%d:%m:%Y")
 
+    def clear_advance_payment_block(worksheet):
+        """Remove template sample advance amounts (e.g. 124000 in Q22)."""
+        for r in range(16, 22):
+            for col in (16, 17, 18):  # P Date, Q Amount, R Remark
+                try:
+                    worksheet.cell(row=r, column=col, value=None)
+                except AttributeError:
+                    pass
+        worksheet["Q22"] = None
+        for col in (16, 17, 18):
+            try:
+                worksheet.cell(row=22, column=col, value=None)
+            except AttributeError:
+                pass
+
     wb = load_workbook(EXPENSE_CLAIM_TEMPLATE)
     ws = wb.active
+    clear_advance_payment_block(ws)
 
     header_date = header.travel_to_date or header.travel_from_date
     if not header_date and line_items:
@@ -111,19 +127,28 @@ def generate_expense_claim_excel(header, line_items, *, circle=None, emp_type=No
             ws.cell(row=r, column=13, value=amt)
 
     last_item_row = data_start + n - 1 if n else data_start
+    total_inr = 0.0
+    for li in items:
+        cur = (li.currency or "INR").strip().upper()
+        if cur in ("INR", ""):
+            total_inr += float(li.amount or 0)
+
     if n:
         ws[f"J{sum_row}"] = f"=SUM(J{data_start}:J{last_item_row})"
         ws[f"K{sum_row}"] = f"=SUM(K{data_start}:K{last_item_row})"
         ws[f"L{sum_row}"] = f"=SUM(L{data_start}:L{last_item_row})"
         ws[f"M{sum_row}"] = f"=SUM(M{data_start}:M{last_item_row})"
-    ws[f"J{advance_row}"] = 0
-    ws[f"K{advance_row}"] = 0
-    ws[f"L{advance_row}"] = 0
-    ws[f"M{advance_row}"] = 0
-    ws[f"J{net_row}"] = f"=J{sum_row}-J{advance_row}"
-    ws[f"K{net_row}"] = f"=K{sum_row}-K{advance_row}"
-    ws[f"L{net_row}"] = f"=L{sum_row}-L{advance_row}"
-    ws[f"M{net_row}"] = f"=M{sum_row}-M{advance_row}"
+
+    for col in (10, 11, 12, 13):  # J, K, L, M — Advance Taken (B) left blank
+        ws.cell(row=advance_row, column=col, value=None)
+
+    ws[f"J{net_row}"] = f"=J{sum_row}-IF(ISBLANK(J{advance_row}),0,J{advance_row})"
+    ws[f"K{net_row}"] = f"=K{sum_row}-IF(ISBLANK(K{advance_row}),0,K{advance_row})"
+    ws[f"L{net_row}"] = f"=L{sum_row}-IF(ISBLANK(L{advance_row}),0,L{advance_row})"
+    if n:
+        ws[f"M{net_row}"] = f"=M{sum_row}-IF(ISBLANK(M{advance_row}),0,M{advance_row})"
+        if total_inr:
+            ws[f"M{net_row}"] = round(total_inr, 2)
 
     output = BytesIO()
     wb.save(output)
