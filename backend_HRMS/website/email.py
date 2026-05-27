@@ -2679,3 +2679,30 @@ def send_assessment_submitted_email_to_hr(*, candidate_name, candidate_email, de
     except Exception as e:
         current_app.logger.warning("send_assessment_submitted_email_to_hr failed: %s", e)
         return False
+
+
+def send_assessment_hr_report_email(*, subject, html_body):
+    """Send HR the proficiency summary (Arithmetic + English) and Section 2 Q&A from review."""
+    try:
+        to_email = (
+            current_app.config.get("EMAIL_HR")
+            or current_app.config.get("ZEPTO_CC_HR")
+            or current_app.config.get("ZEPTO_SENDER_EMAIL")
+        )
+        if not to_email:
+            return False, "HR recipient email is not configured (EMAIL_HR / ZEPTO_CC_HR)."
+        sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not sender_email:
+            current_app.logger.warning("send_assessment_hr_report_email: ZEPTO_SENDER_EMAIL not configured")
+            return False, "ZEPTO_SENDER_EMAIL is not configured."
+        ok, msg = send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=(subject or "Assessment report").strip()[:200],
+            body=html_body or "<p>(empty)</p>",
+            recipient_email=(to_email or "").strip(),
+            cc_emails=None,
+        )
+        return bool(ok), str(msg or "")
+    except Exception as e:
+        current_app.logger.warning("send_assessment_hr_report_email failed: %s", e)
+        return False, str(e)

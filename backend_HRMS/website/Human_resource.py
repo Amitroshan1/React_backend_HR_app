@@ -10,6 +10,7 @@
 
 import secrets
 import hashlib
+import html
 import json
 import base64
 import mimetypes
@@ -34,6 +35,7 @@ from .email import (
     send_hr_leave_updation_email,
     send_assessment_invite_email,
     send_assessment_submitted_email_to_hr,
+    send_assessment_hr_report_email,
 )
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
 from .circle_transfer_utils import fetch_admins_for_attendance_export
@@ -3350,6 +3352,89 @@ def _assessment_auto_score(answers):
     return float(score), breakdown
 
 
+def _assessment_proficiency_row_counts(breakdown):
+    """Correct counts for chart rows: Q1–25 (Arithmetic) and Q63–87 (English), each out of 25."""
+    bd = breakdown or {}
+    ar = sum(1 for n in range(1, 26) if bd.get(str(n), {}).get("correct"))
+    en = sum(1 for n in range(63, 88) if bd.get(str(n), {}).get("correct"))
+    return ar, en
+
+
+def _assessment_build_hr_report_email_html(invite, answers, breakdown):
+    """HTML body: intro + Arithmetic/English table + Section 2 (Q26–62) Q&A only."""
+    name = html.escape((invite.full_name or "Candidate").strip() or "Candidate")
+    dept = html.escape((invite.department or "-").strip())
+    email_c = html.escape((invite.candidate_email or "-").strip())
+    ar_ok, en_ok = _assessment_proficiency_row_counts(breakdown)
+    tot = 25
+    ar_pct = int(round(100.0 * ar_ok / tot)) if tot else 0
+    en_pct = int(round(100.0 * en_ok / tot)) if tot else 0
+
+    intro = (
+        f"<p>Please find below the percentage scored by <strong>{name}</strong> in the "
+        f"Arithmetic and English proficiency sections.</p>"
+    )
+    table = (
+        '<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;max-width:640px;">'
+        '<tr style="background:#e5e7eb;">'
+        "<td><strong>Section</strong></td><td><strong>Score</strong></td><td><strong>Percentage</strong></td></tr>"
+        f"<tr><td>Arithmetic Proficiency</td><td>{ar_ok}/{tot}</td><td>{ar_pct}%</td></tr>"
+        f"<tr><td>English Proficiency</td><td>{en_ok}/{tot}</td><td>{en_pct}%</td></tr>"
+        "</table>"
+    )
+
+    payload = _assessment_questions_payload()
+    sec2 = payload.get("section_2") or []
+    parts = [
+        '<h3 style="margin-top:22px;margin-bottom:8px;">Section 2 — Personality &amp; situational questions (Q26–Q62)</h3>',
+        "<p style=\"font-size:13px;color:#475569;margin-top:0;\">Question text and the candidate&apos;s answers for this attempt.</p>",
+    ]
+    for q in sec2:
+        qno = int(q.get("number") or 0)
+        if qno < 26 or qno > 62:
+            continue
+        qtext = html.escape(str(q.get("question") or "(Question text unavailable)"))
+        raw = answers.get(str(qno))
+        if (q.get("type") or "").lower() == "mcq":
+            options = q.get("options") or []
+            label = "-"
+            try:
+                idx = int(raw)
+                if 1 <= idx <= len(options):
+                    label = f"{idx}. {options[idx - 1]}"
+                elif raw is not None and str(raw).strip() != "":
+                    label = str(raw).strip()
+            except (TypeError, ValueError):
+                if raw is not None and str(raw).strip():
+                    label = str(raw).strip()
+            answer_inner = html.escape(label)
+        else:
+            text = "" if raw is None else str(raw).strip()
+            if not text:
+                answer_inner = '<span style="color:#64748b;font-style:italic;">No answer submitted.</span>'
+            else:
+                answer_inner = html.escape(text).replace("\n", "<br/>\n")
+        parts.append(
+            '<div style="margin-top:14px;padding-bottom:12px;border-bottom:1px solid #e5e7eb;">'
+            f'<div style="font-weight:700;color:#0f172a;">Q{qno}. {qtext}</div>'
+            f'<div style="margin-top:6px;font-size:14px;color:#334155;"><strong>Answer:</strong> {answer_inner}</div>'
+            "</div>"
+        )
+
+    meta = (
+        f'<p style="margin-top:18px;font-size:12px;color:#64748b;">'
+        f"Department: {dept} | Candidate email: {email_c} | Invite ID: {invite.id}</p>"
+    )
+    return (
+        "<p>Hello HR Team,</p>"
+        f"{intro}"
+        f'<div style="margin-top:12px;">{table}</div>'
+        f'{"".join(parts)}'
+        f"{meta}"
+        "<p>Regards,<br/><strong>HR Assessment System</strong></p>"
+    )
+
+
 def _assessment_session_deadline(invite):
     """End of in-progress attempt (started_at + test duration)."""
     if not invite.started_at:
@@ -3578,6 +3663,48 @@ def get_assessment_invite_detail(invite_id):
             },
         }
     ), 200
+
+
+@hr.route("/assessment/invites/<int:invite_id>/email-hr-report", methods=["POST"])
+@jwt_required()
+@hr_required
+def email_assessment_hr_report(invite_id):
+    """Email HR: Arithmetic + English proficiency table and Section 2 (Q26–62) Q&A for this invite."""
+    invite = AssessmentInvite.query.get(invite_id)
+    if not invite:
+        return jsonify({"success": False, "message": "Invite not found"}), 404
+    if invite.status not in ("submitted", "disqualified", "evaluated"):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Report can only be sent after the candidate has submitted or the attempt has been evaluated.",
+                }
+            ),
+            400,
+        )
+    if not (invite.answers_json or "").strip():
+        return jsonify({"success": False, "message": "No answers recorded for this invite."}), 400
+
+    answers = dict(_assessment_load_answers(invite))
+    answers.pop("__integrity", None)
+    answers_scoring = _assessment_answers_for_scoring(answers)
+    _auto_score, breakdown = _assessment_auto_score(answers_scoring)
+    html_body = _assessment_build_hr_report_email_html(invite, answers_scoring, breakdown)
+    safe_name = (invite.full_name or "Candidate").strip() or "Candidate"
+    subject = f"Assessment report — {safe_name}"
+    ok, provider_msg = send_assessment_hr_report_email(subject=subject, html_body=html_body)
+    if not ok:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": provider_msg or "Failed to send email.",
+                }
+            ),
+            500,
+        )
+    return jsonify({"success": True, "message": "Report emailed to HR.", "email_provider_message": provider_msg}), 200
 
 
 @hr.route("/assessment/invites/<int:invite_id>/recording", methods=["GET"])

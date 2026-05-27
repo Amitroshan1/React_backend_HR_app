@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Play, ShieldAlert, Trash2 } from "lucide-react";
+import { ArrowLeft, Mail, Play, ShieldAlert, Trash2 } from "lucide-react";
 import { getAssessmentFigureSrc } from "../../utils/assessmentFigures";
 import "./HRAssessmentInvite.css";
 import "./LeaveApplicationUpdation.css";
@@ -228,6 +228,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const [selected, setSelected] = useState(null);
   const [marks, setMarks] = useState({});
   const [evaluating, setEvaluating] = useState(false);
+  const [emailingHrReport, setEmailingHrReport] = useState(false);
   const [recordingVideoUrl, setRecordingVideoUrl] = useState(null);
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingError, setRecordingError] = useState("");
@@ -405,6 +406,36 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
       setMarks(existing);
     } catch (e) {
       setError(e.message || "Failed to load submission");
+    }
+  };
+
+  const canEmailHrReport =
+    selected &&
+    ["submitted", "disqualified", "evaluated"].includes(String(selected.status || "").toLowerCase());
+
+  const handleEmailHrReport = async () => {
+    if (!selected?.id || !canEmailHrReport) return;
+    const ok = window.confirm(
+      "Send an email to HR with this candidate’s Arithmetic & English proficiency table and Section 2 (Q26–62) questions and answers?"
+    );
+    if (!ok) return;
+    setEmailingHrReport(true);
+    setError("");
+    setMessage("");
+    setMessageType("success");
+    try {
+      const res = await fetch(`${HR_API_BASE}/assessment/invites/${selected.id}/email-hr-report`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to send report email");
+      const extra = String(data.email_provider_message || "").trim();
+      setMessage(extra ? `${data.message || "Report emailed to HR."} (${extra})` : data.message || "Report emailed to HR.");
+    } catch (e) {
+      setError(e.message || "Failed to send report email");
+    } finally {
+      setEmailingHrReport(false);
     }
   };
 
@@ -813,8 +844,23 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
           })}
         </div>
 
-        <div className="lau-modal-actions" style={{ marginTop: 12 }}>
+        <div className="lau-modal-actions" style={{ marginTop: 12, flexWrap: "wrap", gap: 8 }}>
           <button className="lau-cancel" onClick={() => setSelected(null)}>Back</button>
+          <button
+            type="button"
+            className="lau-edit-btn"
+            disabled={emailingHrReport || !canEmailHrReport}
+            onClick={handleEmailHrReport}
+            title={
+              canEmailHrReport
+                ? "Email HR the proficiency summary and Section 2 Q&A for this attempt"
+                : "Available after the candidate submits or the attempt is evaluated"
+            }
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <Mail size={16} aria-hidden />
+            {emailingHrReport ? "Sending…" : "Email report to HR"}
+          </button>
           <button className="lau-save" disabled={evaluating} onClick={handleEvaluate}>
             {evaluating ? "Saving..." : "Submit Evaluation"}
           </button>
