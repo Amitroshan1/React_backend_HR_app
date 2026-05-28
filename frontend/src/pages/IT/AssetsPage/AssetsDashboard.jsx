@@ -2064,16 +2064,7 @@ export default function AssetsDashboard() {
                           <td>
                             <button
                               className="am-edit-btn"
-                              onClick={() =>
-                                setEditRow({
-                                  id: a.id,
-                                  unitId: a.unitId || a.id,
-                                  name: a.name,
-                                  category: a.category,
-                                  empId: "",
-                                  empName: "—",
-                                })
-                              }
+                              onClick={() => setDetailItem(a)}
                             >
                               Edit
                             </button>
