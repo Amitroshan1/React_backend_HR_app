@@ -170,6 +170,7 @@ function ITAssetsForm() {
 
   const [category,     setCategory]     = useState("Hardware");
   const [hwType,       setHwType]       = useState("Laptop");
+  const [customHwType, setCustomHwType] = useState("");
   const [rows,         setRows]         = useState([blankHwRow()]);
   const [submitted,    setSubmitted]    = useState(false);
   const [successMsg,   setSuccessMsg]   = useState("");
@@ -181,6 +182,10 @@ function ITAssetsForm() {
     if (hwType === "Mobile")      return "mobile";
     return "hw";
   }, [category, hwType]);
+  const effectiveHwType = useMemo(
+    () => (hwType === "Other" ? customHwType.trim() : hwType),
+    [hwType, customHwType],
+  );
 
   // ── Row management ─────────────────────────────────────────────────────────
 
@@ -195,12 +200,14 @@ function ITAssetsForm() {
     const nextRowType =
       cat === "Software" ? "software" : cat !== "Hardware" ? "qty" : "hw";
     if (cat === "Hardware") setHwType("Laptop");
+    setCustomHwType("");
     resetForm(nextRowType);
   }, [resetForm]);
 
   const handleTypeChange = useCallback((e) => {
     const type = e.target.value;
     setHwType(type);
+    if (type !== "Other") setCustomHwType("");
     resetForm(type === "Mobile" ? "mobile" : "hw");
   }, [resetForm]);
 
@@ -248,6 +255,10 @@ function ITAssetsForm() {
 
   const handleSubmit = useCallback(async () => {
     setSubmitted(true);
+    if (category === "Hardware" && hwType === "Other" && !customHwType.trim()) {
+      toast.error("Please enter a hardware name for type 'Other'.");
+      return;
+    }
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, rowType) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
@@ -269,7 +280,7 @@ function ITAssetsForm() {
             name: brandName,
             category: "Hardware",
             inventoryCategory: "IT Assets",
-            hwType,
+            hwType: effectiveHwType,
           });
           const inventoryItemId = invRes?.item?.id;
           if (!inventoryItemId) continue;
@@ -278,14 +289,14 @@ function ITAssetsForm() {
             inventoryItemId,
             assetName: brandName,
             category: "Hardware",
-            hwType,
+            hwType: effectiveHwType,
             rows: groupRows,
           });
           addedCount += groupRows.length;
         }
 
         await syncITDataFromAPI();
-        setSuccessMsg(`✅ ${addedCount} ${hwType}${addedCount !== 1 ? "s" : ""} added to inventory.`);
+        setSuccessMsg(`✅ ${addedCount} ${effectiveHwType}${addedCount !== 1 ? "s" : ""} added to inventory.`);
       } else if (category === "Software") {
         let totalLicenses = 0;
         for (const row of validated) {
@@ -332,7 +343,7 @@ function ITAssetsForm() {
       toast.error(msg);
       setSuccessMsg(`❌ ${msg}`);
     }
-  }, [rows, rowType, category, hwType]);
+  }, [rows, rowType, category, hwType, customHwType, effectiveHwType]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -380,23 +391,39 @@ function ITAssetsForm() {
               {/* Dropdown — only visible when Hardware is selected */}
               {category === "Hardware" && (
                 <div className="ana-hwtype-dropdown-wrap">
-                  <label className="ana-hwtype-label" htmlFor="hw-type-select">
-                    Hardware Type
-                  </label>
-                  <div className="ana-hwtype-select-wrap">
-                    <select
-                      id="hw-type-select"
-                      className="ana-hwtype-select"
-                      value={hwType}
-                      onChange={handleTypeChange}
-                    >
-                      {HW_TYPES.map((type) => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                    </select>
-                    {/* Custom chevron */}
-                    <span className="ana-hwtype-chevron">▾</span>
+                  <div className="ana-hwtype-select-block">
+                    <label className="ana-hwtype-label" htmlFor="hw-type-select">
+                      Hardware Type
+                    </label>
+                    <div className="ana-hwtype-select-wrap">
+                      <select
+                        id="hw-type-select"
+                        className="ana-hwtype-select"
+                        value={hwType}
+                        onChange={handleTypeChange}
+                      >
+                        {HW_TYPES.map((type) => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
+                      {/* Custom chevron */}
+                      <span className="ana-hwtype-chevron">▾</span>
+                    </div>
                   </div>
+                  {hwType === "Other" && (
+                    <div className="ana-hwtype-custom-block">
+                      <label className="ana-hwtype-label" htmlFor="hw-type-custom">
+                        Enter Hardware Name <span className="req">*</span>
+                      </label>
+                      <input
+                        id="hw-type-custom"
+                        className="ana-hwtype-custom-input"
+                        placeholder="e.g. Docking Station, Router, UPS"
+                        value={customHwType}
+                        onChange={(e) => setCustomHwType(e.target.value)}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -406,7 +433,7 @@ function ITAssetsForm() {
           <div className="ana-category-pill-row">
             <span className={`ana-cat-dot ${category.toLowerCase()}`} />
             <span className="ana-category-pill-label">
-              {category}{category === "Hardware" && ` — ${hwType}`}
+              {category}{category === "Hardware" && ` — ${effectiveHwType || "Other"}`}
             </span>
           </div>
 
@@ -416,7 +443,7 @@ function ITAssetsForm() {
               <span className="ana-section-num">02</span>
               <h2>
                 {category === "Hardware"
-                  ? `Add ${hwType} Units`
+                  ? `Add ${effectiveHwType || "Other"} Units`
                   : category === "Software"
                   ? "Add Software Licenses"
                   : `Add ${category}`}

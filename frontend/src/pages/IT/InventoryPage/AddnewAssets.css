@@ -312,11 +312,35 @@
 .ana-hwtype-dropdown-wrap {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   /* subtle divider on the left */
   padding-left: 20px;
   border-left: 2px solid #e2e8f0;
   animation: hwDropFade 0.18s ease;
+}
+
+.ana-hwtype-select-block,
+.ana-hwtype-custom-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ana-hwtype-custom-input {
+  background: #ffffff;
+  border: 1.8px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 8px 12px;
+  min-width: 240px;
+  font-size: 13px;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.ana-hwtype-custom-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
 }
 
 @keyframes hwDropFade {

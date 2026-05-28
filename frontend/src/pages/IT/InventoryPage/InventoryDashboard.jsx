@@ -875,7 +875,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
 function AssetTable({ assets, filter, onViewAsset, onStatusChange }) {
   const showAvailable = filter !== "Assigned";
   const showAssigned  = filter !== "Available";
-  const emptyColSpan  = 4 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
+  const emptyColSpan  = 3 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
 
   return (
     <div className="inv-table-scroll">
@@ -885,7 +885,6 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange }) {
             <th>Assets Name</th>
             <th>Total Qty</th>
             {showAvailable && <th>Available</th>}
-            <th>Category</th>
             {showAssigned  && <th>Assigned</th>}
             <th>Action</th>
           </tr>
@@ -910,7 +909,6 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange }) {
                 </td>
                 <td>{row.total}</td>
                 {showAvailable && <td className="td-available">{row.available}</td>}
-                <td><span className="inv-category-badge">{row.inventoryCategory}</span></td>
                 {showAssigned  && <td className="td-assigned">{row.assigned}</td>}
                 <td>
                   <button className="inv-action-btn" onClick={() => onViewAsset(row)}>View</button>
