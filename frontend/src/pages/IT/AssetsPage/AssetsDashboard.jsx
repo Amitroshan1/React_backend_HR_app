@@ -1342,6 +1342,7 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
               ["Start", fmt(seat.subscriptionStart)],
               ["Expiry", fmt(seat.subscriptionEnd || seat.licenseExpiry)],
               ["License ID", seat.licenseId || seat.swId],
+              ["Assigned On", seat.assignedDate ? fmt(seat.assignedDate) : null],
             ].map(([label, value]) =>
               value && value !== "—" ? (
                 <div key={label} className="ep-detail-row">
