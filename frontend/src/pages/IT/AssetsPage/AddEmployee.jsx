@@ -1,6 +1,6 @@
 
 
-import React, { useState, useMemo, useCallback, useRef } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
@@ -42,6 +42,18 @@ const HW_TYPE_ICONS = { Laptop: "💻", Mobile: "📱", Desktop: "🖥️", Tabl
 const EMPTY_PROFILE = {
   employeeId: "", name: "", type: "", circle: "", email: "", photoUrl: "", photoFile: null,
 };
+
+const EMAIL_LOOKUP_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMP_ID_LOOKUP_RE = /^EMP[A-Z0-9]+$/i;
+const LOOKUP_DEBOUNCE_MS = 500;
+
+function isLookupQueryReady(raw) {
+  const q = String(raw || "").trim();
+  if (!q) return false;
+  if (EMAIL_LOOKUP_RE.test(q)) return true;
+  if (EMP_ID_LOOKUP_RE.test(q)) return true;
+  return false;
+}
 
 // ─── Self-healing employee getter ─────────────────────────────────────────────
 
@@ -108,6 +120,8 @@ const LookupGate = ({ onFound }) => {
   const [loading,       setLoading]       = useState(false);
   const [notFound,      setNotFound]      = useState(false);
   const [alreadyExists, setAlreadyExists] = useState(null);
+  const lastFetchedRef = useRef("");
+  const searchInFlightRef = useRef(false);
 
   const clearMessages = useCallback(() => {
     setNotFound(false);
@@ -125,94 +139,143 @@ const LookupGate = ({ onFound }) => {
   [], // stable — employees don't change while LookupGate is mounted
   );
 
-  const handleSearch = useCallback(async () => {
-    const q = query.trim().toLowerCase();
-    if (!q || loading) return;
+  const performSearch = useCallback(
+    async (rawQuery) => {
+      const trimmed = String(rawQuery || "").trim();
+      const q = trimmed.toLowerCase();
+      if (!q || !isLookupQueryReady(trimmed) || searchInFlightRef.current) return;
 
-    let match = null;
-    try {
+      searchInFlightRef.current = true;
       setLoading(true);
-      const apiRows = await lookupEmployeeByEmpIdOrEmailAPI(query.trim());
-      match = apiRows.find((emp) => {
-        const id = (emp.id || emp.empId || "").toLowerCase();
-        const email = (emp.email || "").toLowerCase();
-        return id === q || email === q;
-      }) || null;
-    } catch (err) {
-      // Fallback keeps screen usable if lookup API fails temporarily.
-      console.warn("[AddEmployee] lookup API failed; falling back to local store", err);
-    } finally {
-      setLoading(false);
+
+      let match = null;
+      try {
+        const apiRows = await lookupEmployeeByEmpIdOrEmailAPI(trimmed);
+        match =
+          apiRows.find((emp) => {
+            const id = (emp.id || emp.empId || "").toLowerCase();
+            const email = (emp.email || "").toLowerCase();
+            return id === q || email === q;
+          }) || null;
+      } catch (err) {
+        console.warn("[AddEmployee] lookup API failed; falling back to local store", err);
+      } finally {
+        searchInFlightRef.current = false;
+        setLoading(false);
+      }
+
+      if (!match) {
+        const employees = getEmployeesSafe();
+        match =
+          employees.find((emp) => {
+            const id = (emp.id || emp.empId || "").toLowerCase();
+            const email = (emp.email || "").toLowerCase();
+            return id === q || email === q;
+          }) || null;
+      }
+
+      if (!match) {
+        setNotFound(true);
+        setAlreadyExists(null);
+        return;
+      }
+
+      if (match.activated && (match.assignedAssets || []).length > 0) {
+        setAlreadyExists(match);
+        setNotFound(false);
+        return;
+      }
+
+      clearMessages();
+      onFound(match);
+    },
+    [onFound, clearMessages],
+  );
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!isLookupQueryReady(trimmed)) {
+      return undefined;
     }
+    const timer = setTimeout(() => {
+      if (lastFetchedRef.current === trimmed) return;
+      lastFetchedRef.current = trimmed;
+      performSearch(trimmed);
+    }, LOOKUP_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query, performSearch]);
 
-    if (!match) {
-      const employees = getEmployeesSafe();
-      match = employees.find((emp) => {
-        const id = (emp.id || emp.empId || "").toLowerCase();
-        const email = (emp.email || "").toLowerCase();
-        return id === q || email === q;
-      }) || null;
-    }
+  const handleQueryChange = useCallback(
+    (e) => {
+      setQuery(e.target.value);
+      clearMessages();
+      lastFetchedRef.current = "";
+    },
+    [clearMessages],
+  );
 
-    if (!match) {
-      setNotFound(true);
-      setAlreadyExists(null);
-      return;
-    }
-
-    if (match.activated && (match.assignedAssets || []).length > 0) {
-      setAlreadyExists(match);
-      setNotFound(false);
-      return;
-    }
-
-    clearMessages();
-    onFound(match);
-  }, [query, onFound, clearMessages, loading]);
-
-  const handleKeyDown = useCallback(
-    (e) => { if (e.key === "Enter") handleSearch(); },
-    [handleSearch],
+  const applyHint = useCallback(
+    (value) => {
+      setQuery(value);
+      clearMessages();
+      lastFetchedRef.current = "";
+    },
+    [clearMessages],
   );
 
   const hasError = notFound || !!alreadyExists;
+  const queryReady = isLookupQueryReady(query);
 
   return (
     <div className="ane-lookup-wrap">
       <div className="ane-lookup-icon">🔍</div>
       <h2 className="ane-lookup-title">Find Employee Profile</h2>
       <p className="ane-lookup-sub">
-        Enter an <strong>Employee ID</strong> or <strong>Email</strong>
+        Enter a complete <strong>Employee ID</strong> (e.g. EMP004) or <strong>email</strong> — your profile loads automatically.
       </p>
 
-      <div className="ane-lookup-row">
-        <input
-          className={`ane-lookup-input${hasError ? " ane-lookup-input--error" : ""}`}
-          type="text"
-          placeholder="e.g. EMP004 or neha.patel@company.com"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); clearMessages(); }}
-          onKeyDown={handleKeyDown}
-          autoFocus
-        />
-        <button
-          className="ane-lookup-btn"
-          onClick={handleSearch}
-          disabled={!query.trim() || loading}
+      <div className="ane-lookup-field">
+        <div
+          className={`ane-lookup-input-wrap${hasError ? " ane-lookup-input-wrap--error" : ""}${loading ? " ane-lookup-input-wrap--loading" : ""}`}
         >
-          {loading ? "Fetching..." : "Fetch Employee"}
-        </button>
+          <span className="ane-lookup-input-icon" aria-hidden>
+            {loading ? "⏳" : "🔍"}
+          </span>
+          <input
+            className="ane-lookup-input"
+            type="text"
+            placeholder="e.g. EMP004 or neha.patel@company.com"
+            value={query}
+            onChange={handleQueryChange}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            aria-busy={loading}
+            aria-invalid={hasError}
+          />
+          {loading && (
+            <span className="ane-lookup-spinner" aria-label="Searching" />
+          )}
+        </div>
+        <p className="ane-lookup-helper">
+          {loading
+            ? "Fetching employee profile…"
+            : queryReady
+              ? "Searching automatically"
+              : "Type a full employee ID or email address"}
+        </p>
       </div>
 
       {/* Quick-pick hints */}
       {hints.length > 0 && (
         <div className="ane-lookup-hints">
-          <span className="ane-lookup-hint-label">Try:</span>
+          <span className="ane-lookup-hint-label">Quick pick:</span>
           {hints.map((h) => (
             <button
               key={h.value}
+              type="button"
               className="ane-lookup-hint-btn"
-              onClick={() => { setQuery(h.value); clearMessages(); }}
+              onClick={() => applyHint(h.value)}
             >
               {h.label}
             </button>

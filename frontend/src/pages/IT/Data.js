@@ -961,11 +961,12 @@ const _toLocalParcelExport = (r) => ({
 });
 
 export const syncITDataFromAPI = async () => {
-  const [invRes, unitRes, swRes, ticketRes] = await Promise.all([
+  const [invRes, unitRes, swRes, ticketRes, employeeAssignedRes] = await Promise.all([
     _itFetch("/inventory/items"),
     _itFetch("/units"),
     _itFetch("/software/licenses"),
     _itFetch("/tickets"),
+    _itFetch("/employees/assigned-assets"),
   ]);
 
   const inv = (invRes.items || []).map(_toLocalInventory);
@@ -977,6 +978,49 @@ export const syncITDataFromAPI = async () => {
   saveAssetUnitsToStorage(units);
   saveSoftwareInventory(sw);
   saveTickets(tickets);
+
+  const assignedEmployees = Array.isArray(employeeAssignedRes?.employees)
+    ? employeeAssignedRes.employees
+    : [];
+  if (assignedEmployees.length) {
+    const current = getEmployees();
+    const byEmpId = new Map(
+      assignedEmployees.map((e) => [String(e.empId || e.id || "").toUpperCase(), e]),
+    );
+    const merged = current.map((emp) => {
+      const key = String(emp.empId || emp.id || "").toUpperCase();
+      const hit = byEmpId.get(key);
+      if (!hit) return emp;
+      return {
+        ...emp,
+        adminId: hit.adminId || emp.adminId || null,
+        name: hit.name || emp.name || "",
+        email: hit.email || emp.email || "",
+        type: hit.type || emp.type || "",
+        circle: hit.circle || emp.circle || "",
+        activated: Boolean(hit.activated || emp.activated),
+        assignedAssets: Array.isArray(hit.assignedAssets) ? hit.assignedAssets : (emp.assignedAssets || []),
+      };
+    });
+    const existingKeys = new Set(merged.map((e) => String(e.empId || e.id || "").toUpperCase()));
+    for (const e of assignedEmployees) {
+      const key = String(e.empId || e.id || "").toUpperCase();
+      if (!key || existingKeys.has(key)) continue;
+      merged.push({
+        id: e.id || e.empId || "",
+        empId: e.empId || e.id || "",
+        adminId: e.adminId || null,
+        name: e.name || "",
+        email: e.email || "",
+        type: e.type || "",
+        circle: e.circle || "",
+        photo: e.photo || "",
+        activated: Boolean(e.activated),
+        assignedAssets: Array.isArray(e.assignedAssets) ? e.assignedAssets : [],
+      });
+    }
+    saveEmployees(merged);
+  }
   notifyInventoryChange();
 };
 

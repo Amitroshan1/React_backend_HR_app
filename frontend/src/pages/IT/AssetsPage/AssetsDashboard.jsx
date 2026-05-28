@@ -417,6 +417,32 @@ function buildAssignedData() {
     });
   }
 
+  // Accessories / Consumables tracked on employee assignedAssets
+  // (count-only inventory assignments don't create unit/license rows).
+  for (const emp of employees) {
+    const empId = emp.empId || emp.id || "—";
+    const empName = emp.name || "—";
+    for (const a of emp.assignedAssets || []) {
+      const category = normCat(a.category);
+      if (category !== "Accessories" && category !== "Consumable") continue;
+      const qty = Math.max(1, Number(a.quantity) || 1);
+      const baseName = a.name || "—";
+      const displayName = qty > 1 ? `${baseName} (x${qty})` : baseName;
+      const uid = `inv-${empId}-${category}-${a.inventoryId || a.id || baseName}-${qty}`;
+      if (seen.has(uid)) continue;
+      seen.add(uid);
+      result.push({
+        id: uid,
+        unitId: uid,
+        name: displayName,
+        category,
+        empId: String(empId),
+        empName: String(empName),
+        _unit: a,
+      });
+    }
+  }
+
   return result;
 }
 
@@ -1858,7 +1884,7 @@ export default function AssetsDashboard() {
                 className="am-btn-add-emp"
                 onClick={() => navigate("/it/AssetsPage/AddEmployee")}
               >
-                + Add Employee
+                + Assign Asset
               </button>
             </div>
             <span className="am-total-text">
@@ -3794,7 +3820,7 @@ export default function AssetsDashboard() {
 //                 className="am-btn-add-emp"
 //                 onClick={() => navigate("/it/AssetsPage/AddEmployee")}
 //               >
-//                 + Add Employee
+//                 + Assign Asset
 //               </button>
 //             </div>
 //             <span className="am-total-text">

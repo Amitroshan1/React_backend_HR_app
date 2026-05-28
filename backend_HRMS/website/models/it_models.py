@@ -92,6 +92,29 @@ class ITSoftwareLicense(db.Model):
     assignments = db.relationship("ITAssetAssignment", back_populates="software_license", cascade="all, delete-orphan")
 
 
+class ITInventoryQuantityAssignment(db.Model):
+    __tablename__ = "it_inventory_quantity_assignments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    inventory_item_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_inventory_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assigned_to_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=False, index=True)
+    quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    inventory_item = db.relationship("ITInventoryItem", backref=db.backref("quantity_assignments", lazy="dynamic"))
+    assigned_to_admin = db.relationship(
+        "Admin",
+        foreign_keys=[assigned_to_admin_id],
+        backref=db.backref("it_inventory_quantity_assignments", lazy="dynamic"),
+    )
+
+
 class ITAssetAssignment(db.Model):
     __tablename__ = "it_asset_assignments"
 

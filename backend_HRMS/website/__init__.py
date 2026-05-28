@@ -165,6 +165,7 @@ def create_app():
     from .models.employee_circle_history import EmployeeCircleHistory
     from .models.it_models import (
         ITInventoryItem,
+        ITInventoryQuantityAssignment,
         ITAssetUnit,
         ITSoftwareLicense,
         ITAssetAssignment,
@@ -358,6 +359,19 @@ def create_app():
         except Exception as e:
             app.logger.warning("IT return request table ensure skipped: %s", e)
 
+    def _ensure_it_inventory_quantity_assignment_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.it_models import ITInventoryQuantityAssignment
+
+            insp = inspect(db.engine)
+            if "it_inventory_quantity_assignments" in set(insp.get_table_names()):
+                return
+            ITInventoryQuantityAssignment.__table__.create(bind=db.engine, checkfirst=True)
+            app.logger.info("Created table it_inventory_quantity_assignments")
+        except Exception as e:
+            app.logger.warning("IT inventory quantity assignment table ensure skipped: %s", e)
+
     def _ensure_ex_employee_doc_tables():
         try:
             from sqlalchemy import inspect
@@ -500,6 +514,7 @@ def create_app():
         _ensure_expense_line_item_rejection_reason()
         _ensure_punch_session_auto_punched_out()
         _ensure_it_return_request_table()
+        _ensure_it_inventory_quantity_assignment_table()
         _ensure_ex_employee_doc_tables()
         _ensure_assessment_tables()
         _ensure_employee_circle_history_table()

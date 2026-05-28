@@ -11,6 +11,7 @@ from .models.it_models import (
     ITAssetUnit,
     ITDeletedAssetLog,
     ITInventoryItem,
+    ITInventoryQuantityAssignment,
     ITParcelExport,
     ITParcelExportItem,
     ITParcelImport,
@@ -293,6 +294,11 @@ def _next_code(prefix, model, field_name):
 def _serialize_emp_assets(emp):
     units = ITAssetUnit.query.filter_by(assigned_to_admin_id=emp.id).all()
     licenses = ITSoftwareLicense.query.filter_by(assigned_to_admin_id=emp.id).all()
+    qty_rows = (
+        ITInventoryQuantityAssignment.query.filter_by(assigned_to_admin_id=emp.id)
+        .filter(ITInventoryQuantityAssignment.quantity > 0)
+        .all()
+    )
     assets = []
     for u in units:
         assets.append(
@@ -328,7 +334,54 @@ def _serialize_emp_assets(emp):
                 "assignedDate": _iso(s.assigned_at),
             }
         )
+    for qa in qty_rows:
+        item = qa.inventory_item
+        category = (item.category if item else "") or ""
+        cat_norm = category.strip().lower()
+        if cat_norm.startswith("consumable"):
+            category = "Consumables"
+        elif cat_norm.startswith("accessor"):
+            category = "Accessories"
+        assets.append(
+            {
+                "id": f"invq-{qa.id}",
+                "inventoryAssignmentId": qa.id,
+                "inventoryId": qa.inventory_item_id,
+                "name": item.name if item else "Inventory item",
+                "category": category or "Accessories",
+                "quantity": int(qa.quantity or 0),
+                "status": "Assigned",
+                "photos": [],
+                "assignedDate": _iso(qa.updated_at or qa.created_at),
+            }
+        )
     return assets
+
+
+@it_bp.route("/employees/assigned-assets", methods=["GET"])
+@jwt_required()
+def list_employee_assigned_assets():
+    rows = Admin.query.order_by(Admin.id.asc()).all()
+    out = []
+    for emp in rows:
+        assets = _serialize_emp_assets(emp)
+        if not assets:
+            continue
+        out.append(
+            {
+                "id": emp.emp_id or str(emp.id),
+                "empId": emp.emp_id or str(emp.id),
+                "adminId": emp.id,
+                "name": emp.first_name or "",
+                "type": emp.emp_type or "",
+                "circle": emp.circle or "",
+                "email": emp.email or "",
+                "photo": "",
+                "activated": bool(emp.is_active),
+                "assignedAssets": assets,
+            }
+        )
+    return _ok({"employees": out})
 
 
 def _recalc_inventory_counts(inventory_id):
@@ -1124,11 +1177,40 @@ def assign_inventory_quantity():
             return _err("Not enough available quantity", 400)
         item.available_quantity = int(item.available_quantity or 0) - quantity
         item.assigned_quantity = int(item.assigned_quantity or 0) + quantity
+        row = ITInventoryQuantityAssignment.query.filter_by(
+            inventory_item_id=item.id,
+            assigned_to_admin_id=target_admin.id,
+        ).first()
+        if row:
+            row.quantity = int(row.quantity or 0) + quantity
+        else:
+            db.session.add(
+                ITInventoryQuantityAssignment(
+                    inventory_item_id=item.id,
+                    assigned_to_admin_id=target_admin.id,
+                    quantity=quantity,
+                )
+            )
     else:
         if int(item.assigned_quantity or 0) < quantity:
             return _err("Return quantity exceeds assigned quantity", 400)
         item.assigned_quantity = int(item.assigned_quantity or 0) - quantity
         item.available_quantity = int(item.available_quantity or 0) + quantity
+        if assigned_to_admin_id or assigned_to_emp_id:
+            target_admin = Admin.query.get(assigned_to_admin_id) if assigned_to_admin_id else None
+            if not target_admin and assigned_to_emp_id:
+                target_admin = Admin.query.filter(
+                    db.func.lower(db.func.coalesce(Admin.emp_id, "")) == assigned_to_emp_id.lower()
+                ).first()
+            if target_admin:
+                row = ITInventoryQuantityAssignment.query.filter_by(
+                    inventory_item_id=item.id,
+                    assigned_to_admin_id=target_admin.id,
+                ).first()
+                if row:
+                    row.quantity = max(0, int(row.quantity or 0) - quantity)
+                    if row.quantity == 0:
+                        db.session.delete(row)
 
     db.session.commit()
     if action == "assign" and target_admin:
