@@ -1421,8 +1421,31 @@ def delete_all_deleted_logs():
 @jwt_required()
 def list_parcel_imports():
     _ensure_parcel_name_columns_runtime()
-    rows = ITParcelImport.query.order_by(ITParcelImport.received_at.desc(), ITParcelImport.id.desc()).all()
-    return _ok({"imports": [_serialize_parcel_import(r) for r in rows]})
+    try:
+        page = max(int(request.args.get("page", 1) or 1), 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", 200) or 200)
+    except (TypeError, ValueError):
+        per_page = 200
+    per_page = min(max(per_page, 1), 500)
+
+    query = ITParcelImport.query.order_by(
+        ITParcelImport.received_at.desc(), ITParcelImport.id.desc()
+    )
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return _ok(
+        {
+            "imports": [_serialize_parcel_import(r) for r in pagination.items],
+            "page": page,
+            "per_page": per_page,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "has_next": pagination.has_next,
+            "has_prev": pagination.has_prev,
+        }
+    )
 
 
 @it_bp.route("/parcels/imports", methods=["POST"])
@@ -1457,8 +1480,31 @@ def create_parcel_import():
 @jwt_required()
 def list_parcel_exports():
     _ensure_parcel_name_columns_runtime()
-    rows = ITParcelExport.query.order_by(ITParcelExport.exported_at.desc(), ITParcelExport.id.desc()).all()
-    return _ok({"exports": [_serialize_parcel_export(r) for r in rows]})
+    try:
+        page = max(int(request.args.get("page", 1) or 1), 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", 200) or 200)
+    except (TypeError, ValueError):
+        per_page = 200
+    per_page = min(max(per_page, 1), 500)
+
+    query = ITParcelExport.query.order_by(
+        ITParcelExport.exported_at.desc(), ITParcelExport.id.desc()
+    )
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return _ok(
+        {
+            "exports": [_serialize_parcel_export(r) for r in pagination.items],
+            "page": page,
+            "per_page": per_page,
+            "total": pagination.total,
+            "pages": pagination.pages,
+            "has_next": pagination.has_next,
+            "has_prev": pagination.has_prev,
+        }
+    )
 
 
 @it_bp.route("/parcels/exports", methods=["POST"])

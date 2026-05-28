@@ -1194,13 +1194,36 @@ export const createParcelExportAPI = async ({
     },
   });
 
+async function _fetchAllParcelPages(path, listKey) {
+  const perPage = 200;
+  let page = 1;
+  let hasNext = true;
+  const allRows = [];
+
+  while (hasNext) {
+    const res = await _itFetch(`${path}?page=${page}&per_page=${perPage}`);
+    const chunk = Array.isArray(res?.[listKey]) ? res[listKey] : [];
+    allRows.push(...chunk);
+
+    // Backward-compatible fallback: old API without pagination metadata
+    if (typeof res?.has_next === "boolean") {
+      hasNext = res.has_next;
+      page += 1;
+    } else {
+      hasNext = false;
+    }
+  }
+
+  return allRows;
+}
+
 export const syncParcelsFromAPI = async () => {
-  const [importsRes, exportsRes] = await Promise.all([
-    _itFetch("/parcels/imports"),
-    _itFetch("/parcels/exports"),
+  const [importsRows, exportsRows] = await Promise.all([
+    _fetchAllParcelPages("/parcels/imports", "imports"),
+    _fetchAllParcelPages("/parcels/exports", "exports"),
   ]);
-  const imports = (importsRes.imports || []).map(_toLocalParcelImport);
-  const exports = (exportsRes.exports || []).map(_toLocalParcelExport);
+  const imports = importsRows.map(_toLocalParcelImport);
+  const exports = exportsRows.map(_toLocalParcelExport);
   localStorage.setItem("pcl_imported", JSON.stringify(imports));
   localStorage.setItem("pcl_exported", JSON.stringify(exports));
   notifyInventoryChange();
