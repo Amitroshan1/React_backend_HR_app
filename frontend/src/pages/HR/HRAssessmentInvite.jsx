@@ -667,9 +667,34 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   if (selected) {
     return (
       <div className="hr-main-container" style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <button className="btn-back-updates" onClick={() => setSelected(null)}>
-          <ArrowLeft size={16} /> Back to Invite List
-        </button>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 12,
+          }}
+        >
+          <button type="button" className="btn-back-updates" onClick={() => setSelected(null)}>
+            <ArrowLeft size={16} /> Back to Invite List
+          </button>
+          <button
+            type="button"
+            className="lau-edit-btn"
+            disabled={emailingHrReport || !canEmailHrReport}
+            onClick={handleEmailHrReport}
+            title={
+              canEmailHrReport
+                ? "Email HR the proficiency summary and Section 2 Q&A for this attempt"
+                : "Available after the candidate submits or the attempt is evaluated"
+            }
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <Mail size={16} aria-hidden />
+            {emailingHrReport ? "Sending…" : "Email report to HR"}
+          </button>
+        </div>
         <div
           style={{
             display: "flex",
@@ -677,7 +702,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
             alignItems: "flex-start",
             gap: 20,
             flexWrap: "wrap",
-            marginTop: 8,
+            marginTop: 0,
           }}
         >
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
@@ -844,24 +869,8 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
           })}
         </div>
 
-        <div className="lau-modal-actions" style={{ marginTop: 12, flexWrap: "wrap", gap: 8 }}>
-          <button className="lau-cancel" onClick={() => setSelected(null)}>Back</button>
-          <button
-            type="button"
-            className="lau-edit-btn"
-            disabled={emailingHrReport || !canEmailHrReport}
-            onClick={handleEmailHrReport}
-            title={
-              canEmailHrReport
-                ? "Email HR the proficiency summary and Section 2 Q&A for this attempt"
-                : "Available after the candidate submits or the attempt is evaluated"
-            }
-            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            <Mail size={16} aria-hidden />
-            {emailingHrReport ? "Sending…" : "Email report to HR"}
-          </button>
-          <button className="lau-save" disabled={evaluating} onClick={handleEvaluate}>
+        <div className="lau-modal-actions" style={{ marginTop: 12, justifyContent: "flex-end" }}>
+          <button type="button" className="lau-save" disabled={evaluating} onClick={handleEvaluate}>
             {evaluating ? "Saving..." : "Submit Evaluation"}
           </button>
         </div>

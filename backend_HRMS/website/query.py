@@ -166,7 +166,9 @@ def _can_access_query(admin, emp_type, query_obj):
     department = _emp_type_to_department(emp_type)
     if not department:
         return False
-    return _norm(query_obj.department) == _norm(department)
+    # Match department_queries list filter (e.g. "IT" vs "IT Department") so visible tickets are chat-allowed.
+    dept_variants = frozenset(_department_variants(department))
+    return _norm(query_obj.department) in dept_variants
 
 
 def _create_notifications_for_admins(admins, title, body, query_id):
