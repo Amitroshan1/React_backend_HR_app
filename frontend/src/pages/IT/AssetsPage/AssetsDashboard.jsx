@@ -2064,7 +2064,28 @@ export default function AssetsDashboard() {
                           <td>
                             <button
                               className="am-edit-btn"
-                              onClick={() => setDetailItem(a)}
+                              onClick={() => {
+                                const linkedAssigned = assignedData.find((x) => {
+                                  const sameCategory = String(x.category || "") === String(a.category || "");
+                                  const sameName =
+                                    String(x.name || "").trim().toLowerCase() ===
+                                    String(a.name || "").trim().toLowerCase();
+                                  const hasEmp = !!x.empId && x.empId !== "—";
+                                  return sameCategory && sameName && hasEmp;
+                                });
+                                if (linkedAssigned) {
+                                  setEditRow({
+                                    id: linkedAssigned.id,
+                                    unitId: linkedAssigned.unitId || linkedAssigned.id,
+                                    name: linkedAssigned.name,
+                                    category: linkedAssigned.category,
+                                    empId: String(linkedAssigned.empId || ""),
+                                    empName: String(linkedAssigned.empName || "—"),
+                                  });
+                                  return;
+                                }
+                                setDetailItem(a);
+                              }}
                             >
                               Edit
                             </button>

@@ -296,6 +296,7 @@ function UnitPickerModal({ row, onAction, onCancel }) {
   const selectedUnit = availableUnits.find(
     (u) => (u.assetId ?? u.id) === selectedUnitId,
   ) ?? null;
+  const useQuantityFallback = availableUnits.length === 0;
 
   return (
     <div className="inv-modal-backdrop" onClick={onCancel}>
@@ -319,6 +320,9 @@ function UnitPickerModal({ row, onAction, onCancel }) {
             <div className="inv-upicker-empty">
               <span>📦</span>
               <p>No available units found for this asset.</p>
+              <p className="inv-upicker-empty-sub">
+                You can still use actions below to update quantity-level status.
+              </p>
             </div>
           ) : (
             <div className="inv-upicker-list">
@@ -348,17 +352,17 @@ function UnitPickerModal({ row, onAction, onCancel }) {
           )}
         </div>
 
-        {/* Action buttons — disabled until a unit is selected */}
+        {/* Action buttons — use selected unit when present, else quantity-level fallback */}
         <div className="inv-upicker-actions">
           {EDIT_OPTIONS.map((opt) => (
             <button
               key={opt.key}
               className="inv-upicker-action-btn"
               style={{ color: opt.color, borderColor: opt.borderColor, background: opt.bg }}
-              disabled={!selectedUnit}
-              title={!selectedUnit ? "Select a unit first" : opt.label}
-              onClick={() => onAction(row, opt.key, selectedUnit)}
-              onMouseEnter={(e) => { if (selectedUnit) e.currentTarget.style.background = opt.hoverBg; }}
+              disabled={!selectedUnit && !useQuantityFallback}
+              title={!selectedUnit && !useQuantityFallback ? "Select a unit first" : opt.label}
+              onClick={() => onAction(row, opt.key, selectedUnit || null)}
+              onMouseEnter={(e) => { if (selectedUnit || useQuantityFallback) e.currentTarget.style.background = opt.hoverBg; }}
               onMouseLeave={(e) => (e.currentTarget.style.background = opt.bg)}
             >
               <span>{opt.icon}</span> {opt.label}
@@ -375,21 +379,6 @@ function UnitPickerModal({ row, onAction, onCancel }) {
 
 function EditDropdown({ row, onStatusChange }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const isDisabled = (row.available || 0) === 0;
-
-  if (isDisabled) {
-    return (
-      <span className="inv-edit-dropdown-wrap">
-        <button
-          className="inv-action-btn-edit"
-          disabled
-          title="All units are assigned — make a unit available before changing status"
-        >
-          Edit ▾
-        </button>
-      </span>
-    );
-  }
 
   return (
     <>
@@ -504,6 +493,20 @@ function AssetDetailModal({ asset, onClose }) {
                 <div className="inv-detail-empty-icon">📦</div>
                 <p className="inv-detail-empty-title">No unit records found</p>
                 <p className="inv-detail-empty-sub">Individual units added via Add Assets will appear here</p>
+                <div className="inv-detail-summary-grid">
+                  {[
+                    ["Total Quantity", asset?.total ?? "—"],
+                    ["Available", asset?.available ?? "—"],
+                    ["Assigned", asset?.assigned ?? "—"],
+                    ["Not Working", asset?.notWorking ?? "—"],
+                    ["In Repair", asset?.inRepair ?? "—"],
+                  ].map(([label, value]) => (
+                    <div key={label} className="inv-detail-summary-item">
+                      <span className="inv-detail-summary-label">{label}</span>
+                      <span className="inv-detail-summary-value">{value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <>
