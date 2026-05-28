@@ -4,14 +4,15 @@ import { toast } from "react-toastify";
 import {
   getEmployees,
   getAssetUnitsFromStorage,
+  getSoftwareInventory,
   getITApiErrorMessage,
   syncITDataFromAPI,
 } from "../Data";
 import "./ActiveDevice.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CATEGORIES = ["Hardware", "Accessories", "Consumables"];
-const CAT_ICONS = { Hardware: "🖥", Accessories: "🖱", Consumables: "🖨" };
+const CATEGORIES = ["Hardware", "Software", "Accessories", "Consumables"];
+const CAT_ICONS = { Hardware: "🖥", Software: "💿", Accessories: "🖱", Consumables: "🖨" };
 
 const fmt = (iso) => {
   if (!iso) return "—";
@@ -32,6 +33,8 @@ const normCat = (c) => {
 
 // ─── Build merged active-device list (localStorage only) ─────────────────────
 function getMergedActiveDevices() {
+  const employees = getEmployees() || [];
+
   // 1. Individual hardware units that have been assigned (via AddEmployee)
   const units = (getAssetUnitsFromStorage() || [])
     .filter((u) => {
@@ -77,9 +80,52 @@ function getMergedActiveDevices() {
       };
     });
 
-  // Deduplicate by _unitId
+  // 2. Software licenses assigned to employees
+  const software = (getSoftwareInventory() || [])
+    .filter((s) => s.status === "assigned" && s.assignedTo)
+    .map((s) => {
+      const isObj = typeof s.assignedTo === "object" && s.assignedTo !== null;
+      const empId = isObj ? s.assignedTo.empId || s.assignedTo.id || "—" : String(s.assignedTo || "—");
+      const assignedTo = isObj ? s.assignedTo.name || String(s.assignedTo) : String(s.assignedTo);
+      return {
+        id: `LIC-${s.licenseCode || s.id}`,
+        serialNumber: s.licenseCode || String(s.id || "—"),
+        name: s.name || "Software",
+        category: "Software",
+        assignedTo,
+        assignedDate: s.assignedDate || new Date().toISOString(),
+        empId,
+        _unitId: `sw-${s.id}`,
+      };
+    });
+
+  // 3. Quantity-based assignments (Accessories / Consumables) from employee assignedAssets.
+  // These do not always exist as unit rows, so include them explicitly.
+  const quantityAssets = [];
+  for (const emp of employees) {
+    const empId = String(emp.empId || emp.id || "—");
+    const assignedTo = String(emp.name || "—");
+    for (const a of emp.assignedAssets || []) {
+      const cat = normCat(a.category);
+      if (cat !== "Accessories" && cat !== "Consumables") continue;
+      const qty = Math.max(1, Number(a.quantity) || 1);
+      const baseName = a.name || "Inventory item";
+      quantityAssets.push({
+        id: `INV-${a.inventoryId || a.inventoryAssignmentId || a.id || baseName}`,
+        serialNumber: qty > 1 ? `Qty ${qty}` : "Qty 1",
+        name: qty > 1 ? `${baseName} (x${qty})` : baseName,
+        category: cat,
+        assignedTo,
+        assignedDate: a.assignedDate || new Date().toISOString(),
+        empId,
+        _unitId: `inv-${empId}-${a.inventoryId || a.inventoryAssignmentId || a.id || baseName}-${qty}`,
+      });
+    }
+  }
+
+  // Deduplicate by unique source key
   const seen = new Set();
-  return [...units].filter((d) => {
+  return [...units, ...software, ...quantityAssets].filter((d) => {
     const key = d._unitId || d.id;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -164,6 +210,13 @@ export default function ActiveDevice({ onBack }) {
     else navigate(-1);
   };
 
+  const secondColHeader =
+    activeTab === "Software"
+      ? "License Code"
+      : activeTab === "Accessories" || activeTab === "Consumables"
+        ? "Quantity"
+        : "Serial No.";
+
   return (
     <div className="asd-page">
       <div className="asd-container">
@@ -235,7 +288,7 @@ export default function ActiveDevice({ onBack }) {
               <thead>
                 <tr>
                   <th>Asset ID</th>
-                  <th>Serial No.</th>
+                  <th>{secondColHeader}</th>
                   <th>Asset Name</th>
                   <th>Assigned To</th>
                   <th>Assigned Date</th>
