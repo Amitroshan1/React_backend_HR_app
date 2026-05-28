@@ -74,6 +74,35 @@ def _parse_date(value):
         return None
 
 
+def _ensure_parcel_name_columns_runtime():
+    """Best-effort runtime safety: add free-text parcel columns if missing."""
+    try:
+        from sqlalchemy import inspect, text
+
+        insp = inspect(db.engine)
+        tables = set(insp.get_table_names())
+        dialect = db.engine.dialect.name
+
+        def addcol(table, col):
+            if table not in tables:
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if col in existing:
+                return
+            if dialect == "postgresql":
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} VARCHAR(120) NULL')
+            else:
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} VARCHAR(120) NULL")
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            current_app.logger.info("Added missing parcel column %s.%s at runtime", table, col)
+
+        addcol("it_parcel_imports", "received_by_name")
+        addcol("it_parcel_exports", "exported_by_name")
+    except Exception as e:
+        current_app.logger.warning("parcel runtime column ensure skipped: %s", e)
+
+
 def _current_admin():
     try:
         admin_id = int(get_jwt_identity())
@@ -1391,6 +1420,7 @@ def delete_all_deleted_logs():
 @it_bp.route("/parcels/imports", methods=["GET"])
 @jwt_required()
 def list_parcel_imports():
+    _ensure_parcel_name_columns_runtime()
     rows = ITParcelImport.query.order_by(ITParcelImport.received_at.desc(), ITParcelImport.id.desc()).all()
     return _ok({"imports": [_serialize_parcel_import(r) for r in rows]})
 
@@ -1398,6 +1428,7 @@ def list_parcel_imports():
 @it_bp.route("/parcels/imports", methods=["POST"])
 @jwt_required()
 def create_parcel_import():
+    _ensure_parcel_name_columns_runtime()
     data = request.get_json(silent=True) or {}
     source = (data.get("source") or data.get("from") or "").strip()
     asset_name = (data.get("asset_name") or data.get("assetName") or "").strip()
@@ -1425,6 +1456,7 @@ def create_parcel_import():
 @it_bp.route("/parcels/exports", methods=["GET"])
 @jwt_required()
 def list_parcel_exports():
+    _ensure_parcel_name_columns_runtime()
     rows = ITParcelExport.query.order_by(ITParcelExport.exported_at.desc(), ITParcelExport.id.desc()).all()
     return _ok({"exports": [_serialize_parcel_export(r) for r in rows]})
 
@@ -1432,6 +1464,7 @@ def list_parcel_exports():
 @it_bp.route("/parcels/exports", methods=["POST"])
 @jwt_required()
 def create_parcel_export():
+    _ensure_parcel_name_columns_runtime()
     data = request.get_json(silent=True) or {}
     destination = (data.get("destination") or data.get("to") or "").strip()
     if not destination:
