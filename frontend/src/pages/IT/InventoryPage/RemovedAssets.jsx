@@ -191,8 +191,8 @@ export default function RemovedAssets() {
       <div className="del-card">
         <div className="del-header">
           <div>
-            <h1 className="del-title">Removed Assets</h1>
-            <p className="del-subtitle">Full audit trail of all removed assets</p>
+            <h1 className="del-title">Dead Assets</h1>
+            <p className="del-subtitle">Full audit trail of all dead assets</p>
           </div>
           <span className="del-count-badge">
             {filteredRows.length} record{filteredRows.length !== 1 ? "s" : ""}
@@ -246,7 +246,7 @@ export default function RemovedAssets() {
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
-                <tr><td colSpan={6} className="del-empty">No removed assets found</td></tr>
+                <tr><td colSpan={6} className="del-empty">No dead assets found</td></tr>
               ) : (
                 filteredRows.map((rec, i) => (
                   <DeletedAssetRow

@@ -68,11 +68,15 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
   return (
     <div className="repair-modal-backdrop" onClick={onCancel}>
       <div className="repair-modal-box" onClick={(e) => e.stopPropagation()}>
-        <h3 className="repair-modal-title">Remove Asset Permanently?</h3>
+        <h3 className="repair-modal-title">Mark as Dead Device?</h3>
         <p className="repair-modal-sub">{displayName}</p>
+        <p className="repair-modal-sub">
+          This device will be moved to <strong>Dead Assets</strong> and removed from active inventory.
+          Please confirm to continue.
+        </p>
 
         <div className="repair-modal-field">
-          <label>Removed By *</label>
+          <label>Marked By *</label>
           <input
             value={deletedBy}
             onChange={(e) => setDeletedBy(e.target.value)}
@@ -88,14 +92,14 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={3}
-            placeholder="Reason for removal..."
+            placeholder="Reason for marking this device as dead..."
             className={errors.reason ? "err" : ""}
           />
           {errors.reason && <span className="repair-err">{errors.reason}</span>}
         </div>
 
         <div className="repair-modal-actions">
-          <button className="repair-btn-danger" onClick={handleSubmit}>Remove Permanently</button>
+          <button className="repair-btn-danger" onClick={handleSubmit}>Confirm Dead Device</button>
           <button className="repair-btn-cancel" onClick={onCancel}>Cancel</button>
         </div>
       </div>
@@ -124,8 +128,8 @@ function RepairRow({ unit, index, onReturn, onRemove }) {
         <span className={`repair-days ${getRepairDaysClass(days)}`}>{days}d</span>
       </td>
       <td className="repair-actions">
-        <button className="repair-btn-return" onClick={() => onReturn(unit)}>Mark Returned</button>
-        <button className="repair-btn-remove" onClick={() => onRemove(unit)}>Remove</button>
+        <button className="repair-btn-return" onClick={() => onReturn(unit)}>Repaired</button>
+        <button className="repair-btn-remove" onClick={() => onRemove(unit)}>Dead Device</button>
       </td>
     </tr>
   );
@@ -193,6 +197,10 @@ export default function InRepair() {
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleReturn = useCallback((unit) => {
+    const ok = window.confirm(
+      "This device will be moved to Available and can be assigned again. Are you sure you want to mark it as repaired?",
+    );
+    if (!ok) return;
     const updated = readAssetUnits().map((u) =>
       u.id === unit.id ? { ...u, status: "available", repairDate: null } : u,
     );
@@ -200,8 +208,16 @@ export default function InRepair() {
     syncInventoryCount(unit, "fromRepairToAvailable");
     dispatchInventoryUpdate();
     reload();
-    showToast(`${unit.brand || unit.assetName} returned to available ✓`);
+    showToast(`${unit.brand || unit.assetName} marked repaired and moved to available ✓`);
   }, [reload, showToast]);
+
+  const handleRemovePrompt = useCallback((unit) => {
+    const ok = window.confirm(
+      "This will move the device to Dead Assets and remove it from active inventory. Continue?",
+    );
+    if (!ok) return;
+    setRemoveTarget(unit);
+  }, []);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
     const entry = {
@@ -320,7 +336,7 @@ export default function InRepair() {
                     unit={unit}
                     index={i}
                     onReturn={handleReturn}
-                    onRemove={setRemoveTarget}
+                    onRemove={handleRemovePrompt}
                   />
                 ))
               )}

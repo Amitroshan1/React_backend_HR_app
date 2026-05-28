@@ -48,7 +48,7 @@ const SUMMARY_CARDS = [
   { label: "Not Working",     segment: "not-working",    color: "#ef4444" },
   { label: "In Repair",       segment: "in-repair",      color: "#f59e0b" },
   { label: "Removed From IT", segment: "removed-it",     color: "#06b6d4" },
-  { label: "Removed Assets",  segment: "removed-assets", color: "#64748b" },
+  { label: "Dead Assets",     segment: "removed-assets", color: "#64748b" },
 ];
 
 const FILTER_OPTIONS = ["All", "Available", "Assigned"];

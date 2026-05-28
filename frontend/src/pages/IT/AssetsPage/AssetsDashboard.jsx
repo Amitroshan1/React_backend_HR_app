@@ -2001,12 +2001,13 @@ export default function AssetsDashboard() {
                     <th>Category</th>
                     <th>Available Qty</th>
                     <th>Details</th>
+                    <th>Edit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="am-empty">
+                      <td colSpan={5} className="am-empty">
                         No assets found
                       </td>
                     </tr>
@@ -2058,6 +2059,23 @@ export default function AssetsDashboard() {
                               onClick={() => setDetailItem(a)}
                             >
                               View
+                            </button>
+                          </td>
+                          <td>
+                            <button
+                              className="am-edit-btn"
+                              onClick={() =>
+                                setEditRow({
+                                  id: a.id,
+                                  unitId: a.unitId || a.id,
+                                  name: a.name,
+                                  category: a.category,
+                                  empId: "",
+                                  empName: "—",
+                                })
+                              }
+                            >
+                              Edit
                             </button>
                           </td>
                         </tr>

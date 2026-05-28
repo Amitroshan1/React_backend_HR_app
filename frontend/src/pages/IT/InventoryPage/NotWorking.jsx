@@ -27,6 +27,17 @@ const SEARCH_FIELDS      = ["brand", "assetName", "serialNumber"];
 const readAssetUnits = () => getAssetUnitsFromStorage() || [];
 const writeAssetUnits = (units) => saveAssetUnitsToStorage(units);
 
+const normStatus = (status) => String(status || "").trim().toLowerCase();
+const isNotWorkingStatus = (status) => {
+  const s = normStatus(status);
+  return s === "notworking" || s === "not-working";
+};
+const normCategory = (category) => {
+  const raw = String(category || "").trim();
+  if (!raw) return "Hardware";
+  return raw.toLowerCase().startsWith("consumable") ? "Consumables" : raw;
+};
+
 function dispatchInventoryUpdate() {
   try { window.dispatchEvent(new Event("inventory-updated")); } catch { /* no-op */ }
 }
@@ -150,13 +161,15 @@ export default function NotWorking() {
 
   // ── Derived rows ────────────────────────────────────────────────────────────
   const notWorkingUnits = useMemo(
-    () => units.filter((u) => u.status === NOT_WORKING_STATUS),
+    () => units.filter((u) => isNotWorkingStatus(u.status)),
     [units],
   );
 
   const filteredRows = useMemo(() => {
     let rows = notWorkingUnits;
-    if (activeCategory !== "All") rows = rows.filter((u) => u.category === activeCategory);
+    if (activeCategory !== "All") {
+      rows = rows.filter((u) => normCategory(u.category) === activeCategory);
+    }
     const query = searchQuery.trim().toLowerCase();
     if (query) {
       rows = rows.filter((u) =>
@@ -167,7 +180,7 @@ export default function NotWorking() {
   }, [notWorkingUnits, activeCategory, searchQuery]);
 
   const getCategoryCount = useCallback(
-    (cat) => notWorkingUnits.filter((u) => u.category === cat).length,
+    (cat) => notWorkingUnits.filter((u) => normCategory(u.category) === cat).length,
     [notWorkingUnits],
   );
 
