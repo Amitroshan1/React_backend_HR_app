@@ -871,6 +871,12 @@ const _toLocalInventory = (item) => ({
   assignedQuantity: Number(item.assignedQuantity ?? item.assigned_quantity ?? 0),
   notWorkingQuantity: Number(item.notWorkingQuantity ?? item.not_working_quantity ?? 0),
   repairQuantity: Number(item.repairQuantity ?? item.repair_quantity ?? 0),
+  vendor: item.vendor || "",
+  purchaseDate: item.purchase_date || item.purchaseDate || null,
+  receipts: item.receipts || [],
+  location: item.location || "",
+  notes: item.notes || "",
+  isStock: String(item.category || "").toLowerCase() === "stock",
 });
 
 const _toLocalUnit = (u) => ({
@@ -1032,6 +1038,11 @@ export const createInventoryItemAPI = async ({
   hwType = null,
   quantity = null,
   photos = [],
+  vendor = null,
+  purchaseDate = null,
+  receipts = [],
+  location = null,
+  notes = null,
 }) =>
   _itFetch("/inventory/items", {
     method: "POST",
@@ -1042,6 +1053,11 @@ export const createInventoryItemAPI = async ({
       hw_type: hwType,
       initial_quantity: quantity,
       photos,
+      vendor,
+      purchase_date: purchaseDate,
+      receipts,
+      location,
+      notes,
     },
   });
 
@@ -1247,6 +1263,7 @@ export const createRemovedAssetAPI = async (payload) =>
 
 const _toLocalDeletedLog = (d) => ({
   deletedId: d.deleteCode || d.id,
+  inventoryId: d.inventoryId ?? d.inventory_item_id ?? null,
   assetName: d.assetName || "",
   brand: d.assetName || "",
   model: "",

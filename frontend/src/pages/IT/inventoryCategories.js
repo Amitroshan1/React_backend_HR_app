@@ -33,16 +33,15 @@ export const INVENTORY_CATEGORY_CONFIG = {
     itemCategories: ["Hardware", "Software", "Accessories", "Consumables"],
   },
   "Office Assets": {
+    stockMode: true,
     hwTypes: ["Furniture", "Electronics", "Appliances", "Safety Equipment", "Other"],
     mobileHwType: null,
     itemCategories: ["Hardware", "Accessories", "Consumables"],
   },
   "Transport Assets": {
+    vehicleMode: true,
     hwTypes: ["Car", "Bike", "Scooter", "Van", "Truck", "Bus", "Other"],
     mobileHwType: null,
-    itemCategories: ["Hardware", "Accessories", "Consumables"],
-    vehicleMode: true,
-    otherHwPlaceholder: "e.g. Forklift, Trailer, E-Rickshaw",
     hardwareFields: {
       brand: { label: "Fleet / Owner", placeholder: "e.g. Company Fleet" },
       make: { label: "Make", placeholder: "e.g. Toyota, Honda" },
@@ -51,6 +50,9 @@ export const INVENTORY_CATEGORY_CONFIG = {
     },
   },
   "Infrastructure Assets": {
+    stockMode: true,
+    equipmentMode: true,
+    equipmentTypes: ["Networking", "Power", "Cooling", "Security", "Other"],
     hwTypes: ["Networking", "Power", "Cooling", "Security", "Other"],
     mobileHwType: null,
     itemCategories: ["Hardware", "Accessories", "Consumables"],
@@ -95,13 +97,37 @@ export const DEFAULT_HARDWARE_FIELDS = {
   serialNumber: { label: "Serial Number", placeholder: "Serial No." },
 };
 
-export function getHardwareFields(inventoryCategory) {
+const INFRA_EQUIPMENT_HARDWARE_FIELDS = {
+  brand: { label: "Site / location", placeholder: "e.g. Server room A" },
+  make: { label: "Make", placeholder: "e.g. Cisco" },
+  model: { label: "Model", placeholder: "e.g. 2960" },
+  serialNumber: { label: "Asset tag / ID", placeholder: "e.g. INF-001" },
+};
+
+export function getHardwareFields(inventoryCategory, itemCategory = null) {
+  const cat = String(itemCategory || "").trim().toLowerCase();
+  if (inventoryCategory === "Infrastructure Assets" && cat === "equipment") {
+    return INFRA_EQUIPMENT_HARDWARE_FIELDS;
+  }
   const config = INVENTORY_CATEGORY_CONFIG[inventoryCategory];
   return config?.hardwareFields || DEFAULT_HARDWARE_FIELDS;
 }
 
+export function isStockInventoryCategory(inventoryCategory) {
+  return Boolean(INVENTORY_CATEGORY_CONFIG[inventoryCategory]?.stockMode);
+}
+
 export function isVehicleInventoryCategory(inventoryCategory) {
   return Boolean(INVENTORY_CATEGORY_CONFIG[inventoryCategory]?.vehicleMode);
+}
+
+/** Office, Transport, Infrastructure — no HR employee assign flow. */
+export function isNonItInventoryCategory(inventoryCategory) {
+  return inventoryCategory !== "IT Assets";
+}
+
+export function hideAssignedColumnForCategory(inventoryCategory) {
+  return isNonItInventoryCategory(inventoryCategory);
 }
 
 export function unitBelongsToInventoryCategory(unit, inventoryCategory, inventory = null) {

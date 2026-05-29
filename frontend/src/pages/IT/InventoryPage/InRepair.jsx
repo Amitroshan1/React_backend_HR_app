@@ -144,7 +144,10 @@ function RepairRow({ unit, index, onReturn, onRemove }) {
 // ─── InRepair ─────────────────────────────────────────────────────────────────
 
 export default function InRepair({ inventoryCategory = "IT Assets" }) {
-  const serialColLabel = getHardwareFields(inventoryCategory).serialNumber.label;
+  const serialColLabel =
+    inventoryCategory === "Infrastructure Assets"
+      ? "Asset tag / Serial"
+      : getHardwareFields(inventoryCategory).serialNumber.label;
   const [units,        setUnits]        = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery,  setSearchQuery]  = useState("");

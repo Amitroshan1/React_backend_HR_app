@@ -425,6 +425,48 @@ def create_app():
         except Exception as e:
             app.logger.warning("it_inventory_items photos_json ensure skipped: %s", e)
 
+    def _ensure_it_inventory_stock_columns():
+        """Office stock fields: vendor, purchase_date, receipts, location, notes."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "it_inventory_items"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+
+            specs = [
+                ("vendor", "VARCHAR(150) NULL"),
+                ("purchase_date", "DATE NULL"),
+                ("location", "VARCHAR(120) NULL"),
+                ("notes", "VARCHAR(500) NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+
+            if "receipts_json" not in existing:
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN receipts_json JSONB NULL')
+                elif dialect == "mysql":
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN receipts_json JSON NULL")
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN receipts_json TEXT NULL")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.receipts_json", table)
+        except Exception as e:
+            app.logger.warning("it_inventory_items stock columns ensure skipped: %s", e)
+
     def _ensure_it_deleted_log_name_column():
         try:
             from sqlalchemy import inspect, text
@@ -592,6 +634,7 @@ def create_app():
         _ensure_it_return_request_columns()
         _ensure_it_inventory_quantity_assignment_table()
         _ensure_it_inventory_item_photos_column()
+        _ensure_it_inventory_stock_columns()
         _ensure_it_deleted_log_name_column()
         _ensure_ex_employee_doc_tables()
         _ensure_assessment_tables()

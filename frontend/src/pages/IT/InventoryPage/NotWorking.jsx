@@ -3,7 +3,6 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
 import {
   createDeletedLogAPI,
-  createRemovedAssetAPI,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
   getITApiErrorMessage,
@@ -13,7 +12,6 @@ import {
   syncDeletedLogsFromAPI,
   syncITDataFromAPI,
   syncInventoryCount,
-  syncRemovedITFromAPI,
   updateInventoryItemAPI,
 } from "../Data";
 import {
@@ -135,7 +133,10 @@ function NotWorkingRow({ unit, index, onSendToRepair, onRemove }) {
 // ─── NotWorking ───────────────────────────────────────────────────────────────
 
 export default function NotWorking({ inventoryCategory = "IT Assets" }) {
-  const serialColLabel = getHardwareFields(inventoryCategory).serialNumber.label;
+  const serialColLabel =
+    inventoryCategory === "Infrastructure Assets"
+      ? "Asset tag / Serial"
+      : getHardwareFields(inventoryCategory).serialNumber.label;
   const [units,          setUnits]          = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery,    setSearchQuery]    = useState("");
@@ -185,7 +186,9 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
   const qtyNotWorkingRows = useMemo(
     () =>
       inventoryRows
-        .filter((i) => ["accessories", "consumables"].includes(String(i.category || "").toLowerCase()))
+        .filter((i) =>
+          ["accessories", "consumables", "stock"].includes(String(i.category || "").toLowerCase()),
+        )
         .filter((i) => (i.inventoryCategory || "IT Assets") === inventoryCategory)
         .filter((i) => Number(i.notWorkingQuantity || 0) > 0)
         .map((i) => ({
@@ -298,13 +301,16 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
           assigned_quantity: Number(removeTarget.assignedQuantity || 0),
           repair_quantity: Number(removeTarget.repairQuantity || 0),
         });
-        await createRemovedAssetAPI({
+        await createDeletedLogAPI({
+          delete_code: `del-qty-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           inventory_item_id: Number(removeTarget.inventoryId) || null,
-          name: removeTarget.assetName || removeTarget.brand || "",
+          deleted_by_name: deletedBy,
+          asset_name: removeTarget.assetName || removeTarget.brand || "",
           category: removeTarget.category || "Accessories",
+          serial_number: "",
           reason: `Dead quantity marked: ${qty}. ${reason || ""}`.trim(),
         });
-        await syncRemovedITFromAPI();
+        await syncDeletedLogsFromAPI();
         await syncITDataFromAPI();
       } catch (err) {
         console.error("[NotWorking] qty remove failed:", err);
@@ -338,12 +344,6 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         asset_name: entry.assetName,
         category: entry.category,
         serial_number: entry.serialNumber,
-        reason: entry.deleteReason,
-      });
-      await createRemovedAssetAPI({
-        asset_unit_id: removeTarget.id || null,
-        name: entry.assetName,
-        category: entry.category,
         reason: entry.deleteReason,
       });
       await syncDeletedLogsFromAPI();

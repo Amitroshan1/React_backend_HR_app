@@ -15,10 +15,8 @@ import {
   getITApiErrorMessage,
   syncITDataFromAPI,
   syncDeletedLogsFromAPI,
-  syncRemovedITFromAPI,
   setUnitStatusAPI,
   createDeletedLogAPI,
-  createRemovedAssetAPI,
   deleteAssetUnitAPI,
   updateInventoryItemAPI,
   getDeletedAssetsFromStorage,
@@ -36,6 +34,8 @@ import {
   INV_CATEGORIES,
   filterInventoryByCategory,
   getHardwareFields,
+  hideAssignedColumnForCategory,
+  isStockInventoryCategory,
   isValidInventoryCategory,
   isVehicleInventoryCategory,
 } from "../inventoryCategories";
@@ -73,9 +73,12 @@ const isSoftware = (item) =>
   (item?.category ?? "").trim().toLowerCase() === "software";
 
 const isQtyManagedCategory = (category) =>
-  ["accessories", "consumables", "accessory", "consumable"].includes(
+  ["accessories", "consumables", "accessory", "consumable", "stock"].includes(
     String(category || "").trim().toLowerCase(),
   );
+
+const isStockLineItem = (item) =>
+  String(item?.category || "").trim().toLowerCase() === "stock";
 
 const readInventory  = () => getInventoryFromStorage() ?? [];
 const writeInventory = (data) => saveInventoryToStorage(data);
@@ -152,9 +155,13 @@ function mapInventoryItem(item) {
     model:             item.model        || "—",
     serialNumber:      item.serialNumber || "—",
     category:          item.category     || "—",
+    vendor:            item.vendor       || "—",
     purchaseDate:      item.purchaseDate || null,
     location:          item.location     || "—",
+    notes:             item.notes        || "",
+    receipts:          item.receipts     || [],
     photos:            item.photos       || [],
+    isStock:           isStockLineItem(item),
   };
 }
 
@@ -529,7 +536,13 @@ function AssetDetailModal({ asset, onClose, onStatusChange }) {
   const unit   = units[selectedUnitIndex] ?? null;
   const photos = unit?.photos ?? unit?.assignmentPhotos ?? [];
   const inventoryPhotos = asset?.photos ?? [];
-  const hwFields = getHardwareFields(asset.inventoryCategory);
+  const inventoryReceipts = asset?.receipts ?? [];
+  const stockMode = asset?.isStock || isStockLineItem(asset);
+  const hwFields = getHardwareFields(asset.inventoryCategory, asset.category);
+  const showItemMeta =
+    !stockMode &&
+    (isVehicleInventoryCategory(asset.inventoryCategory) ||
+      String(asset.category || "").toLowerCase() === "equipment");
 
   const detailFields = [
     { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true,  highlight: true  },
@@ -554,9 +567,11 @@ function AssetDetailModal({ asset, onClose, onStatusChange }) {
               <h2 className="inv-detail-hero-title">{asset.name}</h2>
               <div className="inv-detail-hero-badges">
                 <span className="inv-detail-badge inv-detail-badge--cat">{asset.inventoryCategory}</span>
-                <span className="inv-detail-badge inv-detail-badge--units">
-                  {units.length} unit{units.length !== 1 ? "s" : ""}
-                </span>
+                {!stockMode && (
+                  <span className="inv-detail-badge inv-detail-badge--units">
+                    {units.length} unit{units.length !== 1 ? "s" : ""}
+                  </span>
+                )}
               </div>
             </div>
             <button className="inv-detail-close-btn" onClick={onClose}>×</button>
@@ -615,15 +630,43 @@ function AssetDetailModal({ asset, onClose, onStatusChange }) {
                     )}
                   </div>
 
+                  {inventoryReceipts.length > 0 && (
+                    <div className="inv-empty-photo-card">
+                      <p className="inv-empty-photo-title">
+                        Receipts ({inventoryReceipts.length})
+                      </p>
+                      <div className="inv-photo-strip">
+                        {inventoryReceipts.map((src, i) => (
+                          <img
+                            key={i}
+                            src={src}
+                            alt=""
+                            className="inv-photo-thumb"
+                            onClick={() => setLightboxStartIdx(i)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="inv-empty-stats-card">
                     <p className="inv-empty-stats-title">Asset Summary</p>
                     <div className="inv-empty-stats-grid">
                       {[
                         ["Total Quantity", asset?.total ?? 0],
                         ["Available", asset?.available ?? 0],
-                        ["Assigned", asset?.assigned ?? 0],
+                        ...(!stockMode ? [["Assigned", asset?.assigned ?? 0]] : []),
                         ["Not Working", asset?.notWorking ?? 0],
                         ["In Repair", asset?.inRepair ?? 0],
+                        ...(stockMode && asset?.vendor && asset.vendor !== "—"
+                          ? [["Supplier", asset.vendor]]
+                          : []),
+                        ...(stockMode && asset?.purchaseDate
+                          ? [["Purchase date", asset.purchaseDate]]
+                          : []),
+                        ...(stockMode && asset?.location && asset.location !== "—"
+                          ? [["Location", asset.location]]
+                          : []),
                       ].map(([label, value]) => (
                         <div key={label} className="inv-empty-stat">
                           <span>{label}</span>
@@ -636,6 +679,19 @@ function AssetDetailModal({ asset, onClose, onStatusChange }) {
               </div>
             ) : (
               <>
+                {showItemMeta && (
+                  <div className="inv-detail-meta-strip">
+                    {asset.vendor && asset.vendor !== "—" && (
+                      <span><strong>Vendor:</strong> {asset.vendor}</span>
+                    )}
+                    {asset.purchaseDate && (
+                      <span><strong>Purchase:</strong> {asset.purchaseDate}</span>
+                    )}
+                    {asset.location && asset.location !== "—" && (
+                      <span><strong>Location:</strong> {asset.location}</span>
+                    )}
+                  </div>
+                )}
                 <div className="inv-detail-fields">
                   {detailFields.map(({ label, value, mono, highlight }, idx) => (
                     <div
@@ -853,13 +909,16 @@ function useAssetActions(onRefresh) {
         repair_quantity: item.repairQuantity,
       });
       if (actionKey === "removed") {
-        await createRemovedAssetAPI({
+        await createDeletedLogAPI({
+          delete_code: `del-qty-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           inventory_item_id: Number(row.id) || null,
-          name: row.name,
+          deleted_by_name: "Inventory",
+          asset_name: row.name,
           category: row.category || "Accessories",
+          serial_number: "",
           reason: `Dead quantity marked: ${safeQty}`,
         });
-        await syncRemovedITFromAPI();
+        await syncDeletedLogsFromAPI();
       }
       await syncITDataFromAPI();
     } catch (err) {
@@ -922,17 +981,9 @@ function useAssetActions(onRefresh) {
           serial_number: entry.serialNumber,
           reason,
         });
-        await createRemovedAssetAPI({
-          asset_unit_id: unitIdNum,
-          inventory_item_id: Number(unit.inventoryId) || Number(removeTarget.id) || null,
-          name: entry.assetName,
-          category: entry.category,
-          reason,
-        });
         await deleteAssetUnitAPI(unitIdNum);
         await syncITDataFromAPI();
         await syncDeletedLogsFromAPI();
-        await syncRemovedITFromAPI();
       } catch (err) {
         console.error("[InventoryDashboard] remove via API failed:", err);
         toast.error(
@@ -973,7 +1024,7 @@ function useAssetActions(onRefresh) {
       updateInventoryCounts(removeTarget, "removed");
     }
 
-    showToast(`🗑️ "${removeTarget.name}" moved to Removed Assets`);
+    showToast(`🗑️ "${removeTarget.name}" moved to Dead Assets`);
     setRemoveTarget(null);
     dispatchInventoryUpdate();
     onRefresh();
@@ -1116,9 +1167,9 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
 
 // ─── Shared AssetTable ────────────────────────────────────────────────────────
 
-function AssetTable({ assets, filter, onViewAsset, onStatusChange }) {
+function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned = false }) {
   const showAvailable = filter !== "Assigned";
-  const showAssigned  = filter !== "Available";
+  const showAssigned  = !hideAssigned && filter !== "Available";
   const emptyColSpan  = 3 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
 
   return (
@@ -1142,13 +1193,18 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange }) {
             assets.map((row, i) => (
               <tr key={row.id} className={i % 2 === 0 ? "tr-even" : "tr-odd"}>
                 <td className="td-name">
-                  {row.hwType ? (
+                  {row.hwType && !row.isStock ? (
                     <div className="td-name-wrap">
                       <span className="td-name-brand">{row.name}</span>
                       <span className="td-name-sub">{row.hwType}</span>
                     </div>
                   ) : (
-                    <span className="td-name-brand">{row.name}</span>
+                    <div className="td-name-wrap">
+                      <span className="td-name-brand">{row.name}</span>
+                      {row.isStock && row.vendor && row.vendor !== "—" && (
+                        <span className="td-name-sub">{row.vendor}</span>
+                      )}
+                    </div>
                   )}
                 </td>
                 <td>{row.total}</td>
@@ -1269,6 +1325,7 @@ function TotalAssetsPage({ category }) {
           filter={filter}
           onViewAsset={setDetailAsset}
           onStatusChange={handleStatusChange}
+          hideAssigned={hideAssignedColumnForCategory(category)}
         />
       </section>
 
@@ -1330,6 +1387,7 @@ function OverviewPage({ category }) {
           filter="All"
           onViewAsset={setDetailAsset}
           onStatusChange={handleStatusChange}
+          hideAssigned={hideAssignedColumnForCategory(category)}
         />
       </section>
 

@@ -134,6 +134,16 @@ def _resolve_admin_by_emp_key(emp_key):
     ).first()
 
 
+def _is_qty_managed_inventory(category, inventory_category=None):
+    cat = (category or "").strip().lower()
+    if cat in ("accessories", "consumables", "stock"):
+        return True
+    inv = (inventory_category or "").strip()
+    if inv in ("Office Assets", "Infrastructure Assets"):
+        return cat == "stock" or cat in ("accessories", "consumables")
+    return False
+
+
 def _serialize_inventory_item(item):
     return {
         "id": item.id,
@@ -143,6 +153,11 @@ def _serialize_inventory_item(item):
         "inventory_category": item.inventory_category,
         "hw_type": item.hw_type,
         "photos": item.photos_json or [],
+        "vendor": item.vendor or "",
+        "purchase_date": item.purchase_date.isoformat() if item.purchase_date else None,
+        "receipts": item.receipts_json or [],
+        "location": item.location or "",
+        "notes": item.notes or "",
         "totalQuantity": int(item.total_quantity or 0),
         "availableQuantity": int(item.available_quantity or 0),
         "assignedQuantity": int(item.assigned_quantity or 0),
@@ -573,21 +588,45 @@ def create_inventory_item():
     category = (data.get("category") or "").strip()
     if not name or not category:
         return _err("name and category are required")
+    inventory_category = (data.get("inventory_category") or "IT Assets").strip()
+    inv_lower = inventory_category.lower()
+    if inv_lower == "office assets" and category.strip().lower() not in (
+        "accessories",
+        "consumables",
+        "stock",
+    ):
+        category = "Stock"
+    if inv_lower == "infrastructure assets" and category.strip().lower() not in (
+        "accessories",
+        "consumables",
+        "stock",
+        "equipment",
+    ):
+        category = "Stock"
+    if inv_lower == "transport assets" and category.strip().lower() != "vehicle":
+        category = "Vehicle"
+
     initial_quantity = int(data.get("initial_quantity") or 0)
-    is_qty_managed = category.strip().lower() in ("accessories", "consumables")
+    is_qty_managed = _is_qty_managed_inventory(category, inventory_category)
     if is_qty_managed and initial_quantity < 1:
-        return _err("initial_quantity must be >= 1 for accessories/consumables")
+        return _err("initial_quantity must be >= 1 for quantity-based stock items")
 
     current_admin = _current_admin()
     item = ITInventoryItem(
         inventory_code=data.get("inventory_code") or _next_code("INV", ITInventoryItem, "inventory_code"),
         name=name,
         category=category,
-        inventory_category=(data.get("inventory_category") or "IT Assets").strip(),
+        inventory_category=inventory_category,
         hw_type=(data.get("hw_type") or None),
         photos_json=data.get("photos") or [],
+        vendor=(data.get("vendor") or "").strip() or None,
+        purchase_date=_parse_date(data.get("purchase_date")),
+        receipts_json=data.get("receipts") or [],
+        location=(data.get("location") or "").strip() or None,
+        notes=(data.get("notes") or "").strip() or None,
         total_quantity=initial_quantity if is_qty_managed else 0,
         available_quantity=initial_quantity if is_qty_managed else 0,
+        assigned_quantity=0,
         created_by_admin_id=current_admin.id if current_admin else None,
     )
     db.session.add(item)
@@ -608,9 +647,15 @@ def update_inventory_item(item_id):
         ("inventory_category", "inventory_category"),
         ("hw_type", "hw_type"),
         ("photos", "photos_json"),
+        ("vendor", "vendor"),
+        ("location", "location"),
+        ("notes", "notes"),
+        ("receipts", "receipts_json"),
     ):
         if key in data:
             setattr(item, attr, (data.get(key) or None))
+    if "purchase_date" in data:
+        item.purchase_date = _parse_date(data.get("purchase_date"))
 
     for key, attr in (
         ("total_quantity", "total_quantity"),

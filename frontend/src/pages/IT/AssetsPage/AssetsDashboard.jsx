@@ -319,6 +319,7 @@ function buildAvailableData() {
     .filter((a) => {
       if (seen.has(String(a.id))) return false;
       seen.add(String(a.id));
+      if ((a.inventoryCategory || "IT Assets") !== "IT Assets") return false;
       const cat = normCat(a.category);
       return cat === "Software"
         ? Number(a.totalQuantity) > 0
@@ -2012,12 +2013,6 @@ export default function AssetsDashboard() {
           <h1 className="am-title">Asset Management</h1>
           <div className="am-topbar-right">
             <div className="am-action-btns">
-              <button
-                className="am-btn-add-sw"
-                onClick={() => navigate("/it/AssetsPage/AddSoftWare")}
-              >
-                + Add Software
-              </button>
               <button
                 className="am-btn-add-emp"
                 onClick={() => navigate("/it/AssetsPage/AddEmployee")}

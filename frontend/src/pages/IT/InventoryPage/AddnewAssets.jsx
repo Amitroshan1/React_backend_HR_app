@@ -16,9 +16,13 @@ import {
   getHardwareFields,
   inventoryCategoryToKey,
   isValidInventoryCategory,
+  isStockInventoryCategory,
   isVehicleInventoryCategory,
   keyToInventoryCategory,
 } from "../inventoryCategories";
+import OfficeStockForm from "./OfficeStockForm";
+import TransportVehicleForm from "./TransportVehicleForm";
+import InfrastructureAddForm from "./InfrastructureAddForm";
 import "./AddnewAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -381,10 +385,6 @@ function InventoryAssetsForm({ inventoryCategory }) {
     <>
       <div className="ana-page">
         <main className="ana-main">
-          <div className="ana-main-header">
-            <h1>Add New Assets — {inventoryCategory}</h1>
-          </div>
-
           {/* ── Step 1: Category + Hardware Type (inline) ── */}
           <section className="ana-section">
             <div className="ana-section-head">
@@ -717,7 +717,15 @@ export default function AddNewAssets() {
 
       <div className="ana-type-content">
         {formEnabled ? (
-          <InventoryAssetsForm inventoryCategory={activeInventoryCategory} />
+          activeInventoryCategory === "Office Assets" ? (
+            <OfficeStockForm />
+          ) : activeInventoryCategory === "Transport Assets" ? (
+            <TransportVehicleForm />
+          ) : activeInventoryCategory === "Infrastructure Assets" ? (
+            <InfrastructureAddForm />
+          ) : (
+            <InventoryAssetsForm inventoryCategory={activeInventoryCategory} />
+          )
         ) : (
           <WorkInProgress label={ASSET_TYPE_TABS.find((t) => t.key === activeType)?.label} />
         )}

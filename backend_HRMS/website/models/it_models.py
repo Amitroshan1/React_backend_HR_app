@@ -14,6 +14,11 @@ class ITInventoryItem(db.Model):
     inventory_category = db.Column(db.String(60), nullable=False, default="IT Assets", server_default="IT Assets")
     hw_type = db.Column(db.String(40), nullable=True, index=True)
     photos_json = db.Column(db.JSON, nullable=True)
+    vendor = db.Column(db.String(150), nullable=True)
+    purchase_date = db.Column(db.Date, nullable=True)
+    receipts_json = db.Column(db.JSON, nullable=True)
+    location = db.Column(db.String(120), nullable=True)
+    notes = db.Column(db.String(500), nullable=True)
 
     total_quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
     available_quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
