@@ -11,6 +11,7 @@ import {
   syncDeletedLogsFromAPI,
   syncInventoryCount,
   syncITDataFromAPI,
+  setUnitStatusAPI,
 } from "../Data";
 import "./InventoryDashboard.css";
 import "./InRepair.css";
@@ -196,11 +197,23 @@ export default function InRepair() {
   );
 
   // ── Actions ─────────────────────────────────────────────────────────────────
-  const handleReturn = useCallback((unit) => {
+  const handleReturn = useCallback(async (unit) => {
     const ok = window.confirm(
       "This device will be moved to Available and can be assigned again. Are you sure you want to mark it as repaired?",
     );
     if (!ok) return;
+
+    try {
+      await setUnitStatusAPI({ unitId: unit.id, status: "available" });
+      await syncITDataFromAPI();
+    } catch (err) {
+      console.error("[InRepair] set available via API failed:", err);
+      rtToast.error(
+        getITApiErrorMessage(err, "Could not move this unit to available on the server."),
+      );
+      return;
+    }
+
     const updated = readAssetUnits().map((u) =>
       u.id === unit.id ? { ...u, status: "available", repairDate: null } : u,
     );
@@ -237,6 +250,7 @@ export default function InRepair() {
       await createDeletedLogAPI({
         delete_code: entry.deletedId,
         asset_unit_id: removeTarget.id || null,
+        deleted_by_name: deletedBy,
         asset_name: entry.assetName,
         category: entry.category,
         serial_number: entry.serialNumber,

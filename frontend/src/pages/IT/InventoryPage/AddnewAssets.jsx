@@ -326,6 +326,7 @@ function ITAssetsForm() {
             category,
             inventoryCategory: "IT Assets",
             quantity: parseInt(row.quantity, 10),
+            photos: row.photos || [],
           });
         }
         await syncITDataFromAPI();

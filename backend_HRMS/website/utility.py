@@ -1720,6 +1720,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             row = first_day_row + (day - 1)
 
             is_sunday = current.weekday() == 6
+            is_weekend = current.weekday() in (5, 6)
             is_holiday = current in holiday_dates
 
             # Only write the Day_Date once (for the first employee)
@@ -1770,17 +1771,26 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
 
                 worksheet.write(row, base_col,     cell_text, fmt)
                 worksheet.write(row, base_col + 1, "",        fmt)
-            elif is_sunday:
-                # Same visual style as a calendar holiday; label both Punch In and Punch Out
-                worksheet.write(row, base_col, "Weekend Off", legend_holiday_fmt)
-                worksheet.write(row, base_col + 1, "Weekend Off", legend_holiday_fmt)
+            elif is_weekend:
+                has_punch = punch and (punch.punch_in or punch.punch_out)
+                if has_punch:
+                    time_in_str = (
+                        punch.punch_in.strftime("%H:%M") if punch.punch_in else ""
+                    )
+                    time_out_str = (
+                        punch.punch_out.strftime("%H:%M") if punch.punch_out else ""
+                    )
+                    worksheet.write(row, base_col, time_in_str, base_fmt)
+                    worksheet.write(row, base_col + 1, time_out_str, base_fmt)
+                else:
+                    worksheet.write(row, base_col, "Weekend Off", legend_holiday_fmt)
+                    worksheet.write(row, base_col + 1, "Weekend Off", legend_holiday_fmt)
             else:
-                # Normal punch display — 24-hour clock (HH:MM:SS)
                 time_in_str = (
-                    punch.punch_in.strftime("%H:%M:%S") if punch and punch.punch_in else ""
+                    punch.punch_in.strftime("%H:%M") if punch and punch.punch_in else ""
                 )
                 time_out_str = (
-                    punch.punch_out.strftime("%H:%M:%S") if punch and punch.punch_out else ""
+                    punch.punch_out.strftime("%H:%M") if punch and punch.punch_out else ""
                 )
 
                 worksheet.write(row, base_col, time_in_str, base_fmt)
@@ -1898,13 +1908,13 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
         seq_map[key] = seq_map.get(key, 0) + 1
         seq = seq_map[key]
 
-        cin = s.clock_in.strftime("%H:%M:%S") if s.clock_in else ""
-        cout = s.clock_out.strftime("%H:%M:%S") if s.clock_out else ""
+        cin = s.clock_in.strftime("%H:%M") if s.clock_in else ""
+        cout = s.clock_out.strftime("%H:%M") if s.clock_out else ""
         if s.clock_in and s.clock_out:
             secs = max(0, int((s.clock_out - s.clock_in).total_seconds()))
             h, rem = divmod(secs, 3600)
-            m, sec = divmod(rem, 60)
-            dur = f"{h:02d}:{m:02d}:{sec:02d}"
+            m, _ = divmod(rem, 60)
+            dur = f"{h:02d}:{m:02d}"
         else:
             dur = ""
 

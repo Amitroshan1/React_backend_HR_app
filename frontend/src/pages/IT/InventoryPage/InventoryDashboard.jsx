@@ -20,6 +20,7 @@ import {
   createDeletedLogAPI,
   createRemovedAssetAPI,
   deleteAssetUnitAPI,
+  updateInventoryItemAPI,
 } from "../Data";
 
 import AddNewAssets    from "./AddnewAssets";
@@ -69,6 +70,11 @@ const formatDate = (iso) => {
 
 const isSoftware = (item) =>
   (item?.category ?? "").trim().toLowerCase() === "software";
+
+const isQtyManagedCategory = (category) =>
+  ["accessories", "consumables", "accessory", "consumable"].includes(
+    String(category || "").trim().toLowerCase(),
+  );
 
 const readInventory  = () => getInventoryFromStorage() ?? [];
 const writeInventory = (data) => saveInventoryToStorage(data);
@@ -129,6 +135,7 @@ function mapInventoryItem(item) {
     category:          item.category     || "—",
     purchaseDate:      item.purchaseDate || null,
     location:          item.location     || "—",
+    photos:            item.photos       || [],
   };
 }
 
@@ -280,6 +287,78 @@ function RemoveAssetModal({ asset, onConfirm, onCancel }) {
   );
 }
 
+function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
+  const row = actionTarget?.row || null;
+  const actionKey = actionTarget?.actionKey || "";
+  const actionLabel = actionKey === "notWorking"
+    ? "Not Working"
+    : actionKey === "removed"
+      ? "Dead Device"
+      : "Repair";
+
+  const maxQty = Math.max(0, Number(row?.available ?? 0));
+  const [quantity, setQuantity] = useState(maxQty > 0 ? "1" : "0");
+  const [error, setError] = useState("");
+
+  const submit = () => {
+    const qty = Number.parseInt(quantity, 10);
+    if (!Number.isFinite(qty) || qty < 1) {
+      setError("Enter a valid quantity (minimum 1).");
+      return;
+    }
+    if (qty > maxQty) {
+      setError(`Quantity cannot exceed available count (${maxQty}).`);
+      return;
+    }
+    onConfirm(qty);
+  };
+
+  return (
+    <div className="inv-modal-backdrop" onClick={onCancel}>
+      <div className="inv-modal-box" onClick={(e) => e.stopPropagation()}>
+        <div className="inv-modal-hero">
+          <p className="inv-modal-hero-label">Quantity Action</p>
+          <h2 className="inv-modal-hero-title">{actionLabel}</h2>
+          <p className="inv-modal-hero-sub">{row?.name || "Asset"}</p>
+        </div>
+        <div className="inv-modal-body">
+          <p className="inv-modal-hint">
+            How many items do you want to mark for <strong>{actionLabel}</strong>?
+          </p>
+          <div className="inv-modal-field">
+            <label className="inv-modal-label">
+              Quantity <span className="req">*</span>
+            </label>
+            <input
+              className={`inv-modal-input${error ? " err" : ""}`}
+              type="number"
+              min={1}
+              max={maxQty}
+              value={quantity}
+              onChange={(e) => {
+                setQuantity(e.target.value);
+                setError("");
+              }}
+              placeholder={`1 to ${maxQty}`}
+            />
+            <span className="inv-modal-hint-sub">Available: {maxQty}</span>
+            {error && <span className="inv-modal-err">{error}</span>}
+          </div>
+
+          <div className="inv-modal-actions">
+            <button className="inv-modal-btn-confirm" onClick={submit}>
+              Confirm
+            </button>
+            <button className="inv-modal-btn-cancel" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── UnitPickerModal ──────────────────────────────────────────────────────────
 // Opens when user clicks Edit — lists each available unit (brand + serial no)
 // so the user picks exactly which device to act on before choosing an action.
@@ -375,29 +454,11 @@ function UnitPickerModal({ row, onAction, onCancel }) {
   );
 }
 
-// ─── EditDropdown ─────────────────────────────────────────────────────────────
+// ─── ViewActionGroup ──────────────────────────────────────────────────────────
 
-function EditDropdown({ row, onStatusChange }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-
+function ViewActionGroup({ row, onViewAsset }) {
   return (
-    <>
-      <span className="inv-edit-dropdown-wrap">
-        <button className="inv-action-btn-edit" onClick={() => setPickerOpen(true)}>
-          Edit ▾
-        </button>
-      </span>
-      {pickerOpen && (
-        <UnitPickerModal
-          row={row}
-          onAction={(row, actionKey, unit) => {
-            setPickerOpen(false);
-            onStatusChange(row, actionKey, unit);
-          }}
-          onCancel={() => setPickerOpen(false)}
-        />
-      )}
-    </>
+    <button className="inv-action-btn" onClick={() => onViewAsset(row)}>View</button>
   );
 }
 
@@ -438,13 +499,14 @@ function PhotoLightbox({ photos, startIndex, onClose }) {
 
 // ─── AssetDetailModal ─────────────────────────────────────────────────────────
 
-function AssetDetailModal({ asset, onClose }) {
+function AssetDetailModal({ asset, onClose, onStatusChange }) {
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
   const [lightboxStartIdx,  setLightboxStartIdx]  = useState(null);
 
   const units  = getUnitsForAsset(asset.id, asset.name, asset.hwType);
   const unit   = units[selectedUnitIndex] ?? null;
   const photos = unit?.photos ?? unit?.assignmentPhotos ?? [];
+  const inventoryPhotos = asset?.photos ?? [];
 
   const detailFields = [
     { label: "Asset ID",   value: unit?.assetId ?? unit?.id ?? "—", mono: true,  highlight: true  },
@@ -490,22 +552,58 @@ function AssetDetailModal({ asset, onClose }) {
           <div className="inv-detail-body">
             {units.length === 0 ? (
               <div className="inv-detail-empty">
-                <div className="inv-detail-empty-icon">📦</div>
-                <p className="inv-detail-empty-title">No unit records found</p>
-                <p className="inv-detail-empty-sub">Individual units added via Add Assets will appear here</p>
-                <div className="inv-detail-summary-grid">
-                  {[
-                    ["Total Quantity", asset?.total ?? "—"],
-                    ["Available", asset?.available ?? "—"],
-                    ["Assigned", asset?.assigned ?? "—"],
-                    ["Not Working", asset?.notWorking ?? "—"],
-                    ["In Repair", asset?.inRepair ?? "—"],
-                  ].map(([label, value]) => (
-                    <div key={label} className="inv-detail-summary-item">
-                      <span className="inv-detail-summary-label">{label}</span>
-                      <span className="inv-detail-summary-value">{value}</span>
+                <div className="inv-empty-qty-layout">
+                  <div className="inv-empty-photo-card">
+                    <p className="inv-empty-photo-title">
+                      Photos {inventoryPhotos.length > 0 ? `(${inventoryPhotos.length})` : ""}
+                    </p>
+                    {inventoryPhotos.length === 0 ? (
+                      <div className="inv-photos-empty">
+                        <div className="inv-photos-empty-icon">📷</div>
+                        <p className="inv-photos-empty-text">No photos available</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="inv-photo-main" onClick={() => setLightboxStartIdx(0)}>
+                          <img src={inventoryPhotos[0]} alt="asset" />
+                          {inventoryPhotos.length > 1 && (
+                            <span className="inv-photo-more-badge">+{inventoryPhotos.length - 1} more</span>
+                          )}
+                        </div>
+                        {inventoryPhotos.length > 1 && (
+                          <div className="inv-photo-strip">
+                            {inventoryPhotos.map((src, i) => (
+                              <img
+                                key={i}
+                                src={src}
+                                alt=""
+                                className="inv-photo-thumb"
+                                onClick={() => setLightboxStartIdx(i)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="inv-empty-stats-card">
+                    <p className="inv-empty-stats-title">Asset Summary</p>
+                    <div className="inv-empty-stats-grid">
+                      {[
+                        ["Total Quantity", asset?.total ?? 0],
+                        ["Available", asset?.available ?? 0],
+                        ["Assigned", asset?.assigned ?? 0],
+                        ["Not Working", asset?.notWorking ?? 0],
+                        ["In Repair", asset?.inRepair ?? 0],
+                      ].map(([label, value]) => (
+                        <div key={label} className="inv-empty-stat">
+                          <span>{label}</span>
+                          <strong>{value}</strong>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -573,6 +671,28 @@ function AssetDetailModal({ asset, onClose }) {
           </div>
 
           <div className="inv-detail-footer">
+            <div className="inv-detail-footer-actions">
+              {EDIT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className="inv-inline-action-btn"
+                  style={{
+                    color: opt.color,
+                    background: opt.bg,
+                    borderColor: opt.borderColor,
+                  }}
+                  onClick={() => {
+                    onStatusChange?.(asset, opt.key, null);
+                    onClose();
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = opt.hoverBg; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = opt.bg; }}
+                >
+                  <span>{opt.icon}</span> {opt.label}
+                </button>
+              ))}
+            </div>
             <button className="inv-detail-footer-btn" onClick={onClose}>Close</button>
           </div>
         </div>
@@ -580,7 +700,7 @@ function AssetDetailModal({ asset, onClose }) {
 
       {lightboxStartIdx !== null && (
         <PhotoLightbox
-          photos={photos}
+          photos={units.length === 0 ? inventoryPhotos : photos}
           startIndex={lightboxStartIdx}
           onClose={() => setLightboxStartIdx(null)}
         />
@@ -593,6 +713,7 @@ function AssetDetailModal({ asset, onClose }) {
 
 function useAssetActions(onRefresh) {
   const [removeTarget, setRemoveTarget] = useState(null);
+  const [quantityTarget, setQuantityTarget] = useState(null);
   const [toast,        setToast]        = useState("");
 
   const showToast = useCallback((msg) => {
@@ -601,6 +722,10 @@ function useAssetActions(onRefresh) {
   }, []);
 
   const handleStatusChange = useCallback(async (row, actionKey, unit) => {
+    if (!unit && isQtyManagedCategory(row?.category)) {
+      setQuantityTarget({ row, actionKey });
+      return;
+    }
     if (actionKey === "removed") { setRemoveTarget({ ...row, _selectedUnit: unit }); return; }
 
     const targetStatus = actionKey === "repair" ? "repair" : "notWorking";
@@ -660,6 +785,75 @@ function useAssetActions(onRefresh) {
     onRefresh();
   }, [onRefresh, showToast]);
 
+  const handleQuantityConfirm = useCallback(async (qty) => {
+    if (!quantityTarget) return;
+    const { row, actionKey } = quantityTarget;
+
+    const inventory = readInventory();
+    const index = inventory.findIndex((i) => String(i.id) === String(row.id));
+    if (index < 0) {
+      setQuantityTarget(null);
+      return;
+    }
+    const item = { ...inventory[index] };
+
+    const available = Number(item.availableQuantity || 0);
+    const total = Number(item.totalQuantity || 0);
+    const safeQty = Math.max(1, Math.min(Number(qty || 0), available));
+    if (safeQty < 1) {
+      toast.error("No available quantity left for this action.");
+      return;
+    }
+
+    if (actionKey === "repair") {
+      item.repairQuantity = Number(item.repairQuantity || 0) + safeQty;
+      item.availableQuantity = Math.max(0, available - safeQty);
+    } else if (actionKey === "notWorking") {
+      item.notWorkingQuantity = Number(item.notWorkingQuantity || 0) + safeQty;
+      item.availableQuantity = Math.max(0, available - safeQty);
+    } else if (actionKey === "removed") {
+      item.totalQuantity = Math.max(0, total - safeQty);
+      item.availableQuantity = Math.max(0, available - safeQty);
+    }
+
+    try {
+      await updateInventoryItemAPI(row.id, {
+        total_quantity: item.totalQuantity,
+        available_quantity: item.availableQuantity,
+        assigned_quantity: item.assignedQuantity,
+        not_working_quantity: item.notWorkingQuantity,
+        repair_quantity: item.repairQuantity,
+      });
+      if (actionKey === "removed") {
+        await createRemovedAssetAPI({
+          inventory_item_id: Number(row.id) || null,
+          name: row.name,
+          category: row.category || "Accessories",
+          reason: `Dead quantity marked: ${safeQty}`,
+        });
+        await syncRemovedITFromAPI();
+      }
+      await syncITDataFromAPI();
+    } catch (err) {
+      console.error("[InventoryDashboard] quantity action via API failed:", err);
+      toast.error(
+        getITApiErrorMessage(err, "Could not update quantity status on the server."),
+      );
+      return;
+    }
+
+    setQuantityTarget(null);
+    showToast(
+      actionKey === "repair"
+        ? `✅ ${safeQty} item(s) moved to Repair`
+        : actionKey === "notWorking"
+          ? `⚠️ ${safeQty} item(s) marked Not Working`
+          : `🗑️ ${safeQty} item(s) moved to Dead Assets`,
+    );
+    dispatchInventoryUpdate();
+    onRefresh();
+  }, [quantityTarget, onRefresh, showToast]);
+
   const handleRemoveConfirm = useCallback(async (removedBy, reason) => {
     if (!removeTarget) return;
 
@@ -694,6 +888,7 @@ function useAssetActions(onRefresh) {
           delete_code: entry.deletedId,
           asset_unit_id: unitIdNum,
           inventory_item_id: Number(unit.inventoryId) || Number(removeTarget.id) || null,
+          deleted_by_name: removedBy,
           asset_name: entry.assetName,
           category: entry.category,
           serial_number: entry.serialNumber,
@@ -756,7 +951,16 @@ function useAssetActions(onRefresh) {
     onRefresh();
   }, [removeTarget, onRefresh, showToast]);
 
-  return { removeTarget, setRemoveTarget, toast, handleStatusChange, handleRemoveConfirm };
+  return {
+    removeTarget,
+    setRemoveTarget,
+    quantityTarget,
+    setQuantityTarget,
+    toast,
+    handleStatusChange,
+    handleRemoveConfirm,
+    handleQuantityConfirm,
+  };
 }
 
 // ─── InventoryShell ───────────────────────────────────────────────────────────
@@ -911,8 +1115,10 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange }) {
                 {showAvailable && <td className="td-available">{row.available}</td>}
                 {showAssigned  && <td className="td-assigned">{row.assigned}</td>}
                 <td>
-                  <button className="inv-action-btn" onClick={() => onViewAsset(row)}>View</button>
-                  <EditDropdown row={row} onStatusChange={onStatusChange} />
+                  <ViewActionGroup
+                    row={row}
+                    onViewAsset={onViewAsset}
+                  />
                 </td>
               </tr>
             ))
@@ -933,8 +1139,16 @@ function TotalAssetsPage({ category }) {
   const [refreshKey,    setRefreshKey]    = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-  const { removeTarget, setRemoveTarget, toast, handleStatusChange, handleRemoveConfirm } =
-    useAssetActions(refresh);
+  const {
+    removeTarget,
+    setRemoveTarget,
+    quantityTarget,
+    setQuantityTarget,
+    toast,
+    handleStatusChange,
+    handleRemoveConfirm,
+    handleQuantityConfirm,
+  } = useAssetActions(refresh);
 
   const filteredAssets = useMemo(() => {
     void refreshKey;
@@ -1018,8 +1232,21 @@ function TotalAssetsPage({ category }) {
         />
       </section>
 
-      {detailAsset  && <AssetDetailModal asset={detailAsset}  onClose={() => setDetailAsset(null)} />}
+      {detailAsset  && (
+        <AssetDetailModal
+          asset={detailAsset}
+          onClose={() => setDetailAsset(null)}
+          onStatusChange={handleStatusChange}
+        />
+      )}
       {removeTarget && <RemoveAssetModal asset={removeTarget} onConfirm={handleRemoveConfirm} onCancel={() => setRemoveTarget(null)} />}
+      {quantityTarget && (
+        <QuantityActionModal
+          actionTarget={quantityTarget}
+          onConfirm={handleQuantityConfirm}
+          onCancel={() => setQuantityTarget(null)}
+        />
+      )}
     </>
   );
 }
@@ -1031,8 +1258,16 @@ function OverviewPage({ category }) {
   const [refreshKey,  setRefreshKey]  = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-  const { removeTarget, setRemoveTarget, toast, handleStatusChange, handleRemoveConfirm } =
-    useAssetActions(refresh);
+  const {
+    removeTarget,
+    setRemoveTarget,
+    quantityTarget,
+    setQuantityTarget,
+    toast,
+    handleStatusChange,
+    handleRemoveConfirm,
+    handleQuantityConfirm,
+  } = useAssetActions(refresh);
 
   const assets = useMemo(() => {
     void refreshKey;
@@ -1058,8 +1293,21 @@ function OverviewPage({ category }) {
         />
       </section>
 
-      {detailAsset  && <AssetDetailModal asset={detailAsset}  onClose={() => setDetailAsset(null)} />}
+      {detailAsset  && (
+        <AssetDetailModal
+          asset={detailAsset}
+          onClose={() => setDetailAsset(null)}
+          onStatusChange={handleStatusChange}
+        />
+      )}
       {removeTarget && <RemoveAssetModal asset={removeTarget} onConfirm={handleRemoveConfirm} onCancel={() => setRemoveTarget(null)} />}
+      {quantityTarget && (
+        <QuantityActionModal
+          actionTarget={quantityTarget}
+          onConfirm={handleQuantityConfirm}
+          onCancel={() => setQuantityTarget(null)}
+        />
+      )}
     </>
   );
 }

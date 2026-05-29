@@ -5,6 +5,7 @@ import {
   createDeletedLogAPI,
   createRemovedAssetAPI,
   getAssetUnitsFromStorage,
+  getInventoryFromStorage,
   getITApiErrorMessage,
   deleteHwUnit,
   saveAssetUnitsToStorage,
@@ -12,6 +13,8 @@ import {
   syncDeletedLogsFromAPI,
   syncITDataFromAPI,
   syncInventoryCount,
+  syncRemovedITFromAPI,
+  updateInventoryItemAPI,
 } from "../Data";
 import "./InventoryDashboard.css";
 import "./NotWorking.css";
@@ -102,17 +105,20 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 // ─── NotWorkingRow ────────────────────────────────────────────────────────────
 
 function NotWorkingRow({ unit, index, onSendToRepair, onRemove }) {
+  const isQtyRow = Boolean(unit?.isQuantityRow);
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
       <td>
-        <span className="nw-brand">{unit.brand || unit.assetName}</span>
+        <span className="nw-brand">{unit.brand || unit.assetName || unit.name}</span>
         {unit.model && <span className="nw-model"> {unit.model}</span>}
       </td>
       <td><span className="inv-category-badge">{unit.category}</span></td>
       <td>
-        {unit.serialNumber
-          ? <span className="nw-serial">{unit.serialNumber}</span>
-          : "—"}
+        {isQtyRow
+          ? <span className="nw-serial">Qty: {unit.notWorkingQuantity || 0}</span>
+          : unit.serialNumber
+            ? <span className="nw-serial">{unit.serialNumber}</span>
+            : "—"}
       </td>
       <td className="nw-actions">
         <button className="nw-btn-repair" onClick={() => onSendToRepair(unit)}>Send to Repair</button>
@@ -164,9 +170,30 @@ export default function NotWorking() {
     () => units.filter((u) => isNotWorkingStatus(u.status)),
     [units],
   );
+  const qtyNotWorkingRows = useMemo(
+    () =>
+      (getInventoryFromStorage() || [])
+        .filter((i) => ["accessories", "consumables"].includes(String(i.category || "").toLowerCase()))
+        .filter((i) => Number(i.notWorkingQuantity || 0) > 0)
+        .map((i) => ({
+          id: `qty-${i.id}`,
+          inventoryId: i.id,
+          assetName: i.name,
+          brand: i.name,
+          category: normCategory(i.category),
+          serialNumber: "",
+          notWorkingQuantity: Number(i.notWorkingQuantity || 0),
+          availableQuantity: Number(i.availableQuantity || 0),
+          totalQuantity: Number(i.totalQuantity || 0),
+          assignedQuantity: Number(i.assignedQuantity || 0),
+          repairQuantity: Number(i.repairQuantity || 0),
+          isQuantityRow: true,
+        })),
+    [units],
+  );
 
   const filteredRows = useMemo(() => {
-    let rows = notWorkingUnits;
+    let rows = [...notWorkingUnits, ...qtyNotWorkingRows];
     if (activeCategory !== "All") {
       rows = rows.filter((u) => normCategory(u.category) === activeCategory);
     }
@@ -177,15 +204,46 @@ export default function NotWorking() {
       );
     }
     return rows;
-  }, [notWorkingUnits, activeCategory, searchQuery]);
+  }, [notWorkingUnits, qtyNotWorkingRows, activeCategory, searchQuery]);
 
   const getCategoryCount = useCallback(
-    (cat) => notWorkingUnits.filter((u) => normCategory(u.category) === cat).length,
-    [notWorkingUnits],
+    (cat) =>
+      [...notWorkingUnits, ...qtyNotWorkingRows]
+        .filter((u) => normCategory(u.category) === cat).length,
+    [notWorkingUnits, qtyNotWorkingRows],
   );
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleSendToRepair = useCallback(async (unit) => {
+    if (unit?.isQuantityRow) {
+      const maxQty = Number(unit.notWorkingQuantity || 0);
+      const input = window.prompt(`Enter quantity to move to Repair (1-${maxQty})`, "1");
+      if (input == null) return;
+      const qty = Number.parseInt(input, 10);
+      if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
+        rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
+        return;
+      }
+      try {
+        await updateInventoryItemAPI(unit.inventoryId, {
+          not_working_quantity: Math.max(0, Number(unit.notWorkingQuantity || 0) - qty),
+          repair_quantity: Number(unit.repairQuantity || 0) + qty,
+          available_quantity: Number(unit.availableQuantity || 0),
+          assigned_quantity: Number(unit.assignedQuantity || 0),
+          total_quantity: Number(unit.totalQuantity || 0),
+        });
+        await syncITDataFromAPI();
+      } catch (err) {
+        console.error("[NotWorking] qty move to repair failed:", err);
+        rtToast.error(getITApiErrorMessage(err, "Could not update quantity on the server."));
+        return;
+      }
+      dispatchInventoryUpdate();
+      reload();
+      showToast(`${qty} item(s) sent to repair ✓`);
+      return;
+    }
+
     try {
       await setUnitStatusAPI({ unitId: unit.id, status: "repair" });
       await syncITDataFromAPI();
@@ -208,6 +266,43 @@ export default function NotWorking() {
   }, [reload, showToast]);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
+    if (removeTarget?.isQuantityRow) {
+      const maxQty = Number(removeTarget.notWorkingQuantity || 0);
+      const input = window.prompt(`Enter quantity to remove as dead device (1-${maxQty})`, "1");
+      if (input == null) return;
+      const qty = Number.parseInt(input, 10);
+      if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
+        rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
+        return;
+      }
+      try {
+        await updateInventoryItemAPI(removeTarget.inventoryId, {
+          not_working_quantity: Math.max(0, Number(removeTarget.notWorkingQuantity || 0) - qty),
+          total_quantity: Math.max(0, Number(removeTarget.totalQuantity || 0) - qty),
+          available_quantity: Number(removeTarget.availableQuantity || 0),
+          assigned_quantity: Number(removeTarget.assignedQuantity || 0),
+          repair_quantity: Number(removeTarget.repairQuantity || 0),
+        });
+        await createRemovedAssetAPI({
+          inventory_item_id: Number(removeTarget.inventoryId) || null,
+          name: removeTarget.assetName || removeTarget.brand || "",
+          category: removeTarget.category || "Accessories",
+          reason: `Dead quantity marked: ${qty}. ${reason || ""}`.trim(),
+        });
+        await syncRemovedITFromAPI();
+        await syncITDataFromAPI();
+      } catch (err) {
+        console.error("[NotWorking] qty remove failed:", err);
+        rtToast.error(getITApiErrorMessage(err, "Could not remove quantity on the server."));
+        return;
+      }
+      dispatchInventoryUpdate();
+      reload();
+      setRemoveTarget(null);
+      showToast(`${qty} item(s) removed ✓`);
+      return;
+    }
+
     const entry = {
       deletedId:    `del-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       assetName:    removeTarget.assetName || removeTarget.brand || "",
@@ -224,6 +319,7 @@ export default function NotWorking() {
       await createDeletedLogAPI({
         delete_code: entry.deletedId,
         asset_unit_id: removeTarget.id || null,
+        deleted_by_name: deletedBy,
         asset_name: entry.assetName,
         category: entry.category,
         serial_number: entry.serialNumber,

@@ -865,6 +865,7 @@ const _toLocalInventory = (item) => ({
   category: item.category,
   inventoryCategory: item.inventory_category || "IT Assets",
   hwType: item.hw_type || null,
+  photos: item.photos || [],
   totalQuantity: Number(item.totalQuantity ?? item.total_quantity ?? 0),
   availableQuantity: Number(item.availableQuantity ?? item.available_quantity ?? 0),
   assignedQuantity: Number(item.assignedQuantity ?? item.assigned_quantity ?? 0),
@@ -1030,6 +1031,7 @@ export const createInventoryItemAPI = async ({
   inventoryCategory = "IT Assets",
   hwType = null,
   quantity = null,
+  photos = [],
 }) =>
   _itFetch("/inventory/items", {
     method: "POST",
@@ -1039,7 +1041,14 @@ export const createInventoryItemAPI = async ({
       inventory_category: inventoryCategory,
       hw_type: hwType,
       initial_quantity: quantity,
+      photos,
     },
+  });
+
+export const updateInventoryItemAPI = async (itemId, payload = {}) =>
+  _itFetch(`/inventory/items/${itemId}`, {
+    method: "PATCH",
+    body: payload,
   });
 
 export const createHardwareUnitsAPI = async ({

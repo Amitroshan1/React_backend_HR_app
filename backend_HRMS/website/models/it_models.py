@@ -13,6 +13,7 @@ class ITInventoryItem(db.Model):
     category = db.Column(db.String(40), nullable=False, index=True)  # Hardware/Software/Accessories/Consumables
     inventory_category = db.Column(db.String(60), nullable=False, default="IT Assets", server_default="IT Assets")
     hw_type = db.Column(db.String(40), nullable=True, index=True)
+    photos_json = db.Column(db.JSON, nullable=True)
 
     total_quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
     available_quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
@@ -193,6 +194,7 @@ class ITDeletedAssetLog(db.Model):
     asset_unit_id = db.Column(db.Integer, db.ForeignKey("it_asset_units.id"), nullable=True, index=True)
     inventory_item_id = db.Column(db.Integer, db.ForeignKey("it_inventory_items.id"), nullable=True, index=True)
     deleted_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
+    deleted_by_name = db.Column(db.String(120), nullable=True)
 
     asset_name = db.Column(db.String(150), nullable=True)
     category = db.Column(db.String(40), nullable=True)

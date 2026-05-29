@@ -125,6 +125,7 @@ def _serialize_inventory_item(item):
         "category": item.category,
         "inventory_category": item.inventory_category,
         "hw_type": item.hw_type,
+        "photos": item.photos_json or [],
         "totalQuantity": int(item.total_quantity or 0),
         "availableQuantity": int(item.available_quantity or 0),
         "assignedQuantity": int(item.assigned_quantity or 0),
@@ -228,7 +229,7 @@ def _serialize_deleted_log(d):
         "assetUnitId": d.asset_unit_id,
         "inventoryId": d.inventory_item_id,
         "deletedByAdminId": d.deleted_by_admin_id,
-        "deletedByName": _admin_name(d.deleted_by_admin),
+        "deletedByName": (d.deleted_by_name or "").strip() or _admin_name(d.deleted_by_admin),
         "assetName": d.asset_name,
         "category": d.category,
         "serialNumber": d.serial_number,
@@ -546,6 +547,7 @@ def create_inventory_item():
         category=category,
         inventory_category=(data.get("inventory_category") or "IT Assets").strip(),
         hw_type=(data.get("hw_type") or None),
+        photos_json=data.get("photos") or [],
         total_quantity=initial_quantity if is_qty_managed else 0,
         available_quantity=initial_quantity if is_qty_managed else 0,
         created_by_admin_id=current_admin.id if current_admin else None,
@@ -567,9 +569,23 @@ def update_inventory_item(item_id):
         ("category", "category"),
         ("inventory_category", "inventory_category"),
         ("hw_type", "hw_type"),
+        ("photos", "photos_json"),
     ):
         if key in data:
             setattr(item, attr, (data.get(key) or None))
+
+    for key, attr in (
+        ("total_quantity", "total_quantity"),
+        ("available_quantity", "available_quantity"),
+        ("assigned_quantity", "assigned_quantity"),
+        ("not_working_quantity", "not_working_quantity"),
+        ("repair_quantity", "repair_quantity"),
+    ):
+        if key in data and data.get(key) is not None:
+            try:
+                setattr(item, attr, max(0, int(data.get(key) or 0)))
+            except (TypeError, ValueError):
+                return _err(f"{key} must be an integer")
     db.session.commit()
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory item updated")
 
@@ -1385,6 +1401,7 @@ def create_deleted_log():
         asset_unit_id=data.get("asset_unit_id"),
         inventory_item_id=data.get("inventory_item_id"),
         deleted_by_admin_id=data.get("deleted_by_admin_id"),
+        deleted_by_name=(data.get("deleted_by_name") or "").strip() or None,
         asset_name=data.get("asset_name"),
         category=data.get("category"),
         serial_number=data.get("serial_number"),

@@ -329,6 +329,7 @@ function buildAvailableData() {
       name: a.name || "",
       hwType: a.hwType || null,
       category: normCat(a.category),
+      photos: Array.isArray(a.photos) ? a.photos : [],
       availableQty: Number(a.availableQuantity) || 0,
       totalQty: Number(a.totalQuantity) || 0,
       licenseKey: a.licenseKey || a.license_key || null,
@@ -455,6 +456,8 @@ function AvailableDetailPanel({ item, onClose }) {
   if (!item) return null;
 
   const isSoftware = item.category === "Software";
+  const isQtyCategory = item.category === "Accessories" || item.category === "Consumable";
+  const itemPhotos = Array.isArray(item.photos) ? item.photos : [];
   const allUnits = getAssetUnitsFromStorage() || [];
 
   const units = isSoftware
@@ -544,7 +547,20 @@ function AvailableDetailPanel({ item, onClose }) {
           </div>
 
           <div className="adp-body">
-            {visibleItems.length === 0 ? (
+            {isQtyCategory ? (
+              <div className="adp-photo-section">
+                <p className="adp-photo-title">Photos ({itemPhotos.length})</p>
+                {itemPhotos.length === 0 ? (
+                  <div className="adp-empty">No photos available.</div>
+                ) : (
+                  <div className="adp-photo-grid">
+                    {itemPhotos.map((src, i) => (
+                      <img key={i} src={src} alt={`asset-${i + 1}`} className="adp-photo-thumb" />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : visibleItems.length === 0 ? (
               <div className="adp-empty">
                 No {tab.toLowerCase()} units found.
               </div>
@@ -1745,7 +1761,6 @@ export default function AssetsDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState("name-asc");
   const [detailItem, setDetailItem] = useState(null);
-  const [editRow, setEditRow] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -1838,7 +1853,6 @@ export default function AssetsDashboard() {
     setSearchQuery("");
     setSortMode("name-asc");
     setDetailItem(null);
-    setEditRow(null);
   }, []);
 
   const handleAssignedView = useCallback(
@@ -1861,8 +1875,6 @@ export default function AssetsDashboard() {
     },
     [navigate],
   );
-
-  const handleEditUpdated = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   return (
     <div className="am-page">
@@ -2001,13 +2013,12 @@ export default function AssetsDashboard() {
                     <th>Category</th>
                     <th>Available Qty</th>
                     <th>Details</th>
-                    <th>Edit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="am-empty">
+                      <td colSpan={4} className="am-empty">
                         No assets found
                       </td>
                     </tr>
@@ -2061,35 +2072,6 @@ export default function AssetsDashboard() {
                               View
                             </button>
                           </td>
-                          <td>
-                            <button
-                              className="am-edit-btn"
-                              onClick={() => {
-                                const linkedAssigned = assignedData.find((x) => {
-                                  const sameCategory = String(x.category || "") === String(a.category || "");
-                                  const sameName =
-                                    String(x.name || "").trim().toLowerCase() ===
-                                    String(a.name || "").trim().toLowerCase();
-                                  const hasEmp = !!x.empId && x.empId !== "—";
-                                  return sameCategory && sameName && hasEmp;
-                                });
-                                if (linkedAssigned) {
-                                  setEditRow({
-                                    id: linkedAssigned.id,
-                                    unitId: linkedAssigned.unitId || linkedAssigned.id,
-                                    name: linkedAssigned.name,
-                                    category: linkedAssigned.category,
-                                    empId: String(linkedAssigned.empId || ""),
-                                    empName: String(linkedAssigned.empName || "—"),
-                                  });
-                                  return;
-                                }
-                                setDetailItem(a);
-                              }}
-                            >
-                              Edit
-                            </button>
-                          </td>
                         </tr>
                       );
                     })
@@ -2105,13 +2087,12 @@ export default function AssetsDashboard() {
                     <th>Employee ID</th>
                     <th>Employee Name</th>
                     <th>Details</th>
-                    <th>Edit</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="am-empty">
+                      <td colSpan={5} className="am-empty">
                         No assets found
                       </td>
                     </tr>
@@ -2157,23 +2138,6 @@ export default function AssetsDashboard() {
                               View
                             </button>
                           </td>
-                          <td>
-                            <button
-                              className="am-edit-btn"
-                              onClick={() =>
-                                setEditRow({
-                                  id: a.id,
-                                  unitId: a.unitId,
-                                  name: a.name,
-                                  category: a.category,
-                                  empId: String(a.empId || ""),
-                                  empName: String(a.empName || "—"),
-                                })
-                              }
-                            >
-                              Edit
-                            </button>
-                          </td>
                         </tr>
                       );
                     })
@@ -2190,13 +2154,6 @@ export default function AssetsDashboard() {
         <AvailableDetailPanel
           item={detailItem}
           onClose={() => setDetailItem(null)}
-        />
-      )}
-      {editRow && (
-        <EditAssignedPanel
-          assignedRow={editRow}
-          onClose={() => setEditRow(null)}
-          onUpdated={handleEditUpdated}
         />
       )}
     </div>

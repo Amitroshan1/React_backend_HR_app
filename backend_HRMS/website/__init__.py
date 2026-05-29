@@ -372,6 +372,54 @@ def create_app():
         except Exception as e:
             app.logger.warning("IT inventory quantity assignment table ensure skipped: %s", e)
 
+    def _ensure_it_inventory_item_photos_column():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "it_inventory_items"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "photos_json" in existing:
+                return
+
+            dialect = db.engine.dialect.name
+            if dialect == "postgresql":
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN photos_json JSONB NULL')
+            elif dialect == "mysql":
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN photos_json JSON NULL")
+            else:
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN photos_json TEXT NULL")
+
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            app.logger.info("Added column %s.photos_json", table)
+        except Exception as e:
+            app.logger.warning("it_inventory_items photos_json ensure skipped: %s", e)
+
+    def _ensure_it_deleted_log_name_column():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "it_deleted_asset_logs"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "deleted_by_name" in existing:
+                return
+            dialect = db.engine.dialect.name
+            if dialect == "postgresql":
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN deleted_by_name VARCHAR(120) NULL')
+            else:
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN deleted_by_name VARCHAR(120) NULL")
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            app.logger.info("Added column %s.deleted_by_name", table)
+        except Exception as e:
+            app.logger.warning("it_deleted_asset_logs deleted_by_name ensure skipped: %s", e)
+
     def _ensure_ex_employee_doc_tables():
         try:
             from sqlalchemy import inspect
@@ -515,6 +563,8 @@ def create_app():
         _ensure_punch_session_auto_punched_out()
         _ensure_it_return_request_table()
         _ensure_it_inventory_quantity_assignment_table()
+        _ensure_it_inventory_item_photos_column()
+        _ensure_it_deleted_log_name_column()
         _ensure_ex_employee_doc_tables()
         _ensure_assessment_tables()
         _ensure_employee_circle_history_table()
