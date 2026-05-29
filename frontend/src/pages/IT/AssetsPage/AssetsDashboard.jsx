@@ -331,6 +331,7 @@ function buildAvailableData() {
       category: normCat(a.category),
       photos: Array.isArray(a.photos) ? a.photos : [],
       availableQty: Number(a.availableQuantity) || 0,
+      assignedQty: Number(a.assignedQuantity) || 0,
       totalQty: Number(a.totalQuantity) || 0,
       licenseKey: a.licenseKey || a.license_key || null,
       version: a.version || null,
@@ -451,14 +452,40 @@ function buildAssignedData() {
 //  AVAILABLE DETAIL PANEL
 // ══════════════════════════════════════════════════════════════════════════════
 
+function getBulkAssignees(item) {
+  const employees = getEmployees() || [];
+  const rows = [];
+  const itemCat = normCat(item.category);
+  for (const emp of employees) {
+    for (const a of emp.assignedAssets || []) {
+      const cat = normCat(a.category);
+      const sameItem =
+        (a.inventoryId != null && String(a.inventoryId) === String(item.id)) ||
+        (a.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase();
+      if (!sameItem || cat !== itemCat) continue;
+      rows.push({
+        key: `${emp.empId || emp.id}-${a.id || a.name}`,
+        empId: emp.empId || emp.id || "—",
+        empName: emp.name || "—",
+        quantity: Math.max(1, Number(a.quantity) || 1),
+      });
+    }
+  }
+  return rows;
+}
+
 function AvailableDetailPanel({ item, onClose }) {
   const [tab, setTab] = useState("Available");
   if (!item) return null;
 
   const isSoftware = item.category === "Software";
   const isQtyCategory = item.category === "Accessories" || item.category === "Consumable";
+  const isBulkItem = isSoftware || isQtyCategory;
   const itemPhotos = Array.isArray(item.photos) ? item.photos : [];
   const allUnits = getAssetUnitsFromStorage() || [];
+  const invRow = (getInventoryFromStorage() || []).find(
+    (i) => String(i.id) === String(item.id),
+  );
 
   const units = isSoftware
     ? []
@@ -472,8 +499,6 @@ function AvailableDetailPanel({ item, onClose }) {
   const hwAssigned = units.filter(
     (u) => u.status === "assigned" && u.assignedTo,
   );
-  const hwNotWorking = units.filter((u) => u.status === "not-working");
-  const hwRepair = units.filter((u) => u.status === "repair");
 
   const swSeats = isSoftware
     ? (getSoftwareInventory() || []).filter((s) => s.name === item.name)
@@ -483,33 +508,33 @@ function AvailableDetailPanel({ item, onClose }) {
   );
   const swAvail = swSeats.filter((s) => s.status === "available");
 
-  const tabCounts = {
-    Available: isSoftware ? swAvail.length : hwAvail.length,
-    All: isSoftware ? swSeats.length : units.length,
-    Assigned: isSoftware ? swAssigned.length : hwAssigned.length,
-    "Not Working": hwNotWorking.length,
-    "In Repair": hwRepair.length,
-  };
+  const bulkAvailable =
+    Number(item.availableQty ?? invRow?.availableQuantity) ||
+    (isSoftware ? swAvail.length : 0);
+  const bulkAssigned =
+    Number(item.assignedQty ?? invRow?.assignedQuantity) ||
+    (isSoftware ? swAssigned.length : 0);
+  const bulkAssignees = isBulkItem ? getBulkAssignees(item) : [];
+
+  const tabCounts = isBulkItem
+    ? {
+        Available: bulkAvailable,
+        Assigned: bulkAssigned,
+      }
+    : {
+        Available: hwAvail.length,
+        Assigned: hwAssigned.length,
+      };
 
   const visibleItems = isSoftware
     ? tab === "Available"
       ? swAvail
-      : tab === "Assigned"
-        ? swAssigned
-        : swSeats
+      : swAssigned
     : tab === "Available"
       ? hwAvail
-      : tab === "Assigned"
-        ? hwAssigned
-        : tab === "Not Working"
-          ? hwNotWorking
-          : tab === "In Repair"
-            ? hwRepair
-            : units;
+      : hwAssigned;
 
-  const tabs = isSoftware
-    ? ["Available", "Assigned", "All"]
-    : ["Available", "Assigned", "Not Working", "In Repair", "All"];
+  const tabs = ["Available", "Assigned"];
 
   return (
     <>
@@ -547,19 +572,119 @@ function AvailableDetailPanel({ item, onClose }) {
           </div>
 
           <div className="adp-body">
-            {isQtyCategory ? (
-              <div className="adp-photo-section">
-                <p className="adp-photo-title">Photos ({itemPhotos.length})</p>
-                {itemPhotos.length === 0 ? (
-                  <div className="adp-empty">No photos available.</div>
-                ) : (
-                  <div className="adp-photo-grid">
-                    {itemPhotos.map((src, i) => (
-                      <img key={i} src={src} alt={`asset-${i + 1}`} className="adp-photo-thumb" />
-                    ))}
+            {isBulkItem ? (
+              <>
+                {itemPhotos.length > 0 && (
+                  <div className="adp-photo-section">
+                    <p className="adp-photo-title">Photos ({itemPhotos.length})</p>
+                    <div className="adp-photo-grid">
+                      {itemPhotos.map((src, i) => (
+                        <img
+                          key={i}
+                          src={src}
+                          alt={`asset-${i + 1}`}
+                          className="adp-photo-thumb"
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
-              </div>
+
+                {tab === "Available" ? (
+                  <div className="adp-bulk-summary">
+                    <p className="adp-bulk-count">{bulkAvailable}</p>
+                    <p className="adp-bulk-label">available to assign</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="adp-bulk-summary adp-bulk-summary--assigned">
+                      <p className="adp-bulk-count">{bulkAssigned}</p>
+                      <p className="adp-bulk-label">assigned</p>
+                    </div>
+                    {isSoftware && swAssigned.length > 0 ? (
+                      <table className="adp-table">
+                        <thead>
+                          <tr>
+                            <th>License ID</th>
+                            <th>Status</th>
+                            <th>Start</th>
+                            <th>Expiry</th>
+                            <th>Assigned To</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {swAssigned.map((s) => {
+                            const days = daysLeft(
+                              s.subscriptionEnd || s.licenseExpiry,
+                            );
+                            const expired = days !== null && days < 0;
+                            const warn = !expired && days !== null && days <= 30;
+                            return (
+                              <tr key={s.id}>
+                                <td className="adp-mono">{s.id}</td>
+                                <td>
+                                  <span
+                                    className="adp-status-badge"
+                                    style={
+                                      expired
+                                        ? {
+                                            background: "#fef2f2",
+                                            color: "#ef4444",
+                                            border: "1px solid #fecaca",
+                                          }
+                                        : warn
+                                          ? {
+                                              background: "#fffbeb",
+                                              color: "#f59e0b",
+                                              border: "1px solid #fde68a",
+                                            }
+                                          : {
+                                              background: "#f0fdf4",
+                                              color: "#16a34a",
+                                              border: "1px solid #bbf7d0",
+                                            }
+                                    }
+                                  >
+                                    {expired
+                                      ? "Expired"
+                                      : warn
+                                        ? "Expiring Soon"
+                                        : s.status}
+                                  </span>
+                                </td>
+                                <td>{fmt(s.subscriptionStart)}</td>
+                                <td>{fmt(s.subscriptionEnd || s.licenseExpiry)}</td>
+                                <td>{formatAssignedToLabel(s.assignedTo)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : bulkAssignees.length > 0 ? (
+                      <table className="adp-table">
+                        <thead>
+                          <tr>
+                            <th>Employee ID</th>
+                            <th>Employee Name</th>
+                            <th>Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bulkAssignees.map((row) => (
+                            <tr key={row.key}>
+                              <td className="adp-mono">{row.empId}</td>
+                              <td>{row.empName}</td>
+                              <td>{row.quantity}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div className="adp-empty">No assignments yet.</div>
+                    )}
+                  </>
+                )}
+              </>
             ) : visibleItems.length === 0 ? (
               <div className="adp-empty">
                 No {tab.toLowerCase()} units found.
@@ -2012,19 +2137,21 @@ export default function AssetsDashboard() {
                     <th>Assets Name</th>
                     <th>Category</th>
                     <th>Available Qty</th>
+                    <th>Assigned</th>
                     <th>Details</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="am-empty">
+                      <td colSpan={5} className="am-empty">
                         No assets found
                       </td>
                     </tr>
                   ) : (
                     filtered.map((a, i) => {
                       const cc = CAT_COLOR[a.category] || CAT_COLOR.Hardware;
+                      const assignedQty = Number(a.assignedQty) || 0;
                       return (
                         <tr
                           key={`${a.id}-${i}`}
@@ -2062,6 +2189,13 @@ export default function AssetsDashboard() {
                               <span className="am-qty-badge">
                                 {a.availableQty}
                               </span>
+                            )}
+                          </td>
+                          <td>
+                            {assignedQty > 0 ? (
+                              <span className="am-assigned-badge">{assignedQty}</span>
+                            ) : (
+                              <span className="am-assigned-empty">—</span>
                             )}
                           </td>
                           <td>

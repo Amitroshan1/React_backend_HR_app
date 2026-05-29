@@ -155,13 +155,17 @@ export const AppLayout = () => {
         username: username,
         empType: empType
     });
+    const isInventoryPage = (location.pathname || "")
+        .toLowerCase()
+        .startsWith("/it/inventory");
+
     return (
         <div className="main-layout app-layout">
             <ScrollToTop />
             {/* The Header now gets the username and full user object from the centralized context */}
             <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
-            <div className="content-area">
+            <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}`}>
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
                 <Outlet />
                 <AppFooter />

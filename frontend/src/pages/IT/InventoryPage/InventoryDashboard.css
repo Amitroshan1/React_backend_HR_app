@@ -26,7 +26,7 @@ body {
 .inv-root {
   min-height: 100vh;
   background: #f8fafc;
-  margin-top: -30px;
+  margin-top: 0;
   color: #334155;
   font-family: "Inter", sans-serif;
   padding: 0 0 48px 0;
@@ -177,7 +177,6 @@ body {
   border-bottom: 1px solid #e2e8f0;
   background: #ffffff;
   overflow-x: auto;
-  padding-top: 20px;
 }
 
 .inv-tab-bar::-webkit-scrollbar {

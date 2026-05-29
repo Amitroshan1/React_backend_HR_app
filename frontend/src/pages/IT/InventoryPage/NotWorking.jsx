@@ -16,6 +16,10 @@ import {
   syncRemovedITFromAPI,
   updateInventoryItemAPI,
 } from "../Data";
+import {
+  getHardwareFields,
+  unitBelongsToInventoryCategory,
+} from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./NotWorking.css";
 
@@ -130,7 +134,8 @@ function NotWorkingRow({ unit, index, onSendToRepair, onRemove }) {
 
 // ─── NotWorking ───────────────────────────────────────────────────────────────
 
-export default function NotWorking() {
+export default function NotWorking({ inventoryCategory = "IT Assets" }) {
+  const serialColLabel = getHardwareFields(inventoryCategory).serialNumber.label;
   const [units,          setUnits]          = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery,    setSearchQuery]    = useState("");
@@ -166,14 +171,22 @@ export default function NotWorking() {
   }, []);
 
   // ── Derived rows ────────────────────────────────────────────────────────────
+  const inventoryRows = useMemo(() => getInventoryFromStorage() || [], [units]);
+
   const notWorkingUnits = useMemo(
-    () => units.filter((u) => isNotWorkingStatus(u.status)),
-    [units],
+    () =>
+      units.filter(
+        (u) =>
+          isNotWorkingStatus(u.status) &&
+          unitBelongsToInventoryCategory(u, inventoryCategory, inventoryRows),
+      ),
+    [units, inventoryCategory, inventoryRows],
   );
   const qtyNotWorkingRows = useMemo(
     () =>
-      (getInventoryFromStorage() || [])
+      inventoryRows
         .filter((i) => ["accessories", "consumables"].includes(String(i.category || "").toLowerCase()))
+        .filter((i) => (i.inventoryCategory || "IT Assets") === inventoryCategory)
         .filter((i) => Number(i.notWorkingQuantity || 0) > 0)
         .map((i) => ({
           id: `qty-${i.id}`,
@@ -189,7 +202,7 @@ export default function NotWorking() {
           repairQuantity: Number(i.repairQuantity || 0),
           isQuantityRow: true,
         })),
-    [units],
+    [inventoryRows, inventoryCategory],
   );
 
   const filteredRows = useMemo(() => {
@@ -407,7 +420,7 @@ export default function NotWorking() {
               <tr>
                 <th>Brand / Name</th>
                 <th>Category</th>
-                <th>Serial No</th>
+                <th>{serialColLabel}</th>
                 <th>Actions</th>
               </tr>
             </thead>

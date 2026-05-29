@@ -1,6 +1,6 @@
 
-import { useState, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   createHardwareUnitsAPI,
@@ -10,21 +10,20 @@ import {
   getITApiErrorMessage,
   syncITDataFromAPI,
 } from "../Data";
+import {
+  ASSET_TYPE_TABS,
+  INVENTORY_CATEGORY_CONFIG,
+  getHardwareFields,
+  inventoryCategoryToKey,
+  isValidInventoryCategory,
+  isVehicleInventoryCategory,
+  keyToInventoryCategory,
+} from "../inventoryCategories";
 import "./AddnewAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BASE = "/it/inventory";
-
-const ASSET_TYPES = [
-  { label: "IT Assets",             key: "it"             },
-  { label: "Office Assets",         key: "office"         },
-  { label: "Transport Assets",      key: "transport"      },
-  { label: "Infrastructure Assets", key: "infrastructure" },
-];
-
-const CATEGORIES = ["Hardware", "Accessories", "Consumables"];
-const HW_TYPES   = ["Laptop", "Mobile", "Desktop", "Tablet", "Other"];
 
 // ─── Row factories ────────────────────────────────────────────────────────────
 
@@ -57,14 +56,22 @@ const blankRowForType = (rowType) => {
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-const validateRow = (row, rowType) => {
+const validateRow = (row, rowType, { vehicleMode = false } = {}) => {
   const errors = {};
 
   if (rowType === "hw" || rowType === "mobile") {
     if (!row.brand.trim())        errors.brand        = "Required";
     if (!row.make.trim())         errors.make         = "Required";
     if (!row.model.trim())        errors.model        = "Required";
-    if (!row.serialNumber.trim()) errors.serialNumber = "Required";
+    if (!row.serialNumber.trim()) {
+      errors.serialNumber = vehicleMode ? "Registration required" : "Required";
+    } else if (vehicleMode) {
+      const reg = row.serialNumber.trim();
+      if (reg.length < 4) errors.serialNumber = "Min 4 characters";
+      else if (!/^[A-Za-z0-9][A-Za-z0-9\s-]*$/.test(reg)) {
+        errors.serialNumber = "Use letters, numbers, spaces, or hyphens";
+      }
+    }
 
     if (rowType === "mobile") {
       if (!row.imei1.trim())
@@ -163,13 +170,21 @@ function PhotoModal({ photos, onClose, onRemovePhoto }) {
   );
 }
 
-// ─── ITAssetsForm ─────────────────────────────────────────────────────────────
+// ─── InventoryAssetsForm ──────────────────────────────────────────────────────
 
-function ITAssetsForm() {
+function InventoryAssetsForm({ inventoryCategory }) {
   const navigate = useNavigate();
+  const config = INVENTORY_CATEGORY_CONFIG[inventoryCategory] || INVENTORY_CATEGORY_CONFIG["IT Assets"];
+  const itemCategories = config.itemCategories;
+  const hwTypes = config.hwTypes;
+  const mobileHwType = config.mobileHwType;
+  const vehicleMode = isVehicleInventoryCategory(inventoryCategory);
+  const hwFields = getHardwareFields(inventoryCategory);
+  const otherHwPlaceholder = config.otherHwPlaceholder || "e.g. Docking Station, Router, UPS";
+  const validateOpts = useMemo(() => ({ vehicleMode }), [vehicleMode]);
 
   const [category,     setCategory]     = useState("Hardware");
-  const [hwType,       setHwType]       = useState("Laptop");
+  const [hwType,       setHwType]       = useState(hwTypes[0] || "Other");
   const [customHwType, setCustomHwType] = useState("");
   const [rows,         setRows]         = useState([blankHwRow()]);
   const [submitted,    setSubmitted]    = useState(false);
@@ -179,9 +194,9 @@ function ITAssetsForm() {
   const rowType = useMemo(() => {
     if (category === "Software")  return "software";
     if (category !== "Hardware")  return "qty";
-    if (hwType === "Mobile")      return "mobile";
+    if (mobileHwType && hwType === mobileHwType) return "mobile";
     return "hw";
-  }, [category, hwType]);
+  }, [category, hwType, mobileHwType]);
   const effectiveHwType = useMemo(
     () => (hwType === "Other" ? customHwType.trim() : hwType),
     [hwType, customHwType],
@@ -199,17 +214,17 @@ function ITAssetsForm() {
     setCategory(cat);
     const nextRowType =
       cat === "Software" ? "software" : cat !== "Hardware" ? "qty" : "hw";
-    if (cat === "Hardware") setHwType("Laptop");
+    if (cat === "Hardware") setHwType(hwTypes[0] || "Other");
     setCustomHwType("");
     resetForm(nextRowType);
-  }, [resetForm]);
+  }, [resetForm, hwTypes]);
 
   const handleTypeChange = useCallback((e) => {
     const type = e.target.value;
     setHwType(type);
     if (type !== "Other") setCustomHwType("");
-    resetForm(type === "Mobile" ? "mobile" : "hw");
-  }, [resetForm]);
+    resetForm(mobileHwType && type === mobileHwType ? "mobile" : "hw");
+  }, [resetForm, mobileHwType]);
 
   const addRow    = useCallback(() => setRows((prev) => [...prev, blankRowForType(rowType)]), [rowType]);
   const removeRow = useCallback((id) => setRows((prev) => prev.length > 1 ? prev.filter((r) => r.id !== id) : prev), []);
@@ -219,11 +234,11 @@ function ITAssetsForm() {
       prev.map((r) => {
         if (r.id !== id) return r;
         const updated = { ...r, [field]: value };
-        if (submitted) updated._errors = validateRow(updated, rowType);
+        if (submitted) updated._errors = validateRow(updated, rowType, validateOpts);
         return updated;
       }),
     );
-  }, [submitted, rowType]);
+  }, [submitted, rowType, validateOpts]);
 
   // ── Photos ─────────────────────────────────────────────────────────────────
 
@@ -259,7 +274,7 @@ function ITAssetsForm() {
       toast.error("Please enter a hardware name for type 'Other'.");
       return;
     }
-    const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, rowType) }));
+    const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, rowType, validateOpts) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
 
@@ -279,7 +294,7 @@ function ITAssetsForm() {
           const invRes = await createInventoryItemAPI({
             name: brandName,
             category: "Hardware",
-            inventoryCategory: "IT Assets",
+            inventoryCategory,
             hwType: effectiveHwType,
           });
           const inventoryItemId = invRes?.item?.id;
@@ -296,7 +311,10 @@ function ITAssetsForm() {
         }
 
         await syncITDataFromAPI();
-        setSuccessMsg(`✅ ${addedCount} ${effectiveHwType}${addedCount !== 1 ? "s" : ""} added to inventory.`);
+        const unitLabel = vehicleMode ? "vehicle" : effectiveHwType;
+        setSuccessMsg(
+          `✅ ${addedCount} ${unitLabel}${addedCount !== 1 ? "s" : ""} added to ${inventoryCategory}.`,
+        );
       } else if (category === "Software") {
         let totalLicenses = 0;
         for (const row of validated) {
@@ -304,7 +322,7 @@ function ITAssetsForm() {
           const invRes = await createInventoryItemAPI({
             name: row.name.trim(),
             category: "Software",
-            inventoryCategory: "IT Assets",
+            inventoryCategory,
           });
           const inventoryItemId = invRes?.item?.id;
           if (!inventoryItemId) continue;
@@ -324,7 +342,7 @@ function ITAssetsForm() {
           await createInventoryItemAPI({
             name: row.name.trim(),
             category,
-            inventoryCategory: "IT Assets",
+            inventoryCategory,
             quantity: parseInt(row.quantity, 10),
             photos: row.photos || [],
           });
@@ -344,13 +362,13 @@ function ITAssetsForm() {
       toast.error(msg);
       setSuccessMsg(`❌ ${msg}`);
     }
-  }, [rows, rowType, category, hwType, customHwType, effectiveHwType]);
+  }, [rows, rowType, category, hwType, customHwType, effectiveHwType, inventoryCategory, vehicleMode, validateOpts]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const allValid = useMemo(
-    () => rows.every((r) => Object.keys(validateRow(r, rowType)).length === 0),
-    [rows, rowType],
+    () => rows.every((r) => Object.keys(validateRow(r, rowType, validateOpts)).length === 0),
+    [rows, rowType, validateOpts],
   );
 
   const previewPhotos = photoPreview
@@ -364,7 +382,7 @@ function ITAssetsForm() {
       <div className="ana-page">
         <main className="ana-main">
           <div className="ana-main-header">
-            <h1>Add New Assets — IT Assets</h1>
+            <h1>Add New Assets — {inventoryCategory}</h1>
           </div>
 
           {/* ── Step 1: Category + Hardware Type (inline) ── */}
@@ -377,7 +395,7 @@ function ITAssetsForm() {
             {/* Category chips + hardware-type dropdown on same row */}
             <div className="ana-category-row">
               <div className="ana-chip-group">
-                {CATEGORIES.map((cat) => (
+                {itemCategories.map((cat) => (
                   <button
                     key={cat}
                     type="button"
@@ -394,7 +412,7 @@ function ITAssetsForm() {
                 <div className="ana-hwtype-dropdown-wrap">
                   <div className="ana-hwtype-select-block">
                     <label className="ana-hwtype-label" htmlFor="hw-type-select">
-                      Hardware Type
+                      {vehicleMode ? "Vehicle Type" : "Hardware Type"}
                     </label>
                     <div className="ana-hwtype-select-wrap">
                       <select
@@ -403,7 +421,7 @@ function ITAssetsForm() {
                         value={hwType}
                         onChange={handleTypeChange}
                       >
-                        {HW_TYPES.map((type) => (
+                        {hwTypes.map((type) => (
                           <option key={type} value={type}>{type}</option>
                         ))}
                       </select>
@@ -419,7 +437,7 @@ function ITAssetsForm() {
                       <input
                         id="hw-type-custom"
                         className="ana-hwtype-custom-input"
-                        placeholder="e.g. Docking Station, Router, UPS"
+                        placeholder={otherHwPlaceholder}
                         value={customHwType}
                         onChange={(e) => setCustomHwType(e.target.value)}
                       />
@@ -461,10 +479,10 @@ function ITAssetsForm() {
                     <th className="ana-th-idx">#</th>
                     {(rowType === "hw" || rowType === "mobile") && (
                       <>
-                        <th>Brand <span className="req">*</span></th>
-                        <th>Make <span className="req">*</span></th>
-                        <th>Model <span className="req">*</span></th>
-                        <th>Serial Number <span className="req">*</span></th>
+                        <th>{hwFields.brand.label} <span className="req">*</span></th>
+                        <th>{hwFields.make.label} <span className="req">*</span></th>
+                        <th>{hwFields.model.label} <span className="req">*</span></th>
+                        <th>{hwFields.serialNumber.label} <span className="req">*</span></th>
                         {rowType === "mobile" && (
                           <>
                             <th>IMEI 1 <span className="req">*</span></th>
@@ -502,13 +520,13 @@ function ITAssetsForm() {
 
                       {(rowType === "hw" || rowType === "mobile") && (
                         <>
-                          <CellInput value={row.brand}  error={row._errors.brand}  placeholder="Enter Brand"  onChange={(e) => updateRow(row.id, "brand",  e.target.value)} />
-                          <CellInput value={row.make}   error={row._errors.make}   placeholder="Enter Make"   onChange={(e) => updateRow(row.id, "make",   e.target.value)} />
-                          <CellInput value={row.model}  error={row._errors.model}  placeholder="Enter Model"  onChange={(e) => updateRow(row.id, "model",  e.target.value)} />
+                          <CellInput value={row.brand}  error={row._errors.brand}  placeholder={hwFields.brand.placeholder}  onChange={(e) => updateRow(row.id, "brand",  e.target.value)} />
+                          <CellInput value={row.make}   error={row._errors.make}   placeholder={hwFields.make.placeholder}   onChange={(e) => updateRow(row.id, "make",   e.target.value)} />
+                          <CellInput value={row.model}  error={row._errors.model}  placeholder={hwFields.model.placeholder}  onChange={(e) => updateRow(row.id, "model",  e.target.value)} />
                           <CellInput
                             value={row.serialNumber}
                             error={row._errors.serialNumber}
-                            placeholder="Serial No."
+                            placeholder={hwFields.serialNumber.placeholder}
                             className="mono"
                             onChange={(e) => updateRow(row.id, "serialNumber", e.target.value)}
                           />
@@ -617,7 +635,13 @@ function ITAssetsForm() {
               )}
             </div>
             <div className="ana-footer-actions">
-              <button type="button" className="ana-btn-cancel" onClick={() => navigate(BASE)}>
+              <button
+                type="button"
+                className="ana-btn-cancel"
+                onClick={() =>
+                  navigate(`${BASE}?cat=${encodeURIComponent(inventoryCategory)}`)
+                }
+              >
                 Cancel
               </button>
               <button type="button" className="ana-btn-submit" onClick={handleSubmit}>
@@ -644,25 +668,47 @@ function ITAssetsForm() {
 
 // ─── AddNewAssets (default export) ───────────────────────────────────────────
 
+const FORM_ENABLED_KEYS = new Set(ASSET_TYPE_TABS.map((t) => t.key));
+
 export default function AddNewAssets() {
-  const navigate    = useNavigate();
-  const [activeType, setActiveType] = useState("it");
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const invFromUrl = searchParams.get("inv");
+  const initialKey = inventoryCategoryToKey(
+    isValidInventoryCategory(invFromUrl) ? invFromUrl : "IT Assets",
+  );
+  const [activeType, setActiveType] = useState(initialKey);
+
+  useEffect(() => {
+    if (isValidInventoryCategory(invFromUrl)) {
+      setActiveType(inventoryCategoryToKey(invFromUrl));
+    }
+  }, [invFromUrl]);
+
+  const activeInventoryCategory = keyToInventoryCategory(activeType);
+  const formEnabled = FORM_ENABLED_KEYS.has(activeType);
+
+  const selectType = (key) => {
+    setActiveType(key);
+    setSearchParams({ inv: keyToInventoryCategory(key) }, { replace: true });
+  };
 
   return (
     <div className="ana-outer">
       <div className="ana-top-bar">
-        <button className="ana-back" onClick={() => navigate(BASE)}>
+        <button className="ana-back" onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(activeInventoryCategory)}`)}>
           ← Back to Inventory
         </button>
         <h1 className="ana-top-title">Add New Assets</h1>
       </div>
 
       <nav className="ana-type-tabs">
-        {ASSET_TYPES.map((t) => (
+        {ASSET_TYPE_TABS.map((t) => (
           <button
             key={t.key}
+            type="button"
             className={`ana-type-tab ${activeType === t.key ? "active" : ""}`}
-            onClick={() => setActiveType(t.key)}
+            onClick={() => selectType(t.key)}
           >
             {t.label}
           </button>
@@ -670,10 +716,10 @@ export default function AddNewAssets() {
       </nav>
 
       <div className="ana-type-content">
-        {activeType === "it" ? (
-          <ITAssetsForm />
+        {formEnabled ? (
+          <InventoryAssetsForm inventoryCategory={activeInventoryCategory} />
         ) : (
-          <WorkInProgress label={ASSET_TYPES.find((t) => t.key === activeType)?.label} />
+          <WorkInProgress label={ASSET_TYPE_TABS.find((t) => t.key === activeType)?.label} />
         )}
       </div>
     </div>

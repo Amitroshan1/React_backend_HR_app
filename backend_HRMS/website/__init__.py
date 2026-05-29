@@ -359,6 +359,33 @@ def create_app():
         except Exception as e:
             app.logger.warning("IT return request table ensure skipped: %s", e)
 
+    def _ensure_it_return_request_columns():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "it_asset_return_requests"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            with db.engine.begin() as conn:
+                if "return_destination" not in existing:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE it_asset_return_requests "
+                            "ADD COLUMN return_destination VARCHAR(30) NOT NULL DEFAULT 'available'"
+                        )
+                    )
+                if "photos_json" not in existing:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE it_asset_return_requests "
+                            "ADD COLUMN photos_json JSON NULL"
+                        )
+                    )
+        except Exception as e:
+            app.logger.warning("IT return request columns ensure skipped: %s", e)
+
     def _ensure_it_inventory_quantity_assignment_table():
         try:
             from sqlalchemy import inspect
@@ -562,6 +589,7 @@ def create_app():
         _ensure_expense_line_item_rejection_reason()
         _ensure_punch_session_auto_punched_out()
         _ensure_it_return_request_table()
+        _ensure_it_return_request_columns()
         _ensure_it_inventory_quantity_assignment_table()
         _ensure_it_inventory_item_photos_column()
         _ensure_it_deleted_log_name_column()

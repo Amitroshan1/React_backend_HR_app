@@ -402,7 +402,7 @@ const AddEmployee = () => {
   const [activeTab,            setActiveTab]            = useState("Hardware");
   const [hwType,               setHwType]               = useState("Laptop");
   const [selectedHwUnits,      setSelectedHwUnits]      = useState({});
-  const [selectedSw,           setSelectedSw]           = useState([]);
+  const [selectedSw,           setSelectedSw]           = useState([]); // { name, quantity }
   const [selectedNonHw,        setSelectedNonHw]        = useState([]);
   const qtyHoldTimeoutRef = useRef(null);
   const qtyHoldIntervalRef = useRef(null);
@@ -456,7 +456,7 @@ const AddEmployee = () => {
   // ── Selection counts ──────────────────────────────────────────────────────
 
   const hwCount     = Object.keys(selectedHwUnits).length;
-  const swCount     = selectedSw.length;
+  const swCount     = selectedSw.reduce((sum, a) => sum + (Number(a.quantity) || 0), 0);
   const nonHwCount  = selectedNonHw.reduce((sum, a) => sum + (Number(a.quantity) || 0), 0);
   const totalAssets = hwCount + swCount + nonHwCount;
   const accCount    = selectedNonHw
@@ -555,8 +555,21 @@ const AddEmployee = () => {
 
   const toggleSw = useCallback((name) => {
     setAssetValidationError("");
+    setSelectedSw((prev) => {
+      const exists = prev.find((a) => a.name === name);
+      if (exists) return prev.filter((a) => a.name !== name);
+      return [...prev, { name, quantity: 1 }];
+    });
+  }, []);
+
+  const adjustSwQuantity = useCallback((name, delta, maxAllowed) => {
     setSelectedSw((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+      prev.map((a) => {
+        if (a.name !== name) return a;
+        const current = Math.max(1, Number(a.quantity) || 1);
+        const nextQty = Math.max(1, Math.min(maxAllowed, current + delta));
+        return { ...a, quantity: nextQty };
+      }),
     );
   }, []);
 
@@ -627,6 +640,15 @@ const AddEmployee = () => {
       }, 90);
     }, 320);
   }, [adjustNonHwQuantity, stopQtyHold]);
+
+  const startSwQtyHold = useCallback((name, delta, maxAllowed) => {
+    stopQtyHold();
+    qtyHoldTimeoutRef.current = setTimeout(() => {
+      qtyHoldIntervalRef.current = setInterval(() => {
+        adjustSwQuantity(name, delta, maxAllowed);
+      }, 90);
+    }, 320);
+  }, [adjustSwQuantity, stopQtyHold]);
 
   React.useEffect(() => () => stopQtyHold(), [stopQtyHold]);
 
@@ -745,25 +767,36 @@ const AddEmployee = () => {
       }
 
       // 3. Mark software licenses as assigned (API + local mirror)
+      const assignedSwLicenses = [];
       if (selectedSw.length) {
         const swInv   = getSoftwareInventory();
         const usedIds = new Set();
 
-        for (const name of selectedSw) {
-          const license = swInv.find(
-            (i) => i.name === name && i.status === "available" && !usedIds.has(i.id),
-          );
-          if (license) {
+        for (const { name, quantity } of selectedSw) {
+          const qty = Math.max(1, Number(quantity) || 1);
+          for (let i = 0; i < qty; i += 1) {
+            const license = swInv.find(
+              (item) =>
+                item.name === name &&
+                item.status === "available" &&
+                !usedIds.has(item.id),
+            );
+            if (!license) break;
             await assignSoftwareToEmployeeAPI({ licenseId: license.id, empId });
             license.status     = "assigned";
             license.assignedTo = empId;
             usedIds.add(license.id);
+            assignedSwLicenses.push({ name, license });
           }
         }
         saveSoftwareInventory(swInv);
 
         const swCatalog = getInventoryFromStorage();
-        selectedSw.forEach((name) => {
+        const swQtyByName = {};
+        assignedSwLicenses.forEach(({ name }) => {
+          swQtyByName[name] = (swQtyByName[name] || 0) + 1;
+        });
+        Object.entries(swQtyByName).forEach(([name, count]) => {
           const idx = swCatalog.findIndex(
             (i) =>
               (i.category || "").toLowerCase() === "software" &&
@@ -772,8 +805,11 @@ const AddEmployee = () => {
           if (idx !== -1) {
             swCatalog[idx] = {
               ...swCatalog[idx],
-              availableQuantity: Math.max(0, (Number(swCatalog[idx].availableQuantity) || 0) - 1),
-              assignedQuantity:  (Number(swCatalog[idx].assignedQuantity) || 0) + 1,
+              availableQuantity: Math.max(
+                0,
+                (Number(swCatalog[idx].availableQuantity) || 0) - count,
+              ),
+              assignedQuantity: (Number(swCatalog[idx].assignedQuantity) || 0) + count,
             };
           }
         });
@@ -802,25 +838,20 @@ const AddEmployee = () => {
           assignedDate: new Date().toISOString(),
         })),
 
-        ...selectedSw.map((name) => {
-          const license = getSoftwareInventory().find(
-            (i) => i.name === name && i.status === "assigned" && i.assignedTo === empId,
-          );
-          return {
-            id:                generateAssetId(),
-            licenseId:         license?.id              || null,
-            assetId:           null,
-            assetTag:          null,
-            name,
-            category:          "Software",
-            status:            "Assigned",
-            subscriptionStart: license?.subscriptionStart || null,
-            subscriptionEnd:   license?.subscriptionEnd   || null,
-            usageStatus:       "Active",
-            photos:            [],
-            assignedDate:      new Date().toISOString(),
-          };
-        }),
+        ...assignedSwLicenses.map(({ name, license }) => ({
+          id:                generateAssetId(),
+          licenseId:         license?.id || null,
+          assetId:           null,
+          assetTag:          null,
+          name,
+          category:          "Software",
+          status:            "Assigned",
+          subscriptionStart: license?.subscriptionStart || null,
+          subscriptionEnd:   license?.subscriptionEnd   || null,
+          usageStatus:       "Active",
+          photos:            [],
+          assignedDate:      new Date().toISOString(),
+        })),
 
         ...selectedNonHw.map(({ assetName, category, inventoryId, quantity }) => ({
           id:          generateAssetId(),
@@ -930,9 +961,13 @@ const AddEmployee = () => {
             <div className="ane-cat-tabs">
               {ASSIGN_CATS.map((cat) => {
                 const count =
-                  cat === "Hardware" ? hwCount
-                  : cat === "Software" ? swCount
-                  : selectedNonHw.filter((a) => a.category === cat).length;
+                  cat === "Hardware"
+                    ? hwCount
+                    : cat === "Software"
+                      ? swCount
+                      : selectedNonHw
+                          .filter((a) => a.category === cat)
+                          .reduce((sum, a) => sum + (Number(a.quantity) || 0), 0);
                 return (
                   <button
                     key={cat}
@@ -1077,7 +1112,10 @@ const AddEmployee = () => {
                   </div>
                 ) : (
                   availableSwGroups.map(({ name, licenses }) => {
-                    const isChecked = selectedSw.includes(name);
+                    const selectedEntry = selectedSw.find((a) => a.name === name);
+                    const isChecked = !!selectedEntry;
+                    const qty = Math.max(1, Number(selectedEntry?.quantity) || 1);
+                    const maxQty = licenses.length;
                     return (
                       <label
                         key={name}
@@ -1090,7 +1128,61 @@ const AddEmployee = () => {
                         />
                         <span className="ane-check-icon">💿</span>
                         <span className="ane-check-name">{name}</span>
-                        <span className="ane-stock-tag in-stock">{licenses.length} available</span>
+                        <span className="ane-stock-tag in-stock">{maxQty} available</span>
+                        {isChecked && (
+                          <div
+                            className="ane-qty-stepper"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              className="ane-qty-btn"
+                              disabled={qty <= 1}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                adjustSwQuantity(name, -1, maxQty);
+                              }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                startSwQtyHold(name, -1, maxQty);
+                              }}
+                              onMouseUp={stopQtyHold}
+                              onMouseLeave={stopQtyHold}
+                              onTouchStart={(e) => {
+                                e.preventDefault();
+                                startSwQtyHold(name, -1, maxQty);
+                              }}
+                              onTouchEnd={stopQtyHold}
+                              onTouchCancel={stopQtyHold}
+                            >
+                              −
+                            </button>
+                            <span className="ane-qty-value">{qty}</span>
+                            <button
+                              type="button"
+                              className="ane-qty-btn"
+                              disabled={qty >= maxQty}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                adjustSwQuantity(name, 1, maxQty);
+                              }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                startSwQtyHold(name, 1, maxQty);
+                              }}
+                              onMouseUp={stopQtyHold}
+                              onMouseLeave={stopQtyHold}
+                              onTouchStart={(e) => {
+                                e.preventDefault();
+                                startSwQtyHold(name, 1, maxQty);
+                              }}
+                              onTouchEnd={stopQtyHold}
+                              onTouchCancel={stopQtyHold}
+                            >
+                              +
+                            </button>
+                          </div>
+                        )}
                       </label>
                     );
                   })
@@ -1297,8 +1389,13 @@ const AddEmployee = () => {
                       <span className="ane-rdot software" /> Software ({swCount})
                     </div>
                     <div className="ane-review-pill-list">
-                      {selectedSw.map((name) => (
-                        <span key={name} className="ane-review-pill">{name}</span>
+                      {selectedSw.map(({ name, quantity }) => (
+                        <span key={name} className="ane-review-pill">
+                          {name}
+                          <span className="ane-review-pill-cat">
+                            x{Math.max(1, Number(quantity) || 1)}
+                          </span>
+                        </span>
                       ))}
                     </div>
                   </div>

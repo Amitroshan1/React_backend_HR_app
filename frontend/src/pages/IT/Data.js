@@ -1337,6 +1337,8 @@ export const createReturnRequestAPI = async ({
   softwareLicenseId = null,
   inventoryItemId = null,
   quantity = 1,
+  returnDestination = "available",
+  photos = [],
 }) =>
   _itFetch("/return-requests", {
     method: "POST",
@@ -1346,15 +1348,31 @@ export const createReturnRequestAPI = async ({
       software_license_id: softwareLicenseId,
       inventory_item_id: inventoryItemId,
       quantity,
+      return_destination: returnDestination,
+      photos,
     },
   });
 
-export const listReturnRequestsAPI = async ({ status = "", mine = false } = {}) => {
+export const listReturnRequestsAPI = async ({ status = "", mine = false, empId = "" } = {}) => {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (mine) params.set("mine", "1");
+  if (empId) params.set("emp_id", String(empId).trim());
   const q = params.toString();
   const res = await _itFetch(`/return-requests${q ? `?${q}` : ""}`);
+  return Array.isArray(res?.requests) ? res.requests : [];
+};
+
+/** Return requests for the employee on the assets page (same person who submits Return). */
+export const listEmployeeReturnRequestsAPI = async (empId, { status = "" } = {}) => {
+  const id = String(empId || "").trim();
+  if (!id) return [];
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const q = params.toString();
+  const res = await _itFetch(
+    `/employees/${encodeURIComponent(id)}/return-requests${q ? `?${q}` : ""}`,
+  );
   return Array.isArray(res?.requests) ? res.requests : [];
 };
 

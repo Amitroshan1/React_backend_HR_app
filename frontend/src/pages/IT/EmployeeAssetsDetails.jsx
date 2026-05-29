@@ -1,15 +1,16 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
+  compressImage,
   createReturnRequestAPI,
   fetchEmployeeAssetsAPI,
   getEmployees,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
   getITApiErrorMessage,
-  listReturnRequestsAPI,
+  listEmployeeReturnRequestsAPI,
   syncITDataFromAPI,
 } from "./Data";
 import "./EmployeeAssetsDetails.css";
@@ -81,6 +82,106 @@ const rrStatusCls = (s) => {
   if (key === "completed") return "rr-completed";
   return "rr-pending";
 };
+
+const formatReturnDest = (dest) =>
+  dest === "removed_from_it" ? "Removed From IT" : "Available";
+
+const destBadgeCls = (dest) =>
+  dest === "removed_from_it" ? "rr-dest-removed" : "rr-dest-available";
+
+const formatReturnUpdate = (r) => {
+  const status = String(r.status || "").toLowerCase();
+  if (status === "rejected") {
+    return r.rejectionReason || "Rejected by IT";
+  }
+  if (status === "completed") {
+    const who = r.receiptConfirmedByName ? ` by ${r.receiptConfirmedByName}` : "";
+    const when = r.receiptConfirmedAt
+      ? ` · ${new Date(r.receiptConfirmedAt).toLocaleString("en-IN")}`
+      : "";
+    return `Received${who}${when}`;
+  }
+  if (status === "approved") {
+    const who = r.approvedByName ? ` by ${r.approvedByName}` : "";
+    const when = r.approvedAt
+      ? ` · ${new Date(r.approvedAt).toLocaleString("en-IN")}`
+      : "";
+    return `Approved${who}${when}. Submit asset to IT desk.`;
+  }
+  return "Pending IT review";
+};
+
+const ReturnHistoryTable = ({ rows, onViewPhotos }) => (
+  <div className="ea-table-wrap">
+    <table className="ea-table rr-table">
+      <thead>
+        <tr>
+          <th>Request Code</th>
+          <th>Asset</th>
+          <th>Qty</th>
+          <th>Return To</th>
+          <th>Reason</th>
+          <th>Files</th>
+          <th>Status</th>
+          <th>Requested</th>
+          <th>Update</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length === 0 ? (
+          <tr>
+            <td colSpan={9} className="ea-empty">
+              No return requests yet.
+            </td>
+          </tr>
+        ) : (
+          rows.map((r) => {
+            const photos = Array.isArray(r.photos) ? r.photos : [];
+            const qty = Math.max(1, Number(r.quantity) || 1);
+            return (
+              <tr key={r.id}>
+                <td className="rr-code">{r.requestCode || "—"}</td>
+                <td>
+                  <strong>{r.assetName || "—"}</strong>
+                  <div className="rr-asset-cat">{r.category || "—"}</div>
+                </td>
+                <td>{qty > 1 || r.inventoryItemId ? qty : "—"}</td>
+                <td>
+                  <span className={`rr-dest-badge ${destBadgeCls(r.returnDestination)}`}>
+                    {formatReturnDest(r.returnDestination)}
+                  </span>
+                </td>
+                <td className="rr-reason-cell">{r.reason || "—"}</td>
+                <td>
+                  {photos.length > 0 ? (
+                    <button
+                      type="button"
+                      className="ea-btn-photos"
+                      onClick={() => onViewPhotos(photos)}
+                    >
+                      View ({photos.length})
+                    </button>
+                  ) : (
+                    <span className="ea-no-photos">—</span>
+                  )}
+                </td>
+                <td>
+                  <span className={`rr-status-badge ${rrStatusCls(r.status)}`}>
+                    {r.status || "pending"}
+                  </span>
+                </td>
+                <td className="rr-date-cell">
+                  {r.createdAt ? new Date(r.createdAt).toLocaleString("en-IN") : "—"}
+                </td>
+                <td className="rr-update-cell">{formatReturnUpdate(r)}</td>
+              </tr>
+            );
+          })
+        )}
+      </tbody>
+    </table>
+  </div>
+);
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 const PhotosCell = ({ photos, onOpen }) =>
@@ -195,6 +296,186 @@ const SoftwareTable = ({ assets, onRemove }) => (
   </div>
 );
 
+const readFileAsDataURL = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (e) => resolve(e.target.result);
+    reader.readAsDataURL(file);
+  });
+
+const ReturnRequestModal = ({ entry, onClose, onSubmit, submitting }) => {
+  const [reason, setReason] = useState("");
+  const [destination, setDestination] = useState("available");
+  const [photos, setPhotos] = useState([]);
+  const fileRef = useRef(null);
+
+  const maxQty = Math.max(1, Number(entry?.quantity) || 1);
+  const [qty, setQty] = useState(maxQty);
+  const isBulk = maxQty > 1;
+
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    try {
+      const encoded = await Promise.all(
+        files.map(async (file) => {
+          if (file.type.startsWith("image/")) {
+            return compressImage(file);
+          }
+          return readFileAsDataURL(file);
+        }),
+      );
+      setPhotos((prev) => [...prev, ...encoded]);
+    } catch {
+      toast.error("Could not read one or more files.");
+    }
+    e.target.value = "";
+  };
+
+  const handleSubmit = () => {
+    const cleanReason = reason.trim();
+    if (!cleanReason) {
+      toast.error("Reason is required.");
+      return;
+    }
+    onSubmit({
+      reason: cleanReason,
+      returnDestination: destination,
+      quantity: isBulk ? Math.max(1, Math.min(maxQty, Number(qty) || 1)) : 1,
+      photos,
+    });
+  };
+
+  if (!entry) return null;
+
+  return (
+    <div className="ea-rr-overlay" onClick={onClose}>
+      <div className="ea-rr-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ea-rr-hdr">
+          <h3>Return Asset</h3>
+          <button type="button" className="ea-rr-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <p className="ea-rr-asset">
+          <strong>{entry.name}</strong>
+          <span className="ea-rr-cat">{entry.category}</span>
+        </p>
+
+        {isBulk && (
+          <label className="ea-rr-field">
+            <span>Quantity to return</span>
+            <input
+              type="number"
+              min={1}
+              max={maxQty}
+              value={qty}
+              onChange={(e) =>
+                setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))
+              }
+            />
+            <small>Max: {maxQty}</small>
+          </label>
+        )}
+
+        <label className="ea-rr-field">
+          <span>Reason <em>*</em></span>
+          <textarea
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Why are you returning this asset?"
+          />
+        </label>
+
+        <fieldset className="ea-rr-dest">
+          <legend>Return to</legend>
+          <label className="ea-rr-radio">
+            <input
+              type="radio"
+              name="returnDestination"
+              value="removed_from_it"
+              checked={destination === "removed_from_it"}
+              onChange={() => setDestination("removed_from_it")}
+            />
+            <span>
+              <strong>Removed From IT</strong>
+              <small>Logged under Inventory → Dead Assets / Removed From IT</small>
+            </span>
+          </label>
+          <label className="ea-rr-radio">
+            <input
+              type="radio"
+              name="returnDestination"
+              value="available"
+              checked={destination === "available"}
+              onChange={() => setDestination("available")}
+            />
+            <span>
+              <strong>Available</strong>
+              <small>Returned to available stock for reassignment</small>
+            </span>
+          </label>
+        </fieldset>
+
+        <div className="ea-rr-upload">
+          <span>Photos / files <small>(optional)</small></span>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            accept="image/*,.pdf,.doc,.docx"
+            className="ea-rr-file-input"
+            onChange={handleFiles}
+          />
+          <button
+            type="button"
+            className="ea-rr-upload-btn"
+            onClick={() => fileRef.current?.click()}
+          >
+            + Add files
+          </button>
+          {photos.length > 0 && (
+            <div className="ea-rr-previews">
+              {photos.map((src, i) => (
+                <div key={i} className="ea-rr-preview-wrap">
+                  {String(src).startsWith("data:image/") ? (
+                    <img src={src} alt={`upload-${i + 1}`} className="ea-rr-preview" />
+                  ) : (
+                    <span className="ea-rr-file-tag">File {i + 1}</span>
+                  )}
+                  <button
+                    type="button"
+                    className="ea-rr-preview-rm"
+                    onClick={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="ea-rr-footer">
+          <button type="button" className="ea-rr-cancel" onClick={onClose} disabled={submitting}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="ea-rr-submit"
+            onClick={handleSubmit}
+            disabled={submitting}
+          >
+            {submitting ? "Submitting…" : "Submit Return Request"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const NonHardwareTable = ({ assets, onRemove, onOpenPhotos }) => (
   <div className="ea-table-wrap">
     <table className="ea-table">
@@ -243,6 +524,28 @@ const EmployeeDetails = () => {
   const [hwPhotoIdx, setHwPhotoIdx] = useState(0);
   const [returnHistory, setReturnHistory] = useState([]);
   const [returnHistoryFilter, setReturnHistoryFilter] = useState("All");
+  const [returnTarget, setReturnTarget] = useState(null);
+  const [returnSubmitting, setReturnSubmitting] = useState(false);
+  const returnHistoryRef = useRef(null);
+
+  const loadReturnHistory = useCallback(async (employeeRecord) => {
+    const id = String(
+      employeeRecord?.empId || employeeRecord?.id || empId || "",
+    ).trim();
+    if (!id) {
+      setReturnHistory([]);
+      return [];
+    }
+    try {
+      const historyRows = await listEmployeeReturnRequestsAPI(id);
+      const rows = Array.isArray(historyRows) ? historyRows : [];
+      setReturnHistory(rows);
+      return rows;
+    } catch {
+      setReturnHistory([]);
+      return [];
+    }
+  }, [empId]);
 
   useEffect(() => {
     const load = async () => {
@@ -256,8 +559,7 @@ const EmployeeDetails = () => {
         await syncITDataFromAPI();
         const apiEmployee = await fetchEmployeeAssetsAPI(id);
         setEmployee(apiEmployee || null);
-        const historyRows = await listReturnRequestsAPI({ mine: true });
-        setReturnHistory(Array.isArray(historyRows) ? historyRows : []);
+        if (apiEmployee) await loadReturnHistory(apiEmployee);
       } catch (err) {
         console.error("[EmployeeAssetsDetails] API load failed, using fallback:", err);
         toast.error(
@@ -266,13 +568,9 @@ const EmployeeDetails = () => {
             "Could not load this employee from the server. Showing saved or cached data.",
           ),
         );
-        try {
-          const historyRows = await listReturnRequestsAPI({ mine: true });
-          setReturnHistory(Array.isArray(historyRows) ? historyRows : []);
-        } catch {
-          setReturnHistory([]);
-        }
         const fromState = location.state?.employee;
+        if (fromState) await loadReturnHistory(fromState);
+        else await loadReturnHistory({ empId: id, id });
         if (fromState) {
           setEmployee(fromState);
         } else {
@@ -288,7 +586,7 @@ const EmployeeDetails = () => {
       }
     };
     load();
-  }, [empId, location.state]);
+  }, [empId, location.state, loadReturnHistory]);
 
   const allAssets = employee?.assignedAssets || [];
 
@@ -320,49 +618,85 @@ const EmployeeDetails = () => {
     return returnHistory.filter((r) => String(r.status || "").toLowerCase() === wanted);
   }, [returnHistory, returnHistoryFilter]);
 
-  const handleRemove = useCallback(
-    async (assetId, entryId) => {
+  const openReturnModal = useCallback(
+    (assetId, entryId) => {
       const entry = (employee?.assignedAssets || []).find(
         (a) => a.assetId === assetId || a.id === entryId,
       );
       if (!entry) return;
-      const reason = window.prompt("Enter reason for return request:");
-      if (reason == null) return;
-      const cleanReason = reason.trim();
-      if (!cleanReason) {
-        toast.error("Reason is required.");
-        return;
-      }
+      setReturnTarget(entry);
+    },
+    [employee],
+  );
+
+  const handleReturnSubmit = useCallback(
+    async ({ reason, returnDestination, quantity, photos }) => {
+      const entry = returnTarget;
+      if (!entry) return;
+      setReturnSubmitting(true);
       try {
-        if (entry.category === "Hardware") {
-          await createReturnRequestAPI({
-            reason: cleanReason,
+        const payload = {
+          reason,
+          returnDestination,
+          photos: photos || [],
+          quantity: Math.max(1, Number(quantity) || 1),
+        };
+        const cat = entry.category;
+        let res;
+        if (cat === "Hardware") {
+          res = await createReturnRequestAPI({
+            ...payload,
             assetUnitId: entry.id,
           });
-        } else if (entry.category === "Software") {
-          await createReturnRequestAPI({
-            reason: cleanReason,
+        } else if (cat === "Software") {
+          res = await createReturnRequestAPI({
+            ...payload,
             softwareLicenseId: entry.licenseId || entry.id,
+          });
+        } else if (
+          cat === "Accessories" ||
+          cat === "Consumables" ||
+          cat === "Consumable"
+        ) {
+          if (!entry.inventoryId) {
+            toast.error("Inventory reference missing for this asset.");
+            return;
+          }
+          res = await createReturnRequestAPI({
+            ...payload,
+            inventoryItemId: entry.inventoryId,
+            quantity: payload.quantity,
           });
         } else {
           toast.error("Return request for this category is not supported yet.");
           return;
         }
-        try {
-          const historyRows = await listReturnRequestsAPI({ mine: true });
-          setReturnHistory(Array.isArray(historyRows) ? historyRows : []);
-        } catch {
-          // no-op
+
+        const created = res?.request;
+        if (created?.id) {
+          setReturnHistory((prev) => {
+            const exists = prev.some((r) => r.id === created.id);
+            if (exists) return prev;
+            return [created, ...prev];
+          });
         }
+        setReturnHistoryFilter("Pending");
+        await loadReturnHistory(employee);
+        setReturnTarget(null);
         toast.success("Return request submitted. IT approval is pending.");
+        requestAnimationFrame(() => {
+          returnHistoryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
       } catch (err) {
         console.error("[EmployeeAssetsDetails] Return request failed:", err);
         toast.error(
           getITApiErrorMessage(err, "Could not submit return request."),
         );
+      } finally {
+        setReturnSubmitting(false);
       }
     },
-    [employee],
+    [returnTarget, employee, empId, loadReturnHistory],
   );
 
   const openHwModal    = useCallback((asset) => { setHwModal(enrichHardware(asset)); setHwPhotoIdx(0); }, []);
@@ -450,7 +784,7 @@ const EmployeeDetails = () => {
                   <span className="ea-section-dot hardware" /> Hardware Assets
                 </div>
                 <HardwareTable
-                  assets={hardwareAssets} onRemove={handleRemove}
+                  assets={hardwareAssets} onRemove={openReturnModal}
                   onViewDetails={openHwModal} onOpenPhotos={openImageModal}
                 />
               </>
@@ -460,7 +794,7 @@ const EmployeeDetails = () => {
                 <div className="ea-section-label">
                   <span className="ea-section-dot software" /> Software Assets
                 </div>
-                <SoftwareTable assets={softwareAssets} onRemove={handleRemove} />
+                <SoftwareTable assets={softwareAssets} onRemove={openReturnModal} />
               </>
             )}
             {accConAssets.length > 0 && (
@@ -469,7 +803,7 @@ const EmployeeDetails = () => {
                   <span className="ea-section-dot other" /> Accessories / Consumables
                 </div>
                 <NonHardwareTable
-                  assets={accConAssets} onRemove={handleRemove} onOpenPhotos={openImageModal}
+                  assets={accConAssets} onRemove={openReturnModal} onOpenPhotos={openImageModal}
                 />
               </>
             )}
@@ -483,23 +817,26 @@ const EmployeeDetails = () => {
 
         {filterTab === "Hardware" && (
           <HardwareTable
-            assets={filtered} onRemove={handleRemove}
+            assets={filtered} onRemove={openReturnModal}
             onViewDetails={openHwModal} onOpenPhotos={openImageModal}
           />
         )}
         {filterTab === "Software" && (
-          <SoftwareTable assets={filtered} onRemove={handleRemove} />
+          <SoftwareTable assets={filtered} onRemove={openReturnModal} />
         )}
         {(filterTab === "Accessories" || filterTab === "Consumables") && (
           <NonHardwareTable
-            assets={filtered} onRemove={handleRemove} onOpenPhotos={openImageModal}
+            assets={filtered} onRemove={openReturnModal} onOpenPhotos={openImageModal}
           />
         )}
       </div>
 
       {/* ── Return Request History ── */}
-      <div className="assets-section">
+      <div className="assets-section" ref={returnHistoryRef}>
         <h2>Return Request History ({returnHistory.length})</h2>
+        <p className="rr-history-hint">
+          Requests appear here as soon as you submit a return. Use filters to see pending, approved, or completed items.
+        </p>
         <div className="rr-filter-tabs">
           {RETURN_STATUS_TABS.map((tab) => (
             <button
@@ -516,48 +853,10 @@ const EmployeeDetails = () => {
             </button>
           ))}
         </div>
-        <div className="ea-table-wrap">
-          <table className="ea-table rr-table">
-            <thead>
-              <tr>
-                <th>Request Code</th>
-                <th>Asset</th>
-                <th>Reason</th>
-                <th>Status</th>
-                <th>Requested</th>
-                <th>Update</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredReturnHistory.length === 0 ? (
-                <tr><td colSpan={6} className="ea-empty">No return requests yet.</td></tr>
-              ) : (
-                filteredReturnHistory.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.requestCode || "—"}</td>
-                    <td>{r.assetName || "—"} ({r.category || "—"})</td>
-                    <td className="rr-reason-cell">{r.reason || "—"}</td>
-                    <td>
-                      <span className={`rr-status-badge ${rrStatusCls(r.status)}`}>
-                        {r.status || "pending"}
-                      </span>
-                    </td>
-                    <td>{r.createdAt ? new Date(r.createdAt).toLocaleString("en-IN") : "—"}</td>
-                    <td>
-                      {r.status === "rejected"
-                        ? (r.rejectionReason || "Rejected by IT")
-                        : r.status === "completed"
-                          ? "Received by IT"
-                          : r.status === "approved"
-                            ? "Approved. Submit to IT desk."
-                            : "Pending IT review"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ReturnHistoryTable
+          rows={filteredReturnHistory}
+          onViewPhotos={(photos) => openImageModal(photos, 0)}
+        />
       </div>
 
       {/* ── Hardware Details Modal ── */}
@@ -657,6 +956,15 @@ const EmployeeDetails = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {returnTarget && (
+        <ReturnRequestModal
+          entry={returnTarget}
+          onClose={() => !returnSubmitting && setReturnTarget(null)}
+          onSubmit={handleReturnSubmit}
+          submitting={returnSubmitting}
+        />
       )}
 
       {/* ── Image Carousel Modal ── */}

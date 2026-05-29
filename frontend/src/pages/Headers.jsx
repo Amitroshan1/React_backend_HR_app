@@ -124,7 +124,27 @@ import "./style/Headers.css";
 import { hasFeature, clearPlanContext } from "../utils/planFeatures";
 
 const getPageInfo = (pathname, firstName) => {
-    const normalizedPath = pathname.toLowerCase();
+    const normalizedPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";
+
+    if (normalizedPath.startsWith("/it/inventory")) {
+        const segment = normalizedPath.replace(/^\/it\/inventory\/?/, "").split("/")[0] || "";
+        const inventorySubtitles = {
+            "not-working": "Not Working",
+            "in-repair": "In Repair",
+            "removed-it": "Removed From IT",
+            "removed-assets": "Dead Assets",
+            parcels: "Parcels",
+            "add-assets": "Add Assets",
+            "add-import": "Import Parcels",
+            "ready-export": "Export Parcels",
+            total: "All Assets",
+        };
+        return {
+            title: "Inventory",
+            subtitle: inventorySubtitles[segment] || "Asset Management",
+        };
+    }
+
     const pathMap = {
         '/dashboard': { title: `Welcome, ${firstName}!`, subtitle: "Overview", isDashboard: true },
         '/attendance': { title: 'Attendance', subtitle: 'Manage records' },
@@ -148,9 +168,16 @@ const getPageInfo = (pathname, firstName) => {
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
         '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
         '/it': { title: 'IT Panel', subtitle: 'IT Management' },
-        '/change-password':{title: 'Change Password'}
+        '/change-password': { title: 'Change Password', subtitle: '' },
     };
-    return pathMap[normalizedPath] || { title: 'Portal', subtitle: '' };
+
+    if (pathMap[normalizedPath]) return pathMap[normalizedPath];
+
+    if (normalizedPath.startsWith("/it/")) {
+        return { title: "IT Panel", subtitle: "IT Management" };
+    }
+
+    return { title: "Portal", subtitle: "" };
 };
 
 export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) => {

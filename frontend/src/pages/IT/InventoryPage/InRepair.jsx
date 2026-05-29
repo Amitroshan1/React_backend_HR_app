@@ -4,6 +4,7 @@ import { toast as rtToast } from "react-toastify";
 import {
   createDeletedLogAPI,
   getAssetUnitsFromStorage,
+  getInventoryFromStorage,
   getITApiErrorMessage,
   saveAssetUnitsToStorage,
   logDeletedAsset,
@@ -13,6 +14,10 @@ import {
   syncITDataFromAPI,
   setUnitStatusAPI,
 } from "../Data";
+import {
+  getHardwareFields,
+  unitBelongsToInventoryCategory,
+} from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./InRepair.css";
 
@@ -138,7 +143,8 @@ function RepairRow({ unit, index, onReturn, onRemove }) {
 
 // ─── InRepair ─────────────────────────────────────────────────────────────────
 
-export default function InRepair() {
+export default function InRepair({ inventoryCategory = "IT Assets" }) {
+  const serialColLabel = getHardwareFields(inventoryCategory).serialNumber.label;
   const [units,        setUnits]        = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery,  setSearchQuery]  = useState("");
@@ -174,9 +180,16 @@ export default function InRepair() {
   }, []);
 
   // ── Derived rows ────────────────────────────────────────────────────────────
+  const inventoryRows = useMemo(() => getInventoryFromStorage() || [], [units]);
+
   const repairUnits = useMemo(
-    () => units.filter((u) => u.status === REPAIR_STATUS),
-    [units],
+    () =>
+      units.filter(
+        (u) =>
+          u.status === REPAIR_STATUS &&
+          unitBelongsToInventoryCategory(u, inventoryCategory, inventoryRows),
+      ),
+    [units, inventoryCategory, inventoryRows],
   );
 
   const filteredRows = useMemo(() => {
@@ -334,7 +347,7 @@ export default function InRepair() {
               <tr>
                 <th>Brand / Name</th>
                 <th>Category</th>
-                <th>Serial No</th>
+                <th>{serialColLabel}</th>
                 <th>Repair Since</th>
                 <th>Days in Repair</th>
                 <th>Actions</th>

@@ -495,6 +495,20 @@
   font-size: 12px;
   font-weight: 700;
 }
+.am-assigned-badge {
+  display: inline-block;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #2563eb;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.am-assigned-empty {
+  color: #94a3b8;
+  font-size: 13px;
+}
 .am-emp-id {
   font-family: "Courier New", monospace;
   font-size: 11px;
@@ -1716,6 +1730,40 @@
   font-weight: 700;
   white-space: nowrap;
   text-transform: capitalize;
+}
+
+.adp-bulk-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  margin: 8px 0 16px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  text-align: center;
+}
+.adp-bulk-summary--assigned {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.adp-bulk-count {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 800;
+  color: #16a34a;
+  line-height: 1.1;
+}
+.adp-bulk-summary--assigned .adp-bulk-count {
+  color: #2563eb;
+}
+.adp-bulk-label {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: lowercase;
 }
 
 .adp-empty {

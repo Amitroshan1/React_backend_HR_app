@@ -117,6 +117,23 @@ def _admin_name(admin):
     return (admin.first_name or "").strip() or admin.email or f"Admin-{admin.id}"
 
 
+def _resolve_admin_by_emp_key(emp_key):
+    """Resolve Admin from URL/key: emp_id, numeric admin id, or email."""
+    key = str(emp_key or "").strip()
+    if not key:
+        return None
+    emp = Admin.query.filter(
+        db.func.lower(db.func.coalesce(Admin.emp_id, "")) == key.lower()
+    ).first()
+    if emp:
+        return emp
+    if key.isdigit():
+        return Admin.query.get(int(key))
+    return Admin.query.filter(
+        db.func.lower(db.func.coalesce(Admin.email, "")) == key.lower()
+    ).first()
+
+
 def _serialize_inventory_item(item):
     return {
         "id": item.id,
@@ -296,6 +313,8 @@ def _serialize_return_request(r):
         "assetName": r.asset_name,
         "category": r.category,
         "reason": r.reason,
+        "returnDestination": r.return_destination or "available",
+        "photos": r.photos_json or [],
         "status": r.status,
         "approvedByAdminId": r.approved_by_admin_id,
         "approvedByName": _admin_name(r.approved_by_admin),
@@ -456,13 +475,12 @@ def it_summary():
 @it_bp.route("/employees/<string:emp_id>/assets", methods=["GET"])
 @jwt_required()
 def employee_assets(emp_id):
-    emp = Admin.query.filter(
-        db.func.lower(db.func.coalesce(Admin.emp_id, "")) == str(emp_id).lower()
-    ).first()
+    emp = _resolve_admin_by_emp_key(emp_id)
     if not emp:
         return _err("Employee not found", 404)
     payload = {
         "employee": {
+            "adminId": emp.id,
             "id": emp.emp_id or str(emp.id),
             "empId": emp.emp_id or str(emp.id),
             "name": emp.first_name or "",
@@ -475,6 +493,26 @@ def employee_assets(emp_id):
         }
     }
     return _ok(payload)
+
+
+@it_bp.route("/employees/<string:emp_id>/return-requests", methods=["GET"])
+@jwt_required()
+def employee_return_requests(emp_id):
+    """Return requests raised by this employee (matches submit flow / requester)."""
+    emp = _resolve_admin_by_emp_key(emp_id)
+    if not emp:
+        return _err("Employee not found", 404)
+    status = (request.args.get("status") or "").strip().lower()
+    q = ITAssetReturnRequest.query.filter(
+        ITAssetReturnRequest.requester_admin_id == emp.id
+    )
+    if status:
+        q = q.filter(db.func.lower(ITAssetReturnRequest.status) == status)
+    rows = q.order_by(
+        ITAssetReturnRequest.created_at.desc(),
+        ITAssetReturnRequest.id.desc(),
+    ).all()
+    return _ok({"requests": [_serialize_return_request(r) for r in rows]})
 
 
 @it_bp.route("/employees/lookup", methods=["GET"])
@@ -963,8 +1001,12 @@ def create_return_request():
     license_id = data.get("software_license_id")
     inventory_id = data.get("inventory_item_id")
     quantity = int(data.get("quantity") or 1)
+    return_destination = (data.get("return_destination") or "available").strip().lower()
+    photos = data.get("photos") or []
     if not reason:
         return _err("reason is required")
+    if return_destination not in ("available", "removed_from_it"):
+        return _err("return_destination must be available or removed_from_it")
     if not any([unit_id, license_id, inventory_id]):
         return _err("asset_unit_id/software_license_id/inventory_item_id is required")
 
@@ -992,6 +1034,13 @@ def create_return_request():
             return _err("Inventory item not found", 404)
         if quantity < 1:
             return _err("quantity must be >= 1")
+        qa = ITInventoryQuantityAssignment.query.filter_by(
+            inventory_item_id=item.id,
+            assigned_to_admin_id=actor.id,
+        ).first()
+        assigned_qty = int(qa.quantity or 0) if qa else 0
+        if assigned_qty < quantity:
+            return _err("You do not have enough assigned quantity to return", 403)
         asset_name = item.name
         category = item.category
 
@@ -1008,7 +1057,7 @@ def create_return_request():
     req = ITAssetReturnRequest(
         request_code=_next_code("RTR", ITAssetReturnRequest, "request_code"),
         requester_admin_id=actor.id,
-        requester_emp_id=(actor.emp_id or None),
+        requester_emp_id=(actor.emp_id or str(actor.id)),
         asset_unit_id=unit_id,
         software_license_id=license_id,
         inventory_item_id=inventory_id,
@@ -1016,14 +1065,21 @@ def create_return_request():
         asset_name=asset_name,
         category=category,
         reason=reason,
+        return_destination=return_destination,
+        photos_json=photos if isinstance(photos, list) else [],
         status="pending",
     )
     db.session.add(req)
     db.session.commit()
 
+    dest_label = (
+        "Removed From IT"
+        if return_destination == "removed_from_it"
+        else "Available"
+    )
     ok, msg = send_it_return_request_email(
         requester_admin=actor,
-        reason=reason,
+        reason=f"{reason} | Return to: {dest_label}",
         asset_label=f"{asset_name or '-'} ({category or '-'})",
     )
     if ok:
@@ -1038,11 +1094,17 @@ def create_return_request():
 def list_return_requests():
     status = (request.args.get("status") or "").strip().lower()
     only_mine = str(request.args.get("mine") or "").strip().lower() in {"1", "true", "yes"}
+    emp_id = (request.args.get("emp_id") or "").strip()
     actor = _current_admin()
     q = ITAssetReturnRequest.query
     if status:
         q = q.filter(db.func.lower(ITAssetReturnRequest.status) == status)
-    if only_mine and actor:
+    if emp_id:
+        emp = _resolve_admin_by_emp_key(emp_id)
+        if not emp:
+            return _ok({"requests": []})
+        q = q.filter(ITAssetReturnRequest.requester_admin_id == emp.id)
+    elif only_mine and actor:
         q = q.filter(ITAssetReturnRequest.requester_admin_id == actor.id)
     rows = q.order_by(ITAssetReturnRequest.created_at.desc(), ITAssetReturnRequest.id.desc()).all()
     return _ok({"requests": [_serialize_return_request(r) for r in rows]})
@@ -1110,10 +1172,30 @@ def complete_return_request(request_id):
     if row.status != "approved":
         return _err("Only approved requests can be completed")
 
+    dest = (row.return_destination or "available").strip().lower()
+    to_removed = dest == "removed_from_it"
+    return_photos = row.photos_json if isinstance(row.photos_json, list) else []
+
     if row.asset_unit_id:
         unit = ITAssetUnit.query.get(row.asset_unit_id)
         if unit and unit.assigned_to_admin_id == row.requester_admin_id:
-            unit.status = "available"
+            if to_removed:
+                unit.status = "not-working"
+                db.session.add(
+                    ITRemovedAsset(
+                        removed_code=_next_code("RIT", ITRemovedAsset, "removed_code"),
+                        asset_unit_id=unit.id,
+                        inventory_item_id=unit.inventory_item_id,
+                        owner_admin_id=row.requester_admin_id,
+                        removed_by_admin_id=actor.id if actor else None,
+                        name=row.asset_name or unit.asset_name or unit.unit_code,
+                        category=row.category or unit.category,
+                        reason=row.reason,
+                        photos_json=return_photos,
+                    )
+                )
+            else:
+                unit.status = "available"
             unit.assigned_to_admin_id = None
             unit.assigned_at = None
             unit.repair_date = None
@@ -1132,7 +1214,22 @@ def complete_return_request(request_id):
     if row.software_license_id:
         lic = ITSoftwareLicense.query.get(row.software_license_id)
         if lic and lic.assigned_to_admin_id == row.requester_admin_id:
-            lic.status = "available"
+            if to_removed:
+                lic.status = "not-working"
+                db.session.add(
+                    ITRemovedAsset(
+                        removed_code=_next_code("RIT", ITRemovedAsset, "removed_code"),
+                        inventory_item_id=lic.inventory_item_id,
+                        owner_admin_id=row.requester_admin_id,
+                        removed_by_admin_id=actor.id if actor else None,
+                        name=row.asset_name or lic.name or lic.license_code,
+                        category="Software",
+                        reason=row.reason,
+                        photos_json=return_photos,
+                    )
+                )
+            else:
+                lic.status = "available"
             lic.assigned_to_admin_id = None
             lic.assigned_at = None
             assignment = ITAssetAssignment(
@@ -1150,8 +1247,30 @@ def complete_return_request(request_id):
         item = ITInventoryItem.query.get(row.inventory_item_id)
         if item:
             qty = int(row.quantity or 0)
+            qa = ITInventoryQuantityAssignment.query.filter_by(
+                inventory_item_id=item.id,
+                assigned_to_admin_id=row.requester_admin_id,
+            ).first()
+            if qa:
+                qa.quantity = max(0, int(qa.quantity or 0) - qty)
+                if qa.quantity == 0:
+                    db.session.delete(qa)
             item.assigned_quantity = max(0, int(item.assigned_quantity or 0) - qty)
-            item.available_quantity = int(item.available_quantity or 0) + qty
+            if to_removed:
+                db.session.add(
+                    ITRemovedAsset(
+                        removed_code=_next_code("RIT", ITRemovedAsset, "removed_code"),
+                        inventory_item_id=item.id,
+                        owner_admin_id=row.requester_admin_id,
+                        removed_by_admin_id=actor.id if actor else None,
+                        name=row.asset_name or item.name,
+                        category=row.category or item.category,
+                        reason=row.reason,
+                        photos_json=return_photos,
+                    )
+                )
+            else:
+                item.available_quantity = int(item.available_quantity or 0) + qty
 
     row.status = "completed"
     row.receipt_confirmed_by_admin_id = actor.id if actor else None

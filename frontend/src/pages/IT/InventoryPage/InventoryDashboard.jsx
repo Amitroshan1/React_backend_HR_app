@@ -1,6 +1,6 @@
 // InventoryDashboard.jsx
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import "./InventoryDashboard.css";
 
@@ -21,6 +21,7 @@ import {
   createRemovedAssetAPI,
   deleteAssetUnitAPI,
   updateInventoryItemAPI,
+  getDeletedAssetsFromStorage,
 } from "../Data";
 
 import AddNewAssets    from "./AddnewAssets";
@@ -31,18 +32,18 @@ import RemovedITAssets from "./RemovedITAssets";
 import Parcel          from "./Parcel/ParcelDashboard";
 import AddImported     from "./Parcel/AddImportedAssets";
 import ReadyExport     from "./Parcel/ExportedAssets";
+import {
+  INV_CATEGORIES,
+  filterInventoryByCategory,
+  getHardwareFields,
+  isValidInventoryCategory,
+  isVehicleInventoryCategory,
+} from "../inventoryCategories";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BASE           = "/it/inventory";
 const REMOVED_IT_KEY = "removedITAssets";
-
-const INV_CATEGORIES = [
-  "IT Assets",
-  "Office Assets",
-  "Transport Assets",
-  "Infrastructure Assets",
-];
 
 const SUMMARY_CARDS = [
   { label: "Total Assets",    segment: "total",          color: "#3b82f6" },
@@ -90,10 +91,24 @@ function readRemovedITCount() {
   catch { return 0; }
 }
 
-function readLiveCounts() {
+function countRemovedAssetsForCategory(inventoryCategory) {
   const inventory = readInventory();
+  const deleted = getDeletedAssetsFromStorage() || [];
+  if (!inventoryCategory) return deleted.length;
+  return deleted.filter((d) => {
+    const row = inventory.find(
+      (i) =>
+        String(i.id) === String(d.inventoryId) ||
+        String(i.id) === String(d.assetId),
+    );
+    return (row?.inventoryCategory || "IT Assets") === inventoryCategory;
+  }).length;
+}
+
+function readLiveCounts(inventoryCategory = null) {
+  const inventory = filterInventoryByCategory(readInventory(), inventoryCategory);
   const nonSoftware = inventory.filter((i) => !isSoftware(i));
-  const counts  = getInventoryCounts();
+  const counts = getInventoryCounts();
 
   const total = nonSoftware.reduce(
     (sum, i) => sum + (Number(i.totalQuantity) || 0),
@@ -110,10 +125,14 @@ function readLiveCounts() {
 
   return {
     total:            Math.max(0, total),
-    "not-working":    Math.max(0, notWorking || counts.notWorking || 0),
-    "in-repair":      Math.max(0, inRepair || counts.inRepair || 0),
-    "removed-assets": counts.removedAssets || 0,
-    "removed-it":     readRemovedITCount(),
+    "not-working":    Math.max(0, notWorking || (inventoryCategory ? 0 : counts.notWorking) || 0),
+    "in-repair":      Math.max(0, inRepair || (inventoryCategory ? 0 : counts.inRepair) || 0),
+    "removed-assets": inventoryCategory
+      ? countRemovedAssetsForCategory(inventoryCategory)
+      : (counts.removedAssets || 0),
+    "removed-it":     inventoryCategory === "IT Assets" || !inventoryCategory
+      ? readRemovedITCount()
+      : 0,
   };
 }
 
@@ -409,6 +428,9 @@ function UnitPickerModal({ row, onAction, onCancel }) {
                 const uid      = u.assetId ?? u.id;
                 const brand    = u.brand || row.name;
                 const serial   = u.serialNumber || "—";
+                const serialPrefix = isVehicleInventoryCategory(row.inventoryCategory)
+                  ? "Reg"
+                  : "S/N";
                 const isSelected = selectedUnitId === uid;
                 return (
                   <button
@@ -419,7 +441,7 @@ function UnitPickerModal({ row, onAction, onCancel }) {
                     <span className="inv-upicker-unit-check">{isSelected ? "✔" : ""}</span>
                     <div className="inv-upicker-unit-info">
                       <span className="inv-upicker-unit-brand">{brand}</span>
-                      <span className="inv-upicker-unit-serial">S/N: {serial}</span>
+                      <span className="inv-upicker-unit-serial">{serialPrefix}: {serial}</span>
                     </div>
                     {u.assetId && (
                       <span className="inv-upicker-unit-id">#{u.assetId}</span>
@@ -507,12 +529,18 @@ function AssetDetailModal({ asset, onClose, onStatusChange }) {
   const unit   = units[selectedUnitIndex] ?? null;
   const photos = unit?.photos ?? unit?.assignmentPhotos ?? [];
   const inventoryPhotos = asset?.photos ?? [];
+  const hwFields = getHardwareFields(asset.inventoryCategory);
 
   const detailFields = [
-    { label: "Asset ID",   value: unit?.assetId ?? unit?.id ?? "—", mono: true,  highlight: true  },
-    { label: "Brand",      value: unit?.brand              ?? "—",  mono: false, highlight: false },
-    { label: "Make",       value: unit?.make               ?? "—",  mono: false, highlight: false },
-    { label: "Serial No.", value: unit?.serialNumber       ?? "—",  mono: true,  highlight: false },
+    { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true,  highlight: true  },
+    { label: hwFields.brand.label, value: unit?.brand ?? "—", mono: false, highlight: false },
+    { label: hwFields.make.label, value: unit?.make ?? "—", mono: false, highlight: false },
+    {
+      label: hwFields.serialNumber.label,
+      value: unit?.serialNumber ?? "—",
+      mono: true,
+      highlight: false,
+    },
   ];
 
   return (
@@ -971,7 +999,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
   const navRef    = useRef(null);
 
   const [stickyTop, setStickyTop] = useState(0);
-  const [counts,    setCounts]    = useState(readLiveCounts);
+  const [counts,    setCounts]    = useState(() => readLiveCounts(category));
 
   useEffect(() => {
     const measure = () => {
@@ -985,7 +1013,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
   }, []);
 
   useEffect(() => {
-    const update = () => setCounts(readLiveCounts());
+    const update = () => setCounts(readLiveCounts(category));
     syncITDataFromAPI().then(update).catch((err) => {
       console.error("[InventoryDashboard] API sync failed, using cached data:", err);
       toast.error(
@@ -1002,7 +1030,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
       window.removeEventListener("inventory-updated", update);
       window.removeEventListener("storage",           update);
     };
-  }, []);
+  }, [category]);
 
   const visibleCards = useMemo(
     () => SUMMARY_CARDS.filter(
@@ -1013,6 +1041,21 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
 
   return (
     <div className="inv-root">
+      <nav className="inv-tab-bar" ref={navRef}>
+        {INV_CATEGORIES.map((cat) => (
+          <button
+            key={cat}
+            className={category === cat ? "inv-tab--active" : "inv-tab"}
+            onClick={() => {
+              setCategory(cat);
+              navigate(`${BASE}?cat=${encodeURIComponent(cat)}`);
+            }}
+          >
+            {cat}
+          </button>
+        ))}
+      </nav>
+
       <header className="inv-header" ref={headerRef}>
         <div className="inv-header-left">
           <button className="inv-back-btn" onClick={() => navigate("/it/")}>← Back</button>
@@ -1026,21 +1069,14 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
         </div>
         <div className="inv-header-right">
           <button className="inv-btn-outline" onClick={() => navigate(`${BASE}/parcels`)}>📦 Parcels</button>
-          <button className="inv-btn-primary" onClick={() => navigate(`${BASE}/add-assets`)}>+ Add Assets</button>
+          <button
+            className="inv-btn-primary"
+            onClick={() => navigate(`${BASE}/add-assets?inv=${encodeURIComponent(category)}`)}
+          >
+            + Add Assets
+          </button>
         </div>
       </header>
-
-      <nav className="inv-tab-bar" ref={navRef}>
-        {INV_CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            className={category === cat ? "inv-tab--active" : "inv-tab"}
-            onClick={() => { setCategory(cat); navigate(BASE); }}
-          >
-            {cat}
-          </button>
-        ))}
-      </nav>
 
       <section className="inv-cards-grid inv-cards-grid--sticky" style={{ top: stickyTop }}>
         {visibleCards.map((card) => {
@@ -1054,7 +1090,11 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
                 borderColor: isActive ? card.color : "#e2e8f0",
                 boxShadow:   isActive ? `0 4px 14px ${card.color}33` : "none",
               }}
-              onClick={() => navigate(`${BASE}/${card.segment}`)}
+              onClick={() =>
+                navigate(
+                  `${BASE}/${card.segment}?cat=${encodeURIComponent(category)}`,
+                )
+              }
             >
               <span className="inv-card-label">{card.label}</span>
               <span
@@ -1315,19 +1355,32 @@ function OverviewPage({ category }) {
 // ─── InventoryRoot + default export ──────────────────────────────────────────
 
 function InventoryRoot() {
-  const [category, setCategory] = useState("IT Assets");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const catParam = searchParams.get("cat");
+  const [category, setCategoryState] = useState(
+    isValidInventoryCategory(catParam) ? catParam : "IT Assets",
+  );
   const location  = useLocation();
   const segment   = location.pathname.replace(BASE, "").replace(/^\//, "");
+
+  useEffect(() => {
+    if (isValidInventoryCategory(catParam)) setCategoryState(catParam);
+  }, [catParam]);
+
+  const setCategory = useCallback((cat) => {
+    setCategoryState(cat);
+    setSearchParams({ cat }, { replace: true });
+  }, [setSearchParams]);
 
   return (
     <InventoryShell category={category} setCategory={setCategory} activeSegment={segment}>
       <Routes>
         <Route path="/"              element={<OverviewPage    category={category} />} />
         <Route path="total"          element={<TotalAssetsPage category={category} />} />
-        <Route path="not-working"    element={<NotWorking />} />
-        <Route path="in-repair"      element={<InRepair />} />
+        <Route path="not-working"    element={<NotWorking inventoryCategory={category} />} />
+        <Route path="in-repair"      element={<InRepair inventoryCategory={category} />} />
         <Route path="removed-it"     element={<RemovedITAssets />} />
-        <Route path="removed-assets" element={<RemovedAssets />} />
+        <Route path="removed-assets" element={<RemovedAssets inventoryCategory={category} />} />
       </Routes>
     </InventoryShell>
   );

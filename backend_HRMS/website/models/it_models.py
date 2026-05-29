@@ -281,6 +281,10 @@ class ITAssetReturnRequest(db.Model):
     asset_name = db.Column(db.String(150), nullable=True)
     category = db.Column(db.String(40), nullable=True)
     reason = db.Column(db.Text, nullable=False)
+    return_destination = db.Column(
+        db.String(30), nullable=False, default="available", server_default="available"
+    )
+    photos_json = db.Column(db.JSON, nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending", index=True)
     approved_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)

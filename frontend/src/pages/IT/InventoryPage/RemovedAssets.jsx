@@ -3,6 +3,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
 import {
   getDeletedAssetsFromStorage,
+  getInventoryFromStorage,
   getITApiErrorMessage,
   syncDeletedLogsFromAPI,
   wipeAllDeletedLogsAPI,
@@ -116,7 +117,17 @@ function DeletedAssetRow({ record, index, onView, onWipe }) {
 
 // ─── RemovedAssets (default export) ──────────────────────────────────────────
 
-export default function RemovedAssets() {
+function recordBelongsToInventoryCategory(record, inventoryCategory) {
+  const inventory = getInventoryFromStorage() || [];
+  const row = inventory.find(
+    (i) =>
+      String(i.id) === String(record.inventoryId) ||
+      String(i.id) === String(record.assetId),
+  );
+  return (row?.inventoryCategory || "IT Assets") === inventoryCategory;
+}
+
+export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
   const [records,        setRecords]        = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery,    setSearchQuery]    = useState("");
@@ -147,8 +158,16 @@ export default function RemovedAssets() {
   }, []);
 
   // ── Derived rows ────────────────────────────────────────────────────────────
+  const scopedRecords = useMemo(
+    () =>
+      records.filter((r) =>
+        recordBelongsToInventoryCategory(r, inventoryCategory),
+      ),
+    [records, inventoryCategory],
+  );
+
   const filteredRows = useMemo(() => {
-    let rows = records;
+    let rows = scopedRecords;
     if (activeCategory !== "All") rows = rows.filter((r) => r.category === activeCategory);
     const query = searchQuery.trim().toLowerCase();
     if (query) {
@@ -157,11 +176,11 @@ export default function RemovedAssets() {
       );
     }
     return rows;
-  }, [records, activeCategory, searchQuery]);
+  }, [scopedRecords, activeCategory, searchQuery]);
 
   const getCategoryCount = useCallback(
-    (cat) => records.filter((r) => r.category === cat).length,
-    [records],
+    (cat) => scopedRecords.filter((r) => r.category === cat).length,
+    [scopedRecords],
   );
 
   // ── Actions ─────────────────────────────────────────────────────────────────

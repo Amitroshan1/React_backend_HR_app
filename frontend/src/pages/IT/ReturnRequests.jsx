@@ -12,11 +12,15 @@ import "./ReturnRequests.css";
 
 const STATUS_OPTIONS = ["all", "pending", "approved", "rejected", "completed"];
 
+const formatReturnDest = (dest) =>
+  dest === "removed_from_it" ? "Removed From IT" : "Available";
+
 export default function ReturnRequests() {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("all");
+  const [photoModal, setPhotoModal] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -102,7 +106,10 @@ export default function ReturnRequests() {
                 <th>Code</th>
                 <th>Employee</th>
                 <th>Asset</th>
+                <th>Qty</th>
+                <th>Return To</th>
                 <th>Reason</th>
+                <th>Files</th>
                 <th>Status</th>
                 <th>Requested</th>
                 <th>Action</th>
@@ -110,17 +117,38 @@ export default function ReturnRequests() {
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={7} className="rr-empty">No return requests found.</td></tr>
+                <tr><td colSpan={10} className="rr-empty">No return requests found.</td></tr>
               ) : (
-                rows.map((r) => (
+                rows.map((r) => {
+                  const photos = Array.isArray(r.photos) ? r.photos : [];
+                  const qty = Math.max(1, Number(r.quantity) || 1);
+                  return (
                   <tr key={r.id}>
                     <td>{r.requestCode}</td>
                     <td>
                       <div>{r.requesterName || "—"}</div>
                       <small>{r.requesterEmpId || r.requesterEmail || "—"}</small>
                     </td>
-                    <td>{r.assetName || "—"} ({r.category || "—"})</td>
+                    <td>
+                      <div>{r.assetName || "—"}</div>
+                      <small>{r.category || "—"}</small>
+                    </td>
+                    <td>{r.inventoryItemId || qty > 1 ? qty : "—"}</td>
+                    <td>{formatReturnDest(r.returnDestination)}</td>
                     <td className="rr-reason">{r.reason || "—"}</td>
+                    <td>
+                      {photos.length > 0 ? (
+                        <button
+                          type="button"
+                          className="rr-files-btn"
+                          onClick={() => setPhotoModal(photos)}
+                        >
+                          View ({photos.length})
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td><span className={`rr-status ${r.status}`}>{r.status}</span></td>
                     <td>{r.createdAt ? new Date(r.createdAt).toLocaleString("en-IN") : "—"}</td>
                     <td>
@@ -138,12 +166,39 @@ export default function ReturnRequests() {
                       {(r.status === "rejected" || r.status === "completed") && <span>—</span>}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
         )}
       </div>
+
+      {photoModal && (
+        <div className="rr-photo-overlay" onClick={() => setPhotoModal(null)}>
+          <div className="rr-photo-panel" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="rr-photo-close"
+              onClick={() => setPhotoModal(null)}
+            >
+              ✕
+            </button>
+            <h3>Attached files ({photoModal.length})</h3>
+            <div className="rr-photo-grid">
+              {photoModal.map((src, i) =>
+                String(src).startsWith("data:image/") ? (
+                  <img key={i} src={src} alt={`file-${i + 1}`} />
+                ) : (
+                  <a key={i} href={src} download={`return-file-${i + 1}`} className="rr-file-link">
+                    Download file {i + 1}
+                  </a>
+                ),
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
