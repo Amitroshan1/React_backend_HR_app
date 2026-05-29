@@ -161,11 +161,11 @@ export default function ActiveDevice({ onBack }) {
       const q = searchQuery.toLowerCase();
       r = r.filter(
         (a) =>
-          (a.id || "").toLowerCase().includes(q) ||
-          (a.serialNumber || "").toLowerCase().includes(q) ||
-          (a.name || "").toLowerCase().includes(q) ||
-          (a.assignedTo || "").toLowerCase().includes(q) ||
-          (a.empId || "").toLowerCase().includes(q),
+          String(a.id ?? "").toLowerCase().includes(q) ||
+          String(a.serialNumber ?? "").toLowerCase().includes(q) ||
+          String(a.name ?? "").toLowerCase().includes(q) ||
+          String(a.assignedTo ?? "").toLowerCase().includes(q) ||
+          String(a.empId ?? "").toLowerCase().includes(q),
       );
     }
     return r;

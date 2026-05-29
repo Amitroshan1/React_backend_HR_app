@@ -116,6 +116,20 @@ def get_dashboard():
     total_claims = ExpenseClaimHeader.query.count()
     total_resignations = Resignation.query.count()
 
+    from .plan_features import can_access_it_panel
+
+    it_inventory_access = can_access_it_panel()
+    total_inventory_assets = None
+    if it_inventory_access:
+        try:
+            from .models.it_models import ITAssetUnit
+
+            total_inventory_assets = (
+                db.session.query(func.count(ITAssetUnit.id)).scalar() or 0
+            )
+        except Exception:
+            total_inventory_assets = 0
+
     return jsonify({
         "success": True,
         "total_employees": total_employees,
@@ -123,6 +137,8 @@ def get_dashboard():
         "total_queries": total_queries,
         "total_claims": total_claims,
         "total_resignations": total_resignations,
+        "it_inventory_access": it_inventory_access,
+        "total_inventory_assets": total_inventory_assets,
     }), 200
 
 

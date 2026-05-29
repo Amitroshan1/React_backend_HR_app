@@ -243,12 +243,12 @@ export default function Parcel() {
     const q = search.toLowerCase();
     return rawData.filter(
       (r) =>
-        (r.assetName   || "").toLowerCase().includes(q) ||
-        (r.id          || "").toLowerCase().includes(q) ||
-        (r.idNo        || "").toLowerCase().includes(q) ||
-        (r.from || r.to || "").toLowerCase().includes(q) ||
-        (r.receivedBy  || "").toLowerCase().includes(q) ||
-        (r.exportedBy  || "").toLowerCase().includes(q)
+        String(r.assetName ?? "").toLowerCase().includes(q) ||
+        String(r.id ?? "").toLowerCase().includes(q) ||
+        String(r.idNo ?? "").toLowerCase().includes(q) ||
+        String(r.from || r.to || "").toLowerCase().includes(q) ||
+        String(r.receivedBy ?? "").toLowerCase().includes(q) ||
+        String(r.exportedBy ?? "").toLowerCase().includes(q)
     );
   }, [rawData, search]);
 

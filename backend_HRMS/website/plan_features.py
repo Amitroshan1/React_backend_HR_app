@@ -104,6 +104,32 @@ def has_feature(feature: str, plan: Optional[str] = None) -> bool:
     return feature in frozenset(features_for_plan(plan))
 
 
+ADMIN_EMP_TYPES = frozenset({"admin", "administrator", "administration"})
+
+
+def _norm_emp_type(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def can_access_it_panel(claims: Optional[dict] = None) -> bool:
+    """IT module: subscription feature or org Admin / Super Admin."""
+    if has_feature("it_panel"):
+        return True
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    emp_type = _norm_emp_type(claims.get("emp_type") or "")
+    if emp_type in ADMIN_EMP_TYPES:
+        return True
+    if "super" in emp_type:
+        return True
+    return False
+
+
 def is_hr_department(name: str) -> bool:
     n = (name or "").strip().lower()
     if not n:

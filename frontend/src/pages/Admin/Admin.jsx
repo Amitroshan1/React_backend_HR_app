@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../components/layout/UserContext';
 import { ManagerProfileCard } from '../Manager/comps/ManagerProfileCard/ManagerProfileCard';
+import { canAccessItPanel } from '../../utils/planFeatures';
 import './Admin.css';
 
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -22,9 +23,11 @@ const Admin = () => {
     total_queries: 0,
     total_claims: 0,
     total_resignations: 0,
+    total_inventory_assets: null,
   });
   const [loading, setLoading] = useState(true);
   const [canViewDeploymentGuide, setCanViewDeploymentGuide] = useState(false);
+  const [itInventoryAccess, setItInventoryAccess] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -63,12 +66,14 @@ const Admin = () => {
       .then((res) => res.json().catch(() => ({})))
       .then((data) => {
         if (data.success) {
+          setItInventoryAccess(Boolean(data.it_inventory_access));
           setStats({
             total_employees: data.total_employees ?? 0,
             total_leaves: data.total_leaves ?? 0,
             total_queries: data.total_queries ?? 0,
             total_claims: data.total_claims ?? 0,
             total_resignations: data.total_resignations ?? 0,
+            total_inventory_assets: data.total_inventory_assets ?? null,
           });
         }
         setLoading(false);
@@ -83,6 +88,12 @@ const Admin = () => {
   const handleQueriesClick = () => navigate('/admin/queries');
   const handleClaimsClick = () => navigate('/admin/claims');
   const handleResignationsClick = () => navigate('/admin/resignations');
+  const handleItInventoryClick = () => navigate('/it/inventory');
+
+  const showItInventoryCard = useMemo(() => {
+    const user = userData?.user || {};
+    return itInventoryAccess || canAccessItPanel(user);
+  }, [userData, itInventoryAccess]);
 
   const adminProfile = useMemo(() => {
     const user = userData?.user || {};
@@ -199,6 +210,18 @@ const Admin = () => {
             <p className="card-number">{loading ? '...' : stats.total_resignations}</p>
           </div>
         </div>
+
+        {showItInventoryCard && (
+          <div className="stat-card inventory-card" onClick={handleItInventoryClick}>
+            <div className="card-icon">📦</div>
+            <div className="card-content">
+              <h3>IT / Inventory</h3>
+              <p className="card-number">
+                {loading ? '...' : (stats.total_inventory_assets ?? '—')}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

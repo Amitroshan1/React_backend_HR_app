@@ -172,7 +172,9 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
     const query = searchQuery.trim().toLowerCase();
     if (query) {
       rows = rows.filter((r) =>
-        SEARCH_FIELDS.some((field) => (r[field] ?? "").toLowerCase().includes(query)),
+        SEARCH_FIELDS.some((field) =>
+          String(r[field] ?? "").toLowerCase().includes(query),
+        ),
       );
     }
     return rows;

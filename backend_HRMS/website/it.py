@@ -32,11 +32,11 @@ it_bp = Blueprint("it", __name__)
 
 @it_bp.before_request
 def _it_plan_guard():
-    from .plan_features import has_feature, plan_forbidden_response
+    from .plan_features import can_access_it_panel, plan_forbidden_response
 
     if request.method == "OPTIONS":
         return None
-    if not has_feature("it_panel"):
+    if not can_access_it_panel():
         return plan_forbidden_response("it_panel")
     return None
 

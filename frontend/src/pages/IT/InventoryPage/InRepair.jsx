@@ -198,7 +198,9 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     const query = searchQuery.trim().toLowerCase();
     if (query) {
       rows = rows.filter((u) =>
-        SEARCH_FIELDS.some((field) => (u[field] ?? "").toLowerCase().includes(query)),
+        SEARCH_FIELDS.some((field) =>
+          String(u[field] ?? "").toLowerCase().includes(query),
+        ),
       );
     }
     return rows;

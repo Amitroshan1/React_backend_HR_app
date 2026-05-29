@@ -27,6 +27,8 @@ const CATEGORY_COLORS = {
   Consumables: { bg: "#fff7ed", text: "#ea580c", dot: "#f97316" },
 };
 
+const searchText = (value) => String(value ?? "").toLowerCase();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FilterBar
 // ─────────────────────────────────────────────────────────────────────────────
@@ -219,6 +221,14 @@ function ActionModal({ asset, onClose, onActionDone }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="ria-modal-close-btn"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ×
+        </button>
 
         {/* Header */}
         <div className="modal-header">
@@ -226,11 +236,6 @@ function ActionModal({ asset, onClose, onActionDone }) {
             <p className="modal-sub">Asset Action Panel</p>
             <h2 className="modal-title">{asset.name}</h2>
           </div>
-          <button className="modal-close-btn" onClick={onClose} aria-label="Close">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M2 2l12 12M14 2L2 14" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
         </div>
 
         {/* Meta chips */}
@@ -363,9 +368,9 @@ export default function RemovedITAssets() {
     const q           = search.toLowerCase();
     const matchSearch =
       !q ||
-      (asset.name  || "").toLowerCase().includes(q) ||
-      (asset.id    || "").toLowerCase().includes(q) ||
-      (asset.owner || "").toLowerCase().includes(q);
+      searchText(asset.name).includes(q) ||
+      searchText(asset.id).includes(q) ||
+      searchText(asset.owner).includes(q);
     return matchCat && matchSearch;
   });
 
@@ -381,20 +386,12 @@ export default function RemovedITAssets() {
       <div className="ria-page-header">
         <div>
           <p className="ria-breadcrumb">IT Management › Assets</p>
-          <h1 className="ria-page-title">Removed IT Assets From IT</h1>
-          {/* <p className="ria-page-desc">Manage, track, and take action on all IT assets.</p> */}
+          <h1 className="ria-page-title">Removed Asset</h1>
         </div>
 
         <div className="ria-header-stats">
-          <div className="ria-stat-card">
+          <div className="ria-stat-card ria-stat-card--solo" aria-label={`${assets.length} removed assets`}>
             <span className="ria-stat-num">{assets.length}</span>
-            <span className="ria-stat-label">Total Assets</span>
-          </div>
-          <div className="ria-stat-card ria-stat-card--blue">
-            <span className="ria-stat-num ria-stat-num--blue">
-              {assets.filter((a) => a.category === "Hardware").length}
-            </span>
-            <span className="ria-stat-label">Hardware</span>
           </div>
         </div>
       </div>

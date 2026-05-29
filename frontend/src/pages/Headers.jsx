@@ -121,7 +121,7 @@ import { useLocation, Link, NavLink, useNavigate } from 'react-router-dom';
 import { toast } from "react-toastify";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
-import { hasFeature, clearPlanContext } from "../utils/planFeatures";
+import { hasFeature, clearPlanContext, canAccessItPanel } from "../utils/planFeatures";
 
 const getPageInfo = (pathname, firstName) => {
     const normalizedPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";
@@ -165,6 +165,7 @@ const getPageInfo = (pathname, firstName) => {
         '/admin/queries': { title: 'All Queries', subtitle: 'Admin' },
         '/admin/claims': { title: 'All Expense Claims', subtitle: 'Admin' },
         '/admin/resignations': { title: 'All Resignations', subtitle: 'Admin' },
+        '/it/inventory': { title: 'Inventory', subtitle: 'Asset Management' },
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
         '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
         '/it': { title: 'IT Panel', subtitle: 'IT Management' },
@@ -317,13 +318,24 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     const panelRouteAllowed = (route) => {
         if (route === "/hr") return hasFeature("hr_panel");
         if (route === "/account") return hasFeature("account_panel");
-        if (route === "/it") return hasFeature("it_panel");
+        if (route === "/it" || route === "/it/inventory") return canAccessItPanel(user);
         return true;
     };
+
+    const isAdminRole =
+        ["admin", "administrator", "administration"].includes(roleKey) ||
+        roleKey.includes("super");
 
     const panelLinks = [];
     if (roleInfo.hasPanel && roleInfo.route && panelRouteAllowed(roleInfo.route)) {
         panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
+    }
+    if (
+        isAdminRole &&
+        canAccessItPanel(user) &&
+        !panelLinks.some((p) => p.route === "/it" || p.route === "/it/inventory")
+    ) {
+        panelLinks.push({ display: "IT / Inventory", route: "/it/inventory" });
     }
     if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {
         panelLinks.push({ display: "Manager", route: "/manager" });

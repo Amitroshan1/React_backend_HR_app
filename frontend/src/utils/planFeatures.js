@@ -50,3 +50,12 @@ export function isEnterprisePlan() {
 export function getPlan() {
   return getPlanContext().plan;
 }
+
+/** IT / Inventory: plan feature or org Admin / Super Admin. */
+export function canAccessItPanel(user) {
+  if (hasFeature('it_panel')) return true;
+  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase();
+  if (['admin', 'administrator', 'administration'].includes(et)) return true;
+  if (et.includes('super')) return true;
+  return false;
+}
