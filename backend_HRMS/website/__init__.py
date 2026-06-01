@@ -193,11 +193,22 @@ def create_app():
 
 
     # ---------------------------
-    # Create tables (DEV ONLY)
+    # Create tables (DEV ONLY — set RUN_DB_CREATE_ALL=0 on production/test servers)
     # ---------------------------
     if os.getenv("RUN_DB_CREATE_ALL", "0").strip() == "1":
         with app.app_context():
-            db.create_all()
+            try:
+                db.create_all()
+            except Exception as e:
+                # e.g. MySQL 1050 table already exists (redeploy / multi-worker gunicorn boot)
+                err = str(e).lower()
+                if "already exists" in err or "1050" in err:
+                    app.logger.warning(
+                        "db.create_all skipped existing tables: %s", e
+                    )
+                else:
+                    app.logger.error("db.create_all failed: %s", e, exc_info=True)
+                    raise
 
     # ---------------------------
     # Register Blueprints
@@ -401,34 +412,56 @@ def create_app():
             app.logger.warning("IT inventory quantity assignment table ensure skipped: %s", e)
 
     def _fix_it_inventory_category_mismatches():
-        """Persist correct inventory_category for vehicle/equipment/IT hardware rows."""
+        """Fast SQL fixes for legacy mis-tagged inventory_category (no full-table ORM load)."""
         try:
-            from .models.it_models import ITInventoryItem
+            from sqlalchemy import inspect, text
 
-            changed = False
-            for item in ITInventoryItem.query.all():
-                cat = (item.category or "").strip().lower()
-                ic = (item.inventory_category or "").strip()
-                new_ic = None
-                if cat == "vehicle" and ic != "Transport Assets":
-                    new_ic = "Transport Assets"
-                elif cat == "equipment" and ic != "Infrastructure Assets":
-                    new_ic = "Infrastructure Assets"
-                elif cat in (
-                    "hardware",
-                    "software",
-                    "accessories",
-                    "consumables",
-                ) and ic != "IT Assets":
-                    new_ic = "IT Assets"
-                if new_ic:
-                    item.inventory_category = new_ic
-                    changed = True
-            if changed:
-                db.session.commit()
-                app.logger.info("Corrected inventory_category on mis-tagged IT inventory rows")
+            insp = inspect(db.engine)
+            if "it_inventory_items" not in set(insp.get_table_names()):
+                return
+            existing = {c["name"] for c in insp.get_columns("it_inventory_items")}
+            if "inventory_category" not in existing:
+                return
+
+            dialect = db.engine.dialect.name
+            updates = [
+                (
+                    "Transport Assets",
+                    "LOWER(TRIM(category)) = 'vehicle' AND "
+                    "COALESCE(inventory_category, '') <> 'Transport Assets'",
+                ),
+                (
+                    "Infrastructure Assets",
+                    "LOWER(TRIM(category)) = 'equipment' AND "
+                    "COALESCE(inventory_category, '') <> 'Infrastructure Assets'",
+                ),
+                (
+                    "IT Assets",
+                    "LOWER(TRIM(category)) IN "
+                    "('hardware', 'software', 'accessories', 'consumables') AND "
+                    "COALESCE(inventory_category, '') <> 'IT Assets'",
+                ),
+            ]
+            total = 0
+            with db.engine.begin() as conn:
+                for new_cat, where_sql in updates:
+                    if dialect == "postgresql":
+                        stmt = text(
+                            f'UPDATE it_inventory_items SET inventory_category = :cat '
+                            f"WHERE {where_sql}"
+                        )
+                    else:
+                        stmt = text(
+                            f"UPDATE it_inventory_items SET inventory_category = :cat "
+                            f"WHERE {where_sql}"
+                        )
+                    result = conn.execute(stmt, {"cat": new_cat})
+                    total += result.rowcount or 0
+            if total:
+                app.logger.info(
+                    "Corrected inventory_category on %s inventory row(s)", total
+                )
         except Exception as e:
-            db.session.rollback()
             app.logger.warning("IT inventory_category mismatch fix skipped: %s", e)
 
     def _ensure_it_office_stock_deployment_table():
@@ -462,18 +495,17 @@ def create_app():
                             )
                         )
                 if "asset_unit_id" not in existing:
+                    # Avoid FK in ALTER — some MySQL/MariaDB builds fail and abort app startup.
                     if dialect == "postgresql":
                         conn.execute(
                             text(
-                                f'ALTER TABLE "{table}" ADD COLUMN asset_unit_id '
-                                "INTEGER NULL REFERENCES it_asset_units(id) ON DELETE SET NULL"
+                                f'ALTER TABLE "{table}" ADD COLUMN asset_unit_id INTEGER NULL'
                             )
                         )
                     else:
                         conn.execute(
                             text(
-                                f"ALTER TABLE {table} ADD COLUMN asset_unit_id "
-                                "INTEGER NULL"
+                                f"ALTER TABLE {table} ADD COLUMN asset_unit_id INTEGER NULL"
                             )
                         )
         except Exception as e:
@@ -707,23 +739,28 @@ def create_app():
             app.logger.warning("leave_balances defaults ensure skipped: %s", e)
 
     with app.app_context():
-        _ensure_parcel_name_columns()
-        _ensure_expense_line_item_rejection_reason()
-        _ensure_punch_session_auto_punched_out()
-        _ensure_it_return_request_table()
-        _ensure_it_return_request_columns()
-        _ensure_it_inventory_quantity_assignment_table()
-        _ensure_it_office_stock_deployment_table()
-        _fix_it_inventory_category_mismatches()
-        _ensure_it_inventory_item_photos_column()
-        _ensure_it_inventory_stock_columns()
-        _ensure_it_deleted_log_name_column()
-        _ensure_ex_employee_doc_tables()
-        _ensure_assessment_tables()
-        _ensure_employee_circle_history_table()
-        _ensure_deployed_customers_table()
-        _ensure_leave_balance_defaults()
-        _cleanup_zero_qty_inventory_rows()
+        try:
+            _ensure_parcel_name_columns()
+            _ensure_expense_line_item_rejection_reason()
+            _ensure_punch_session_auto_punched_out()
+            _ensure_it_return_request_table()
+            _ensure_it_return_request_columns()
+            _ensure_it_inventory_quantity_assignment_table()
+            _ensure_it_office_stock_deployment_table()
+            _fix_it_inventory_category_mismatches()
+            _ensure_it_inventory_item_photos_column()
+            _ensure_it_inventory_stock_columns()
+            _ensure_it_deleted_log_name_column()
+            _ensure_ex_employee_doc_tables()
+            _ensure_assessment_tables()
+            _ensure_employee_circle_history_table()
+            _ensure_deployed_customers_table()
+            _ensure_leave_balance_defaults()
+            _cleanup_zero_qty_inventory_rows()
+        except Exception as e:
+            app.logger.error(
+                "Schema bootstrap failed (app will still start): %s", e, exc_info=True
+            )
 
     from .commands.leave_accrual import register_leave_accrual_command
     register_leave_accrual_command(app)
