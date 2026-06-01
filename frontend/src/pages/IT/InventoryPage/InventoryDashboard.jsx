@@ -1262,7 +1262,7 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
 // ─── TotalAssetsPage ──────────────────────────────────────────────────────────
 
 function TotalAssetsPage({ category }) {
-  const showTypeFilter = category !== "Office Assets";
+  const showTypeFilter = category === "IT Assets";
   const [filter,        setFilter]        = useState("All");
   const [hwTypeFilter,  setHwTypeFilter]  = useState("All");
   const [searchQuery,   setSearchQuery]   = useState("");
