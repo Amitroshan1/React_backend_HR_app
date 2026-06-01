@@ -19,6 +19,7 @@ import {
   getInventoryStatusCategoryTabs,
   showInventoryStatusCategoryTabs,
   unitBelongsToInventoryCategory,
+  resolveInventoryCategory,
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./NotWorking.css";
@@ -195,7 +196,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         .filter((i) =>
           ["accessories", "consumables", "stock"].includes(String(i.category || "").toLowerCase()),
         )
-        .filter((i) => (i.inventoryCategory || "IT Assets") === inventoryCategory)
+        .filter((i) => resolveInventoryCategory(i) === inventoryCategory)
         .filter((i) => Number(i.notWorkingQuantity || 0) > 0)
         .map((i) => ({
           id: `qty-${i.id}`,

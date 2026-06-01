@@ -111,6 +111,41 @@ def _norm_emp_type(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def is_org_admin(claims: Optional[dict] = None) -> bool:
+    """Organization Admin / Super Admin — full operational access across modules."""
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    emp_type = _norm_emp_type(claims.get("emp_type") or "")
+    if emp_type in ADMIN_EMP_TYPES:
+        return True
+    return "super" in emp_type
+
+
+def is_hr_role(claims: Optional[dict] = None) -> bool:
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    emp_type = _norm_emp_type(claims.get("emp_type") or "").replace("-", " ")
+    emp_type = " ".join(emp_type.split())
+    if emp_type in {"human resource", "human resources", "hr"}:
+        return True
+    return is_hr_department(claims.get("emp_type") or "")
+
+
+def can_access_hr_operations(claims: Optional[dict] = None) -> bool:
+    """HR endpoints: HR role or org Admin."""
+    return is_hr_role(claims) or is_org_admin(claims)
+
+
 def can_access_it_panel(claims: Optional[dict] = None) -> bool:
     """IT module: subscription feature or org Admin / Super Admin."""
     if has_feature("it_panel"):
@@ -122,10 +157,7 @@ def can_access_it_panel(claims: Optional[dict] = None) -> bool:
             claims = get_jwt() or {}
         except Exception:
             claims = {}
-    emp_type = _norm_emp_type(claims.get("emp_type") or "")
-    if emp_type in ADMIN_EMP_TYPES:
-        return True
-    if "super" in emp_type:
+    if is_org_admin(claims):
         return True
     return False
 

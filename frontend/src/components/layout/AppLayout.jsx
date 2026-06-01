@@ -1,6 +1,14 @@
 import { useEffect, useMemo } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { hasFeature, clearPlanContext } from "../../utils/planFeatures";
+import {
+    hasFeature,
+    clearPlanContext,
+    isAdminUser,
+    canAccessAccountPanel,
+    canAccessItPanel,
+    canAccessHrPanel,
+} from "../../utils/planFeatures";
+import { AdminReturnBar } from "./AdminReturnBar";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 import { AppFooter } from "./AppFooter";
@@ -34,12 +42,18 @@ export const AppLayout = () => {
 
     useEffect(() => {
         const path = location.pathname || "";
-        if (path.startsWith("/account") && !hasFeature("account_panel")) {
+        const user = userData?.user;
+        if (path.startsWith("/account") && !canAccessAccountPanel(user)) {
             navigate("/dashboard", { replace: true });
             return;
         }
-        if (path.startsWith("/it") && !hasFeature("it_panel")) {
+        if (path.startsWith("/it") && !canAccessItPanel(user)) {
             navigate("/dashboard", { replace: true });
+            return;
+        }
+        if (path.startsWith("/hr") && !canAccessHrPanel(user)) {
+            navigate("/dashboard", { replace: true });
+            return;
         }
         if (path === "/payslip" && !hasFeature("dashboard_payslip")) {
             navigate("/dashboard", { replace: true });
@@ -47,7 +61,7 @@ export const AppLayout = () => {
         if (path === "/claims" && !hasFeature("dashboard_claims")) {
             navigate("/dashboard", { replace: true });
         }
-    }, [location.pathname, navigate]);
+    }, [location.pathname, navigate, userData?.user]);
 
     /* No token: redirect to login immediately (direct URL, Back after logout) – no dashboard or loading state */
     const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
@@ -158,6 +172,12 @@ export const AppLayout = () => {
     const isInventoryPage = (location.pathname || "")
         .toLowerCase()
         .startsWith("/it/inventory");
+    const isAdminShell = (location.pathname || "").startsWith("/admin");
+    const adminDeptVisit =
+        typeof sessionStorage !== "undefined"
+        && sessionStorage.getItem("adminDeptVisit") === "1";
+    const showAdminReturnBar =
+        isAdminUser(headerUser) && adminDeptVisit && !isAdminShell;
 
     return (
         <div className="main-layout app-layout">
@@ -166,6 +186,7 @@ export const AppLayout = () => {
             <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
             <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}`}>
+                <AdminReturnBar visible={showAdminReturnBar} />
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
                 <Outlet />
                 <AppFooter />

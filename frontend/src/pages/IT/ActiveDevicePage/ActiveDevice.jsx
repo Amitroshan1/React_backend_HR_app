@@ -11,8 +11,15 @@ import {
 import "./ActiveDevice.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CATEGORIES = ["Hardware", "Software", "Accessories", "Consumables"];
-const CAT_ICONS = { Hardware: "🖥", Software: "💿", Accessories: "🖱", Consumables: "🖨" };
+const ASSET_CATEGORIES = ["Hardware", "Software", "Accessories", "Consumables"];
+const TABS = ["All", ...ASSET_CATEGORIES];
+const CAT_ICONS = {
+  All: "📋",
+  Hardware: "🖥",
+  Software: "💿",
+  Accessories: "🖱",
+  Consumables: "🖨",
+};
 
 const fmt = (iso) => {
   if (!iso) return "—";
@@ -40,7 +47,7 @@ function getMergedActiveDevices() {
     .filter((u) => {
       const cat = normCat(u.category);
       return (
-        u.status === "assigned" && u.assignedTo && CATEGORIES.includes(cat)
+        u.status === "assigned" && u.assignedTo && ASSET_CATEGORIES.includes(cat)
       );
     })
     .map((u) => {
@@ -137,7 +144,7 @@ function getMergedActiveDevices() {
 export default function ActiveDevice({ onBack }) {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState("Hardware");
+  const [activeTab, setActiveTab] = useState("All");
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -156,7 +163,10 @@ export default function ActiveDevice({ onBack }) {
   const allDevices = getMergedActiveDevices();
 
   const filtered = useMemo(() => {
-    let r = allDevices.filter((a) => a.category === activeTab);
+    let r =
+      activeTab === "All"
+        ? allDevices
+        : allDevices.filter((a) => a.category === activeTab);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       r = r.filter(
@@ -215,7 +225,11 @@ export default function ActiveDevice({ onBack }) {
       ? "License Code"
       : activeTab === "Accessories" || activeTab === "Consumables"
         ? "Quantity"
-        : "Serial No.";
+        : activeTab === "All"
+          ? "Serial / License / Qty"
+          : "Serial No.";
+
+  const tableColSpan = activeTab === "All" ? 7 : 6;
 
   return (
     <div className="asd-page">
@@ -227,7 +241,7 @@ export default function ActiveDevice({ onBack }) {
               ← Back
             </button>
             <div className="asd-tabs">
-              {CATEGORIES.map((cat) => (
+              {TABS.map((cat) => (
                 <button
                   key={cat}
                   className={`asd-tab ${activeTab === cat ? "active" : ""}`}
@@ -276,7 +290,9 @@ export default function ActiveDevice({ onBack }) {
           <div className="asd-table-head-bar">
             <div className="asd-table-head-left">
               <span className="asd-table-icon">{CAT_ICONS[activeTab]}</span>
-              <span className="asd-table-title">{activeTab} Assets</span>
+              <span className="asd-table-title">
+                {activeTab === "All" ? "All" : activeTab} Assets
+              </span>
             </div>
             <span className="asd-table-count">
               {filtered.length} record{filtered.length !== 1 ? "s" : ""}
@@ -288,6 +304,7 @@ export default function ActiveDevice({ onBack }) {
               <thead>
                 <tr>
                   <th>Asset ID</th>
+                  {activeTab === "All" && <th>Category</th>}
                   <th>{secondColHeader}</th>
                   <th>Asset Name</th>
                   <th>Assigned To</th>
@@ -298,7 +315,7 @@ export default function ActiveDevice({ onBack }) {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="asd-empty">
+                    <td colSpan={tableColSpan} className="asd-empty">
                       <div className="asd-empty-inner">
                         <span>🔍</span>
                         <p>No assets found</p>
@@ -322,7 +339,11 @@ export default function ActiveDevice({ onBack }) {
                       <td>
                         <span className="asd-asset-id">{asset.id}</span>
                       </td>
-                      {/* Serial No. */}
+                      {activeTab === "All" && (
+                        <td>
+                          <span className="asd-cat-pill">{asset.category}</span>
+                        </td>
+                      )}
                       <td>
                         <span className="asd-asset-id">{asset.serialNumber}</span>
                       </td>

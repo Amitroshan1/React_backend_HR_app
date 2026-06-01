@@ -166,6 +166,7 @@ def create_app():
     from .models.it_models import (
         ITInventoryItem,
         ITInventoryQuantityAssignment,
+        ITOfficeStockDeployment,
         ITAssetUnit,
         ITSoftwareLicense,
         ITAssetAssignment,
@@ -398,6 +399,85 @@ def create_app():
             app.logger.info("Created table it_inventory_quantity_assignments")
         except Exception as e:
             app.logger.warning("IT inventory quantity assignment table ensure skipped: %s", e)
+
+    def _fix_it_inventory_category_mismatches():
+        """Persist correct inventory_category for vehicle/equipment/IT hardware rows."""
+        try:
+            from .models.it_models import ITInventoryItem
+
+            changed = False
+            for item in ITInventoryItem.query.all():
+                cat = (item.category or "").strip().lower()
+                ic = (item.inventory_category or "").strip()
+                new_ic = None
+                if cat == "vehicle" and ic != "Transport Assets":
+                    new_ic = "Transport Assets"
+                elif cat == "equipment" and ic != "Infrastructure Assets":
+                    new_ic = "Infrastructure Assets"
+                elif cat in (
+                    "hardware",
+                    "software",
+                    "accessories",
+                    "consumables",
+                ) and ic != "IT Assets":
+                    new_ic = "IT Assets"
+                if new_ic:
+                    item.inventory_category = new_ic
+                    changed = True
+            if changed:
+                db.session.commit()
+                app.logger.info("Corrected inventory_category on mis-tagged IT inventory rows")
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning("IT inventory_category mismatch fix skipped: %s", e)
+
+    def _ensure_it_office_stock_deployment_table():
+        try:
+            from sqlalchemy import inspect, text
+            from .models.it_models import ITOfficeStockDeployment
+
+            insp = inspect(db.engine)
+            table = "it_office_stock_deployments"
+            if table not in set(insp.get_table_names()):
+                ITOfficeStockDeployment.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table it_office_stock_deployments")
+                return
+
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            with db.engine.begin() as conn:
+                if "inventory_category" not in existing:
+                    if dialect == "postgresql":
+                        conn.execute(
+                            text(
+                                f'ALTER TABLE "{table}" ADD COLUMN inventory_category '
+                                "VARCHAR(60) NOT NULL DEFAULT 'Office Assets'"
+                            )
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} ADD COLUMN inventory_category "
+                                "VARCHAR(60) NOT NULL DEFAULT 'Office Assets'"
+                            )
+                        )
+                if "asset_unit_id" not in existing:
+                    if dialect == "postgresql":
+                        conn.execute(
+                            text(
+                                f'ALTER TABLE "{table}" ADD COLUMN asset_unit_id '
+                                "INTEGER NULL REFERENCES it_asset_units(id) ON DELETE SET NULL"
+                            )
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} ADD COLUMN asset_unit_id "
+                                "INTEGER NULL"
+                            )
+                        )
+        except Exception as e:
+            app.logger.warning("IT office stock deployment table ensure skipped: %s", e)
 
     def _ensure_it_inventory_item_photos_column():
         try:
@@ -633,6 +713,8 @@ def create_app():
         _ensure_it_return_request_table()
         _ensure_it_return_request_columns()
         _ensure_it_inventory_quantity_assignment_table()
+        _ensure_it_office_stock_deployment_table()
+        _fix_it_inventory_category_mismatches()
         _ensure_it_inventory_item_photos_column()
         _ensure_it_inventory_stock_columns()
         _ensure_it_deleted_log_name_column()

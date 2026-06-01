@@ -55,7 +55,7 @@ const AdminQueries = () => {
     <div className="admin-list-container">
       <div className="admin-list-header">
         <button type="button" className="back-button" onClick={() => navigate('/admin')}>
-          ← Dashboard
+          ← Command Center
         </button>
         <h1>All Queries</h1>
       </div>

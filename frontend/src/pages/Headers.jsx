@@ -315,30 +315,34 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     const roleInfo = getRoleInfo(rawRole, user);
     const queryShortcutAllowed = ["hr", "account", "accounts", "it"].includes(roleInfo.display?.toLowerCase());
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
+    const isAdminRole =
+        ["admin", "administrator", "administration"].includes(roleKey) ||
+        roleKey.includes("super");
+
     const panelRouteAllowed = (route) => {
+        if (isAdminRole) return true;
         if (route === "/hr") return hasFeature("hr_panel");
         if (route === "/account") return hasFeature("account_panel");
         if (route === "/it" || route === "/it/inventory") return canAccessItPanel(user);
         return true;
     };
 
-    const isAdminRole =
-        ["admin", "administrator", "administration"].includes(roleKey) ||
-        roleKey.includes("super");
-
     const panelLinks = [];
-    if (roleInfo.hasPanel && roleInfo.route && panelRouteAllowed(roleInfo.route)) {
-        panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
-    }
-    if (
-        isAdminRole &&
-        canAccessItPanel(user) &&
-        !panelLinks.some((p) => p.route === "/it" || p.route === "/it/inventory")
-    ) {
-        panelLinks.push({ display: "IT / Inventory", route: "/it/inventory" });
-    }
-    if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {
-        panelLinks.push({ display: "Manager", route: "/manager" });
+    if (isAdminRole) {
+        panelLinks.push({ display: "Admin Panel", route: "/admin" });
+    } else {
+        if (roleInfo.hasPanel && roleInfo.route && panelRouteAllowed(roleInfo.route)) {
+            panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
+        }
+        if (
+            canAccessItPanel(user) &&
+            !panelLinks.some((p) => p.route === "/it" || p.route === "/it/inventory")
+        ) {
+            panelLinks.push({ display: "IT / Inventory", route: "/it/inventory" });
+        }
+        if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {
+            panelLinks.push({ display: "Manager", route: "/manager" });
+        }
     }
     const isSpecialRole = panelLinks.length > 0;
 

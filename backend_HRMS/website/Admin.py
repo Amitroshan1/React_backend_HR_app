@@ -116,19 +116,46 @@ def get_dashboard():
     total_claims = ExpenseClaimHeader.query.count()
     total_resignations = Resignation.query.count()
 
-    from .plan_features import can_access_it_panel
+    pending_leaves = LeaveApplication.query.filter(
+        func.lower(func.coalesce(LeaveApplication.status, "")) == "pending"
+    ).count()
 
-    it_inventory_access = can_access_it_panel()
-    total_inventory_assets = None
-    if it_inventory_access:
-        try:
-            from .models.it_models import ITAssetUnit
+    pending_queries = Query.query.filter(
+        func.lower(func.coalesce(Query.status, "")).in_(("new", "open", "pending"))
+    ).count()
 
-            total_inventory_assets = (
-                db.session.query(func.count(ITAssetUnit.id)).scalar() or 0
-            )
-        except Exception:
-            total_inventory_assets = 0
+    pending_claims = (
+        db.session.query(func.count(ExpenseLineItem.id))
+        .filter(func.lower(func.coalesce(ExpenseLineItem.status, "")) == "pending")
+        .scalar()
+        or 0
+    )
+
+    total_inventory_assets = 0
+    open_tickets = 0
+    pending_return_requests = 0
+    try:
+        from .models.it_models import ITAssetUnit, ITSupportTicket, ITAssetReturnRequest
+
+        total_inventory_assets = (
+            db.session.query(func.count(ITAssetUnit.id)).scalar() or 0
+        )
+        open_tickets = (
+            db.session.query(func.count(ITSupportTicket.id))
+            .filter(func.lower(ITSupportTicket.status) == "pending")
+            .scalar()
+            or 0
+        )
+        pending_return_requests = (
+            db.session.query(func.count(ITAssetReturnRequest.id))
+            .filter(func.lower(ITAssetReturnRequest.status) == "pending")
+            .scalar()
+            or 0
+        )
+    except Exception:
+        pass
+
+    claims = get_jwt() or {}
 
     return jsonify({
         "success": True,
@@ -137,8 +164,14 @@ def get_dashboard():
         "total_queries": total_queries,
         "total_claims": total_claims,
         "total_resignations": total_resignations,
-        "it_inventory_access": it_inventory_access,
+        "pending_leaves": pending_leaves,
+        "pending_queries": pending_queries,
+        "pending_claims": pending_claims,
+        "it_inventory_access": True,
         "total_inventory_assets": total_inventory_assets,
+        "open_tickets": open_tickets,
+        "pending_return_requests": pending_return_requests,
+        "can_view_deployment_guide": _can_view_deployment_guide(claims),
     }), 200
 
 

@@ -18,6 +18,7 @@ import { Separation } from "./pages/Separation/Separation";
 import { Hr } from "./pages/HR/Hr";
 import { Account } from "./pages/Account/Account";
 import Admin from "./pages/Admin/Admin";
+import AdminLayout from "./pages/Admin/AdminLayout";
 import { Manager } from "./pages/Manager/Manager";
 import { ITPanel } from "./pages/IT/ITPanel";
 import ArchiveEmployees from "./pages/HR/Archive/Archive";
@@ -110,13 +111,19 @@ export const App = () => {
         { path: "archive-employees",               element: <ArchiveEmployees /> },
         { path: "archive-employees/:adminId",      element: <ArchiveEmployeeDetails /> },
         { path: "exit-employees",                  element: <ExitEmployee /> },
-        { path: "admin",                           element: <Admin /> },
-        { path: "admin/customers",                 element: <AdminCustomers /> },
-        { path: "admin/deployment-guide",          element: <AdminDeploymentGuide /> },
-        { path: "admin/leaves",                    element: <AdminLeaves /> },
-        { path: "admin/queries",                   element: <AdminQueries /> },
-        { path: "admin/claims",                    element: <AdminClaims /> },
-        { path: "admin/resignations",              element: <AdminResignations /> },
+        {
+          path: "admin",
+          element: <AdminLayout />,
+          children: [
+            { index: true, element: <Admin /> },
+            { path: "customers", element: <AdminCustomers /> },
+            { path: "deployment-guide", element: <AdminDeploymentGuide /> },
+            { path: "leaves", element: <AdminLeaves /> },
+            { path: "queries", element: <AdminQueries /> },
+            { path: "claims", element: <AdminClaims /> },
+            { path: "resignations", element: <AdminResignations /> },
+          ],
+        },
         { path: "manager",                         element: <Manager /> },
         { path: "manager/performance-reviews",     element: <ManagerPerformanceReviews /> },
         { path: "it",                              element: <ITPanel /> },

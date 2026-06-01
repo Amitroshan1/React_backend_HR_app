@@ -121,6 +121,54 @@ class ITInventoryQuantityAssignment(db.Model):
     )
 
 
+class ITOfficeStockDeployment(db.Model):
+    """Qty stock or single unit (vehicle/equipment) issued to a location — not IT employee assign."""
+
+    __tablename__ = "it_office_stock_deployments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    inventory_item_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_inventory_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    inventory_category = db.Column(
+        db.String(60),
+        nullable=False,
+        default="Office Assets",
+        server_default="Office Assets",
+        index=True,
+    )
+    asset_unit_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_asset_units.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    deployment_location = db.Column(db.String(200), nullable=False)
+    custodian_name = db.Column(db.String(150), nullable=True)
+    custodian_emp_id = db.Column(db.String(40), nullable=True)
+    notes = db.Column(db.String(500), nullable=True)
+    created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    inventory_item = db.relationship(
+        "ITInventoryItem",
+        backref=db.backref("stock_deployments", lazy="dynamic"),
+    )
+    asset_unit = db.relationship(
+        "ITAssetUnit",
+        backref=db.backref("location_deployments", lazy="dynamic"),
+    )
+    created_by_admin = db.relationship(
+        "Admin",
+        foreign_keys=[created_by_admin_id],
+        backref=db.backref("it_office_stock_deployments_created", lazy="dynamic"),
+    )
+
+
 class ITAssetAssignment(db.Model):
     __tablename__ = "it_asset_assignments"
 

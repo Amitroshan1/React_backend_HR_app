@@ -1,3 +1,5 @@
+import { resolveInventoryCategory } from "./inventoryCategories";
+
 // ══════════════════════════════════════════════════════════════════════════════
 //  STORAGE KEYS
 // ══════════════════════════════════════════════════════════════════════════════
@@ -859,25 +861,32 @@ export function getITApiErrorMessage(
   return fallback;
 }
 
-const _toLocalInventory = (item) => ({
-  id: item.id,
-  name: item.name,
-  category: item.category,
-  inventoryCategory: item.inventory_category || "IT Assets",
-  hwType: item.hw_type || null,
-  photos: item.photos || [],
-  totalQuantity: Number(item.totalQuantity ?? item.total_quantity ?? 0),
-  availableQuantity: Number(item.availableQuantity ?? item.available_quantity ?? 0),
-  assignedQuantity: Number(item.assignedQuantity ?? item.assigned_quantity ?? 0),
-  notWorkingQuantity: Number(item.notWorkingQuantity ?? item.not_working_quantity ?? 0),
-  repairQuantity: Number(item.repairQuantity ?? item.repair_quantity ?? 0),
-  vendor: item.vendor || "",
-  purchaseDate: item.purchase_date || item.purchaseDate || null,
-  receipts: item.receipts || [],
-  location: item.location || "",
-  notes: item.notes || "",
-  isStock: String(item.category || "").toLowerCase() === "stock",
-});
+const _toLocalInventory = (item) => {
+  const row = {
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    inventory_category: item.inventory_category,
+    inventoryCategory: item.inventory_category || item.inventoryCategory,
+    hwType: item.hw_type || null,
+    photos: item.photos || [],
+    totalQuantity: Number(item.totalQuantity ?? item.total_quantity ?? 0),
+    availableQuantity: Number(item.availableQuantity ?? item.available_quantity ?? 0),
+    assignedQuantity: Number(item.assignedQuantity ?? item.assigned_quantity ?? 0),
+    notWorkingQuantity: Number(item.notWorkingQuantity ?? item.not_working_quantity ?? 0),
+    repairQuantity: Number(item.repairQuantity ?? item.repair_quantity ?? 0),
+    vendor: item.vendor || "",
+    purchaseDate: item.purchase_date || item.purchaseDate || null,
+    receipts: item.receipts || [],
+    location: item.location || "",
+    notes: item.notes || "",
+    isStock: String(item.category || "").toLowerCase() === "stock",
+  };
+  return {
+    ...row,
+    inventoryCategory: resolveInventoryCategory(row),
+  };
+};
 
 const _toLocalUnit = (u) => ({
   id: u.id,
@@ -1172,6 +1181,47 @@ export const assignInventoryQuantityAPI = async ({
       assigned_to_emp_id: empId,
     },
   });
+
+/** Issue office / transport / infrastructure stock or unit to a location. */
+export const inventoryStockDeployAPI = async ({
+  inventoryItemId,
+  quantity = 1,
+  deploymentLocation,
+  custodianName = null,
+  notes = null,
+  assetUnitId = null,
+}) =>
+  _itFetch("/inventory-stock/deploy", {
+    method: "POST",
+    body: {
+      inventory_item_id: inventoryItemId,
+      quantity,
+      deployment_location: deploymentLocation,
+      custodian_name: custodianName,
+      notes,
+      asset_unit_id: assetUnitId,
+    },
+  });
+
+export const officeStockDeployAPI = inventoryStockDeployAPI;
+
+/** Return issued qty or unit back to available. */
+export const inventoryStockReturnAPI = async ({ deploymentId, quantity = 1 }) =>
+  _itFetch("/inventory-stock/return", {
+    method: "POST",
+    body: {
+      deployment_id: deploymentId,
+      quantity,
+    },
+  });
+
+export const officeStockReturnAPI = inventoryStockReturnAPI;
+
+export const fetchOfficeStockDeploymentsAPI = async (inventoryItemId = null) => {
+  const q = inventoryItemId != null ? `?inventory_item_id=${inventoryItemId}` : "";
+  const res = await _itFetch(`/inventory-stock/deployments${q}`);
+  return res?.deployments || res?.data?.deployments || [];
+};
 
 export const createParcelImportsAPI = async (entries = []) =>
   Promise.all(

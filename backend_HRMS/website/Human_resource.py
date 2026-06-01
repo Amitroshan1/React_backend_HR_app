@@ -181,11 +181,9 @@ from functools import wraps
 def hr_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        claims = get_jwt()
-        emp_type = (claims.get("emp_type") or "").strip().lower().replace("-", " ")
-        emp_type = " ".join(emp_type.split())
-        # Accept common HR labels stored in Admin.emp_type / JWT claims.
-        if emp_type not in {"human resource", "human resources", "hr"}:
+        from .plan_features import can_access_hr_operations
+
+        if not can_access_hr_operations(get_jwt()):
             return jsonify({
                 "success": False,
                 "message": "HR access required"

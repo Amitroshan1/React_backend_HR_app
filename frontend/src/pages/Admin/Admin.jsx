@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from '../../components/layout/UserContext';
-import { ManagerProfileCard } from '../Manager/comps/ManagerProfileCard/ManagerProfileCard';
-import { canAccessItPanel } from '../../utils/planFeatures';
+import { markAdminDepartmentVisit } from './AdminLayout';
+import { ADMIN_HUB_SECTIONS, ADMIN_PLATFORM_SECTION } from './adminHubConfig';
 import './Admin.css';
 
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -10,45 +9,72 @@ const ADMIN_DASHBOARD_API = '/api/admin/dashboard';
 const FALLBACK_EMP_TYPES = ['Engineer', 'HR', 'Accountant'];
 const FALLBACK_CIRCLES = ['North', 'South', 'East', 'West'];
 
+const EMPTY_STATS = {
+  total_employees: 0,
+  total_leaves: 0,
+  total_queries: 0,
+  total_claims: 0,
+  total_resignations: 0,
+  pending_leaves: 0,
+  pending_queries: 0,
+  pending_claims: 0,
+  total_inventory_assets: 0,
+  open_tickets: 0,
+  pending_return_requests: 0,
+};
+
+function HubModuleCard({ module, stats, onNavigate }) {
+  const total = module.statKey != null ? stats[module.statKey] : null;
+  const badge = module.badgeKey != null ? stats[module.badgeKey] : null;
+  const showBadge = typeof badge === 'number' && badge > 0;
+
+  return (
+    <button
+      type="button"
+      className={`admin-hub-card admin-hub-card--${module.accent || 'slate'}`}
+      onClick={() => onNavigate(module.route, module)}
+    >
+      <span className="admin-hub-card__icon" aria-hidden>{module.icon}</span>
+      <span className="admin-hub-card__body">
+        <span className="admin-hub-card__title-row">
+          <strong>{module.title}</strong>
+          {showBadge && (
+            <span className="admin-hub-card__badge">{badge > 99 ? '99+' : badge} pending</span>
+          )}
+        </span>
+        <span className="admin-hub-card__desc">{module.description}</span>
+        {total != null && (
+          <span className="admin-hub-card__stat">
+            {typeof total === 'number' ? total.toLocaleString() : total} total
+          </span>
+        )}
+      </span>
+      <span className="admin-hub-card__arrow" aria-hidden>→</span>
+    </button>
+  );
+}
+
 const Admin = () => {
   const navigate = useNavigate();
-  const { userData, loadingUser, photoVersion } = useUser();
   const [employeeTypeOptions, setEmployeeTypeOptions] = useState(['All', ...FALLBACK_EMP_TYPES]);
   const [circleOptions, setCircleOptions] = useState(['All', ...FALLBACK_CIRCLES]);
   const [employeeType, setEmployeeType] = useState('All');
   const [circle, setCircle] = useState('All');
-  const [stats, setStats] = useState({
-    total_employees: 0,
-    total_leaves: 0,
-    total_queries: 0,
-    total_claims: 0,
-    total_resignations: 0,
-    total_inventory_assets: null,
-  });
+  const [stats, setStats] = useState(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [canViewDeploymentGuide, setCanViewDeploymentGuide] = useState(false);
-  const [itInventoryAccess, setItInventoryAccess] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token) {
-      fetch('/api/admin/deployment-guide/access', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json().catch(() => ({})))
-        .then((data) => {
-          if (data.success) setCanViewDeploymentGuide(Boolean(data.can_view_deployment_guide));
-        });
-
-      fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
-        .then((res) => res.json().catch(() => ({})))
-        .then((data) => {
-          if (data.success) {
-            if (data.departments?.length) setEmployeeTypeOptions(['All', ...data.departments]);
-            if (data.circles?.length) setCircleOptions(['All', ...data.circles]);
-          }
-        });
-    }
+    if (!token) return;
+    fetch(MASTER_OPTIONS_API, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if (data.success) {
+          if (data.departments?.length) setEmployeeTypeOptions(['All', ...data.departments]);
+          if (data.circles?.length) setCircleOptions(['All', ...data.circles]);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -66,14 +92,20 @@ const Admin = () => {
       .then((res) => res.json().catch(() => ({})))
       .then((data) => {
         if (data.success) {
-          setItInventoryAccess(Boolean(data.it_inventory_access));
+          setCanViewDeploymentGuide(Boolean(data.can_view_deployment_guide));
           setStats({
+            ...EMPTY_STATS,
             total_employees: data.total_employees ?? 0,
             total_leaves: data.total_leaves ?? 0,
             total_queries: data.total_queries ?? 0,
             total_claims: data.total_claims ?? 0,
             total_resignations: data.total_resignations ?? 0,
-            total_inventory_assets: data.total_inventory_assets ?? null,
+            pending_leaves: data.pending_leaves ?? 0,
+            pending_queries: data.pending_queries ?? 0,
+            pending_claims: data.pending_claims ?? 0,
+            total_inventory_assets: data.total_inventory_assets ?? 0,
+            open_tickets: data.open_tickets ?? 0,
+            pending_return_requests: data.pending_return_requests ?? 0,
           });
         }
         setLoading(false);
@@ -81,148 +113,100 @@ const Admin = () => {
       .catch(() => setLoading(false));
   }, [circle, employeeType]);
 
-  const handleEmployeesClick = () => {
-    navigate('/employees', { state: { employeeType, circle } });
-  };
-  const handleLeavesClick = () => navigate('/admin/leaves');
-  const handleQueriesClick = () => navigate('/admin/queries');
-  const handleClaimsClick = () => navigate('/admin/claims');
-  const handleResignationsClick = () => navigate('/admin/resignations');
-  const handleItInventoryClick = () => navigate('/it/inventory');
+  const handleModuleClick = useCallback(
+    (route, module) => {
+      if (!route.startsWith('/admin')) {
+        markAdminDepartmentVisit();
+      }
+      if (module?.id === 'employees') {
+        navigate(route, { state: { employeeType, circle } });
+        return;
+      }
+      navigate(route);
+    },
+    [navigate, employeeType, circle],
+  );
 
-  const showItInventoryCard = useMemo(() => {
-    const user = userData?.user || {};
-    return itInventoryAccess || canAccessItPanel(user);
-  }, [userData, itInventoryAccess]);
+  const sections = useMemo(() => {
+    const list = [...ADMIN_HUB_SECTIONS];
+    if (canViewDeploymentGuide) list.push(ADMIN_PLATFORM_SECTION);
+    return list;
+  }, [canViewDeploymentGuide]);
 
-  const adminProfile = useMemo(() => {
-    const user = userData?.user || {};
-    const employee = userData?.employee || {};
-    let photoUrl = user.photo_url || null;
-    if (photoUrl && photoVersion) {
-      const sep = photoUrl.includes('?') ? '&' : '?';
-      photoUrl = `${photoUrl}${sep}v=${photoVersion}`;
-    }
-    return {
-      name: user.name || user.first_name || user.user_name || 'Admin',
-      email: user.email || '',
-      mobile: user.mobile || employee.mobile || '',
-      designation: user.department || user.emp_type || employee.designation || 'Admin',
-      photo_url: photoUrl,
-    };
-  }, [userData, photoVersion]);
+  const attentionTotal =
+    stats.pending_leaves +
+    stats.pending_queries +
+    stats.pending_claims +
+    stats.open_tickets +
+    stats.pending_return_requests;
 
   return (
-    <div className="admin-container">
-      <div className="admin-top-row">
-        <div className="admin-top-row__profile">
-          <ManagerProfileCard
-            profile={adminProfile}
-            loading={loadingUser}
-            showScope={false}
-          />
+    <div className="admin-hub">
+      <div className="admin-hub-kpis">
+        <div className="admin-hub-kpi admin-hub-kpi--warn">
+          <span className="admin-hub-kpi__label">Needs attention</span>
+          <strong>{loading ? '…' : attentionTotal}</strong>
+          <span className="admin-hub-kpi__hint">Pending leaves, claims, queries, IT</span>
         </div>
-        {canViewDeploymentGuide && (
-          <div className="admin-top-row__deploy">
-            <button
-              type="button"
-              className="admin-deploy-card"
-              onClick={() => navigate('/admin/customers')}
-            >
-              <span className="admin-deploy-card__icon" aria-hidden>
-                🚀
-              </span>
-              <span className="admin-deploy-card__body">
-                <strong>New customer deployment</strong>
-                <span>Separate server &amp; database per company</span>
-                <span className="admin-deploy-card__cta">Manage customers →</span>
-              </span>
-            </button>
-          </div>
-        )}
+        <div className="admin-hub-kpi">
+          <span className="admin-hub-kpi__label">Employees (filtered)</span>
+          <strong>{loading ? '…' : stats.total_employees}</strong>
+        </div>
+        <div className="admin-hub-kpi">
+          <span className="admin-hub-kpi__label">IT asset units</span>
+          <strong>{loading ? '…' : stats.total_inventory_assets}</strong>
+        </div>
+        <div className="admin-hub-kpi">
+          <span className="admin-hub-kpi__label">Open IT tickets</span>
+          <strong>{loading ? '…' : stats.open_tickets}</strong>
+        </div>
       </div>
 
-      <div className="filters-section">
-        <div className="filter-group">
-          <label>Employee Type:</label>
+      <div className="admin-hub-scope">
+        <label>
+          Employee type
           <select
             value={employeeType}
             onChange={(e) => setEmployeeType(e.target.value)}
-            className="filter-selectt"
+            className="admin-hub-select"
           >
             {employeeTypeOptions.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
-        </div>
-
-        <div className="filter-group">
-          <label>Circle:</label>
+        </label>
+        <label>
+          Circle
           <select
             value={circle}
             onChange={(e) => setCircle(e.target.value)}
-            className="filter-selectt"
+            className="admin-hub-select"
           >
             {circleOptions.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
-        </div>
+        </label>
       </div>
 
-      <div className="cards-grid">
-        <div className="stat-card employees-card" onClick={handleEmployeesClick}>
-          <div className="card-icon">👥</div>
-          <div className="card-content">
-            <h3>Total Employees</h3>
-            <p className="card-number">{loading ? '...' : stats.total_employees}</p>
+      {sections.map((section) => (
+        <section key={section.id} className="admin-hub-section">
+          <div className="admin-hub-section__head">
+            <h2>{section.title}</h2>
+            {section.subtitle && <p>{section.subtitle}</p>}
           </div>
-        </div>
-
-        <div className="stat-card leaves-card" onClick={handleLeavesClick}>
-          <div className="card-icon">📅</div>
-          <div className="card-content">
-            <h3>Total Leaves</h3>
-            <p className="card-number">{loading ? '...' : stats.total_leaves}</p>
+          <div className="admin-hub-grid">
+            {section.modules.map((mod) => (
+              <HubModuleCard
+                key={mod.id}
+                module={mod}
+                stats={stats}
+                onNavigate={handleModuleClick}
+              />
+            ))}
           </div>
-        </div>
-
-        <div className="stat-card queries-card" onClick={handleQueriesClick}>
-          <div className="card-icon">📥</div>
-          <div className="card-content">
-            <h3>Queries</h3>
-            <p className="card-number">{loading ? '...' : stats.total_queries}</p>
-          </div>
-        </div>
-
-        <div className="stat-card claims-card" onClick={handleClaimsClick}>
-          <div className="card-icon">💰</div>
-          <div className="card-content">
-            <h3>Claims</h3>
-            <p className="card-number">{loading ? '...' : stats.total_claims}</p>
-          </div>
-        </div>
-
-        <div className="stat-card resignation-card" onClick={handleResignationsClick}>
-          <div className="card-icon">📝</div>
-          <div className="card-content">
-            <h3>Resignations</h3>
-            <p className="card-number">{loading ? '...' : stats.total_resignations}</p>
-          </div>
-        </div>
-
-        {showItInventoryCard && (
-          <div className="stat-card inventory-card" onClick={handleItInventoryClick}>
-            <div className="card-icon">📦</div>
-            <div className="card-content">
-              <h3>IT / Inventory</h3>
-              <p className="card-number">
-                {loading ? '...' : (stats.total_inventory_assets ?? '—')}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+        </section>
+      ))}
     </div>
   );
 };

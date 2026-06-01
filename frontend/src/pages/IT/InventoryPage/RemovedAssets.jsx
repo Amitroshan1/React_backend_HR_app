@@ -12,6 +12,7 @@ import {
 import {
   getInventoryStatusCategoryTabs,
   showInventoryStatusCategoryTabs,
+  resolveInventoryCategory,
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./RemovedAssets.css";
@@ -126,7 +127,7 @@ function recordBelongsToInventoryCategory(record, inventoryCategory) {
       String(i.id) === String(record.inventoryId) ||
       String(i.id) === String(record.assetId),
   );
-  return (row?.inventoryCategory || "IT Assets") === inventoryCategory;
+  return resolveInventoryCategory(row) === inventoryCategory;
 }
 
 export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {

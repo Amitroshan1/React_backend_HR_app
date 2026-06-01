@@ -33,12 +33,18 @@ import ReadyExport     from "./Parcel/ExportedAssets";
 import {
   INV_CATEGORIES,
   filterInventoryByCategory,
+  getAssignedColumnLabel,
+  resolveInventoryCategory,
   getHardwareFields,
   hideAssignedColumnForCategory,
   isStockInventoryCategory,
   isValidInventoryCategory,
   isVehicleInventoryCategory,
+  showInventoryDeploy,
+  rowSupportsInventoryDeploy,
+  isUnitDeployRow,
 } from "../inventoryCategories";
+import { OfficeIssueModal, OfficeReturnModal } from "./OfficeStockModals";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -104,7 +110,7 @@ function countRemovedAssetsForCategory(inventoryCategory) {
         String(i.id) === String(d.inventoryId) ||
         String(i.id) === String(d.assetId),
     );
-    return (row?.inventoryCategory || "IT Assets") === inventoryCategory;
+    return resolveInventoryCategory(row) === inventoryCategory;
   }).length;
 }
 
@@ -137,13 +143,14 @@ function readLiveCounts(inventoryCategory = null) {
 }
 
 function mapInventoryItem(item) {
+  const inventoryCategory = resolveInventoryCategory(item);
   return {
     id:                item.id,
     name:              item.name,
     hwType:            item.hwType             ?? null,
     total:             Number(item.totalQuantity)     || 0,
     available:         Number(item.availableQuantity) || 0,
-    inventoryCategory: item.inventoryCategory         || "IT Assets",
+    inventoryCategory,
     assigned:          Number(item.assignedQuantity)  || 0,
     notWorking:        Number(item.notWorkingQuantity) || 0,
     inRepair:          Number(item.repairQuantity)     || 0,
@@ -163,8 +170,11 @@ function mapInventoryItem(item) {
   };
 }
 
-function getMappedInventory() {
-  return readInventory().map(mapInventoryItem);
+function getMappedInventory(inventoryCategory = null) {
+  const items = readInventory().map(mapInventoryItem);
+  return inventoryCategory
+    ? filterInventoryByCategory(items, inventoryCategory)
+    : items;
 }
 
 function getUnitsForAsset(inventoryId, assetName, hwType) {
@@ -483,9 +493,46 @@ function UnitPickerModal({ row, onAction, onCancel }) {
 
 // ─── ViewActionGroup ──────────────────────────────────────────────────────────
 
-function ViewActionGroup({ row, onViewAsset }) {
+function ViewActionGroup({
+  row,
+  onViewAsset,
+  inventoryCategory,
+  inventoryDeploy = false,
+  onOfficeIssue,
+  onOfficeReturn,
+}) {
+  const deployable = inventoryDeploy && rowSupportsInventoryDeploy(row, inventoryCategory);
+  const canIssue = deployable && Number(row.available) > 0;
+  const canReturn = deployable && Number(row.assigned) > 0;
+
   return (
-    <button className="inv-action-btn" onClick={() => onViewAsset(row)}>View</button>
+    <div className="inv-action-group">
+      <button type="button" className="inv-action-btn" onClick={() => onViewAsset(row)}>
+        View
+      </button>
+      {inventoryDeploy && (
+        <>
+          <button
+            type="button"
+            className="inv-action-btn inv-action-btn--issue"
+            disabled={!canIssue}
+            title={canIssue ? "Issue to location" : "No available quantity"}
+            onClick={() => onOfficeIssue?.(row)}
+          >
+            Issue
+          </button>
+          <button
+            type="button"
+            className="inv-action-btn inv-action-btn--return"
+            disabled={!canReturn}
+            title={canReturn ? "Return to available" : "Nothing in use"}
+            onClick={() => onOfficeReturn?.(row)}
+          >
+            Return
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -526,7 +573,15 @@ function PhotoLightbox({ photos, startIndex, onClose }) {
 
 // ─── AssetDetailModal ─────────────────────────────────────────────────────────
 
-function AssetDetailModal({ asset, onClose, onStatusChange }) {
+function AssetDetailModal({
+  asset,
+  onClose,
+  onStatusChange,
+  inventoryCategory,
+  inventoryDeploy = false,
+  onOfficeIssue,
+  onOfficeReturn,
+}) {
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
   const [lightboxStartIdx,  setLightboxStartIdx]  = useState(null);
 
@@ -653,7 +708,9 @@ function AssetDetailModal({ asset, onClose, onStatusChange }) {
                       {[
                         ["Total Quantity", asset?.total ?? 0],
                         ["Available", asset?.available ?? 0],
-                        ...(!stockMode ? [["Assigned", asset?.assigned ?? 0]] : []),
+                        ...(!stockMode || inventoryDeploy
+                          ? [[inventoryDeploy ? "In use" : "Assigned", asset?.assigned ?? 0]]
+                          : []),
                         ["Not Working", asset?.notWorking ?? 0],
                         ["In Repair", asset?.inRepair ?? 0],
                         ...(stockMode && asset?.vendor && asset.vendor !== "—"
@@ -754,6 +811,43 @@ function AssetDetailModal({ asset, onClose, onStatusChange }) {
 
           <div className="inv-detail-footer">
             <div className="inv-detail-footer-actions">
+              {inventoryDeploy &&
+                (stockMode || isUnitDeployRow(asset, inventoryCategory)) && (
+                <>
+                  <button
+                    type="button"
+                    className="inv-inline-action-btn"
+                    style={{
+                      color: "#1d4ed8",
+                      background: "#eff6ff",
+                      borderColor: "#3b82f6",
+                    }}
+                    disabled={Number(asset?.available) < 1}
+                    onClick={() => {
+                      onOfficeIssue?.(asset);
+                      onClose();
+                    }}
+                  >
+                    Issue
+                  </button>
+                  <button
+                    type="button"
+                    className="inv-inline-action-btn"
+                    style={{
+                      color: "#047857",
+                      background: "#ecfdf5",
+                      borderColor: "#10b981",
+                    }}
+                    disabled={Number(asset?.assigned) < 1}
+                    onClick={() => {
+                      onOfficeReturn?.(asset);
+                      onClose();
+                    }}
+                  >
+                    Return
+                  </button>
+                </>
+              )}
               {EDIT_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
@@ -1197,8 +1291,18 @@ function CategoryPill({ category }) {
   return <span className={`inv-cat-pill inv-cat-pill--${variant}`}>{label}</span>;
 }
 
-function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned = false }) {
-  const showAvailable = filter !== "Assigned";
+function AssetTable({
+  assets,
+  filter,
+  onViewAsset,
+  hideAssigned = false,
+  assignedColumnLabel = "Assigned",
+  inventoryCategory,
+  inventoryDeploy = false,
+  onOfficeIssue,
+  onOfficeReturn,
+}) {
+  const showAvailable = filter !== "Assigned" && filter !== "In use";
   const showAssigned  = !hideAssigned && filter !== "Available";
   const emptyColSpan  = 4 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
 
@@ -1211,7 +1315,7 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
             <th>Category</th>
             <th>Total Qty</th>
             {showAvailable && <th>Available</th>}
-            {showAssigned  && <th>Assigned</th>}
+            {showAssigned  && <th>{assignedColumnLabel}</th>}
             <th>Action</th>
           </tr>
         </thead>
@@ -1248,6 +1352,10 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
                   <ViewActionGroup
                     row={row}
                     onViewAsset={onViewAsset}
+                    inventoryCategory={inventoryCategory}
+                    inventoryDeploy={inventoryDeploy}
+                    onOfficeIssue={onOfficeIssue}
+                    onOfficeReturn={onOfficeReturn}
                   />
                 </td>
               </tr>
@@ -1267,7 +1375,15 @@ function TotalAssetsPage({ category }) {
   const [hwTypeFilter,  setHwTypeFilter]  = useState("All");
   const [searchQuery,   setSearchQuery]   = useState("");
   const [detailAsset,   setDetailAsset]   = useState(null);
+  const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
+  const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
   const [refreshKey,    setRefreshKey]    = useState(0);
+
+  const inventoryDeploy = showInventoryDeploy(category);
+  const filterOptions = inventoryDeploy
+    ? ["All", "Available", "In use"]
+    : FILTER_OPTIONS;
+  const assignedLabel = getAssignedColumnLabel(category);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
   const {
@@ -1284,12 +1400,11 @@ function TotalAssetsPage({ category }) {
   const filteredAssets = useMemo(() => {
     void refreshKey;
     const q = searchQuery.trim().toLowerCase();
-    return getMappedInventory()
-      .filter((a) => a.inventoryCategory === category)
+    return getMappedInventory(category)
       .filter((a) => Number(a.total) > 0)
       .filter((a) => {
         if (filter === "Available") return a.available > 0;
-        if (filter === "Assigned")  return a.assigned  > 0;
+        if (filter === "Assigned" || filter === "In use") return a.assigned > 0;
         return true;
       })
       .filter((a) => {
@@ -1312,7 +1427,7 @@ function TotalAssetsPage({ category }) {
 
       <div className="inv-filter-row">
         <span className="inv-filter-label">Filter:</span>
-        {FILTER_OPTIONS.map((f) => (
+        {filterOptions.map((f) => (
           <button
             key={f}
             className={filter === f ? "inv-filter-pill--active" : "inv-filter-pill"}
@@ -1362,8 +1477,12 @@ function TotalAssetsPage({ category }) {
           assets={filteredAssets}
           filter={filter}
           onViewAsset={setDetailAsset}
-          onStatusChange={handleStatusChange}
           hideAssigned={hideAssignedColumnForCategory(category)}
+          assignedColumnLabel={assignedLabel}
+          inventoryCategory={category}
+          inventoryDeploy={inventoryDeploy}
+          onOfficeIssue={setOfficeIssueTarget}
+          onOfficeReturn={setOfficeReturnTarget}
         />
       </section>
 
@@ -1372,6 +1491,26 @@ function TotalAssetsPage({ category }) {
           asset={detailAsset}
           onClose={() => setDetailAsset(null)}
           onStatusChange={handleStatusChange}
+          inventoryCategory={category}
+          inventoryDeploy={inventoryDeploy}
+          onOfficeIssue={setOfficeIssueTarget}
+          onOfficeReturn={setOfficeReturnTarget}
+        />
+      )}
+      {officeIssueTarget && (
+        <OfficeIssueModal
+          asset={officeIssueTarget}
+          inventoryCategory={category}
+          onClose={() => setOfficeIssueTarget(null)}
+          onSuccess={refresh}
+        />
+      )}
+      {officeReturnTarget && (
+        <OfficeReturnModal
+          asset={officeReturnTarget}
+          inventoryCategory={category}
+          onClose={() => setOfficeReturnTarget(null)}
+          onSuccess={refresh}
         />
       )}
       {removeTarget && <RemoveAssetModal asset={removeTarget} onConfirm={handleRemoveConfirm} onCancel={() => setRemoveTarget(null)} />}
@@ -1390,7 +1529,12 @@ function TotalAssetsPage({ category }) {
 
 function OverviewPage({ category }) {
   const [detailAsset, setDetailAsset] = useState(null);
+  const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
+  const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
   const [refreshKey,  setRefreshKey]  = useState(0);
+
+  const inventoryDeploy = showInventoryDeploy(category);
+  const assignedLabel = getAssignedColumnLabel(category);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
   const {
@@ -1406,8 +1550,7 @@ function OverviewPage({ category }) {
 
   const assets = useMemo(() => {
     void refreshKey;
-    return getMappedInventory()
-      .filter((a) => a.inventoryCategory === category)
+    return getMappedInventory(category)
       .filter((a) => Number(a.total) > 0);
   }, [category, refreshKey]);
 
@@ -1424,8 +1567,12 @@ function OverviewPage({ category }) {
           assets={assets}
           filter="All"
           onViewAsset={setDetailAsset}
-          onStatusChange={handleStatusChange}
           hideAssigned={hideAssignedColumnForCategory(category)}
+          assignedColumnLabel={assignedLabel}
+          inventoryCategory={category}
+          inventoryDeploy={inventoryDeploy}
+          onOfficeIssue={setOfficeIssueTarget}
+          onOfficeReturn={setOfficeReturnTarget}
         />
       </section>
 
@@ -1434,6 +1581,26 @@ function OverviewPage({ category }) {
           asset={detailAsset}
           onClose={() => setDetailAsset(null)}
           onStatusChange={handleStatusChange}
+          inventoryCategory={category}
+          inventoryDeploy={inventoryDeploy}
+          onOfficeIssue={setOfficeIssueTarget}
+          onOfficeReturn={setOfficeReturnTarget}
+        />
+      )}
+      {officeIssueTarget && (
+        <OfficeIssueModal
+          asset={officeIssueTarget}
+          inventoryCategory={category}
+          onClose={() => setOfficeIssueTarget(null)}
+          onSuccess={refresh}
+        />
+      )}
+      {officeReturnTarget && (
+        <OfficeReturnModal
+          asset={officeReturnTarget}
+          inventoryCategory={category}
+          onClose={() => setOfficeReturnTarget(null)}
+          onSuccess={refresh}
         />
       )}
       {removeTarget && <RemoveAssetModal asset={removeTarget} onConfirm={handleRemoveConfirm} onCancel={() => setRemoveTarget(null)} />}

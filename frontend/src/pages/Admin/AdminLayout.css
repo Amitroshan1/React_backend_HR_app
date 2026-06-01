@@ -1,0 +1,165 @@
+.admin-shell {
+  display: flex;
+  min-height: calc(100vh - 120px);
+  margin: -8px -16px 0;
+  background: #f1f5f9;
+}
+
+.admin-shell__sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  min-height: calc(100vh - 100px);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
+.admin-shell__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 16px;
+  border-bottom: 1px solid #334155;
+}
+
+.admin-shell__brand-icon {
+  font-size: 28px;
+}
+
+.admin-shell__brand strong {
+  display: block;
+  font-size: 15px;
+  color: #f8fafc;
+}
+
+.admin-shell__brand span {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.admin-shell__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-shell__nav-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin: 14px 10px 4px;
+}
+
+.admin-shell__nav-hint {
+  font-size: 11px;
+  color: #64748b;
+  margin: 0 10px 8px;
+  line-height: 1.35;
+}
+
+.admin-shell__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #cbd5e1;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.admin-shell__link:hover {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.admin-shell__link--active {
+  background: linear-gradient(90deg, #2563eb, #0d9488);
+  color: #fff;
+}
+
+.admin-shell__link-icon {
+  font-size: 16px;
+  width: 22px;
+  text-align: center;
+}
+
+.admin-shell__dept-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #f1f5f9;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.admin-shell__dept-btn:hover {
+  border-color: #6366f1;
+  background: #273549;
+}
+
+.admin-shell__dept-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.admin-shell__dept-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-shell__dept-text strong {
+  font-size: 13px;
+}
+
+.admin-shell__dept-text small {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.admin-shell__dept-arrow {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.admin-shell__main {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 4px 8px 24px 4px;
+}
+
+@media (max-width: 900px) {
+  .admin-shell {
+    flex-direction: column;
+  }
+
+  .admin-shell__sidebar {
+    width: 100%;
+    min-height: auto;
+    max-height: none;
+    position: relative;
+  }
+}

@@ -77,7 +77,7 @@ const Employee = () => {
     <div className="employee-container">
       <div className="employee-header">
         <button className="back-button" onClick={handleBackToDashboard}>
-          ← Dashboard
+          ← Command Center
         </button>
         <h1>Employee List</h1>
       </div>

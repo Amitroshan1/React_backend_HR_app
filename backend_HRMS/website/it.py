@@ -12,6 +12,7 @@ from .models.it_models import (
     ITDeletedAssetLog,
     ITInventoryItem,
     ITInventoryQuantityAssignment,
+    ITOfficeStockDeployment,
     ITParcelExport,
     ITParcelExportItem,
     ITParcelImport,
@@ -144,13 +145,30 @@ def _is_qty_managed_inventory(category, inventory_category=None):
     return False
 
 
+def _effective_inventory_category(item):
+    """Align stored inventory_category with item.category (fixes legacy mis-tagged rows)."""
+    ic = (item.inventory_category or "").strip()
+    cat = (item.category or "").strip().lower()
+    if cat == "vehicle":
+        return "Transport Assets"
+    if cat == "equipment":
+        return "Infrastructure Assets"
+    if cat == "stock":
+        if ic in ("Office Assets", "Infrastructure Assets", "Transport Assets"):
+            return ic
+        return ic
+    if cat in ("hardware", "software", "accessories", "consumables"):
+        return "IT Assets"
+    return ic or "IT Assets"
+
+
 def _serialize_inventory_item(item):
     return {
         "id": item.id,
         "inventory_code": item.inventory_code,
         "name": item.name,
         "category": item.category,
-        "inventory_category": item.inventory_category,
+        "inventory_category": _effective_inventory_category(item),
         "hw_type": item.hw_type,
         "photos": item.photos_json or [],
         "vendor": item.vendor or "",
@@ -1456,6 +1474,224 @@ def assign_inventory_quantity():
                 e,
             )
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory quantity updated")
+
+
+_DEPLOY_INVENTORY_CATEGORIES = frozenset(
+    {"Office Assets", "Transport Assets", "Infrastructure Assets"}
+)
+
+
+def _inventory_deploy_mode(item):
+    """Return 'stock' (qty), 'unit' (vehicle/equipment), or None."""
+    inv_cat = (item.inventory_category or "").strip()
+    if inv_cat not in _DEPLOY_INVENTORY_CATEGORIES:
+        return None
+    item_cat = (item.category or "").strip().lower()
+    if inv_cat == "Office Assets":
+        return "stock" if _is_qty_managed_inventory(item.category, item.inventory_category) else None
+    if inv_cat == "Infrastructure Assets":
+        if item_cat == "stock":
+            return "stock"
+        if item_cat == "equipment":
+            return "unit"
+        return None
+    if inv_cat == "Transport Assets" and item_cat == "vehicle":
+        return "unit"
+    return None
+
+
+def _serialize_office_deployment(row):
+    unit = row.asset_unit if row.asset_unit_id else None
+    unit_label = ""
+    if unit:
+        reg = (unit.serial_number or "").strip()
+        make_model = " ".join(
+            p for p in [(unit.make or "").strip(), (unit.model or "").strip()] if p
+        ).strip()
+        unit_label = reg or make_model or unit.unit_code or f"Unit #{unit.id}"
+    return {
+        "id": row.id,
+        "inventoryItemId": row.inventory_item_id,
+        "inventoryCategory": row.inventory_category or "",
+        "assetUnitId": row.asset_unit_id,
+        "unitLabel": unit_label,
+        "quantity": int(row.quantity or 0),
+        "deploymentLocation": row.deployment_location or "",
+        "custodianName": row.custodian_name or "",
+        "custodianEmpId": row.custodian_emp_id or "",
+        "notes": row.notes or "",
+        "createdAt": _iso(row.created_at),
+    }
+
+
+def _list_stock_deployments_impl():
+    inventory_item_id = request.args.get("inventory_item_id")
+    inventory_category = (request.args.get("inventory_category") or "").strip()
+    q = ITOfficeStockDeployment.query.join(ITInventoryItem).filter(
+        ITOfficeStockDeployment.quantity > 0,
+        ITInventoryItem.inventory_category.in_(list(_DEPLOY_INVENTORY_CATEGORIES)),
+    )
+    if inventory_category:
+        if inventory_category not in _DEPLOY_INVENTORY_CATEGORIES:
+            return _err("Invalid inventory_category", 400)
+        q = q.filter(ITInventoryItem.inventory_category == inventory_category)
+    if inventory_item_id:
+        try:
+            iid = int(inventory_item_id)
+        except (TypeError, ValueError):
+            return _err("inventory_item_id must be an integer", 400)
+        q = q.filter(ITOfficeStockDeployment.inventory_item_id == iid)
+    rows = q.order_by(ITOfficeStockDeployment.created_at.desc()).all()
+    return _ok({"deployments": [_serialize_office_deployment(r) for r in rows]})
+
+
+def _stock_deploy_impl():
+    data = request.get_json(silent=True) or {}
+    try:
+        inventory_item_id = int(data.get("inventory_item_id"))
+    except (TypeError, ValueError):
+        return _err("inventory_item_id is required", 400)
+    quantity = int(data.get("quantity") or 0)
+    location = (data.get("deployment_location") or data.get("location") or "").strip()
+    custodian_name = (data.get("custodian_name") or "").strip() or None
+    custodian_emp_id = (data.get("custodian_emp_id") or "").strip() or None
+    notes = (data.get("notes") or "").strip() or None
+    asset_unit_id = data.get("asset_unit_id")
+
+    if not location:
+        return _err("deployment_location is required", 400)
+
+    item = ITInventoryItem.query.get(inventory_item_id)
+    if not item:
+        return _err("Inventory item not found", 404)
+
+    mode = _inventory_deploy_mode(item)
+    if not mode:
+        return _err("This item cannot be issued from inventory", 400)
+
+    actor = _current_admin()
+    inv_cat = (item.inventory_category or "").strip()
+
+    if mode == "unit":
+        try:
+            uid = int(asset_unit_id)
+        except (TypeError, ValueError):
+            return _err("asset_unit_id is required for vehicles and installed equipment", 400)
+        unit = ITAssetUnit.query.get(uid)
+        if not unit or unit.inventory_item_id != item.id:
+            return _err("Asset unit not found for this item", 404)
+        if (unit.status or "").lower() != "available":
+            return _err("This unit is not available to issue", 400)
+        quantity = 1
+        unit.status = "assigned"
+        db.session.add(
+            ITOfficeStockDeployment(
+                inventory_item_id=item.id,
+                inventory_category=inv_cat,
+                asset_unit_id=unit.id,
+                quantity=1,
+                deployment_location=location,
+                custodian_name=custodian_name,
+                custodian_emp_id=custodian_emp_id,
+                notes=notes,
+                created_by_admin_id=actor.id if actor else None,
+            )
+        )
+        _recalc_inventory_counts(item.id)
+        db.session.commit()
+        return _ok(
+            {"item": _serialize_inventory_item(item)},
+            f"Issued to {location}",
+            201,
+        )
+
+    if quantity < 1:
+        return _err("quantity must be >= 1", 400)
+    if int(item.available_quantity or 0) < quantity:
+        return _err("Not enough available quantity", 400)
+
+    item.available_quantity = int(item.available_quantity or 0) - quantity
+    item.assigned_quantity = int(item.assigned_quantity or 0) + quantity
+    db.session.add(
+        ITOfficeStockDeployment(
+            inventory_item_id=item.id,
+            inventory_category=inv_cat,
+            quantity=quantity,
+            deployment_location=location,
+            custodian_name=custodian_name,
+            custodian_emp_id=custodian_emp_id,
+            notes=notes,
+            created_by_admin_id=actor.id if actor else None,
+        )
+    )
+    db.session.commit()
+    return _ok(
+        {"item": _serialize_inventory_item(item)},
+        f"Issued {quantity} to {location}",
+        201,
+    )
+
+
+def _stock_return_impl():
+    data = request.get_json(silent=True) or {}
+    try:
+        deployment_id = int(data.get("deployment_id"))
+    except (TypeError, ValueError):
+        return _err("deployment_id is required", 400)
+    quantity = int(data.get("quantity") or 0)
+    if quantity < 1:
+        return _err("quantity must be >= 1", 400)
+
+    row = ITOfficeStockDeployment.query.get(deployment_id)
+    if not row:
+        return _err("Deployment not found", 404)
+    item = ITInventoryItem.query.get(row.inventory_item_id)
+    if not item or _inventory_deploy_mode(item) is None:
+        return _err("Inventory item not found", 404)
+    if int(row.quantity or 0) < quantity:
+        return _err("Return quantity exceeds issued quantity", 400)
+
+    if row.asset_unit_id:
+        if quantity != 1:
+            return _err("Return quantity must be 1 for a single vehicle or equipment unit", 400)
+        unit = ITAssetUnit.query.get(row.asset_unit_id)
+        if unit:
+            unit.status = "available"
+        db.session.delete(row)
+        _recalc_inventory_counts(item.id)
+    else:
+        row.quantity = int(row.quantity or 0) - quantity
+        if row.quantity <= 0:
+            db.session.delete(row)
+        item.assigned_quantity = max(0, int(item.assigned_quantity or 0) - quantity)
+        item.available_quantity = int(item.available_quantity or 0) + quantity
+
+    db.session.commit()
+    return _ok(
+        {"item": _serialize_inventory_item(item)},
+        f"Returned {quantity} to available",
+    )
+
+
+@it_bp.route("/office-stock/deployments", methods=["GET"])
+@it_bp.route("/inventory-stock/deployments", methods=["GET"])
+@jwt_required()
+def list_office_stock_deployments():
+    return _list_stock_deployments_impl()
+
+
+@it_bp.route("/office-stock/deploy", methods=["POST"])
+@it_bp.route("/inventory-stock/deploy", methods=["POST"])
+@jwt_required()
+def office_stock_deploy():
+    return _stock_deploy_impl()
+
+
+@it_bp.route("/office-stock/return", methods=["POST"])
+@it_bp.route("/inventory-stock/return", methods=["POST"])
+@jwt_required()
+def office_stock_return():
+    return _stock_return_impl()
 
 
 @it_bp.route("/tickets", methods=["GET"])

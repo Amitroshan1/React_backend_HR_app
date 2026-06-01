@@ -72,10 +72,43 @@ export function isValidInventoryCategory(cat) {
 }
 
 /** Filter inventory rows by `inventoryCategory` field. */
+/** Resolve top-level inventory tab from API/local row (never treat Stock/Vehicle as IT by default). */
+export function resolveInventoryCategory(item) {
+  const explicit = String(
+    item?.inventoryCategory ?? item?.inventory_category ?? "",
+  ).trim();
+  const cat = String(item?.category ?? "").trim().toLowerCase();
+
+  if (cat === "vehicle") return "Transport Assets";
+  if (cat === "equipment") return "Infrastructure Assets";
+
+  if (cat === "stock") {
+    if (
+      explicit === "Office Assets" ||
+      explicit === "Infrastructure Assets" ||
+      explicit === "Transport Assets"
+    ) {
+      return explicit;
+    }
+    return "";
+  }
+
+  if (
+    ["hardware", "software", "accessories", "consumables", "consumable", "accessory"].includes(
+      cat,
+    )
+  ) {
+    return explicit && INV_CATEGORIES.includes(explicit) ? explicit : "IT Assets";
+  }
+
+  if (explicit && INV_CATEGORIES.includes(explicit)) return explicit;
+  return "";
+}
+
 export function filterInventoryByCategory(items, inventoryCategory) {
   if (!inventoryCategory) return items;
   return (items || []).filter(
-    (i) => (i.inventoryCategory || "IT Assets") === inventoryCategory,
+    (i) => resolveInventoryCategory(i) === inventoryCategory,
   );
 }
 
@@ -126,8 +159,75 @@ export function isNonItInventoryCategory(inventoryCategory) {
   return inventoryCategory !== "IT Assets";
 }
 
+const DEPLOY_INVENTORY_CATEGORIES = new Set([
+  "Office Assets",
+  "Transport Assets",
+  "Infrastructure Assets",
+]);
+
+/** Issue / return (location deploy) for Office, Transport, Infrastructure. */
+export function showInventoryDeploy(inventoryCategory) {
+  return DEPLOY_INVENTORY_CATEGORIES.has(inventoryCategory);
+}
+
+/** Show In use / Assigned column on IT and deploy-enabled inventory tabs. */
 export function hideAssignedColumnForCategory(inventoryCategory) {
-  return isNonItInventoryCategory(inventoryCategory);
+  if (inventoryCategory === "IT Assets") return false;
+  return !showInventoryDeploy(inventoryCategory);
+}
+
+export function isOfficeInventoryCategory(inventoryCategory) {
+  return inventoryCategory === "Office Assets";
+}
+
+/** @deprecated use showInventoryDeploy */
+export function showOfficeStockAssign(inventoryCategory) {
+  return showInventoryDeploy(inventoryCategory);
+}
+
+export function getAssignedColumnLabel(inventoryCategory) {
+  return DEPLOY_INVENTORY_CATEGORIES.has(inventoryCategory) ? "In use" : "Assigned";
+}
+
+export function isUnitDeployRow(row, inventoryCategory) {
+  const cat = String(row?.category || "").trim().toLowerCase();
+  if (inventoryCategory === "Transport Assets") return cat === "vehicle";
+  if (inventoryCategory === "Infrastructure Assets") return cat === "equipment";
+  return false;
+}
+
+export function isStockDeployRow(row) {
+  return String(row?.category || "").trim().toLowerCase() === "stock";
+}
+
+export function rowSupportsInventoryDeploy(row, inventoryCategory) {
+  if (!showInventoryDeploy(inventoryCategory)) return false;
+  return isStockDeployRow(row) || isUnitDeployRow(row, inventoryCategory);
+}
+
+export function getDeployModalConfig(inventoryCategory) {
+  if (inventoryCategory === "Transport Assets") {
+    return {
+      label: "Transport",
+      locationLabel: "Route / base / depot",
+      locationPlaceholder: "e.g. Mumbai depot, Site A",
+      hint: "Mark an available vehicle as in use at a location.",
+    };
+  }
+  if (inventoryCategory === "Infrastructure Assets") {
+    return {
+      label: "Infrastructure",
+      locationLabel: "Site / location",
+      locationPlaceholder: "e.g. Server room A, Plant 2",
+      hint: "Issue bulk stock or an installed unit to a site.",
+    };
+  }
+  return {
+    label: "Office",
+    locationLabel: "Location / department",
+    locationPlaceholder: "e.g. 3rd floor pantry, Reception",
+    hint: "Move quantity from Available to In use at a location.",
+  };
 }
 
 /** Category tabs on Not Working / In Repair / Dead Assets (IT only). */
@@ -153,5 +253,5 @@ export function unitBelongsToInventoryCategory(unit, inventoryCategory, inventor
   if (!inventoryCategory) return true;
   const row = getInventoryRowForUnit(unit, inventory);
   if (!row) return false;
-  return (row.inventoryCategory || "IT Assets") === inventoryCategory;
+  return resolveInventoryCategory(row) === inventoryCategory;
 }

@@ -298,6 +298,18 @@
   white-space: nowrap;
 }
 
+.asd-cat-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 .asd-asset-name {
   font-weight: 600;
   color: #1e293b;

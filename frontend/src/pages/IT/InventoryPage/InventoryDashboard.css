@@ -701,6 +701,42 @@ body {
   border-color: #06b6d4;
 }
 
+.inv-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.inv-action-btn--issue {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.inv-action-btn--issue:hover:not(:disabled) {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
+.inv-action-btn--return {
+  border-color: #6ee7b7;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.inv-action-btn--return:hover:not(:disabled) {
+  background: #10b981;
+  border-color: #10b981;
+  color: #fff;
+}
+
+.inv-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .inv-action-btn-edit {
   padding: 5px 14px;
   border-radius: 6px;
@@ -806,6 +842,48 @@ body {
   max-width: 440px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2);
   overflow: hidden;
+}
+
+.inv-modal-box--wide {
+  max-width: 520px;
+}
+
+/* Office issue / return — tighter header and body */
+.inv-modal-box--office .inv-modal-hero {
+  padding: 10px 20px 8px;
+  background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+}
+
+.inv-modal-box--office .inv-modal-hero-label {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+}
+
+.inv-modal-box--office .inv-modal-hero-title {
+  margin: 2px 0 0;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.inv-modal-box--office .inv-modal-hero-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.inv-modal-box--office .inv-modal-body {
+  padding: 12px 20px 16px;
+}
+
+.inv-modal-box--office .inv-modal-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.inv-modal-textarea {
+  resize: vertical;
+  min-height: 56px;
 }
 
 .inv-modal-hero {
