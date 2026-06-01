@@ -2,16 +2,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "react-toastify";
 import {
+  buildDeletedLogApiPayload,
   createDeletedLogAPI,
-  getRemovedITAssets,
-  getITApiErrorMessage,
-  removeRemovedITAssetAPI,
-  setUnitStatusAPI,
-  syncRemovedITFromAPI,
+  deleteAssetUnitAPI,
   getAssetUnitsFromStorage,
-  saveAssetUnitsToStorage,
+  getITApiErrorMessage,
+  getRemovedITAssets,
+  getSoftwareInventory,
+  removeFromRemovedIT,
+  removeRemovedITAssetAPI,
+  returnSoftwareLicenseAPI,
+  setUnitStatusAPI,
   syncDeletedLogsFromAPI,
   syncITDataFromAPI,
+  syncRemovedITFromAPI,
 } from "../Data";
 import "./RemovedITAssets.css";
 
@@ -19,15 +23,59 @@ import "./RemovedITAssets.css";
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CATEGORIES = ["All", "Hardware", "Accessories", "Consumables"];
+const CATEGORIES = ["All", "Hardware", "Software", "Accessories", "Consumables"];
 
 const CATEGORY_COLORS = {
   Hardware:    { bg: "#eff6ff", text: "#2563eb", dot: "#3b82f6" },
+  Software:    { bg: "#f5f3ff", text: "#7c3aed", dot: "#8b5cf6" },
   Accessories: { bg: "#f0fdf4", text: "#16a34a", dot: "#22c55e" },
   Consumables: { bg: "#fff7ed", text: "#ea580c", dot: "#f97316" },
 };
 
 const searchText = (value) => String(value ?? "").toLowerCase();
+
+function resolveAssetForDeadAction(asset) {
+  const cat = String(asset?.category || "").trim().toLowerCase();
+  if (cat === "software") {
+    const sw = getSoftwareInventory() || [];
+    let lic = null;
+    if (asset.assetUnitId != null && asset.assetUnitId !== "") {
+      lic = sw.find((s) => String(s.id) === String(asset.assetUnitId));
+    }
+    if (!lic && asset.name) {
+      const nameKey = asset.name.trim().toLowerCase();
+      lic = sw.find((s) => String(s.name || "").trim().toLowerCase() === nameKey);
+    }
+    return lic ? { kind: "software", row: lic } : null;
+  }
+
+  const units = getAssetUnitsFromStorage() || [];
+  let unit = null;
+  if (asset.assetUnitId != null && asset.assetUnitId !== "") {
+    unit = units.find((u) => String(u.id) === String(asset.assetUnitId));
+  }
+  if (!unit && asset.name) {
+    const nameKey = asset.name.trim().toLowerCase();
+    unit = units.find((u) => {
+      const labels = [u.assetName, u.brand, u.make].filter(Boolean).map((v) =>
+        String(v).trim().toLowerCase(),
+      );
+      return labels.includes(nameKey);
+    });
+  }
+  return unit ? { kind: "unit", row: unit } : null;
+}
+
+async function dismissRemovedITRecord(asset) {
+  const id = asset?.id;
+  const isServerId = id != null && /^\d+$/.test(String(id));
+  if (isServerId) {
+    await removeRemovedITAssetAPI(Number(id));
+  } else if (id != null) {
+    removeFromRemovedIT(id);
+  }
+  await syncRemovedITFromAPI();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FilterBar
@@ -152,10 +200,11 @@ function AssetTable({ assets, onView }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ActionModal({ asset, onClose, onActionDone }) {
-  const [showPermRemove, setShowPermRemove] = useState(false);
-  const [permReason,     setPermReason    ] = useState("");
-  const [submitted,      setSubmitted     ] = useState(null);
-  const [error,          setError         ] = useState("");
+  const [showDeadConfirm, setShowDeadConfirm] = useState(false);
+  const [deadReason, setDeadReason] = useState("");
+  const [submitted, setSubmitted] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   if (!asset) return null;
 
@@ -165,19 +214,14 @@ function ActionModal({ asset, onClose, onActionDone }) {
   const handleRepair = () => {
     void (async () => {
       try {
-        const units = getAssetUnitsFromStorage();
-        const row = units.find(
-          (u) => u.id === asset.id || u.assetId === asset.id || u.assetName === asset.name,
-        );
-        if (row?.id) {
-          await setUnitStatusAPI({ unitId: row.id, status: "repair" });
+        const resolved = resolveAssetForDeadAction(asset);
+        if (resolved?.kind === "unit" && resolved.row?.id) {
+          await setUnitStatusAPI({ unitId: resolved.row.id, status: "repair" });
         }
-        if (asset.id) {
-          await removeRemovedITAssetAPI(asset.id);
-        }
+        await dismissRemovedITRecord(asset);
         await syncITDataFromAPI();
-        await syncRemovedITFromAPI();
         setSubmitted("repair");
+        toast.success(`"${asset.name}" sent to repair.`);
         onActionDone?.();
       } catch (err) {
         console.error("[RemovedITAssets] Repair action failed:", err);
@@ -186,36 +230,77 @@ function ActionModal({ asset, onClose, onActionDone }) {
     })();
   };
 
-  const handleRemoveClick = () => {
-    if (!showPermRemove) {
-      setShowPermRemove(true);
-    } else {
-      if (!permReason.trim()) { setError("Please enter a reason."); return; }
-      void (async () => {
-        try {
+  const handleDeadAssetClick = () => {
+    if (!showDeadConfirm) {
+      setShowDeadConfirm(true);
+      return;
+    }
+    if (!deadReason.trim()) {
+      setError("Please enter a reason.");
+      return;
+    }
+
+    void (async () => {
+      setBusy(true);
+      setError("");
+      try {
+        const deletedId = `del-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const resolved = resolveAssetForDeadAction(asset);
+        const reasonText = [asset.itReason, deadReason.trim()]
+          .filter(Boolean)
+          .join(" — ");
+
+        if (resolved?.kind === "software") {
+          const lic = resolved.row;
+          try {
+            await returnSoftwareLicenseAPI(lic.id);
+          } catch {
+            /* license may already be unassigned */
+          }
           await createDeletedLogAPI({
+            delete_code: deletedId,
+            asset_unit_id: null,
+            inventory_item_id: lic.inventoryId ? Number(lic.inventoryId) || null : null,
+            deleted_by_name: "IT Panel",
+            asset_name: lic.name || asset.name,
+            category: "Software",
+            serial_number: "",
+            reason: reasonText,
+          });
+        } else if (resolved?.kind === "unit") {
+          const unit = resolved.row;
+          await createDeletedLogAPI(
+            buildDeletedLogApiPayload(unit, "IT Panel", reasonText, deletedId),
+          );
+          await deleteAssetUnitAPI(unit.id);
+        } else {
+          await createDeletedLogAPI({
+            delete_code: deletedId,
+            asset_unit_id: asset.assetUnitId ? Number(asset.assetUnitId) || null : null,
+            inventory_item_id: asset.inventoryId ? Number(asset.inventoryId) || null : null,
+            deleted_by_name: "IT Panel",
             asset_name: asset.name,
             category: asset.category,
-            reason: permReason.trim(),
+            serial_number: asset.serialNumber || "",
+            reason: reasonText,
           });
-          await syncDeletedLogsFromAPI();
-          const units = getAssetUnitsFromStorage();
-          const updated = units.filter(
-            (u) => u.id !== asset.id && u.assetId !== asset.id,
-          );
-          saveAssetUnitsToStorage(updated);
-          await removeRemovedITAssetAPI(asset.id);
-          await syncRemovedITFromAPI();
-          setSubmitted("removed");
-          onActionDone?.();
-        } catch (err) {
-          console.error("[RemovedITAssets] Permanent remove failed:", err);
-          toast.error(
-            getITApiErrorMessage(err, "Could not complete removal on the server."),
-          );
         }
-      })();
-    }
+
+        await syncDeletedLogsFromAPI();
+        await syncITDataFromAPI();
+        await dismissRemovedITRecord(asset);
+        setSubmitted("dead");
+        toast.success(`"${asset.name}" moved to Dead Assets.`);
+        onActionDone?.();
+      } catch (err) {
+        console.error("[RemovedITAssets] Dead asset failed:", err);
+        toast.error(
+          getITApiErrorMessage(err, "Could not move this asset to Dead Assets."),
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
 
   return (
@@ -262,14 +347,14 @@ function ActionModal({ asset, onClose, onActionDone }) {
         {/* ── Success screen ── */}
         {submitted ? (
           <div className="success-box">
-            <div className="success-icon">{submitted === "repair" ? "🔧" : "🗑️"}</div>
+            <div className="success-icon">{submitted === "repair" ? "🔧" : "☠️"}</div>
             <p className="success-title">
-              {submitted === "repair" ? "Sent to Repair" : "Permanently Removed"}
+              {submitted === "repair" ? "Sent to Repair" : "Moved to Dead Assets"}
             </p>
             <p className="success-sub">
               {submitted === "repair"
                 ? "This asset has been queued for repair successfully."
-                : "This asset has been permanently removed from inventory."}
+                : "This asset is listed under IT Inventory → Dead Assets."}
             </p>
             <button className="btn-done" onClick={onClose}>Done</button>
           </div>
@@ -284,17 +369,20 @@ function ActionModal({ asset, onClose, onActionDone }) {
               <p className="it-reason-block__text">{asset.itReason || "No reason provided."}</p>
             </div>
 
-            {showPermRemove && (
+            {showDeadConfirm && (
               <div className="field-group perm-reason-block">
                 <label className="field-label">
-                  Reason for Permanent Remove<span className="required"> *</span>
+                  Reason for Dead Asset<span className="required"> *</span>
                 </label>
                 <textarea
                   className={`field-textarea ${error ? "err" : ""}`}
                   rows={3}
-                  placeholder="Explain why this asset should be permanently removed…"
-                  value={permReason}
-                  onChange={(e) => { setPermReason(e.target.value); setError(""); }}
+                  placeholder="Why is this asset being written off as dead?"
+                  value={deadReason}
+                  onChange={(e) => {
+                    setDeadReason(e.target.value);
+                    setError("");
+                  }}
                 />
                 {error && <span className="ria-field-err">{error}</span>}
               </div>
@@ -313,13 +401,15 @@ function ActionModal({ asset, onClose, onActionDone }) {
               </button>
 
               <button
-                className={`btn-remove ${showPermRemove ? "btn-remove--active" : ""}`}
-                onClick={handleRemoveClick}
+                type="button"
+                className={`btn-remove ${showDeadConfirm ? "btn-remove--active" : ""}`}
+                onClick={handleDeadAssetClick}
+                disabled={busy}
               >
                 <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
                   <path d="M6 6l8 8M14 6l-8 8" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
-                {showPermRemove ? "Confirm Remove" : "Removed Permanent"}
+                {busy ? "Saving…" : showDeadConfirm ? "Confirm Dead Asset" : "Dead Asset"}
               </button>
             </div>
           </>

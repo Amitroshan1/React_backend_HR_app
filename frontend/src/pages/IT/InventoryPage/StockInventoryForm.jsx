@@ -2,11 +2,17 @@ import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
-  compressImage,
   createInventoryItemAPI,
   getITApiErrorMessage,
   syncITDataFromAPI,
 } from "../Data";
+import {
+  buildPreviewItems,
+  encodeInventoryFiles,
+  FilePreviewModal,
+  getFieldMeta,
+  InventoryFileCell,
+} from "./inventoryFileUpload";
 import "./AddnewAssets.css";
 
 const BASE = "/it/inventory";
@@ -20,7 +26,13 @@ const blankRow = () => ({
   location: "",
   notes: "",
   photos: [],
+  photoNames: [],
+  photoUploading: false,
+  _uploadingPhotoNames: [],
   receipts: [],
+  receiptNames: [],
+  receiptUploading: false,
+  _uploadingReceiptNames: [],
   _errors: {},
 });
 
@@ -48,29 +60,6 @@ function CellInput({ value, onChange, placeholder, error, type = "text", classNa
   );
 }
 
-function PhotoModal({ photos, onClose, onRemovePhoto }) {
-  return (
-    <div className="ana-photo-modal-backdrop" onClick={onClose}>
-      <div className="ana-photo-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="ana-photo-modal-head">
-          <span>{photos.length} file{photos.length !== 1 ? "s" : ""}</span>
-          <button type="button" className="ana-photo-modal-close" onClick={onClose}>×</button>
-        </div>
-        <div className="ana-photo-modal-body">
-          <div className="ana-photo-grid">
-            {photos.map((src, i) => (
-              <div key={i} className="ana-photo-item">
-                <img src={src} alt="" />
-                <button type="button" className="ana-photo-remove" onClick={() => onRemovePhoto(i)}>×</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function StockInventoryForm({
   inventoryCategory,
   sectionTitle = "Stock",
@@ -85,8 +74,8 @@ export default function StockInventoryForm({
   const [rows, setRows] = useState([blankRow()]);
   const [submitted, setSubmitted] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
-  const [photoPreview, setPhotoPreview] = useState(null);
-  const [previewField, setPreviewField] = useState("photos");
+  const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState(null);
 
   const addRow = () => setRows((prev) => [...prev, blankRow()]);
   const removeRow = (id) =>
@@ -103,24 +92,68 @@ export default function StockInventoryForm({
     );
   }, [submitted, validateOpts]);
 
-  const uploadFiles = useCallback(async (rowId, field, files) => {
+  const uploadFiles = useCallback(async (rowId, field, files, { imagesOnly = false } = {}) => {
     if (!files?.length) return;
+    const meta = getFieldMeta(field);
+    const fileList = Array.from(files);
+    const pendingNames = fileList.map((f) => f.name);
+
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === rowId
+          ? { ...r, [meta.uploadingKey]: true, [meta.pendingKey]: pendingNames }
+          : r,
+      ),
+    );
+
     try {
-      const compressed = await Promise.all(Array.from(files).map(compressImage));
+      const encoded = await encodeInventoryFiles(fileList, { imagesOnly });
+      const dataUrls = encoded.map((e) => e.data);
+      const names = encoded.map((e) => e.name);
+
       setRows((prev) =>
         prev.map((r) =>
-          r.id === rowId ? { ...r, [field]: [...r[field], ...compressed] } : r,
+          r.id === rowId
+            ? {
+                ...r,
+                [field]: [...(r[field] || []), ...dataUrls],
+                [meta.namesKey]: [...(r[meta.namesKey] || []), ...names],
+                [meta.uploadingKey]: false,
+                [meta.pendingKey]: [],
+              }
+            : r,
         ),
       );
+
+      const label = imagesOnly ? "Photo" : "File";
+      if (names.length === 1) {
+        toast.success(`${label} "${names[0]}" added.`);
+      } else {
+        toast.success(`${names.length} files added.`);
+      }
     } catch (err) {
-      toast.error("Could not process image.");
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === rowId
+            ? { ...r, [meta.uploadingKey]: false, [meta.pendingKey]: [] }
+            : r,
+        ),
+      );
+      toast.error(err?.message || "Could not read file.");
     }
   }, []);
 
   const removeFile = useCallback((rowId, field, index) => {
+    const meta = getFieldMeta(field);
     setRows((prev) =>
       prev.map((r) =>
-        r.id === rowId ? { ...r, [field]: r[field].filter((_, i) => i !== index) } : r,
+        r.id === rowId
+          ? {
+              ...r,
+              [field]: (r[field] || []).filter((_, i) => i !== index),
+              [meta.namesKey]: (r[meta.namesKey] || []).filter((_, i) => i !== index),
+            }
+          : r,
       ),
     );
   }, []);
@@ -135,7 +168,12 @@ export default function StockInventoryForm({
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, validateOpts) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
+    if (validated.some((r) => r.photoUploading || r.receiptUploading)) {
+      toast.warn("Please wait for uploads to finish.");
+      return;
+    }
 
+    setSaving(true);
     try {
       let totalQty = 0;
       for (const row of validated) {
@@ -155,175 +193,141 @@ export default function StockInventoryForm({
         totalQty += qty;
       }
       await syncITDataFromAPI();
-      setSuccessMsg(
-        `✅ ${validated.length} line${validated.length !== 1 ? "s" : ""} added (qty ${totalQty}).`,
-      );
+      const msg = `${validated.length} line${validated.length !== 1 ? "s" : ""} saved (qty ${totalQty}).`;
+      setSuccessMsg(`✅ ${msg}`);
+      toast.success(msg);
       setRows([blankRow()]);
       setSubmitted(false);
     } catch (err) {
       toast.error(getITApiErrorMessage(err, saveErrorMessage));
+    } finally {
+      setSaving(false);
     }
   }, [rows, inventoryCategory, stockCategory, saveErrorMessage, validateOpts]);
 
-  const previewRow = photoPreview ? rows.find((r) => r.id === photoPreview) : null;
-  const previewPhotos = previewRow?.[previewField] ?? [];
+  const previewRow = preview ? rows.find((r) => r.id === preview.rowId) : null;
+  const previewItems = previewRow
+    ? buildPreviewItems(previewRow[preview.field], previewRow[getFieldMeta(preview.field).namesKey])
+    : [];
 
   const formBody = (
     <>
-          <section className="ana-section ana-section-table">
-            <div className="ana-section-head">
-              <span className="ana-section-num">02</span>
-              <h2>{tableTitle}</h2>
-              <span className="ana-row-count">{rows.length} row{rows.length !== 1 ? "s" : ""}</span>
-            </div>
+      <section className="ana-section ana-section-table">
+        <div className="ana-section-head">
+          <span className="ana-section-num">02</span>
+          <h2>{tableTitle}</h2>
+          <span className="ana-row-count">{rows.length} row{rows.length !== 1 ? "s" : ""}</span>
+        </div>
 
-            <div className="ana-table-wrap">
-              <table className="ana-table">
-                <thead>
-                  <tr>
-                    <th className="ana-th-idx">#</th>
-                    <th>Item name <span className="req">*</span></th>
-                    <th>Supplier / vendor <span className="req">*</span></th>
-                    <th>Qty <span className="req">*</span></th>
-                    <th>Purchase date <span className="req">*</span></th>
-                    <th>Location</th>
-                    <th>Photos</th>
-                    <th>Receipt</th>
-                    <th className="ana-th-action" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, idx) => (
-                    <tr key={row.id} className={Object.keys(row._errors).length ? "row-invalid" : ""}>
-                      <td className="ana-td-idx">{idx + 1}</td>
-                      <CellInput
-                        value={row.itemName}
-                        error={row._errors.itemName}
-                        placeholder="e.g. CAT6 cable box"
-                        onChange={(e) => updateRow(row.id, "itemName", e.target.value)}
-                      />
-                      <CellInput
-                        value={row.vendor}
-                        error={row._errors.vendor}
-                        placeholder="Supplier name"
-                        onChange={(e) => updateRow(row.id, "vendor", e.target.value)}
-                      />
-                      <CellInput
-                        value={row.quantity}
-                        error={row._errors.quantity}
-                        type="number"
-                        min="1"
-                        className="ana-qty-input"
-                        onChange={(e) => updateRow(row.id, "quantity", e.target.value)}
-                      />
-                      <CellInput
-                        value={row.purchaseDate}
-                        error={row._errors.purchaseDate}
-                        type="date"
-                        onChange={(e) => updateRow(row.id, "purchaseDate", e.target.value)}
-                      />
-                      <CellInput
-                        value={row.location}
-                        placeholder="Site / room"
-                        onChange={(e) => updateRow(row.id, "location", e.target.value)}
-                      />
-                      <td className="ana-td-photos">
-                        <div className="ana-photo-cell">
-                          <label className="ana-photo-btn">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              style={{ display: "none" }}
-                              onChange={(e) => {
-                                uploadFiles(row.id, "photos", e.target.files);
-                                e.target.value = "";
-                              }}
-                            />
-                            Upload
-                          </label>
-                          {row.photos.length > 0 && (
-                            <button
-                              type="button"
-                              className="ana-photo-count-btn"
-                              onClick={() => {
-                                setPreviewField("photos");
-                                setPhotoPreview(row.id);
-                              }}
-                            >
-                              {row.photos.length}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="ana-td-photos">
-                        <div className="ana-photo-cell">
-                          <label className="ana-photo-btn">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              style={{ display: "none" }}
-                              onChange={(e) => {
-                                uploadFiles(row.id, "receipts", e.target.files);
-                                e.target.value = "";
-                              }}
-                            />
-                            Receipt
-                          </label>
-                          {row.receipts.length > 0 && (
-                            <button
-                              type="button"
-                              className="ana-photo-count-btn"
-                              onClick={() => {
-                                setPreviewField("receipts");
-                                setPhotoPreview(row.id);
-                              }}
-                            >
-                              {row.receipts.length}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="ana-td-action">
-                        <button
-                          type="button"
-                          className="ana-btn-rm-row"
-                          onClick={() => removeRow(row.id)}
-                          disabled={rows.length === 1}
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        <div className="ana-table-wrap">
+          <table className="ana-table">
+            <thead>
+              <tr>
+                <th className="ana-th-idx">#</th>
+                <th>Item name <span className="req">*</span></th>
+                <th>Supplier / vendor <span className="req">*</span></th>
+                <th>Qty <span className="req">*</span></th>
+                <th>Purchase date <span className="req">*</span></th>
+                <th>Location</th>
+                <th>Photos</th>
+                <th>Receipt</th>
+                <th className="ana-th-action" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={row.id} className={Object.keys(row._errors).length ? "row-invalid" : ""}>
+                  <td className="ana-td-idx">{idx + 1}</td>
+                  <CellInput
+                    value={row.itemName}
+                    error={row._errors.itemName}
+                    placeholder="e.g. CAT6 cable box"
+                    onChange={(e) => updateRow(row.id, "itemName", e.target.value)}
+                  />
+                  <CellInput
+                    value={row.vendor}
+                    error={row._errors.vendor}
+                    placeholder="Supplier name"
+                    onChange={(e) => updateRow(row.id, "vendor", e.target.value)}
+                  />
+                  <CellInput
+                    value={row.quantity}
+                    error={row._errors.quantity}
+                    type="number"
+                    min="1"
+                    className="ana-qty-input"
+                    onChange={(e) => updateRow(row.id, "quantity", e.target.value)}
+                  />
+                  <CellInput
+                    value={row.purchaseDate}
+                    error={row._errors.purchaseDate}
+                    type="date"
+                    onChange={(e) => updateRow(row.id, "purchaseDate", e.target.value)}
+                  />
+                  <CellInput
+                    value={row.location}
+                    placeholder="Site / room"
+                    onChange={(e) => updateRow(row.id, "location", e.target.value)}
+                  />
+                  <InventoryFileCell
+                    row={row}
+                    field="photos"
+                    buttonLabel="Upload"
+                    accept="image/*"
+                    imagesOnly
+                    onUpload={uploadFiles}
+                    onPreview={(rowId, field) => setPreview({ rowId, field })}
+                  />
+                  <InventoryFileCell
+                    row={row}
+                    field="receipts"
+                    buttonLabel="Receipt"
+                    accept="*/*"
+                    imagesOnly={false}
+                    onUpload={uploadFiles}
+                    onPreview={(rowId, field) => setPreview({ rowId, field })}
+                  />
+                  <td className="ana-td-action">
+                    <button
+                      type="button"
+                      className="ana-btn-rm-row"
+                      onClick={() => removeRow(row.id)}
+                      disabled={rows.length === 1}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-            <button type="button" className="ana-btn-add-row" onClick={addRow}>+ Add Row</button>
-          </section>
+        <button type="button" className="ana-btn-add-row" onClick={addRow}>
+          + Add Row
+        </button>
+      </section>
 
-          <div className="ana-footer">
-            <div className="ana-footer-info">
-              {!allValid && submitted && (
-                <span className="ana-footer-warn">Fix validation errors above before submitting</span>
-              )}
-              {successMsg && <span className="ana-footer-success">{successMsg}</span>}
-            </div>
-            <div className="ana-footer-actions">
-              <button
-                type="button"
-                className="ana-btn-cancel"
-                onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(inventoryCategory)}`)}
-              >
-                Cancel
-              </button>
-              <button type="button" className="ana-btn-submit" onClick={handleSubmit}>
-                Save to Inventory
-              </button>
-            </div>
-          </div>
+      <div className="ana-footer">
+        <div className="ana-footer-info">
+          {!allValid && submitted && (
+            <span className="ana-footer-warn">Fix validation errors above before submitting</span>
+          )}
+          {successMsg && <span className="ana-footer-success">{successMsg}</span>}
+        </div>
+        <div className="ana-footer-actions">
+          <button
+            type="button"
+            className="ana-btn-cancel"
+            onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(inventoryCategory)}`)}
+          >
+            Cancel
+          </button>
+          <button type="button" className="ana-btn-submit" onClick={handleSubmit} disabled={saving}>
+            {saving ? "Saving…" : "Save to Inventory"}
+          </button>
+        </div>
+      </div>
     </>
   );
 
@@ -346,13 +350,14 @@ export default function StockInventoryForm({
         </div>
       )}
 
-      {photoPreview && (
-        <PhotoModal
-          photos={previewPhotos}
-          onClose={() => setPhotoPreview(null)}
-          onRemovePhoto={(i) => {
-            removeFile(photoPreview, previewField, i);
-            if (previewPhotos.length <= 1) setPhotoPreview(null);
+      {preview && previewItems.length > 0 && (
+        <FilePreviewModal
+          items={previewItems}
+          title={preview.field === "receipts" ? "Receipts" : "Photos"}
+          onClose={() => setPreview(null)}
+          onRemove={(i) => {
+            removeFile(preview.rowId, preview.field, i);
+            if (previewItems.length <= 1) setPreview(null);
           }}
         />
       )}

@@ -498,7 +498,7 @@ const NonHardwareTable = ({ assets, onRemove, onOpenPhotos }) => (
               <td><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
               <td><PhotosCell photos={a.photos} onOpen={onOpenPhotos} /></td>
               <td>
-                <button className="ea-btn-remove" onClick={() => onRemove(a.assetId, a.id)}>
+                <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
                   Return
                 </button>
               </td>
@@ -620,9 +620,14 @@ const EmployeeDetails = () => {
 
   const openReturnModal = useCallback(
     (assetId, entryId) => {
-      const entry = (employee?.assignedAssets || []).find(
-        (a) => a.assetId === assetId || a.id === entryId,
-      );
+      const list = employee?.assignedAssets || [];
+      let entry = null;
+      if (entryId != null && entryId !== "") {
+        entry = list.find((a) => String(a.id) === String(entryId));
+      }
+      if (!entry && assetId != null && assetId !== "") {
+        entry = list.find((a) => String(a.assetId) === String(assetId));
+      }
       if (!entry) return;
       setReturnTarget(entry);
     },

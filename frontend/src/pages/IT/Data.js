@@ -1,4 +1,7 @@
-import { resolveInventoryCategory } from "./inventoryCategories";
+import {
+  getInventoryRowForUnit,
+  resolveInventoryCategory,
+} from "./inventoryCategories";
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  STORAGE KEYS
@@ -416,23 +419,52 @@ export const getDeletedAssetsFromStorage = () => {
   }
 };
 
-export const logDeletedAsset = (unit, deletedBy, deleteReason) => {
-  const deleted = getDeletedAssetsFromStorage();
-  // Use unit.id as stable deletedId — prevents phantom duplicates on re-render.
-  const deletedId = `del-${unit.id || unit.assetId || unit.assetName}-${deleted.length}`;
-  deleted.unshift({
+const _toInventoryItemId = (value) => {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+export const buildDeletedLogApiPayload = (unit, deletedBy, reason, deleteCode) => ({
+  delete_code: deleteCode,
+  asset_unit_id: unit?.id ?? null,
+  inventory_item_id: _toInventoryItemId(unit?.inventoryId),
+  deleted_by_name: deletedBy,
+  asset_name: (unit?.assetName || unit?.brand || "").trim() || "Asset",
+  category: unit?.category || "Hardware",
+  serial_number: unit?.serialNumber || "",
+  reason,
+});
+
+export const buildLocalDeletedEntry = (unit, deletedBy, reason, deletedId) => {
+  const inventory = getInventoryFromStorage() || [];
+  const invRow = getInventoryRowForUnit(unit, inventory);
+  const inventoryCategory = invRow
+    ? resolveInventoryCategory(invRow)
+    : resolveInventoryCategory({ category: unit?.category, inventoryCategory: unit?.inventoryCategory });
+
+  return {
     deletedId,
-    assetName: unit.assetName,
-    brand: unit.brand || null,
-    model: unit.model || null,
-    category: unit.category,
-    hwType: unit.hwType || null,
-    serialNumber: unit.serialNumber || null,
-    repairDate: unit.repairDate || null,
+    assetUnitId: unit?.id ?? null,
+    inventoryId: unit?.inventoryId ?? null,
+    inventoryCategory: inventoryCategory || null,
+    assetName: unit?.assetName || unit?.brand || "",
+    brand: unit?.brand || unit?.assetName || null,
+    model: unit?.model || null,
+    category: unit?.category || "Hardware",
+    hwType: unit?.hwType || null,
+    serialNumber: unit?.serialNumber || null,
+    repairDate: unit?.repairDate || null,
     deletedAt: new Date().toISOString(),
     deletedBy,
-    deleteReason,
-  });
+    deleteReason: reason,
+  };
+};
+
+export const logDeletedAsset = (unit, deletedBy, deleteReason) => {
+  const deleted = getDeletedAssetsFromStorage();
+  const deletedId = `del-${unit.id || unit.assetId || unit.assetName}-${deleted.length}`;
+  deleted.unshift(buildLocalDeletedEntry(unit, deletedBy, deleteReason, deletedId));
   localStorage.setItem(DELETED_KEY, JSON.stringify(deleted));
 };
 
@@ -769,7 +801,10 @@ export const addRemovedITAsset = (asset) => {
     category: asset.category || "Hardware",
     owner: asset.owner || asset.assignedTo || "—",
     ownerId: asset.ownerId || asset.empId || null,
-    itReason: asset.itReason || "",
+    assetUnitId: asset.assetUnitId ?? asset.id ?? null,
+    inventoryId: asset.inventoryId ?? null,
+    serialNumber: asset.serialNumber || "",
+    itReason: asset.itReason || asset.reason || "",
     flaggedAt: asset.flaggedAt || new Date().toISOString(),
   });
   saveRemovedITAssets(existing);
@@ -1311,18 +1346,31 @@ export const createRemovedAssetAPI = async (payload) =>
     body: payload,
   });
 
-const _toLocalDeletedLog = (d) => ({
-  deletedId: d.deleteCode || d.id,
-  inventoryId: d.inventoryId ?? d.inventory_item_id ?? null,
-  assetName: d.assetName || "",
-  brand: d.assetName || "",
-  model: "",
-  category: d.category || "Hardware",
-  serialNumber: d.serialNumber || "",
-  deletedBy: d.deletedByName || "",
-  deleteReason: d.reason || "",
-  deletedAt: d.deletedAt || new Date().toISOString(),
-});
+const _toLocalDeletedLog = (d) => {
+  const inventory = getInventoryFromStorage() || [];
+  const invId = d.inventoryId ?? d.inventory_item_id ?? null;
+  const invRow = invId != null
+    ? inventory.find((i) => String(i.id) === String(invId))
+    : null;
+  const inventoryCategory = invRow
+    ? resolveInventoryCategory(invRow)
+    : resolveInventoryCategory({ category: d.category });
+
+  return {
+    deletedId: d.deleteCode || d.id,
+    assetUnitId: d.assetUnitId ?? d.asset_unit_id ?? null,
+    inventoryId: invId,
+    inventoryCategory: inventoryCategory || null,
+    assetName: d.assetName || "",
+    brand: d.assetName || "",
+    model: "",
+    category: d.category || "Hardware",
+    serialNumber: d.serialNumber || "",
+    deletedBy: d.deletedByName || "",
+    deleteReason: d.reason || "",
+    deletedAt: d.deletedAt || new Date().toISOString(),
+  };
+};
 
 export const createDeletedLogAPI = async (payload) =>
   _itFetch("/deleted-logs", {
@@ -1350,6 +1398,9 @@ const _toLocalRemovedIT = (r) => ({
   category: r.category || "Hardware",
   owner: r.ownerName || "—",
   ownerId: r.ownerAdminId || null,
+  assetUnitId: r.assetUnitId ?? r.asset_unit_id ?? null,
+  inventoryId: r.inventoryId ?? r.inventory_item_id ?? null,
+  serialNumber: r.serialNumber || "",
   itReason: r.reason || "",
   flaggedAt: r.removedAt || new Date().toISOString(),
 });

@@ -2,6 +2,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
 import {
+  getAssetUnitsFromStorage,
   getDeletedAssetsFromStorage,
   getInventoryFromStorage,
   getITApiErrorMessage,
@@ -10,9 +11,9 @@ import {
   wipeDeletedLogAPI,
 } from "../Data";
 import {
+  deletedLogBelongsToInventoryCategory,
   getInventoryStatusCategoryTabs,
   showInventoryStatusCategoryTabs,
-  resolveInventoryCategory,
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./RemovedAssets.css";
@@ -120,16 +121,6 @@ function DeletedAssetRow({ record, index, onView, onWipe }) {
 
 // ─── RemovedAssets (default export) ──────────────────────────────────────────
 
-function recordBelongsToInventoryCategory(record, inventoryCategory) {
-  const inventory = getInventoryFromStorage() || [];
-  const row = inventory.find(
-    (i) =>
-      String(i.id) === String(record.inventoryId) ||
-      String(i.id) === String(record.assetId),
-  );
-  return resolveInventoryCategory(row) === inventoryCategory;
-}
-
 export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
   const categoryTabs = getInventoryStatusCategoryTabs(inventoryCategory);
   const showCategoryTabs = showInventoryStatusCategoryTabs(inventoryCategory);
@@ -167,12 +158,17 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
   }, []);
 
   // ── Derived rows ────────────────────────────────────────────────────────────
+  const inventoryRows = useMemo(() => getInventoryFromStorage() || [], [records]);
+
   const scopedRecords = useMemo(
     () =>
       records.filter((r) =>
-        recordBelongsToInventoryCategory(r, inventoryCategory),
+        deletedLogBelongsToInventoryCategory(r, inventoryCategory, {
+          inventory: inventoryRows,
+          units: getAssetUnitsFromStorage() || [],
+        }),
       ),
-    [records, inventoryCategory],
+    [records, inventoryCategory, inventoryRows],
   );
 
   const filteredRows = useMemo(() => {

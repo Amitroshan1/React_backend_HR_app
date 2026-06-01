@@ -2,7 +2,10 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
 import {
+  buildDeletedLogApiPayload,
+  buildLocalDeletedEntry,
   createDeletedLogAPI,
+  deleteAssetUnitAPI,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
   getITApiErrorMessage,
@@ -257,50 +260,55 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
   }, []);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
-    const entry = {
-      deletedId:    `del-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      assetName:    removeTarget.assetName || removeTarget.brand || "",
-      brand:        removeTarget.brand     || removeTarget.assetName || "",
-      model:        removeTarget.model     || "",
-      category:     removeTarget.category  || "Hardware",
-      serialNumber: removeTarget.serialNumber || "",
-      deletedBy,
-      deleteReason: reason,
-      deletedAt:    new Date().toISOString(),
-    };
+    const deletedId = `del-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const entry = buildLocalDeletedEntry(removeTarget, deletedBy, reason, deletedId);
 
-    // Write deletion log (API first; fallback to local helper).
     try {
-      await createDeletedLogAPI({
-        delete_code: entry.deletedId,
-        asset_unit_id: removeTarget.id || null,
-        deleted_by_name: deletedBy,
-        asset_name: entry.assetName,
-        category: entry.category,
-        serial_number: entry.serialNumber,
-        reason: entry.deleteReason,
-      });
+      await createDeletedLogAPI(
+        buildDeletedLogApiPayload(removeTarget, deletedBy, reason, deletedId),
+      );
+      await deleteAssetUnitAPI(removeTarget.id);
+      await syncITDataFromAPI();
       await syncDeletedLogsFromAPI();
     } catch (err) {
-      console.error("[InRepair] delete log API failed:", err);
+      console.error("[InRepair] dead device failed:", err);
       rtToast.error(
         getITApiErrorMessage(
           err,
-          "Could not save removal log to the server. Saved locally only.",
+          "Could not complete dead device removal on the server.",
         ),
       );
-      try { logDeletedAsset(removeTarget, deletedBy, reason); } catch { /* no-op */ }
+      try {
+        logDeletedAsset(removeTarget, deletedBy, reason);
+      } catch {
+        /* no-op */
+      }
+      writeAssetUnits(readAssetUnits().filter((u) => u.id !== removeTarget.id));
+      try {
+        deleteAssetUnit(removeTarget.id);
+      } catch {
+        /* no-op */
+      }
+      syncInventoryCount(removeTarget, "fromRepairDelete");
+      dispatchInventoryUpdate();
+      reload();
+      setRemoveTarget(null);
+      return;
     }
 
-    // Remove unit from active list
     writeAssetUnits(readAssetUnits().filter((u) => u.id !== removeTarget.id));
-    try { deleteAssetUnit(removeTarget.id); } catch { /* no-op */ }
+    try {
+      deleteAssetUnit(removeTarget.id);
+    } catch {
+      /* no-op */
+    }
 
     syncInventoryCount(removeTarget, "fromRepairDelete");
     dispatchInventoryUpdate();
     reload();
     setRemoveTarget(null);
-    showToast("Asset permanently removed ✓");
+    rtToast.success(`${entry.assetName || entry.brand} moved to Dead Assets.`);
+    showToast("Asset moved to Dead Assets ✓");
   }, [removeTarget, reload, showToast]);
 
   // ── Render ──────────────────────────────────────────────────────────────────

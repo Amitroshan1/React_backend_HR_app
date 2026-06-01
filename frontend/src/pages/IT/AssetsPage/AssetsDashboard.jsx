@@ -56,6 +56,8 @@ function logRemovedFromIT(unit, empId, empName, removedBy, reason) {
       name: assetName,
       owner: empName || empId || "—",
       ownerId: empId || null,
+      assetUnitId: unit.id,
+      inventoryId: unit.inventoryId ?? null,
       itReason: reason,
       category: unit.category || "Hardware",
       assetId: unit.assetId || unit.id,

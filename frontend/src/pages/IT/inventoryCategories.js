@@ -205,24 +205,42 @@ export function rowSupportsInventoryDeploy(row, inventoryCategory) {
   return isStockDeployRow(row) || isUnitDeployRow(row, inventoryCategory);
 }
 
+const DEPLOY_LABEL_DEFAULTS = {
+  deployLabel: "Deploy",
+  returnLabel: "Return",
+  deployModalTitle: "Deploy to location",
+  returnModalTitle: "Return to available",
+  deployTitle: "Deploy to a location (moves qty to In use)",
+  deployDisabledTitle: "Nothing available to deploy",
+  returnTitle: "Return deployed quantity to available",
+  returnDisabledTitle: "Nothing currently in use",
+  deployedAtLabel: "Deployed at",
+  loadingDeployed: "Loading deployed records…",
+  noDeployed: "Nothing is currently deployed for this item.",
+};
+
 export function getDeployModalConfig(inventoryCategory) {
   if (inventoryCategory === "Transport Assets") {
     return {
+      ...DEPLOY_LABEL_DEFAULTS,
       label: "Transport",
       locationLabel: "Route / base / depot",
       locationPlaceholder: "e.g. Mumbai depot, Site A",
       hint: "Mark an available vehicle as in use at a location.",
+      deployTitle: "Mark vehicle in use at a route or depot",
     };
   }
   if (inventoryCategory === "Infrastructure Assets") {
     return {
+      ...DEPLOY_LABEL_DEFAULTS,
       label: "Infrastructure",
       locationLabel: "Site / location",
       locationPlaceholder: "e.g. Server room A, Plant 2",
-      hint: "Issue bulk stock or an installed unit to a site.",
+      hint: "Deploy stock or an installed unit to a site.",
     };
   }
   return {
+    ...DEPLOY_LABEL_DEFAULTS,
     label: "Office",
     locationLabel: "Location / department",
     locationPlaceholder: "e.g. 3rd floor pantry, Reception",
@@ -254,4 +272,58 @@ export function unitBelongsToInventoryCategory(unit, inventoryCategory, inventor
   const row = getInventoryRowForUnit(unit, inventory);
   if (!row) return false;
   return resolveInventoryCategory(row) === inventoryCategory;
+}
+
+/** Scope dead-asset audit rows to Office / Transport / Infrastructure / IT tabs. */
+export function deletedLogBelongsToInventoryCategory(
+  record,
+  inventoryCategory,
+  { inventory = [], units = [] } = {},
+) {
+  if (!inventoryCategory) return true;
+
+  const invId = record?.inventoryId ?? record?.inventory_item_id;
+  if (invId != null && invId !== "") {
+    const row = inventory.find((i) => String(i.id) === String(invId));
+    if (row) return resolveInventoryCategory(row) === inventoryCategory;
+  }
+
+  const explicit = String(
+    record?.inventoryCategory ?? record?.inventory_category ?? "",
+  ).trim();
+  if (explicit && INV_CATEGORIES.includes(explicit)) {
+    return explicit === inventoryCategory;
+  }
+
+  const unitId = record?.assetUnitId ?? record?.asset_unit_id;
+  if (unitId != null && unitId !== "") {
+    const unit = units.find((u) => String(u.id) === String(unitId));
+    if (unit) {
+      const row = getInventoryRowForUnit(unit, inventory);
+      if (row) return resolveInventoryCategory(row) === inventoryCategory;
+      const fromUnit = resolveInventoryCategory({
+        category: unit.category,
+        inventoryCategory: unit.inventoryCategory,
+      });
+      if (fromUnit) return fromUnit === inventoryCategory;
+    }
+  }
+
+  const cat = String(record?.category || "").trim().toLowerCase();
+  if (cat === "vehicle") return inventoryCategory === "Transport Assets";
+  if (cat === "equipment") return inventoryCategory === "Infrastructure Assets";
+  if (cat === "stock") {
+    if (explicit) return explicit === inventoryCategory;
+    return inventoryCategory === "Office Assets";
+  }
+  if (
+    inventoryCategory === "IT Assets" &&
+    ["hardware", "software", "accessories", "consumables", "consumable", "accessory"].includes(
+      cat,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
 }

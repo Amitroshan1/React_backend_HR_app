@@ -41,6 +41,7 @@ import {
   isValidInventoryCategory,
   isVehicleInventoryCategory,
   showInventoryDeploy,
+  getDeployModalConfig,
   rowSupportsInventoryDeploy,
   isUnitDeployRow,
 } from "../inventoryCategories";
@@ -501,8 +502,9 @@ function ViewActionGroup({
   onOfficeIssue,
   onOfficeReturn,
 }) {
+  const deployLabels = getDeployModalConfig(inventoryCategory);
   const deployable = inventoryDeploy && rowSupportsInventoryDeploy(row, inventoryCategory);
-  const canIssue = deployable && Number(row.available) > 0;
+  const canDeploy = deployable && Number(row.available) > 0;
   const canReturn = deployable && Number(row.assigned) > 0;
 
   return (
@@ -510,25 +512,25 @@ function ViewActionGroup({
       <button type="button" className="inv-action-btn" onClick={() => onViewAsset(row)}>
         View
       </button>
-      {inventoryDeploy && (
+      {deployable && (
         <>
           <button
             type="button"
             className="inv-action-btn inv-action-btn--issue"
-            disabled={!canIssue}
-            title={canIssue ? "Issue to location" : "No available quantity"}
+            disabled={!canDeploy}
+            title={canDeploy ? deployLabels.deployTitle : deployLabels.deployDisabledTitle}
             onClick={() => onOfficeIssue?.(row)}
           >
-            Issue
+            {deployLabels.deployLabel}
           </button>
           <button
             type="button"
             className="inv-action-btn inv-action-btn--return"
             disabled={!canReturn}
-            title={canReturn ? "Return to available" : "Nothing in use"}
+            title={canReturn ? deployLabels.returnTitle : deployLabels.returnDisabledTitle}
             onClick={() => onOfficeReturn?.(row)}
           >
-            Return
+            {deployLabels.returnLabel}
           </button>
         </>
       )}
@@ -591,6 +593,7 @@ function AssetDetailModal({
   const inventoryPhotos = asset?.photos ?? [];
   const inventoryReceipts = asset?.receipts ?? [];
   const stockMode = asset?.isStock || isStockLineItem(asset);
+  const deployLabels = getDeployModalConfig(inventoryCategory || asset?.inventoryCategory);
   const hwFields = getHardwareFields(asset.inventoryCategory, asset.category);
   const showItemMeta =
     !stockMode &&
@@ -811,8 +814,7 @@ function AssetDetailModal({
 
           <div className="inv-detail-footer">
             <div className="inv-detail-footer-actions">
-              {inventoryDeploy &&
-                (stockMode || isUnitDeployRow(asset, inventoryCategory)) && (
+              {inventoryDeploy && stockMode && (
                 <>
                   <button
                     type="button"
@@ -828,7 +830,7 @@ function AssetDetailModal({
                       onClose();
                     }}
                   >
-                    Issue
+                    {deployLabels.deployLabel}
                   </button>
                   <button
                     type="button"
@@ -844,7 +846,7 @@ function AssetDetailModal({
                       onClose();
                     }}
                   >
-                    Return
+                    {deployLabels.returnLabel}
                   </button>
                 </>
               )}

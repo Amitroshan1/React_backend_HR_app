@@ -2,12 +2,16 @@ import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
-  compressImage,
   createHardwareUnitsAPI,
   createInventoryItemAPI,
   getITApiErrorMessage,
   syncITDataFromAPI,
 } from "../Data";
+import {
+  encodeInventoryFiles,
+  getFieldMeta,
+  InventoryFileCell,
+} from "./inventoryFileUpload";
 import { INVENTORY_CATEGORY_CONFIG } from "../inventoryCategories";
 import "./AddnewAssets.css";
 
@@ -25,7 +29,13 @@ const blankRow = () => ({
   purchaseDate: "",
   location: "",
   photos: [],
+  photoNames: [],
+  photoUploading: false,
+  _uploadingPhotoNames: [],
   receipts: [],
+  receiptNames: [],
+  receiptUploading: false,
+  _uploadingReceiptNames: [],
   _errors: {},
 });
 
@@ -69,6 +79,7 @@ export default function TransportVehicleForm() {
   const [rows, setRows] = useState([blankRow()]);
   const [submitted, setSubmitted] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const effectiveType = vehicleType === "Other" ? customType.trim() : vehicleType;
 
@@ -83,17 +94,52 @@ export default function TransportVehicleForm() {
     );
   }, [submitted]);
 
-  const uploadFiles = useCallback(async (rowId, field, files) => {
+  const uploadFiles = useCallback(async (rowId, field, files, { imagesOnly = false } = {}) => {
     if (!files?.length) return;
+    const meta = getFieldMeta(field);
+    const fileList = Array.from(files);
+    const pendingNames = fileList.map((f) => f.name);
+
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === rowId
+          ? { ...r, [meta.uploadingKey]: true, [meta.pendingKey]: pendingNames }
+          : r,
+      ),
+    );
+
     try {
-      const compressed = await Promise.all(Array.from(files).map(compressImage));
+      const encoded = await encodeInventoryFiles(fileList, { imagesOnly });
+      const dataUrls = encoded.map((e) => e.data);
+      const names = encoded.map((e) => e.name);
+
       setRows((prev) =>
         prev.map((r) =>
-          r.id === rowId ? { ...r, [field]: [...r[field], ...compressed] } : r,
+          r.id === rowId
+            ? {
+                ...r,
+                [field]: [...(r[field] || []), ...dataUrls],
+                [meta.namesKey]: [...(r[meta.namesKey] || []), ...names],
+                [meta.uploadingKey]: false,
+                [meta.pendingKey]: [],
+              }
+            : r,
         ),
       );
+      if (names.length === 1) {
+        toast.success(`"${names[0]}" added.`);
+      } else {
+        toast.success(`${names.length} files added.`);
+      }
     } catch (err) {
-      toast.error("Could not process image.");
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === rowId
+            ? { ...r, [meta.uploadingKey]: false, [meta.pendingKey]: [] }
+            : r,
+        ),
+      );
+      toast.error(err?.message || "Could not read file.");
     }
   }, []);
 
@@ -106,7 +152,12 @@ export default function TransportVehicleForm() {
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
+    if (validated.some((r) => r.photoUploading || r.receiptUploading)) {
+      toast.warn("Please wait for uploads to finish.");
+      return;
+    }
 
+    setSaving(true);
     try {
       const groups = new Map();
       validated.forEach((row) => {
@@ -119,6 +170,7 @@ export default function TransportVehicleForm() {
       for (const groupRows of groups.values()) {
         const head = groupRows[0];
         const fleetName = head.fleet.trim();
+        const fleetReceipts = groupRows.flatMap((r) => r.receipts || []);
         const invRes = await createInventoryItemAPI({
           name: fleetName,
           category: "Vehicle",
@@ -126,7 +178,7 @@ export default function TransportVehicleForm() {
           hwType: effectiveType,
           vendor: head.vendor.trim() || null,
           purchaseDate: head.purchaseDate,
-          receipts: head.receipts || [],
+          receipts: fleetReceipts,
           location: head.location.trim() || null,
           photos: [],
         });
@@ -150,11 +202,15 @@ export default function TransportVehicleForm() {
       }
 
       await syncITDataFromAPI();
-      setSuccessMsg(`✅ ${added} vehicle${added !== 1 ? "s" : ""} registered.`);
+      const msg = `${added} vehicle${added !== 1 ? "s" : ""} registered.`;
+      setSuccessMsg(`✅ ${msg}`);
+      toast.success(msg);
       setRows([blankRow()]);
       setSubmitted(false);
     } catch (err) {
       toast.error(getITApiErrorMessage(err, "Failed to save vehicles."));
+    } finally {
+      setSaving(false);
     }
   }, [rows, vehicleType, customType, effectiveType]);
 
@@ -223,6 +279,7 @@ export default function TransportVehicleForm() {
                   <th>Purchase date <span className="req">*</span></th>
                   <th>Parking / location</th>
                   <th>Photos</th>
+                  <th>Receipt</th>
                   <th className="ana-th-action" />
                 </tr>
               </thead>
@@ -237,12 +294,22 @@ export default function TransportVehicleForm() {
                     <CellInput value={row.vendor} placeholder="Dealer" onChange={(e) => updateRow(row.id, "vendor", e.target.value)} />
                     <CellInput value={row.purchaseDate} error={row._errors.purchaseDate} type="date" onChange={(e) => updateRow(row.id, "purchaseDate", e.target.value)} />
                     <CellInput value={row.location} placeholder="Parking" onChange={(e) => updateRow(row.id, "location", e.target.value)} />
-                    <td className="ana-td-photos">
-                      <label className="ana-photo-btn">
-                        <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => { uploadFiles(row.id, "photos", e.target.files); e.target.value = ""; }} />
-                        Upload
-                      </label>
-                    </td>
+                    <InventoryFileCell
+                      row={row}
+                      field="photos"
+                      buttonLabel="Upload"
+                      accept="image/*"
+                      imagesOnly
+                      onUpload={uploadFiles}
+                    />
+                    <InventoryFileCell
+                      row={row}
+                      field="receipts"
+                      buttonLabel="Receipt"
+                      accept="*/*"
+                      imagesOnly={false}
+                      onUpload={uploadFiles}
+                    />
                     <td className="ana-td-action">
                       <button type="button" className="ana-btn-rm-row" onClick={() => setRows((p) => (p.length > 1 ? p.filter((r) => r.id !== row.id) : p))} disabled={rows.length === 1}>✕</button>
                     </td>
@@ -258,7 +325,9 @@ export default function TransportVehicleForm() {
           <div className="ana-footer-info">{successMsg && <span className="ana-footer-success">{successMsg}</span>}</div>
           <div className="ana-footer-actions">
             <button type="button" className="ana-btn-cancel" onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(INV_CAT)}`)}>Cancel</button>
-            <button type="button" className="ana-btn-submit" onClick={handleSubmit}>Save to Inventory</button>
+            <button type="button" className="ana-btn-submit" onClick={handleSubmit} disabled={saving}>
+              {saving ? "Saving…" : "Save to Inventory"}
+            </button>
           </div>
         </div>
       </main>

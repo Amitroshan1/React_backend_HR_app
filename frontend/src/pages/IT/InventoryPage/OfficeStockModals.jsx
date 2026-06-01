@@ -68,7 +68,7 @@ function InventoryIssueModal({ asset, inventoryCategory, onClose, onSuccess }) {
         return;
       }
     } else if (!unitId) {
-      setError("Select a vehicle or unit to issue.");
+      setError("Select a vehicle or unit to deploy.");
       return;
     }
 
@@ -83,11 +83,13 @@ function InventoryIssueModal({ asset, inventoryCategory, onClose, onSuccess }) {
         assetUnitId: unitMode ? unitId : null,
       });
       await syncITDataFromAPI();
-      toast.success(unitMode ? `Issued to ${loc}` : `Issued ${qty} to ${loc}`);
+      toast.success(
+        unitMode ? `Deployed to ${loc}` : `Deployed ${qty} to ${loc}`,
+      );
       onSuccess?.();
       onClose();
     } catch (err) {
-      const msg = getITApiErrorMessage(err, "Could not issue item.");
+      const msg = getITApiErrorMessage(err, "Could not deploy item.");
       setError(msg);
       toast.error(msg);
     } finally {
@@ -104,7 +106,7 @@ function InventoryIssueModal({ asset, inventoryCategory, onClose, onSuccess }) {
       <div className="inv-modal-box inv-modal-box--office" onClick={(e) => e.stopPropagation()}>
         <div className="inv-modal-hero">
           <p className="inv-modal-hero-label">{config.label}</p>
-          <h2 className="inv-modal-hero-title">Issue / deploy</h2>
+          <h2 className="inv-modal-hero-title">{config.deployModalTitle}</h2>
           <p className="inv-modal-hero-sub">{asset?.name}</p>
         </div>
         <div className="inv-modal-body">
@@ -201,7 +203,7 @@ function InventoryIssueModal({ asset, inventoryCategory, onClose, onSuccess }) {
               onClick={submit}
               disabled={saving || !canSubmit}
             >
-              {saving ? "Saving…" : "Issue"}
+              {saving ? "Saving…" : config.deployLabel}
             </button>
             <button type="button" className="inv-modal-btn-cancel" onClick={onClose}>
               Cancel
@@ -233,7 +235,7 @@ function InventoryReturnModal({ asset, inventoryCategory, onClose, onSuccess }) 
       setDeployments(rows);
       if (rows.length > 0) setSelectedId(rows[0].id);
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Could not load issued records."));
+      toast.error(getITApiErrorMessage(err, "Could not load deployed records."));
       setDeployments([]);
     } finally {
       setLoading(false);
@@ -250,7 +252,7 @@ function InventoryReturnModal({ asset, inventoryCategory, onClose, onSuccess }) 
 
   const submit = async () => {
     if (!selected) {
-      setError("Select an issued record.");
+      setError("Select a deployed record.");
       return;
     }
     const qty = isUnitRow ? 1 : Number.parseInt(quantity, 10);
@@ -288,18 +290,18 @@ function InventoryReturnModal({ asset, inventoryCategory, onClose, onSuccess }) 
       <div className="inv-modal-box inv-modal-box--office inv-modal-box--wide" onClick={(e) => e.stopPropagation()}>
         <div className="inv-modal-hero">
           <p className="inv-modal-hero-label">{config.label}</p>
-          <h2 className="inv-modal-hero-title">Return to available</h2>
+          <h2 className="inv-modal-hero-title">{config.returnModalTitle}</h2>
           <p className="inv-modal-hero-sub">{asset?.name}</p>
         </div>
         <div className="inv-modal-body">
           {loading ? (
-            <p className="inv-modal-hint">Loading issued records…</p>
+            <p className="inv-modal-hint">{config.loadingDeployed}</p>
           ) : deployments.length === 0 ? (
-            <p className="inv-modal-hint">Nothing is currently issued for this item.</p>
+            <p className="inv-modal-hint">{config.noDeployed}</p>
           ) : (
             <>
               <div className="inv-modal-field">
-                <label className="inv-modal-label">Issued at</label>
+                <label className="inv-modal-label">{config.deployedAtLabel}</label>
                 <select
                   className="inv-modal-input"
                   value={selectedId ?? ""}
@@ -331,7 +333,7 @@ function InventoryReturnModal({ asset, inventoryCategory, onClose, onSuccess }) 
                       setError("");
                     }}
                   />
-                  <span className="inv-modal-hint-sub">Issued at this location: {maxQty}</span>
+                  <span className="inv-modal-hint-sub">Deployed at this location: {maxQty}</span>
                 </div>
               )}
             </>
@@ -344,7 +346,7 @@ function InventoryReturnModal({ asset, inventoryCategory, onClose, onSuccess }) 
               onClick={submit}
               disabled={saving || loading || deployments.length === 0}
             >
-              {saving ? "Saving…" : "Return"}
+              {saving ? "Saving…" : config.returnLabel}
             </button>
             <button type="button" className="inv-modal-btn-cancel" onClick={onClose}>
               Cancel
