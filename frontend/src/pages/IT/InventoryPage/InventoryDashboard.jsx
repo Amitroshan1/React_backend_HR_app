@@ -110,21 +110,18 @@ function countRemovedAssetsForCategory(inventoryCategory) {
 
 function readLiveCounts(inventoryCategory = null) {
   const inventory = filterInventoryByCategory(readInventory(), inventoryCategory);
-  const nonSoftware = inventory.filter((i) => !isSoftware(i));
   const counts = getInventoryCounts();
 
-  const total = nonSoftware.reduce(
+  const total = inventory.reduce(
     (sum, i) => sum + (Number(i.totalQuantity) || 0),
     0,
   );
-  const notWorking = nonSoftware.reduce(
-    (sum, i) => sum + (Number(i.notWorkingQuantity) || 0),
-    0,
-  );
-  const inRepair = nonSoftware.reduce(
-    (sum, i) => sum + (Number(i.repairQuantity) || 0),
-    0,
-  );
+  const notWorking = inventory
+    .filter((i) => !isSoftware(i))
+    .reduce((sum, i) => sum + (Number(i.notWorkingQuantity) || 0), 0);
+  const inRepair = inventory
+    .filter((i) => !isSoftware(i))
+    .reduce((sum, i) => sum + (Number(i.repairQuantity) || 0), 0);
 
   return {
     total:            Math.max(0, total),
@@ -162,11 +159,12 @@ function mapInventoryItem(item) {
     receipts:          item.receipts     || [],
     photos:            item.photos       || [],
     isStock:           isStockLineItem(item),
+    isSoftware:        isSoftware(item),
   };
 }
 
 function getMappedInventory() {
-  return readInventory().filter((i) => !isSoftware(i)).map(mapInventoryItem);
+  return readInventory().map(mapInventoryItem);
 }
 
 function getUnitsForAsset(inventoryId, assetName, hwType) {
@@ -1167,10 +1165,16 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
 
 // ─── Shared AssetTable ────────────────────────────────────────────────────────
 
+function formatCategoryCell(category) {
+  const c = String(category || "").trim();
+  if (!c || c === "—") return "—";
+  return c.charAt(0).toUpperCase() + c.slice(1);
+}
+
 function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned = false }) {
   const showAvailable = filter !== "Assigned";
   const showAssigned  = !hideAssigned && filter !== "Available";
-  const emptyColSpan  = 3 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
+  const emptyColSpan  = 4 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
 
   return (
     <div className="inv-table-scroll">
@@ -1178,6 +1182,7 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
         <thead>
           <tr>
             <th>Assets Name</th>
+            <th>Category</th>
             <th>Total Qty</th>
             {showAvailable && <th>Available</th>}
             {showAssigned  && <th>Assigned</th>}
@@ -1193,7 +1198,7 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
             assets.map((row, i) => (
               <tr key={row.id} className={i % 2 === 0 ? "tr-even" : "tr-odd"}>
                 <td className="td-name">
-                  {row.hwType && !row.isStock ? (
+                  {row.hwType && !row.isStock && !row.isSoftware ? (
                     <div className="td-name-wrap">
                       <span className="td-name-brand">{row.name}</span>
                       <span className="td-name-sub">{row.hwType}</span>
@@ -1207,6 +1212,7 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
                     </div>
                   )}
                 </td>
+                <td className="td-category">{formatCategoryCell(row.category)}</td>
                 <td>{row.total}</td>
                 {showAvailable && <td className="td-available">{row.available}</td>}
                 {showAssigned  && <td className="td-assigned">{row.assigned}</td>}
@@ -1295,7 +1301,7 @@ function TotalAssetsPage({ category }) {
           value={hwTypeFilter}
           onChange={(e) => setHwTypeFilter(e.target.value)}
         >
-          {["All", "Hardware", "Consumables", "Accessories"].map((opt) => (
+          {["All", "Hardware", "Software", "Consumables", "Accessories"].map((opt) => (
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>

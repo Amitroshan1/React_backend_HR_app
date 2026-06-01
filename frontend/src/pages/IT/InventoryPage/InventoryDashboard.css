@@ -518,6 +518,13 @@ body {
   vertical-align: middle;
 }
 
+.inv-table td.td-category {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .inv-table td.td-name {
   color: #1e293b;
   font-weight: 600;
