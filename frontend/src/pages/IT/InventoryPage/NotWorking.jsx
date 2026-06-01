@@ -16,14 +16,14 @@ import {
 } from "../Data";
 import {
   getHardwareFields,
+  getInventoryStatusCategoryTabs,
+  showInventoryStatusCategoryTabs,
   unitBelongsToInventoryCategory,
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./NotWorking.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const CATS               = ["All", "Hardware", "Accessories", "Consumables"];
 const NOT_WORKING_STATUS = "notWorking";
 const SEARCH_FIELDS      = ["brand", "assetName", "serialNumber"];
 
@@ -133,6 +133,8 @@ function NotWorkingRow({ unit, index, onSendToRepair, onRemove }) {
 // ─── NotWorking ───────────────────────────────────────────────────────────────
 
 export default function NotWorking({ inventoryCategory = "IT Assets" }) {
+  const categoryTabs = getInventoryStatusCategoryTabs(inventoryCategory);
+  const showCategoryTabs = showInventoryStatusCategoryTabs(inventoryCategory);
   const serialColLabel =
     inventoryCategory === "Infrastructure Assets"
       ? "Asset tag / Serial"
@@ -142,6 +144,10 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
   const [searchQuery,    setSearchQuery]    = useState("");
   const [removeTarget,   setRemoveTarget]   = useState(null);
   const [toast,          setToast]          = useState("");
+
+  useEffect(() => {
+    setActiveCategory("All");
+  }, [inventoryCategory]);
 
   const reload = useCallback(() => {
     setUnits(getAssetUnitsFromStorage() ?? []);
@@ -383,21 +389,23 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
           </span>
         </div>
 
-        {/* Category Tabs */}
-        <div className="nw-tabs">
-          {CATS.map((cat) => (
-            <button
-              key={cat}
-              className={`nw-tab ${activeCategory === cat ? "active" : ""}`}
-              onClick={() => setActiveCategory(cat)}
-            >
-              {cat}
-              {cat !== "All" && (
-                <span className="nw-tab-count">{getCategoryCount(cat)}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        {showCategoryTabs && (
+          <div className="nw-tabs">
+            {categoryTabs.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`nw-tab ${activeCategory === cat ? "active" : ""}`}
+                onClick={() => setActiveCategory(cat)}
+              >
+                {cat}
+                {cat !== "All" && (
+                  <span className="nw-tab-count">{getCategoryCount(cat)}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Search */}
         <div className="nw-search-row">

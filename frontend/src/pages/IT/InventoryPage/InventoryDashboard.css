@@ -519,10 +519,75 @@ body {
 }
 
 .inv-table td.td-category {
-  color: #475569;
-  font-size: 13px;
-  font-weight: 500;
+  text-align: left;
+  padding-left: 12px;
+}
+
+.inv-cat-pill {
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  border: 1px solid transparent;
   white-space: nowrap;
+}
+
+.inv-cat-pill--hardware {
+  background: #e8f4fc;
+  border-color: #b8daf0;
+  color: #2563eb;
+}
+
+.inv-cat-pill--accessories {
+  background: #fef9e8;
+  border-color: #f0dfa8;
+  color: #b45309;
+}
+
+.inv-cat-pill--consumables {
+  background: #f3e8ff;
+  border-color: #ddd6fe;
+  color: #7c3aed;
+}
+
+.inv-cat-pill--software {
+  background: #e8f8ef;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.inv-cat-pill--stock {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  color: #0f766e;
+}
+
+.inv-cat-pill--vehicle {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+
+.inv-cat-pill--equipment {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #4338ca;
+}
+
+.inv-cat-pill--default {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.inv-cat-pill--muted {
+  background: transparent;
+  border-color: transparent;
+  color: #94a3b8;
+  font-weight: 500;
+  padding: 0;
 }
 
 .inv-table td.td-name {

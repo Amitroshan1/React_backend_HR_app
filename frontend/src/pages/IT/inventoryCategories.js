@@ -130,6 +130,25 @@ export function hideAssignedColumnForCategory(inventoryCategory) {
   return isNonItInventoryCategory(inventoryCategory);
 }
 
+/** Category tabs on Not Working / In Repair / Dead Assets (IT only). */
+export const IT_INVENTORY_STATUS_TABS = [
+  "All",
+  "Hardware",
+  "Accessories",
+  "Consumables",
+];
+
+export function getInventoryStatusCategoryTabs(inventoryCategory) {
+  if (isNonItInventoryCategory(inventoryCategory)) {
+    return ["All"];
+  }
+  return IT_INVENTORY_STATUS_TABS;
+}
+
+export function showInventoryStatusCategoryTabs(inventoryCategory) {
+  return !isNonItInventoryCategory(inventoryCategory);
+}
+
 export function unitBelongsToInventoryCategory(unit, inventoryCategory, inventory = null) {
   if (!inventoryCategory) return true;
   const row = getInventoryRowForUnit(unit, inventory);

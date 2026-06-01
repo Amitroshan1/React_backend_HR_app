@@ -9,12 +9,14 @@ import {
   wipeAllDeletedLogsAPI,
   wipeDeletedLogAPI,
 } from "../Data";
+import {
+  getInventoryStatusCategoryTabs,
+  showInventoryStatusCategoryTabs,
+} from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./RemovedAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const CATS          = ["All", "Hardware", "Accessories", "Consumables"];
 const SEARCH_FIELDS = ["brand", "assetName", "serialNumber"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -128,8 +130,14 @@ function recordBelongsToInventoryCategory(record, inventoryCategory) {
 }
 
 export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
+  const categoryTabs = getInventoryStatusCategoryTabs(inventoryCategory);
+  const showCategoryTabs = showInventoryStatusCategoryTabs(inventoryCategory);
   const [records,        setRecords]        = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
+
+  useEffect(() => {
+    setActiveCategory("All");
+  }, [inventoryCategory]);
   const [searchQuery,    setSearchQuery]    = useState("");
   const [detailAsset,    setDetailAsset]    = useState(null);
   // undefined = modal closed | null = wipe all | object = wipe single
@@ -220,21 +228,23 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
           </span>
         </div>
 
-        {/* Tabs */}
-        <div className="del-tabs">
-          {CATS.map((cat) => (
-            <button
-              key={cat}
-              className={`del-tab ${activeCategory === cat ? "active" : ""}`}
-              onClick={() => setActiveCategory(cat)}
-            >
-              {cat}
-              {cat !== "All" && (
-                <span className="del-tab-count">{getCategoryCount(cat)}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        {showCategoryTabs && (
+          <div className="del-tabs">
+            {categoryTabs.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`del-tab ${activeCategory === cat ? "active" : ""}`}
+                onClick={() => setActiveCategory(cat)}
+              >
+                {cat}
+                {cat !== "All" && (
+                  <span className="del-tab-count">{getCategoryCount(cat)}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Search */}
         <div className="del-search-row">

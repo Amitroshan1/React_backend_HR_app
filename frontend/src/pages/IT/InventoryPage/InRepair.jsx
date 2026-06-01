@@ -16,14 +16,14 @@ import {
 } from "../Data";
 import {
   getHardwareFields,
+  getInventoryStatusCategoryTabs,
+  showInventoryStatusCategoryTabs,
   unitBelongsToInventoryCategory,
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./InRepair.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const CATS          = ["All", "Hardware", "Accessories", "Consumables"];
 const REPAIR_STATUS = "repair";
 const SEARCH_FIELDS = ["brand", "assetName", "serialNumber"];
 
@@ -144,6 +144,8 @@ function RepairRow({ unit, index, onReturn, onRemove }) {
 // ─── InRepair ─────────────────────────────────────────────────────────────────
 
 export default function InRepair({ inventoryCategory = "IT Assets" }) {
+  const categoryTabs = getInventoryStatusCategoryTabs(inventoryCategory);
+  const showCategoryTabs = showInventoryStatusCategoryTabs(inventoryCategory);
   const serialColLabel =
     inventoryCategory === "Infrastructure Assets"
       ? "Asset tag / Serial"
@@ -153,6 +155,10 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
   const [searchQuery,  setSearchQuery]  = useState("");
   const [removeTarget, setRemoveTarget] = useState(null);
   const [toast,        setToast]        = useState("");
+
+  useEffect(() => {
+    setActiveCategory("All");
+  }, [inventoryCategory]);
 
   const reload = useCallback(() => {
     setUnits(getAssetUnitsFromStorage() ?? []);
@@ -313,21 +319,23 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
           </span>
         </div>
 
-        {/* Category Tabs */}
-        <div className="repair-tabs">
-          {CATS.map((cat) => (
-            <button
-              key={cat}
-              className={`repair-tab ${activeCategory === cat ? "active" : ""}`}
-              onClick={() => setActiveCategory(cat)}
-            >
-              {cat}
-              {cat !== "All" && (
-                <span className="repair-tab-count">{getCategoryCount(cat)}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        {showCategoryTabs && (
+          <div className="repair-tabs">
+            {categoryTabs.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`repair-tab ${activeCategory === cat ? "active" : ""}`}
+                onClick={() => setActiveCategory(cat)}
+              >
+                {cat}
+                {cat !== "All" && (
+                  <span className="repair-tab-count">{getCategoryCount(cat)}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Search */}
         <div className="repair-search-row">

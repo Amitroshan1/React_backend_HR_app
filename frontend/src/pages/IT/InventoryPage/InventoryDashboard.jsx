@@ -1165,10 +1165,36 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
 
 // ─── Shared AssetTable ────────────────────────────────────────────────────────
 
-function formatCategoryCell(category) {
+function formatCategoryLabel(category) {
   const c = String(category || "").trim();
   if (!c || c === "—") return "—";
+  const lower = c.toLowerCase();
+  if (lower === "consumables") return "Consumable";
+  if (lower === "accessories") return "Accessories";
   return c.charAt(0).toUpperCase() + c.slice(1);
+}
+
+function categoryPillVariant(category) {
+  const key = String(category || "").trim().toLowerCase();
+  const map = {
+    hardware: "hardware",
+    accessories: "accessories",
+    accessory: "accessories",
+    consumables: "consumables",
+    consumable: "consumables",
+    software: "software",
+    stock: "stock",
+    vehicle: "vehicle",
+    equipment: "equipment",
+  };
+  return map[key] || "default";
+}
+
+function CategoryPill({ category }) {
+  const label = formatCategoryLabel(category);
+  if (label === "—") return <span className="inv-cat-pill inv-cat-pill--muted">—</span>;
+  const variant = categoryPillVariant(category);
+  return <span className={`inv-cat-pill inv-cat-pill--${variant}`}>{label}</span>;
 }
 
 function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned = false }) {
@@ -1212,7 +1238,9 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
                     </div>
                   )}
                 </td>
-                <td className="td-category">{formatCategoryCell(row.category)}</td>
+                <td className="td-category">
+                  <CategoryPill category={row.category} />
+                </td>
                 <td>{row.total}</td>
                 {showAvailable && <td className="td-available">{row.available}</td>}
                 {showAssigned  && <td className="td-assigned">{row.assigned}</td>}
@@ -1234,6 +1262,7 @@ function AssetTable({ assets, filter, onViewAsset, onStatusChange, hideAssigned 
 // ─── TotalAssetsPage ──────────────────────────────────────────────────────────
 
 function TotalAssetsPage({ category }) {
+  const showTypeFilter = category !== "Office Assets";
   const [filter,        setFilter]        = useState("All");
   const [hwTypeFilter,  setHwTypeFilter]  = useState("All");
   const [searchQuery,   setSearchQuery]   = useState("");
@@ -1264,7 +1293,7 @@ function TotalAssetsPage({ category }) {
         return true;
       })
       .filter((a) => {
-        if (hwTypeFilter === "All") return true;
+        if (!showTypeFilter || hwTypeFilter === "All") return true;
         return (a.category ?? "").toLowerCase() === hwTypeFilter.toLowerCase();
       })
       .filter((a) => {
@@ -1275,7 +1304,7 @@ function TotalAssetsPage({ category }) {
           (a.category ?? "").toLowerCase().includes(q)
         );
       });
-  }, [category, filter, hwTypeFilter, searchQuery, refreshKey]);
+  }, [category, filter, hwTypeFilter, searchQuery, refreshKey, showTypeFilter]);
 
   return (
     <>
@@ -1293,18 +1322,21 @@ function TotalAssetsPage({ category }) {
           </button>
         ))}
 
-        <span className="inv-filter-divider" />
-
-        <span className="inv-filter-label">Type:</span>
-        <select
-          className="inv-hwtype-dropdown"
-          value={hwTypeFilter}
-          onChange={(e) => setHwTypeFilter(e.target.value)}
-        >
-          {["All", "Hardware", "Software", "Consumables", "Accessories"].map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
+        {showTypeFilter && (
+          <>
+            <span className="inv-filter-divider" />
+            <span className="inv-filter-label">Type:</span>
+            <select
+              className="inv-hwtype-dropdown"
+              value={hwTypeFilter}
+              onChange={(e) => setHwTypeFilter(e.target.value)}
+            >
+              {["All", "Hardware", "Software", "Consumables", "Accessories"].map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </>
+        )}
 
         <div className="inv-search-wrap">
           <span className="inv-search-icon">🔍</span>
