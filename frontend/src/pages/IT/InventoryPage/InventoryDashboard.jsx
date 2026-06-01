@@ -36,6 +36,7 @@ import {
   getAssignedColumnLabel,
   resolveInventoryCategory,
   getHardwareFields,
+  getUnitBrandModelDisplay,
   hideAssignedColumnForCategory,
   isStockInventoryCategory,
   isValidInventoryCategory,
@@ -600,17 +601,40 @@ function AssetDetailModal({
     (isVehicleInventoryCategory(asset.inventoryCategory) ||
       String(asset.category || "").toLowerCase() === "equipment");
 
-  const detailFields = [
-    { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true,  highlight: true  },
-    { label: hwFields.brand.label, value: unit?.brand ?? "—", mono: false, highlight: false },
-    { label: hwFields.make.label, value: unit?.make ?? "—", mono: false, highlight: false },
-    {
-      label: hwFields.serialNumber.label,
-      value: unit?.serialNumber ?? "—",
-      mono: true,
-      highlight: false,
-    },
-  ];
+  const invCat = inventoryCategory || asset?.inventoryCategory;
+  const isInfraEquipment =
+    invCat === "Infrastructure Assets" &&
+    String(asset.category || "").toLowerCase() === "equipment";
+  const brandModel = unit ? getUnitBrandModelDisplay(unit, invCat) : { primary: "—", secondary: "" };
+
+  const detailFields = isInfraEquipment
+    ? [
+        {
+          label: hwFields.serialNumber.label,
+          value: unit?.serialNumber ?? "—",
+          mono: true,
+          highlight: true,
+        },
+        { label: "Make", value: brandModel.primary, mono: false, highlight: false },
+        { label: hwFields.model.label, value: brandModel.secondary || "—", mono: false, highlight: false },
+      ]
+    : [
+        { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true, highlight: true },
+        { label: hwFields.brand.label, value: brandModel.primary, mono: false, highlight: false },
+        { label: hwFields.make.label, value: unit?.make ?? "—", mono: false, highlight: false },
+        {
+          label: hwFields.model.label,
+          value: brandModel.secondary || unit?.model || "—",
+          mono: false,
+          highlight: false,
+        },
+        {
+          label: hwFields.serialNumber.label,
+          value: unit?.serialNumber ?? "—",
+          mono: true,
+          highlight: false,
+        },
+      ];
 
   return (
     <>

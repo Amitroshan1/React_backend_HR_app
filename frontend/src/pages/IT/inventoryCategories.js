@@ -131,11 +131,30 @@ export const DEFAULT_HARDWARE_FIELDS = {
 };
 
 const INFRA_EQUIPMENT_HARDWARE_FIELDS = {
-  brand: { label: "Site / location", placeholder: "e.g. Server room A" },
+  brand: { label: "Make", placeholder: "e.g. Cisco" },
   make: { label: "Make", placeholder: "e.g. Cisco" },
   model: { label: "Model", placeholder: "e.g. 2960" },
   serialNumber: { label: "Asset tag / ID", placeholder: "e.g. INF-001" },
 };
+
+/** Brand / Name column for unit rows (fixes legacy rows where site was stored in brand). */
+export function getUnitBrandModelDisplay(unit, inventoryCategory) {
+  const cat = String(unit?.category || "").trim().toLowerCase();
+  if (inventoryCategory === "Infrastructure Assets" && cat === "equipment") {
+    const make = String(unit?.make || "").trim();
+    const model = String(unit?.model || "").trim();
+    const assetName = String(unit?.assetName || "").trim();
+    const primary =
+      make && make !== "—" && make !== assetName
+        ? make
+        : assetName || make || String(unit?.brand || "").trim() || "—";
+    const secondary = model && model !== "—" ? model : "";
+    return { primary, secondary };
+  }
+  const primary = String(unit?.brand || unit?.assetName || unit?.name || "").trim() || "—";
+  const secondary = String(unit?.model || "").trim();
+  return { primary, secondary };
+}
 
 export function getHardwareFields(inventoryCategory, itemCategory = null) {
   const cat = String(itemCategory || "").trim().toLowerCase();

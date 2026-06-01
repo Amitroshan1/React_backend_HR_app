@@ -20,6 +20,7 @@ import {
 import {
   getHardwareFields,
   getInventoryStatusCategoryTabs,
+  getUnitBrandModelDisplay,
   showInventoryStatusCategoryTabs,
   unitBelongsToInventoryCategory,
 } from "../inventoryCategories";
@@ -118,13 +119,14 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 
 // ─── RepairRow ────────────────────────────────────────────────────────────────
 
-function RepairRow({ unit, index, onReturn, onRemove }) {
+function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove }) {
   const days = getDaysElapsed(unit.repairDate);
+  const { primary, secondary } = getUnitBrandModelDisplay(unit, inventoryCategory);
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
       <td>
-        <span className="repair-brand">{unit.brand || unit.assetName}</span>
-        {unit.model && <span className="repair-model"> {unit.model}</span>}
+        <span className="repair-brand">{primary}</span>
+        {secondary ? <span className="repair-model"> {secondary}</span> : null}
       </td>
       <td><span className="inv-category-badge">{unit.category}</span></td>
       <td>
@@ -248,8 +250,9 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     syncInventoryCount(unit, "fromRepairToAvailable");
     dispatchInventoryUpdate();
     reload();
-    showToast(`${unit.brand || unit.assetName} marked repaired and moved to available ✓`);
-  }, [reload, showToast]);
+    const { primary } = getUnitBrandModelDisplay(unit, inventoryCategory);
+    showToast(`${primary} marked repaired and moved to available ✓`);
+  }, [reload, showToast, inventoryCategory]);
 
   const handleRemovePrompt = useCallback((unit) => {
     const ok = window.confirm(
@@ -383,6 +386,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
                     key={unit.id}
                     unit={unit}
                     index={i}
+                    inventoryCategory={inventoryCategory}
                     onReturn={handleReturn}
                     onRemove={handleRemovePrompt}
                   />

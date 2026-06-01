@@ -21,6 +21,7 @@ import {
 import {
   getHardwareFields,
   getInventoryStatusCategoryTabs,
+  getUnitBrandModelDisplay,
   showInventoryStatusCategoryTabs,
   unitBelongsToInventoryCategory,
   resolveInventoryCategory,
@@ -111,13 +112,14 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 
 // ─── NotWorkingRow ────────────────────────────────────────────────────────────
 
-function NotWorkingRow({ unit, index, onSendToRepair, onRemove }) {
+function NotWorkingRow({ unit, index, inventoryCategory, onSendToRepair, onRemove }) {
   const isQtyRow = Boolean(unit?.isQuantityRow);
+  const { primary, secondary } = getUnitBrandModelDisplay(unit, inventoryCategory);
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
       <td>
-        <span className="nw-brand">{unit.brand || unit.assetName || unit.name}</span>
-        {unit.model && <span className="nw-model"> {unit.model}</span>}
+        <span className="nw-brand">{primary}</span>
+        {secondary ? <span className="nw-model"> {secondary}</span> : null}
       </td>
       <td><span className="inv-category-badge">{unit.category}</span></td>
       <td>
@@ -291,8 +293,9 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
     syncInventoryCount(unit, "fromNotWorkingToRepair");
     dispatchInventoryUpdate();
     reload();
-    showToast(`${unit.brand || unit.assetName} sent to repair ✓`);
-  }, [reload, showToast]);
+    const { primary } = getUnitBrandModelDisplay(unit, inventoryCategory);
+    showToast(`${primary} sent to repair ✓`);
+  }, [reload, showToast, inventoryCategory]);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
     if (removeTarget?.isQuantityRow) {
@@ -456,6 +459,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
                     key={unit.id}
                     unit={unit}
                     index={i}
+                    inventoryCategory={inventoryCategory}
                     onSendToRepair={handleSendToRepair}
                     onRemove={setRemoveTarget}
                   />

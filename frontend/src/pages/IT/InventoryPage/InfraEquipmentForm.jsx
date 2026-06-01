@@ -168,8 +168,8 @@ export default function InfraEquipmentForm({ equipmentType, customType }) {
           hwType: effectiveType,
           rows: [
             {
-              brand: row.location.trim(),
-              make: row.make.trim() || name,
+              brand: row.make.trim() || name,
+              make: row.make.trim() || "",
               model: row.model.trim() || "—",
               serialNumber: row.assetTag.trim(),
               photos: row.photos || [],
