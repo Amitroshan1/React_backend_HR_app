@@ -332,7 +332,9 @@ export function deletedLogBelongsToInventoryCategory(
   if (cat === "vehicle") return inventoryCategory === "Transport Assets";
   if (cat === "equipment") return inventoryCategory === "Infrastructure Assets";
   if (cat === "stock") {
-    if (explicit) return explicit === inventoryCategory;
+    if (explicit && INV_CATEGORIES.includes(explicit)) {
+      return explicit === inventoryCategory;
+    }
     return inventoryCategory === "Office Assets";
   }
   if (

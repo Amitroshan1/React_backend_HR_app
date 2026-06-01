@@ -32,6 +32,7 @@ import AddImported     from "./Parcel/AddImportedAssets";
 import ReadyExport     from "./Parcel/ExportedAssets";
 import {
   INV_CATEGORIES,
+  deletedLogBelongsToInventoryCategory,
   filterInventoryByCategory,
   getAssignedColumnLabel,
   resolveInventoryCategory,
@@ -103,17 +104,16 @@ function readRemovedITCount() {
 }
 
 function countRemovedAssetsForCategory(inventoryCategory) {
-  const inventory = readInventory();
   const deleted = getDeletedAssetsFromStorage() || [];
   if (!inventoryCategory) return deleted.length;
-  return deleted.filter((d) => {
-    const row = inventory.find(
-      (i) =>
-        String(i.id) === String(d.inventoryId) ||
-        String(i.id) === String(d.assetId),
-    );
-    return resolveInventoryCategory(row) === inventoryCategory;
-  }).length;
+  const inventory = readInventory();
+  const units = readUnits();
+  return deleted.filter((d) =>
+    deletedLogBelongsToInventoryCategory(d, inventoryCategory, {
+      inventory,
+      units,
+    }),
+  ).length;
 }
 
 function readLiveCounts(inventoryCategory = null) {

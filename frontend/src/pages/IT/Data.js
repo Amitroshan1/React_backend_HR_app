@@ -1018,6 +1018,8 @@ export const syncITDataFromAPI = async () => {
     _itFetch("/software/licenses"),
     _itFetch("/tickets"),
     _itFetch("/employees/assigned-assets"),
+    syncDeletedLogsFromAPI(),
+    syncRemovedITFromAPI(),
   ]);
 
   const inv = (invRes.items || []).map(_toLocalInventory);
