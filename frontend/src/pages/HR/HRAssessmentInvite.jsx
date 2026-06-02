@@ -19,12 +19,6 @@ const STATUS_STYLES = {
   evaluated: { bg: "#f5f3ff", fg: "#6d28d9", border: "#ddd6fe", label: "Evaluated" },
 };
 
-function formatIntegrityTimestamp(iso) {
-  if (iso == null || String(iso).trim() === "") return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
-}
-
 function hasIntegrityContent(inv) {
   if (!inv || typeof inv !== "object") return false;
   const n = (k) => {
@@ -104,12 +98,9 @@ function AssessmentReviewFigure({ q }) {
 function IntegrityReviewPanel({ integrity }) {
   if (!hasIntegrityContent(integrity)) return null;
 
-  const tabTs = Array.isArray(integrity.tab_hide_timestamps_utc) ? integrity.tab_hide_timestamps_utc : [];
-  const blurTs = Array.isArray(integrity.window_blur_timestamps_utc) ? integrity.window_blur_timestamps_utc : [];
-  const pasteTs = Array.isArray(integrity.paste_attempt_timestamps_utc) ? integrity.paste_attempt_timestamps_utc : [];
-  const tabN = Number(integrity.tab_hide_count) || tabTs.length;
-  const blurN = Number(integrity.window_blur_count) || blurTs.length;
-  const pasteN = Number(integrity.paste_attempt_count) || pasteTs.length;
+  const tabN = Number(integrity.tab_hide_count) || 0;
+  const blurN = Number(integrity.window_blur_count) || 0;
+  const pasteN = Number(integrity.paste_attempt_count) || 0;
   const clipN = Number(integrity.clipboard_shortcut_blocks) || 0;
   const ctxN = Number(integrity.context_menu_blocks) || 0;
   const dq = !!integrity.disqualified;
@@ -128,23 +119,6 @@ function IntegrityReviewPanel({ integrity }) {
       <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 2 }}>{value}</div>
       {hint ? <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{hint}</div> : null}
     </div>
-  );
-
-  const tsBlock = (title, items) => (
-    <details style={{ marginTop: 8, border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 10px", background: "#fafafa" }}>
-      <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#334155" }}>
-        {title} ({items.length})
-      </summary>
-      {items.length === 0 ? (
-        <p style={{ margin: "8px 0 0", fontSize: 12, color: "#94a3b8" }}>None recorded.</p>
-      ) : (
-        <ol style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 12, color: "#475569", maxHeight: 160, overflow: "auto" }}>
-          {items.map((t, i) => (
-            <li key={`${title}-${i}`}>{formatIntegrityTimestamp(t)}</li>
-          ))}
-        </ol>
-      )}
-    </details>
   );
 
   return (
@@ -193,26 +167,6 @@ function IntegrityReviewPanel({ integrity }) {
         {stat("Copy/cut keys", clipN, "Ctrl/Cmd+C/V/X blocked")}
         {stat("Right-click", ctxN, "Context menu blocked")}
       </div>
-      {tsBlock("Tab hide times (UTC)", tabTs)}
-      {tsBlock("Window blur times (UTC)", blurTs)}
-      {tsBlock("Paste attempt times (UTC)", pasteTs)}
-      <details style={{ marginTop: 10 }}>
-        <summary style={{ cursor: "pointer", fontSize: 12, color: "#64748b" }}>Raw integrity JSON</summary>
-        <pre
-          style={{
-            margin: "8px 0 0",
-            padding: 10,
-            background: "#0f172a",
-            color: "#e2e8f0",
-            borderRadius: 8,
-            fontSize: 11,
-            overflow: "auto",
-            maxHeight: 220,
-          }}
-        >
-          {JSON.stringify(integrity, null, 2)}
-        </pre>
-      </details>
     </div>
   );
 }
