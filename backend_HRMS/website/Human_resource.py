@@ -2963,7 +2963,7 @@ ASSESSMENT_FIGURE_BASE = "/api/HumanResource/assessment/public/figures"
 ASSESSMENT_QUESTIONS_WITH_FIGURES = (3, 4, 5, 6, 7, 12, 23)
 ASSESSMENT_FIGURE_FILES = {
     3: "q03.png",
-    4: "q04.svg",
+    4: "q04.png",
     5: "q05.svg",
     6: "q06.svg",
     7: "q07.svg",

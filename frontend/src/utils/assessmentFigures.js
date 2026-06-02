@@ -1,5 +1,5 @@
 import q03 from "../assets/assessment-figures/q03.png";
-import q04 from "../assets/assessment-figures/q04.svg";
+import q04 from "../assets/assessment-figures/q04.png";
 import q05 from "../assets/assessment-figures/q05.svg";
 import q06 from "../assets/assessment-figures/q06.svg";
 import q07 from "../assets/assessment-figures/q07.svg";
