@@ -57,6 +57,32 @@ const normCategory = (category) => {
   return raw.toLowerCase().startsWith("consumable") ? "Consumables" : raw;
 };
 
+/** One table row per unit in repair (qty catalog lines become N rows). */
+function expandRepairRowsForDisplay(rows) {
+  const expanded = [];
+  for (const row of rows) {
+    if (!row.isQuantityRow) {
+      expanded.push(row);
+      continue;
+    }
+    const qty = Math.max(0, Number(row.repairQuantity || 0));
+    for (let n = 1; n <= qty; n += 1) {
+      expanded.push({
+        ...row,
+        id: `${row.id}::line-${n}`,
+        isQuantityLine: true,
+        qtyLineIndex: n,
+        qtyLineTotal: qty,
+      });
+    }
+  }
+  return expanded;
+}
+
+function isCatalogQtyRepairRow(unit) {
+  return Boolean(unit?.isQuantityRow || unit?.isQuantityLine);
+}
+
 const readAssetUnits = () => getAssetUnitsFromStorage() || [];
 const writeAssetUnits = (units) => saveAssetUnitsToStorage(units);
 
@@ -128,26 +154,35 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 // ─── RepairRow ────────────────────────────────────────────────────────────────
 
 function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove }) {
-  const isQtyRow = Boolean(unit?.isQuantityRow);
-  const days = isQtyRow ? null : getDaysElapsed(unit.repairDate);
+  const isCatalogQty = isCatalogQtyRepairRow(unit);
+  const days = isCatalogQty ? null : getDaysElapsed(unit.repairDate);
   const { primary, secondary } = getUnitBrandModelDisplay(unit, inventoryCategory);
+  const lineLabel =
+    unit?.isQuantityLine && unit.qtyLineTotal > 1
+      ? `Unit ${unit.qtyLineIndex} of ${unit.qtyLineTotal}`
+      : null;
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
       <td>
         <span className="repair-brand">{primary}</span>
         {secondary ? <span className="repair-model"> {secondary}</span> : null}
+        {lineLabel ? (
+          <span className="repair-model" style={{ display: "block", marginTop: 2 }}>
+            {lineLabel}
+          </span>
+        ) : null}
       </td>
       <td><span className="inv-category-badge">{unit.category}</span></td>
       <td>
-        {isQtyRow
-          ? <span className="repair-serial">Qty: {unit.repairQuantity || 0}</span>
+        {isCatalogQty
+          ? <span className="repair-serial">{lineLabel || "Stock item"}</span>
           : unit.serialNumber
             ? <span className="repair-serial">{unit.serialNumber}</span>
             : "—"}
       </td>
-      <td>{isQtyRow ? "—" : formatDate(unit.repairDate)}</td>
+      <td>{isCatalogQty ? "—" : formatDate(unit.repairDate)}</td>
       <td>
-        {isQtyRow ? (
+        {isCatalogQty ? (
           <span className="repair-days ok">—</span>
         ) : (
           <span className={`repair-days ${getRepairDaysClass(days)}`}>{days}d</span>
@@ -295,34 +330,39 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     return rows;
   }, [allRepairRows, activeCategory, searchQuery]);
 
+  const displayRows = useMemo(
+    () => expandRepairRowsForDisplay(filteredRows),
+    [filteredRows],
+  );
+
   const repairTotalCount = useMemo(
-    () =>
-      repairUnits.length +
-      qtyRepairRows.reduce((sum, r) => sum + Number(r.repairQuantity || 0), 0),
-    [repairUnits, qtyRepairRows],
+    () => expandRepairRowsForDisplay(allRepairRows).length,
+    [allRepairRows],
   );
 
   const getCategoryCount = useCallback(
     (cat) =>
-      allRepairRows
-        .filter((u) => normCategory(u.category) === cat)
-        .reduce(
-          (sum, u) => sum + (u.isQuantityRow ? Number(u.repairQuantity || 0) : 1),
-          0,
-        ),
+      expandRepairRowsForDisplay(
+        allRepairRows.filter((u) => normCategory(u.category) === cat),
+      ).length,
     [allRepairRows],
   );
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleReturn = useCallback(async (unit) => {
-    if (unit?.isQuantityRow) {
-      const maxQty = Number(unit.repairQuantity || 0);
-      const input = window.prompt(`Enter quantity to mark as repaired (1-${maxQty})`, "1");
-      if (input == null) return;
-      const qty = Number.parseInt(input, 10);
-      if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
-        rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
-        return;
+    if (isCatalogQtyRepairRow(unit)) {
+      const maxQty = unit?.isQuantityLine
+        ? 1
+        : Number(unit.repairQuantity || 0);
+      let qty = 1;
+      if (!unit?.isQuantityLine) {
+        const input = window.prompt(`Enter quantity to mark as repaired (1-${maxQty})`, "1");
+        if (input == null) return;
+        qty = Number.parseInt(input, 10);
+        if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
+          rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
+          return;
+        }
       }
       try {
         await updateInventoryItemAPI(unit.inventoryId, {
@@ -380,14 +420,19 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
   }, []);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
-    if (removeTarget?.isQuantityRow) {
-      const maxQty = Number(removeTarget.repairQuantity || 0);
-      const input = window.prompt(`Enter quantity to remove as dead device (1-${maxQty})`, "1");
-      if (input == null) return;
-      const qty = Number.parseInt(input, 10);
-      if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
-        rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
-        return;
+    if (isCatalogQtyRepairRow(removeTarget)) {
+      const maxQty = removeTarget?.isQuantityLine
+        ? 1
+        : Number(removeTarget.repairQuantity || 0);
+      let qty = 1;
+      if (!removeTarget?.isQuantityLine) {
+        const input = window.prompt(`Enter quantity to remove as dead device (1-${maxQty})`, "1");
+        if (input == null) return;
+        qty = Number.parseInt(input, 10);
+        if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
+          rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
+          return;
+        }
       }
       try {
         await updateInventoryItemAPI(removeTarget.inventoryId, {
@@ -483,14 +528,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
             <p className="repair-subtitle">Assets currently under repair</p>
           </div>
           <span className="repair-count-badge">
-            {searchQuery.trim() || activeCategory !== "All"
-              ? filteredRows.length
-              : repairTotalCount}{" "}
-            asset{(searchQuery.trim() || activeCategory !== "All"
-              ? filteredRows.length
-              : repairTotalCount) !== 1
-              ? "s"
-              : ""}
+            {displayRows.length} asset{displayRows.length !== 1 ? "s" : ""}
           </span>
         </div>
 
@@ -542,10 +580,10 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.length === 0 ? (
+              {displayRows.length === 0 ? (
                 <tr><td colSpan={6} className="repair-empty">No assets in repair</td></tr>
               ) : (
-                filteredRows.map((unit, i) => (
+                displayRows.map((unit, i) => (
                   <RepairRow
                     key={unit.id}
                     unit={unit}
