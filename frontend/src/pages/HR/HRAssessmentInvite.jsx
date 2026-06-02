@@ -257,6 +257,47 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-refresh selected submission while media upload metadata is still catching up.
+  useEffect(() => {
+    if (!selected?.id) return undefined;
+    const status = String(selected.status || "").toLowerCase();
+    const shouldPoll =
+      ["submitted", "disqualified", "evaluated"].includes(status) &&
+      (!selected.has_recording || !selected.has_selfie);
+    if (!shouldPoll) return undefined;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const refreshSelected = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const res = await fetch(`${HR_API_BASE}/assessment/invites/${selected.id}`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && data.success) {
+          const invite = data.invite || null;
+          setSelected(invite);
+          setMarks(invite?.manual_marks || {});
+        }
+      } catch {
+        /* silent background refresh */
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const first = window.setTimeout(refreshSelected, 2500);
+    const interval = window.setInterval(refreshSelected, 8000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(first);
+      window.clearInterval(interval);
+    };
+  }, [selected?.id, selected?.status, selected?.has_recording, selected?.has_selfie]);
+
   useEffect(() => {
     setRecordingModalOpen(false);
     setRecordingVideoUrl((prev) => {

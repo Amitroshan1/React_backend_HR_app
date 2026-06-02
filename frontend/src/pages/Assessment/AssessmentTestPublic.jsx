@@ -61,6 +61,7 @@ export default function AssessmentTestPublic() {
   const [tabSwitchWarnOpen, setTabSwitchWarnOpen] = useState(false);
   const [submitOutcome, setSubmitOutcome] = useState(null); // "ok" | "disqualified" | null
   const [postSubmitWarning, setPostSubmitWarning] = useState("");
+  const [postSubmitInfo, setPostSubmitInfo] = useState("");
   const testRootRef = useRef(null);
   const windowBlurEventsRef = useRef([]);
   const pasteAttemptsRef = useRef([]);
@@ -181,7 +182,8 @@ export default function AssessmentTestPublic() {
     try {
       const opts = { mimeType };
       try {
-        opts.videoBitsPerSecond = 1_000_000;
+        // Keep recording size manageable for long assessments.
+        opts.videoBitsPerSecond = 350_000;
       } catch {
         /* ignore */
       }
@@ -272,35 +274,47 @@ export default function AssessmentTestPublic() {
       return;
     }
 
-    let recordingWarning = "";
-    try {
-      const recBox = recorderBoxRef.current;
-      if (recBox?.mr && typeof recBox.mr.requestData === "function") {
-        try {
-          recBox.mr.requestData();
-        } catch {
-          /* ignore */
-        }
-      }
-      const blob = await finalizeSessionRecording();
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-      if (blob && blob.size > 0) {
-        const up = await uploadSessionRecording(blob);
-        if (!up.ok) recordingWarning = up.message || "Recording upload failed";
-      }
-    } catch {
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-      recordingWarning = "Recording could not be processed.";
-    }
     setInvite(data.invite);
     setSubmitOutcome(data.invite?.disqualified ? "disqualified" : "ok");
     setStage("submitted");
     setSubmitting(false);
     submittingRef.current = false;
-    setPostSubmitWarning(recordingWarning || "");
-    if (recordingWarning) {
-      setError("");
-    }
+    setPostSubmitWarning("");
+    setPostSubmitInfo("Finalizing verification recording upload...");
+    setError("");
+
+    (async () => {
+      let recordingWarning = "";
+      try {
+        const recBox = recorderBoxRef.current;
+        if (recBox?.mr && typeof recBox.mr.requestData === "function") {
+          try {
+            recBox.mr.requestData();
+          } catch {
+            /* ignore */
+          }
+        }
+        const blob = await finalizeSessionRecording();
+        if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+        if (blob && blob.size > 0) {
+          const up = await uploadSessionRecording(blob);
+          if (!up.ok) recordingWarning = up.message || "Recording upload failed";
+        } else {
+          recordingWarning = "Recording file is empty.";
+        }
+      } catch {
+        if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+        recordingWarning = "Recording could not be processed.";
+      }
+
+      if (recordingWarning) {
+        setPostSubmitWarning(recordingWarning);
+        setPostSubmitInfo("");
+      } else {
+        setPostSubmitWarning("");
+        setPostSubmitInfo("Verification recording uploaded successfully.");
+      }
+    })();
   };
 
   useEffect(() => {
@@ -532,6 +546,11 @@ export default function AssessmentTestPublic() {
           {postSubmitWarning ? (
             <p className="assessment-error" style={{ marginTop: 12 }}>
               {postSubmitWarning} You can contact HR if this was unexpected.
+            </p>
+          ) : null}
+          {postSubmitInfo ? (
+            <p className="assessment-ok" style={{ marginTop: 12 }}>
+              {postSubmitInfo}
             </p>
           ) : null}
         </div>
