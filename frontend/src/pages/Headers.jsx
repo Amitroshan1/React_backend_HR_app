@@ -122,6 +122,7 @@ import { toast } from "react-toastify";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
 import { hasFeature, clearPlanContext, canAccessItPanel } from "../utils/planFeatures";
+import { clearPersistedPanelViews } from "../hooks/usePersistedView";
 
 const getPageInfo = (pathname, firstName) => {
     const normalizedPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";
@@ -448,6 +449,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         localStorage.removeItem('token');
         localStorage.removeItem('lastActivityAt');
         clearPlanContext();
+        clearPersistedPanelViews();
         navigate('/');
     };
 

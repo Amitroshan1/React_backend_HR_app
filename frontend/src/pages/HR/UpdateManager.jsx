@@ -1,6 +1,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { ArrowLeft, Search, UserPlus, Users } from 'lucide-react';
 import './UpdateManager.css';
+import { usePersistedView } from '../../hooks/usePersistedView';
+
+const UPDATE_MANAGER_VIEWS = ['landing', 'search', 'assign', 'details'];
 
 const API_BASE = '/api/query';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -11,7 +14,12 @@ const FALLBACK_EMP_TYPES = ['Software Developer', 'Human Resource', 'Accounts', 
 export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTypeOptions: propEmpTypeOptions }) => {
   const [circleOptions, setCircleOptions] = useState(propCircleOptions || FALLBACK_CIRCLES);
   const [empTypeOptions, setEmpTypeOptions] = useState(propEmpTypeOptions || FALLBACK_EMP_TYPES);
-  const [view, setView] = useState('landing');
+  const [view, setView] = usePersistedView({
+    storageKey: 'update_manager_view',
+    defaultView: 'landing',
+    validViews: UPDATE_MANAGER_VIEWS,
+    syncUrl: false,
+  });
   const [filters, setFilters] = useState({
     circle: (propCircleOptions && propCircleOptions[0]) || FALLBACK_CIRCLES[0],
     emp_type: (propEmpTypeOptions && propEmpTypeOptions[0]) || FALLBACK_EMP_TYPES[0],

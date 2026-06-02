@@ -12,6 +12,18 @@ import { ManagerProfileCard } from "./comps/ManagerProfileCard/ManagerProfileCar
 import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount, fetchProbationReviewsDue } from "./api";
 import { managerCanViewNhqEngineeringTeamAttendance } from "./managerTeamAttendanceEligibility";
 import "./Manager.css";
+import { usePersistedView } from "../../hooks/usePersistedView";
+
+const MANAGER_TABS = [
+  "leave",
+  "wfh",
+  "claims",
+  "resignation",
+  "noc",
+  "performance",
+  "probation",
+  "attendance",
+];
 
 const APPROVAL_TABS = [
   { key: "leave", label: "Leave", countKey: "leave" },
@@ -26,7 +38,12 @@ const ATTENDANCE_TAB = { key: "attendance", label: "Attendance", countKey: "atte
 
 export const Manager = () => {
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState("leave");
+  const [activeTab, setActiveTab] = usePersistedView({
+    storageKey: "manager_active_tab",
+    defaultView: "leave",
+    validViews: MANAGER_TABS,
+    syncUrl: false,
+  });
   const [statusFilter, setStatusFilter] = useState("All");
   const [updateSignal, setUpdateSignal] = useState(null);
   const [counts, setCounts] = useState({
@@ -133,6 +150,12 @@ export const Manager = () => {
   useEffect(() => {
     if (!countsLoaded || !performanceCountLoaded || !probationCountLoaded || defaultTabApplied.current) return;
     defaultTabApplied.current = true;
+    try {
+      const saved = localStorage.getItem("manager_active_tab");
+      if (saved && MANAGER_TABS.includes(saved)) return;
+    } catch {
+      /* ignore */
+    }
     if ((counts.leave || 0) > 0) {
       setActiveTab("leave");
       return;

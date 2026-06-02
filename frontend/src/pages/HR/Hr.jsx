@@ -25,6 +25,29 @@ import { CircleTransferHistory } from './CircleTransferHistory';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
+import { usePersistedView } from '../../hooks/usePersistedView';
+
+const HR_PANEL_VIEWS = [
+  'main',
+  'updates',
+  'signup',
+  'update_signup',
+  'circle_transfer_history',
+  'newsfeed',
+  'update_leave',
+  'leave_updation',
+  'assessment_invite',
+  'update_manager',
+  'add_location',
+  'noc_requests',
+  'exit_employee',
+  'ex_employee_doc_share',
+  'add_dept_circle',
+  'reset_password',
+  'leave_accrual_monitor',
+  'holiday_calendar',
+  'add_circle_type',
+];
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -1050,7 +1073,11 @@ export const Hr = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  const [view, setView] = useState('main');
+  const [view, setView] = usePersistedView({
+    storageKey: 'hr_panel_view',
+    defaultView: 'main',
+    validViews: HR_PANEL_VIEWS,
+  });
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState('');
   const [selectedEmployeeType, setSelectedEmployeeType] = useState('');
