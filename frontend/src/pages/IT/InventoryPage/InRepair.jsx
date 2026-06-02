@@ -16,6 +16,7 @@ import {
   syncInventoryCount,
   syncITDataFromAPI,
   setUnitStatusAPI,
+  updateInventoryItemAPI,
 } from "../Data";
 import {
   getHardwareFields,
@@ -23,6 +24,7 @@ import {
   getUnitBrandModelDisplay,
   showInventoryStatusCategoryTabs,
   unitBelongsToInventoryCategory,
+  resolveInventoryCategory,
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./InRepair.css";
@@ -47,6 +49,12 @@ const getRepairDaysClass = (days) => {
   if (days > 30) return "overdue";
   if (days > 14) return "warning";
   return "ok";
+};
+
+const normCategory = (category) => {
+  const raw = String(category || "").trim();
+  if (!raw) return "Hardware";
+  return raw.toLowerCase().startsWith("consumable") ? "Consumables" : raw;
 };
 
 const readAssetUnits = () => getAssetUnitsFromStorage() || [];
@@ -120,7 +128,8 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 // ─── RepairRow ────────────────────────────────────────────────────────────────
 
 function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove }) {
-  const days = getDaysElapsed(unit.repairDate);
+  const isQtyRow = Boolean(unit?.isQuantityRow);
+  const days = isQtyRow ? null : getDaysElapsed(unit.repairDate);
   const { primary, secondary } = getUnitBrandModelDisplay(unit, inventoryCategory);
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
@@ -130,13 +139,19 @@ function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove }) {
       </td>
       <td><span className="inv-category-badge">{unit.category}</span></td>
       <td>
-        {unit.serialNumber
-          ? <span className="repair-serial">{unit.serialNumber}</span>
-          : "—"}
+        {isQtyRow
+          ? <span className="repair-serial">Qty: {unit.repairQuantity || 0}</span>
+          : unit.serialNumber
+            ? <span className="repair-serial">{unit.serialNumber}</span>
+            : "—"}
       </td>
-      <td>{formatDate(unit.repairDate)}</td>
+      <td>{isQtyRow ? "—" : formatDate(unit.repairDate)}</td>
       <td>
-        <span className={`repair-days ${getRepairDaysClass(days)}`}>{days}d</span>
+        {isQtyRow ? (
+          <span className="repair-days ok">—</span>
+        ) : (
+          <span className={`repair-days ${getRepairDaysClass(days)}`}>{days}d</span>
+        )}
       </td>
       <td className="repair-actions">
         <button className="repair-btn-return" onClick={() => onReturn(unit)}>Repaired</button>
@@ -206,9 +221,69 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     [units, inventoryCategory, inventoryRows],
   );
 
+  const qtyRepairRows = useMemo(() => {
+    const rows = [];
+    const qtyCatalogCats = new Set(["accessories", "consumables", "stock"]);
+
+    for (const i of inventoryRows) {
+      if (resolveInventoryCategory(i) !== inventoryCategory) continue;
+      const repairQty = Number(i.repairQuantity || 0);
+      if (repairQty <= 0) continue;
+
+      const cat = String(i.category || "").toLowerCase();
+      const unitsForItem = repairUnits.filter(
+        (u) => String(u.inventoryId) === String(i.id),
+      ).length;
+
+      if (qtyCatalogCats.has(cat)) {
+        rows.push({
+          id: `qty-${i.id}`,
+          inventoryId: i.id,
+          assetName: i.name,
+          brand: i.name,
+          category: normCategory(i.category),
+          serialNumber: "",
+          repairQuantity: repairQty,
+          availableQuantity: Number(i.availableQuantity || 0),
+          totalQuantity: Number(i.totalQuantity || 0),
+          assignedQuantity: Number(i.assignedQuantity || 0),
+          notWorkingQuantity: Number(i.notWorkingQuantity || 0),
+          isQuantityRow: true,
+        });
+        continue;
+      }
+
+      const excess = repairQty - unitsForItem;
+      if (excess > 0) {
+        rows.push({
+          id: `qty-${i.id}`,
+          inventoryId: i.id,
+          assetName: i.name,
+          brand: i.name,
+          category: normCategory(i.category),
+          serialNumber: "",
+          repairQuantity: excess,
+          availableQuantity: Number(i.availableQuantity || 0),
+          totalQuantity: Number(i.totalQuantity || 0),
+          assignedQuantity: Number(i.assignedQuantity || 0),
+          notWorkingQuantity: Number(i.notWorkingQuantity || 0),
+          isQuantityRow: true,
+        });
+      }
+    }
+    return rows;
+  }, [inventoryRows, inventoryCategory, repairUnits]);
+
+  const allRepairRows = useMemo(
+    () => [...repairUnits, ...qtyRepairRows],
+    [repairUnits, qtyRepairRows],
+  );
+
   const filteredRows = useMemo(() => {
-    let rows = repairUnits;
-    if (activeCategory !== "All") rows = rows.filter((u) => u.category === activeCategory);
+    let rows = allRepairRows;
+    if (activeCategory !== "All") {
+      rows = rows.filter((u) => normCategory(u.category) === activeCategory);
+    }
     const query = searchQuery.trim().toLowerCase();
     if (query) {
       rows = rows.filter((u) =>
@@ -218,15 +293,57 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
       );
     }
     return rows;
-  }, [repairUnits, activeCategory, searchQuery]);
+  }, [allRepairRows, activeCategory, searchQuery]);
+
+  const repairTotalCount = useMemo(
+    () =>
+      repairUnits.length +
+      qtyRepairRows.reduce((sum, r) => sum + Number(r.repairQuantity || 0), 0),
+    [repairUnits, qtyRepairRows],
+  );
 
   const getCategoryCount = useCallback(
-    (cat) => repairUnits.filter((u) => u.category === cat).length,
-    [repairUnits],
+    (cat) =>
+      allRepairRows
+        .filter((u) => normCategory(u.category) === cat)
+        .reduce(
+          (sum, u) => sum + (u.isQuantityRow ? Number(u.repairQuantity || 0) : 1),
+          0,
+        ),
+    [allRepairRows],
   );
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleReturn = useCallback(async (unit) => {
+    if (unit?.isQuantityRow) {
+      const maxQty = Number(unit.repairQuantity || 0);
+      const input = window.prompt(`Enter quantity to mark as repaired (1-${maxQty})`, "1");
+      if (input == null) return;
+      const qty = Number.parseInt(input, 10);
+      if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
+        rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
+        return;
+      }
+      try {
+        await updateInventoryItemAPI(unit.inventoryId, {
+          repair_quantity: Math.max(0, Number(unit.repairQuantity || 0) - qty),
+          available_quantity: Number(unit.availableQuantity || 0) + qty,
+          not_working_quantity: Number(unit.notWorkingQuantity || 0),
+          assigned_quantity: Number(unit.assignedQuantity || 0),
+          total_quantity: Number(unit.totalQuantity || 0),
+        });
+        await syncITDataFromAPI();
+      } catch (err) {
+        console.error("[InRepair] qty mark repaired failed:", err);
+        rtToast.error(getITApiErrorMessage(err, "Could not update quantity on the server."));
+        return;
+      }
+      dispatchInventoryUpdate();
+      reload();
+      showToast(`${qty} item(s) marked repaired ✓`);
+      return;
+    }
+
     const ok = window.confirm(
       "This device will be moved to Available and can be assigned again. Are you sure you want to mark it as repaired?",
     );
@@ -263,6 +380,46 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
   }, []);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
+    if (removeTarget?.isQuantityRow) {
+      const maxQty = Number(removeTarget.repairQuantity || 0);
+      const input = window.prompt(`Enter quantity to remove as dead device (1-${maxQty})`, "1");
+      if (input == null) return;
+      const qty = Number.parseInt(input, 10);
+      if (!Number.isFinite(qty) || qty < 1 || qty > maxQty) {
+        rtToast.error(`Please enter a valid quantity between 1 and ${maxQty}.`);
+        return;
+      }
+      try {
+        await updateInventoryItemAPI(removeTarget.inventoryId, {
+          repair_quantity: Math.max(0, Number(removeTarget.repairQuantity || 0) - qty),
+          total_quantity: Math.max(0, Number(removeTarget.totalQuantity || 0) - qty),
+          available_quantity: Number(removeTarget.availableQuantity || 0),
+          assigned_quantity: Number(removeTarget.assignedQuantity || 0),
+          not_working_quantity: Number(removeTarget.notWorkingQuantity || 0),
+        });
+        await createDeletedLogAPI({
+          delete_code: `del-qty-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          inventory_item_id: Number(removeTarget.inventoryId) || null,
+          deleted_by_name: deletedBy,
+          asset_name: removeTarget.assetName || removeTarget.brand || "",
+          category: removeTarget.category || "Accessories",
+          serial_number: "",
+          reason: `Dead quantity marked: ${qty}. ${reason || ""}`.trim(),
+        });
+        await syncDeletedLogsFromAPI();
+        await syncITDataFromAPI();
+      } catch (err) {
+        console.error("[InRepair] qty dead device failed:", err);
+        rtToast.error(getITApiErrorMessage(err, "Could not remove quantity on the server."));
+        return;
+      }
+      dispatchInventoryUpdate();
+      reload();
+      setRemoveTarget(null);
+      showToast(`${qty} item(s) moved to Dead Assets ✓`);
+      return;
+    }
+
     const deletedId = `del-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const entry = buildLocalDeletedEntry(removeTarget, deletedBy, reason, deletedId);
 
@@ -326,7 +483,14 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
             <p className="repair-subtitle">Assets currently under repair</p>
           </div>
           <span className="repair-count-badge">
-            {filteredRows.length} asset{filteredRows.length !== 1 ? "s" : ""}
+            {searchQuery.trim() || activeCategory !== "All"
+              ? filteredRows.length
+              : repairTotalCount}{" "}
+            asset{(searchQuery.trim() || activeCategory !== "All"
+              ? filteredRows.length
+              : repairTotalCount) !== 1
+              ? "s"
+              : ""}
           </span>
         </div>
 
