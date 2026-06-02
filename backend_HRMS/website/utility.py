@@ -691,7 +691,12 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
             else:
                 dur = ""
 
-            session_ws.write(r, 0, p.punch_date.isoformat() if p.punch_date else "", border_fmt)
+            session_ws.write(
+                r,
+                0,
+                p.punch_date.strftime("%d-%m-%Y") if p.punch_date else "",
+                border_fmt,
+            )
             session_ws.write(r, 1, emp_code, border_fmt)
             session_ws.write(r, 2, emp_name, border_fmt)
             session_ws.write(r, 3, seq, border_fmt)
@@ -1918,7 +1923,12 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
         else:
             dur = ""
 
-        session_ws.write(r, 0, p.punch_date.isoformat() if p.punch_date else "", border_fmt)
+        session_ws.write(
+            r,
+            0,
+            p.punch_date.strftime("%d-%m-%Y") if p.punch_date else "",
+            border_fmt,
+        )
         session_ws.write(r, 1, a.emp_id or "", border_fmt)
         session_ws.write(r, 2, a.first_name or "", border_fmt)
         session_ws.write(r, 3, seq, border_fmt)

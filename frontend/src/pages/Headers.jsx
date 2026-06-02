@@ -328,6 +328,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     };
 
     const panelLinks = [];
+    const isItPrimaryRole = roleInfo.display?.toLowerCase() === "it";
     if (isAdminRole) {
         panelLinks.push({ display: "Admin Panel", route: "/admin" });
     } else {
@@ -335,6 +336,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
             panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
         }
         if (
+            isItPrimaryRole &&
             canAccessItPanel(user) &&
             !panelLinks.some((p) => p.route === "/it" || p.route === "/it/inventory")
         ) {
