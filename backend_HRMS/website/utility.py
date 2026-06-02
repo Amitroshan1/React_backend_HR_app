@@ -1692,7 +1692,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             project_name or "",
             place or (admin.circle or ""),
             circle_note,
-            doj.isoformat() if doj and hasattr(doj, "isoformat") else "",
+            doj.strftime("%d-%m-%Y") if doj and hasattr(doj, "strftime") else "",
             "",
         ]
         for idx, val in enumerate(header_values):
