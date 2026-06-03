@@ -48,6 +48,8 @@
   font-weight: 600;
   margin-bottom: 8px;
   color: #111827;
+  white-space: pre-line;
+  line-height: 1.5;
 }
 
 .assessment-figure-wrap {

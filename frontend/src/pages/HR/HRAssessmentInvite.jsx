@@ -561,7 +561,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               }}
             >
               <div>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, whiteSpace: "pre-line", lineHeight: 1.5 }}>
                   {formatAssessmentQuestionHeading(qNo, q.question)}
                 </div>
                 <AssessmentReviewFigure q={q} />
@@ -825,7 +825,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 }}
               >
                 <div>
-                  <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a", lineHeight: 1.4 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a", lineHeight: 1.5, whiteSpace: "pre-line" }}>
                     {formatAssessmentQuestionHeading(qNo, q.question || "(Question text unavailable)")}
                   </div>
                   <AssessmentReviewFigure q={q} />
