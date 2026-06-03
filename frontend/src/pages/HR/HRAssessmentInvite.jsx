@@ -4,6 +4,7 @@ import {
   formatAssessmentQuestionHeading,
   getAssessmentFigureSrc,
 } from "../../utils/assessmentFigures";
+import SessionRecordingPlayer from "./SessionRecordingPlayer";
 import "./HRAssessmentInvite.css";
 import "./LeaveApplicationUpdation.css";
 
@@ -910,14 +911,10 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                   Close
                 </button>
               </div>
-              <video
-                ref={recordingVideoRef}
-                key={recordingVideoUrl}
+              <SessionRecordingPlayer
                 src={recordingVideoUrl}
-                controls
-                playsInline
+                videoRef={recordingVideoRef}
                 autoPlay
-                style={{ width: "100%", maxHeight: "min(70vh, 520px)", borderRadius: 8, background: "#000" }}
               />
             </div>
           </div>
