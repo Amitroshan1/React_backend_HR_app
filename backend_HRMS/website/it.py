@@ -145,6 +145,46 @@ def _is_qty_managed_inventory(category, inventory_category=None):
     return False
 
 
+def _coerce_optional_int(value):
+    """Return int id or None — rejects frontend synthetic tokens like inv-slot-12-0."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        s = str(value).strip()
+        if not s or not s.lstrip("-").isdigit():
+            return None
+        return int(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def _inventory_id_from_export_slot(value):
+    """Parse inv-slot-{inventoryId}-{index} from Ready for Export UI."""
+    s = str(value or "").strip()
+    if not s.startswith("inv-slot-"):
+        return None
+    parts = s.split("-")
+    if len(parts) >= 4:
+        return _coerce_optional_int(parts[2])
+    return None
+
+
+def _resolve_parcel_export_item_ids(it):
+    """Map export payload row to real asset_unit_id and optional inventory_item_id."""
+    raw_uid = it.get("asset_unit_id")
+    if raw_uid is None:
+        raw_uid = it.get("id")
+    asset_unit_id = _coerce_optional_int(raw_uid)
+    inventory_item_id = _coerce_optional_int(it.get("inventory_item_id"))
+    if inventory_item_id is None:
+        inventory_item_id = _inventory_id_from_export_slot(raw_uid)
+    return asset_unit_id, inventory_item_id
+
+
 def _effective_inventory_category(item):
     """Align stored inventory_category with item.category (fixes legacy mis-tagged rows)."""
     ic = (item.inventory_category or "").strip()
@@ -1943,7 +1983,7 @@ def create_parcel_export():
         export_code=data.get("export_code") or _next_code("EXP", ITParcelExport, "export_code"),
         destination=destination,
         id_no=data.get("id_no") or data.get("idNo"),
-        exported_by_admin_id=data.get("exported_by_admin_id"),
+        exported_by_admin_id=_coerce_optional_int(data.get("exported_by_admin_id")),
         exported_by_name=exported_by_name,
         exported_at=_parse_dt(data.get("exported_at") or data.get("date")) or datetime.utcnow(),
         parcel_photos_json=data.get("photos") or [],
@@ -1952,10 +1992,12 @@ def create_parcel_export():
     db.session.flush()
 
     created_items = []
+    inventory_export_qty = {}
     for it in items:
+        asset_unit_id, inventory_item_id = _resolve_parcel_export_item_ids(it)
         export_item = ITParcelExportItem(
             parcel_export_id=row.id,
-            asset_unit_id=it.get("asset_unit_id"),
+            asset_unit_id=asset_unit_id,
             asset_name=(it.get("asset_name") or it.get("assetName") or "").strip(),
             serial_number=it.get("serial_number") or it.get("serialNo"),
             brand=it.get("brand"),
@@ -1967,17 +2009,34 @@ def create_parcel_export():
         db.session.add(export_item)
         created_items.append(export_item)
 
-        if export_item.asset_unit_id:
-            unit = ITAssetUnit.query.get(export_item.asset_unit_id)
+        if asset_unit_id:
+            unit = ITAssetUnit.query.get(asset_unit_id)
             if unit:
                 unit.status = "exported"
                 unit.exported_to = destination
                 unit.exported_at = row.exported_at
                 _recalc_inventory_counts(unit.inventory_item_id)
+        elif inventory_item_id:
+            inventory_export_qty[inventory_item_id] = (
+                inventory_export_qty.get(inventory_item_id, 0) + 1
+            )
 
     if not created_items:
         db.session.rollback()
         return _err("No valid parcel items found")
+
+    for inv_id, qty in inventory_export_qty.items():
+        item = ITInventoryItem.query.get(inv_id)
+        if not item or qty < 1:
+            continue
+        if _is_qty_managed_inventory(item.category, item.inventory_category):
+            item.available_quantity = max(0, int(item.available_quantity or 0) - qty)
+            item.total_quantity = max(0, int(item.total_quantity or 0) - qty)
+        else:
+            units = ITAssetUnit.query.filter_by(inventory_item_id=inv_id).count()
+            if units == 0:
+                item.available_quantity = max(0, int(item.available_quantity or 0) - qty)
+                item.total_quantity = max(0, int(item.total_quantity or 0) - qty)
 
     db.session.commit()
     row = ITParcelExport.query.get(row.id)

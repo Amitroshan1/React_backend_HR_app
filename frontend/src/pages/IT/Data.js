@@ -1296,7 +1296,12 @@ export const createParcelExportAPI = async ({
       exported_by_admin_id: exportedByAdminId,
       photos,
       assets: assets.map((a) => ({
-        asset_unit_id: a.asset_unit_id || a.id,
+        asset_unit_id:
+          a._source === "unit" || a.asset_unit_id != null
+            ? Number(a.asset_unit_id ?? a.id) || null
+            : null,
+        inventory_item_id: a.inventoryId != null ? Number(a.inventoryId) : null,
+        id: a.id,
         assetName: a.assetName,
         serialNo: a.serialNo,
         brand: a.brand,

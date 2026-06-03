@@ -407,6 +407,10 @@
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   width: min(480px, 100%);
+  max-height: min(90dvh, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
   animation: re-slide-in 0.2s ease;
 }
@@ -428,6 +432,7 @@
   align-items: flex-start;
   padding: 20px 24px 16px;
   border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
 }
 .re-modal-title {
   font-size: 16px;
@@ -461,6 +466,11 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Selected assets list inside modal */
@@ -555,6 +565,8 @@
   gap: 10px;
   padding: 16px 24px 20px;
   border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  background: #ffffff;
 }
 
 .re-modal-btn-cancel {
@@ -589,6 +601,36 @@
 .re-modal-btn-send:hover {
   background: #2563eb;
   border-color: #2563eb;
+}
+
+.re-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+.re-modal-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+@media (max-width: 768px) {
+  .re-modal-backdrop {
+    align-items: flex-start;
+    padding: 10px;
+    padding-top: max(10px, env(safe-area-inset-top, 0px));
+  }
+  .re-modal {
+    max-height: calc(100dvh - 20px);
+    margin-top: 0;
+  }
+  .re-modal-head {
+    padding: 16px 16px 12px;
+  }
+  .re-modal-body {
+    padding: 16px;
+  }
+  .re-modal-footer {
+    padding: 12px 16px 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* ══════════════════════════════════════════
@@ -1372,6 +1414,10 @@
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   width: min(480px, 100%);
+  max-height: min(90dvh, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
   animation: re-slide-in 0.2s ease;
 }
@@ -1393,6 +1439,7 @@
   align-items: flex-start;
   padding: 20px 24px 16px;
   border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
 }
 .re-modal-title {
   font-size: 16px;
@@ -1426,6 +1473,11 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 
@@ -1520,6 +1572,8 @@
   gap: 10px;
   padding: 16px 24px 20px;
   border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  background: #ffffff;
 }
 
 .re-modal-btn-cancel {
@@ -1554,6 +1608,36 @@
 .re-modal-btn-send:hover {
   background: #2563eb;
   border-color: #2563eb;
+}
+
+.re-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+.re-modal-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+@media (max-width: 768px) {
+  .re-modal-backdrop {
+    align-items: flex-start;
+    padding: 10px;
+    padding-top: max(10px, env(safe-area-inset-top, 0px));
+  }
+  .re-modal {
+    max-height: calc(100dvh - 20px);
+    margin-top: 0;
+  }
+  .re-modal-head {
+    padding: 16px 16px 12px;
+  }
+  .re-modal-body {
+    padding: 16px;
+  }
+  .re-modal-footer {
+    padding: 12px 16px 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
 }
 
 
