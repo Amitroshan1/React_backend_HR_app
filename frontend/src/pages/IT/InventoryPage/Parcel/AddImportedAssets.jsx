@@ -2,6 +2,7 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast as rtToast } from "react-toastify";
+import ClickableImage from "../../../../components/ClickableImage";
 import { createParcelImportsAPI, getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
 import "./AddImportedAssets.css";
 
@@ -87,7 +88,7 @@ const PhotoCell = ({ rowId, photos, onUpload, onRemove }) => {
         <div className="ai-photo-thumbs">
           {photos.map((src, i) => (
             <div key={i} className="ai-photo-thumb-wrap">
-              <img src={src} alt={`photo-${i}`} className="ai-photo-thumb" />
+              <ClickableImage src={src} alt={`photo-${i}`} className="ai-photo-thumb" />
               <button
                 type="button"
                 className="ai-photo-thumb-remove"

@@ -2,6 +2,8 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
+import ClickableImage from "../../../../components/ClickableImage";
+import { openFirstImageInNewTab } from "../../../../utils/openImageInNewTab";
 import { getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
 import "./ParcelDashboard.css";
 
@@ -34,21 +36,21 @@ const readExported = () => {
 
 function ModalBackdrop({ onClose, className, children }) {
   return (
-    <div className={className} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()}>{children}</div>
+    <div className={className} onClick={onClose} role="presentation">
+      {children}
     </div>
   );
 }
 
-function ModalHeader({ title, subtitle, onClose }) {
+function ModalHeader({ title, subtitle, onClose, titleId }) {
   return (
     <div className="pcl-modal-head">
-      <div>
-        <h3 className="pcl-modal-title">{title}</h3>
+      <div className="pcl-modal-head-text">
+        <h3 className="pcl-modal-title" id={titleId}>{title}</h3>
         {subtitle && <span className="pcl-modal-id">{subtitle}</span>}
       </div>
-      <button type="button" className="pcl-modal-close" onClick={onClose} aria-label="Close">
-        ✕
+      <button type="button" className="pcl-modal-close" onClick={onClose} aria-label="Close modal">
+        ×
       </button>
     </div>
   );
@@ -71,7 +73,7 @@ function ModalPhotoGrid({ photos, label }) {
       <span className="pcl-modal-label">📦 {label} ({photos.length})</span>
       <div className="pcl-parcel-photo-grid">
         {photos.map((src, i) => (
-          <img key={i} src={src} alt={`photo-${i + 1}`} className="pcl-parcel-photo-thumb" />
+          <ClickableImage key={i} src={src} alt={`photo-${i + 1}`} className="pcl-parcel-photo-thumb" />
         ))}
       </div>
     </div>
@@ -95,8 +97,19 @@ function DetailsModal({ asset, onClose }) {
 
   return (
     <ModalBackdrop className="pcl-modal-backdrop" onClose={onClose}>
-      <div className="pcl-modal pcl-detail-modal">
-        <ModalHeader title={asset.assetName} subtitle={asset.id} onClose={onClose} />
+      <div
+        className="pcl-modal pcl-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pcl-export-detail-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <ModalHeader
+          title={asset.assetName}
+          subtitle={asset.id}
+          onClose={onClose}
+          titleId="pcl-export-detail-title"
+        />
 
         <div className="pcl-modal-body">
           <ModalDetailRow label="Exported To"  value={asset.to || "—"} />
@@ -113,7 +126,13 @@ function DetailsModal({ asset, onClose }) {
                   <li key={a.id || idx} className="pcl-sn-item-rich">
                     <div className="pcl-sn-photo-cell">
                       {a.individualPhoto
-                        ? <img src={a.individualPhoto} alt={a.serialNo} className="pcl-sn-indiv-photo" />
+                        ? (
+                          <ClickableImage
+                            src={a.individualPhoto}
+                            alt={a.serialNo}
+                            className="pcl-sn-indiv-photo"
+                          />
+                        )
                         : <div className="pcl-sn-no-photo">No Photo</div>
                       }
                     </div>
@@ -140,7 +159,13 @@ function DetailsModal({ asset, onClose }) {
                   <li key={sn} className="pcl-sn-item-rich">
                     <div className="pcl-sn-photo-cell">
                       {photoBySerial[sn]
-                        ? <img src={photoBySerial[sn]} alt={sn} className="pcl-sn-indiv-photo" />
+                        ? (
+                          <ClickableImage
+                            src={photoBySerial[sn]}
+                            alt={sn}
+                            className="pcl-sn-indiv-photo"
+                          />
+                        )
                         : <div className="pcl-sn-no-photo">No Photo</div>
                       }
                     </div>
@@ -163,7 +188,7 @@ function ImportDetailsModal({ asset, onClose }) {
   if (!asset) return null;
   return (
     <ModalBackdrop className="pcl-modal-backdrop" onClose={onClose}>
-      <div className="pcl-modal pcl-detail-modal">
+      <div className="pcl-modal pcl-detail-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <ModalHeader title={asset.assetName} subtitle={asset.id} onClose={onClose} />
         <div className="pcl-modal-body">
           <ModalDetailRow label="From"        value={asset.from || "—"} />
@@ -172,22 +197,6 @@ function ImportDetailsModal({ asset, onClose }) {
           <ModalDetailRow label="Count"       value={String(asset.count)} />
           {asset.idNo && <ModalDetailRow label="ID No" value={asset.idNo} />}
           <ModalPhotoGrid photos={asset.photos} label="Photos" />
-        </div>
-      </div>
-    </ModalBackdrop>
-  );
-}
-
-function PhotoModal({ photos, onClose }) {
-  if (!photos?.length) return null;
-  return (
-    <ModalBackdrop className="pcl-modal-backdrop" onClose={onClose}>
-      <div className="pcl-modal pcl-photo-modal">
-        <ModalHeader title={`📦 Parcel Photos (${photos.length})`} onClose={onClose} />
-        <div className="pcl-photo-grid">
-          {photos.map((src, i) => (
-            <img key={i} src={src} alt={`parcel-photo-${i + 1}`} className="pcl-photo-img" />
-          ))}
         </div>
       </div>
     </ModalBackdrop>
@@ -206,7 +215,6 @@ export default function Parcel() {
 
   const [detailAsset,  setDetailAsset]  = useState(null);
   const [importDetail, setImportDetail] = useState(null);
-  const [photoAsset,   setPhotoAsset]   = useState(null);
 
   // ── Data loading ───────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -427,7 +435,8 @@ export default function Parcel() {
                         <button
                           type="button"
                           className="pcl-btn-photos"
-                          onClick={() => setPhotoAsset(row.photos)}
+                          onClick={() => openFirstImageInNewTab(row.photos)}
+                          title="Open photo in new tab"
                         >
                           📷 {row.photos.length}
                         </button>
@@ -469,7 +478,6 @@ export default function Parcel() {
       {/* Modals */}
       <DetailsModal       asset={detailAsset}  onClose={() => setDetailAsset(null)}  />
       <ImportDetailsModal asset={importDetail}  onClose={() => setImportDetail(null)} />
-      <PhotoModal         photos={photoAsset}   onClose={() => setPhotoAsset(null)}   />
     </div>
   );
 }

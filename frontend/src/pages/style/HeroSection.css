@@ -114,10 +114,10 @@
   width: 0ch; /* Animation start */
 }
 
-/* Character count of "Welcome..." = 10 */
+/* Character count of "SaffoPeople" = 11 */
 @keyframes typewriter {
   from { width: 0ch; }
-  to { width: 10ch; }
+  to { width: 11ch; }
 }
 
 @keyframes cursorBlink {
@@ -127,7 +127,7 @@
 
 .animate-typewriter {
   animation: 
-    typewriter 1.5s steps(10) forwards,
+    typewriter 1.5s steps(11) forwards,
     cursorBlink 0.7s step-end infinite;
 }
 

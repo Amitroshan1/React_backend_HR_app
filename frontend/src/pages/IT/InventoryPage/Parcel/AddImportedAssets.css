@@ -353,6 +353,7 @@
   width: 36px;
   height: 36px;
   object-fit: cover;
+  cursor: pointer;
   border-radius: 6px;
   border: 1px solid #e2e8f0;
 }

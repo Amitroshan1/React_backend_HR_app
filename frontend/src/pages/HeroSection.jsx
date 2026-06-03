@@ -359,7 +359,7 @@ export const HeroSection = () => {
           {/* LEFT TEXT BLOCK */}
           <div className="hero-text-block">
             <h1 className={`hero-title ${animate ? "animate-typewriter" : ""}`}>
-              Welcome...
+              SaffoPeople
             </h1>
 
             <p className="hero-subtitle animate-reveal" style={{ animationDelay: '1.5s' }}>

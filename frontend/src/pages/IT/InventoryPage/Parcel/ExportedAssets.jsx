@@ -8,6 +8,8 @@ import {
   syncITDataFromAPI,
   syncParcelsFromAPI,
 } from "../../Data";
+import ClickableImage from "../../../../components/ClickableImage";
+import { openFirstImageInNewTab } from "../../../../utils/openImageInNewTab";
 import "./ExportedAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -177,17 +179,22 @@ function commitExport(selectedAssets, destination) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ParcelPhotoStrip({ photos, onRemove, onPreviewOpen }) {
+function ParcelPhotoStrip({ photos, onRemove }) {
   if (!photos.length) return null;
   return (
     <>
-      <button type="button" className="re-parcel-preview-btn" onClick={onPreviewOpen}>
+      <button
+        type="button"
+        className="re-parcel-preview-btn"
+        onClick={() => openFirstImageInNewTab(photos)}
+        title="Open photo in new tab"
+      >
         📷 {photos.length} photo{photos.length !== 1 ? "s" : ""} added
       </button>
       <div className="re-parcel-thumbs">
         {photos.slice(0, 4).map((src, i) => (
           <div key={i} className="re-parcel-thumb-wrap">
-            <img src={src} alt={`parcel-${i}`} className="re-parcel-thumb" />
+            <ClickableImage src={src} alt={`parcel-${i}`} className="re-parcel-thumb" />
             <button
               type="button"
               className="re-parcel-thumb-remove"
@@ -206,42 +213,18 @@ function ParcelPhotoStrip({ photos, onRemove, onPreviewOpen }) {
   );
 }
 
-function PhotoPreviewModal({ photos, onRemove, onClose }) {
-  return (
-    <div className="re-photo-preview-backdrop" onClick={onClose}>
-      <div className="re-photo-preview-box" onClick={(e) => e.stopPropagation()}>
-        <div className="re-photo-preview-head">
-          <span>Parcel Photos ({photos.length})</span>
-          <button type="button" onClick={onClose} aria-label="Close preview">✕</button>
-        </div>
-        <div className="re-photo-preview-grid">
-          {photos.map((src, i) => (
-            <div key={i} className="re-photo-preview-item">
-              <img src={src} alt={`preview-${i}`} />
-              <button
-                type="button"
-                onClick={() => {
-                  onRemove(i);
-                  if (photos.length === 1) onClose();
-                }}
-                aria-label="Remove photo"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ModalAssetRow({ asset, individualPhoto }) {
   return (
     <div className="re-modal-asset-row">
       <div className="re-modal-asset-thumb">
         {individualPhoto
-          ? <img src={individualPhoto} alt={asset.serialNo} className="re-modal-thumb-img" />
+          ? (
+            <ClickableImage
+              src={individualPhoto}
+              alt={asset.serialNo}
+              className="re-modal-thumb-img"
+            />
+          )
           : <span className="re-modal-thumb-emoji">{asset.emoji}</span>
         }
       </div>
@@ -262,8 +245,6 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
   const [exportedByError,  setExportedByError]  = useState("");
   const [idNo,             setIdNo]             = useState("");
   const [parcelPhotos,     setParcelPhotos]     = useState([]);
-  const [isPreviewOpen,    setIsPreviewOpen]    = useState(false);
-
   const handlePhotoUpload = useCallback(async (files) => {
     if (!files?.length) return;
     try {
@@ -297,8 +278,14 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
               {selectedAssets.length} asset{selectedAssets.length !== 1 ? "s" : ""} ready to ship
             </p>
           </div>
-          <button type="button" className="re-modal-close" onClick={onCancel} aria-label="Close">
-            ✕
+          <button
+            type="button"
+            className="re-modal-close"
+            onClick={onCancel}
+            aria-label="Close export modal"
+            title="Close"
+          >
+            ×
           </button>
         </div>
 
@@ -376,7 +363,6 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
               <ParcelPhotoStrip
                 photos={parcelPhotos}
                 onRemove={removeParcelPhoto}
-                onPreviewOpen={() => setIsPreviewOpen(true)}
               />
             </div>
           </div>
@@ -393,13 +379,6 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
         </div>
       </div>
 
-      {isPreviewOpen && (
-        <PhotoPreviewModal
-          photos={parcelPhotos}
-          onRemove={removeParcelPhoto}
-          onClose={() => setIsPreviewOpen(false)}
-        />
-      )}
     </div>
   );
 }
@@ -414,7 +393,7 @@ function AssetPhotoCell({ asset, photo, onUpload }) {
   if (photo) {
     return (
       <div className="re-indiv-photo-wrap">
-        <img src={photo} alt="asset" className="re-indiv-thumb" />
+        <ClickableImage src={photo} alt="asset" className="re-indiv-thumb" />
         <label className="re-indiv-change-btn" title="Change photo">
           <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleChange} />
           ✎

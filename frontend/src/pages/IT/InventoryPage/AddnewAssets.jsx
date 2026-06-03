@@ -2,6 +2,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
+import ClickableImage from "../../../components/ClickableImage";
 import {
   createHardwareUnitsAPI,
   createInventoryItemAPI,
@@ -156,7 +157,7 @@ function PhotoModal({ photos, onClose, onRemovePhoto }) {
             <div className="ana-photo-grid">
               {photos.map((src, i) => (
                 <div key={i} className="ana-photo-item">
-                  <img src={src} alt={`photo-${i + 1}`} />
+                  <ClickableImage src={src} alt={`photo-${i + 1}`} />
                   <button
                     type="button"
                     className="ana-photo-remove"

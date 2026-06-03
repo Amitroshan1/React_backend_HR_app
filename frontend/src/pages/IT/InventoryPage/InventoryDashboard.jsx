@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Routes, Route, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
+import ClickableImage from "../../../components/ClickableImage";
 import "./InventoryDashboard.css";
 
 import {
@@ -539,41 +540,6 @@ function ViewActionGroup({
   );
 }
 
-// ─── PhotoLightbox ────────────────────────────────────────────────────────────
-
-function PhotoLightbox({ photos, startIndex, onClose }) {
-  const [currentIndex, setCurrentIndex] = useState(startIndex);
-
-  const goToPrev = (e) => {
-    e.stopPropagation();
-    setCurrentIndex((i) => (i - 1 + photos.length) % photos.length);
-  };
-  const goToNext = (e) => {
-    e.stopPropagation();
-    setCurrentIndex((i) => (i + 1) % photos.length);
-  };
-
-  return (
-    <div className="inv-lightbox" onClick={onClose}>
-      <button className="inv-lightbox-close" onClick={onClose}>×</button>
-      {photos.length > 1 && (
-        <button className="inv-lightbox-prev" onClick={goToPrev}>‹</button>
-      )}
-      <div className="inv-lightbox-img-wrap" onClick={(e) => e.stopPropagation()}>
-        <img src={photos[currentIndex]} alt="" />
-        {photos.length > 1 && (
-          <div className="inv-lightbox-counter">
-            {currentIndex + 1} / {photos.length}
-          </div>
-        )}
-      </div>
-      {photos.length > 1 && (
-        <button className="inv-lightbox-next" onClick={goToNext}>›</button>
-      )}
-    </div>
-  );
-}
-
 // ─── AssetDetailModal ─────────────────────────────────────────────────────────
 
 function AssetDetailModal({
@@ -586,7 +552,6 @@ function AssetDetailModal({
   onOfficeReturn,
 }) {
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
-  const [lightboxStartIdx,  setLightboxStartIdx]  = useState(null);
 
   const units  = getUnitsForAsset(asset.id, asset.name, asset.hwType);
   const unit   = units[selectedUnitIndex] ?? null;
@@ -687,8 +652,8 @@ function AssetDetailModal({
                       </div>
                     ) : (
                       <>
-                        <div className="inv-photo-main" onClick={() => setLightboxStartIdx(0)}>
-                          <img src={inventoryPhotos[0]} alt="asset" />
+                        <div className="inv-photo-main">
+                          <ClickableImage src={inventoryPhotos[0]} alt="asset" />
                           {inventoryPhotos.length > 1 && (
                             <span className="inv-photo-more-badge">+{inventoryPhotos.length - 1} more</span>
                           )}
@@ -696,12 +661,11 @@ function AssetDetailModal({
                         {inventoryPhotos.length > 1 && (
                           <div className="inv-photo-strip">
                             {inventoryPhotos.map((src, i) => (
-                              <img
+                              <ClickableImage
                                 key={i}
                                 src={src}
                                 alt=""
                                 className="inv-photo-thumb"
-                                onClick={() => setLightboxStartIdx(i)}
                               />
                             ))}
                           </div>
@@ -717,12 +681,11 @@ function AssetDetailModal({
                       </p>
                       <div className="inv-photo-strip">
                         {inventoryReceipts.map((src, i) => (
-                          <img
+                          <ClickableImage
                             key={i}
                             src={src}
                             alt=""
                             className="inv-photo-thumb"
-                            onClick={() => setLightboxStartIdx(i)}
                           />
                         ))}
                       </div>
@@ -810,8 +773,8 @@ function AssetDetailModal({
                     </div>
                   ) : (
                     <>
-                      <div className="inv-photo-main" onClick={() => setLightboxStartIdx(0)}>
-                        <img src={photos[0]} alt="asset" />
+                      <div className="inv-photo-main">
+                        <ClickableImage src={photos[0]} alt="asset" />
                         {photos.length > 1 && (
                           <span className="inv-photo-more-badge">+{photos.length - 1} more</span>
                         )}
@@ -819,12 +782,11 @@ function AssetDetailModal({
                       {photos.length > 1 && (
                         <div className="inv-photo-strip">
                           {photos.map((src, i) => (
-                            <img
+                            <ClickableImage
                               key={i}
                               src={src}
                               alt=""
                               className="inv-photo-thumb"
-                              onClick={() => setLightboxStartIdx(i)}
                             />
                           ))}
                         </div>
@@ -900,13 +862,6 @@ function AssetDetailModal({
         </div>
       </div>
 
-      {lightboxStartIdx !== null && (
-        <PhotoLightbox
-          photos={units.length === 0 ? inventoryPhotos : photos}
-          startIndex={lightboxStartIdx}
-          onClose={() => setLightboxStartIdx(null)}
-        />
-      )}
     </>
   );
 }

@@ -1,3 +1,5 @@
+import ClickableImage from "../../../components/ClickableImage";
+import { openFirstImageInNewTab } from "../../../utils/openImageInNewTab";
 import { compressImage } from "../Data";
 
 export const truncateFileName = (name, max = 22) => {
@@ -117,7 +119,19 @@ export function InventoryFileCell({
         )}
 
         {count > 0 && onPreview && (
-          <button type="button" className="ana-photo-count-btn" onClick={() => onPreview(row.id, field)}>
+          <button
+            type="button"
+            className="ana-photo-count-btn"
+            onClick={() => {
+              const items = buildPreviewItems(row, field);
+              const firstImage = items.find(
+                (it) => it.isImage && String(it.data).startsWith("data:image/"),
+              );
+              if (firstImage?.data && openFirstImageInNewTab([firstImage.data])) return;
+              onPreview(row.id, field);
+            }}
+            title="Open photo in new tab"
+          >
             View ({count})
           </button>
         )}
@@ -141,7 +155,7 @@ export function FilePreviewModal({ items, title, onClose, onRemove }) {
             {items.map((item, i) => (
               <div key={i} className="ana-photo-item">
                 {item.isImage && String(item.data).startsWith("data:image/") ? (
-                  <img src={item.data} alt={item.name || ""} />
+                  <ClickableImage src={item.data} alt={item.name || ""} />
                 ) : (
                   <div className="ana-file-preview-tag" title={item.name}>
                     📄 {truncateFileName(item.name, 18)}

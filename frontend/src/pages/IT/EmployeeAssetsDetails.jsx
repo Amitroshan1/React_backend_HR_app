@@ -13,6 +13,8 @@ import {
   listEmployeeReturnRequestsAPI,
   syncITDataFromAPI,
 } from "./Data";
+import ClickableImage from "../../components/ClickableImage";
+import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
 import "./EmployeeAssetsDetails.css";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -184,16 +186,21 @@ const ReturnHistoryTable = ({ rows, onViewPhotos }) => (
 );
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-const PhotosCell = ({ photos, onOpen }) =>
+const PhotosCell = ({ photos }) =>
   photos?.length ? (
-    <button className="ea-btn-photos" onClick={() => onOpen(photos, 0)}>
+    <button
+      type="button"
+      className="ea-btn-photos"
+      onClick={() => openFirstImageInNewTab(photos)}
+      title="Open photo in new tab"
+    >
       View ({photos.length})
     </button>
   ) : (
     <span className="ea-no-photos">No photos</span>
   );
 
-const HardwareTable = ({ assets, onRemove, onViewDetails, onOpenPhotos }) => (
+const HardwareTable = ({ assets, onRemove, onViewDetails }) => (
   <div className="ea-table-wrap">
     <table className="ea-table">
       <thead>
@@ -220,7 +227,7 @@ const HardwareTable = ({ assets, onRemove, onViewDetails, onOpenPhotos }) => (
                 </button>
               </td>
               <td><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
-              <td><PhotosCell photos={a.photos} onOpen={onOpenPhotos} /></td>
+              <td><PhotosCell photos={a.photos} /></td>
               <td>
                 <button className="ea-btn-remove" onClick={() => onRemove(a.assetId, a.id)}>
                   Return
@@ -441,7 +448,7 @@ const ReturnRequestModal = ({ entry, onClose, onSubmit, submitting }) => {
               {photos.map((src, i) => (
                 <div key={i} className="ea-rr-preview-wrap">
                   {String(src).startsWith("data:image/") ? (
-                    <img src={src} alt={`upload-${i + 1}`} className="ea-rr-preview" />
+                    <ClickableImage src={src} alt={`upload-${i + 1}`} className="ea-rr-preview" />
                   ) : (
                     <span className="ea-rr-file-tag">File {i + 1}</span>
                   )}
@@ -476,7 +483,7 @@ const ReturnRequestModal = ({ entry, onClose, onSubmit, submitting }) => {
   );
 };
 
-const NonHardwareTable = ({ assets, onRemove, onOpenPhotos }) => (
+const NonHardwareTable = ({ assets, onRemove }) => (
   <div className="ea-table-wrap">
     <table className="ea-table">
       <thead>
@@ -496,7 +503,7 @@ const NonHardwareTable = ({ assets, onRemove, onOpenPhotos }) => (
                 <span className={`ea-cat-badge ${a.category.toLowerCase()}`}>{a.category}</span>
               </td>
               <td><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
-              <td><PhotosCell photos={a.photos} onOpen={onOpenPhotos} /></td>
+              <td><PhotosCell photos={a.photos} /></td>
               <td>
                 <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
                   Return
@@ -519,7 +526,6 @@ const EmployeeDetails = () => {
   const [employee,   setEmployee  ] = useState(null);
   const [loading,    setLoading   ] = useState(true);
   const [filterTab,  setFilterTab ] = useState("All");
-  const [imageModal, setImageModal] = useState(null);
   const [hwModal,    setHwModal   ] = useState(null);
   const [hwPhotoIdx, setHwPhotoIdx] = useState(0);
   const [returnHistory, setReturnHistory] = useState([]);
@@ -706,16 +712,6 @@ const EmployeeDetails = () => {
 
   const openHwModal    = useCallback((asset) => { setHwModal(enrichHardware(asset)); setHwPhotoIdx(0); }, []);
   const closeHwModal   = useCallback(() => setHwModal(null), []);
-  const openImageModal = useCallback((photos, idx = 0) => setImageModal({ photos, currentIndex: idx }), []);
-  const closeImgModal  = useCallback(() => setImageModal(null), []);
-  const prevImg        = useCallback(
-    () => setImageModal((m) => ({ ...m, currentIndex: (m.currentIndex - 1 + m.photos.length) % m.photos.length })),
-    [],
-  );
-  const nextImg = useCallback(
-    () => setImageModal((m) => ({ ...m, currentIndex: (m.currentIndex + 1) % m.photos.length })),
-    [],
-  );
 
   if (loading)   return <div className="ea-loading">Loading…</div>;
   if (!employee) return <div className="ea-loading">Employee not found.</div>;
@@ -790,7 +786,7 @@ const EmployeeDetails = () => {
                 </div>
                 <HardwareTable
                   assets={hardwareAssets} onRemove={openReturnModal}
-                  onViewDetails={openHwModal} onOpenPhotos={openImageModal}
+                  onViewDetails={openHwModal}
                 />
               </>
             )}
@@ -808,7 +804,7 @@ const EmployeeDetails = () => {
                   <span className="ea-section-dot other" /> Accessories / Consumables
                 </div>
                 <NonHardwareTable
-                  assets={accConAssets} onRemove={openReturnModal} onOpenPhotos={openImageModal}
+                  assets={accConAssets} onRemove={openReturnModal}
                 />
               </>
             )}
@@ -823,7 +819,7 @@ const EmployeeDetails = () => {
         {filterTab === "Hardware" && (
           <HardwareTable
             assets={filtered} onRemove={openReturnModal}
-            onViewDetails={openHwModal} onOpenPhotos={openImageModal}
+            onViewDetails={openHwModal}
           />
         )}
         {filterTab === "Software" && (
@@ -831,7 +827,7 @@ const EmployeeDetails = () => {
         )}
         {(filterTab === "Accessories" || filterTab === "Consumables") && (
           <NonHardwareTable
-            assets={filtered} onRemove={openReturnModal} onOpenPhotos={openImageModal}
+            assets={filtered} onRemove={openReturnModal}
           />
         )}
       </div>
@@ -860,7 +856,7 @@ const EmployeeDetails = () => {
         </div>
         <ReturnHistoryTable
           rows={filteredReturnHistory}
-          onViewPhotos={(photos) => openImageModal(photos, 0)}
+          onViewPhotos={(photos) => openFirstImageInNewTab(photos)}
         />
       </div>
 
@@ -925,7 +921,11 @@ const EmployeeDetails = () => {
                 ) : (
                   <div className="hdm-photo-viewer">
                     <div className="hdm-main-wrap">
-                      <img src={hwModal.photos[hwPhotoIdx]} alt="" className="hdm-main-img" />
+                      <ClickableImage
+                        src={hwModal.photos[hwPhotoIdx]}
+                        alt=""
+                        className="hdm-main-img"
+                      />
                       {hwModal.photos.length > 1 && (
                         <>
                           <button
@@ -943,10 +943,11 @@ const EmployeeDetails = () => {
                     {hwModal.photos.length > 1 && (
                       <div className="hdm-thumbs">
                         {hwModal.photos.map((p, i) => (
-                          <img
-                            key={i} src={p} alt=""
+                          <ClickableImage
+                            key={i}
+                            src={p}
+                            alt=""
                             className={`hdm-thumb ${i === hwPhotoIdx ? "active" : ""}`}
-                            onClick={() => setHwPhotoIdx(i)}
                           />
                         ))}
                       </div>
@@ -972,41 +973,6 @@ const EmployeeDetails = () => {
         />
       )}
 
-      {/* ── Image Carousel Modal ── */}
-      {imageModal && (
-        <div className="image-modal-overlay" onClick={closeImgModal}>
-          <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close-btn" onClick={closeImgModal}>×</button>
-            <div className="carousel-container">
-              {imageModal.photos.length > 1 && (
-                <button className="carousel-btn prev" onClick={prevImg}>‹</button>
-              )}
-              <div className="carousel-image-wrapper">
-                <img src={imageModal.photos[imageModal.currentIndex]} alt="" />
-                {imageModal.photos.length > 1 && (
-                  <div className="image-counter">
-                    {imageModal.currentIndex + 1} / {imageModal.photos.length}
-                  </div>
-                )}
-              </div>
-              {imageModal.photos.length > 1 && (
-                <button className="carousel-btn next" onClick={nextImg}>›</button>
-              )}
-            </div>
-            {imageModal.photos.length > 1 && (
-              <div className="thumbnail-navigation">
-                {imageModal.photos.map((p, i) => (
-                  <img
-                    key={i} src={p} alt=""
-                    className={`thumbnail ${i === imageModal.currentIndex ? "active" : ""}`}
-                    onClick={() => setImageModal((m) => ({ ...m, currentIndex: i }))}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

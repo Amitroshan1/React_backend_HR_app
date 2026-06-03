@@ -8,6 +8,7 @@ import {
   listReturnRequestsAPI,
   rejectReturnRequestAPI,
 } from "./Data";
+import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
 import "./ReturnRequests.css";
 
 const STATUS_OPTIONS = ["all", "pending", "approved", "rejected", "completed"];
@@ -20,8 +21,6 @@ export default function ReturnRequests() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("all");
-  const [photoModal, setPhotoModal] = useState(null);
-
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -141,7 +140,13 @@ export default function ReturnRequests() {
                         <button
                           type="button"
                           className="rr-files-btn"
-                          onClick={() => setPhotoModal(photos)}
+                          onClick={() => {
+                            const images = photos.filter((p) => String(p).startsWith("data:image/"));
+                            if (images.length && openFirstImageInNewTab(images)) return;
+                            const first = photos[0];
+                            if (first) window.open(first, "_blank", "noopener,noreferrer");
+                          }}
+                          title="Open attachment in new tab"
                         >
                           View ({photos.length})
                         </button>
@@ -174,31 +179,6 @@ export default function ReturnRequests() {
         )}
       </div>
 
-      {photoModal && (
-        <div className="rr-photo-overlay" onClick={() => setPhotoModal(null)}>
-          <div className="rr-photo-panel" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="rr-photo-close"
-              onClick={() => setPhotoModal(null)}
-            >
-              ✕
-            </button>
-            <h3>Attached files ({photoModal.length})</h3>
-            <div className="rr-photo-grid">
-              {photoModal.map((src, i) =>
-                String(src).startsWith("data:image/") ? (
-                  <img key={i} src={src} alt={`file-${i + 1}`} />
-                ) : (
-                  <a key={i} href={src} download={`return-file-${i + 1}`} className="rr-file-link">
-                    Download file {i + 1}
-                  </a>
-                ),
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

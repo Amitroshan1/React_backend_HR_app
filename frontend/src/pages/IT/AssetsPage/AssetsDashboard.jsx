@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
+import ClickableImage from "../../../components/ClickableImage";
 import {
   addRemovedITAsset,
   getInventoryFromStorage,
@@ -582,7 +583,7 @@ function AvailableDetailPanel({ item, onClose }) {
                     <p className="adp-photo-title">Photos ({itemPhotos.length})</p>
                     <div className="adp-photo-grid">
                       {itemPhotos.map((src, i) => (
-                        <img
+                        <ClickableImage
                           key={i}
                           src={src}
                           alt={`asset-${i + 1}`}
@@ -965,7 +966,7 @@ function AssetVerifyModal({ unit, empName, onConfirm, onCancel }) {
             >
               {photoPreview ? (
                 <div className="av-photo-preview-wrap">
-                  <img
+                  <ClickableImage
                     src={photoPreview}
                     alt="Asset"
                     className="av-photo-preview"
@@ -1307,7 +1308,7 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
         <div className="ep-card-hd">
           {/* Show photo thumbnail if available */}
           {unit.photos?.[0] ? (
-            <img
+            <ClickableImage
               src={unit.photos[0]}
               alt={name}
               className="ep-card-photo-thumb"
