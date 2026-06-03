@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./AssessmentTestPublic.css";
 import { AppFooter } from "../../components/layout/AppFooter";
-import { getAssessmentFigureSrc } from "../../utils/assessmentFigures";
+import {
+  formatAssessmentQuestionHeading,
+  getAssessmentFigureSrc,
+} from "../../utils/assessmentFigures";
 
 const API_BASE = "/api/HumanResource/assessment/public";
 
@@ -649,7 +652,9 @@ export default function AssessmentTestPublic() {
       <h3 className="assessment-section-title">Section 1 (Q1-25) - MCQ</h3>
       {(questions?.section_1 || []).map((q) => (
         <div key={q.number} className="assessment-q-card">
-          <div className="assessment-question">{q.number}. {q.question}</div>
+          <div className="assessment-question">
+            {formatAssessmentQuestionHeading(q.number, q.question)}
+          </div>
           <AssessmentFigure q={q} />
           {(q.options || []).map((opt, idx) => (
             <label key={idx} className="assessment-option">
@@ -668,7 +673,9 @@ export default function AssessmentTestPublic() {
       <h3 className="assessment-section-title">Section 2 (Q26-62) - Mixed</h3>
       {(questions?.section_2 || []).map((q) => (
         <div key={q.number} className="assessment-q-card">
-          <div className="assessment-question">{q.number}. {q.question}</div>
+          <div className="assessment-question">
+            {formatAssessmentQuestionHeading(q.number, q.question)}
+          </div>
           <AssessmentFigure q={q} />
           {q.type === "mcq" ? (
             (q.options || []).map((opt, idx) => (
@@ -696,7 +703,9 @@ export default function AssessmentTestPublic() {
       <h3 className="assessment-section-title">Section 3 (Q63-87) - MCQ</h3>
       {(questions?.section_3 || []).map((q) => (
         <div key={q.number} className="assessment-q-card">
-          <div className="assessment-question">{q.number}. {q.question}</div>
+          <div className="assessment-question">
+            {formatAssessmentQuestionHeading(q.number, q.question)}
+          </div>
           <AssessmentFigure q={q} />
           {(q.options || []).map((opt, idx) => (
             <label key={idx} className="assessment-option">

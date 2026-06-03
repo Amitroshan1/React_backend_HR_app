@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Mail, Play, ShieldAlert, Trash2 } from "lucide-react";
-import { getAssessmentFigureSrc } from "../../utils/assessmentFigures";
+import {
+  formatAssessmentQuestionHeading,
+  getAssessmentFigureSrc,
+} from "../../utils/assessmentFigures";
 import "./HRAssessmentInvite.css";
 import "./LeaveApplicationUpdation.css";
 
@@ -558,7 +561,9 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               }}
             >
               <div>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>Q{qNo}. {q.question}</div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                  {formatAssessmentQuestionHeading(qNo, q.question)}
+                </div>
                 <AssessmentReviewFigure q={q} />
                 {optionList.length > 0 && (
                   <div style={{ color: "#475569", fontSize: 13 }}>
@@ -821,7 +826,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
               >
                 <div>
                   <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a", lineHeight: 1.4 }}>
-                    Q{qNo}. {q.question || "(Question text unavailable)"}
+                    {formatAssessmentQuestionHeading(qNo, q.question || "(Question text unavailable)")}
                   </div>
                   <AssessmentReviewFigure q={q} />
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>Candidate answer</div>

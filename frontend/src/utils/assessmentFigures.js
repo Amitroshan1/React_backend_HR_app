@@ -19,6 +19,34 @@ export const ASSESSMENT_FIGURE_SRC = {
 
 const API_FIGURE_BASE = "/api/HumanResource/assessment/public/figures";
 
+/** Drop leading "9)", "Q9.", etc. when the UI already shows Q9. */
+export function stripLeadingQuestionNumber(text, questionNumber) {
+  if (!text) return "";
+  let s = String(text).trim();
+  const n = Number(questionNumber);
+  if (!Number.isFinite(n) || n < 1) return s;
+  const num = String(n);
+  const patterns = [
+    new RegExp(`^Q\\s*${num}\\s*[.)]?\\s*`, "i"),
+    new RegExp(`^${num}\\s*\\)\\s*`),
+    new RegExp(`^${num}\\s*\\.\\s*`),
+    new RegExp(`^${num}\\s*:\\s*`),
+  ];
+  for (const re of patterns) {
+    const next = s.replace(re, "").trim();
+    if (next !== s) return next;
+  }
+  return s;
+}
+
+/** e.g. Q9 + "9) In a math..." → "Q9. In a math..." */
+export function formatAssessmentQuestionHeading(questionNumber, questionText) {
+  const n = Number(questionNumber);
+  const body = stripLeadingQuestionNumber(questionText, n);
+  if (!body) return `Q${n}`;
+  return `Q${n}. ${body}`;
+}
+
 export function getAssessmentFigureSrc(questionNumber, imageUrl) {
   const n = Number(questionNumber);
   if (ASSESSMENT_FIGURE_SRC[n]) return ASSESSMENT_FIGURE_SRC[n];
