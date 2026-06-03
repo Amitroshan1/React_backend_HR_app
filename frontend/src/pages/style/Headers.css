@@ -418,6 +418,12 @@
     box-sizing: border-box;
 }
 
+@media (max-width: 768px) {
+    .app-layout > .content-area {
+        padding-top: 10px;
+    }
+}
+
 /* Inventory: sit flush under global header (no gap above category tabs) */
 .app-layout > .content-area.content-area--inventory {
     padding-top: 0;
@@ -425,7 +431,7 @@
 
 @media (max-width: 768px) {
     :root {
-        --header-height: 64px;
+        --header-height: 84px;
     }
 
     .hide-mobile {
@@ -433,34 +439,51 @@
     }
 
     .header-container {
-        height: 64px;
-        padding: 0 16px;
+        height: auto;
+        min-height: 84px;
+        padding: 14px 16px 10px;
+        align-items: center;
     }
 
     .header-content {
         gap: 8px;
+        align-items: center;
+        min-height: 56px;
     }
 
     .header-left {
         gap: 8px;
         min-width: 0;
+        flex: 1 1 auto;
+        align-items: center;
     }
 
     .home-logo-btn {
         padding: 8px 12px;
         font-size: 1.05rem;
         border-radius: 8px;
+        flex-shrink: 0;
     }
 
-    .welcome-title {
+    /* Long page titles: still truncate */
+    .welcome-title.page-heading {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 200px;
+        max-width: min(200px, 42vw);
     }
+
+    /* Dashboard welcome: show full name, wrap if needed */
     .header-left .welcome-title:not(.page-heading) {
-        font-size: 1.5rem;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        max-width: none;
+        line-height: 1.25;
+        font-size: 1.35rem;
         font-weight: 800;
+        flex: 1;
+        min-width: 0;
     }
     .header-container .header-left .welcome-title.page-heading {
         font-size: 1rem;
@@ -473,6 +496,13 @@
 
     .header-right {
         gap: 12px;
+        flex-shrink: 0;
+    }
+
+    .query-shortcut-btn {
+        flex-shrink: 0;
+        padding: 6px 12px;
+        font-size: 0.8rem;
     }
 
     .notice-chip {
@@ -500,15 +530,20 @@
 }
 
 @media (max-width: 576px) {
-    .header-container {
-        padding: 0 12px;
+    :root {
+        --header-height: 88px;
     }
 
-    .welcome-title {
-        max-width: 160px;
+    .header-container {
+        padding: 16px 12px 10px;
+        min-height: 88px;
+    }
+
+    .welcome-title.page-heading {
+        max-width: min(160px, 38vw);
     }
     .header-left .welcome-title:not(.page-heading) {
-        font-size: 1.35rem;
+        font-size: 1.2rem;
         font-weight: 800;
     }
     .header-container .header-left .welcome-title.page-heading {
