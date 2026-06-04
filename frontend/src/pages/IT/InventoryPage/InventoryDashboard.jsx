@@ -21,6 +21,7 @@ import {
   deleteAssetUnitAPI,
   updateInventoryItemAPI,
   getDeletedAssetsFromStorage,
+  getSoftwareInventory,
 } from "../Data";
 
 import AddNewAssets    from "./AddnewAssets";
@@ -81,6 +82,54 @@ const formatDate = (iso) => {
 
 const isSoftware = (item) =>
   (item?.category ?? "").trim().toLowerCase() === "software";
+
+const isAssignedToObject = (assignedTo) =>
+  assignedTo != null && typeof assignedTo === "object";
+
+function daysLeft(end) {
+  if (!end) return null;
+  return Math.ceil((new Date(end) - Date.now()) / 864e5);
+}
+
+function formatAssignedToLabel(assignedTo) {
+  if (!assignedTo) return "—";
+  if (isAssignedToObject(assignedTo)) {
+    const name = assignedTo.name;
+    const empId = assignedTo.empId;
+    if (name && name !== "—") {
+      return empId && empId !== "—" ? `${name} (${empId})` : name;
+    }
+    return empId || "—";
+  }
+  return String(assignedTo);
+}
+
+function getSoftwareLicensesForAsset(asset) {
+  const nameKey = (asset?.name || "").trim().toLowerCase();
+  const assetId = asset?.id != null ? String(asset.id) : "";
+  return (getSoftwareInventory() || []).filter((lic) => {
+    if (assetId && lic.inventoryId != null && String(lic.inventoryId) === assetId) {
+      return true;
+    }
+    return (lic.name || "").trim().toLowerCase() === nameKey;
+  });
+}
+
+function licenseStatusMeta(lic) {
+  const days = daysLeft(lic.subscriptionEnd || lic.licenseExpiry);
+  const expired = days !== null && days < 0;
+  const warn = !expired && days !== null && days <= 30;
+  if (expired) {
+    return { label: "Expired", className: "inv-sw-status--expired" };
+  }
+  if (warn) {
+    return { label: "Expiring Soon", className: "inv-sw-status--warn" };
+  }
+  if (lic.status === "assigned" && lic.assignedTo) {
+    return { label: "Assigned", className: "inv-sw-status--assigned" };
+  }
+  return { label: "Available", className: "inv-sw-status--available" };
+}
 
 const isQtyManagedCategory = (category) =>
   ["accessories", "consumables", "accessory", "consumable", "stock"].includes(
@@ -536,6 +585,154 @@ function ViewActionGroup({
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── SoftwareAssetDetailModal ─────────────────────────────────────────────────
+
+const SW_SEAT_TABS = ["All", "Available", "Assigned"];
+
+function SoftwareAssetDetailModal({ asset, onClose }) {
+  const [seatTab, setSeatTab] = useState("All");
+
+  const licenses = useMemo(() => getSoftwareLicensesForAsset(asset), [asset.id, asset.name]);
+
+  const filteredLicenses = useMemo(() => {
+    if (seatTab === "Available") {
+      return licenses.filter((l) => l.status === "available" || !l.assignedTo);
+    }
+    if (seatTab === "Assigned") {
+      return licenses.filter((l) => l.status === "assigned" && l.assignedTo);
+    }
+    return licenses;
+  }, [licenses, seatTab]);
+
+  const tabCounts = useMemo(
+    () => ({
+      All: licenses.length,
+      Available: licenses.filter((l) => l.status === "available" || !l.assignedTo).length,
+      Assigned: licenses.filter((l) => l.status === "assigned" && l.assignedTo).length,
+    }),
+    [licenses],
+  );
+
+  const subscriptionSummary = useMemo(() => {
+    const starts = licenses.map((l) => l.subscriptionStart).filter(Boolean).sort();
+    const ends = licenses.map((l) => l.subscriptionEnd).filter(Boolean).sort();
+    return {
+      start: starts[0] || null,
+      end: ends.length ? ends[ends.length - 1] : null,
+    };
+  }, [licenses]);
+
+  const firstAdded = useMemo(() => {
+    const dates = licenses
+      .map((l) => l.created_at || l.subscriptionStart)
+      .filter(Boolean)
+      .sort();
+    return dates[0] || null;
+  }, [licenses]);
+
+  return (
+    <div className="inv-detail-backdrop" onClick={onClose}>
+      <div
+        className="inv-detail-box inv-detail-box--software"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="inv-detail-hero inv-detail-hero--software">
+          <div>
+            <p className="inv-detail-hero-label">Software Details</p>
+            <h2 className="inv-detail-hero-title">{asset.name}</h2>
+            <div className="inv-detail-hero-badges">
+              <span className="inv-detail-badge inv-detail-badge--software">💿 Software</span>
+              <span className="inv-detail-badge inv-detail-badge--units">
+                {licenses.length} license{licenses.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+          <button type="button" className="inv-detail-close-btn" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+
+        <div className="inv-detail-body">
+          <div className="inv-sw-summary-grid">
+            {[
+              ["Total licenses", asset.total ?? licenses.length],
+              ["Available", asset.available ?? tabCounts.Available],
+              ["Assigned", asset.assigned ?? tabCounts.Assigned],
+              ["Added", formatDate(firstAdded)],
+              ["Subscription start", formatDate(subscriptionSummary.start)],
+              ["Subscription end", formatDate(subscriptionSummary.end)],
+            ].map(([label, value]) => (
+              <div key={label} className="inv-sw-summary-item">
+                <span className="inv-sw-summary-label">{label}</span>
+                <strong className="inv-sw-summary-value">{value}</strong>
+              </div>
+            ))}
+          </div>
+
+          <p className="inv-sw-section-title">License seats</p>
+          <div className="inv-sw-tabs">
+            {SW_SEAT_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                className={`inv-sw-tab${seatTab === tab ? " inv-sw-tab--active" : ""}`}
+                onClick={() => setSeatTab(tab)}
+              >
+                {tab}
+                <span className="inv-sw-tab-count">{tabCounts[tab]}</span>
+              </button>
+            ))}
+          </div>
+
+          {filteredLicenses.length === 0 ? (
+            <div className="inv-sw-empty">No {seatTab.toLowerCase()} licenses.</div>
+          ) : (
+            <div className="inv-sw-table-wrap">
+              <table className="inv-sw-table">
+                <thead>
+                  <tr>
+                    <th>License ID</th>
+                    <th>Status</th>
+                    <th>Start</th>
+                    <th>Expiry</th>
+                    <th>Assigned to</th>
+                    <th>Assigned on</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLicenses.map((lic) => {
+                    const status = licenseStatusMeta(lic);
+                    return (
+                      <tr key={lic.id}>
+                        <td className="inv-sw-mono">{lic.id}</td>
+                        <td>
+                          <span className={`inv-sw-status ${status.className}`}>
+                            {status.label}
+                          </span>
+                        </td>
+                        <td>{formatDate(lic.subscriptionStart)}</td>
+                        <td>{formatDate(lic.subscriptionEnd)}</td>
+                        <td>{formatAssignedToLabel(lic.assignedTo)}</td>
+                        <td>{formatDate(lic.assignedDate)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="inv-detail-footer">
+          <button type="button" className="inv-detail-footer-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1467,16 +1664,23 @@ function TotalAssetsPage({ category }) {
         />
       </section>
 
-      {detailAsset  && (
-        <AssetDetailModal
-          asset={detailAsset}
-          onClose={() => setDetailAsset(null)}
-          onStatusChange={handleStatusChange}
-          inventoryCategory={category}
-          inventoryDeploy={inventoryDeploy}
-          onOfficeIssue={setOfficeIssueTarget}
-          onOfficeReturn={setOfficeReturnTarget}
-        />
+      {detailAsset && (
+        detailAsset.isSoftware ? (
+          <SoftwareAssetDetailModal
+            asset={detailAsset}
+            onClose={() => setDetailAsset(null)}
+          />
+        ) : (
+          <AssetDetailModal
+            asset={detailAsset}
+            onClose={() => setDetailAsset(null)}
+            onStatusChange={handleStatusChange}
+            inventoryCategory={category}
+            inventoryDeploy={inventoryDeploy}
+            onOfficeIssue={setOfficeIssueTarget}
+            onOfficeReturn={setOfficeReturnTarget}
+          />
+        )
       )}
       {officeIssueTarget && (
         <OfficeIssueModal
@@ -1557,16 +1761,23 @@ function OverviewPage({ category }) {
         />
       </section>
 
-      {detailAsset  && (
-        <AssetDetailModal
-          asset={detailAsset}
-          onClose={() => setDetailAsset(null)}
-          onStatusChange={handleStatusChange}
-          inventoryCategory={category}
-          inventoryDeploy={inventoryDeploy}
-          onOfficeIssue={setOfficeIssueTarget}
-          onOfficeReturn={setOfficeReturnTarget}
-        />
+      {detailAsset && (
+        detailAsset.isSoftware ? (
+          <SoftwareAssetDetailModal
+            asset={detailAsset}
+            onClose={() => setDetailAsset(null)}
+          />
+        ) : (
+          <AssetDetailModal
+            asset={detailAsset}
+            onClose={() => setDetailAsset(null)}
+            onStatusChange={handleStatusChange}
+            inventoryCategory={category}
+            inventoryDeploy={inventoryDeploy}
+            onOfficeIssue={setOfficeIssueTarget}
+            onOfficeReturn={setOfficeReturnTarget}
+          />
+        )
       )}
       {officeIssueTarget && (
         <OfficeIssueModal

@@ -1,9 +1,19 @@
 import React, { useRef, useState, useEffect } from 'react';
 import AvatarEditor from 'react-avatar-editor';
 
+const FALLBACK_AVATAR =
+    'data:image/svg+xml,' +
+    encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+        '<circle cx="50" cy="50" r="50" fill="#2563eb"/>' +
+        '<circle cx="50" cy="38" r="16" fill="#fff"/>' +
+        '<path d="M22 82c4-14 16-22 28-22s24 8 28 22" fill="#fff"/></svg>'
+    );
+
 export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
     // Use imageUrl as the initial state for the image source
     const [image, setImage] = useState(imageUrl || '');
+    const [displaySrc, setDisplaySrc] = useState(imageUrl || FALLBACK_AVATAR);
     const [isEditing, setIsEditing] = useState(false);
     const editorRef = useRef(null);
 
@@ -11,6 +21,7 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
     useEffect(() => {
         if (imageUrl && !isEditing) {
             setImage(imageUrl);
+            setDisplaySrc(imageUrl);
         }
     }, [imageUrl, isEditing]);
 
@@ -35,14 +46,22 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
     };
 
     const handleSave = () => {
-        if (editorRef.current) {
-            const canvas = editorRef.current.getImageScaledToCanvas();
-            canvas.toBlob((blob) => {
-                // Call the parent handler to upload the new image blob
-                onImageChange(blob); 
+        if (!editorRef.current) return;
+        const canvas = editorRef.current.getImageScaledToCanvas();
+        canvas.toBlob(
+            (blob) => {
+                if (!blob) {
+                    if (typeof onImageChange === 'function') {
+                        onImageChange(null, 'Could not process image. Try another photo or format.');
+                    }
+                    return;
+                }
+                onImageChange(blob);
                 setIsEditing(false);
-            });
-        }
+            },
+            'image/png',
+            0.92
+        );
     };
 
     const handleCancel = () => {
@@ -79,9 +98,10 @@ export const ProfileAvatar = ({ imageUrl, onImageChange }) => {
                     style={{ cursor: 'pointer' }} 
                 >
                     <img
-                        src={imageUrl || '/default-avatar.png'} // Use the prop for the final rendered image
-                        alt="Profile"
+                        src={displaySrc || FALLBACK_AVATAR}
+                        alt=""
                         className="avatar"
+                        onError={() => setDisplaySrc(FALLBACK_AVATAR)}
                     />
                     <div className="avatar-overlay">Change</div>
                     <input

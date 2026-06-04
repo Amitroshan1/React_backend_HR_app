@@ -1,44 +1,36 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { flushSync } from "react-dom";
+import { toast } from "react-toastify";
 import "./../styling/profile.css";
 import { GRADIENT_HEADER_STYLE } from '../utils/gradientStyles';
 import {
     initialDataState,
-    calculateProfileCompletion,
+    getProfileSectionCompletion,
     MANDATORY_FORM_FIELDS,
     MANDATORY_FILES_LIST,
-    simulatePincodeLookup} from '../utils/profileUtils';
+} from '../utils/profileUtils';
+import {
+    API_BASE_URL,
+    mapProfileFromApi,
+    normalizePhotoUrl,
+    buildEmployeePayload,
+    buildEducationItems,
+    buildDocPayload,
+    fetchEmployeeProfile,
+    fetchPincodeDetails,
+    postEmployee,
+    postEducationReplace,
+    postPreviousCompanies,
+    postUploadDocs,
+    postUploadPhoto,
+} from '../utils/profileApi';
 import { useUser } from "../../../components/layout/UserContext";
-
-const API_BASE_URL = "/api/auth";
-
-const TOAST_DURATION_MS = 6000;
-
-// Normalize photo URL: strip /public prefix if present (Vite serves public files at root)
-const normalizePhotoUrl = (url) => {
-    if (!url) return url;
-    return url.startsWith('/public/') ? url.replace('/public/', '/') : url;
-};
 
 const isValidEmail = (email) => {
     if (!email || typeof email !== 'string') return false;
     const trimmed = email.trim();
     if (!trimmed) return false;
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
-};
-
-// Map display gender to backend-compatible value (avoids backend error for "Prefer Not To Say")
-const mapGenderForBackend = (gender) => {
-    if (!gender) return gender;
-    if (gender === 'Prefer Not To Say') return 'prefer_not_to_say';
-    return gender;
-};
-
-// Map backend gender value to display value
-const mapGenderFromBackend = (gender) => {
-    if (!gender) return gender;
-    if (String(gender).toLowerCase() === 'prefer_not_to_say') return 'Prefer Not To Say';
-    return gender;
 };
 
 const NAME_MIN_LEN = 2;
@@ -94,9 +86,15 @@ import {EmploymentBankSection} from './profile/sections/EmploymentBankSection';
 import {EducationSection} from './profile/sections/EducationSection';
 import {DocumentUploadSection} from './profile/sections/DocumentUploadSection';
 import {ProfileViewLayout} from './profile/ProfileViewLayout';
-import {ProfileAvatar} from './profile/ProfileAvatar';
 
-const DEFAULT_AVATAR_URL = '/default-avatar.png'; 
+const DEFAULT_AVATAR_URL =
+    'data:image/svg+xml,' +
+    encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+        '<circle cx="50" cy="50" r="50" fill="#2563eb"/>' +
+        '<circle cx="50" cy="38" r="16" fill="#fff"/>' +
+        '<path d="M22 82c4-14 16-22 28-22s24 8 28 22" fill="#fff"/></svg>'
+    ); 
 
 // --- MODERN FONT STACK DEFINITION ---
 const MODERN_FONT_STYLE = {
@@ -115,8 +113,9 @@ export const Profile = () => {
     const [profileLoading, setProfileLoading] = useState(true);
     const [profileError, setProfileError] = useState(null);
     const [adminId, setAdminId] = useState(null);
-    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
-
+    const [hasEmployeeRecord, setHasEmployeeRecord] = useState(false);
+    const [pincodeLoading, setPincodeLoading] = useState({ current: false, permanent: false });
+    const pincodeLookupSeq = useRef({ current: 0, permanent: 0 });
     // --- SAVED DATA STATE (Initialized with a fresh, deep copy) ---
     const [savedData, setSavedData] = useState(getInitialClone());
 
@@ -137,127 +136,27 @@ export const Profile = () => {
     const [, setLastSavedTime] = useState(null);
 
     const showToast = useCallback((message, type = 'success') => {
-        // Simple debug log so you can verify toasts are being triggered
-        // You can remove this later if not needed.
-        // eslint-disable-next-line no-console
-        console.log('Profile toast:', { message, type });
-        setToast({ show: true, message, type });
+        if (type === 'error') {
+            toast.error(message, { autoClose: 5000 });
+        } else {
+            toast.success(message, { autoClose: 4000 });
+        }
     }, []);
-    useEffect(() => {
-        if (!toast.show) return;
-        const t = setTimeout(() => setToast((prev) => ({ ...prev, show: false })), TOAST_DURATION_MS);
-        return () => clearTimeout(t);
-    }, [toast.show, toast.message]);
 
     const applyProfileToState = useCallback((p) => {
-        const admin = p.admin || {};
-        const emp = p.employee || {};
-        const eduList = p.education || [];
-        const prevList = p.previous_employment || [];
-        const docs = p.documents || {};
-
-        const currentAddr = {
-            street: emp.present_address_line1 || '',
-            city: emp.present_district || '',
-            state: emp.present_state || '',
-            district: emp.present_district || '',
-            taluka: emp.present_taluka || '',
-            pincode: emp.present_pincode || '',
-        };
-        const permAddr = {
-            street: emp.permanent_address_line1 || '',
-            city: emp.permanent_district || '',
-            state: emp.permanent_state || '',
-            district: emp.permanent_district || '',
-            taluka: emp.permanent_taluka || '',
-            pincode: emp.permanent_pincode || '',
-        };
-        const sameAsCurrent = !!(emp.present_address_line1 && emp.permanent_address_line1 &&
-            emp.present_address_line1 === emp.permanent_address_line1 && emp.present_pincode === emp.permanent_pincode);
-
-        const parsePhone = (val) => {
-            if (!val) return { code: '+91', number: '' };
-            const str = String(val).trim();
-            const match = str.match(/^(\+\d{1,4})\s*(.*)$/);
-            if (match) {
-                return { code: match[1], number: match[2].replace(/\D/g, '').slice(0, 10) };
-            }
-            return { code: '+91', number: str.replace(/\D/g, '').slice(0, 10) };
-        };
-        const mobileParsed = parsePhone(emp.mobile || admin.mobile || '');
-        const emergencyParsed = parsePhone(emp.emergency_mobile || '');
-
-        const form = {
-            ...initialDataState.formData,
-            fullName: emp.name || admin.first_name || '',
-            fatherName: emp.father_name || '',
-            motherName: emp.mother_name || '',
-            maritalStatus: emp.marital_status || '',
-            personalEmail: emp.email || admin.email || '',
-            mobile: mobileParsed.number,
-            mobileCountryCode: mobileParsed.code,
-            emergency: emergencyParsed.number,
-            emergencyCountryCode: emergencyParsed.code,
-            nationality: emp.nationality || '',
-            dateOfBirth: emp.dob ? emp.dob.split('T')[0] : '',
-            gender: mapGenderFromBackend(emp.gender) || '',
-            bloodGroup: emp.blood_group || '',
-            designation: emp.designation || '',
-            employeeId: emp.emp_id || admin.emp_id || '',
-            department: admin.circle || '',
-            dateOfJoining: admin.doj ? admin.doj.split('T')[0] : '',
-            employmentType: admin.emp_type || '',
-        };
-
-        const prevEmp = prevList.length > 0 ? prevList.map((pe) => ({
-            companyName: pe.companyName || pe.com_name || '',
-            designation: pe.designation || '',
-            dateOfLeaving: (pe.dateOfLeaving || pe.dol) ? (pe.dateOfLeaving || pe.dol).toString().split('T')[0] : '',
-            experienceYears: pe.experienceYears || '',
-        })) : [];
-
-        const eduDetails = eduList.length > 0 ? eduList.map((e) => ({
-            id: e.id || Date.now(),
-            qualification: e.qualification || '',
-            institution: e.institution || '',
-            university: e.university || e.board || '',
-            fromDate: e.start ? e.start.split('T')[0] : '',
-            toDate: e.end ? e.end.split('T')[0] : '',
-            marks: e.marks || '',
-            certificate: e.doc_file || null,
-        })) : [{ id: Date.now(), qualification: '', institution: '', university: '', fromDate: '', toDate: '', marks: '', certificate: null }];
-
-        const filePaths = {
-            aadharFront: docs.aadhaar_front || null,
-            aadharBack: docs.aadhaar_back || null,
-            panFront: docs.pan_front || null,
-            panBack: docs.pan_back || null,
-            passbookFront: docs.passbook_front || null,
-            appointmentLetter: docs.appointment_letter || null,
-        };
-
-        const saved = {
-            formData: form,
-            currentAddress: currentAddr,
-            permanentAddress: sameAsCurrent ? currentAddr : permAddr,
-            sameAsCurrent,
-            files: filePaths,
-            previousEmployment: prevEmp,
-            educationDetails: eduDetails,
-        };
-
-        setAdminId(admin.id != null ? String(admin.id) : null);
+        const { adminId: aid, saved, avatarUrl, hasEmployeeRecord: hasEmp } = mapProfileFromApi(p);
+        setAdminId(aid);
+        setHasEmployeeRecord(hasEmp);
         setSavedData(saved);
-        setFormData(form);
-        setCurrentAddress(currentAddr);
-        setPermanentAddress(sameAsCurrent ? currentAddr : permAddr);
-        setSameAsCurrent(sameAsCurrent);
-        setFiles(filePaths);
-        setPreviousEmployment(prevEmp);
-        setEducationDetails(eduDetails);
-        if (emp.photo_url) {
-            const normalizedUrl = normalizePhotoUrl(emp.photo_url);
-            setCurrentAvatarUrl(`${normalizedUrl}?t=${Date.now()}`);
+        setFormData(saved.formData);
+        setCurrentAddress(saved.currentAddress);
+        setPermanentAddress(saved.permanentAddress);
+        setSameAsCurrent(saved.sameAsCurrent);
+        setFiles(saved.files);
+        setPreviousEmployment(saved.previousEmployment);
+        setEducationDetails(saved.educationDetails);
+        if (avatarUrl) {
+            setCurrentAvatarUrl(`${avatarUrl}?t=${Date.now()}`);
         }
     }, []);
 
@@ -270,23 +169,19 @@ export const Profile = () => {
         }
         try {
             if (!silent) setProfileLoading(true);
-            const res = await fetch(`${API_BASE_URL}/employee/profile`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            if (res.status === 401) {
+            const { ok, status, data } = await fetchEmployeeProfile();
+            if (status === 401) {
                 if (!silent) {
                     setProfileError('Session expired. Please log in again.');
                 }
                 if (!silent) setProfileLoading(false);
                 return null;
             }
-            if (!res.ok) {
+            if (!ok) {
                 if (!silent) setProfileError('Failed to load profile.');
                 if (!silent) setProfileLoading(false);
                 return null;
             }
-            const data = await res.json();
             if (!data.success || !data.profile) {
                 if (!silent) setProfileLoading(false);
                 return null;
@@ -315,7 +210,7 @@ export const Profile = () => {
     const getMandatoryValidationErrors = useCallback((currentFormData, currentFiles, currentCurrentAddress, currentPermanentAddress, currentSameAsCurrent) => {
         let newErrors = {};
         let hasMandatoryErrors = false;
-        const ADDRESS_MANDATORY_FIELDS = ['street', 'pincode', 'city', 'state', 'district', 'taluka'];
+        const ADDRESS_MANDATORY_FIELDS = ['street', 'pincode', 'city', 'state', 'district'];
 
         // 1. FORM FIELD VALIDATION
         MANDATORY_FORM_FIELDS.forEach(key => {
@@ -384,7 +279,7 @@ export const Profile = () => {
                 } else if (field === 'street' && val && val.toString().length > STREET_MAX_LEN) {
                     newErrors[key] = `Street Address cannot exceed ${STREET_MAX_LEN} characters.`;
                     hasMandatoryErrors = true;
-                } else if (['state', 'district', 'city', 'taluka'].includes(field) && val && val.toString().length > STATE_DISTRICT_MAX_LEN) {
+                } else if (['state', 'district', 'city'].includes(field) && val && val.toString().length > STATE_DISTRICT_MAX_LEN) {
                     const label = field.charAt(0).toUpperCase() + field.slice(1);
                     newErrors[key] = `${label} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
                     hasMandatoryErrors = true;
@@ -452,40 +347,15 @@ export const Profile = () => {
             }
             let successMsg = 'Profile saved successfully.';
             try {
-                    // POST /employee
-                    const empPayload = {
-                        admin_id: parseInt(adminId, 10),
-                        name: formData.fullName,
-                        email: formData.personalEmail,
-                        father_name: formData.fatherName,
-                        mother_name: (formData.motherName || '').trim(),
-                        marital_status: formData.maritalStatus,
-                        dob: formData.dateOfBirth,
-                        emp_id: formData.employeeId,
-                        mobile: formData.mobileCountryCode && formData.mobile ? `${formData.mobileCountryCode} ${formData.mobile}` : formData.mobile,
-                        gender: mapGenderForBackend(formData.gender),
-                        emergency_mobile: (formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : (formData.emergency || '')).trim(),
-                        nationality: formData.nationality,
-                        blood_group: formData.bloodGroup,
-                        designation: formData.designation,
-                        permanent_address_line1: permAddr.street,
-                        permanent_pincode: permAddr.pincode,
-                        permanent_district: permAddr.district,
-                        permanent_state: permAddr.state,
-                        permanent_taluka: permAddr.taluka,
-                        present_address_line1: currentAddress.street,
-                        present_pincode: currentAddress.pincode,
-                        present_district: currentAddress.district,
-                        present_state: currentAddress.state,
-                        present_taluka: currentAddress.taluka,
-                    };
-                    const empRes = await fetch(`${API_BASE_URL}/employee`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify(empPayload),
+                    const empPayload = buildEmployeePayload({
+                        adminId,
+                        formData,
+                        currentAddress,
+                        permanentAddress,
+                        sameAsCurrent,
                     });
-                    const empData = await empRes.json().catch(() => ({}));
-                    if (!empRes.ok) {
+                    const { ok: empOk, data: empData } = await postEmployee(empPayload);
+                    if (!empOk) {
                         const msg = empData.message || 'Failed to save profile';
                         setSaveStatus(msg);
                         showToast(msg, 'error');
@@ -497,43 +367,28 @@ export const Profile = () => {
                         }
                         return false;
                     }
-                    if (empData && typeof empData.message === 'string' && empData.message.trim()) {
-                        successMsg = empData.message.trim();
+                    if (empData?.message?.trim()) successMsg = empData.message.trim();
+                    setHasEmployeeRecord(true);
+
+                    const eduItems = buildEducationItems(educationDetails);
+                    const { ok: eduOk, data: eduData } = await postEducationReplace(eduItems);
+                    if (!eduOk) {
+                        showToast(eduData.message || 'Failed to save education.', 'error');
+                        return false;
                     }
 
-                    // POST /education-replace (all education records)
-                    const eduItems = (educationDetails || [])
-                        .filter((edu) => edu && edu.fromDate && edu.toDate && (edu.qualification || edu.institution || edu.university || edu.marks))
-                        .map((edu) => ({
-                            qualification: edu.qualification || '',
-                            institution: edu.institution || '',
-                            university: edu.university || '',
-                            fromDate: edu.fromDate,
-                            toDate: edu.toDate,
-                            marks: edu.marks || '',
-                            certificate: typeof edu.certificate === 'string' ? edu.certificate : null,
-                        }));
-                    await fetch(`${API_BASE_URL}/education-replace`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ items: eduItems }),
-                    });
+                    const prevRes = await postPreviousCompanies(previousEmployment);
+                    if (!prevRes.ok) {
+                        showToast(prevRes.data.message || 'Failed to save previous employment.', 'error');
+                        return false;
+                    }
 
-                    // POST /upload-docs (paths only; file upload can be separate)
-                    const docPayload = {
-                        admin_id: parseInt(adminId, 10),
-                        aadhaar_front: typeof files.aadharFront === 'string' ? files.aadharFront : null,
-                        aadhaar_back: typeof files.aadharBack === 'string' ? files.aadharBack : null,
-                        pan_front: typeof files.panFront === 'string' ? files.panFront : null,
-                        pan_back: typeof files.panBack === 'string' ? files.panBack : null,
-                        appointment_letter: typeof files.appointmentLetter === 'string' ? files.appointmentLetter : null,
-                        passbook_front: typeof files.passbookFront === 'string' ? files.passbookFront : null,
-                    };
-                    await fetch(`${API_BASE_URL}/upload-docs`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify(docPayload),
-                    });
+                    const docPayload = buildDocPayload(adminId, files);
+                    const { ok: docOk, data: docData } = await postUploadDocs(docPayload);
+                    if (!docOk) {
+                        showToast(docData.message || 'Failed to save documents.', 'error');
+                        return false;
+                    }
             } catch (err) {
                 setSaveStatus('Failed to save');
                 showToast('Failed to save profile.', 'error');
@@ -569,132 +424,70 @@ export const Profile = () => {
         const token = localStorage.getItem('token');
         if (!token) {
             showToast('Please log in to save your profile.', 'error');
-            return;
+            return false;
         }
         if (!adminId) {
             showToast('Profile not loaded. Please refresh the page and try again.', 'error');
-            return;
+            return false;
         }
-        const permAddr = sameAsCurrent ? currentAddress : permanentAddress;
         try {
             let successMsg = SECTION_SAVE_MESSAGES[sectionName] || 'Saved successfully.';
             if (['personal', 'address', 'employment'].includes(sectionName)) {
-                const empPayload = {
-                    admin_id: parseInt(adminId, 10),
-                    name: formData.fullName || '',
-                    email: formData.personalEmail || '',
-                    father_name: formData.fatherName || '',
-                    mother_name: (formData.motherName || '').trim(),
-                    marital_status: formData.maritalStatus || 'Single',
-                    dob: formData.dateOfBirth || null,
-                    emp_id: formData.employeeId || '',
-                    mobile: formData.mobileCountryCode && formData.mobile ? `${formData.mobileCountryCode} ${formData.mobile}` : (formData.mobile || ''),
-                    gender: mapGenderForBackend(formData.gender) || '',
-                    emergency_mobile: (formData.emergencyCountryCode && formData.emergency ? `${formData.emergencyCountryCode} ${formData.emergency}` : (formData.emergency || '')).trim(),
-                    nationality: formData.nationality || '',
-                    blood_group: formData.bloodGroup || '',
-                    designation: formData.designation || '',
-                    emp_type: (formData.employmentType || '').trim() || null,
-                    permanent_address_line1: permAddr.street || '',
-                    permanent_pincode: permAddr.pincode || '',
-                    permanent_district: permAddr.district || '',
-                    permanent_state: permAddr.state || '',
-                    permanent_taluka: permAddr.taluka || '',
-                    present_address_line1: currentAddress.street || '',
-                    present_pincode: currentAddress.pincode || '',
-                    present_district: currentAddress.district || '',
-                    present_state: currentAddress.state || '',
-                    present_taluka: currentAddress.taluka || '',
-                };
-                const empRes = await fetch(`${API_BASE_URL}/employee`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify(empPayload),
+                const empPayload = buildEmployeePayload({
+                    adminId,
+                    formData,
+                    currentAddress,
+                    permanentAddress,
+                    sameAsCurrent,
                 });
-                const errData = await empRes.json().catch(() => ({}));
-                if (!empRes.ok) {
+                const { ok: empOk, data: errData } = await postEmployee(empPayload);
+                if (!empOk) {
                     const msg = errData.message || 'Failed to save. Please check your data and try again.';
                     showToast(msg, 'error');
-                    if (['personal', 'address', 'employment'].includes(sectionName) && msg.toLowerCase().includes('email')) {
+                    if (msg.toLowerCase().includes('email')) {
                         setErrors((prev) => ({ ...prev, personalEmail: msg }));
                     }
                     if (sectionName === 'address' && msg.toLowerCase().includes('street')) {
                         setErrors((prev) => ({ ...prev, currentStreet: msg, permanentStreet: msg }));
                     }
-                    return;
+                    return false;
                 }
-                if (errData && typeof errData.message === 'string' && errData.message.trim()) {
-                    successMsg = errData.message.trim();
-                }
+                if (errData?.message?.trim()) successMsg = errData.message.trim();
+                setHasEmployeeRecord(true);
                 if (sectionName === 'employment') {
-                    const prevRes = await fetch(`${API_BASE_URL}/previous-companies`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ items: previousEmployment }),
-                    });
+                    const prevRes = await postPreviousCompanies(previousEmployment);
                     if (!prevRes.ok) {
-                        const prevErr = await prevRes.json().catch(() => ({}));
-                        showToast(prevErr.message || 'Failed to save previous employment.', 'error');
-                        return;
+                        showToast(prevRes.data.message || 'Failed to save previous employment.', 'error');
+                        return false;
                     }
                 }
             }
             if (sectionName === 'education') {
-                const items = (educationDetails || [])
-                    .filter((edu) => edu && edu.fromDate && edu.toDate && (edu.qualification || edu.institution || edu.university || edu.marks))
-                    .map((edu) => ({
-                        qualification: edu.qualification || '',
-                        institution: edu.institution || '',
-                        university: edu.university || '',
-                        fromDate: edu.fromDate,
-                        toDate: edu.toDate,
-                        marks: edu.marks || '',
-                        certificate: typeof edu.certificate === 'string' ? edu.certificate : null,
-                    }));
-                const eduRes = await fetch(`${API_BASE_URL}/education-replace`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ items }),
-                });
-                const eduData = await eduRes.json().catch(() => ({}));
-                if (!eduRes.ok) {
+                const items = buildEducationItems(educationDetails);
+                const { ok: eduOk, data: eduData } = await postEducationReplace(items);
+                if (!eduOk) {
                     showToast(eduData.message || 'Failed to save education.', 'error');
-                    return;
+                    return false;
                 }
-                if (eduData && typeof eduData.message === 'string' && eduData.message.trim()) {
-                    successMsg = eduData.message.trim();
-                }
+                if (eduData?.message?.trim()) successMsg = eduData.message.trim();
             }
             if (sectionName === 'documents') {
-                const docPayload = {
-                    admin_id: parseInt(adminId, 10),
-                    aadhaar_front: typeof files.aadharFront === 'string' ? files.aadharFront : null,
-                    aadhaar_back: typeof files.aadharBack === 'string' ? files.aadharBack : null,
-                    pan_front: typeof files.panFront === 'string' ? files.panFront : null,
-                    pan_back: typeof files.panBack === 'string' ? files.panBack : null,
-                    appointment_letter: typeof files.appointmentLetter === 'string' ? files.appointmentLetter : null,
-                    passbook_front: typeof files.passbookFront === 'string' ? files.passbookFront : null,
-                };
-                const docRes = await fetch(`${API_BASE_URL}/upload-docs`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify(docPayload),
-                });
-                const docData = await docRes.json().catch(() => ({}));
-                if (!docRes.ok) {
+                const docPayload = buildDocPayload(adminId, files);
+                const { ok: docOk, data: docData } = await postUploadDocs(docPayload);
+                if (!docOk) {
                     showToast(docData.message || 'Failed to save documents.', 'error');
-                    return;
+                    return false;
                 }
-                if (docData && typeof docData.message === 'string' && docData.message.trim()) {
-                    successMsg = docData.message.trim();
-                }
+                if (docData?.message?.trim()) successMsg = docData.message.trim();
             }
             showToast(successMsg, 'success');
             if (['personal', 'address', 'employment'].includes(sectionName)) {
                 setErrors((prev) => ({ ...prev, personalEmail: '' }));
             }
+            return true;
         } catch (err) {
             showToast('Failed to save.', 'error');
+            return false;
         }
     }, [adminId, formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, showToast]);
 
@@ -712,21 +505,16 @@ export const Profile = () => {
             return;
         }
         try {
-            const formData = new FormData();
-            formData.append('photo', imageBlob, 'profile.png');
-            const res = await fetch(`${API_BASE_URL}/employee/upload-photo`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
-                body: formData,
-            });
-            const data = await res.json();
-            if (res.ok && data.success && data.photo_url) {
+            const { ok, data } = await postUploadPhoto(imageBlob);
+            if (ok && data.success && data.photo_url) {
                 const normalizedUrl = normalizePhotoUrl(data.photo_url);
                 setCurrentAvatarUrl(`${normalizedUrl}?t=${Date.now()}`);
+                setHasEmployeeRecord(true);
                 showToast('Profile picture updated successfully.');
                 setSaveStatus('Saved!');
                 bumpPhotoVersion?.();
                 refreshUserData();
+                fetchProfile({ silent: true });
             } else {
                 showToast(data.message || 'Failed to upload photo.', 'error');
                 setSaveStatus('Ready');
@@ -743,15 +531,31 @@ export const Profile = () => {
     // =========================================================
 
 
-    const profileProgress = useMemo(() => calculateProfileCompletion(
-    showEditCards ? formData : savedData.formData,
-    showEditCards ? currentAddress : savedData.currentAddress,
-    showEditCards ? permanentAddress : savedData.permanentAddress,
-    showEditCards ? sameAsCurrent : savedData.sameAsCurrent,
-    showEditCards ? files : savedData.files,
-    showEditCards ? previousEmployment : savedData.previousEmployment,
-    showEditCards ? educationDetails : savedData.educationDetails || []
-), [showEditCards, formData, currentAddress, permanentAddress, sameAsCurrent, files, previousEmployment, educationDetails, savedData]);
+    const sectionCompletion = useMemo(
+        () =>
+            getProfileSectionCompletion(
+                showEditCards ? formData : savedData.formData,
+                showEditCards ? currentAddress : savedData.currentAddress,
+                showEditCards ? permanentAddress : savedData.permanentAddress,
+                showEditCards ? sameAsCurrent : savedData.sameAsCurrent,
+                showEditCards ? files : savedData.files,
+                showEditCards ? previousEmployment : savedData.previousEmployment,
+                showEditCards ? educationDetails : savedData.educationDetails || []
+            ),
+        [
+            showEditCards,
+            formData,
+            currentAddress,
+            permanentAddress,
+            sameAsCurrent,
+            files,
+            previousEmployment,
+            educationDetails,
+            savedData,
+        ]
+    );
+
+    const profileProgress = sectionCompletion.totalPercent;
 
 
     // =========================================================
@@ -760,21 +564,43 @@ export const Profile = () => {
 
     const handleAccordionToggle = (sectionName) => { setExpandedSection(expandedSection === sectionName ? null : sectionName); };
 
-    const handleEditToggle = () => {
+    const enterEditMode = useCallback((openSection = 'personal') => {
         setFormData(savedData.formData);
         setCurrentAddress(savedData.currentAddress);
         setPermanentAddress(savedData.permanentAddress);
         setSameAsCurrent(savedData.sameAsCurrent);
         setFiles(savedData.files);
         setPreviousEmployment(savedData.previousEmployment);
-        setEducationDetails(savedData.educationDetails?.length ? savedData.educationDetails : [
-            { id: Date.now(), qualification: '', institution: '', university: '', fromDate: '', toDate: '', marks: '', certificate: null }
-        ]);
+        setEducationDetails(
+            savedData.educationDetails?.length
+                ? savedData.educationDetails
+                : [
+                      {
+                          id: Date.now(),
+                          qualification: '',
+                          institution: '',
+                          university: '',
+                          fromDate: '',
+                          toDate: '',
+                          marks: '',
+                          certificate: null,
+                      },
+                  ]
+        );
         setShowEditCards(true);
-        setExpandedSection('personal');
+        setExpandedSection(openSection);
         setErrors({});
         setSaveStatus('Ready');
-    };
+    }, [savedData]);
+
+    const handleEditToggle = () => enterEditMode('personal');
+
+    const handleGoToSection = useCallback(
+        (editKey) => {
+            enterEditMode(editKey || 'personal');
+        },
+        [enterEditMode]
+    );
 
     const exitEditMode = useCallback(() => {
         setShowEditCards(false);
@@ -847,33 +673,90 @@ export const Profile = () => {
         setErrors(prev => ({ ...prev, [name]: '' }));
     };
 
+    const runPincodeLookup = useCallback(
+        async (addressType, pin) => {
+            const seq = ++pincodeLookupSeq.current[addressType];
+            setPincodeLoading((prev) => ({ ...prev, [addressType]: true }));
+            const result = await fetchPincodeDetails(pin);
+            if (pincodeLookupSeq.current[addressType] !== seq) return;
+
+            setPincodeLoading((prev) => ({ ...prev, [addressType]: false }));
+
+            if (!result.ok) {
+                if (result.message) {
+                    showToast(result.message, 'error');
+                }
+                return;
+            }
+
+            const { city, district, state } = result.details;
+            const isCurrent = addressType === 'current';
+            const setter = isCurrent ? setCurrentAddress : setPermanentAddress;
+            setter((prev) => ({
+                ...prev,
+                pincode: pin,
+                city: city || prev.city,
+                district: district || prev.district,
+                state: state || prev.state,
+            }));
+            if (isCurrent && sameAsCurrent) {
+                setPermanentAddress((prev) => ({
+                    ...prev,
+                    pincode: pin,
+                    city: city || prev.city,
+                    district: district || prev.district,
+                    state: state || prev.state,
+                }));
+            }
+            setErrors((prev) => ({
+                ...prev,
+                [`${addressType}Pincode`]: '',
+                [`${addressType}City`]: '',
+                [`${addressType}State`]: '',
+                [`${addressType}District`]: '',
+            }));
+        },
+        [sameAsCurrent, showToast]
+    );
+
+    const handlePincodeBlur = useCallback(
+        (addressType) => {
+            const addr = addressType === 'current' ? currentAddress : permanentAddress;
+            const pin = String(addr?.pincode || '').replace(/\D/g, '');
+            if (pin.length === 6 && (!addr.city?.trim() || !addr.state?.trim())) {
+                runPincodeLookup(addressType, pin);
+            }
+        },
+        [currentAddress, permanentAddress, runPincodeLookup]
+    );
+
     const handleAddressChange = (addressType, e) => {
         const { name, value } = e.target;
         const isCurrent = addressType === 'current';
         const setter = isCurrent ? setCurrentAddress : setPermanentAddress;
         const errorKey = `${addressType}${name.charAt(0).toUpperCase() + name.slice(1)}`;
-        // Pincode: numeric only, no decimals - take integer part only
         let finalValue = value;
         if (name === 'pincode') {
             const parts = String(value).split('.');
             finalValue = (parts[0] || '').replace(/\D/g, '').slice(0, 6);
         } else if (name === 'street') {
             finalValue = String(value || '').slice(0, STREET_MAX_LEN);
-        } else if (['city', 'district', 'state', 'taluka'].includes(name)) {
+        } else if (['city', 'district', 'state'].includes(name)) {
             finalValue = String(value || '').slice(0, STATE_DISTRICT_MAX_LEN);
         }
-        setter(prev => ({ ...prev, [name]: finalValue }));
+        setter((prev) => ({ ...prev, [name]: finalValue }));
         if (isCurrent && sameAsCurrent) {
-            setPermanentAddress(prev => ({ ...prev, [name]: finalValue }));
+            setPermanentAddress((prev) => ({ ...prev, [name]: finalValue }));
         }
-        if (name === 'pincode' && finalValue.length === 6) {
-            const newDetails = simulatePincodeLookup(finalValue);
-            setter(prev => ({ ...prev, ...newDetails }));
-            if (isCurrent && sameAsCurrent) {
-                setPermanentAddress(prev => ({ ...prev, ...newDetails, pincode: finalValue }));
+        if (name === 'pincode') {
+            if (finalValue.length < 6) {
+                pincodeLookupSeq.current[addressType] += 1;
+                setPincodeLoading((prev) => ({ ...prev, [addressType]: false }));
+            } else if (finalValue.length === 6) {
+                runPincodeLookup(addressType, finalValue);
             }
         }
-        setErrors(prev => ({ ...prev, [errorKey]: '' }));
+        setErrors((prev) => ({ ...prev, [errorKey]: '' }));
     };
 
     const handleSameAsCurrentToggle = () => {
@@ -882,7 +765,7 @@ export const Profile = () => {
             if (newState) {
                 setPermanentAddress(JSON.parse(JSON.stringify(currentAddress)));
             } else {
-                setPermanentAddress({ street: '', city: '', state: '', district: '', taluka: '', pincode: '' });
+                setPermanentAddress({ street: '', city: '', state: '', district: '', pincode: '' });
             }
             return newState;
         });
@@ -1036,7 +919,7 @@ export const Profile = () => {
     const validateAddressSection = () => {
         const sectionErrors = {};
         let hasErrors = false;
-        const ADDRESS_MANDATORY_FIELDS = ['street', 'pincode', 'city', 'state', 'district', 'taluka'];
+        const ADDRESS_MANDATORY_FIELDS = ['street', 'pincode', 'city', 'state', 'district'];
 
         const validateAddress = (addr, type) => {
             ADDRESS_MANDATORY_FIELDS.forEach(field => {
@@ -1057,7 +940,7 @@ export const Profile = () => {
                 } else if (field === 'street' && val.toString().length > STREET_MAX_LEN) {
                     sectionErrors[key] = `Street Address cannot exceed ${STREET_MAX_LEN} characters.`;
                     hasErrors = true;
-                } else if (['state', 'district', 'city', 'taluka'].includes(field) && val.toString().length > STATE_DISTRICT_MAX_LEN) {
+                } else if (['state', 'district', 'city'].includes(field) && val.toString().length > STATE_DISTRICT_MAX_LEN) {
                     const label = field.charAt(0).toUpperCase() + field.slice(1);
                     sectionErrors[key] = `${label} cannot exceed ${STATE_DISTRICT_MAX_LEN} characters.`;
                     hasErrors = true;
@@ -1174,90 +1057,90 @@ export const Profile = () => {
         return !hasErrors;
     };
 
-    const handleSectionSave = (sectionName) => {
+    const applySectionSavedState = useCallback((sectionName) => {
+        switch (sectionName) {
+            case 'personal':
+                setSavedData((prev) => ({
+                    ...prev,
+                    formData: {
+                        ...prev.formData,
+                        ...PERSONAL_KEYS.reduce((acc, key) => {
+                            acc[key] = formData[key];
+                            return acc;
+                        }, {}),
+                    },
+                }));
+                setErrors((prev) => ({ ...prev, designation: '' }));
+                break;
+            case 'address':
+                setSavedData((prev) => ({
+                    ...prev,
+                    currentAddress,
+                    permanentAddress,
+                    sameAsCurrent,
+                }));
+                break;
+            case 'employment':
+                setSavedData((prev) => ({
+                    ...prev,
+                    formData: {
+                        ...prev.formData,
+                        ...EMPLOYMENT_KEYS.reduce((acc, key) => {
+                            acc[key] = formData[key];
+                            return acc;
+                        }, {}),
+                    },
+                    previousEmployment,
+                }));
+                break;
+            case 'documents':
+                setSavedData((prev) => ({ ...prev, files }));
+                break;
+            case 'education':
+                setSavedData((prev) => ({ ...prev, educationDetails }));
+                break;
+            default:
+                break;
+        }
+    }, [formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, files, educationDetails]);
+
+    const handleSectionSave = async (sectionName) => {
         let isValid = true;
 
         switch (sectionName) {
-            case 'personal': {
+            case 'personal':
                 isValid = validatePersonalSection();
-                if (isValid) {
-                    setSavedData(prev => ({
-                        ...prev,
-                        formData: {
-                            ...prev.formData,
-                            ...PERSONAL_KEYS.reduce((acc, key) => {
-                                acc[key] = formData[key];
-                                return acc;
-                            }, {})
-                        }
-                    }));
-                    setErrors(prev => ({ ...prev, designation: '' }));
-                    saveSectionToBackend('personal');
-                }
                 break;
-            }
             case 'address':
                 isValid = validateAddressSection();
-                if (isValid) {
-                    setSavedData(prev => ({
-                        ...prev,
-                        currentAddress,
-                        permanentAddress,
-                        sameAsCurrent
-                    }));
-                    saveSectionToBackend('address');
-                }
                 break;
             case 'employment':
                 isValid = validateEmploymentSection();
-                if (isValid) {
-                    setSavedData(prev => ({
-                        ...prev,
-                        formData: {
-                            ...prev.formData,
-                            ...EMPLOYMENT_KEYS.reduce((acc, key) => {
-                                acc[key] = formData[key];
-                                return acc;
-                            }, {})
-                        },
-                        previousEmployment
-                    }));
-                    saveSectionToBackend('employment');
-                }
                 break;
             case 'documents':
                 isValid = validateDocumentsSection();
-                if (isValid) {
-                    setSavedData(prev => ({
-                        ...prev,
-                        files
-                    }));
-                    saveSectionToBackend('documents');
-                }
                 break;
             case 'education':
                 isValid = validateEducationSection();
-                if (!isValid) {
-                    setExpandedSection('education');
-                } else {
-                    setSavedData(prev => ({
-                        ...prev,
-                        educationDetails
-                    }));
-                    saveSectionToBackend('education');
-                }
+                if (!isValid) setExpandedSection('education');
                 break;
             default:
                 break;
         }
 
         if (!isValid) {
-            // Show a generic per-section error toast on validation failure
             const msg = SECTION_ERROR_MESSAGES[sectionName] || 'Please fix validation errors before saving.';
             showToast(msg, 'error');
+            return false;
         }
 
-        return isValid;
+        const loadingId = toast.loading('Saving…');
+        const ok = await saveSectionToBackend(sectionName);
+        toast.dismiss(loadingId);
+        if (ok) {
+            applySectionSavedState(sectionName);
+        }
+        return ok;
     };
 
     const handleSectionUndo = (sectionName) => {
@@ -1305,177 +1188,67 @@ export const Profile = () => {
         : { ...savedData, educationDetails: savedData.educationDetails || [] };
     const mode = showEditCards ? 'edit' : 'view';
 
-    // 🛑 AVATAR CARD CREATION (MEMOIZED) - STYLES MODIFIED FOR MODERN FONT/AESTHETICS
-    const avatarCardComponent = useMemo(() => (
-        <div className="profile-summary-card card card--summary" style={{ ...MODERN_FONT_STYLE, textAlign: 'center', padding: '30px 20px' }}>
-
-            <ProfileAvatar
-                imageUrl={currentAvatarUrl}
-                onImageChange={handleAvatarChange}
-            />
-
-            <h3 style={{ margin: '15px 0 5px 0', fontSize: '22px' }}><span style={GRADIENT_HEADER_STYLE}>{dataToDisplay.formData.fullName}</span></h3>
-            <p style={{ margin: '0 0 20px 0', color: '#6b7280', fontWeight: '500', fontSize: '15px' }}>
-                {dataToDisplay.formData.designation} | {dataToDisplay.formData.employmentType}
-            </p>
-            <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '20px 0' }} />
-            <p style={{ margin: '10px 0', color: '#374151', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '18px' }}>📧</span> {dataToDisplay.formData.personalEmail}
-            </p>
-            <p style={{ margin: '10px 0', color: '#374151', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '18px', transform: 'rotate(270deg)' }}>📞</span> {dataToDisplay.formData.mobile}
-            </p>
-            <p style={{ margin: '10px 0 30px 0', color: '#374151', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '18px' }}>📍</span> {dataToDisplay.currentAddress.city}, {dataToDisplay.currentAddress.pincode}
-            </p>
-
-            {/* 🛑 ENHANCED EDIT PROFILE BUTTON (VIEW MODE) */}
-            {!showEditCards && (
-                <button className="profile-btn-gradient" onClick={handleEditToggle}>
-                    📝 Edit Profile
-                </button>
-            )}
-        </div>
-    ), [currentAvatarUrl, dataToDisplay, showEditCards, handleEditToggle]);
-
-
-    // --- Render Logic ---
-    const toastEl = toast.show && (
-        <div
-            role="alert"
-            style={{
-                position: 'fixed',
-                top: 20,
-                right: 20,
-                // Use a very high z-index so this toast is always above overlays/modals
-                zIndex: 200000,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '12px 20px',
-                background: '#fff',
-                borderRadius: 8,
-                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
-                borderLeft: `4px solid ${toast.type === 'error' ? '#ef4444' : '#10b981'}`,
-                animation: 'profileToastSlide 0.3s ease-out',
-            }}
-        >
-            <span>{toast.type === 'success' ? '✅' : '❌'}</span>
-            <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 500, color: '#1e293b' }}>{toast.message}</p>
-            <button
-                type="button"
-                aria-label="Close"
-                style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8' }}
-                onClick={() => setToast((p) => ({ ...p, show: false }))}
-            >
-                &times;
-            </button>
-        </div>
-    );
-
     if (profileLoading) {
         return (
-            <>
-                <div className="profile-page-container" style={{ ...MODERN_FONT_STYLE, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f4f6f9' }}>
-                    <p>Loading profile...</p>
-                </div>
-                {toastEl}
-            </>
+            <div className="profile-page-container" style={{ ...MODERN_FONT_STYLE, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f4f6f9' }}>
+                <p>Loading profile...</p>
+            </div>
         );
     }
     if (profileError) {
         return (
-            <>
-                <div className="profile-page-container" style={{ ...MODERN_FONT_STYLE, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, backgroundColor: '#f4f6f9' }}>
-                    <p style={{ color: '#b91c1c' }}>{profileError}</p>
-                </div>
-                {toastEl}
-            </>
+            <div className="profile-page-container" style={{ ...MODERN_FONT_STYLE, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, backgroundColor: '#f4f6f9' }}>
+                <p style={{ color: '#b91c1c' }}>{profileError}</p>
+            </div>
         );
     }
 
     if (!showEditCards) {
         // --- VIEW MODE RENDER (ProfileViewLayout) ---
         return (
-            <>
             <div className="profile-page-container" style={MODERN_FONT_STYLE}>
                 <div className="profile-page-inner">
                 <ProfileViewLayout
                     data={dataToDisplay}
                     profileProgress={profileProgress}
+                    sectionCompletion={sectionCompletion}
+                    avatarUrl={currentAvatarUrl}
+                    onImageChange={handleAvatarChange}
                     onEditToggle={handleEditToggle}
-                    avatarCardComponent={avatarCardComponent}
+                    onGoToSection={handleGoToSection}
                 />
                 </div>
             </div>
-            {toastEl}
-            </>
         );
     }
 
     // --- EDIT MODE RENDER (Accordion Layout) ---
     return (
-        <>
-        <div
-            className="profile-page-container"
-            style={MODERN_FONT_STYLE}
-        >
-            <div className="profile-page-inner">
-            {/* TOP STATUS/ACTION BAR */}
-            <div className="status-header-bar" style={{
-                position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'white',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
-            }}>
-                {/* ... (Status feedback unchanged) ... */}
-
-                <div className="status-header-inner">
-                    <h2 className="edit-profile-title"><span style={GRADIENT_HEADER_STYLE}>Edit Profile</span></h2>
-
-                    <div className="action-button-container">
-
-                        {/* 🛑 ENHANCED DISCARD BUTTON (EDIT MODE) */}
-                        <button
-                            type="button"
-                            className="discard-btn"
-                            onClick={handleUndoChanges}
-                            style={{
-                                padding: '10px 20px',
-                                backgroundColor: 'transparent',
-                                color: '#ef4444',
-                                border: '1px solid #ef4444',
-                                borderRadius: '6px',
-                                fontWeight: '600',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#fef2f2';
-                                e.currentTarget.style.transform = 'scale(1.02)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                                e.currentTarget.style.transform = 'scale(1)';
-                            }}
-                        >
-                            <span style={{ marginRight: '5px' }}>&larr;</span> Discard Changes
-                        </button>
-
-                        {/* Done button (EDIT MODE) */}
-                        <button
-                            type="button"
-                            className="done-btn"
-                            onClick={() => handleDoneEditing().catch(() => {})}
-                        >
-                            ✅ Done Editing
-                        </button>
-                    </div>
+        <div className="profile-page-container profile-page-container--edit" style={MODERN_FONT_STYLE}>
+            <div className="profile-page-inner profile-page-inner--edit">
+            <header className="profile-edit-toolbar">
+                <h2 className="profile-edit-toolbar__title">
+                    <span style={GRADIENT_HEADER_STYLE}>Edit profile</span>
+                </h2>
+                <div className="profile-edit-toolbar__actions">
+                    <button
+                        type="button"
+                        className="profile-edit-btn profile-edit-btn--discard"
+                        onClick={handleUndoChanges}
+                    >
+                        Discard
+                    </button>
+                    <button
+                        type="button"
+                        className="profile-edit-btn profile-edit-btn--done"
+                        onClick={() => handleDoneEditing().catch(() => {})}
+                    >
+                        Done
+                    </button>
                 </div>
-            </div>
+            </header>
 
-            {/* MAIN CONTENT AREA (Accordion Layout) */}
-            <div className="profile-content-wrapper">
-                {/* Accordion sections */}
-                <div className="sections-column" style={{ width: '100%' }}>
+            <div className="profile-edit-accordion-list">
                 <PersonalInfoSection
                     data={dataToDisplay.formData}
                     mode={mode}
@@ -1491,10 +1264,12 @@ export const Profile = () => {
                     currentAddress={dataToDisplay.currentAddress}
                     permanentAddress={dataToDisplay.permanentAddress}
                     sameAsCurrent={dataToDisplay.sameAsCurrent}
+                    pincodeLoading={pincodeLoading}
                     mode={mode}
                     isExpanded={expandedSection === 'address'}
                     onToggle={() => handleAccordionToggle('address')}
                     onAddressChange={handleAddressChange}
+                    onPincodeBlur={handlePincodeBlur}
                     onSameAsCurrentToggle={handleSameAsCurrentToggle}
                     onSave={() => handleSectionSave('address')}
                     onUndo={() => handleSectionUndo('address')}
@@ -1542,11 +1317,8 @@ export const Profile = () => {
                     adminId={adminId}
                     uploadProfileFileUrl={`${API_BASE_URL}/upload-profile-file`}
                 />
-                </div>
             </div>
             </div>
         </div>
-        {toastEl}
-        </>
     );
 }

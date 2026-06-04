@@ -967,6 +967,8 @@ const _toLocalSoftware = (s) => ({
           empId: s.assignedToEmpId || String(s.assignedTo),
           name: s.assignedToName || "—",
         },
+  assignedDate: s.assignedDate || null,
+  created_at: s.created_at || null,
 });
 
 const _toLocalTicket = (t) => ({

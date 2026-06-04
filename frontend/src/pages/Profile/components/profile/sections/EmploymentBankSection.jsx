@@ -41,6 +41,8 @@ export const EmploymentBankSection = ({
                 <Input label="Employee ID" name="employeeId" value={data.employeeId} onChange={onFormChange} error={errors.employeeId} readOnly />
                 <Input label="Department" name="department" value={data.department} onChange={onFormChange} error={errors.department} />
                 <Input label="Date of Joining" name="dateOfJoining" type="date" value={data.dateOfJoining} onChange={onFormChange} error={errors.dateOfJoining} readOnly />
+                <Input label="Employment type" name="employmentType" value={data.employmentType || ''} readOnly />
+                <Input label="Reporting manager" name="reportingManager" value={data.reportingManager || ''} readOnly />
             </div>
         </>
     ) : (

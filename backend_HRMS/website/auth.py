@@ -8,7 +8,10 @@
 
 import os
 import re
+import json
+import urllib.request
 from math import radians, cos, sin, atan2, sqrt
+import requests
 from werkzeug.utils import secure_filename
 from flask import Blueprint, request, redirect, url_for, current_app, jsonify
 from sqlalchemy import func
@@ -618,6 +621,76 @@ def get_news_feed():
     return jsonify({"success": True, "news_feed": items}), 200
 
 
+def _parse_postal_pincode_payload(payload):
+    """Map postalpincode.in JSON to city, district, state."""
+    if not isinstance(payload, list) or not payload:
+        return None
+    block = payload[0]
+    if block.get('Status') != 'Success':
+        return None
+    offices = block.get('PostOffice') or []
+    if not offices:
+        return None
+    office = offices[0]
+    district = (office.get('District') or '').strip()
+    state = (office.get('State') or '').strip()
+    city = (
+        (office.get('Block') or '').strip()
+        or (office.get('Name') or '').strip()
+        or district
+    )
+    return {
+        "city": city[:100],
+        "district": district[:100],
+        "state": state[:100],
+    }
+
+
+def _fetch_postal_pincode_json(pin):
+    """Fetch pincode data; requests first, then urllib fallback."""
+    url = f'https://api.postalpincode.in/pincode/{pin}'
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; SaffoHRMS/1.0)'}
+    try:
+        resp = requests.get(url, timeout=15, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as raw:
+            return json.loads(raw.read().decode('utf-8'))
+
+
+@auth.route('/pincode/<pincode>', methods=['GET'])
+def pincode_lookup(pincode):
+    """Look up Indian postal pincode → city, district, state (India Post data via postalpincode.in)."""
+    pin = str(pincode or '').strip()
+    if not re.match(r'^\d{6}$', pin):
+        return jsonify({"success": False, "message": "Enter a valid 6-digit pincode"}), 400
+
+    try:
+        payload = _fetch_postal_pincode_json(pin)
+    except Exception:
+        logging.exception("pincode_lookup request failed for %s", pin)
+        return jsonify({
+            "success": False,
+            "message": "Could not reach pincode service. Try again.",
+        }), 502
+
+    parsed = _parse_postal_pincode_payload(payload)
+    if not parsed:
+        block = payload[0] if isinstance(payload, list) and payload else {}
+        return jsonify({
+            "success": False,
+            "message": block.get('Message') or 'Pincode not found',
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "pincode": pin,
+        **parsed,
+    }), 200
+
+
 @auth.route('/employee/profile', methods=['GET'])
 @jwt_required()
 def employee_profile():
@@ -745,6 +818,81 @@ def employee_profile():
     return jsonify({"success": True, "profile": profile}), 200
 
 
+def _static_upload_photo_url(filename):
+    """Relative URL so the Vite dev proxy can serve /static from Flask."""
+    return f"/static/uploads/{filename}"
+
+
+def _photo_extension_from_upload(photo):
+    """Resolve a safe extension from filename or Content-Type."""
+    allowed = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    ext = ''
+    if photo.filename and '.' in photo.filename:
+        ext = photo.filename.rsplit('.', 1)[-1].lower()
+    if ext not in allowed:
+        ct = (photo.content_type or '').lower()
+        if 'jpeg' in ct or 'jpg' in ct:
+            ext = 'jpg'
+        elif 'png' in ct:
+            ext = 'png'
+        elif 'gif' in ct:
+            ext = 'gif'
+        elif 'webp' in ct:
+            ext = 'webp'
+    return ext if ext in allowed else None
+
+
+def _ensure_employee_for_admin(admin):
+    """
+    Ensure an Employee row exists for profile photo storage.
+    IT/admin users may have Admin data only until they complete profile sections.
+    """
+    employee = Employee.query.filter_by(admin_id=admin.id).first()
+    if employee:
+        return employee
+
+    name = ((admin.first_name or admin.user_name or "Employee") or "Employee").strip()[:100]
+    email = (admin.email or "").strip()
+    if not email:
+        email = f"user{admin.id}@local.saffotech.com"
+    else:
+        taken = Employee.query.filter(
+            func.lower(Employee.email) == email.lower()
+        ).first()
+        if taken:
+            email = f"user{admin.id}@local.saffotech.com"
+
+    emp_id = ((admin.emp_id or f"EMP{admin.id}") or f"EMP{admin.id}").strip()[:50]
+    if Employee.query.filter_by(emp_id=emp_id).first():
+        emp_id = f"EMP{admin.id}"
+
+    mobile = (admin.mobile or "0000000000").strip()[:20] or "0000000000"
+
+    employee = Employee(
+        admin_id=admin.id,
+        name=name,
+        email=email[:100],
+        father_name="N/A",
+        mother_name="N/A",
+        marital_status="Single",
+        dob=date(1990, 1, 1),
+        emp_id=emp_id,
+        mobile=mobile,
+        gender="prefer_not_to_say",
+        emergency_mobile=mobile[:50],
+        nationality="Indian",
+        blood_group="O+",
+        designation="Not Specified",
+    )
+    db.session.add(employee)
+    try:
+        db.session.flush()
+    except IntegrityError:
+        db.session.rollback()
+        raise
+    return employee
+
+
 @auth.route('/employee/upload-photo', methods=['POST'])
 @jwt_required()
 def upload_profile_photo():
@@ -758,35 +906,42 @@ def upload_profile_photo():
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
 
-    employee = Employee.query.filter_by(admin_id=admin.id).first()
-    if not employee:
-        return jsonify({"success": False, "message": "Employee record not found"}), 404
-
     if 'photo' not in request.files:
         return jsonify({"success": False, "message": "No photo file provided"}), 400
 
     photo = request.files['photo']
-    if not photo or not photo.filename:
+    if not photo:
         return jsonify({"success": False, "message": "Invalid photo file"}), 400
 
-    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-    ext = photo.filename.rsplit('.', 1)[-1].lower() if '.' in photo.filename else ''
-    if ext not in allowed_extensions:
+    ext = _photo_extension_from_upload(photo)
+    if not ext:
         return jsonify({"success": False, "message": "Invalid file type. Allowed: png, jpg, jpeg, gif, webp"}), 400
 
-    filename = secure_filename(f"profile_{admin.id}_{admin.emp_id or 'emp'}.{ext}")
+    try:
+        employee = _ensure_employee_for_admin(admin)
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "message": "Could not create employee profile for photo. Save personal details first, then try again.",
+        }), 400
+
+    emp_slug = secure_filename(str(admin.emp_id or admin.id))
+    filename = secure_filename(f"profile_{admin.id}_{emp_slug}.{ext}")
     upload_dir = os.path.join(current_app.static_folder, "uploads")
     os.makedirs(upload_dir, exist_ok=True)
     photo_path = os.path.join(upload_dir, filename)
     photo.save(photo_path)
 
     employee.photo_filename = filename
-    db.session.commit()
-
     try:
-        photo_url = url_for("static", filename=f"uploads/{filename}", _external=True)
+        db.session.commit()
     except Exception:
-        photo_url = f"/static/uploads/{filename}"
+        db.session.rollback()
+        logging.exception("upload_profile_photo commit failed")
+        return jsonify({"success": False, "message": "Failed to save photo"}), 500
+
+    photo_url = _static_upload_photo_url(filename)
     return jsonify({"success": True, "message": "Photo uploaded successfully", "photo_url": photo_url}), 200
 
 
@@ -1186,11 +1341,17 @@ def _parse_date(value):
 
 
 @auth.route("/employee", methods=["POST"])
+@jwt_required()
 def create_or_update_employee():
     data = request.get_json()
 
     if not data:
         return jsonify({"success": False, "message": "Missing JSON body"}), 400
+
+    try:
+        token_admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
 
     admin_id = data.get("admin_id")
     if not admin_id:
@@ -1200,6 +1361,12 @@ def create_or_update_employee():
         admin_id = int(admin_id)
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "admin_id must be an integer"}), 400
+
+    if admin_id != token_admin_id:
+        return jsonify({
+            "success": False,
+            "message": "You can only update your own profile",
+        }), 403
 
     # Early validation: street address max length (400 chars) - return user-friendly message before any DB ops
     for key in ("permanent_address_line1", "present_address_line1"):
@@ -1396,15 +1563,32 @@ def create_or_update_employee():
 
 
 @auth.route("/education", methods=["POST"])
+@jwt_required()
 def create_or_update_education():
     data = request.get_json()
 
     if not data:
-        return {"success": False, "message": "Missing JSON body"}, 400
+        return jsonify({"success": False, "message": "Missing JSON body"}), 400
+
+    try:
+        token_admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
 
     admin_id = data.get("admin_id")
     if not admin_id:
-        return {"success": False, "message": "admin_id is required"}, 400
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "admin_id must be an integer"}), 400
+
+    if admin_id != token_admin_id:
+        return jsonify({
+            "success": False,
+            "message": "You can only update your own education records",
+        }), 403
 
     # Check if education record exists for this admin
     education = Education.query.filter_by(admin_id=admin_id).first()
@@ -1422,7 +1606,7 @@ def create_or_update_education():
                     setattr(education, field, data[field])
 
             db.session.commit()
-            return {"success": True, "message": "Education updated successfully"}, 200
+            return jsonify({"success": True, "message": "Education updated successfully"}), 200
 
         # ------------ CREATE ------------
         education = Education(
@@ -1438,11 +1622,11 @@ def create_or_update_education():
 
         db.session.add(education)
         db.session.commit()
-        return {"success": True, "message": "Education created successfully"}, 201
+        return jsonify({"success": True, "message": "Education created successfully"}), 201
 
     except Exception as e:
         db.session.rollback()
-        return {"success": False, "message": str(e)}, 500
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 def _parse_education_date(val):
@@ -1638,9 +1822,25 @@ def save_upload_docs():
     if not data:
         return jsonify({"success": False, "message": "Missing JSON body"}), 400
 
+    try:
+        token_admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+
     admin_id = data.get("admin_id")
     if not admin_id:
-        return {"success": False, "message": "admin_id is required"}, 400
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "admin_id must be an integer"}), 400
+
+    if admin_id != token_admin_id:
+        return jsonify({
+            "success": False,
+            "message": "You can only update your own documents",
+        }), 403
 
     # Check if record exists
     upload_doc = UploadDoc.query.filter_by(admin_id=admin_id).first()
@@ -1660,7 +1860,7 @@ def save_upload_docs():
                     setattr(upload_doc, field, data[field])
 
             db.session.commit()
-            return {"success": True, "message": "Documents updated successfully"}, 200
+            return jsonify({"success": True, "message": "Documents updated successfully"}), 200
 
         # ---------------- CREATE ----------------
         upload_doc = UploadDoc(
@@ -1675,12 +1875,12 @@ def save_upload_docs():
 
         db.session.add(upload_doc)
         db.session.commit()
-        return {"success": True, "message": "Documents saved successfully"}, 201
+        return jsonify({"success": True, "message": "Documents saved successfully"}), 201
 
     except Exception as e:
         db.session.rollback()
-        print("ERROR:", e)
-        return {"success": False, "message": str(e)}, 500
+        logging.exception("save_upload_docs error")
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 

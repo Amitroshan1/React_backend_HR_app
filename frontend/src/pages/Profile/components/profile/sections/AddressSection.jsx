@@ -1,9 +1,9 @@
 import React from 'react';
 import { GRADIENT_HEADER_STYLE } from '../../../utils/gradientStyles';
-import {AccordionCard} from '../AccordionCard';
-import {TextArea} from '../../common/TextArea';
-import {Input} from '../../common/Input';
-import {Info} from '../../common/Info';
+import { AccordionCard } from '../AccordionCard';
+import { TextArea } from '../../common/TextArea';
+import { Input } from '../../common/Input';
+import { Info } from '../../common/Info';
 
 /* =========================================================
    ADDRESS BLOCK
@@ -16,76 +16,75 @@ export const AddressBlock = ({
     onChange,
     errors,
     sameAsCurrent,
-    onSameAsCurrentToggle
+    onSameAsCurrentToggle,
+    onPincodeBlur,
+    pincodeLoading = false,
 }) => {
     const isEditMode = mode === 'edit';
     const isCurrent = addressType === 'current';
     const errorPrefix = addressType;
+    const readOnly = !isCurrent && sameAsCurrent;
 
     return (
-        <div className={`address-block ${isCurrent ? '' : 'mt-lg'}`}>
-            <div className="address-header">
-                <h4><span style={GRADIENT_HEADER_STYLE}>{title}</span></h4>
-            </div>
+        <div className={`address-block ${isCurrent ? 'address-block--current' : 'address-block--permanent'}`}>
+            <h4 className="address-block__title">
+                <span style={GRADIENT_HEADER_STYLE}>{title}</span>
+            </h4>
 
             {isEditMode ? (
-                <div className="fade-in">
-                    {/* SAME AS CURRENT */}
+                <div className="address-block__form">
                     {isCurrent && (
-                        <div className="checkbox-row">
+                        <label className="address-same-checkbox">
                             <input
                                 type="checkbox"
                                 id="sameAsCurrent"
                                 checked={sameAsCurrent}
                                 onChange={onSameAsCurrentToggle}
                             />
-                            <label htmlFor="sameAsCurrent">
-                                Permanent Address is the same as Current Address
-                            </label>
-                        </div>
+                            <span>Permanent address is the same as current address</span>
+                        </label>
                     )}
 
                     <TextArea
-                        label="Street Address"
+                        label="Street address"
                         name="street"
                         value={data.street}
                         onChange={(e) => onChange(addressType, e)}
-                        readOnly={!isCurrent && sameAsCurrent}
+                        readOnly={readOnly}
                         error={errors[`${errorPrefix}Street`]}
                         isMandatory
                         maxLength={400}
                     />
 
-                    <div className="grid-3 address-fields-row">
-                        <Input
-                            label="Pincode"
-                            name="pincode"
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            maxLength={6}
-                            value={data.pincode}
-                            onChange={(e) => onChange(addressType, e)}
-                            readOnly={!isCurrent && sameAsCurrent}
-                            error={errors[`${errorPrefix}Pincode`]}
-                            isMandatory
-                        />
+                    <div className="address-fields-row">
+                        <div className="address-fields-row__pincode">
+                            <Input
+                                label="Pincode"
+                                name="pincode"
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={6}
+                                value={data.pincode}
+                                onChange={(e) => onChange(addressType, e)}
+                                onBlur={() => onPincodeBlur?.(addressType)}
+                                readOnly={readOnly}
+                                error={errors[`${errorPrefix}Pincode`]}
+                                isMandatory
+                            />
+                            {pincodeLoading && (
+                                <span className="pincode-lookup-hint" role="status">
+                                    Looking up…
+                                </span>
+                            )}
+                        </div>
                         <Input
                             label="City"
                             name="city"
                             value={data.city}
                             onChange={(e) => onChange(addressType, e)}
-                            readOnly={!isCurrent && sameAsCurrent}
+                            readOnly={readOnly}
                             error={errors[`${errorPrefix}City`]}
-                            maxLength={100}
-                        />
-                        <Input
-                            label="State"
-                            name="state"
-                            value={data.state}
-                            onChange={(e) => onChange(addressType, e)}
-                            readOnly={!isCurrent && sameAsCurrent}
-                            error={errors[`${errorPrefix}State`]}
                             maxLength={100}
                         />
                         <Input
@@ -93,36 +92,35 @@ export const AddressBlock = ({
                             name="district"
                             value={data.district}
                             onChange={(e) => onChange(addressType, e)}
-                            readOnly={!isCurrent && sameAsCurrent}
+                            readOnly={readOnly}
                             error={errors[`${errorPrefix}District`]}
                             maxLength={100}
                         />
                         <Input
-                            label="Taluka"
-                            name="taluka"
-                            value={data.taluka}
+                            label="State"
+                            name="state"
+                            value={data.state}
                             onChange={(e) => onChange(addressType, e)}
-                            readOnly={!isCurrent && sameAsCurrent}
-                            error={errors[`${errorPrefix}Taluka`]}
+                            readOnly={readOnly}
+                            error={errors[`${errorPrefix}State`]}
                             maxLength={100}
                         />
                     </div>
                 </div>
             ) : (
-                <div className="fade-in">
-                    <Info label="Street Address" value={data.street} />
-                    <div className="grid-3 address-fields-row">
+                <div className="address-block__view">
+                    <Info label="Street address" value={data.street} />
+                    <div className="address-view-grid">
                         <Info label="Pincode" value={data.pincode} />
                         <Info label="City" value={data.city} />
-                        <Info label="State" value={data.state} />
                         <Info label="District" value={data.district} />
-                        <Info label="Taluka" value={data.taluka} />
+                        <Info label="State" value={data.state} />
                     </div>
                 </div>
             )}
         </div>
     );
-}
+};
 
 /* =========================================================
    ADDRESS SECTION
@@ -131,14 +129,16 @@ export const AddressSection = ({
     currentAddress,
     permanentAddress,
     sameAsCurrent,
+    pincodeLoading = { current: false, permanent: false },
     mode,
     isExpanded,
     onToggle,
     onAddressChange,
     onSameAsCurrentToggle,
+    onPincodeBlur,
     onSave,
-    onUndo, // ✅ NEW
-    errors
+    onUndo,
+    errors,
 }) => {
     const isEditMode = mode === 'edit';
 
@@ -146,24 +146,23 @@ export const AddressSection = ({
         errors.currentStreet || errors.currentPincode;
 
     const permanentMandatoryErrors =
-        !sameAsCurrent &&
-        (errors.permanentStreet || errors.permanentPincode);
+        !sameAsCurrent && (errors.permanentStreet || errors.permanentPincode);
 
     const hasMandatoryErrors =
         isEditMode && (currentMandatoryErrors || permanentMandatoryErrors);
 
     return (
         <AccordionCard
-            title="Address Details"
-            subText="Your current and permanent residential details."
+            title="Address details"
+            subText="Current and permanent residential address"
             sectionName="address"
             isExpanded={isExpanded}
             onToggle={onToggle}
             showMandatoryError={hasMandatoryErrors}
         >
-            <div className={`address-body ${isEditMode ? 'edit-mode' : 'view-mode'}`}>
+            <div className={`address-body ${isEditMode ? 'address-body--edit' : ''}`}>
                 <AddressBlock
-                    title="Current Address"
+                    title="Current address"
                     data={currentAddress}
                     addressType="current"
                     mode={mode}
@@ -171,68 +170,33 @@ export const AddressSection = ({
                     errors={errors}
                     sameAsCurrent={sameAsCurrent}
                     onSameAsCurrentToggle={onSameAsCurrentToggle}
+                    onPincodeBlur={onPincodeBlur}
+                    pincodeLoading={pincodeLoading.current}
                 />
 
                 <AddressBlock
-                    title="Permanent Address"
+                    title="Permanent address"
                     data={permanentAddress}
                     addressType="permanent"
                     mode={mode}
                     onChange={onAddressChange}
                     errors={errors}
                     sameAsCurrent={sameAsCurrent}
+                    onPincodeBlur={onPincodeBlur}
+                    pincodeLoading={pincodeLoading.permanent}
                 />
 
-                {/* SAVE + UNDO */}
                 {isEditMode && (
-                    <div
-                        style={{
-                            marginTop: '24px',
-                            borderTop: '1px solid #eee',
-                            paddingTop: '20px',
-                            display: 'flex',
-                            gap: '12px'
-                        }}
-                    >
-                        <button
-                            type="button"
-                            onClick={onUndo}
-                            className="entry-undo-btn"
-                            style={{
-                                padding: '10px 22px',
-                                background: 'transparent',
-                                border: '1px solid #9ca3af',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                fontWeight: '600',
-                                flex: 1
-                            }}
-                        >
+                    <div className="section-actions address-section-actions">
+                        <button type="button" onClick={onUndo} className="entry-undo-btn">
                             Undo
                         </button>
-
-                        <button
-                            type="button"
-                            onClick={onSave}
-                            className="entry-save-btn"
-                            style={{
-                                padding: '12px 24px',
-                                background: 'linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                fontWeight: '700',
-                                fontSize: '16px',
-                                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                                flex: 2
-                            }}
-                        >
-                            Save Address Details
+                        <button type="button" onClick={onSave} className="entry-save-btn">
+                            Save address
                         </button>
                     </div>
                 )}
             </div>
         </AccordionCard>
     );
-}
+};

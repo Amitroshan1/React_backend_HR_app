@@ -57,70 +57,237 @@ export const MANDATORY_FILES_LIST = [
 ];
 
 
-// Initial data structure for *Saved* state
+const emptyAddress = () => ({
+    street: '',
+    city: '',
+    state: '',
+    district: '',
+    pincode: '',
+});
+
+// Initial data — empty until GET /employee/profile loads
 export const initialDataState = {
     formData: {
-        fullName: 'John Employee', fatherName: 'Mr. David Employee', motherName: 'Mrs. Jane Employee',
-        maritalStatus: 'Married', gender: 'Male', bloodGroup: 'O+', personalEmail: 'john.employee@example.com',
-        mobile: '9876543210', mobileCountryCode: '+91',
-        emergency: '9988776655', emergencyCountryCode: '+91',
-        nationality: 'Indian',
-        designation: 'Software Engineer', dateOfBirth: '1990-01-01',
-        employeeId: 'EMP001', department: 'Engineering', dateOfJoining: '2023-01-15',
-        employmentType: 'Full-Time',
-        previousCompanyName: 'Tech Innovators Co.', previousDesignation: 'Junior Developer',
-        dateOfLeaving: '2022-12-31',
-        experienceYears: '2.5',
-        profileImage: null, 
+        fullName: '',
+        fatherName: '',
+        motherName: '',
+        maritalStatus: '',
+        gender: '',
+        bloodGroup: '',
+        personalEmail: '',
+        mobile: '',
+        mobileCountryCode: '+91',
+        emergency: '',
+        emergencyCountryCode: '+91',
+        nationality: '',
+        designation: '',
+        dateOfBirth: '',
+        employeeId: '',
+        department: '',
+        dateOfJoining: '',
+        employmentType: '',
+        reportingManager: '',
+        profileImage: null,
     },
     previousEmployment: [],
-    currentAddress: {
-        street: '123, Main Street,\nNear City Center,\nBuilding 5, Flat 101', city: 'Mumbai', state: 'Maharashtra', district: 'Mumbai Suburban', taluka: 'Andheri', pincode: '400001'
-    },
-    permanentAddress: {
-        street: '123, Main Street,\nNear City Center,\nBuilding 5, Flat 101', city: 'Mumbai', state: 'Maharashtra', district: 'Mumbai Suburban', taluka: 'Andheri', pincode: '400001'
-    },
+    educationDetails: [],
+    currentAddress: emptyAddress(),
+    permanentAddress: emptyAddress(),
     sameAsCurrent: true,
     files: {
-        aadharFront: null, aadharBack: null, panFront: null,
-        panBack: null, passbookFront: null, appointmentLetter: null
-    }
-}
+        aadharFront: null,
+        aadharBack: null,
+        panFront: null,
+        panBack: null,
+        passbookFront: null,
+        appointmentLetter: null,
+    },
+};
+
+export const DOCUMENT_FIELD_LABELS = {
+    aadharFront: 'Aadhaar (Front)',
+    aadharBack: 'Aadhaar (Back)',
+    panFront: 'PAN (Front)',
+    panBack: 'PAN (Back)',
+    passbookFront: 'Bank Passbook (Front)',
+    appointmentLetter: 'Appointment Letter',
+};
+
+const isFilled = (val) => val != null && String(val).trim() !== '';
+
+const addressMissing = (addr, prefix) => {
+    const checks = [
+        ['street', `${prefix} street address`],
+        ['pincode', `${prefix} pincode`],
+        ['city', `${prefix} city`],
+        ['state', `${prefix} state`],
+        ['district', `${prefix} district`],
+    ];
+    return checks.filter(([key]) => !isFilled(addr?.[key])).map(([, label]) => label);
+};
 
 /**
- * Calculates a detailed profile completion percentage.
+ * Per-section completion status with human-readable missing hints.
  */
-export function calculateProfileCompletion(formData, currentAddress, permanentAddress, sameAsCurrent, files, previousEmployment, educationDetails) {
-    let totalScore = 0;
-    const sectionWeight = 20; // Each section = 20%
+export function getProfileSectionCompletion(
+    formData,
+    currentAddress,
+    permanentAddress,
+    sameAsCurrent,
+    files,
+    previousEmployment,
+    educationDetails
+) {
+    const personalRequired = [
+        ['fullName', 'Full name'],
+        ['fatherName', "Father's name"],
+        ['motherName', "Mother's name"],
+        ['maritalStatus', 'Marital status'],
+        ['personalEmail', 'Personal email'],
+        ['mobile', 'Mobile number'],
+        ['emergency', 'Emergency contact'],
+        ['nationality', 'Nationality'],
+        ['dateOfBirth', 'Date of birth'],
+        ['gender', 'Gender'],
+        ['bloodGroup', 'Blood group'],
+    ];
+    const personalMissing = personalRequired
+        .filter(([key]) => !isFilled(formData?.[key]))
+        .map(([, label]) => label);
 
-    // 1. Personal Info (formData)
-    const personalFields = ['fullName', 'fatherName', 'maritalStatus', 'personalEmail', 'mobile', 'dateOfBirth', 'gender'];
-    let personalFilled = personalFields.every(field => formData[field] && formData[field].toString().trim() !== '');
-    if(personalFilled) totalScore += sectionWeight;
+    const currentMissing = addressMissing(currentAddress, 'Current');
+    const permanentMissing = sameAsCurrent
+        ? []
+        : addressMissing(permanentAddress, 'Permanent');
+    const addressMissingAll = [...currentMissing, ...permanentMissing];
 
-    // 2. Address
-    const addressFields = ['street', 'pincode', 'city', 'state', 'district', 'taluka'];
-    let currentAddressFilled = addressFields.every(f => currentAddress[f] && currentAddress[f].toString().trim() !== '');
-    let permanentAddressFilled = sameAsCurrent ? true : addressFields.every(f => permanentAddress[f] && permanentAddress[f].toString().trim() !== '');
-    if(currentAddressFilled && permanentAddressFilled) totalScore += sectionWeight;
+    const employmentRequired = [
+        ['designation', 'Designation'],
+        ['employeeId', 'Employee ID'],
+        ['department', 'Department'],
+        ['dateOfJoining', 'Date of joining'],
+    ];
+    const employmentMissing = employmentRequired
+        .filter(([key]) => !isFilled(formData?.[key]))
+        .map(([, label]) => label);
 
-    // 3. Employment (current employment required; previous employment is optional)
-    const currentEmploymentFields = ['designation', 'employeeId', 'department', 'dateOfJoining'];
-    const currentEmploymentFilled = currentEmploymentFields.every(f => formData[f] && formData[f].toString().trim() !== '');
-    const previousEmploymentFilled = previousEmployment.length === 0 || previousEmployment.every(emp => emp.companyName && emp.designation);
-    let employmentFilled = currentEmploymentFilled && previousEmploymentFilled;
-    if(employmentFilled) totalScore += sectionWeight;
+    (previousEmployment || []).forEach((row, i) => {
+        const hasAny =
+            isFilled(row?.companyName) ||
+            isFilled(row?.designation) ||
+            isFilled(row?.dateOfLeaving) ||
+            isFilled(row?.experienceYears);
+        if (!hasAny) return;
+        if (!isFilled(row?.companyName)) {
+            employmentMissing.push(`Previous job #${i + 1}: company name`);
+        }
+        if (!isFilled(row?.designation)) {
+            employmentMissing.push(`Previous job #${i + 1}: designation`);
+        }
+    });
 
-    // 4. Education
-    let educationFilled = educationDetails.length > 0 && educationDetails.every(edu => edu.qualification && edu.institution && edu.university && edu.fromDate && edu.toDate && edu.marks);
-    if(educationFilled) totalScore += sectionWeight;
+    const eduRows = educationDetails || [];
+    const educationMissing = [];
+    const activeEdu = eduRows.filter(
+        (e) =>
+            isFilled(e?.qualification) ||
+            isFilled(e?.institution) ||
+            isFilled(e?.university) ||
+            isFilled(e?.fromDate) ||
+            isFilled(e?.toDate) ||
+            isFilled(e?.marks)
+    );
+    if (activeEdu.length === 0) {
+        educationMissing.push('Add at least one education record');
+    } else {
+        activeEdu.forEach((edu, i) => {
+            const rowMissing = [];
+            if (!isFilled(edu.qualification)) rowMissing.push('qualification');
+            if (!isFilled(edu.institution)) rowMissing.push('institution');
+            if (!isFilled(edu.university)) rowMissing.push('board/university');
+            if (!isFilled(edu.fromDate)) rowMissing.push('start date');
+            if (!isFilled(edu.toDate)) rowMissing.push('end date');
+            if (!isFilled(edu.marks)) rowMissing.push('marks');
+            if (rowMissing.length) {
+                educationMissing.push(
+                    `Education #${i + 1}: ${rowMissing.join(', ')}`
+                );
+            }
+        });
+    }
 
-    // 5. Documents
-    let docsFilled = Object.values(files).every(f => f !== null && f !== '');
-    if(docsFilled) totalScore += sectionWeight;
+    const documentsMissing = MANDATORY_FILES_LIST.filter(
+        (key) => !isFilled(files?.[key])
+    ).map((key) => DOCUMENT_FIELD_LABELS[key] || key);
 
-    return totalScore; // Returns 0 - 100
+    const sections = [
+        {
+            id: 'personal',
+            navId: 'profile-personal',
+            editKey: 'personal',
+            label: 'Personal information',
+            complete: personalMissing.length === 0,
+            missing: personalMissing,
+        },
+        {
+            id: 'address',
+            navId: 'profile-address',
+            editKey: 'address',
+            label: 'Address',
+            complete: addressMissingAll.length === 0,
+            missing: addressMissingAll,
+        },
+        {
+            id: 'employment',
+            navId: 'profile-employment',
+            editKey: 'employment',
+            label: 'Employment',
+            complete: employmentMissing.length === 0,
+            missing: employmentMissing,
+        },
+        {
+            id: 'education',
+            navId: 'profile-education',
+            editKey: 'education',
+            label: 'Education',
+            complete: educationMissing.length === 0,
+            missing: educationMissing,
+        },
+        {
+            id: 'documents',
+            navId: 'profile-documents',
+            editKey: 'documents',
+            label: 'Documents',
+            complete: documentsMissing.length === 0,
+            missing: documentsMissing,
+        },
+    ];
+
+    const completeCount = sections.filter((s) => s.complete).length;
+    const totalPercent = Math.round((completeCount / sections.length) * 100);
+
+    return { totalPercent, sections };
+}
+
+/** @deprecated use getProfileSectionCompletion().totalPercent */
+export function calculateProfileCompletion(
+    formData,
+    currentAddress,
+    permanentAddress,
+    sameAsCurrent,
+    files,
+    previousEmployment,
+    educationDetails
+) {
+    return getProfileSectionCompletion(
+        formData,
+        currentAddress,
+        permanentAddress,
+        sameAsCurrent,
+        files,
+        previousEmployment,
+        educationDetails
+    ).totalPercent;
 }
 
 
@@ -138,22 +305,7 @@ export function formatDateForDisplay(dateString) {
     }
 }
 
-/**
- * Simulates an API call to look up address details based on a pincode.
- */
+/** @deprecated Use fetchPincodeDetails from profileApi.js */
 export function simulatePincodeLookup(pincode) {
-    const addressMap = {
-        '400001': { city: 'Mumbai', state: 'Maharashtra', district: 'Mumbai Suburban', taluka: 'Andheri' },
-        '400706': { city: 'Navi Mumbai', state: 'Maharashtra', district: 'Thane', taluka: 'Vashi' },
-        '110001': { city: 'New Delhi', state: 'Delhi', district: 'Central Delhi', taluka: 'Kotwali' },
-        '560001': { city: 'Bengaluru', state: 'Karnataka', district: 'Bengaluru Urban', taluka: 'Bengaluru North' },
-        '700001': { city: 'Kolkata', state: 'West Bengal', district: 'Kolkata', taluka: 'Kolkata Central' },
-        '411001': { city: 'Pune', state: 'Maharashtra', district: 'Pune', taluka: 'Shivajinagar' },
-        '600001': { city: 'Chennai', state: 'Tamil Nadu', district: 'Chennai', taluka: 'George Town' },
-        '500001': { city: 'Hyderabad', state: 'Telangana', district: 'Hyderabad', taluka: 'Secunderabad' },
-    };
-
-    return addressMap[pincode] || { city: '', state: '', district: '', taluka: '' };
-
-    
+    return { city: '', state: '', district: '' };
 }

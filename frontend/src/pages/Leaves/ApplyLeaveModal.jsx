@@ -617,7 +617,8 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                     <button className="modal-close-button" onClick={onClose}><FiX /></button>
                 </div>
 
-                <form className="modal-form" onSubmit={handleSubmit}>
+                <form id="apply-leave-form" className="modal-form" onSubmit={handleSubmit}>
+                    <div className="modal-form-scroll">
                     <div className="form-group">
                         <label className="form-label">Leave Type</label>
                         <CustomDropdown
@@ -696,12 +697,13 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                             />
                         </div>
                     )}
-
-                    <div className="modal-footer">
-                        <button type="button" className="button button-cancel" onClick={onClose}>Cancel</button>
-                        <button type="submit" className="button button-submit">Submit Request</button>
                     </div>
                 </form>
+
+                <div className="modal-footer">
+                    <button type="button" className="button button-cancel" onClick={onClose}>Cancel</button>
+                    <button type="submit" form="apply-leave-form" className="button button-submit">Submit Request</button>
+                </div>
             </div>
         </div>
     );

@@ -4,33 +4,29 @@ import { GRADIENT_HEADER_STYLE } from '../../utils/gradientStyles';
 export const AccordionCard = ({ title, subText, children, sectionName, isExpanded, onToggle, showMandatoryError }) => {
     return (
         <div
-            className={`accordion-card ${isExpanded ? 'expanded' : 'collapsed'}`}
+            className={`accordion-card ${isExpanded ? 'expanded' : 'collapsed'}${showMandatoryError ? ' accordion-card--error' : ''}`}
             data-section-name={sectionName}
-            style={{ 
-                border: showMandatoryError ? '1px solid #ef4444' : '1px solid #e5e7eb',
-            }}
         >
             <div className="accordion-header" onClick={onToggle}>
-                <div>
-                    <h3 style={{ margin: 0 }}><span style={GRADIENT_HEADER_STYLE}>{title}</span></h3>
-                    <p className="sub" style={{ margin: '3px 0 0', color: showMandatoryError ? '#ef4444' : '#6b7280' }}>
+                <div className="accordion-header__text">
+                    <h3><span style={GRADIENT_HEADER_STYLE}>{title}</span></h3>
+                    <p className="accordion-header__sub">
                         {subText}
                         {showMandatoryError && (
-                            <span style={{ fontWeight: 'bold', marginLeft: '10px' }}>
-                                (Mandatory Fields Missing!)
-                            </span>
+                            <span className="accordion-header__warn"> — required fields missing</span>
                         )}
                     </p>
                 </div>
-                <span style={{ fontSize: '20px', transition: 'transform 0.3s' }}>
-                    {isExpanded ? '▲' : '▼'}
+                <span className={`accordion-chevron${isExpanded ? ' accordion-chevron--open' : ''}`} aria-hidden>
+                    ▼
                 </span>
             </div>
-            {isExpanded && (
-                <div className="accordion-content" style={{ padding: '15px 20px 20px' }}>
-                    {children}
-                </div>
-            )}
+            <div
+                className={`accordion-content${isExpanded ? ' accordion-content--open' : ''}`}
+                aria-hidden={!isExpanded}
+            >
+                {isExpanded ? children : null}
+            </div>
         </div>
     );
 }
