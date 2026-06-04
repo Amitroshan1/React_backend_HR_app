@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { UserAvatar } from '../../components/UserAvatar';
 import './EmployeeDetails.css';
 
 const ADMIN_EMPLOYEE_DETAIL_API = '/api/admin/employees';
-
-const defaultPhoto = 'https://ui-avatars.com/api/?name=Employee&background=random';
 
 const EmployeeDetails = () => {
   const { id } = useParams();
@@ -115,7 +114,7 @@ const EmployeeDetails = () => {
       {/* Profile Card */}
       <div className="profile-card">
         <div className="profile-left">
-          <img src={employee.photo || defaultPhoto} alt={employee.name} className="profile-photo" />
+          <UserAvatar user={employee} name={employee.name} alt={employee.name} className="profile-photo" />
           <h2>{employee.name}</h2>
         </div>
         <div className="profile-right">

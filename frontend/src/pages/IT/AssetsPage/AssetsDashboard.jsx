@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
+import { UserAvatar } from "../../../components/UserAvatar";
+import { getUserPhotoUrl } from "../../../utils/userPhoto";
 import {
   addRemovedITAsset,
   getInventoryFromStorage,
@@ -349,16 +351,18 @@ function buildAssignedData() {
   const employees = getEmployees() || [];
 
   const resolveEmployee = (assignedTo) => {
-    if (!assignedTo) return { empId: "—", empName: "—" };
+    if (!assignedTo) return { empId: "—", empName: "—", empPhoto: "" };
 
     let empId = "—";
     let empName = "—";
+    let empPhoto = "";
     let adminId = null;
 
     if (isAssignedToObject(assignedTo)) {
       adminId = assignedTo.adminId || assignedTo.id || null;
       empId = assignedTo.empId || "—";
       empName = assignedTo.name || "—";
+      empPhoto = getUserPhotoUrl(assignedTo);
     } else {
       empId = String(assignedTo);
       if (/^\d+$/.test(empId)) adminId = empId;
@@ -374,9 +378,10 @@ function buildAssignedData() {
     if (match) {
       empId = match.empId || match.id || empId;
       empName = match.name || empName;
+      empPhoto = getUserPhotoUrl(match) || empPhoto;
     }
 
-    return { empId, empName };
+    return { empId, empName, empPhoto };
   };
 
   const result = [];
@@ -390,7 +395,7 @@ function buildAssignedData() {
     if (seen.has(uid)) continue;
     seen.add(uid);
 
-    const { empId, empName } = resolveEmployee(u.assignedTo);
+    const { empId, empName, empPhoto } = resolveEmployee(u.assignedTo);
     result.push({
       id: u.assetId || u.inventoryId || u.id,
       unitId: u.id,
@@ -400,6 +405,7 @@ function buildAssignedData() {
       category: normCat(u.category),
       empId,
       empName,
+      empPhoto,
       _unit: u,
     });
   }
@@ -411,7 +417,7 @@ function buildAssignedData() {
     if (seen.has(s.id)) continue;
     seen.add(s.id);
 
-    const { empId, empName } = resolveEmployee(s.assignedTo);
+    const { empId, empName, empPhoto } = resolveEmployee(s.assignedTo);
     result.push({
       id: s.id,
       unitId: s.id,
@@ -419,6 +425,7 @@ function buildAssignedData() {
       category: "Software",
       empId,
       empName,
+      empPhoto,
       _unit: s,
     });
   }
@@ -428,6 +435,7 @@ function buildAssignedData() {
   for (const emp of employees) {
     const empId = emp.empId || emp.id || "—";
     const empName = emp.name || "—";
+    const empPhoto = getUserPhotoUrl(emp);
     for (const a of emp.assignedAssets || []) {
       const category = normCat(a.category);
       if (category !== "Accessories" && category !== "Consumable") continue;
@@ -444,6 +452,7 @@ function buildAssignedData() {
         category,
         empId: String(empId),
         empName: String(empName),
+        empPhoto,
         _unit: a,
       });
     }
@@ -1040,6 +1049,7 @@ function AssetVerifyModal({ unit, empName, onConfirm, onCancel }) {
 function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
   const empId = assignedRow?.empId || "";
   const empName = assignedRow?.empName || "—";
+  const empPhoto = assignedRow?.empPhoto || "";
 
   if (!empId || empId === "—") {
     return (
@@ -1715,9 +1725,12 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
           {/* Panel header */}
           <div className="ep-hdr">
             <div className="ep-hdr-info">
-              <div className="ep-avatar">
-                {(empName || "?").charAt(0).toUpperCase()}
-              </div>
+              <UserAvatar
+                name={empName}
+                photo={empPhoto}
+                className="ep-avatar"
+                alt={empName}
+              />
               <div>
                 <p className="ep-emp-name">{empName}</p>
                 <p className="ep-emp-id">{empId}</p>
@@ -2254,9 +2267,13 @@ export default function AssetsDashboard() {
                           </td>
                           <td>
                             <div className="am-assignee">
-                              <span className="am-avatar">
-                                {(a.empName || "?").charAt(0)}
-                              </span>
+                              <UserAvatar
+                                name={a.empName}
+                                photo={a.empPhoto}
+                                className="am-avatar"
+                                as="span"
+                                alt={a.empName}
+                              />
                               <span className="am-emp-name">{a.empName}</span>
                             </div>
                           </td>

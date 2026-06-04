@@ -26,6 +26,7 @@ from .email import (
     send_it_return_request_status_email,
 )
 from .noc_department_service import download_noc_document, list_noc_requests, upload_noc_document
+from .employee_photo import photo_url_for_admin
 
 
 it_bp = Blueprint("it", __name__)
@@ -116,6 +117,23 @@ def _admin_name(admin):
     if not admin:
         return None
     return (admin.first_name or "").strip() or admin.email or f"Admin-{admin.id}"
+
+
+def _serialize_admin_employee(admin, assigned_assets=None):
+    photo = photo_url_for_admin(admin)
+    return {
+        "id": admin.emp_id or str(admin.id),
+        "empId": admin.emp_id or str(admin.id),
+        "adminId": admin.id,
+        "name": admin.first_name or "",
+        "type": admin.emp_type or "",
+        "circle": admin.circle or "",
+        "email": admin.email or "",
+        "photo": photo,
+        "photo_url": photo,
+        "activated": bool(admin.is_active),
+        "assignedAssets": assigned_assets if assigned_assets is not None else _serialize_emp_assets(admin),
+    }
 
 
 def _resolve_admin_by_emp_key(emp_key):
@@ -245,6 +263,7 @@ def _serialize_asset_unit(unit):
         "assignedTo": unit.assigned_to_admin_id,
         "assignedToName": _admin_name(unit.assigned_to_admin),
         "assignedToEmpId": (assigned_admin.emp_id if assigned_admin else None),
+        "assignedToPhoto": photo_url_for_admin(assigned_admin),
         "assignedDate": _iso(unit.assigned_at),
         "assetTag": unit.asset_tag,
         "exportedTo": unit.exported_to,
@@ -270,6 +289,7 @@ def _serialize_license(lic):
         "assignedTo": lic.assigned_to_admin_id,
         "assignedToName": _admin_name(lic.assigned_to_admin),
         "assignedToEmpId": (assigned_admin.emp_id if assigned_admin else None),
+        "assignedToPhoto": photo_url_for_admin(assigned_admin),
         "assignedDate": _iso(lic.assigned_at),
         "created_at": _iso(lic.created_at),
         "updated_at": _iso(lic.updated_at),
@@ -489,20 +509,7 @@ def list_employee_assigned_assets():
         assets = _serialize_emp_assets(emp)
         if not assets:
             continue
-        out.append(
-            {
-                "id": emp.emp_id or str(emp.id),
-                "empId": emp.emp_id or str(emp.id),
-                "adminId": emp.id,
-                "name": emp.first_name or "",
-                "type": emp.emp_type or "",
-                "circle": emp.circle or "",
-                "email": emp.email or "",
-                "photo": "",
-                "activated": bool(emp.is_active),
-                "assignedAssets": assets,
-            }
-        )
+        out.append(_serialize_admin_employee(emp, assets))
     return _ok({"employees": out})
 
 
@@ -551,20 +558,7 @@ def employee_assets(emp_id):
     emp = _resolve_admin_by_emp_key(emp_id)
     if not emp:
         return _err("Employee not found", 404)
-    payload = {
-        "employee": {
-            "adminId": emp.id,
-            "id": emp.emp_id or str(emp.id),
-            "empId": emp.emp_id or str(emp.id),
-            "name": emp.first_name or "",
-            "type": emp.emp_type or "",
-            "circle": emp.circle or "",
-            "email": emp.email or "",
-            "photo": "",
-            "activated": bool(emp.is_active),
-            "assignedAssets": _serialize_emp_assets(emp),
-        }
-    }
+    payload = {"employee": _serialize_admin_employee(emp)}
     return _ok(payload)
 
 
@@ -605,21 +599,7 @@ def lookup_employee():
 
     return _ok(
         {
-            "employees": [
-                {
-                    "id": r.emp_id or str(r.id),
-                    "empId": r.emp_id or str(r.id),
-                    "adminId": r.id,
-                    "name": r.first_name or "",
-                    "type": r.emp_type or "",
-                    "circle": r.circle or "",
-                    "email": r.email or "",
-                    "photo": "",
-                    "activated": bool(r.is_active),
-                    "assignedAssets": _serialize_emp_assets(r),
-                }
-                for r in rows
-            ]
+            "employees": [_serialize_admin_employee(r) for r in rows]
         }
     )
 

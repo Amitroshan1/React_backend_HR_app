@@ -662,10 +662,18 @@ export const Profile = () => {
     };
 
     const handleFormChange = (e) => {
-        const { name, value } = e.target;
-        if (['previousCompanyName', 'previousDesignation', 'dateOfLeaving', 'experienceYears'].includes(name)) return;
-        setFormData(prev => ({ ...prev, [name]: value }));
-        setErrors(prev => ({ ...prev, [name]: '' }));
+        const target = e?.target ?? e;
+        const name = target?.name;
+        if (!name) return;
+        let value = target?.value ?? '';
+        if (['previousCompanyName', 'previousDesignation', 'dateOfLeaving', 'experienceYears'].includes(name)) {
+            return;
+        }
+        if (name === 'mobile' || name === 'emergency') {
+            value = String(value).replace(/\D/g, '').slice(0, 10);
+        }
+        setFormData((prev) => ({ ...prev, [name]: value }));
+        setErrors((prev) => ({ ...prev, [name]: '' }));
     };
 
     const handleFileChange = (name, fileData) => {
@@ -831,19 +839,16 @@ export const Profile = () => {
         'maritalStatus',
         'personalEmail',
         'mobile',
+        'mobileCountryCode',
         'nationality',
         'dateOfBirth',
         'gender',
         'bloodGroup',
-        'emergency'
+        'emergency',
+        'emergencyCountryCode',
     ];
 
-    const EMPLOYMENT_KEYS = [
-        'designation',
-        'employeeId',
-        'department',
-        'dateOfJoining',
-    ];
+    const EMPLOYMENT_KEYS = [];
 
     const validatePersonalSection = () => {
         const sectionErrors = {};
@@ -1085,10 +1090,7 @@ export const Profile = () => {
                     ...prev,
                     formData: {
                         ...prev.formData,
-                        ...EMPLOYMENT_KEYS.reduce((acc, key) => {
-                            acc[key] = formData[key];
-                            return acc;
-                        }, {}),
+                        designation: formData.designation,
                     },
                     previousEmployment,
                 }));
@@ -1139,6 +1141,9 @@ export const Profile = () => {
         toast.dismiss(loadingId);
         if (ok) {
             applySectionSavedState(sectionName);
+            if (sectionName === 'employment') {
+                await fetchProfile({ silent: true });
+            }
         }
         return ok;
     };

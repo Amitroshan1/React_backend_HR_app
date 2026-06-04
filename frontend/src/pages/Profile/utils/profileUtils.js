@@ -161,15 +161,23 @@ export function getProfileSectionCompletion(
         : addressMissing(permanentAddress, 'Permanent');
     const addressMissingAll = [...currentMissing, ...permanentMissing];
 
-    const employmentRequired = [
-        ['designation', 'Designation'],
-        ['employeeId', 'Employee ID'],
-        ['department', 'Department'],
-        ['dateOfJoining', 'Date of joining'],
-    ];
-    const employmentMissing = employmentRequired
-        .filter(([key]) => !isFilled(formData?.[key]))
-        .map(([, label]) => label);
+    const employmentMissing = [];
+    const desig = (formData?.designation || '').trim();
+    if (!isFilled(desig) || desig === 'Not Specified') {
+        employmentMissing.push('Designation (assigned by HR at signup)');
+    }
+    if (!isFilled(formData?.employeeId)) {
+        employmentMissing.push('Employee ID (assigned by HR)');
+    }
+    if (!isFilled(formData?.department)) {
+        employmentMissing.push('Circle / department (assigned by HR)');
+    }
+    if (!isFilled(formData?.employmentType)) {
+        employmentMissing.push('Employment type (assigned by HR)');
+    }
+    if (!isFilled(formData?.dateOfJoining)) {
+        employmentMissing.push('Date of joining (assigned by HR)');
+    }
 
     (previousEmployment || []).forEach((row, i) => {
         const hasAny =
@@ -290,6 +298,43 @@ export function calculateProfileCompletion(
     ).totalPercent;
 }
 
+
+/** True when admin has assigned both emp_type and circle (department). */
+export function hasAdminEmploymentContext(formData) {
+    const type = (formData?.employmentType || '').trim();
+    const circle = (formData?.department || '').trim();
+    return Boolean(type && circle);
+}
+
+/** Show reporting manager only after org assignment + manager mapping exists. */
+export function shouldShowReportingManager(formData) {
+    return (
+        hasAdminEmploymentContext(formData)
+        && Boolean((formData?.reportingManager || '').trim())
+    );
+}
+
+/** Normalize admin.doj to YYYY-MM-DD for display inputs. */
+export function normalizeAdminDate(value) {
+    if (value == null || value === '') return '';
+    const s = String(value).trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0];
+    const dmy = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dmy) {
+        const [, d, m, y] = dmy;
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    try {
+        const parsed = new Date(s);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed.toISOString().split('T')[0];
+        }
+    } catch {
+        /* keep */
+    }
+    return s;
+}
 
 /**
  * Formats YYYY-MM-DD date string to MM/DD/YYYY for display.

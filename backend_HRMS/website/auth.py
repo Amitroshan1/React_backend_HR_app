@@ -1393,7 +1393,7 @@ def create_or_update_employee():
             required_string_fields = {
                 "name", "email", "father_name", "marital_status",
                 "emp_id", "mobile", "gender", "nationality",
-                "blood_group", "designation",
+                "blood_group",
                 "permanent_address_line1", "permanent_pincode",
                 "present_address_line1", "present_pincode",
             }
@@ -1406,7 +1406,7 @@ def create_or_update_employee():
             for field in [
                 "name", "email", "father_name", "mother_name", "marital_status",
                 "dob", "emp_id", "mobile", "gender", "emergency_mobile",
-                "nationality", "blood_group", "designation",
+                "nationality", "blood_group",
                 "permanent_address_line1", "permanent_pincode",
                 "permanent_district", "permanent_state",
                 "present_address_line1", "present_pincode",

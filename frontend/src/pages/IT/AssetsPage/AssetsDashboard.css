@@ -538,6 +538,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
 }
 .am-emp-name {
   font-size: 13px;
@@ -791,6 +792,8 @@
   justify-content: center;
   flex-shrink: 0;
   box-shadow: 0 3px 10px rgba(59, 130, 246, 0.3);
+  overflow: hidden;
+  object-fit: cover;
 }
 .ep-emp-name {
   font-size: 15px;

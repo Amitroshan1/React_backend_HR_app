@@ -1,7 +1,7 @@
 /**
  * Profile API layer — maps UI state ↔ /api/auth backend contracts.
  */
-import { initialDataState } from './profileUtils';
+import { initialDataState, normalizeAdminDate } from './profileUtils';
 
 export const API_BASE_URL = '/api/auth';
 
@@ -85,10 +85,10 @@ export function mapProfileFromApi(p) {
         motherName: emp.mother_name || '',
         maritalStatus: emp.marital_status || '',
         personalEmail: emp.email || admin.email || '',
-        mobile: mobileParsed.number,
-        mobileCountryCode: mobileParsed.code,
-        emergency: emergencyParsed.number,
-        emergencyCountryCode: emergencyParsed.code,
+        mobile: String(mobileParsed.number || ''),
+        mobileCountryCode: mobileParsed.code || '+91',
+        emergency: String(emergencyParsed.number || ''),
+        emergencyCountryCode: emergencyParsed.code || '+91',
         nationality: emp.nationality || '',
         dateOfBirth: emp.dob ? String(emp.dob).split('T')[0] : '',
         gender: mapGenderFromBackend(emp.gender) || '',
@@ -96,9 +96,9 @@ export function mapProfileFromApi(p) {
         designation: emp.designation || '',
         employeeId: emp.emp_id || admin.emp_id || '',
         department: admin.circle || '',
-        dateOfJoining: admin.doj ? String(admin.doj).split('T')[0] : '',
-        employmentType: admin.emp_type || '',
-        reportingManager: admin.reporting_manager || '',
+        dateOfJoining: normalizeAdminDate(admin.doj),
+        employmentType: (admin.emp_type || '').trim(),
+        reportingManager: (admin.reporting_manager || '').trim(),
     };
 
     const prevEmp =

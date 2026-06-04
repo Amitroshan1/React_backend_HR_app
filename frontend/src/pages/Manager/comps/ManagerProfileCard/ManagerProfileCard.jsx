@@ -1,3 +1,4 @@
+import { UserAvatar } from "../../../../components/UserAvatar";
 import "./ManagerProfileCard.css";
 
 export function ManagerProfileCard({ profile, loading, showScope = true }) {
@@ -33,30 +34,17 @@ export function ManagerProfileCard({ profile, loading, showScope = true }) {
         .map((s) => [s.emp_type, s.circle].filter(Boolean).join(" · "))
         .join(", ")
     : (fallbackScope || "—");
-  const defaultAvatarUrl = name
-    ? `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=2563eb&color=fff&size=120`
-    : "https://ui-avatars.com/api/?name=Manager&background=2563eb&color=fff&size=120";
-
   return (
     <div className="manager-profile-card">
       <div className="manager-profile-card__photo-wrap">
-        {photo_url ? (
-          <img
-            src={photo_url}
-            alt={name || "Manager"}
-            className="manager-profile-card__photo"
-            onError={(e) => {
-              e.target.onerror = null;
-              e.target.src = defaultAvatarUrl;
-            }}
-          />
-        ) : (
-          <img
-            src={defaultAvatarUrl}
-            alt={name || "Manager"}
-            className="manager-profile-card__photo"
-          />
-        )}
+        <UserAvatar
+          user={profile}
+          photo_url={photo_url}
+          name={name}
+          className="manager-profile-card__photo"
+          alt={name || "Manager"}
+          initialsBg="#2563eb"
+        />
       </div>
       <div className="manager-profile-card__details">
         {name && (

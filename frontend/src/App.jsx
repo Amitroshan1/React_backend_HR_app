@@ -1,7 +1,8 @@
 
 import { Dashboard } from "./pages/Dashboard/Dashboard";
 import { HomePage } from "./pages/HomePage";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
+import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { Attendance } from "./pages/Attendance/Attendance";
 import { Wfh } from "./pages/Wfh/Wfh";
 import { Salary } from "./pages/Salary/Salary";
@@ -65,30 +66,42 @@ if (isFirstLoad) {
   localStorage.setItem('_appInitialized', 'true');
 }
 
+function AppRoot() {
+  return (
+    <>
+      <ScrollToTop />
+      <Outlet />
+    </>
+  );
+}
+
 export const App = () => {
   const router = createBrowserRouter([
     {
       path: "/",
+      element: <AppRoot />,
+      children: [
+    {
+      index: true,
       element: <HomePage />,
     },
     {
-      path: "/set-password",
+      path: "set-password",
       element: <SetPassword />,
     },
     {
-      path: "/ex-employee-documents",
+      path: "ex-employee-documents",
       element: <ExEmployeeDocumentsPublic />,
     },
     {
-      path: "/assessment/:token",
+      path: "assessment/:token",
       element: <AssessmentTestPublic />,
     },
     {
-      path: "/assessment",
+      path: "assessment",
       element: <AssessmentTestPublic />,
     },
     {
-      path: "/",
       element: <AppLayout />,
       children: [
         { path: "dashboard",                       element: <Dashboard /> },
@@ -142,6 +155,8 @@ export const App = () => {
         // Admin Employee Management
         { path: "employees",                       element: <Employee /> },
         { path: "employee/:id",                    element: <AdminEmployeeDetails /> },
+      ],
+    },
       ],
     },
   ]);

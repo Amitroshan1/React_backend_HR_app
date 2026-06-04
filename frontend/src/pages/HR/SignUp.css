@@ -207,6 +207,37 @@
   opacity: 0.9;
 }
 
+.signup-password-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.signup-password-wrap input {
+  padding-right: 44px;
+}
+
+.signup-password-eye {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--su-text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.signup-password-eye:hover {
+  color: var(--su-text-dark);
+  background: #f1f5f9;
+}
+
 /* Form actions */
 .form-actions {
   display: flex;

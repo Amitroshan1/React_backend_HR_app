@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 
 const COUNTRY_CODES = [
     { code: '+91', country: 'India', flag: '🇮🇳' },
@@ -32,57 +32,45 @@ export const PhoneInput = ({
     helpText,
 }) => {
     const id = useMemo(() => `phone-${name}-${uniqueIdCounter++}`, [name]);
+    const [focused, setFocused] = useState(false);
 
-    const hasValue = value !== undefined && value !== null && value !== '';
+    const displayValue =
+        value !== undefined && value !== null ? String(value).replace(/\D/g, '').slice(0, 10) : '';
+    const hasValue = displayValue.length > 0;
+    const floatLabel = hasValue || focused || Boolean(countryCode);
 
-    const handleCodeChange = (e) => {
+    const emitChange = (fieldName, fieldValue) => {
+        if (!onChange) return;
         onChange({
             target: {
-                name: countryCodeName,
-                value: e.target.value
-            }
+                name: fieldName,
+                value: fieldValue,
+            },
         });
+    };
+
+    const handleCodeChange = (e) => {
+        emitChange(countryCodeName, e.target.value);
     };
 
     const handleNumberChange = (e) => {
         const raw = e.target.value;
-        // Reject decimals: take only integer part (digits before decimal)
         const parts = String(raw).split('.');
         const intPart = (parts[0] || '').replace(/\D/g, '');
-        const numericValue = intPart.slice(0, 10);
-        onChange({
-            target: {
-                name: name,
-                value: numericValue
-            }
-        });
+        emitChange(name, intPart.slice(0, 10));
     };
 
     return (
         <div className={`form-group floating-field phone-input-group ${error ? 'has-error' : ''}`}>
-            {label && (
-                <label
-                    htmlFor={id}
-                    className={`input-label ${hasValue || countryCode ? 'label-float' : ''}`}
-                    style={{ left: '0' }}
-                >
-                    {label}
-                    {isMandatory && <span className="mandatory-star">*</span>}
-                </label>
-            )}
-
-            <div className="phone-input-wrapper" style={{ display: 'flex', gap: '8px' }}>
+            <div className="phone-input-wrapper">
                 <select
                     name={countryCodeName}
                     value={countryCode || '+91'}
                     onChange={handleCodeChange}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
                     className="form-control country-code-select"
-                    style={{
-                        width: '110px',
-                        flexShrink: 0,
-                        paddingRight: '8px',
-                        cursor: 'pointer',
-                    }}
+                    aria-label={`${label || name} country code`}
                 >
                     {COUNTRY_CODES.map((c) => (
                         <option key={c.code} value={c.code}>
@@ -96,15 +84,26 @@ export const PhoneInput = ({
                     name={name}
                     type="tel"
                     inputMode="numeric"
-                    pattern="[0-9]*"
+                    autoComplete="tel"
                     maxLength={10}
-                    value={value || ''}
+                    value={displayValue}
                     onChange={handleNumberChange}
-                    className="form-control"
-                    placeholder="10-digit number"
-                    style={{ flex: 1 }}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                    className="form-control phone-number-input"
+                    placeholder=" "
                 />
             </div>
+
+            {label && (
+                <label
+                    htmlFor={id}
+                    className={`input-label ${floatLabel ? 'label-float' : ''}`}
+                >
+                    {label}
+                    {isMandatory && <span className="mandatory-star">*</span>}
+                </label>
+            )}
 
             {helpText && (
                 <div className="input-help-text" style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>

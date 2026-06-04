@@ -1794,35 +1794,53 @@
 }
 
 .phone-input-group .input-label {
-    left: 0 !important;
+    left: 14px;
+    pointer-events: none;
+}
+
+.phone-input-group:focus-within .input-label,
+.phone-input-group .label-float {
+    top: -7px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-primary);
 }
 
 .phone-input-wrapper {
     display: flex;
     gap: 8px;
     align-items: stretch;
+    position: relative;
+    z-index: 1;
 }
 
-.country-code-select {
+.phone-input-group .country-code-select {
     width: 110px;
     flex-shrink: 0;
-    padding: 12px 8px !important;
+    padding: 18px 8px 6px !important;
+    min-height: 46px;
     font-size: 14px;
     cursor: pointer;
-    background-color: #f8fafc;
+    pointer-events: auto;
+    background-color: #ffffff;
     border: 1.5px solid var(--border-light);
     border-radius: var(--radius-md);
     transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
 }
 
-.country-code-select:focus {
+.phone-input-group .country-code-select:focus {
     outline: none;
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 1px var(--color-primary);
+    box-shadow:
+        0 0 0 1px var(--color-primary),
+        0 4px 12px rgba(37, 99, 235, 0.12);
 }
 
-.phone-input-group .phone-input-wrapper .form-control {
+.phone-input-group .phone-number-input {
     flex: 1;
+    min-width: 0;
+    pointer-events: auto;
 }
 
 @media (max-width: 480px) {
@@ -1909,6 +1927,21 @@
     margin: 14px 0 4px;
     font-size: 1.35rem;
     text-align: center;
+}
+
+.employment-admin-hint {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin: 0 0 16px;
+    line-height: 1.45;
+}
+
+.employment-admin-hint {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
 }
 
 .profile-summary-role {

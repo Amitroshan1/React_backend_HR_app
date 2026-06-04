@@ -944,6 +944,7 @@ const _toLocalUnit = (u) => ({
           adminId: u.assignedTo,
           empId: u.assignedToEmpId || String(u.assignedTo),
           name: u.assignedToName || "—",
+          photo: u.assignedToPhoto || "",
         },
   assignedDate: u.assignedDate || null,
   assetTag: u.assetTag || "",
@@ -966,6 +967,7 @@ const _toLocalSoftware = (s) => ({
           adminId: s.assignedTo,
           empId: s.assignedToEmpId || String(s.assignedTo),
           name: s.assignedToName || "—",
+          photo: s.assignedToPhoto || "",
         },
   assignedDate: s.assignedDate || null,
   created_at: s.created_at || null,
@@ -1053,6 +1055,7 @@ export const syncITDataFromAPI = async () => {
         email: hit.email || emp.email || "",
         type: hit.type || emp.type || "",
         circle: hit.circle || emp.circle || "",
+        photo: hit.photo || hit.photo_url || emp.photo || "",
         activated: Boolean(hit.activated || emp.activated),
         assignedAssets: Array.isArray(hit.assignedAssets) ? hit.assignedAssets : (emp.assignedAssets || []),
       };

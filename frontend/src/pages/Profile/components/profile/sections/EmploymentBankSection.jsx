@@ -5,7 +5,11 @@ import {Input} from '../../common/Input';
 import {SelectInput} from '../../common/SelectInput';
 import {Info} from '../../common/Info';
 import {PreviousEmploymentCard} from './PreviousEmploymentCard';
-import { designationOptions, formatDateForDisplay } from '../../../utils/profileUtils';
+import {
+    formatDateForDisplay,
+    hasAdminEmploymentContext,
+    shouldShowReportingManager,
+} from '../../../utils/profileUtils';
 
 export const EmploymentBankSection = ({ 
     data,
@@ -22,6 +26,8 @@ export const EmploymentBankSection = ({
     errors 
 }) => {
     const isEditMode = mode === 'edit';
+    const showReportingManager = shouldShowReportingManager(data);
+    const hasOrgAssignment = hasAdminEmploymentContext(data);
 
     /* =========================
        CURRENT EMPLOYMENT
@@ -30,20 +36,33 @@ export const EmploymentBankSection = ({
         <>
             <h4 className="employment-section-title"><span style={GRADIENT_HEADER_STYLE}>Current Employment Details</span></h4>
             <div className="grid-3">
-                <SelectInput
-                    label="Designation"
-                    name="designation"
-                    value={data.designation}
-                    onChange={onFormChange}
-                    options={designationOptions}
-                    error={errors.designation}
+                <Info label="Designation" value={data.designation || '—'} />
+                {!data.designation || data.designation === 'Not Specified' ? (
+                    <p className="employment-admin-hint" style={{ gridColumn: '1 / -1' }}>
+                        Designation is assigned by HR during signup. Contact HR if it is missing or incorrect.
+                    </p>
+                ) : null}
+                <Info label="Employee ID" value={data.employeeId || '—'} />
+                <Info label="Circle / Department" value={data.department || '—'} />
+                <Info
+                    label="Date of Joining"
+                    value={data.dateOfJoining ? formatDateForDisplay(data.dateOfJoining) : '—'}
                 />
-                <Input label="Employee ID" name="employeeId" value={data.employeeId} onChange={onFormChange} error={errors.employeeId} readOnly />
-                <Input label="Department" name="department" value={data.department} onChange={onFormChange} error={errors.department} />
-                <Input label="Date of Joining" name="dateOfJoining" type="date" value={data.dateOfJoining} onChange={onFormChange} error={errors.dateOfJoining} readOnly />
-                <Input label="Employment type" name="employmentType" value={data.employmentType || ''} readOnly />
-                <Input label="Reporting manager" name="reportingManager" value={data.reportingManager || ''} readOnly />
+                <Info label="Employment type" value={data.employmentType || '—'} />
+                {showReportingManager && (
+                    <Info label="Reporting manager" value={data.reportingManager} />
+                )}
             </div>
+            {!hasOrgAssignment && (
+                <p className="employment-admin-hint">
+                    Reporting manager will appear here after HR assigns your employment type and circle.
+                </p>
+            )}
+            {hasOrgAssignment && !showReportingManager && (
+                <p className="employment-admin-hint">
+                    Reporting manager is not mapped yet for your circle and role. Contact HR if you need an update.
+                </p>
+            )}
         </>
     ) : (
         <>
@@ -51,8 +70,12 @@ export const EmploymentBankSection = ({
             <div className="grid-3">
                 <Info label="Designation" value={data.designation} />
                 <Info label="Employee ID" value={data.employeeId} />
-                <Info label="Department" value={data.department} />
+                <Info label="Circle / Department" value={data.department} />
                 <Info label="Date of Joining" value={formatDateForDisplay(data.dateOfJoining)} />
+                <Info label="Employment type" value={data.employmentType} />
+                {showReportingManager && (
+                    <Info label="Reporting manager" value={data.reportingManager} />
+                )}
             </div>
         </>
     );
@@ -90,12 +113,7 @@ export const EmploymentBankSection = ({
     /* =========================
        VALIDATION
     ========================= */
-    const mandatoryKeys = [
-        'designation',
-        'employeeId',
-        'department',
-        'dateOfJoining',
-    ];
+    const mandatoryKeys = [];
     const hasMandatoryErrors =
         isEditMode && mandatoryKeys.some(key => errors[key]);
 

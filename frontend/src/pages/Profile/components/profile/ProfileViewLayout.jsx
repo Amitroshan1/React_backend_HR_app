@@ -4,7 +4,7 @@ import { Info } from '../common/Info';
 import { ProgressCircle } from '../common/ProgressCircle';
 import { ProfileSectionHints } from '../common/ProfileSectionHints';
 import { ProfileSummaryCard } from './ProfileSummaryCard';
-import { formatDateForDisplay } from '../../utils/profileUtils';
+import { formatDateForDisplay, shouldShowReportingManager } from '../../utils/profileUtils';
 import { DOCUMENT_LABELS, documentPreviewUrl } from '../../utils/profileApi';
 
 const formatAddressBlock = (addr) => {
@@ -76,7 +76,7 @@ export const ProfileViewLayout = ({
 
     const employmentItems = [
         { label: 'Employee ID', value: formData.employeeId, key: 'empId' },
-        { label: 'Department', value: formData.department, key: 'dept' },
+        { label: 'Circle / Department', value: formData.department, key: 'dept' },
         { label: 'Designation', value: formData.designation, key: 'desig' },
         { label: 'Employment type', value: formData.employmentType, key: 'type' },
         {
@@ -84,7 +84,9 @@ export const ProfileViewLayout = ({
             value: formatDateForDisplay(formData.dateOfJoining),
             key: 'doj',
         },
-        { label: 'Reporting manager', value: formData.reportingManager, key: 'rm' },
+        ...(shouldShowReportingManager(formData)
+            ? [{ label: 'Reporting manager', value: formData.reportingManager, key: 'rm' }]
+            : []),
     ];
 
     const filledEducation = (educationDetails || []).filter(

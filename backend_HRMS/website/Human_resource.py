@@ -23,7 +23,7 @@ from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
 from zoneinfo import ZoneInfo
 import calendar
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func, func, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 from flask_login import current_user
@@ -208,6 +208,71 @@ def _delete_punch_for_admin_on_date(admin_id, punch_date):
 MASTER_TYPE_DEPARTMENT = "department"
 MASTER_TYPE_CIRCLE = "circle"
 MASTER_TYPES = {MASTER_TYPE_DEPARTMENT, MASTER_TYPE_CIRCLE}
+
+# Job titles assignable at HR signup (must match frontend profileUtils.designationOptions)
+ALLOWED_PROFILE_DESIGNATIONS = frozenset({
+    'Test Engineer', 'Senior Test Engineer', 'QA Engineer', 'DT Engineer',
+    'Technical Service Engineer', 'Associate Software Engineer', 'Software Engineer',
+    'Senior Software Engineer', 'Project Lead', 'Project Manager',
+    'Vice President-Sales and Operation', 'GM-Electronics Security',
+    'Deputy Manager - Operations and Admin', 'Technical Accounts Manager', 'Accounts Manager',
+    'Accounts Executive', 'Senior Executive - HR', 'HR Executive', 'Inventory Executive',
+    'Office Boy', 'Business Development Management', 'Sales Executive', 'Circle Head',
+    'Delivery Head', 'Senior Manager - Auditor', 'Travel Executive', 'Visa Executive',
+    'Tender Executive',
+})
+
+
+def _is_allowed_profile_designation(value):
+    return (value or "").strip() in ALLOWED_PROFILE_DESIGNATIONS
+
+
+def _upsert_employee_designation_for_admin(admin, designation):
+    """Create or update employees row so profile designation is set by HR at signup."""
+    designation = (designation or "").strip()
+    if not designation:
+        return None
+
+    employee = Employee.query.filter_by(admin_id=admin.id).first()
+    if employee:
+        employee.designation = designation
+        return employee
+
+    name = ((admin.first_name or admin.user_name or "Employee") or "Employee").strip()[:100]
+    email = (admin.email or "").strip()
+    if not email:
+        email = f"user{admin.id}@local.saffotech.com"
+    else:
+        taken = Employee.query.filter(
+            func.lower(Employee.email) == email.lower()
+        ).first()
+        if taken:
+            email = f"user{admin.id}@local.saffotech.com"
+
+    emp_id = ((admin.emp_id or f"EMP{admin.id}") or f"EMP{admin.id}").strip()[:50]
+    if Employee.query.filter_by(emp_id=emp_id).first():
+        emp_id = f"EMP{admin.id}"
+
+    mobile = (admin.mobile or "0000000000").strip()[:20] or "0000000000"
+
+    employee = Employee(
+        admin_id=admin.id,
+        name=name,
+        email=email[:100],
+        father_name="N/A",
+        mother_name="N/A",
+        marital_status="Single",
+        dob=date(1990, 1, 1),
+        emp_id=emp_id,
+        mobile=mobile,
+        gender="prefer_not_to_say",
+        emergency_mobile=mobile[:50],
+        nationality="Indian",
+        blood_group="O+",
+        designation=designation,
+    )
+    db.session.add(employee)
+    return employee
 
 
 def _norm_circle_name(value):
@@ -803,7 +868,8 @@ def signup_api():
         "emp_id",
         "doj",
         "emp_type",
-        "circle"
+        "circle",
+        "designation",
     ]
 
     missing = [f for f in required_fields if not data.get(f)]
@@ -843,6 +909,13 @@ def signup_api():
         return jsonify({
             "success": False,
             "message": "Invalid circle. Please add it from Add Circle first."
+        }), 400
+
+    designation = str(data.get("designation") or "").strip()
+    if not _is_allowed_profile_designation(designation):
+        return jsonify({
+            "success": False,
+            "message": "Invalid designation. Please select a valid job title."
         }), 400
 
     hr_email = get_jwt().get("email")
@@ -967,6 +1040,8 @@ def signup_api():
             performed_by=hr_email,
             target_email=admin.email
         )
+        _upsert_employee_designation_for_admin(admin, designation)
+
         db.session.add(audit)
 
         db.session.commit()
@@ -4756,6 +4831,12 @@ def search_employee_api():
         ).all()
     )
 
+    admin_ids = [e.id for e in employees]
+    desig_by_admin = {}
+    if admin_ids:
+        for emp_row in Employee.query.filter(Employee.admin_id.in_(admin_ids)).all():
+            desig_by_admin[emp_row.admin_id] = emp_row.designation
+
     return jsonify({
         "success": True,
         "count": len(employees),
@@ -4769,7 +4850,8 @@ def search_employee_api():
                 "mobile": e.mobile,
                 "doj": e.doj.isoformat() if e.doj else None,
                 "circle": e.circle,
-                "emp_type": e.emp_type
+                "emp_type": e.emp_type,
+                "designation": desig_by_admin.get(e.id),
             }
             for e in employees
         ]
@@ -4794,6 +4876,8 @@ def get_employee_api(email_path):
             "message": "Employee not found"
         }), 404
 
+    emp_row = Employee.query.filter_by(admin_id=admin.id).first()
+
     return jsonify({
         "success": True,
         "employee": {
@@ -4804,7 +4888,8 @@ def get_employee_api(email_path):
             "mobile": admin.mobile,
             "doj": admin.doj.isoformat() if admin.doj else None,
             "circle": admin.circle,
-            "emp_type": admin.emp_type
+            "emp_type": admin.emp_type,
+            "designation": emp_row.designation if emp_row else None,
         }
     }), 200
 
@@ -4914,6 +4999,16 @@ def update_employee_api(email_path):
 
     if data.get("password"):
         admin.set_password(data["password"])
+
+    if "designation" in data:
+        proposed_desig = str(data.get("designation") or "").strip()
+        if proposed_desig and not _is_allowed_profile_designation(proposed_desig):
+            return jsonify({
+                "success": False,
+                "message": "Invalid designation. Please select a valid job title."
+            }), 400
+        if proposed_desig:
+            _upsert_employee_designation_for_admin(admin, proposed_desig)
 
     db.session.commit()
 

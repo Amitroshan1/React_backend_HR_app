@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { UserAvatar } from '../../components/UserAvatar';
 import './Employee.css';
 
 const MASTER_OPTIONS_API = '/api/auth/master-options';
 const ADMIN_EMPLOYEES_API = '/api/admin/employees';
 const FALLBACK_EMP_TYPES = ['Engineer', 'HR', 'Accountant'];
 const FALLBACK_CIRCLES = ['North', 'South', 'East', 'West'];
-
-// Placeholder for employee photo (API does not provide photo URL)
-const defaultPhoto = 'https://ui-avatars.com/api/?name=Employee&background=random';
 
 const Employee = () => {
   const navigate = useNavigate();
@@ -121,7 +119,7 @@ const Employee = () => {
           employees.map((employee) => (
             <div key={employee.id} className="employee-card">
               <div className="employee-photo">
-                <img src={defaultPhoto} alt={employee.name} />
+                <UserAvatar user={employee} name={employee.name} alt={employee.name} />
               </div>
               <div className="employee-info">
                 <h3>{employee.name}</h3>

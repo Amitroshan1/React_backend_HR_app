@@ -23,6 +23,7 @@ from .commands.probation import dedupe_probation_review_rows
 from .models.probation import ProbationReview
 from .models.manager_model import ManagerContact
 from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
+from .employee_photo import photo_url_for_admin
 from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_aggregate, serialize_punch_sessions
 
 
@@ -771,6 +772,7 @@ def list_team_members():
             .first()
             is not None
         )
+        photo = photo_url_for_admin(row)
         members.append(
             {
                 "id": row.id,
@@ -779,6 +781,8 @@ def list_team_members():
                 "circle": row.circle or "",
                 "status": "WFH" if has_wfh_today else "Present",
                 "perf": 75 if has_wfh_today else 90,
+                "photo": photo,
+                "photo_url": photo,
             }
         )
 

@@ -14,6 +14,7 @@ import {
   syncITDataFromAPI,
 } from "./Data";
 import ClickableImage from "../../components/ClickableImage";
+import { UserAvatar } from "../../components/UserAvatar";
 import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
 import "./EmployeeAssetsDetails.css";
 
@@ -46,25 +47,6 @@ const enrichHardware = (asset) => {
     imei2:        unit.imei2        || asset.imei2                    || null,
     photos,
   };
-};
-
-const makeAvatar = (name = "") => {
-  const parts    = name.trim().split(/\s+/).filter(Boolean);
-  const initials =
-    parts.length >= 2
-      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-      : (parts[0]?.[0] || "?").toUpperCase();
-  const canvas   = document.createElement("canvas");
-  canvas.width   = canvas.height = 128;
-  const ctx      = canvas.getContext("2d");
-  ctx.fillStyle  = "#4CAF50";
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle  = "#fff";
-  ctx.font       = "bold 52px Arial";
-  ctx.textAlign  = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(initials, 64, 64);
-  return canvas.toDataURL("image/png");
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -716,8 +698,6 @@ const EmployeeDetails = () => {
   if (loading)   return <div className="ea-loading">Loading…</div>;
   if (!employee) return <div className="ea-loading">Employee not found.</div>;
 
-  const avatarSrc = employee.photo || makeAvatar(employee.name);
-
   return (
     <div className="employee-assets">
 
@@ -733,10 +713,11 @@ const EmployeeDetails = () => {
         <div className="employee-layout">
           <div className="employee-photo-section">
             <div className="photo-container">
-              <img
-                src={avatarSrc}
+              <UserAvatar
+                user={employee}
+                name={employee.name}
+                className="employee-profile-photo"
                 alt={employee.name}
-                onError={(e) => { e.target.src = makeAvatar(employee.name); }}
               />
             </div>
           </div>

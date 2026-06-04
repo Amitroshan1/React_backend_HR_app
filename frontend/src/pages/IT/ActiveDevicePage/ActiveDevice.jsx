@@ -8,6 +8,8 @@ import {
   getITApiErrorMessage,
   syncITDataFromAPI,
 } from "../Data";
+import { UserAvatar } from "../../../components/UserAvatar";
+import { getUserPhotoUrl } from "../../../utils/userPhoto";
 import "./ActiveDevice.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -39,6 +41,19 @@ const normCat = (c) => {
 };
 
 // ─── Build merged active-device list (localStorage only) ─────────────────────
+function resolveAssigneePhoto(employees, empId, assignedToObj) {
+  if (assignedToObj && typeof assignedToObj === "object") {
+    const fromObj = getUserPhotoUrl(assignedToObj);
+    if (fromObj) return fromObj;
+  }
+  const key = String(empId || "").toUpperCase();
+  if (!key || key === "—") return "";
+  const match = employees.find(
+    (e) => String(e.empId || e.id || "").toUpperCase() === key,
+  );
+  return match ? getUserPhotoUrl(match) : "";
+}
+
 function getMergedActiveDevices() {
   const employees = getEmployees() || [];
 
@@ -79,6 +94,7 @@ function getMergedActiveDevices() {
         name: u.assetName || u.name || "—",
         category: normCat(u.category),
         assignedTo,
+        assigneePhoto: resolveAssigneePhoto(employees, empId, isObj ? u.assignedTo : null),
         assignedDate:
           u.assignedDate || u.repairDate || new Date().toISOString(),
         empId,
@@ -100,6 +116,7 @@ function getMergedActiveDevices() {
         name: s.name || "Software",
         category: "Software",
         assignedTo,
+        assigneePhoto: resolveAssigneePhoto(employees, empId, isObj ? s.assignedTo : null),
         assignedDate: s.assignedDate || new Date().toISOString(),
         empId,
         _unitId: `sw-${s.id}`,
@@ -123,6 +140,7 @@ function getMergedActiveDevices() {
         name: qty > 1 ? `${baseName} (x${qty})` : baseName,
         category: cat,
         assignedTo,
+        assigneePhoto: getUserPhotoUrl(emp),
         assignedDate: a.assignedDate || new Date().toISOString(),
         empId,
         _unitId: `inv-${empId}-${a.inventoryId || a.inventoryAssignmentId || a.id || baseName}-${qty}`,
@@ -350,9 +368,13 @@ export default function ActiveDevice({ onBack }) {
                       <td className="asd-asset-name">{asset.name}</td>
                       <td>
                         <div className="asd-assignee">
-                          <span className="asd-assignee-avatar">
-                            {(asset.assignedTo || "?").charAt(0)}
-                          </span>
+                          <UserAvatar
+                            name={asset.assignedTo}
+                            photo={asset.assigneePhoto}
+                            className="asd-assignee-avatar"
+                            as="span"
+                            alt={asset.assignedTo}
+                          />
                           <div className="asd-assignee-info">
                             <span className="asd-assignee-name">
                               {asset.assignedTo}

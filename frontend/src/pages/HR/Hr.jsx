@@ -5,7 +5,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
-  FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2
+  FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2,
+  Eye, EyeOff
 } from 'lucide-react';
 import './Hr.css';
 import './SignUp.css'; 
@@ -26,6 +27,7 @@ import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
+import { designationOptions } from '../Profile/utils/profileUtils';
 
 const HR_PANEL_VIEWS = [
   'main',
@@ -1112,9 +1114,10 @@ export const Hr = () => {
     doj: '',
     emp_type: '',
     circle: '',
+    designation: '',
     password: '',
-    confirmPassword: ''
   });
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [signupSubmitting, setSignupSubmitting] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -1142,6 +1145,7 @@ export const Hr = () => {
       doj: (employeeData.doj || '').slice(0, 10),
       emp_type: employeeData.emp_type || '',
       circle: employeeData.circle || '',
+      designation: employeeData.designation || '',
     };
     setSignupEditOriginal(snapshot);
     setCircleEffectiveFrom(new Date().toISOString().slice(0, 10));
@@ -1149,8 +1153,8 @@ export const Hr = () => {
     setSignupForm({
       ...snapshot,
       password: '',
-      confirmPassword: ''
     });
+    setShowSignupPassword(false);
     setSignupEditEmail(employeeData.email || null);
     setSignupSuccess(false);
     setSignupError('');
@@ -1169,6 +1173,7 @@ export const Hr = () => {
       ['doj', normDoj(form.doj)],
       ['emp_type', norm(form.emp_type)],
       ['circle', norm(form.circle)],
+      ['designation', norm(form.designation)],
     ];
     for (const [key, value] of fields) {
       const prev = key === 'doj' ? normDoj(original[key]) : norm(original[key]);
@@ -1193,12 +1198,12 @@ export const Hr = () => {
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
     setSignupError('');
-    const { user_name, first_name, email, emp_id, mobile, doj, emp_type, circle, password, confirmPassword } = signupForm;
+    const { user_name, first_name, email, emp_id, mobile, doj, emp_type, circle, password } = signupForm;
     const isUpdate = !!signupEditEmail;
 
     if (!isUpdate) {
-      if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle) {
-        setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Employee Type, Circle).');
+      if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle || !signupForm.designation) {
+        setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Employee Type, Circle, Designation).');
         return;
       }
       if (mobile.length !== 10) {
@@ -1213,10 +1218,6 @@ export const Hr = () => {
       }
     }
 
-    if (password && password !== confirmPassword) {
-      setSignupError('Password and Confirm Password do not match.');
-      return;
-    }
     const token = localStorage.getItem('token');
     if (!token) {
       setSignupError('Please log in to create an employee account.');
@@ -1290,13 +1291,15 @@ export const Hr = () => {
             doj,
             emp_type,
             circle,
+            designation: (signupForm.designation || '').trim(),
             ...(password?.trim() ? { password: password.trim() } : {})
           })
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setSignupSuccess(true);
-          setSignupForm({ user_name: '', first_name: '', email: '', emp_id: '', mobile: '', doj: '', emp_type: '', circle: '', password: '', confirmPassword: '' });
+          setSignupForm({ user_name: '', first_name: '', email: '', emp_id: '', mobile: '', doj: '', emp_type: '', circle: '', designation: '', password: '' });
+          setShowSignupPassword(false);
         } else {
           setSignupError(data.message || 'Failed to create account.');
         }
@@ -2033,12 +2036,34 @@ if (view === 'noc_requests') {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Password (optional)</label>
-                  <input name="password" type="password" placeholder="Leave blank to send set-password email" value={signupForm.password} onChange={handleSignupChange} />
+                  <label>Designation {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
+                  <select name="designation" value={signupForm.designation} onChange={handleSignupChange}>
+                    <option value="">Select Designation</option>
+                    {designationOptions.map((item) => (
+                      <option key={item} value={item}>{item}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="form-group">
-                  <label>Confirm Password</label>
-                  <input name="confirmPassword" type="password" placeholder="Confirm your Password" value={signupForm.confirmPassword} onChange={handleSignupChange} />
+                  <label>Password (optional)</label>
+                  <div className="signup-password-wrap">
+                    <input
+                      name="password"
+                      type={showSignupPassword ? 'text' : 'password'}
+                      value={signupForm.password}
+                      onChange={handleSignupChange}
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      className="signup-password-eye"
+                      onClick={() => setShowSignupPassword((v) => !v)}
+                      aria-label={showSignupPassword ? 'Hide password' : 'Show password'}
+                      tabIndex={-1}
+                    >
+                      {showSignupPassword ? <Eye size={20} /> : <EyeOff size={20} />}
+                    </button>
+                  </div>
                 </div>
               </div>
 

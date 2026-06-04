@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { UserAvatar } from "../../../../components/UserAvatar";
 import { fetchTeamMembers } from "../../api";
 import "./TeamMembers.css";
 
@@ -112,7 +113,7 @@ export const TeamMembers = ({ filters, setFilters }) => {
         )}
         {!loading && !error && currentMembers.map((m) => (
           <div key={m.id} className="member-row">
-            <div className="avatar">{m.name[0]}</div>
+            <UserAvatar user={m} name={m.name} className="avatar" alt={m.name} />
             <div className="info">
               <strong>{m.name}</strong>
               <span>{m.role}</span>

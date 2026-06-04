@@ -52,7 +52,7 @@ export const ProfileSectionHints = ({
                                     className="profile-hints-fix-btn"
                                     onClick={() => onSectionClick(section.editKey)}
                                 >
-                                    Fix
+                                    Update
                                 </button>
                             )}
                         </div>

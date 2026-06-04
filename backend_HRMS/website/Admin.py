@@ -18,6 +18,7 @@ from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .models.news_feed import PaySlip
 from .models.emp_detail_models import Employee, Asset
+from .employee_photo import photo_url_for_admin_id
 from .models.deployed_customer import (
     DeployedCustomer,
     PLAN_ORDER,
@@ -397,6 +398,7 @@ def list_employees():
 
     employees = []
     for row in rows:
+        photo = photo_url_for_admin_id(row.id)
         employees.append({
             "id": row.id,
             "emp_id": row.emp_id or "",
@@ -405,6 +407,8 @@ def list_employees():
             "designation": (row.emp_type or "").strip(),
             "circle": (row.circle or "").strip(),
             "emp_type": (row.emp_type or "").strip(),
+            "photo": photo,
+            "photo_url": photo,
         })
     return jsonify({
         "success": True,
@@ -556,7 +560,8 @@ def get_employee_detail(admin_id):
             "gender": (emp.gender if emp else "") or "",
             "dob": _date_iso(emp.dob) if emp and emp.dob else "",
             "address": (emp.present_address_line1 if emp else "") or (emp.permanent_address_line1 if emp else "") or "",
-            "photo": None,
+            "photo": photo_url_for_admin_id(admin_id),
+            "photo_url": photo_url_for_admin_id(admin_id),
             "leaves": leaves_data,
             "queries": queries_data,
             "claims": claims_data,

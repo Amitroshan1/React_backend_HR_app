@@ -94,6 +94,7 @@ export const UpdateSignUp = ({
           doj: e.doj || '',
           circle: e.circle || '',
           emp_type: e.emp_type || '',
+          designation: e.designation || '',
         });
       }
     } catch {

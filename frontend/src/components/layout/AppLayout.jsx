@@ -25,17 +25,6 @@ const normalizePhotoUrl = (url) => {
     return url.startsWith('/public/') ? url.replace('/public/', '/') : url;
 };
 
-/* Scroll to top when route changes so each page opens from the beginning */
-const ScrollToTop = () => {
-    const { pathname } = useLocation();
-    useEffect(() => {
-        window.scrollTo(0, 0);
-        document.documentElement.scrollTop = 0;
-        document.body.scrollTop = 0;
-    }, [pathname]);
-    return null;
-};
-
 export const AppLayout = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -183,7 +172,6 @@ export const AppLayout = () => {
 
     return (
         <div className="main-layout app-layout">
-            <ScrollToTop />
             {/* The Header now gets the username and full user object from the centralized context */}
             <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
