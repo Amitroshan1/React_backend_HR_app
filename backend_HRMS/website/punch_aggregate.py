@@ -58,6 +58,31 @@ def ensure_punch_sessions_backfill(punch):
     return True
 
 
+def cleanup_empty_punch(punch):
+    """Remove punch row with no sessions (stale row after repair)."""
+    if not punch or not punch.id:
+        return False
+    if PunchSession.query.filter_by(punch_id=punch.id).count() == 0:
+        db.session.delete(punch)
+        return True
+    return False
+
+
+def sessions_for_punch_date(punch_row):
+    """Sessions whose clock_in falls on the punch row's attendance date."""
+    if not punch_row or not getattr(punch_row, "id", None):
+        return []
+    punch_day = punch_row.punch_date
+    if not punch_day:
+        return []
+    rows = (
+        PunchSession.query.filter_by(punch_id=punch_row.id)
+        .order_by(PunchSession.clock_in.asc())
+        .all()
+    )
+    return [s for s in rows if s.clock_in and s.clock_in.date() == punch_day]
+
+
 def recompute_punch_aggregate(punch):
     """Sync Punch.punch_in (earliest), punch_out (null if open else latest out), today_work (sum closed)."""
     if not punch or not punch.id:
@@ -66,6 +91,7 @@ def recompute_punch_aggregate(punch):
         PunchSession.query.filter_by(punch_id=punch.id).order_by(PunchSession.clock_in.asc()).all()
     )
     if not sessions:
+        cleanup_empty_punch(punch)
         return
     punch.punch_in = min(s.clock_in for s in sessions)
     closed = [s for s in sessions if s.clock_out]
@@ -99,13 +125,13 @@ def open_punch_session_for_admin(admin_id):
     )
 
 
-def serialize_punch_sessions(punch_row):
+def serialize_punch_sessions(punch_row, *, attendance_day_only=False):
     """Build JSON list for dashboard: each in→out segment with duration (closed) or is_open."""
     from .punch_auto_close import session_auto_close_deadline, session_cap_hours_display
 
     if not punch_row or not getattr(punch_row, "id", None):
         return []
-    rows = (
+    rows = sessions_for_punch_date(punch_row) if attendance_day_only else (
         PunchSession.query.filter_by(punch_id=punch_row.id)
         .order_by(PunchSession.clock_in.asc())
         .all()

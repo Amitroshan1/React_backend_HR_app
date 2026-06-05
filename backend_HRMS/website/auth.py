@@ -42,11 +42,12 @@ from .punch_aggregate import (
     open_punch_session_for_punch,
     open_punch_session_for_admin,
     serialize_punch_sessions,
+    sessions_for_punch_date,
 )
 from .punch_auto_close import (
     capped_daily_work_seconds,
     close_punch_session,
-    process_auto_punch_out_for_admin,
+    repair_attendance_integrity_for_admin,
     validate_manual_punch_out_extended_reason,
 )
 
@@ -257,7 +258,7 @@ def _employee_homepage_impl():
     punch_row_for_detail = None
 
     try:
-        process_auto_punch_out_for_admin(admin.id)
+        repair_attendance_integrity_for_admin(admin.id)
     except Exception:
         db.session.rollback()
 
@@ -303,44 +304,41 @@ def _employee_homepage_impl():
                 db.session.rollback()
 
         if punch and punch.id:
-            open_sess = open_punch_session_for_punch(punch.id)
+            day_sessions = sessions_for_punch_date(punch)
+            open_sess = next((s for s in day_sessions if s.clock_out is None), None)
             has_open_session = open_sess is not None
-            closed_cnt = (
-                PunchSession.query.filter(
-                    PunchSession.punch_id == punch.id,
-                    PunchSession.clock_out.isnot(None),
-                ).count()
-            )
+            closed_today = [s for s in day_sessions if s.clock_out is not None]
+            closed_cnt = len(closed_today)
             requires_repeat_punch_reason = closed_cnt > 0 and not has_open_session
 
             closed_secs = 0
-            for s in PunchSession.query.filter(
-                PunchSession.punch_id == punch.id,
-                PunchSession.clock_out.isnot(None),
-            ).all():
+            for s in closed_today:
                 closed_secs += int((s.clock_out - s.clock_in).total_seconds())
 
-            if open_sess:
+            if has_open_session:
                 punch_in_display = open_sess.clock_in
                 punch_out_display = None
                 total_secs = capped_daily_work_seconds(open_sess)
-            else:
-                punch_in_display = punch.punch_in
-                punch_out_display = punch.punch_out
-                total_secs = closed_secs if closed_cnt else hms_to_seconds(punch.today_work)
-
-            calculated = seconds_to_hms_str(total_secs)
-            normalized = _normalize_working_hours(punch.today_work) if punch.today_work else None
-            if has_open_session:
-                working_hours = calculated
+                working_hours = seconds_to_hms_str(total_secs)
+                punch_row_for_detail = punch
             elif closed_cnt > 0:
-                # Sum of all closed sessions must drive display (not stale punch.today_work)
-                working_hours = calculated
+                punch_in_display = min(s.clock_in for s in day_sessions)
+                punch_out_display = max(s.clock_out for s in closed_today)
+                working_hours = seconds_to_hms_str(closed_secs)
+                punch_row_for_detail = punch
             else:
-                working_hours = normalized if normalized else calculated
-            punch_row_for_detail = punch
+                # Stale punch row (e.g. misdated sessions moved on repair) — treat as fresh day
+                punch_in_display = None
+                punch_out_display = None
+                working_hours = seconds_to_hms_str(0)
+                requires_repeat_punch_reason = False
+                punch_row_for_detail = None
 
-    punch_sessions_json = serialize_punch_sessions(punch_row_for_detail)
+    punch_sessions_json = (
+        serialize_punch_sessions(punch_row_for_detail, attendance_day_only=True)
+        if punch_row_for_detail
+        else []
+    )
     session_attendance_date = (
         punch_row_for_detail.punch_date.isoformat()
         if punch_row_for_detail and getattr(punch_row_for_detail, "punch_date", None)

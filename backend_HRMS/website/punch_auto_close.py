@@ -253,3 +253,118 @@ def process_auto_punch_outs():
     if closed_count:
         db.session.commit()
     return closed_count
+
+
+def _has_valid_extended_reason(sess):
+    reason = (getattr(sess, "extended_hours_reason", None) or "").strip()
+    return len(reason) >= 3 and reason != AUTO_CAP_REASON
+
+
+def _closed_seconds_before_session(punch_id, session, sessions_ordered):
+    """Closed cap time from earlier segments in the same 10h block before `session`."""
+    cap_reset_after = _last_auto_close_at_on_punch(punch_id)
+    total = 0
+    for s in sessions_ordered:
+        if s.id == session.id:
+            break
+        if not s.clock_in or not s.clock_out:
+            continue
+        if cap_reset_after and s.clock_out <= cap_reset_after:
+            continue
+        total += int((s.clock_out - s.clock_in).total_seconds())
+    return max(0, total)
+
+
+def repair_overlong_sessions_for_punch(punch):
+    """
+    Cap closed sessions that exceed the 10h block (e.g. late auto-close stored midnight).
+    Skips sessions with a valid manual extended-hours reason.
+    """
+    if not punch or not punch.id:
+        return False
+    sessions = (
+        PunchSession.query.filter_by(punch_id=punch.id)
+        .order_by(PunchSession.clock_in.asc())
+        .all()
+    )
+    changed = False
+    for sess in sessions:
+        if not sess.clock_in or not sess.clock_out:
+            continue
+        if _has_valid_extended_reason(sess):
+            continue
+        closed_before = _closed_seconds_before_session(punch.id, sess, sessions)
+        remaining = max(0, SESSION_CAP_SEC - closed_before)
+        max_out = sess.clock_in + timedelta(seconds=remaining)
+        if sess.clock_out > max_out:
+            sess.clock_out = max_out
+            sess.auto_punched_out = True
+            sess.extended_hours_reason = AUTO_CAP_REASON
+            changed = True
+    if changed:
+        recompute_punch_aggregate(punch)
+    return changed
+
+
+def repair_misdated_sessions_for_admin(admin_id):
+    """
+    Move sessions onto the punch row matching clock_in.date() (attendance day).
+    Fixes yesterday's session incorrectly attached to today's punch row.
+    """
+    if not admin_id:
+        return False
+    changed = False
+    punches = Punch.query.filter_by(admin_id=admin_id).all()
+    touched_punch_ids = set()
+
+    for punch in punches:
+        sessions = PunchSession.query.filter_by(punch_id=punch.id).all()
+        for sess in sessions:
+            if not sess.clock_in:
+                continue
+            sess_date = sess.clock_in.date()
+            if sess_date == punch.punch_date:
+                continue
+            target = Punch.query.filter_by(admin_id=admin_id, punch_date=sess_date).first()
+            if not target:
+                target = Punch(admin_id=admin_id, punch_date=sess_date)
+                db.session.add(target)
+                db.session.flush()
+            sess.punch_id = target.id
+            touched_punch_ids.add(punch.id)
+            touched_punch_ids.add(target.id)
+            changed = True
+
+    for punch_id in touched_punch_ids:
+        punch = Punch.query.get(punch_id)
+        if punch:
+            repair_overlong_sessions_for_punch(punch)
+            recompute_punch_aggregate(punch)
+            from .punch_aggregate import cleanup_empty_punch
+
+            cleanup_empty_punch(punch)
+
+    return changed
+
+
+def repair_attendance_integrity_for_admin(admin_id):
+    """Repair misdated + overlong sessions, then close any overdue open session."""
+    from .punch_aggregate import open_punch_session_for_admin
+
+    changed = False
+    try:
+        if repair_misdated_sessions_for_admin(admin_id):
+            changed = True
+        punches = Punch.query.filter_by(admin_id=admin_id).all()
+        for punch in punches:
+            if repair_overlong_sessions_for_punch(punch):
+                changed = True
+        open_sess = open_punch_session_for_admin(admin_id)
+        if open_sess and _close_overdue_session(open_sess, datetime.now()):
+            changed = True
+        if changed:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    return changed
