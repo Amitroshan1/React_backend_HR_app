@@ -1,5 +1,4 @@
-import calendar
-from datetime import date, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import click
@@ -8,24 +7,19 @@ from .. import db
 from ..models.Admin_models import Admin
 from ..models.attendance import LeaveBalance
 from ..models.leave_accrual_log import LeaveAccrualLog
+from .leave_accrual_schedule import (
+    ACCRUAL_TRIGGER_DAY,
+    build_yearly_accrual_schedule,
+    probation_end_date,
+)
 
 
 PL_CARRY_FORWARD_CAP = 45.0
-PL_CREDIT_VALUE = 1.0
-CL_CREDIT_VALUE = 1.0
 IST_ZONE = ZoneInfo("Asia/Kolkata")
-PROBATION_MONTHS = 6
 
 
 def _probation_end_date(doj):
-    """Return date when 6-month probation ends (DOJ + 6 calendar months). Returns None if doj is None."""
-    if doj is None:
-        return None
-    mo = doj.month + PROBATION_MONTHS
-    yr = doj.year + (mo - 1) // 12
-    mo = (mo - 1) % 12 + 1
-    last = calendar.monthrange(yr, mo)[1]
-    return date(yr, mo, min(doj.day, last))
+    return probation_end_date(doj)
 
 
 def _event_exists(admin_id, event_key):
@@ -33,6 +27,28 @@ def _event_exists(admin_id, event_key):
         LeaveAccrualLog.query.filter_by(admin_id=admin_id, event_key=event_key).first()
         is not None
     )
+
+
+def _month_credit_done(admin_id, prefix, year, month):
+    """True if any credit was already logged for this month (legacy or variable amount)."""
+    legacy_key = f"{prefix}_{year}_{month:02d}_20"
+    if _event_exists(admin_id, legacy_key):
+        return True
+    pattern = f"{prefix}_{year}_{month:02d}_20_%"
+    return (
+        LeaveAccrualLog.query.filter(
+            LeaveAccrualLog.admin_id == admin_id,
+            LeaveAccrualLog.event_key.like(pattern),
+        ).first()
+        is not None
+    )
+
+
+def _credit_event_key(prefix, year, month, amount):
+    amount = float(amount)
+    if amount == 1.0:
+        return f"{prefix}_{year}_{month:02d}_20"
+    return f"{prefix}_{year}_{month:02d}_20_AMT{int(amount)}"
 
 
 def _mark_event(admin_id, event_key, run_date):
@@ -63,16 +79,41 @@ def _ensure_leave_balance(admin_id):
     return leave_balance, True
 
 
-def _try_credit_pl_bonus(admin_id, leave_balance, run_date, event_suffix, summary):
-    event_key = f"PL_BONUS_{run_date.year}_{event_suffix}"
-    if _event_exists(admin_id, event_key):
+def _try_credit_variable(
+    admin_id,
+    leave_balance,
+    run_date,
+    *,
+    leave_kind,
+    month,
+    amount,
+    summary,
+):
+    """Credit PL or CL if scheduled amount > 0 and not yet logged for that month."""
+    amount = float(amount or 0)
+    if amount <= 0:
+        return
+
+    prefix = "PL" if leave_kind == "pl" else "CL"
+    if _month_credit_done(admin_id, prefix, run_date.year, month):
         summary["events_skipped_existing"] += 1
         return
-    leave_balance.privilege_leave_balance = float(
-        leave_balance.privilege_leave_balance or 0.0
-    ) + PL_CREDIT_VALUE
+
+    if leave_kind == "pl":
+        leave_balance.privilege_leave_balance = float(
+            leave_balance.privilege_leave_balance or 0.0
+        ) + amount
+        summary["pl_credits"] += 1
+        summary["pl_days_credited"] = summary.get("pl_days_credited", 0.0) + amount
+    else:
+        leave_balance.casual_leave_balance = float(
+            leave_balance.casual_leave_balance or 0.0
+        ) + amount
+        summary["cl_credits"] += 1
+        summary["cl_days_credited"] = summary.get("cl_days_credited", 0.0) + amount
+
+    event_key = _credit_event_key(prefix, run_date.year, month, amount)
     _mark_event(admin_id, event_key, run_date)
-    summary["pl_credits"] += 1
 
 
 def _run_leave_accrual_for_date(run_date):
@@ -83,17 +124,14 @@ def _run_leave_accrual_for_date(run_date):
         "year_resets": 0,
         "pl_credits": 0,
         "cl_credits": 0,
+        "pl_days_credited": 0.0,
+        "cl_days_credited": 0.0,
         "events_skipped_existing": 0,
         "skipped_on_probation": 0,
     }
 
     should_reset_year = run_date.month == 1 and run_date.day == 1
-    should_credit_20th = run_date.day == 20
-    # CL: 1 on the 20th for Jan–Jun only (6 per year); PL monthly uses same day for all 12 months
-    should_credit_cl_20th = should_credit_20th and 1 <= run_date.month <= 6
-    should_credit_pl_bonus_apr = run_date.month == 4 and run_date.day == 15
-    should_credit_pl_bonus_aug = run_date.month == 8 and run_date.day == 15
-    should_credit_pl_bonus_dec = run_date.month == 12 and run_date.day == 15
+    should_credit_20th = run_date.day == ACCRUAL_TRIGGER_DAY
 
     admins = (
         Admin.query.filter(
@@ -110,7 +148,6 @@ def _run_leave_accrual_for_date(run_date):
         if created_new:
             summary["balances_created"] += 1
 
-        # PL/CL accrual only after 6-month probation; new joiners get no credits until then
         probation_end = _probation_end_date(admin.doj)
         if probation_end is None or run_date < probation_end:
             summary["skipped_on_probation"] += 1
@@ -129,34 +166,29 @@ def _run_leave_accrual_for_date(run_date):
                 _mark_event(admin.id, event_key, run_date)
                 summary["year_resets"] += 1
 
-        if should_credit_pl_bonus_apr:
-            _try_credit_pl_bonus(admin.id, leave_balance, run_date, "04_15", summary)
-        if should_credit_pl_bonus_aug:
-            _try_credit_pl_bonus(admin.id, leave_balance, run_date, "08_15", summary)
-        if should_credit_pl_bonus_dec:
-            _try_credit_pl_bonus(admin.id, leave_balance, run_date, "12_15", summary)
-
         if should_credit_20th:
-            event_key = f"PL_{run_date.year}_{run_date.month:02d}_20"
-            if _event_exists(admin.id, event_key):
-                summary["events_skipped_existing"] += 1
-            else:
-                leave_balance.privilege_leave_balance = float(
-                    leave_balance.privilege_leave_balance or 0.0
-                ) + PL_CREDIT_VALUE
-                _mark_event(admin.id, event_key, run_date)
-                summary["pl_credits"] += 1
-
-        if should_credit_cl_20th:
-            event_key = f"CL_{run_date.year}_{run_date.month:02d}_20"
-            if _event_exists(admin.id, event_key):
-                summary["events_skipped_existing"] += 1
-            else:
-                leave_balance.casual_leave_balance = float(
-                    leave_balance.casual_leave_balance or 0.0
-                ) + CL_CREDIT_VALUE
-                _mark_event(admin.id, event_key, run_date)
-                summary["cl_credits"] += 1
+            pl_schedule, cl_schedule, _meta = build_yearly_accrual_schedule(
+                probation_end, run_date.year
+            )
+            month = run_date.month
+            _try_credit_variable(
+                admin.id,
+                leave_balance,
+                run_date,
+                leave_kind="pl",
+                month=month,
+                amount=pl_schedule.get(month, 0),
+                summary=summary,
+            )
+            _try_credit_variable(
+                admin.id,
+                leave_balance,
+                run_date,
+                leave_kind="cl",
+                month=month,
+                amount=cl_schedule.get(month, 0),
+                summary=summary,
+            )
 
     return summary
 
@@ -171,7 +203,7 @@ def register_leave_accrual_command(app):
     )
     @click.option("--dry-run", is_flag=True, default=False, help="Preview without committing.")
     def leave_accrual_run_command(run_date_str, dry_run):
-        """Apply PL/CL accrual and yearly reset idempotently."""
+        """Apply prorated PL/CL accrual and yearly reset idempotently."""
         if run_date_str:
             try:
                 run_date = datetime.strptime(run_date_str, "%Y-%m-%d").date()
@@ -195,5 +227,7 @@ def register_leave_accrual_command(app):
             f"year_resets={summary['year_resets']}, "
             f"pl_credits={summary['pl_credits']}, "
             f"cl_credits={summary['cl_credits']}, "
+            f"pl_days={summary.get('pl_days_credited', 0)}, "
+            f"cl_days={summary.get('cl_days_credited', 0)}, "
             f"events_skipped_existing={summary['events_skipped_existing']}"
         )
