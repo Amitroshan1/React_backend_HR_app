@@ -147,6 +147,25 @@ const parseHmsToMs = (val) => {
     return (h * 3600 + m * 60 + s) * 1000;
 };
 
+const parseIsoToMs = (iso) => {
+    if (!iso) return NaN;
+    const s = String(iso).trim();
+    const normalized = s.includes(" ") && !s.includes("T") ? s.replace(" ", "T") : s;
+    return new Date(normalized).getTime();
+};
+
+/** Open-segment live time capped at the 10h auto-close deadline from the API. */
+const cappedOpenLiveMs = (clockIn, sessionAutoCloseAt, now = Date.now()) => {
+    const t0 = parseIsoToMs(clockIn);
+    if (!Number.isFinite(t0)) return 0;
+    let liveMs = Math.max(0, now - t0);
+    const closeAt = parseIsoToMs(sessionAutoCloseAt);
+    if (Number.isFinite(closeAt)) {
+        liveMs = Math.min(liveMs, Math.max(0, closeAt - t0));
+    }
+    return liveMs;
+};
+
 const localIsoDate = (d = new Date()) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -172,13 +191,9 @@ function PunchSessionsList({ sessions, sessionAttendanceDate, formatTime, format
             </div>
             <ul className="dashboard-punch-sessions-list">
                 {list.map((s, idx) => {
-                    const cin = s.clock_in
-                        ? String(s.clock_in).trim()
-                        : "";
-                    const normalizedIn =
-                        cin && cin.includes(" ") && !cin.includes("T") ? cin.replace(" ", "T") : cin;
-                    const t0 = cin ? new Date(normalizedIn).getTime() : NaN;
-                    const liveMs = s.is_open && Number.isFinite(t0) ? Date.now() - t0 : 0;
+                    const liveMs = s.is_open
+                        ? cappedOpenLiveMs(s.clock_in, s.session_auto_close_at)
+                        : 0;
                     const durationLabel = s.is_open
                         ? formatTimeDifference(liveMs)
                         : formatWorkingHours(s.duration_hms || '0:00:00');
@@ -579,12 +594,11 @@ export const Dashboard = () => {
                     const openSeg = sessions.find((s) => s.is_open);
                     let liveMs = 0;
                     if (openSeg?.clock_in) {
-                        const cin = String(openSeg.clock_in).trim();
-                        const normalizedIn = cin.includes(" ") && !cin.includes("T") ? cin.replace(" ", "T") : cin;
-                        const t0 = new Date(normalizedIn).getTime();
-                        if (Number.isFinite(t0)) {
-                            liveMs = Math.max(0, now - t0);
-                        }
+                        liveMs = cappedOpenLiveMs(
+                            openSeg.clock_in,
+                            openSeg.session_auto_close_at,
+                            now,
+                        );
                     }
                     if (liveMs === 0 && sessions.some((s) => s.is_open) && punchInDateTime) {
                         liveMs = Math.max(0, now - punchInDateTime.getTime());

@@ -331,7 +331,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     const panelLinks = [];
     const isItPrimaryRole = roleInfo.display?.toLowerCase() === "it";
     if (isAdminRole) {
-        panelLinks.push({ display: "Admin Panel", route: "/admin" });
+        panelLinks.push({ display: "Admin", route: "/admin" });
     } else {
         if (roleInfo.hasPanel && roleInfo.route && panelRouteAllowed(roleInfo.route)) {
             panelLinks.push({ display: roleInfo.display, route: roleInfo.route });

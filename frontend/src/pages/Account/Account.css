@@ -4,19 +4,30 @@
   max-width: 1400px;
   margin: 0 auto;
   font-family: 'Inter', sans-serif;
-  min-height: 100vh;
 }
 
 .page-header { margin-bottom: 30px; }
 .main-title { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0; }
 .sub-title { color: #64748b; font-size: 14px; margin-top: 4px; }
 
-/* Stats Grid */
+/* Stats Grid — four cards in one row on desktop */
 .hr-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 20px;
   margin-bottom: 30px;
+}
+
+@media (max-width: 1100px) {
+  .hr-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .hr-stats-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .stat-card {
@@ -28,6 +39,72 @@
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 12px 0 0 12px;
+}
+
+.hr-stats-grid .stat-card:nth-child(1)::before { background: #3b82f6; }
+.hr-stats-grid .stat-card:nth-child(2)::before { background: #06b6d4; }
+.hr-stats-grid .stat-card:nth-child(3)::before { background: #f59e0b; }
+.hr-stats-grid .stat-card:nth-child(4)::before { background: #ef4444; }
+
+.stat-card-has-notify {
+  border-color: #fecaca;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.08), 0 4px 12px rgba(239, 68, 68, 0.1);
+}
+
+.stat-card-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-card-notify {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 4px 8px;
+  margin-bottom: 2px;
+  border-radius: 999px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.stat-card-notify-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  animation: statNotifyPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes statNotifyPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(0.92); }
+}
+
+.stat-sub-alert {
+  color: #dc2626 !important;
+  font-weight: 600;
 }
 
 .stat-card-clickable {
@@ -60,12 +137,8 @@
 /* Dashboard Grid Layout */
 .accounts-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr;
   gap: 24px;
-}
-
-@media (max-width: 1100px) {
-  .accounts-grid { grid-template-columns: 1fr; }
 }
 
 /* Cards & Tables */
@@ -353,6 +426,105 @@
 
 .full-width { width: 100%; }
 
+/* Employee Accounts Profile — compact, balanced form */
+.accounts-profile-card {
+  width: min(100%, 920px);
+  margin: 0 auto;
+}
+
+.accounts-profile-header {
+  margin-bottom: 8px;
+}
+
+.accounts-profile-meta {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.accounts-profile-loading {
+  margin: 12px 0 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.accounts-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 20px;
+  margin-top: 8px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.accounts-profile-grid .input-group {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.accounts-profile-grid .accounts-field-full {
+  grid-column: 1 / -1;
+}
+
+.accounts-profile-grid .input-group label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.accounts-profile-grid .custom-select,
+.accounts-profile-grid textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.accounts-profile-grid .custom-select:focus,
+.accounts-profile-grid textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.accounts-profile-grid .custom-select:disabled,
+.accounts-profile-grid textarea:disabled,
+.accounts-profile-grid .custom-select[readOnly] {
+  background: #f1f5f9;
+  color: #475569;
+  cursor: default;
+  border-color: #e2e8f0;
+}
+
+.accounts-profile-grid textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.accounts-profile-actions {
+  margin-top: 20px;
+  justify-content: flex-start;
+}
+
+.accounts-profile-actions .btn-primary {
+  min-width: 200px;
+  padding: 11px 22px;
+}
+
 .accounts-two-col-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -491,6 +663,8 @@
   .results-actions-grid { flex-direction: column; }
   .results-actions-grid button { width: 100%; justify-content: center; }
   .accounts-two-col-grid { grid-template-columns: 1fr; }
+  .accounts-profile-grid { grid-template-columns: 1fr; padding: 16px; }
+  .accounts-profile-card { width: 100%; }
   .accounts-docs-grid { grid-template-columns: 1fr; }
   .ctc-form-grid { grid-template-columns: 1fr; }
   .ctc-fields-grid { grid-template-columns: 1fr; }

@@ -502,10 +502,13 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   if (view === 'landing') {
     return (
       <div className="manager-search-overlay">
-        <div className="search-manager-card manager-landing-card">
-          <button type="button" className="close-btn" onClick={onBack} aria-label="Back">
-            <ArrowLeft size={20} />
-          </button>
+        <div className="manager-content-wrapper">
+          <div className="search-manager-card manager-landing-card">
+          <div className="manager-card-top-bar">
+            <button type="button" className="manager-in-card-back" onClick={onBack}>
+              <ArrowLeft size={16} /> Back to Updates
+            </button>
+          </div>
           <h2>Update Manager</h2>
           <p className="manager-landing-subtitle">Choose how you want to assign or update managers.</p>
 
@@ -546,6 +549,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
               <p>Search by email or emp type + circle, then assign managers to a specific employee.</p>
             </button>
           </div>
+          </div>
         </div>
       </div>
     );
@@ -555,10 +559,13 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   if (view === 'assign') {
     return (
       <div className="manager-search-overlay">
-        <div className="search-manager-card">
-          <button type="button" className="close-btn" onClick={() => setView('landing')} aria-label="Back">
-            <ArrowLeft size={20} />
-          </button>
+        <div className="manager-content-wrapper">
+          <div className="search-manager-card">
+          <div className="manager-card-top-bar">
+            <button type="button" className="manager-in-card-back" onClick={() => setView('landing')}>
+              <ArrowLeft size={16} /> Back
+            </button>
+          </div>
           <h2>Assign Manager by Emp Type + Circle</h2>
           <p className="manager-assign-subtitle">Select circle and employee type. L1, L2, L3 will apply to all employees in this combo.</p>
 
@@ -592,6 +599,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
           {contactError && (
             <div className="manager-search-error">{contactError}</div>
           )}
+          </div>
         </div>
       </div>
     );
@@ -599,14 +607,15 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
 
   // --- SEARCH VIEW ---
   return (
-    <div className="manager-search-overlay">
-      <div className={`search-manager-card ${employees.length > 0 ? 'has-results' : ''}`}>
-        <div className="manager-search-header-row">
-          <button type="button" className="btn-back-updates" onClick={() => setView('landing')}>
-            <ArrowLeft size={16} /> Back to options
+      <div className="manager-search-overlay">
+        <div className="manager-content-wrapper">
+        <div className={`search-manager-card ${employees.length > 0 ? 'has-results' : ''}`}>
+        <div className="manager-card-top-bar manager-card-top-bar--split">
+          <button type="button" className="manager-in-card-back" onClick={() => setView('landing')}>
+            <ArrowLeft size={16} /> Back
           </button>
-          <button type="button" className="close-btn" onClick={onBack} aria-label="Close">
-            <ArrowLeft size={20} />
+          <button type="button" className="manager-in-card-back" onClick={onBack}>
+            <ArrowLeft size={16} /> Back to Updates
           </button>
         </div>
         <h2>Search Employees</h2>
@@ -681,6 +690,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
             </table>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

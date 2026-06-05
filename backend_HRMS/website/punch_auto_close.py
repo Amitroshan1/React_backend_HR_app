@@ -4,8 +4,8 @@ Server-side auto punch-out: close open PunchSession when daily work on that punc
 - Sums closed sessions on the same punch_date row (since last auto punch-out) plus the open segment.
 - After auto punch-out, a new punch-in starts a fresh 10h block (repeat reason required).
 - Single night session: full 10h from punch-in (punch-out may be the next calendar day).
-- clock_out is stored as the actual datetime when the session closes.
-- Scheduler runs every 2 minutes (no dashboard required).
+- clock_out is stored at the cap deadline (punch_in + remaining cap), even if the job runs late.
+- Scheduler runs every 2 minutes; homepage load also closes overdue sessions for the user.
 """
 from datetime import datetime, timedelta
 
@@ -68,17 +68,30 @@ def daily_work_seconds(open_sess, now=None):
     return closed + max(0, open_secs)
 
 
-def session_auto_close_deadline(open_sess, now=None):
-    """When today's total work (all sessions + this open one) reaches 10 hours."""
-    now = now or datetime.now()
-    cin = open_sess.clock_in
+def auto_close_deadline(open_sess):
+    """Datetime when the open segment reaches the 10h daily cap."""
+    cin = open_sess.clock_in if open_sess else None
     if not cin:
         return None
     closed = closed_seconds_for_cap(open_sess.punch_id, open_sess)
-    remaining = SESSION_CAP_SEC - closed
-    if remaining <= 0:
-        return now
+    remaining = max(0, SESSION_CAP_SEC - closed)
     return cin + timedelta(seconds=remaining)
+
+
+def capped_daily_work_seconds(open_sess, now=None):
+    """Daily work for display/eligibility, never exceeding SESSION_CAP_SEC."""
+    now = now or datetime.now()
+    if not open_sess or not open_sess.clock_in:
+        return 0
+    closed = closed_seconds_for_cap(open_sess.punch_id, open_sess)
+    remaining = max(0, SESSION_CAP_SEC - closed)
+    open_secs = int((now - open_sess.clock_in).total_seconds())
+    return min(SESSION_CAP_SEC, closed + min(max(0, open_secs), remaining))
+
+
+def session_auto_close_deadline(open_sess, now=None):
+    """When today's total work (all sessions + this open one) reaches 10 hours."""
+    return auto_close_deadline(open_sess)
 
 
 def evaluate_auto_close(open_sess, now=None):
@@ -88,15 +101,11 @@ def evaluate_auto_close(open_sess, now=None):
     if not cin:
         return False, None, None
 
-    closed = closed_seconds_for_cap(open_sess.punch_id, open_sess)
-    total = daily_work_seconds(open_sess, now)
-    if total < SESSION_CAP_SEC:
+    cap_at = auto_close_deadline(open_sess)
+    if not cap_at or now < cap_at:
         return False, None, None
 
-    remaining = SESSION_CAP_SEC - closed
-    cap_at = cin + timedelta(seconds=max(0, remaining))
-    out_at = now if now >= cap_at else cap_at
-    return True, AUTO_CAP_REASON, out_at
+    return True, AUTO_CAP_REASON, cap_at
 
 
 def session_cap_hours_display(open_sess):
@@ -176,6 +185,57 @@ def close_punch_session(
     return out_time
 
 
+def _close_overdue_session(open_sess, now=None):
+    """Close one open session if it is past the 10h cap. Returns True if closed."""
+    now = now or datetime.now()
+    should_close, reason, out_at = evaluate_auto_close(open_sess, now)
+    if not should_close:
+        return False
+
+    punch = Punch.query.get(open_sess.punch_id) if open_sess.punch_id else None
+    if punch and ensure_punch_sessions_backfill(punch):
+        db.session.flush()
+
+    if open_sess.lat is not None and open_sess.lon is not None:
+        from .auth import resolve_geofence_for_coordinates
+
+        geo = resolve_geofence_for_coordinates(open_sess.lat, open_sess.lon)
+        loc_out = geo["location_status"]
+    else:
+        loc_out = open_sess.location_status_in or open_sess.location_status
+
+    close_punch_session(
+        open_sess,
+        punch,
+        is_auto=True,
+        lat=open_sess.lat,
+        lon=open_sess.lon,
+        location_status_out=loc_out,
+        extended_hours_reason=reason,
+        now=now,
+        clock_out_at=out_at,
+    )
+    return True
+
+
+def process_auto_punch_out_for_admin(admin_id):
+    """Close overdue open session for one employee (e.g. on dashboard load)."""
+    from .punch_aggregate import open_punch_session_for_admin
+
+    now = datetime.now()
+    open_sess = open_punch_session_for_admin(admin_id)
+    if not open_sess:
+        return False
+    try:
+        closed = _close_overdue_session(open_sess, now)
+        if closed:
+            db.session.commit()
+        return closed
+    except Exception:
+        db.session.rollback()
+        raise
+
+
 def process_auto_punch_outs():
     """Close open sessions when punch-day total work reaches 10h. Returns sessions closed."""
     now = datetime.now()
@@ -183,35 +243,9 @@ def process_auto_punch_outs():
     closed_count = 0
 
     for open_sess in open_sessions:
-        should_close, reason, out_at = evaluate_auto_close(open_sess, now)
-        if not should_close:
-            continue
-
-        punch = Punch.query.get(open_sess.punch_id) if open_sess.punch_id else None
-        if punch and ensure_punch_sessions_backfill(punch):
-            db.session.flush()
-
         try:
-            if open_sess.lat is not None and open_sess.lon is not None:
-                from .auth import resolve_geofence_for_coordinates
-
-                geo = resolve_geofence_for_coordinates(open_sess.lat, open_sess.lon)
-                loc_out = geo["location_status"]
-            else:
-                loc_out = open_sess.location_status_in or open_sess.location_status
-
-            close_punch_session(
-                open_sess,
-                punch,
-                is_auto=True,
-                lat=open_sess.lat,
-                lon=open_sess.lon,
-                location_status_out=loc_out,
-                extended_hours_reason=reason,
-                now=now,
-                clock_out_at=out_at,
-            )
-            closed_count += 1
+            if _close_overdue_session(open_sess, now):
+                closed_count += 1
         except Exception:
             db.session.rollback()
             raise

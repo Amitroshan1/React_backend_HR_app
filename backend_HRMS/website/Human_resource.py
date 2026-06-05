@@ -17,7 +17,7 @@ import mimetypes
 import uuid
 from flask import Blueprint, request, current_app, jsonify, send_file, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
-from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email
+from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email, send_news_feed_announcement_email
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
@@ -4189,6 +4189,7 @@ def add_news_feed_api():
     content = data.get("content")
     circle = data.get("circle")
     emp_type = data.get("emp_type")
+    send_email_flag = (data.get("send_email", "false").strip().lower() == "true")
 
     if not title or not content:
         return jsonify({
@@ -4197,13 +4198,15 @@ def add_news_feed_api():
         }), 400
 
     filename = None
+    abs_file_path = None
     if "file" in request.files:
         file = request.files["file"]
         if file and file.filename:
             filename = secure_filename(file.filename)
             upload_dir = current_app.config.get("UPLOAD_FOLDER") or os.path.join(current_app.static_folder or "static", "uploads")
             os.makedirs(upload_dir, exist_ok=True)
-            file.save(os.path.join(upload_dir, filename))
+            abs_file_path = os.path.join(upload_dir, filename)
+            file.save(abs_file_path)
 
     news_feed = NewsFeed(
         title=title,
@@ -4216,9 +4219,31 @@ def add_news_feed_api():
     db.session.add(news_feed)
     db.session.commit()
 
+    email_status = None
+    if send_email_flag:
+        try:
+            ok, msg, recipient_count = send_news_feed_announcement_email(
+                title=title,
+                content=content,
+                circle=circle,
+                emp_type=emp_type,
+                attachment_abs_path=abs_file_path,
+            )
+            if ok:
+                email_status = f"Email sent to {recipient_count} recipient(s)."
+            else:
+                email_status = f"Post saved, but email failed: {msg}"
+        except Exception as e:
+            current_app.logger.warning(f"News feed email error: {e}")
+            email_status = "Post saved, but email could not be sent."
+
+    response_message = "News feed posted successfully."
+    if email_status:
+        response_message = f"{response_message} {email_status}"
+
     return jsonify({
         "success": True,
-        "message": "News feed added successfully",
+        "message": response_message,
         "news_feed": {
             "id": news_feed.id,
             "title": news_feed.title,

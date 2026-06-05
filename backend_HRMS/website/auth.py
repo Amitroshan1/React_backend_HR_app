@@ -44,7 +44,9 @@ from .punch_aggregate import (
     serialize_punch_sessions,
 )
 from .punch_auto_close import (
+    capped_daily_work_seconds,
     close_punch_session,
+    process_auto_punch_out_for_admin,
     validate_manual_punch_out_extended_reason,
 )
 
@@ -254,6 +256,11 @@ def _employee_homepage_impl():
     overnight_attendance_date = None
     punch_row_for_detail = None
 
+    try:
+        process_auto_punch_out_for_admin(admin.id)
+    except Exception:
+        db.session.rollback()
+
     global_open = open_punch_session_for_admin(admin.id)
     if global_open and global_open.punch_id:
         pp = global_open.punch
@@ -276,14 +283,7 @@ def _employee_homepage_impl():
             punch_out_display = None
             if pp.punch_date and pp.punch_date < today:
                 overnight_attendance_date = pp.punch_date.isoformat()
-            closed_secs = 0
-            for s in PunchSession.query.filter(
-                PunchSession.punch_id == pp.id,
-                PunchSession.clock_out.isnot(None),
-            ).all():
-                closed_secs += int((s.clock_out - s.clock_in).total_seconds())
-            running = int((datetime.now() - open_sess.clock_in).total_seconds())
-            total_secs = closed_secs + max(0, running)
+            total_secs = capped_daily_work_seconds(open_sess)
             working_hours = seconds_to_hms_str(total_secs)
             requires_repeat_punch_reason = False
             punch_row_for_detail = pp
@@ -323,8 +323,7 @@ def _employee_homepage_impl():
             if open_sess:
                 punch_in_display = open_sess.clock_in
                 punch_out_display = None
-                running = int((datetime.now() - open_sess.clock_in).total_seconds())
-                total_secs = closed_secs + max(0, running)
+                total_secs = capped_daily_work_seconds(open_sess)
             else:
                 punch_in_display = punch.punch_in
                 punch_out_display = punch.punch_out

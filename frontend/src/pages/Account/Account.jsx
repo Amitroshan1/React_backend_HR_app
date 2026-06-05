@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  DollarSign, Users, FileText, TrendingUp, Download, 
+  Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
-  ArrowLeft, Upload
+  ArrowLeft, Upload, FileCheck
 } from 'lucide-react';
 import './Account.css';
 import { useUser } from '../../components/layout/UserContext';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
+import { fetchDepartmentNocRequests } from '../Manager/api';
 import { hasFeature } from '../../utils/planFeatures';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
@@ -54,6 +55,11 @@ export const Account = ()  => {
     ytd_expenses: 0
   });
   const [statsError, setStatsError] = useState('');
+  const [nocSummary, setNocSummary] = useState({
+    pending: 0,
+    total: 0,
+    loading: true,
+  });
   const [attendanceMonth, setAttendanceMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -188,22 +194,62 @@ export const Account = ()  => {
 
   const formatCurrency = (value) => {
     try {
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
+      return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value || 0);
     } catch {
-      return `$${value || 0}`;
+      return `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
   };
 
-  const paidRatio = statsData.total_employees
-    ? `${statsData.employees_paid}/${statsData.total_employees}`
-    : `${statsData.employees_paid}`;
+  const handleOpenExpenseClaims = useCallback(() => {
+    setPreviousView('main');
+    setCurrentView('expenseClaims');
+  }, []);
 
-  const stats = [
-    { title: 'Total Employees', value: statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
-    { title: 'Employees Paid', value: paidRatio, subtitle: 'Current month', icon: <DollarSign size={20} /> },
-    { title: 'Payslips Generated', value: statsData.payslips_generated, subtitle: 'Current month', icon: <FileText size={20} /> },
-    { title: 'Expense Claims', value: formatCurrency(statsData.ytd_expenses), subtitle: 'YTD total', icon: <TrendingUp size={20} />, clickable: true },
-  ];
+  const handleOpenNocRequests = useCallback(() => {
+    setCurrentView('noc_requests');
+  }, []);
+
+  const stats = useMemo(() => {
+    const base = [
+      { title: 'Total Employees', value: statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
+      { title: 'Payslips Generated', value: statsData.payslips_generated, subtitle: 'Current month', icon: <FileText size={20} /> },
+      {
+        title: 'Expense Claims',
+        value: formatCurrency(statsData.ytd_expenses),
+        subtitle: 'Year to date (Jan–today)',
+        icon: <TrendingUp size={20} />,
+        clickable: true,
+        onClick: handleOpenExpenseClaims,
+      },
+    ];
+
+    if (isAccountsDept) {
+      const pending = nocSummary.pending;
+      const total = nocSummary.total;
+      base.push({
+        title: 'NOC Requests',
+        value: nocSummary.loading ? '—' : pending,
+        subtitle: pending > 0
+          ? `${pending} awaiting Accounts NOC`
+          : total > 0
+            ? 'No pending clearances'
+            : 'No separation requests',
+        icon: <FileCheck size={20} />,
+        clickable: true,
+        onClick: handleOpenNocRequests,
+        hasNotification: !nocSummary.loading && pending > 0,
+        notificationText: pending === 1 ? '1 NOC not submitted' : `${pending} NOCs not submitted`,
+      });
+    }
+
+    return base;
+  }, [
+    statsData,
+    isAccountsDept,
+    nocSummary,
+    handleOpenExpenseClaims,
+    handleOpenNocRequests,
+  ]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -231,6 +277,34 @@ export const Account = ()  => {
 
     loadStats();
   }, []);
+
+  useEffect(() => {
+    if (!isAccountsDept || currentView !== 'main') return;
+
+    let cancelled = false;
+    const loadNocSummary = async () => {
+      try {
+        setNocSummary((prev) => ({ ...prev, loading: true }));
+        const rows = await fetchDepartmentNocRequests('/api/accounts', 'All');
+        if (cancelled) return;
+        const pending = (rows || []).filter(
+          (r) => (r.status || '').trim().toLowerCase() === 'pending'
+        ).length;
+        setNocSummary({
+          pending,
+          total: (rows || []).length,
+          loading: false,
+        });
+      } catch {
+        if (!cancelled) {
+          setNocSummary({ pending: 0, total: 0, loading: false });
+        }
+      }
+    };
+
+    loadNocSummary();
+    return () => { cancelled = true; };
+  }, [isAccountsDept, currentView]);
 
   const loadPayrollSummary = async () => {
     const token = localStorage.getItem('token');
@@ -408,11 +482,6 @@ export const Account = ()  => {
     } finally {
       setExpenseClaimsLoading(false);
     }
-  };
-
-  const handleOpenExpenseClaims = () => {
-    setPreviousView('main');
-    setCurrentView('expenseClaims');
   };
 
   const toggleClaimExpanded = (claimId) => {
@@ -1672,45 +1741,37 @@ export const Account = ()  => {
         {statsError && <div className="q-error">{statsError}</div>}
         {stats.map((stat, i) => (
           <div
-            key={i}
-            className={`stat-card${stat.clickable ? ' stat-card-clickable' : ''}`}
+            key={stat.title || i}
+            className={`stat-card${stat.clickable ? ' stat-card-clickable' : ''}${stat.hasNotification ? ' stat-card-has-notify' : ''}`}
             role={stat.clickable ? 'button' : undefined}
             tabIndex={stat.clickable ? 0 : undefined}
-            onClick={stat.clickable ? handleOpenExpenseClaims : undefined}
+            onClick={stat.clickable ? stat.onClick : undefined}
             onKeyDown={
               stat.clickable
                 ? (e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      handleOpenExpenseClaims();
+                      stat.onClick?.();
                     }
                   }
                 : undefined
             }
           >
-            <div>
+            <div className="stat-card-body">
+              {stat.hasNotification && (
+                <span className="stat-card-notify" title={stat.notificationText}>
+                  <span className="stat-card-notify-dot" aria-hidden="true" />
+                  {stat.notificationText}
+                </span>
+              )}
               <p className="stat-label">{stat.title}</p>
               <h3 className="stat-value">{stat.value}</h3>
-              <p className="stat-sub">{stat.subtitle}</p>
+              <p className={`stat-sub${stat.hasNotification ? ' stat-sub-alert' : ''}`}>{stat.subtitle}</p>
             </div>
             <div className="bg-updates">{stat.icon}</div>
           </div>
         ))}
       </div>
-
-      {isAccountsDept && (
-        <div className="table-container-card" style={{ marginBottom: '1.25rem' }}>
-          <div className="card-header-row">
-            <h3 className="section-title">Separation — NOC requests</h3>
-          </div>
-          <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: 14 }}>
-            Accounts department NOC clearances from separating employees (email may still include others).
-          </p>
-          <button type="button" className="btn-primary" onClick={() => setCurrentView('noc_requests')}>
-            Open NOC requests
-          </button>
-        </div>
-      )}
 
       <div className="accounts-grid">
         <div className="table-container-card">
@@ -1766,20 +1827,6 @@ export const Account = ()  => {
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
-
-        <div className="side-panel">
-          <div className="stat-card-static">
-            <h4>Payroll Progress</h4>
-            <div className="progress-item">
-              <div className="flex-between"><span>Bank Transfer</span><span>85%</span></div>
-              <div className="progress-bar"><div className="progress-fill" style={{width: '85%'}}></div></div>
-            </div>
-            <div className="progress-item">
-              <div className="flex-between"><span>Payslips Sent</span><span>92%</span></div>
-              <div className="progress-bar"><div className="progress-fill" style={{width: '92%'}}></div></div>
-            </div>
           </div>
         </div>
       </div>
@@ -3102,74 +3149,125 @@ export const Account = ()  => {
       {currentView === 'viewPayslip' && (
          <div className="fade-in">
             <button className="btn-back" onClick={() => setCurrentView('employees')}><ArrowLeft size={18}/> Back</button>
-            <div className="table-container-card">
-              <div className="card-header-row">
-                <h3 className="section-title">
-                  {hasFeature('account_full_employee_view')
-                    ? 'Employee Accounts Profile'
-                    : 'Uploaded Documents'}
-                </h3>
+            <div className="table-container-card accounts-profile-card">
+              <div className="card-header-row accounts-profile-header">
+                <div>
+                  <h3 className="section-title">
+                    {hasFeature('account_full_employee_view')
+                      ? 'Employee Accounts Profile'
+                      : 'Uploaded Documents'}
+                  </h3>
+                  <p className="accounts-profile-meta">
+                    {selectedEmployee?.name || 'Employee'} ({selectedEmployee?.id || '-'}) — {selectedEmployee?.email || '-'}
+                  </p>
+                </div>
               </div>
-              <p style={{ marginTop: 0, color: '#64748b' }}>
-                {selectedEmployee?.name || 'Employee'} ({selectedEmployee?.id || '-'}) — {selectedEmployee?.email || '-'}
-              </p>
 
-              {accountsProfileLoading && <p>Loading...</p>}
+              {accountsProfileLoading && <p className="accounts-profile-loading">Loading...</p>}
               {accountsProfileError && <div className="q-error">{accountsProfileError}</div>}
               {accountsProfileSuccess && <div className="q-success">{accountsProfileSuccess}</div>}
 
               {hasFeature('account_full_employee_view') && (
               <>
-              <div className={`accounts-two-col-grid ${isHr ? '' : 'accounts-readonly'}`}>
-                <div>
+              <div className={`accounts-profile-grid ${isHr ? '' : 'accounts-readonly'}`}>
                   <div className="input-group">
                     <label>Function</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.function}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, function: e.target.value }))}
-                        disabled={!isHr}
-                      />
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.function}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, function: e.target.value }))}
+                      disabled={!isHr}
+                    />
                   </div>
                   <div className="input-group">
                     <label>Designation</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.designation}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, designation: e.target.value }))}
-                        disabled={!isHr}
-                      />
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.designation}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, designation: e.target.value }))}
+                      disabled={!isHr}
+                    />
                   </div>
                   <div className="input-group">
                     <label>Location</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.location}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, location: e.target.value }))}
-                        disabled={!isHr}
-                      />
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.location}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, location: e.target.value }))}
+                      disabled={!isHr}
+                    />
                   </div>
                   <div className="input-group">
                     <label>Date of Joining</label>
-                      <input
-                        className="custom-select"
-                        type="date"
-                        value={accountsProfileForm.date_of_joining}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, date_of_joining: e.target.value }))}
-                        disabled={!isHr}
-                      />
+                    <input
+                      className="custom-select"
+                      type="date"
+                      value={accountsProfileForm.date_of_joining}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, date_of_joining: e.target.value }))}
+                      disabled={!isHr}
+                    />
                   </div>
                   <div className="input-group">
+                    <label>Employee ID (Emp_ID)</label>
+                    <input className="custom-select" value={selectedEmployee?.id || ''} readOnly />
+                  </div>
+                  <div className="input-group">
+                    <label>PAN</label>
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.pan}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pan: e.target.value }))}
+                      placeholder="ABCDE1234F"
+                      disabled={!isHr}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>UAN</label>
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.uan}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, uan: e.target.value }))}
+                      disabled={!isHr}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>PF Account Number</label>
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.pf_account_number}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pf_account_number: e.target.value }))}
+                      disabled={!isHr}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>ESI Number</label>
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.esi_number}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, esi_number: e.target.value }))}
+                      disabled={!isHr}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>PRAN</label>
+                    <input
+                      className="custom-select"
+                      value={accountsProfileForm.pran}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pran: e.target.value }))}
+                      disabled={!isHr}
+                    />
+                  </div>
+                  <div className="input-group accounts-field-full">
                     <label>Bank Details</label>
-                      <textarea
-                        className="custom-select"
-                        rows={3}
-                        value={accountsProfileForm.bank_details}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, bank_details: e.target.value }))}
-                        disabled={!isHr}
-                      />
+                    <textarea
+                      className="custom-select"
+                      rows={3}
+                      value={accountsProfileForm.bank_details}
+                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, bank_details: e.target.value }))}
+                      disabled={!isHr}
+                    />
                   </div>
-                  <div className="input-group">
+                  <div className="input-group accounts-field-full">
                     <label>Tax Regime</label>
                     <select
                       className="custom-select"
@@ -3193,67 +3291,13 @@ export const Account = ()  => {
                       ) : null}
                     </select>
                   </div>
-                </div>
-
-                <div>
-                  <div className="input-group">
-                    <label>Employee ID (Emp_ID)</label>
-                    <input className="custom-select" value={selectedEmployee?.id || ''} readOnly />
-                  </div>
-                  <div className="input-group">
-                    <label>PAN</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.pan}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pan: e.target.value }))}
-                        placeholder="ABCDE1234F"
-                        disabled={!isHr}
-                      />
-                  </div>
-                  <div className="input-group">
-                    <label>UAN</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.uan}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, uan: e.target.value }))}
-                        disabled={!isHr}
-                      />
-                  </div>
-                  <div className="input-group">
-                    <label>PF Account Number</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.pf_account_number}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pf_account_number: e.target.value }))}
-                        disabled={!isHr}
-                      />
-                  </div>
-                  <div className="input-group">
-                    <label>ESI Number</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.esi_number}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, esi_number: e.target.value }))}
-                        disabled={!isHr}
-                      />
-                  </div>
-                  <div className="input-group">
-                    <label>PRAN</label>
-                      <input
-                        className="custom-select"
-                        value={accountsProfileForm.pran}
-                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pran: e.target.value }))}
-                        disabled={!isHr}
-                      />
-                  </div>
-                </div>
               </div>
 
-              <div className="form-actions-row">
+              <div className="form-actions-row accounts-profile-actions">
                 {isHr ? (
                   <button
                     type="button"
-                    className="btn-primary full-width"
+                    className="btn-primary"
                     disabled={accountsProfileSaving || !selectedEmployee?.adminId}
                     onClick={async () => {
                       const token = localStorage.getItem('token');
