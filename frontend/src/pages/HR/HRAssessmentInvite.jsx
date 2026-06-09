@@ -5,6 +5,7 @@ import {
   getAssessmentFigureSrc,
 } from "../../utils/assessmentFigures";
 import SessionRecordingPlayer from "./SessionRecordingPlayer";
+import { getEmailFieldError, isValidEmail } from "../../utils/isValidEmail";
 import "./HRAssessmentInvite.css";
 import "./LeaveApplicationUpdation.css";
 
@@ -177,6 +178,8 @@ function IntegrityReviewPanel({ integrity }) {
 
 export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
   const [form, setForm] = useState({ full_name: "", email: "", department: empTypeOptions[0] || "" });
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [emailSubmitted, setEmailSubmitted] = useState(false);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -365,8 +368,24 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     };
   }, [selected?.id, selected?.has_selfie]);
 
+  const emailFieldError = getEmailFieldError(form.email, {
+    touched: emailTouched,
+    submitted: emailSubmitted,
+  });
+  const emailReady = isValidEmail(form.email);
+  const formReady =
+    form.full_name.trim() &&
+    form.department.trim() &&
+    emailReady;
+
   const handleSend = async (e) => {
     e.preventDefault();
+    setEmailSubmitted(true);
+    const fieldErr = getEmailFieldError(form.email, { touched: true, submitted: true });
+    if (fieldErr) {
+      setError(fieldErr);
+      return;
+    }
     setError("");
     setMessage("");
     setMessageType("success");
@@ -379,12 +398,11 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to send invite");
-      const mailSent = data.email_sent !== false;
-      const providerMsg = String(data.email_provider_message || "").trim();
-      const baseMsg = data.message || (mailSent ? "Assessment invite sent successfully." : "Invite created, but email delivery failed.");
-      setMessage(providerMsg ? `${baseMsg} (${providerMsg})` : baseMsg);
-      setMessageType(mailSent ? "success" : "warning");
+      setMessage(data.message || "Assessment invite sent successfully.");
+      setMessageType("success");
       setForm((p) => ({ ...p, full_name: "", email: "" }));
+      setEmailTouched(false);
+      setEmailSubmitted(false);
       await fetchRows();
     } catch (e2) {
       setError(e2.message || "Failed to send invite");
@@ -961,14 +979,22 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
           <input
             id="assessment-candidate-email"
             type="email"
-            className="assessment-invite-input"
+            className={`assessment-invite-input${emailFieldError ? " assessment-invite-input--invalid" : ""}`}
             placeholder="name@example.com"
             value={form.email}
             onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+            onBlur={() => setEmailTouched(true)}
+            aria-invalid={emailFieldError ? "true" : undefined}
+            aria-describedby={emailFieldError ? "assessment-candidate-email-error" : undefined}
             required
           />
+          {emailFieldError ? (
+            <span id="assessment-candidate-email-error" className="assessment-invite-field-error" role="alert">
+              {emailFieldError}
+            </span>
+          ) : null}
         </div>
-        <button type="submit" className="assessment-invite-submit" disabled={submitting}>
+        <button type="submit" className="assessment-invite-submit" disabled={submitting || !formReady}>
           {submitting ? "Sending…" : "Send link"}
         </button>
       </form>

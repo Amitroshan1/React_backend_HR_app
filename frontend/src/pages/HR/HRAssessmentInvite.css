@@ -90,6 +90,24 @@
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
+.assessment-invite-input--invalid {
+  border-color: #dc2626;
+  background: #fff;
+}
+
+.assessment-invite-input--invalid:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+}
+
+.assessment-invite-field-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #dc2626;
+}
+
 .assessment-invite-submit {
   height: 44px;
   min-width: 132px;

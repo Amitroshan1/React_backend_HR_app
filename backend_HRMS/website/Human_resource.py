@@ -18,6 +18,7 @@ import uuid
 from flask import Blueprint, request, current_app, jsonify, send_file, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email, send_news_feed_announcement_email
+from .email_utils import normalize_email_address
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
@@ -3594,11 +3595,11 @@ def create_assessment_invite():
     data = request.get_json(silent=True) or {}
     full_name = (data.get("full_name") or data.get("name") or "").strip()
     department = (data.get("department") or "").strip()
-    candidate_email = (data.get("email") or "").strip().lower()
-    if not full_name or not department or not candidate_email:
+    if not full_name or not department:
         return jsonify({"success": False, "message": "name, department and email are required"}), 400
-    if "@" not in candidate_email:
-        return jsonify({"success": False, "message": "Invalid email"}), 400
+    candidate_email, email_err = normalize_email_address(data.get("email") or "")
+    if email_err:
+        return jsonify({"success": False, "message": email_err}), 400
 
     raw_token = secrets.token_urlsafe(48)
     token_hash = _assessment_hash_token(raw_token)
@@ -3632,19 +3633,22 @@ def create_assessment_invite():
             candidate_email,
             provider_msg,
         )
+        db.session.delete(invite)
+        db.session.commit()
+        return jsonify(
+            {
+                "success": False,
+                "message": provider_msg or "Email could not be sent. Please check the address and try again.",
+            }
+        ), 502
 
     base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
     link = f"{base_url}/assessment?t={raw_token}"
     return jsonify(
         {
             "success": True,
-            "message": (
-                "Assessment link sent successfully."
-                if mail_ok
-                else "Invite created, but email delivery failed. Please verify recipient/SMTP and retry."
-            ),
-            "email_sent": bool(mail_ok),
-            "email_provider_message": provider_msg or "",
+            "message": "Assessment link sent successfully.",
+            "email_sent": True,
             "invite": {
                 "id": invite.id,
                 "full_name": invite.full_name,
@@ -5133,9 +5137,11 @@ def get_employee_circle_history(email_path):
 @jwt_required()
 @hr_required
 def send_ex_employee_documents():
-    recipient_email = (request.form.get("recipient_email") or request.form.get("email") or "").strip()
-    if not recipient_email or "@" not in recipient_email:
-        return jsonify({"success": False, "message": "A valid recipient email is required"}), 400
+    recipient_email, email_err = normalize_email_address(
+        request.form.get("recipient_email") or request.form.get("email") or ""
+    )
+    if email_err:
+        return jsonify({"success": False, "message": email_err}), 400
 
     display_names_raw = request.form.get("display_names") or "[]"
     try:

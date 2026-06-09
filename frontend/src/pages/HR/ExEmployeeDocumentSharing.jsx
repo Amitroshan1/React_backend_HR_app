@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Mail, Plus, Trash2, Send } from 'lucide-react';
+import { getEmailFieldError, isValidEmail } from '../../utils/isValidEmail';
 import './ExEmployeeDocumentSharing.css';
 
 const HR_API_BASE = '/api/HumanResource';
@@ -10,6 +11,8 @@ function newRow() {
 
 export function ExEmployeeDocumentSharing({ onBack }) {
   const [recipientEmail, setRecipientEmail] = useState('');
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [emailSubmitted, setEmailSubmitted] = useState(false);
   const [rows, setRows] = useState([newRow()]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -49,11 +52,19 @@ export function ExEmployeeDocumentSharing({ onBack }) {
     );
   };
 
+  const emailFieldError = getEmailFieldError(recipientEmail, {
+    touched: emailTouched,
+    submitted: emailSubmitted,
+  });
+  const emailReady = isValidEmail(recipientEmail);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setEmailSubmitted(true);
     const email = recipientEmail.trim();
-    if (!email || !email.includes('@')) {
-      setMessage({ type: 'error', text: 'Enter a valid email address.' });
+    const fieldErr = getEmailFieldError(recipientEmail, { touched: true, submitted: true });
+    if (fieldErr) {
+      setMessage({ type: 'error', text: fieldErr });
       return;
     }
     const ready = rows.filter((r) => r.file);
@@ -101,6 +112,8 @@ export function ExEmployeeDocumentSharing({ onBack }) {
           text: data.message || 'Email sent. Link is valid for 48 hours.',
         });
         setRecipientEmail('');
+        setEmailTouched(false);
+        setEmailSubmitted(false);
         setRows([newRow()]);
         await loadHistory();
       } else {
@@ -179,13 +192,21 @@ export function ExEmployeeDocumentSharing({ onBack }) {
             Recipient email
             <input
               type="email"
-              className="ex-doc-share__input"
+              className={`ex-doc-share__input${emailFieldError ? ' ex-doc-share__input--invalid' : ''}`}
               value={recipientEmail}
               onChange={(e) => setRecipientEmail(e.target.value)}
-              placeholder="personal or active inbox they can access"
+              onBlur={() => setEmailTouched(true)}
+              placeholder="name@example.com"
               autoComplete="email"
+              aria-invalid={emailFieldError ? 'true' : undefined}
+              aria-describedby={emailFieldError ? 'ex-doc-recipient-email-error' : undefined}
               required
             />
+            {emailFieldError ? (
+              <span id="ex-doc-recipient-email-error" className="ex-doc-share__field-error" role="alert">
+                {emailFieldError}
+              </span>
+            ) : null}
           </label>
 
           <div className="ex-doc-share__files-head">
@@ -239,7 +260,7 @@ export function ExEmployeeDocumentSharing({ onBack }) {
             </div>
           )}
 
-          <button type="submit" className="ex-doc-share__submit" disabled={submitting}>
+          <button type="submit" className="ex-doc-share__submit" disabled={submitting || !emailReady}>
             <Send size={18} />
             {submitting ? 'Sending…' : 'Send email with link'}
           </button>
