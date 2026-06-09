@@ -15,6 +15,8 @@ from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_agg
 
 SESSION_CAP_SEC = 10 * 3600
 AUTO_CAP_REASON = "Auto punch-out after 10 hr daily cap"
+# Server scheduler close has no live GPS — do not copy punch-in geofence to punch-out.
+AUTO_PUNCH_NO_LIVE_GPS = "auto_punch_out_no_live_gps"
 
 
 def _last_auto_close_at_on_punch(punch_id):
@@ -196,21 +198,13 @@ def _close_overdue_session(open_sess, now=None):
     if punch and ensure_punch_sessions_backfill(punch):
         db.session.flush()
 
-    if open_sess.lat is not None and open_sess.lon is not None:
-        from .auth import resolve_geofence_for_coordinates
-
-        geo = resolve_geofence_for_coordinates(open_sess.lat, open_sess.lon)
-        loc_out = geo["location_status"]
-    else:
-        loc_out = open_sess.location_status_in or open_sess.location_status
-
     close_punch_session(
         open_sess,
         punch,
         is_auto=True,
         lat=open_sess.lat,
         lon=open_sess.lon,
-        location_status_out=loc_out,
+        location_status_out=AUTO_PUNCH_NO_LIVE_GPS,
         extended_hours_reason=reason,
         now=now,
         clock_out_at=out_at,
@@ -359,9 +353,7 @@ def repair_attendance_integrity_for_admin(admin_id):
         for punch in punches:
             if repair_overlong_sessions_for_punch(punch):
                 changed = True
-        open_sess = open_punch_session_for_admin(admin_id)
-        if open_sess and _close_overdue_session(open_sess, datetime.now()):
-            changed = True
+        # Overdue cap close: scheduler (no live GPS) or dashboard client punch-out with GPS.
         if changed:
             db.session.commit()
     except Exception:

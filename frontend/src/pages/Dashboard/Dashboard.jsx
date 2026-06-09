@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { NavLink } from "react-router-dom";
 import {
   FiChevronRight,
@@ -37,6 +37,21 @@ async function postPunchOutRequest(token, body) {
     result = { message: `Server error (${response.status})` };
   }
   return { ok: response.ok, result };
+}
+
+/** Fresh GPS for auto cap punch-out (not cached punch-in location). */
+function fetchFreshPosition() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+    );
+  });
 }
 
 const parsePunchInToDate = (val) => {
@@ -364,6 +379,7 @@ export const Dashboard = () => {
     const [newsFeed, setNewsFeed] = useState([]);
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
     const newsFeedListRef = useRef(null);
+    const autoCapPunchOutRef = useRef(false);
     const fetchDashboardData = async (showAlert = false) => {
         const token = localStorage.getItem('token');
         if (!token) return;
@@ -439,6 +455,99 @@ export const Dashboard = () => {
         dynamicData.punch.has_open_session,
         dynamicData.punch.punch_in,
         dynamicData.punch.punch_out,
+    ]);
+
+    const runAutoCapPunchOut = useCallback(async (capIso) => {
+        if (autoCapPunchOutRef.current) return;
+        autoCapPunchOutRef.current = true;
+        const token = localStorage.getItem("token");
+        if (!token) {
+            autoCapPunchOutRef.current = false;
+            return;
+        }
+        setIsPunching(true);
+        try {
+            const fresh = await fetchFreshPosition();
+            const body = { auto_system_punch_out: true };
+            if (fresh?.lat != null && fresh?.lon != null) {
+                body.lat = fresh.lat;
+                body.lon = fresh.lon;
+                setLocation((prev) => ({
+                    ...prev,
+                    lat: fresh.lat,
+                    lon: fresh.lon,
+                    isAvailable: true,
+                }));
+            }
+            const { ok, result } = await postPunchOutRequest(token, body);
+            if (ok && result.success) {
+                setPunchInDateTime(null);
+                const outLabel = formatTime(result.punch_out || capIso);
+                const geoNote =
+                    result.location_status_out === "outside_geofence"
+                        ? " Location recorded: outside office geofence."
+                        : result.location_status_out === "inside_geofence"
+                          ? ""
+                          : result.location_status_out
+                            ? ` Location: ${result.location_status_out}.`
+                            : "";
+                alert(
+                    `10-hour work cap reached. You were punched out automatically at ${outLabel}.${geoNote}`,
+                );
+                await fetchDashboardData(false);
+                return;
+            }
+            const msg = String(result.message || "");
+            if (msg.toLowerCase().includes("no active punch")) {
+                await fetchDashboardData(false);
+                return;
+            }
+            autoCapPunchOutRef.current = false;
+            console.warn("Auto cap punch-out failed:", msg || "unknown error");
+        } catch (err) {
+            autoCapPunchOutRef.current = false;
+            console.error("Auto cap punch-out error:", err);
+        } finally {
+            setIsPunching(false);
+        }
+    }, []);
+
+    /** At 10h cap: punch out with live GPS (before server scheduler uses stale punch-in location). */
+    useEffect(() => {
+        const open =
+            dynamicData.punch.has_open_session ??
+            !!(dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
+        if (!open || loading) {
+            if (!open) autoCapPunchOutRef.current = false;
+            return undefined;
+        }
+        const sessions = Array.isArray(dynamicData.punch.sessions)
+            ? dynamicData.punch.sessions
+            : [];
+        const openSeg = sessions.find((s) => s.is_open);
+        const capMs = parseIsoToMs(openSeg?.session_auto_close_at);
+        if (!Number.isFinite(capMs)) return undefined;
+
+        const fire = () => {
+            if (Date.now() >= capMs) {
+                runAutoCapPunchOut(openSeg.session_auto_close_at);
+            }
+        };
+
+        if (Date.now() >= capMs) {
+            fire();
+            return undefined;
+        }
+        const delay = Math.max(0, capMs - Date.now() + 250);
+        const timer = setTimeout(fire, delay);
+        return () => clearTimeout(timer);
+    }, [
+        loading,
+        dynamicData.punch.has_open_session,
+        dynamicData.punch.punch_in,
+        dynamicData.punch.punch_out,
+        dynamicData.punch.sessions,
+        runAutoCapPunchOut,
     ]);
 
     const fetchNewsFeed = async () => {

@@ -57,8 +57,10 @@ from .punch_aggregate import (
     sessions_for_punch_date,
 )
 from .punch_auto_close import (
+    AUTO_CAP_REASON,
     capped_daily_work_seconds,
     close_punch_session,
+    evaluate_auto_close,
     repair_attendance_integrity_for_admin,
     validate_manual_punch_out_extended_reason,
 )
@@ -1368,9 +1370,15 @@ def punch_out():
             return jsonify(err_body), err_code
 
         ext_reason = None
+        clock_out_at = None
         if is_auto:
             ext_trim = (data.get("extended_hours_reason") or "").strip()
             ext_reason = ext_trim or None
+            should_cap, cap_reason, cap_at = evaluate_auto_close(open_sess, now)
+            if should_cap:
+                clock_out_at = cap_at
+                if not ext_reason:
+                    ext_reason = cap_reason or AUTO_CAP_REASON
         else:
             ext_trim = (data.get("extended_hours_reason") or "").strip()
             if len(ext_trim) >= 3:
@@ -1385,14 +1393,23 @@ def punch_out():
             location_status_out=location_status,
             extended_hours_reason=ext_reason,
             now=now,
+            clock_out_at=clock_out_at,
         )
         db.session.commit()
 
         today_work_str = punch.today_work or "0:00:00"
-        punch_out_str = now.isoformat() if hasattr(now, "isoformat") else str(now)
+        out_display = open_sess.clock_out or clock_out_at or now
+        punch_out_str = (
+            out_display.isoformat() if hasattr(out_display, "isoformat") else str(out_display)
+        )
+        auto_cap_msg = (
+            "Auto punch-out at 10-hour daily cap"
+            if is_auto and clock_out_at
+            else ("Punched out; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched out successfully")
+        )
         return jsonify({
             "success": True,
-            "message": "Punched out; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched out successfully",
+            "message": auto_cap_msg,
             "punch_out": punch_out_str,
             "today_work": today_work_str,
             "zone": zone,
