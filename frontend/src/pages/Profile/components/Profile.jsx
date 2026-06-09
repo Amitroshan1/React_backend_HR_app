@@ -8,7 +8,11 @@ import {
     getProfileSectionCompletion,
     MANDATORY_FORM_FIELDS,
 } from '../utils/profileUtils';
-import { validateDocumentSection, INITIAL_DOCUMENT_META } from '../utils/documentIdentity';
+import {
+    validateDocumentSection,
+    INITIAL_DOCUMENT_META,
+    DOCUMENT_ERROR_KEYS,
+} from '../utils/documentIdentity';
 import {
     API_BASE_URL,
     mapProfileFromApi,
@@ -1001,9 +1005,12 @@ export const Profile = () => {
 
     const validateDocumentsSection = () => {
         const sectionErrors = validateDocumentSection(files, documentMeta);
-        const hasErrors = Object.keys(sectionErrors).length > 0;
-        setErrors(prev => ({ ...prev, ...sectionErrors }));
-        return !hasErrors;
+        setErrors((prev) => {
+            const next = { ...prev };
+            DOCUMENT_ERROR_KEYS.forEach((key) => delete next[key]);
+            return { ...next, ...sectionErrors };
+        });
+        return sectionErrors;
     };
 
     const validateEducationSection = () => {
@@ -1121,6 +1128,7 @@ export const Profile = () => {
 
     const handleSectionSave = async (sectionName) => {
         let isValid = true;
+        let documentSaveErrors = null;
 
         switch (sectionName) {
             case 'personal':
@@ -1132,9 +1140,12 @@ export const Profile = () => {
             case 'employment':
                 isValid = validateEmploymentSection();
                 break;
-            case 'documents':
-                isValid = validateDocumentsSection();
+            case 'documents': {
+                documentSaveErrors = validateDocumentsSection();
+                isValid = Object.keys(documentSaveErrors).length === 0;
+                if (!isValid) setExpandedSection('documents');
                 break;
+            }
             case 'education':
                 isValid = validateEducationSection();
                 if (!isValid) setExpandedSection('education');
@@ -1144,7 +1155,17 @@ export const Profile = () => {
         }
 
         if (!isValid) {
-            const msg = SECTION_ERROR_MESSAGES[sectionName] || 'Please fix validation errors before saving.';
+            let msg = SECTION_ERROR_MESSAGES[sectionName] || 'Please fix validation errors before saving.';
+            if (sectionName === 'documents' && documentSaveErrors) {
+                const messages = DOCUMENT_ERROR_KEYS
+                    .filter((key) => documentSaveErrors[key])
+                    .map((key) => documentSaveErrors[key]);
+                if (messages.length > 0) {
+                    msg = messages.length === 1
+                        ? messages[0]
+                        : `${messages[0]} (+${messages.length - 1} more — see list below)`;
+                }
+            }
             showToast(msg, 'error');
             return false;
         }

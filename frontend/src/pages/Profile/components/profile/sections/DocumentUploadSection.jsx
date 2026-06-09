@@ -6,6 +6,8 @@ import {
     isValidAadhaar,
     isValidPan,
     isBankIdentityComplete,
+    hasUploadedFile,
+    DOCUMENT_ERROR_KEYS,
     digitsOnly,
     normalizePan,
     normalizeIfsc,
@@ -64,14 +66,20 @@ export const DocumentUploadSection = ({
     const panReady = isValidPan(meta.panNumber);
     const bankReady = isBankIdentityComplete(meta);
 
-    const hasSectionErrors = isEditMode && Object.keys(errors || {}).some((k) =>
-        [
-            'aadhaarNumber', 'aadharFront', 'aadharBack',
-            'panNumber', 'panFront', 'panBack',
-            'bankAccountNumber', 'bankName', 'bankBranchCode', 'ifscCode', 'passbookFront',
-            'appointmentLetter',
-        ].includes(k)
-    );
+    const showAadhaarUploads = aadhaarReady
+        || hasUploadedFile(files?.aadharFront)
+        || hasUploadedFile(files?.aadharBack)
+        || !isEditMode;
+    const showPanUploads = panReady
+        || hasUploadedFile(files?.panFront)
+        || hasUploadedFile(files?.panBack)
+        || !isEditMode;
+    const showBankUpload = bankReady || hasUploadedFile(files?.passbookFront) || !isEditMode;
+
+    const documentErrorList = isEditMode
+        ? DOCUMENT_ERROR_KEYS.filter((key) => errors?.[key]).map((key) => errors[key])
+        : [];
+    const hasSectionErrors = documentErrorList.length > 0;
 
     const renderViewFile = (key, label) => {
         const file = files?.[key];
@@ -91,6 +99,16 @@ export const DocumentUploadSection = ({
             showMandatoryError={hasSectionErrors}
         >
             <div className="documents-body">
+                {hasSectionErrors && (
+                    <div className="doc-validation-summary" role="alert">
+                        <strong>Please complete the following before saving:</strong>
+                        <ul>
+                            {documentErrorList.map((message) => (
+                                <li key={message}>{message}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
                 {/* ── Aadhaar ── */}
                 <section className="doc-identity-group">
                     <h4 className="doc-identity-group__title">Aadhaar Card</h4>
@@ -112,7 +130,7 @@ export const DocumentUploadSection = ({
                             value={meta.aadhaarNumber ? maskAadhaar(meta.aadhaarNumber) : '—'}
                         />
                     )}
-                    {(aadhaarReady || !isEditMode) && (
+                    {showAadhaarUploads && (
                         <div className="grid-2 doc-identity-uploads">
                             {isEditMode ? (
                                 <>
@@ -167,7 +185,7 @@ export const DocumentUploadSection = ({
                     ) : (
                         <Info label="PAN Number" value={meta.panNumber ? maskPan(meta.panNumber) : '—'} />
                     )}
-                    {(panReady || !isEditMode) && (
+                    {showPanUploads && (
                         <div className="grid-2 doc-identity-uploads">
                             {isEditMode ? (
                                 <>
@@ -262,7 +280,7 @@ export const DocumentUploadSection = ({
                             <Info label="IFSC Code" value={meta.ifscCode || '—'} />
                         </>
                     )}
-                    {(bankReady || !isEditMode) && (
+                    {showBankUpload && (
                         <div className="doc-identity-uploads">
                             {isEditMode ? (
                                 <FileUpload

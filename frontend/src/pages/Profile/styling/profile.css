@@ -1074,6 +1074,30 @@
     font-style: italic;
 }
 
+.doc-validation-summary {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    background: #fef2f2;
+    color: #991b1b;
+    font-size: 13px;
+}
+
+.doc-validation-summary strong {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.doc-validation-summary ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.doc-validation-summary li + li {
+    margin-top: 4px;
+}
+
 .doc-identity-field .form-control {
     width: 100%;
     box-sizing: border-box;

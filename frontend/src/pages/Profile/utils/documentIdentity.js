@@ -88,42 +88,55 @@ export function documentMetaFromApi(docs = {}) {
   };
 }
 
+export const DOCUMENT_ERROR_KEYS = [
+  'aadhaarNumber', 'aadharFront', 'aadharBack',
+  'panNumber', 'panFront', 'panBack',
+  'bankAccountNumber', 'bankName', 'bankBranchCode', 'ifscCode', 'passbookFront',
+  'appointmentLetter',
+];
+
+export function hasUploadedFile(file) {
+  return file != null && String(file).trim() !== '';
+}
+
 /** Validate documents section; returns error map keyed by field name */
 export function validateDocumentSection(files, documentMeta) {
+  const f = files || {};
+  const meta = documentMeta || {};
   const errors = {};
 
-  if (!isValidAadhaar(documentMeta.aadhaarNumber)) {
+  if (!isValidAadhaar(meta.aadhaarNumber)) {
     errors.aadhaarNumber = 'Enter a valid 12-digit Aadhaar number.';
   } else {
-    if (!files.aadharFront) errors.aadharFront = 'Aadhaar front image is required.';
-    if (!files.aadharBack) errors.aadharBack = 'Aadhaar back image is required.';
+    if (!hasUploadedFile(f.aadharFront)) errors.aadharFront = 'Aadhaar front image is required.';
+    if (!hasUploadedFile(f.aadharBack)) errors.aadharBack = 'Aadhaar back image is required.';
   }
 
-  if (!isValidPan(documentMeta.panNumber)) {
+  if (!isValidPan(meta.panNumber)) {
     errors.panNumber = 'Enter a valid PAN (e.g. ABCDE1234F).';
   } else {
-    if (!files.panFront) errors.panFront = 'PAN front image is required.';
-    if (!files.panBack) errors.panBack = 'PAN back image is required.';
+    if (!hasUploadedFile(f.panFront)) errors.panFront = 'PAN front image is required.';
+    if (!hasUploadedFile(f.panBack)) errors.panBack = 'PAN back image is required.';
   }
 
-  if (!isBankIdentityComplete(documentMeta)) {
-    if (!isValidBankAccount(documentMeta.bankAccountNumber)) {
+  if (!isBankIdentityComplete(meta)) {
+    if (!isValidBankAccount(meta.bankAccountNumber)) {
       errors.bankAccountNumber = 'Enter a valid bank account number (9–18 digits).';
     }
-    if (!String(documentMeta.bankName || '').trim()) {
-      errors.bankName = 'Bank name is required.';
+    if (String(meta.bankName || '').trim().length < 2) {
+      errors.bankName = 'Bank name is required (at least 2 characters).';
     }
-    if (!isValidBankBranchCode(documentMeta.bankBranchCode)) {
-      errors.bankBranchCode = 'Enter a valid bank branch code (2–20 characters).';
+    if (!isValidBankBranchCode(meta.bankBranchCode)) {
+      errors.bankBranchCode = 'Enter a valid bank branch code (2–20 letters or numbers).';
     }
-    if (!isValidIfsc(documentMeta.ifscCode)) {
-      errors.ifscCode = 'Enter a valid IFSC code.';
+    if (!isValidIfsc(meta.ifscCode)) {
+      errors.ifscCode = 'Enter a valid 11-character IFSC code (e.g. SBIN0001234).';
     }
-  } else if (!files.passbookFront) {
+  } else if (!hasUploadedFile(f.passbookFront)) {
     errors.passbookFront = 'Passbook or cheque front image is required.';
   }
 
-  if (!files.appointmentLetter) {
+  if (!hasUploadedFile(f.appointmentLetter)) {
     errors.appointmentLetter = 'Appointment letter is required.';
   }
 

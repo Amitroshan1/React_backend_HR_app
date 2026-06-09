@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { fetchDepartmentNocRequests, uploadNocDepartmentRequest } from "../api";
 import "./Requests/RequestCard.css";
 import "../../IT/ReturnRequests.css";
+
+const NOC_ACCEPT = ".pdf,.doc,.docx,.png,.jpg,.jpeg";
 
 function formatShort(iso) {
   if (!iso) return "—";
@@ -60,6 +62,147 @@ function canDownloadDepartmentNoc(req, requireApproval) {
   return isResignationApproved(req);
 }
 
+function isPreviewableImage(file) {
+  if (!file) return false;
+  if (file.type?.startsWith("image/")) return true;
+  return /\.(jpe?g|png|gif|webp)$/i.test(file.name || "");
+}
+
+function isPreviewablePdf(file) {
+  if (!file) return false;
+  if (file.type === "application/pdf") return true;
+  return /\.pdf$/i.test(file.name || "");
+}
+
+function NocPreviewModal({ preview, onClose }) {
+  if (!preview) return null;
+
+  const { file, url, title } = preview;
+  const showImage = isPreviewableImage(file);
+  const showPdf = isPreviewablePdf(file);
+
+  return (
+    <div className="noc-preview-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="noc-preview-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="noc-preview-title"
+      >
+        <div className="noc-preview-modal__header">
+          <span id="noc-preview-title" className="noc-preview-modal__title">
+            {title}
+          </span>
+          <button type="button" className="noc-preview-modal__close" onClick={onClose} aria-label="Close preview">
+            ✕
+          </button>
+        </div>
+        <div className="noc-preview-modal__body">
+          {showImage && (
+            <img src={url} alt={file.name} className="noc-preview-modal__image" />
+          )}
+          {showPdf && (
+            <iframe src={url} title={file.name} className="noc-preview-modal__iframe" />
+          )}
+          {!showImage && !showPdf && (
+            <div className="noc-preview-modal__unsupported">
+              <p>
+                <strong>{file.name}</strong>
+              </p>
+              <p>Word documents cannot be previewed in the browser. Please open the file on your computer to verify it before uploading.</p>
+            </div>
+          )}
+        </div>
+        <div className="noc-preview-modal__footer">
+          <button type="button" className="btn-noc-preview-close" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Choose file → preview → confirm upload (no auto-upload on file pick).
+ */
+function NocPendingUpload({
+  req,
+  pendingFile,
+  onSelectFile,
+  onClearFile,
+  onPreview,
+  onConfirmUpload,
+  uploading,
+  compact = false,
+}) {
+  const inputId = `noc-file-${req.id}`;
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) onSelectFile(req.id, file);
+  };
+
+  if (!pendingFile) {
+    return (
+      <div className={`noc-pending-upload${compact ? " noc-pending-upload--compact" : ""}`}>
+        <label className="noc-upload-label" htmlFor={inputId}>
+          <input
+            id={inputId}
+            type="file"
+            accept={NOC_ACCEPT}
+            disabled={uploading}
+            onChange={handleFileChange}
+          />
+          <span className="btn-upload-noc btn-upload-noc--choose">
+            {compact ? "Choose file" : "Choose NOC file"}
+          </span>
+        </label>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`noc-pending-upload noc-pending-upload--selected${compact ? " noc-pending-upload--compact" : ""}`}>
+      <p className="noc-pending-filename" title={pendingFile.name}>
+        {pendingFile.name}
+      </p>
+      <div className="noc-pending-actions">
+        <button
+          type="button"
+          className="btn-noc-preview"
+          onClick={() => onPreview(req, pendingFile)}
+          disabled={uploading}
+        >
+          Preview
+        </button>
+        <button
+          type="button"
+          className="btn-noc-confirm"
+          onClick={() => onConfirmUpload(req)}
+          disabled={uploading}
+        >
+          {uploading ? "Uploading…" : "Confirm upload"}
+        </button>
+        <button
+          type="button"
+          className="btn-noc-remove"
+          onClick={() => onClearFile(req.id)}
+          disabled={uploading}
+          title="Remove selected file"
+        >
+          Remove
+        </button>
+      </div>
+      {!compact && (
+        <p className="noc-pending-hint">Preview the file to verify it is correct for {req.employee_name || "this employee"}, then confirm upload.</p>
+      )}
+    </div>
+  );
+}
+
 /**
  * Department-scoped NOC queue (HR / Accounts / Reporting Manager / IT).
  * Pass apiBase: /api/HumanResource | /api/accounts | /api/manager | /api/it
@@ -77,6 +220,8 @@ export const DepartmentNocPanel = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [uploadingId, setUploadingId] = useState(null);
+  const [pendingFiles, setPendingFiles] = useState({});
+  const [preview, setPreview] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -95,11 +240,52 @@ export const DepartmentNocPanel = ({
     load();
   }, [apiBase, statusFilter]);
 
-  const handleUpload = async (req, file) => {
+  useEffect(() => {
+    return () => {
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    };
+  }, [preview]);
+
+  const clearPendingFile = useCallback((reqId) => {
+    setPendingFiles((prev) => {
+      if (!prev[reqId]) return prev;
+      const next = { ...prev };
+      delete next[reqId];
+      return next;
+    });
+  }, []);
+
+  const handleSelectFile = useCallback((reqId, file) => {
+    setPendingFiles((prev) => ({ ...prev, [reqId]: file }));
+    setError("");
+  }, []);
+
+  const closePreview = useCallback(() => {
+    setPreview((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return null;
+    });
+  }, []);
+
+  const openPreview = useCallback((req, file) => {
+    setPreview((current) => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return {
+        file,
+        url: URL.createObjectURL(file),
+        title: `${req.employee_name || "Employee"} — ${file.name}`,
+      };
+    });
+  }, []);
+
+  const handleUpload = async (req) => {
+    const file = pendingFiles[req?.id];
     if (!file || !req?.id) return;
     try {
       setUploadingId(req.id);
+      setError("");
       await uploadNocDepartmentRequest(req.id, file, apiBase);
+      clearPendingFile(req.id);
       if (onRequestUpdated) await onRequestUpdated();
       const rows = await fetchDepartmentNocRequests(apiBase, statusFilter);
       setRequests(sortNocRequestsNewestFirst(rows));
@@ -165,9 +351,12 @@ export const DepartmentNocPanel = ({
     );
   }
 
+  const previewModal = <NocPreviewModal preview={preview} onClose={closePreview} />;
+
   if (variant === "table") {
     return (
       <>
+        {previewModal}
         {error ? <p className="manager-noc-inline-error">{error}</p> : null}
         <div className="rr-table-wrap">
           <table className="rr-table department-noc-table">
@@ -223,21 +412,16 @@ export const DepartmentNocPanel = ({
                     <td>
                       <div className="noc-table-action-cell">
                         {pending ? (
-                          <label className="noc-upload-label noc-upload-label--table">
-                            <input
-                              type="file"
-                              accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                              disabled={uploadingId === req.id}
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                e.target.value = "";
-                                if (f) handleUpload(req, f);
-                              }}
-                            />
-                            <span className="btn-upload-noc">
-                              {uploadingId === req.id ? "Uploading…" : "Upload"}
-                            </span>
-                          </label>
+                          <NocPendingUpload
+                            req={req}
+                            pendingFile={pendingFiles[req.id]}
+                            onSelectFile={handleSelectFile}
+                            onClearFile={clearPendingFile}
+                            onPreview={openPreview}
+                            onConfirmUpload={handleUpload}
+                            uploading={uploadingId === req.id}
+                            compact
+                          />
                         ) : canDl ? (
                           <button
                             type="button"
@@ -267,6 +451,7 @@ export const DepartmentNocPanel = ({
 
   return (
     <>
+      {previewModal}
       {error ? <p className="manager-noc-inline-error">{error}</p> : null}
       {requests.map((req) => {
         const pending = (req.status || "").toLowerCase() === "pending";
@@ -328,21 +513,15 @@ export const DepartmentNocPanel = ({
             </div>
             {pending ? (
               <div className="noc-upload-row">
-                <label className="noc-upload-label">
-                  <input
-                    type="file"
-                    accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                    disabled={uploadingId === req.id}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = "";
-                      if (f) handleUpload(req, f);
-                    }}
-                  />
-                  <span className="btn-upload-noc">
-                    {uploadingId === req.id ? "Uploading…" : "Choose file & upload"}
-                  </span>
-                </label>
+                <NocPendingUpload
+                  req={req}
+                  pendingFile={pendingFiles[req.id]}
+                  onSelectFile={handleSelectFile}
+                  onClearFile={clearPendingFile}
+                  onPreview={openPreview}
+                  onConfirmUpload={handleUpload}
+                  uploading={uploadingId === req.id}
+                />
               </div>
             ) : canDl ? (
               <div className="noc-uploaded-row">
