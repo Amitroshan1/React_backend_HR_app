@@ -548,6 +548,17 @@
   gap: 24px;
 }
 
+.ctc-form-grid input[type="number"]::-webkit-outer-spin-button,
+.ctc-form-grid input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ctc-form-grid input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 .ctc-form-half {
   border: 1px solid #e2e8f0;
   border-radius: 12px;

@@ -738,8 +738,65 @@ def create_app():
         except Exception as e:
             app.logger.warning("leave_balances defaults ensure skipped: %s", e)
 
+    def _ensure_ctc_breakup_columns():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "ctc_breakups"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            additions = []
+            if "annual_ctc" not in existing:
+                additions.append(
+                    ("annual_ctc", 'DOUBLE PRECISION NULL' if dialect == "postgresql" else "FLOAT NULL")
+                )
+            if "mediclaim_yearly" not in existing:
+                additions.append(
+                    ("mediclaim_yearly", 'DOUBLE PRECISION NULL' if dialect == "postgresql" else "FLOAT NULL")
+                )
+            float_cols = (
+                "hra_pct",
+                "annual_ctc_computed",
+                "esic_employer",
+                "deductions_total",
+                "gratuity_yearly",
+                "gratuity_monthly",
+                "employer_pf_yearly",
+                "employer_pf_monthly",
+                "employer_esic_yearly",
+                "employer_esic_monthly",
+                "epf_pct",
+            )
+            for col in float_cols:
+                if col not in existing:
+                    additions.append(
+                        (col, 'DOUBLE PRECISION NULL' if dialect == "postgresql" else "FLOAT NULL")
+                    )
+            if "epf_mode" not in existing:
+                additions.append(
+                    ("epf_mode", "VARCHAR(20) NULL" if dialect == "postgresql" else "VARCHAR(20) NULL")
+                )
+            if "ptax_month" not in existing:
+                additions.append(
+                    ("ptax_month", "VARCHAR(7) NULL" if dialect == "postgresql" else "VARCHAR(7) NULL")
+                )
+            for col, col_type in additions:
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("ctc_breakups column migration skipped: %s", e)
+
     with app.app_context():
         try:
+            _ensure_ctc_breakup_columns()
             _ensure_parcel_name_columns()
             _ensure_expense_line_item_rejection_reason()
             _ensure_punch_session_auto_punched_out()

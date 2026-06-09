@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
@@ -11,6 +11,16 @@ import { fetchDepartmentNocRequests } from '../Manager/api';
 import { hasFeature } from '../../utils/planFeatures';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
+
+const parseMediclaimYearly = (mediclaimValue) => {
+  if (mediclaimValue === '' || mediclaimValue == null) return 0;
+  const n = Number(mediclaimValue);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+};
+
+const blockCtcNumberWheel = (e) => {
+  e.currentTarget.blur();
+};
 
 export const Account = ()  => {
   const { userData } = useUser();
@@ -137,7 +147,9 @@ export const Account = ()  => {
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     return `${d.getFullYear()}-${mm}`; // YYYY-MM
   });
-  const [ctcHraPct, setCtcHraPct] = useState('');
+  const [ctcAnnual, setCtcAnnual] = useState('');
+  const [ctcMediclaim, setCtcMediclaim] = useState('');
+  const [ctcHraPct, setCtcHraPct] = useState('40');
   const [ctcEpfMode, setCtcEpfMode] = useState('min'); // 'min' | 'percent'
   const [ctcEpfPct, setCtcEpfPct] = useState('');
   const [ctcComputed, setCtcComputed] = useState({
@@ -149,6 +161,14 @@ export const Account = ()  => {
     gross_salary: 0,
     net_salary: 0,
     deductions_total: 0,
+    gratuity_yearly: 0,
+    gratuity_monthly: 0,
+    employer_pf_yearly: 0,
+    employer_pf_monthly: 0,
+    employer_esic_yearly: 0,
+    employer_esic_monthly: 0,
+    mediclaim_yearly: 0,
+    annual_ctc_total: 0,
   });
   const [ctcCalcError, setCtcCalcError] = useState('');
   const [ctcSaving, setCtcSaving] = useState(false);
@@ -158,6 +178,8 @@ export const Account = ()  => {
   const [ctcHistory, setCtcHistory] = useState([]);
   const [ctcHistoryLoading, setCtcHistoryLoading] = useState(false);
   const [ctcHistoryError, setCtcHistoryError] = useState('');
+  const ctcApplyingReverseRef = useRef(false);
+  const ctcWantsReverseRef = useRef(false);
 
   // Employee Accounts Profile (new model) - tied to selected employee in "Bank Details"
   const [accountsProfileForm, setAccountsProfileForm] = useState({
@@ -857,6 +879,12 @@ export const Account = ()  => {
         throw new Error(result.message || 'Failed to load CTC breakup');
       }
       const c = result.ctc_breakup || {};
+      const basic = Number(c.basic_salary || 0);
+      const hraAmt = Number(c.hra || 0);
+      setCtcAnnual(
+        c.annual_ctc != null && c.annual_ctc !== '' ? String(c.annual_ctc) : '',
+      );
+      setCtcMediclaim(c.mediclaim_yearly != null ? String(c.mediclaim_yearly) : '');
       setCtcForm({
         basic_salary: c.basic_salary ?? '',
         hra: c.hra ?? '',
@@ -865,11 +893,41 @@ export const Account = ()  => {
         esic: c.esic ?? '',
         ptax: c.ptax ?? '',
       });
-      // When loading existing record, we can't reliably reverse-engineer % choices.
-      // Keep user inputs empty; computed will refresh once user edits fields.
-      setCtcHraPct('');
-      setCtcEpfMode('min');
-      setCtcEpfPct('');
+      if (c.hra_pct != null && c.hra_pct !== '') {
+        setCtcHraPct(String(c.hra_pct));
+      } else if (basic > 0 && hraAmt > 0) {
+        const pct = (hraAmt / basic) * 100;
+        if (pct >= 5 && pct <= 50) {
+          setCtcHraPct(String(Math.round(pct * 100) / 100));
+        } else {
+          setCtcHraPct('40');
+        }
+      } else {
+        setCtcHraPct('40');
+      }
+      setCtcEpfMode(c.epf_mode === 'percent' ? 'percent' : 'min');
+      setCtcEpfPct(c.epf_pct != null && c.epf_pct !== '' ? String(c.epf_pct) : '');
+      if (c.ptax_month) {
+        setCtcMonth(c.ptax_month);
+      }
+      setCtcComputed({
+        hra_amount: Number(c.hra || 0),
+        epf_amount: Number(c.epf || 0),
+        ptax_amount: Number(c.ptax || 0),
+        esic_employee_amount: Number(c.esic || 0),
+        esic_employer_amount: Number(c.esic_employer || 0),
+        gross_salary: Number(c.gross_salary || 0),
+        net_salary: Number(c.net_salary || 0),
+        deductions_total: Number(c.deductions_total || 0),
+        gratuity_yearly: Number(c.gratuity_yearly || 0),
+        gratuity_monthly: Number(c.gratuity_monthly || 0),
+        employer_pf_yearly: Number(c.employer_pf_yearly || 0),
+        employer_pf_monthly: Number(c.employer_pf_monthly || 0),
+        employer_esic_yearly: Number(c.employer_esic_yearly || 0),
+        employer_esic_monthly: Number(c.employer_esic_monthly || 0),
+        mediclaim_yearly: Number(c.mediclaim_yearly || 0),
+        annual_ctc_total: Number(c.annual_ctc || c.annual_ctc_computed || 0),
+      });
     } catch (error) {
       console.error('CTC breakup load error:', error);
       setCtcError(error.message || 'Unable to load CTC breakup');
@@ -881,7 +939,9 @@ export const Account = ()  => {
         esic: '',
         ptax: '',
       });
-      setCtcHraPct('');
+      setCtcAnnual('');
+      setCtcMediclaim('');
+      setCtcHraPct('40');
       setCtcEpfMode('min');
       setCtcEpfPct('');
     } finally {
@@ -932,7 +992,9 @@ export const Account = ()  => {
       esic: '',
       ptax: '',
     });
-    setCtcHraPct('');
+    setCtcAnnual('');
+    setCtcMediclaim('');
+    setCtcHraPct('40');
     setCtcEpfMode('min');
     setCtcEpfPct('');
     setCtcCalcError('');
@@ -945,6 +1007,14 @@ export const Account = ()  => {
       gross_salary: 0,
       net_salary: 0,
       deductions_total: 0,
+      gratuity_yearly: 0,
+      gratuity_monthly: 0,
+      employer_pf_yearly: 0,
+      employer_pf_monthly: 0,
+      employer_esic_yearly: 0,
+      employer_esic_monthly: 0,
+      mediclaim_yearly: 0,
+      annual_ctc_total: 0,
     });
     setCtcError('');
     setCtcSuccess('');
@@ -953,14 +1023,56 @@ export const Account = ()  => {
     loadCtcHistory(emp.adminId);
   };
 
+  const applyCtcComputed = (computed, derived = {}, { lockAnnual = false } = {}) => {
+    setCtcComputed({
+      hra_amount: Number(computed.hra_amount || 0),
+      epf_amount: Number(computed.epf_amount || 0),
+      ptax_amount: Number(computed.ptax_amount || 0),
+      esic_employee_amount: Number(computed.esic_employee_amount || 0),
+      esic_employer_amount: Number(computed.esic_employer_amount || 0),
+      gross_salary: Number(computed.gross_salary || 0),
+      net_salary: Number(computed.net_salary || 0),
+      deductions_total: Number(computed.deductions_total || 0),
+      gratuity_yearly: Number(computed.gratuity_yearly || 0),
+      gratuity_monthly: Number(computed.gratuity_monthly || 0),
+      employer_pf_yearly: Number(computed.employer_pf_yearly || 0),
+      employer_pf_monthly: Number(computed.employer_pf_monthly || 0),
+      employer_esic_yearly: Number(computed.employer_esic_yearly || 0),
+      employer_esic_monthly: Number(computed.employer_esic_monthly || 0),
+      mediclaim_yearly: Number(
+        derived.mediclaim_yearly ?? computed.mediclaim_yearly ?? computed?.inputs?.mediclaim_yearly ?? 0,
+      ),
+      annual_ctc_total: Number(
+        lockAnnual
+          ? (derived.annual_ctc ?? derived.annual_ctc_computed ?? computed.annual_ctc_total) || 0
+          : computed.annual_ctc_total || 0,
+      ),
+    });
+    // Only overwrite Basic when reverse-calculating from Annual CTC — not while user edits Basic.
+    const basicToSync = derived.basic_salary != null ? derived.basic_salary : null;
+    setCtcForm((p) => ({
+      ...p,
+      ...(basicToSync != null ? { basic_salary: String(basicToSync) } : {}),
+      hra: computed.hra_amount ?? '',
+      epf: computed.epf_amount ?? '',
+      ptax: computed.ptax_amount ?? '',
+      esic: computed.esic_employee_amount ?? '',
+    }));
+  };
+
   useEffect(() => {
     if (currentView !== 'ctcBreakup') return;
     if (!selectedEmployee?.adminId) return;
     const token = localStorage.getItem('token');
     if (!token) return;
 
+    const annual = Number(ctcAnnual || 0);
     const basic = Number(ctcForm.basic_salary || 0);
-    if (!basic || basic <= 0) {
+    // Reverse only when user edits Annual CTC input. HRA / other / mediclaim use forward
+    // calc so Basic stays fixed and Annual CTC (total) changes with HRA % (5–50).
+    const useReverse = ctcWantsReverseRef.current && annual > 0;
+
+    if (!useReverse && (!basic || basic <= 0)) {
       setCtcCalcError('');
       setCtcComputed((p) => ({ ...p, gross_salary: 0, net_salary: 0, deductions_total: 0 }));
       return;
@@ -970,21 +1082,38 @@ export const Account = ()  => {
     const t = setTimeout(async () => {
       try {
         setCtcCalcError('');
-        const response = await fetch(`${API_BASE_URL}/ctc-breakup/calculate`, {
+        const endpoint = useReverse
+          ? `${API_BASE_URL}/ctc-breakup/reverse-calculate`
+          : `${API_BASE_URL}/ctc-breakup/calculate`;
+        const mediclaimYearly = parseMediclaimYearly(ctcMediclaim);
+        const body = useReverse
+          ? {
+              admin_id: selectedEmployee.adminId,
+              annual_ctc: annual,
+              hra_pct: ctcHraPct || 40,
+              other_allowance: ctcForm.other_allowance || 0,
+              mediclaim_yearly: mediclaimYearly,
+              epf_mode: ctcEpfMode,
+              epf_pct: ctcEpfPct,
+              month: ctcMonth,
+            }
+          : {
+              admin_id: selectedEmployee.adminId,
+              basic_salary: ctcForm.basic_salary,
+              hra_pct: ctcHraPct,
+              other_allowance: ctcForm.other_allowance,
+              mediclaim_yearly: mediclaimYearly,
+              epf_mode: ctcEpfMode,
+              epf_pct: ctcEpfPct,
+              month: ctcMonth,
+            };
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            admin_id: selectedEmployee.adminId,
-            basic_salary: ctcForm.basic_salary,
-            hra_pct: ctcHraPct,
-            other_allowance: ctcForm.other_allowance,
-            epf_mode: ctcEpfMode,
-            epf_pct: ctcEpfPct,
-            month: ctcMonth
-          })
+          body: JSON.stringify(body),
         });
         const result = await response.json();
         if (!response.ok || !result.success) {
@@ -992,25 +1121,20 @@ export const Account = ()  => {
         }
         if (cancelled) return;
         const computed = result?.data?.computed || {};
-        setCtcComputed({
-          hra_amount: Number(computed.hra_amount || 0),
-          epf_amount: Number(computed.epf_amount || 0),
-          ptax_amount: Number(computed.ptax_amount || 0),
-          esic_employee_amount: Number(computed.esic_employee_amount || 0),
-          esic_employer_amount: Number(computed.esic_employer_amount || 0),
-          gross_salary: Number(computed.gross_salary || 0),
-          net_salary: Number(computed.net_salary || 0),
-          deductions_total: Number(computed.deductions_total || 0),
-        });
-
-        // Keep the persisted payload in sync with computed amounts
-        setCtcForm((p) => ({
-          ...p,
-          hra: computed.hra_amount ?? '',
-          epf: computed.epf_amount ?? '',
-          ptax: computed.ptax_amount ?? '',
-          esic: computed.esic_employee_amount ?? '',
-        }));
+        const derived = result?.data?.derived || {};
+        if (useReverse) {
+          ctcApplyingReverseRef.current = true;
+          ctcWantsReverseRef.current = false;
+          applyCtcComputed(computed, derived, { lockAnnual: true });
+          if (derived.hra_pct != null) {
+            setCtcHraPct(String(derived.hra_pct));
+          }
+          requestAnimationFrame(() => {
+            ctcApplyingReverseRef.current = false;
+          });
+        } else {
+          applyCtcComputed(computed, {}, { lockAnnual: false });
+        }
       } catch (e) {
         if (cancelled) return;
         setCtcCalcError(e.message || 'CTC calculation failed');
@@ -1024,12 +1148,14 @@ export const Account = ()  => {
   }, [
     currentView,
     selectedEmployee?.adminId,
+    ctcAnnual,
+    ctcMediclaim,
     ctcForm.basic_salary,
     ctcForm.other_allowance,
     ctcHraPct,
     ctcEpfMode,
     ctcEpfPct,
-    ctcMonth
+    ctcMonth,
   ]);
 
   useEffect(() => {
@@ -1708,9 +1834,29 @@ export const Account = ()  => {
       setCtcSuccess('');
       const payload = {
         admin_id: selectedEmployee.adminId,
-        ...ctcForm,
+        basic_salary: ctcForm.basic_salary,
+        hra: ctcComputed.hra_amount ?? ctcForm.hra,
+        hra_pct: ctcHraPct ? Number(ctcHraPct) : null,
+        other_allowance: ctcForm.other_allowance,
         gross_salary: ctcComputed.gross_salary,
         net_salary: ctcComputed.net_salary,
+        deductions_total: ctcComputed.deductions_total,
+        epf: ctcComputed.epf_amount,
+        epf_mode: ctcEpfMode,
+        epf_pct: ctcEpfMode === 'percent' && ctcEpfPct ? Number(ctcEpfPct) : null,
+        esic: ctcComputed.esic_employee_amount,
+        esic_employer: ctcComputed.esic_employer_amount,
+        ptax: ctcComputed.ptax_amount,
+        ptax_month: ctcMonth,
+        annual_ctc: ctcAnnual ? Number(ctcAnnual) : null,
+        annual_ctc_computed: ctcComputed.annual_ctc_total,
+        mediclaim_yearly: parseMediclaimYearly(ctcMediclaim),
+        gratuity_yearly: ctcComputed.gratuity_yearly,
+        gratuity_monthly: ctcComputed.gratuity_monthly,
+        employer_pf_yearly: ctcComputed.employer_pf_yearly,
+        employer_pf_monthly: ctcComputed.employer_pf_monthly,
+        employer_esic_yearly: ctcComputed.employer_esic_yearly,
+        employer_esic_monthly: ctcComputed.employer_esic_monthly,
       };
       const response = await fetch(`${API_BASE_URL}/ctc-breakup`, {
         method: 'PUT',
@@ -2154,8 +2300,62 @@ export const Account = ()  => {
                 <input className="custom-select" value={selectedEmployee?.id || ''} readOnly />
               </div>
               <div className="input-group">
+                <label>Annual CTC (₹ per annum)</label>
+                <input
+                  className="custom-select"
+                  type="number"
+                  step="1"
+                  min="0"
+                  placeholder="e.g. 500000"
+                  value={ctcAnnual}
+                  onWheel={blockCtcNumberWheel}
+                  onChange={(e) => {
+                    ctcWantsReverseRef.current = true;
+                    setCtcAnnual(e.target.value);
+                  }}
+                />
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                  Optional target — enter once to derive Basic (min ₹12,500). You can then edit Basic
+                  or HRA %; Annual CTC (total) in the table below updates accordingly.
+                </div>
+              </div>
+              <div className="input-group">
+                <label>Mediclaim (₹ per annum)</label>
+                <input
+                  className="custom-select"
+                  type="number"
+                  step="1"
+                  min="0"
+                  placeholder="e.g. 4000"
+                  value={ctcMediclaim}
+                  onWheel={blockCtcNumberWheel}
+                  onChange={(e) => {
+                    ctcWantsReverseRef.current = false;
+                    setCtcMediclaim(e.target.value);
+                  }}
+                />
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                  Enter manually if applicable. Included inside Annual CTC (not extra).
+                </div>
+              </div>
+              <div className="input-group">
                 <label>Basic Salary + DA</label>
-                <input className="custom-select" type="number" step="0.01" value={ctcForm.basic_salary} onChange={(e) => setCtcForm((p) => ({ ...p, basic_salary: e.target.value }))} />
+                <input
+                  className="custom-select"
+                  type="number"
+                  step="0.01"
+                  value={ctcForm.basic_salary}
+                  onWheel={blockCtcNumberWheel}
+                  onChange={(e) => {
+                    if (!ctcApplyingReverseRef.current) {
+                      ctcWantsReverseRef.current = false;
+                    }
+                    setCtcForm((p) => ({ ...p, basic_salary: e.target.value }));
+                  }}
+                />
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                  Editable. Minimum max(40% of gross, ₹12,500/month); you may enter higher (e.g. ₹13,000).
+                </div>
               </div>
               <div className="input-group">
                   <label>HRA (%)</label>
@@ -2165,16 +2365,21 @@ export const Account = ()  => {
                     step="0.01"
                     placeholder="HRA should be between 5% to 50%"
                     value={ctcHraPct}
-                    disabled={!Number(ctcForm.basic_salary || 0)}
-                    onChange={(e) => setCtcHraPct(e.target.value)}
+                    onWheel={blockCtcNumberWheel}
+                    disabled={!Number(ctcAnnual || 0) && !Number(ctcForm.basic_salary || 0)}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcHraPct(e.target.value);
+                    }}
                   />
                   <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
-                    {Number(ctcForm.basic_salary || 0) > 0 ? (
+                    {Number(ctcAnnual || 0) > 0 || Number(ctcForm.basic_salary || 0) > 0 ? (
                       <span>
-                        {ctcHraPct || 0}% - {Number(ctcComputed.hra_amount || 0).toFixed(2)}
+                        {ctcHraPct || 40}% — HRA ₹{Number(ctcComputed.hra_amount || 0).toFixed(2)}.
+                        Changing HRA (5–50%) updates Annual CTC (total) below.
                       </span>
                     ) : (
-                      <span>Enter Basic Salary + DA to calculate HRA.</span>
+                      <span>Enter Annual CTC or Basic Salary + DA to calculate HRA.</span>
                     )}
                   </div>
               </div>
@@ -2183,7 +2388,20 @@ export const Account = ()  => {
               <h4 className="ctc-form-half-title">Part B</h4>
               <div className="input-group">
                 <label>Other Allowance</label>
-                <input className="custom-select" type="number" step="0.01" value={ctcForm.other_allowance} onChange={(e) => setCtcForm((p) => ({ ...p, other_allowance: e.target.value }))} />
+                <input
+                  className="custom-select"
+                  type="number"
+                  step="0.01"
+                  value={ctcForm.other_allowance}
+                  onWheel={blockCtcNumberWheel}
+                  onChange={(e) => {
+                    ctcWantsReverseRef.current = false;
+                    setCtcForm((p) => ({ ...p, other_allowance: e.target.value }));
+                  }}
+                />
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                  Enter manually. Not auto-calculated from annual CTC.
+                </div>
               </div>
               <div className="input-group">
                   <label>EPF</label>
@@ -2199,6 +2417,7 @@ export const Account = ()  => {
                         step="0.01"
                         placeholder="Enter EPF % (e.g. 8)"
                         value={ctcEpfPct}
+                        onWheel={blockCtcNumberWheel}
                         onChange={(e) => setCtcEpfPct(e.target.value)}
                       />
                     )}
@@ -2228,7 +2447,7 @@ export const Account = ()  => {
                 <table className="results-table">
                   <thead>
                     <tr>
-                      <th>Gross Salary</th>
+                      <th>Gross Salary (monthly)</th>
                       <th>Total Deductions</th>
                       <th>Net Salary</th>
                     </tr>
@@ -2238,6 +2457,30 @@ export const Account = ()  => {
                       <td>{Number(ctcComputed.gross_salary || 0).toFixed(2)}</td>
                       <td>{Number(ctcComputed.deductions_total || 0).toFixed(2)}</td>
                       <td>{Number(ctcComputed.net_salary || 0).toFixed(2)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="table-responsive">
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th>Gratuity (yr)</th>
+                      <th>Employer PF (yr)</th>
+                      <th>Employer ESIC (yr)</th>
+                      <th>Mediclaim (yr)</th>
+                      <th>Annual CTC (total)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{Number(ctcComputed.gratuity_yearly || 0).toFixed(2)}</td>
+                      <td>{Number(ctcComputed.employer_pf_yearly || 0).toFixed(2)}</td>
+                      <td>{Number(ctcComputed.employer_esic_yearly || 0).toFixed(2)}</td>
+                      <td>
+                        {parseMediclaimYearly(ctcMediclaim).toFixed(2)}
+                      </td>
+                      <td>{Number(ctcComputed.annual_ctc_total || 0).toFixed(2)}</td>
                     </tr>
                   </tbody>
                 </table>

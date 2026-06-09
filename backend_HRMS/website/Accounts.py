@@ -298,6 +298,14 @@ def _prorate_earnings_to_gross(basic, hra, other, target_gross):
     return b2, h2, o2
 
 
+from .commands.ctc_breakup_logic import (
+    DEFAULT_HRA_PCT,
+    annual_ctc_from_monthly,
+    employer_costs_summary,
+    monthly_components,
+    reverse_ctc_breakup,
+)
+
 _CTC_RULES = {
     "hra": {"min_pct": 5.0, "max_pct": 50.0},
     "epf": {"mandatory_pct": 12.0, "basic_threshold": 15000.0, "min_amount_if_above_threshold": 1800.0},
@@ -307,23 +315,32 @@ _CTC_RULES = {
     },
     "esic": {
         "gross_threshold": 21001.0,
-        "employee_pct": 3.25,
-        "employer_pct": 0.75,
+        "employee_pct": 0.75,
+        "employer_pct": 3.25,
     },
 }
 
 
-def _ctc_calculate(*, basic_salary, other_allowance, hra_pct, epf_mode, epf_pct, month, gender):
+def _ctc_calculate(
+    *,
+    basic_salary,
+    other_allowance,
+    hra_pct,
+    epf_mode,
+    epf_pct,
+    month,
+    gender,
+    mediclaim_yearly=0,
+):
     """
     Implements rules exactly as discussed:
     - HRA: between 5% and 50% of (basic + DA)
     - EPF: if basic < 15000 => 12% mandatory; else choose min 1800 OR percentage
     - PTAX: depends on gender, basic slabs and Feb special
-    - ESIC: if gross < 21001 => employee 3.25% and employer 0.75%; else 0
+    - ESIC: if gross < 21001 => employee 0.75% and employer 3.25%; else 0
     - Gross = basic + hra_amount + other_allowance
     - Net = Gross - (EPF + PTAX + ESIC_employee)
     """
-    basic = float(basic_salary or 0)
     other = float(other_allowance or 0)
 
     # Month parsing: expects "YYYY-MM" (preferred) but tolerates "February"/etc.
@@ -350,9 +367,13 @@ def _ctc_calculate(*, basic_salary, other_allowance, hra_pct, epf_mode, epf_pct,
         hra_pct_val = _CTC_RULES["hra"]["min_pct"]
     if hra_pct_val < _CTC_RULES["hra"]["min_pct"] or hra_pct_val > _CTC_RULES["hra"]["max_pct"]:
         raise ValueError(f"HRA percentage must be between {_CTC_RULES['hra']['min_pct']} and {_CTC_RULES['hra']['max_pct']}")
-    hra_amount = basic * (hra_pct_val / 100.0)
 
-    gross = basic + hra_amount + other
+    basic, hra_amount, other, gross = monthly_components(
+        float(basic_salary or 0),
+        hra_pct_val,
+        other,
+        apply_floor=True,
+    )
 
     # EPF
     epf_amount = 0.0
@@ -403,6 +424,11 @@ def _ctc_calculate(*, basic_salary, other_allowance, hra_pct, epf_mode, epf_pct,
 
     deductions = epf_amount + ptax_amount + esic_employee_amount
     net = gross - deductions
+    mediclaim = max(0.0, float(mediclaim_yearly or 0))
+    employer_costs = employer_costs_summary(basic, gross, mediclaim)
+    annual_ctc_total = annual_ctc_from_monthly(
+        basic, hra_pct_val, other, mediclaim
+    )
 
     return {
         "inputs": {
@@ -413,6 +439,7 @@ def _ctc_calculate(*, basic_salary, other_allowance, hra_pct, epf_mode, epf_pct,
             "epf_pct": _round2(epf_pct_effective) if epf_pct_effective is not None else None,
             "month": month,
             "gender": gender,
+            "mediclaim_yearly": _round2(mediclaim),
         },
         "computed": {
             "hra_amount": _round2(hra_amount),
@@ -423,9 +450,65 @@ def _ctc_calculate(*, basic_salary, other_allowance, hra_pct, epf_mode, epf_pct,
             "gross_salary": _round2(gross),
             "net_salary": _round2(net),
             "deductions_total": _round2(deductions),
+            "gratuity_yearly": employer_costs["gratuity_yearly"],
+            "gratuity_monthly": employer_costs["gratuity_monthly"],
+            "employer_pf_yearly": employer_costs["employer_pf_yearly"],
+            "employer_pf_monthly": employer_costs["employer_pf_monthly"],
+            "employer_esic_yearly": employer_costs["employer_esic_yearly"],
+            "employer_esic_monthly": employer_costs["employer_esic_monthly"],
+            "mediclaim_yearly": employer_costs["mediclaim_yearly"],
+            "annual_ctc_total": _round2(annual_ctc_total),
         },
         "rules": _CTC_RULES,
     }
+
+
+def _ctc_reverse_from_annual(
+    *,
+    annual_ctc,
+    other_allowance,
+    hra_pct,
+    epf_mode,
+    epf_pct,
+    month,
+    gender,
+    mediclaim_yearly=0,
+):
+    """
+    Derive Basic + DA, HRA, and Other from full annual CTC including
+    employer PF, employer ESIC, mediclaim, and gratuity.
+    """
+    other_for_solve = max(0.0, float(other_allowance or 0))
+    solved = reverse_ctc_breakup(
+        annual_ctc,
+        hra_pct,
+        other_allowance=other_for_solve,
+        mediclaim_yearly=mediclaim_yearly,
+    )
+    result = _ctc_calculate(
+        basic_salary=solved["basic_salary"],
+        other_allowance=solved["other_allowance"],
+        hra_pct=solved["hra_pct"],
+        epf_mode=epf_mode,
+        epf_pct=epf_pct,
+        month=month,
+        gender=gender,
+        mediclaim_yearly=mediclaim_yearly,
+    )
+    result["computed"]["annual_ctc_total"] = _round2(solved.get("annual_ctc_computed") or 0)
+    result["computed"]["mediclaim_yearly"] = _round2(mediclaim_yearly or 0)
+    result["derived"] = {
+        "annual_ctc": solved["annual_ctc"],
+        "annual_ctc_computed": solved.get("annual_ctc_computed"),
+        "basic_salary": solved["basic_salary"],
+        "hra_amount": solved["hra_amount"],
+        "hra_pct": solved["hra_pct"],
+        "other_allowance": solved["other_allowance"],
+        "monthly_gross": solved["gross_salary"],
+        "mediclaim_yearly": solved.get("mediclaim_yearly", 0),
+        "employer_costs": solved.get("employer_costs", {}),
+    }
+    return result
 
 
 _EMP_ACC_STRING_FIELDS = (
@@ -1036,6 +1119,77 @@ def calculate_ctc_breakup():
             epf_pct=data.get("epf_pct"),
             month=data.get("month"),
             gender=gender,
+            mediclaim_yearly=_parse_amount(data.get("mediclaim_yearly")) or 0,
+        )
+        return jsonify({"success": True, "data": result}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+
+@Accounts.route("/ctc-breakup/reverse-calculate", methods=["POST"])
+@jwt_required()
+def reverse_calculate_ctc_breakup():
+    """
+    Derive Basic + DA and HRA from annual CTC; returns full computed breakup.
+    Expects JSON:
+    {
+      "admin_id": 123,
+      "annual_ctc": 500000,
+      "other_allowance": 0,
+      "hra_pct": 40,
+      "epf_mode": "min" | "percent",
+      "epf_pct": 8,
+      "month": "2026-06"
+    }
+    """
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in (
+        "account", "accounts", "accountant", "hr", "human resource", "admin"
+    )
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You can only calculate your own CTC breakup",
+        }), 403
+
+    target_admin = Admin.query.get(admin_id)
+    if not target_admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    emp = Employee.query.filter_by(admin_id=admin_id).first()
+    gender = getattr(emp, "gender", None) if emp else None
+
+    annual_ctc = _parse_amount(data.get("annual_ctc"))
+    if not annual_ctc or annual_ctc <= 0:
+        return jsonify({
+            "success": False,
+            "message": "annual_ctc is required and must be greater than 0",
+        }), 400
+
+    try:
+        result = _ctc_reverse_from_annual(
+            annual_ctc=annual_ctc,
+            other_allowance=data.get("other_allowance"),
+            hra_pct=data.get("hra_pct"),
+            epf_mode=data.get("epf_mode"),
+            epf_pct=data.get("epf_pct"),
+            month=data.get("month"),
+            gender=gender,
+            mediclaim_yearly=_parse_amount(data.get("mediclaim_yearly")) or 0,
         )
         return jsonify({"success": True, "data": result}), 200
     except Exception as e:
@@ -1089,23 +1243,38 @@ def upsert_ctc_breakup():
         db.session.add(row)
 
     try:
-        # Partial update: only fields present in payload are updated.
-        if "basic_salary" in data:
-            row.basic_salary = _parse_amount(data.get("basic_salary"))
-        if "hra" in data:
-            row.hra = _parse_amount(data.get("hra"))
-        if "other_allowance" in data:
-            row.other_allowance = _parse_amount(data.get("other_allowance"))
-        if "gross_salary" in data:
-            row.gross_salary = _parse_amount(data.get("gross_salary"))
-        if "net_salary" in data:
-            row.net_salary = _parse_amount(data.get("net_salary"))
-        if "epf" in data:
-            row.epf = _parse_amount(data.get("epf"))
-        if "esic" in data:
-            row.esic = _parse_amount(data.get("esic"))
-        if "ptax" in data:
-            row.ptax = _parse_amount(data.get("ptax"))
+        amount_fields = (
+            "basic_salary",
+            "hra",
+            "hra_pct",
+            "other_allowance",
+            "gross_salary",
+            "net_salary",
+            "epf",
+            "epf_pct",
+            "esic",
+            "esic_employer",
+            "ptax",
+            "deductions_total",
+            "annual_ctc",
+            "annual_ctc_computed",
+            "mediclaim_yearly",
+            "gratuity_yearly",
+            "gratuity_monthly",
+            "employer_pf_yearly",
+            "employer_pf_monthly",
+            "employer_esic_yearly",
+            "employer_esic_monthly",
+        )
+        for field in amount_fields:
+            if field in data:
+                row.__setattr__(field, _parse_amount(data.get(field)))
+
+        if "epf_mode" in data:
+            row.epf_mode = (data.get("epf_mode") or "").strip() or None
+        if "ptax_month" in data:
+            row.ptax_month = (data.get("ptax_month") or "").strip() or None
+
         row.updated_at = datetime.now()
         db.session.commit()
     except Exception as e:
