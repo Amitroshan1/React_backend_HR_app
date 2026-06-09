@@ -102,6 +102,7 @@ def _ensure_parcel_name_columns_runtime():
         addcol("it_parcel_imports", "received_by_name")
         addcol("it_parcel_exports", "exported_by_name")
         addcol("it_parcel_exports", "inventory_category")
+        addcol("it_parcel_export_items", "make")
     except Exception as e:
         current_app.logger.warning("parcel runtime column ensure skipped: %s", e)
 
@@ -383,6 +384,8 @@ def _serialize_parcel_export(e):
                 "assetName": it.asset_name,
                 "serialNo": it.serial_number,
                 "brand": it.brand,
+                "make": (it.make or "").strip()
+                or ((it.asset_unit.make or "").strip() if it.asset_unit else ""),
                 "model": it.model,
                 "individualPhoto": (it.individual_photo_json or [None])[0]
                 if isinstance(it.individual_photo_json, list)
@@ -1981,12 +1984,18 @@ def create_parcel_export():
     inventory_export_qty = {}
     for it in items:
         asset_unit_id, inventory_item_id = _resolve_parcel_export_item_ids(it)
+        make_val = (it.get("make") or "").strip() or None
+        if not make_val and asset_unit_id:
+            unit_for_make = ITAssetUnit.query.get(asset_unit_id)
+            if unit_for_make and unit_for_make.make:
+                make_val = (unit_for_make.make or "").strip() or None
         export_item = ITParcelExportItem(
             parcel_export_id=row.id,
             asset_unit_id=asset_unit_id,
             asset_name=(it.get("asset_name") or it.get("assetName") or "").strip(),
             serial_number=it.get("serial_number") or it.get("serialNo"),
             brand=it.get("brand"),
+            make=make_val,
             model=it.get("model"),
             individual_photo_json=it.get("individual_photo") or it.get("individualPhoto"),
         )

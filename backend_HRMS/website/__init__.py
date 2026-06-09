@@ -263,6 +263,7 @@ def create_app():
             addcol("it_parcel_imports", "received_by_name")
             addcol("it_parcel_exports", "exported_by_name")
             addcol("it_parcel_exports", "inventory_category")
+            addcol("it_parcel_export_items", "make")
         except Exception as e:
             app.logger.warning("Parcel name column migration skipped: %s", e)
 

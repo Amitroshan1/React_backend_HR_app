@@ -291,6 +291,7 @@ class ITParcelExportItem(db.Model):
     asset_name = db.Column(db.String(150), nullable=False)
     serial_number = db.Column(db.String(120), nullable=True, index=True)
     brand = db.Column(db.String(100), nullable=True)
+    make = db.Column(db.String(100), nullable=True)
     model = db.Column(db.String(100), nullable=True)
     individual_photo_json = db.Column(db.JSON, nullable=True)
 

@@ -5,6 +5,10 @@ import { toast } from "react-toastify";
 import ClickableImage from "../../../../components/ClickableImage";
 import { openImageInNewTab } from "../../../../utils/openImageInNewTab";
 import { getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
+import {
+  formatParcelBrandModel,
+  getParcelAssetDisplayName,
+} from "../../inventoryCategories";
 import "./ParcelDashboard.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -200,10 +204,12 @@ function DetailsModal({ asset, onClose }) {
                       }
                     </div>
                     <div className="pcl-sn-asset-detail">
-                      <div className="pcl-sn-asset-name">{a.assetName}</div>
-                      {a.brand && a.brand !== "—" && (
+                      <div className="pcl-sn-asset-name">
+                        {getParcelAssetDisplayName(a, asset.category)}
+                      </div>
+                      {formatParcelBrandModel(a, asset.category) !== "—" && (
                         <div className="pcl-sn-asset-brand">
-                          {a.brand}{a.model ? ` · ${a.model}` : ""}
+                          {formatParcelBrandModel(a, asset.category)}
                         </div>
                       )}
                       <span className="pcl-sn-code">{a.serialNo || "—"}</span>

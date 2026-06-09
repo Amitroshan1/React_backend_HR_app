@@ -10,6 +10,11 @@ import {
 } from "../../Data";
 import ClickableImage from "../../../../components/ClickableImage";
 import { openFirstImageInNewTab } from "../../../../utils/openImageInNewTab";
+import {
+  formatParcelBrandModel,
+  getParcelAssetDisplayName,
+  isTransportInventoryCategory,
+} from "../../inventoryCategories";
 import "./ExportedAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -87,6 +92,7 @@ function getAvailableAssetsFromStorage() {
         emoji:        getEmoji(u),
         hwType:       u.hwType       || "",
         brand:        u.brand        || "",
+        make:         u.make         || "",
         model:        u.model        || "",
         purchaseDate: u.purchaseDate || null,
       }));
@@ -110,6 +116,7 @@ function getAvailableAssetsFromStorage() {
           emoji:        getEmoji({ hwType: inv.hwType, assetName: inv.name }),
           hwType:       inv.hwType  || "",
           brand:        inv.brand   || "",
+          make:         inv.make    || "",
           model:        inv.model   || "",
           purchaseDate: inv.purchaseDate || null,
         }));
@@ -229,7 +236,9 @@ function ModalAssetRow({ asset, individualPhoto }) {
         }
       </div>
       <div className="re-modal-asset-info">
-        <span className="re-modal-asset-name">{asset.assetName}</span>
+        <span className="re-modal-asset-name">
+          {getParcelAssetDisplayName(asset, asset.category)}
+        </span>
         <span className="re-modal-asset-sn">{asset.serialNo}</span>
       </div>
       {individualPhoto && <span className="re-modal-indiv-badge">📷 Photo</span>}
@@ -473,6 +482,7 @@ export default function ReadyForExport() {
         a.assetName.toLowerCase().includes(query) ||
         a.serialNo.toLowerCase().includes(query)  ||
         (a.brand || "").toLowerCase().includes(query) ||
+        (a.make || "").toLowerCase().includes(query) ||
         (a.model || "").toLowerCase().includes(query)
     );
   }, [allAssets, activeCat, search]);
@@ -632,7 +642,9 @@ export default function ReadyForExport() {
                     aria-label="Select all visible assets"
                   />
                 </th>
-                <th className="re-th-sticky">Assets Name</th>
+                <th className="re-th-sticky">
+                  {isTransportInventoryCategory(activeCat) ? "Owner Name" : "Assets Name"}
+                </th>
                 <th className="re-th-sticky">Brand / Model</th>
                 <th className="re-th-sticky">Current Date</th>
                 <th className="re-th-sticky">Serial No</th>
@@ -664,17 +676,15 @@ export default function ReadyForExport() {
                           className="re-checkbox"
                           checked={isSelected}
                           onChange={() => toggleRow(asset.id)}
-                          aria-label={`Select ${asset.assetName}`}
+                          aria-label={`Select ${getParcelAssetDisplayName(asset, activeCat)}`}
                         />
                       </td>
                       <td className="re-td-name">
                         <span className="re-asset-emoji" aria-hidden>{asset.emoji}</span>
-                        {asset.assetName}
+                        {getParcelAssetDisplayName(asset, activeCat)}
                       </td>
                       <td className="re-td-brand">
-                        {asset.brand && asset.brand !== "—"
-                          ? `${asset.brand}${asset.model ? ` · ${asset.model}` : ""}`
-                          : "—"}
+                        {formatParcelBrandModel(asset, activeCat)}
                       </td>
                       <td className="re-td-date">{todayStr()}</td>
                       <td><span className="re-serial-chip">{asset.serialNo}</span></td>

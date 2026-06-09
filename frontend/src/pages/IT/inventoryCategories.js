@@ -137,6 +137,38 @@ const INFRA_EQUIPMENT_HARDWARE_FIELDS = {
   serialNumber: { label: "Asset tag / ID", placeholder: "e.g. INF-001" },
 };
 
+export function isTransportInventoryCategory(inventoryCategory) {
+  return inventoryCategory === "Transport Assets";
+}
+
+/** Owner / fleet name for transport units (brand field stores fleet/owner). */
+export function getTransportOwnerName(unit) {
+  return String(unit?.brand || unit?.assetName || unit?.name || "").trim() || "—";
+}
+
+/** Brand/model text for parcel & export tables (make/model for transport). */
+export function formatParcelBrandModel(asset, inventoryCategory) {
+  if (isTransportInventoryCategory(inventoryCategory)) {
+    const make = String(asset?.make || "").trim();
+    const model = String(asset?.model || "").trim();
+    if (!make && !model) return "—";
+    if (make && model) return `${make}/${model}`;
+    return make || model;
+  }
+  const brand = String(asset?.brand || "").trim();
+  const model = String(asset?.model || "").trim();
+  if (!brand || brand === "—") return "—";
+  return model ? `${brand} · ${model}` : brand;
+}
+
+/** Primary name column for export tables (owner for transport, asset name otherwise). */
+export function getParcelAssetDisplayName(asset, inventoryCategory) {
+  if (isTransportInventoryCategory(inventoryCategory)) {
+    return getTransportOwnerName(asset);
+  }
+  return asset?.assetName || "Unknown";
+}
+
 /** Brand / Name column for unit rows (fixes legacy rows where site was stored in brand). */
 export function getUnitBrandModelDisplay(unit, inventoryCategory) {
   const cat = String(unit?.category || "").trim().toLowerCase();
