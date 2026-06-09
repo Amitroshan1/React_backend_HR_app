@@ -464,37 +464,32 @@ export const Dashboard = () => {
         loadInitialData();
     }, []);
 
-  /* News feed auto-scroll: smooth bidirectional (last → first → last → first) */
-  const newsFeedDirRef = useRef("down");
+  /** Duplicate items for seamless top-to-bottom loop scroll */
+  const loopedNewsFeed = useMemo(() => {
+    if (newsFeed.length <= 1) return newsFeed;
+    return [...newsFeed, ...newsFeed];
+  }, [newsFeed]);
+
+  /* News feed auto-scroll: continuous top → bottom loop (pauses on hover) */
   useEffect(() => {
     if (!newsFeed.length || newsFeedScrollPaused) return;
     const el = newsFeedListRef.current;
     if (!el || el.scrollHeight <= el.clientHeight) return;
+
     const step = 1;
-    const interval = 32;
+    const intervalMs = 32;
+    const loopAt = newsFeed.length > 1 ? el.scrollHeight / 2 : el.scrollHeight;
+
     const id = setInterval(() => {
       if (!el) return;
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      const atBottom = scrollTop + clientHeight >= scrollHeight - 2;
-      const atTop = scrollTop <= 2;
-      if (newsFeedDirRef.current === "down") {
-        if (atBottom) {
-          newsFeedDirRef.current = "up";
-          el.scrollTop -= step;
-        } else {
-          el.scrollTop += step;
-        }
-      } else {
-        if (atTop) {
-          newsFeedDirRef.current = "down";
-          el.scrollTop += step;
-        } else {
-          el.scrollTop -= step;
-        }
+      el.scrollTop += step;
+      if (el.scrollTop >= loopAt - 1) {
+        el.scrollTop = 0;
       }
-    }, interval);
+    }, intervalMs);
+
     return () => clearInterval(id);
-  }, [newsFeed.length, newsFeedScrollPaused]);
+  }, [newsFeed.length, newsFeedScrollPaused, loopedNewsFeed.length]);
   const validateLocationRange = async (lat, lon) => {
     const token = localStorage.getItem("token");
     if (!token)
@@ -952,9 +947,10 @@ export const Dashboard = () => {
                             {newsFeed.length === 0 ? (
                                 <p className="news-feed-empty">No announcements yet.</p>
                             ) : (
+                                <div className="news-feed-scroll-viewport">
                                 <ul className="news-feed-list" ref={newsFeedListRef}>
-                                    {newsFeed.map((item) => (
-                                        <li key={item.id} className={`news-feed-item ${(item.type || 'post') === 'birthday' ? 'news-feed-birthday' : ''} ${(item.type || 'post') === 'anniversary' ? 'news-feed-anniversary' : ''}`}>
+                                    {loopedNewsFeed.map((item, index) => (
+                                        <li key={`${item.id}-${index}`} className={`news-feed-item ${(item.type || 'post') === 'birthday' ? 'news-feed-birthday' : ''} ${(item.type || 'post') === 'anniversary' ? 'news-feed-anniversary' : ''}`}>
                                             <h4 className="news-feed-title">
                                                 {(item.type || '') === 'birthday' && '🎂 '}
                                                 {(item.type || '') === 'anniversary' && '🎉 '}
@@ -977,6 +973,7 @@ export const Dashboard = () => {
                                         </li>
                                     ))}
                                 </ul>
+                                </div>
                             )}
                         </div>
                         </div>

@@ -844,6 +844,7 @@
 .main-grid .dashboard-top-row {
   display: grid !important;
   grid-template-columns: 3fr 1fr !important;
+  grid-template-rows: minmax(0, auto);
   gap: 20px;
   grid-column: span 4;
   align-items: stretch;
@@ -866,16 +867,16 @@
   min-height: 400px;
 }
 
-/* News Feed: stretch to match Today's Status row height; list scrolls when many items */
+/* News Feed: match Today's Status height; content scrolls inside without growing the row */
 .dashboard-content .main-grid .dashboard-top-row .news-feed-section,
 .main-grid .dashboard-top-row .news-feed-section {
   display: flex !important;
   flex-direction: column;
   align-self: stretch !important;
-  height: 100% !important;
-  max-height: none !important;
-  min-height: 0;
-  overflow: hidden;
+  height: 0 !important;
+  min-height: 100% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
 }
 
 .dashboard-content .main-grid .dashboard-top-row .news-feed-section h2.news-feed,
@@ -883,31 +884,31 @@
   flex-shrink: 0;
 }
 
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-scroll-viewport,
+.main-grid .dashboard-top-row .news-feed-section .news-feed-scroll-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
 .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list,
 .main-grid .dashboard-top-row .news-feed-section .news-feed-list {
-  overflow-y: auto !important;
-  flex: 1;
-  min-height: 0;
+  overflow: hidden !important;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  max-height: 100%;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar,
 .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar-track {
-  background: #f1f5f9;
-  border-radius: 3px;
-}
-
-.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-.dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Empty news feed: grow with card so bottom aligns with Today's Status */
@@ -1697,6 +1698,10 @@
   position: relative;
   overflow: hidden;
 }
+
+.main-grid .dashboard-top-row .news-feed-section {
+  height: auto;
+}
 .news-feed-section::before {
   content: '';
   position: absolute;
@@ -1915,7 +1920,9 @@
     min-width: 100% !important;
   }
   .main-grid .dashboard-top-row .news-feed-section {
-    min-height: 220px;
+    height: auto !important;
+    min-height: 220px !important;
+    max-height: 320px;
   }
   .actions-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
