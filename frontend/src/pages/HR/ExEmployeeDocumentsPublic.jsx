@@ -56,7 +56,47 @@ export function ExEmployeeDocumentsPublic() {
   }, [load]);
 
   const downloadUrl = (fileId) =>
-    `${window.location.origin}${API_BASE}/ex-employee-documents/public/${encodeURIComponent(token)}/download/${fileId}`;
+    `${API_BASE}/ex-employee-documents/public/${encodeURIComponent(token)}/download/${fileId}`;
+
+  const parseContentDispositionFilename = (header) => {
+    if (!header) return '';
+    const star = header.match(/filename\*=(?:UTF-8''|utf-8'')([^;]+)/i);
+    if (star?.[1]) {
+      try {
+        return decodeURIComponent(star[1].trim().replace(/^["']|["']$/g, ''));
+      } catch {
+        return star[1].trim().replace(/^["']|["']$/g, '');
+      }
+    }
+    const plain = header.match(/filename="([^"]+)"/i) || header.match(/filename=([^;]+)/i);
+    return plain?.[1]?.trim().replace(/^["']|["']$/g, '') || '';
+  };
+
+  const handleDownload = async (fileId, fallbackName) => {
+    try {
+      const res = await fetch(downloadUrl(fileId));
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || 'Download failed. Try again.');
+        return;
+      }
+      const blob = await res.blob();
+      const filename =
+        parseContentDispositionFilename(res.headers.get('Content-Disposition')) ||
+        fallbackName ||
+        'document';
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      setError('Download failed. Check your connection and try again.');
+    }
+  };
 
   return (
     <div className="ex-doc-public">
@@ -101,14 +141,14 @@ export function ExEmployeeDocumentsPublic() {
             {files.map((f) => (
               <li key={f.id} className="ex-doc-public__item">
                 <span className="ex-doc-public__fname">{f.display_name}</span>
-                <a
+                <button
+                  type="button"
                   className="ex-doc-public__dl"
-                  href={downloadUrl(f.id)}
-                  download
+                  onClick={() => handleDownload(f.id, f.display_name)}
                 >
                   <Download size={16} />
                   Download
-                </a>
+                </button>
               </li>
             ))}
           </ul>

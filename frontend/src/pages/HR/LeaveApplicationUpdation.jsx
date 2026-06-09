@@ -4,7 +4,6 @@ import "./LeaveApplicationUpdation.css";
 
 const API_BASE = "/api/HumanResource";
 
-const STATUS_OPTIONS = ["All", "Pending", "Approved", "Rejected"];
 const REQUEST_TYPE_OPTIONS = [
   { value: "all", label: "All (Leave + WFH)" },
   { value: "leave", label: "Leave Only" },
@@ -73,10 +72,10 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
   const [filters, setFilters] = useState({
     request_type: "all",
     status: "All",
-    emp_type: empTypeOptions[0] || "",
-    circle: circleOptions[0] || "",
+    emp_type: "",
+    circle: "",
   });
-  const [rows, setRows] = useState([]);
+  const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [editRow, setEditRow] = useState(null);
@@ -98,7 +97,6 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     try {
       const params = new URLSearchParams();
       if (filters.request_type) params.set("request_type", filters.request_type);
-      if (filters.status && filters.status !== "All") params.set("status", filters.status.toLowerCase());
       if (filters.emp_type) params.set("emp_type", filters.emp_type);
       if (filters.circle) params.set("circle", filters.circle);
       const res = await fetch(`${API_BASE}/leave-updation/requests?${params.toString()}`, {
@@ -108,14 +106,14 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
       if (!res.ok || !data.success) {
         throw new Error(data.message || "Failed to fetch requests");
       }
-      setRows(data.requests || []);
+      setAllRows(data.requests || []);
     } catch (err) {
-      setRows([]);
+      setAllRows([]);
       setError(err.message || "Network error");
     } finally {
       setLoading(false);
     }
-  }, [filters.request_type, filters.status, filters.emp_type, filters.circle]);
+  }, [filters.request_type, filters.emp_type, filters.circle]);
 
   useEffect(() => {
     fetchRows();
@@ -193,12 +191,18 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
   };
 
   const stats = useMemo(() => {
-    const total = rows.length;
-    const pending = rows.filter((r) => String(r.status).toLowerCase() === "pending").length;
-    const approved = rows.filter((r) => String(r.status).toLowerCase() === "approved").length;
-    const rejected = rows.filter((r) => String(r.status).toLowerCase() === "rejected").length;
+    const total = allRows.length;
+    const pending = allRows.filter((r) => String(r.status).toLowerCase() === "pending").length;
+    const approved = allRows.filter((r) => String(r.status).toLowerCase() === "approved").length;
+    const rejected = allRows.filter((r) => String(r.status).toLowerCase() === "rejected").length;
     return { total, pending, approved, rejected };
-  }, [rows]);
+  }, [allRows]);
+
+  const displayRows = useMemo(() => {
+    if (filters.status === "All") return allRows;
+    const want = filters.status.toLowerCase();
+    return allRows.filter((r) => String(r.status).toLowerCase() === want);
+  }, [allRows, filters.status]);
 
   const setStatusFilter = (nextStatus) => {
     setFilters((p) => ({ ...p, status: nextStatus }));
@@ -220,7 +224,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
             <label>Request Type</label>
             <select
               value={filters.request_type}
-              onChange={(e) => setFilters((p) => ({ ...p, request_type: e.target.value }))}
+              onChange={(e) => setFilters((p) => ({ ...p, request_type: e.target.value, status: "All" }))}
             >
               {REQUEST_TYPE_OPTIONS.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -228,16 +232,8 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
             </select>
           </div>
           <div>
-            <label>Status</label>
-            <select value={filters.status} onChange={(e) => setStatusFilter(e.target.value)}>
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          <div>
             <label>Employee Type</label>
-            <select value={filters.emp_type} onChange={(e) => setFilters((p) => ({ ...p, emp_type: e.target.value }))}>
+            <select value={filters.emp_type} onChange={(e) => setFilters((p) => ({ ...p, emp_type: e.target.value, status: "All" }))}>
               <option value="">All</option>
               {empTypeOptions.map((item) => (
                 <option key={item} value={item}>{item}</option>
@@ -246,7 +242,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
           </div>
           <div>
             <label>Circle</label>
-            <select value={filters.circle} onChange={(e) => setFilters((p) => ({ ...p, circle: e.target.value }))}>
+            <select value={filters.circle} onChange={(e) => setFilters((p) => ({ ...p, circle: e.target.value, status: "All" }))}>
               <option value="">All</option>
               {circleOptions.map((item) => (
                 <option key={item} value={item}>{item}</option>
@@ -306,7 +302,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {displayRows.map((row) => (
                 <tr key={row.id}>
                   <td>
                     <div className="lau-emp-name">{row.employee_name || "-"}</div>
@@ -324,7 +320,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
                   </td>
                 </tr>
               ))}
-              {!loading && rows.length === 0 && (
+              {!loading && displayRows.length === 0 && (
                 <tr>
                   <td colSpan={7} className="lau-empty">No requests found for selected filters.</td>
                 </tr>

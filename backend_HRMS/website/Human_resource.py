@@ -152,6 +152,18 @@ def _abs_path_from_rel(rel: str):
     return os.path.normpath(os.path.join(current_app.root_path, "static", "uploads", rel))
 
 
+def _ex_employee_download_name(display_name: str, stored_rel_path: str, abs_path: str) -> str:
+    """Ensure downloaded files keep the original extension (e.g. .png, .pdf)."""
+    name = (display_name or "").strip() or "document"
+    base = os.path.basename(name)
+    if "." in base and not base.endswith("."):
+        return name
+    ext = os.path.splitext(abs_path)[1] or os.path.splitext(stored_rel_path or "")[1]
+    if ext and not name.lower().endswith(ext.lower()):
+        return f"{name}{ext}"
+    return name
+
+
 def _delete_ex_share_and_files(share: ExEmployeeDocShare):
     """Remove DB rows and stored files for a share."""
     sid = share.id
@@ -5142,10 +5154,14 @@ def send_ex_employee_documents():
 
     for i, name in enumerate(display_names):
         dn = str(name or "").strip()
+        orig_upload = secure_filename((uploaded[i].filename or f"file_{i + 1}")) or f"document_{i + 1}"
         if not dn:
-            dn = secure_filename((uploaded[i].filename or f"file_{i + 1}")) or f"document_{i + 1}"
+            dn = orig_upload
+        else:
+            dn = _ex_employee_download_name(dn, orig_upload, orig_upload)
         if len(dn) > 240:
-            dn = dn[:240]
+            base, ext = os.path.splitext(dn)
+            dn = (base[: max(1, 240 - len(ext))] + ext) if ext else dn[:240]
         display_names[i] = dn
 
     raw_token = secrets.token_urlsafe(32)
@@ -5285,12 +5301,17 @@ def ex_employee_documents_public_download(token, file_id):
     if not os.path.isfile(abs_path):
         return jsonify({"success": False, "message": "File missing on server"}), 404
 
-    mime, _ = mimetypes.guess_type(doc_file.display_name)
+    download_name = _ex_employee_download_name(
+        doc_file.display_name, doc_file.stored_rel_path, abs_path
+    )
+    mime, _ = mimetypes.guess_type(abs_path)
+    if not mime:
+        mime, _ = mimetypes.guess_type(download_name)
     return send_file(
         abs_path,
         mimetype=mime or "application/octet-stream",
         as_attachment=True,
-        download_name=doc_file.display_name,
+        download_name=download_name,
     )
 
 

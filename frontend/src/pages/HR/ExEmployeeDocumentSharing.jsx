@@ -43,7 +43,7 @@ export function ExEmployeeDocumentSharing({ onBack }) {
       prev.map((r) => {
         if (r.localKey !== localKey) return r;
         const base = r.displayName?.trim();
-        const suggested = base || file.name.replace(/\.[^.]+$/, '') || file.name;
+        const suggested = base || file.name;
         return { ...r, file, displayName: suggested };
       })
     );
@@ -74,7 +74,18 @@ export function ExEmployeeDocumentSharing({ onBack }) {
       formData.append('recipient_email', email);
       formData.append(
         'display_names',
-        JSON.stringify(ready.map((r) => (r.displayName || '').trim()))
+        JSON.stringify(
+          ready.map((r) => {
+            const name = (r.displayName || '').trim();
+            const fileName = r.file?.name || '';
+            const dot = fileName.lastIndexOf('.');
+            const ext = dot > 0 ? fileName.slice(dot) : '';
+            if (ext && name && !name.toLowerCase().endsWith(ext.toLowerCase())) {
+              return `${name}${ext}`;
+            }
+            return name || fileName;
+          })
+        )
       );
       ready.forEach((r) => formData.append('files', r.file));
 

@@ -114,7 +114,10 @@
   font-weight: 600;
   color: #fff;
   background: #0d9488;
+  border: none;
   border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
   text-decoration: none;
 }
 
