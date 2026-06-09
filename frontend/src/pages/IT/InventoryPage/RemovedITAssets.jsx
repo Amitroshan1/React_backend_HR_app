@@ -261,7 +261,7 @@ function ActionModal({ asset, onClose, onActionDone }) {
             delete_code: deletedId,
             asset_unit_id: null,
             inventory_item_id: lic.inventoryId ? Number(lic.inventoryId) || null : null,
-            deleted_by_name: "IT Panel",
+            deleted_by_name: "IT Management",
             asset_name: lic.name || asset.name,
             category: "Software",
             serial_number: "",
@@ -270,7 +270,7 @@ function ActionModal({ asset, onClose, onActionDone }) {
         } else if (resolved?.kind === "unit") {
           const unit = resolved.row;
           await createDeletedLogAPI(
-            buildDeletedLogApiPayload(unit, "IT Panel", reasonText, deletedId),
+            buildDeletedLogApiPayload(unit, "IT Management", reasonText, deletedId),
           );
           await deleteAssetUnitAPI(unit.id);
         } else {
@@ -278,7 +278,7 @@ function ActionModal({ asset, onClose, onActionDone }) {
             delete_code: deletedId,
             asset_unit_id: asset.assetUnitId ? Number(asset.assetUnitId) || null : null,
             inventory_item_id: asset.inventoryId ? Number(asset.inventoryId) || null : null,
-            deleted_by_name: "IT Panel",
+            deleted_by_name: "IT Management",
             asset_name: asset.name,
             category: asset.category,
             serial_number: asset.serialNumber || "",
@@ -360,10 +360,10 @@ function ActionModal({ asset, onClose, onActionDone }) {
           </div>
         ) : (
           <>
-            {/* IT Panel Reason */}
+            {/* IT Management reason */}
             <div className="it-reason-block">
               <div className="it-reason-block__header">
-                <span className="it-reason-block__badge">IT Panel</span>
+                <span className="it-reason-block__badge">IT Management</span>
                 <span className="it-reason-block__label">Reason sent from IT</span>
               </div>
               <p className="it-reason-block__text">{asset.itReason || "No reason provided."}</p>

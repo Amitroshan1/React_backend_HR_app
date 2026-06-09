@@ -7,8 +7,8 @@ import {
     initialDataState,
     getProfileSectionCompletion,
     MANDATORY_FORM_FIELDS,
-    MANDATORY_FILES_LIST,
 } from '../utils/profileUtils';
+import { validateDocumentSection, INITIAL_DOCUMENT_META } from '../utils/documentIdentity';
 import {
     API_BASE_URL,
     mapProfileFromApi,
@@ -130,6 +130,9 @@ export const Profile = () => {
     const [permanentAddress, setPermanentAddress] = useState(savedData.permanentAddress);
     const [sameAsCurrent, setSameAsCurrent] = useState(savedData.sameAsCurrent);
     const [files, setFiles] = useState(savedData.files);
+    const [documentMeta, setDocumentMeta] = useState(
+        savedData.documentMeta || { ...INITIAL_DOCUMENT_META }
+    );
 
     // --- AUTOSAVE STATUS STATES ---
     const [, setSaveStatus] = useState('Ready');
@@ -153,6 +156,7 @@ export const Profile = () => {
         setPermanentAddress(saved.permanentAddress);
         setSameAsCurrent(saved.sameAsCurrent);
         setFiles(saved.files);
+        setDocumentMeta(saved.documentMeta || { ...INITIAL_DOCUMENT_META });
         setPreviousEmployment(saved.previousEmployment);
         setEducationDetails(saved.educationDetails);
         if (avatarUrl) {
@@ -207,7 +211,14 @@ export const Profile = () => {
     // =========================================================
 
     // --- VALIDATION LOGIC (Omitted for brevity) ---
-    const getMandatoryValidationErrors = useCallback((currentFormData, currentFiles, currentCurrentAddress, currentPermanentAddress, currentSameAsCurrent) => {
+    const getMandatoryValidationErrors = useCallback((
+        currentFormData,
+        currentFiles,
+        currentCurrentAddress,
+        currentPermanentAddress,
+        currentSameAsCurrent,
+        currentDocumentMeta
+    ) => {
         let newErrors = {};
         let hasMandatoryErrors = false;
         const ADDRESS_MANDATORY_FIELDS = ['street', 'pincode', 'city', 'state', 'district'];
@@ -292,12 +303,11 @@ export const Profile = () => {
         }
 
         // 3. DOCUMENT VALIDATION
-        MANDATORY_FILES_LIST.forEach(key => {
-            if (!currentFiles[key]) {
-                newErrors[key] = 'This document is mandatory.';
-                hasMandatoryErrors = true;
-            }
-        });
+        const docErrors = validateDocumentSection(currentFiles || {}, currentDocumentMeta || {});
+        Object.assign(newErrors, docErrors);
+        if (Object.keys(docErrors).length > 0) {
+            hasMandatoryErrors = true;
+        }
 
         return { newErrors, hasMandatoryErrors };
     }, []);
@@ -306,7 +316,7 @@ export const Profile = () => {
     const saveCurrentChanges = useCallback(async (finalSave = false) => {
         setSaveStatus('Saving...');
         const { newErrors, hasMandatoryErrors } = getMandatoryValidationErrors(
-            formData, files, currentAddress, permanentAddress, sameAsCurrent
+            formData, files, currentAddress, permanentAddress, sameAsCurrent, documentMeta
         );
         setErrors(newErrors);
 
@@ -328,6 +338,7 @@ export const Profile = () => {
             files: typeof File !== 'undefined' && Object.values(files || {}).some(v => v instanceof File)
                 ? { ...files }
                 : JSON.parse(JSON.stringify(files || {})),
+            documentMeta: JSON.parse(JSON.stringify(documentMeta || INITIAL_DOCUMENT_META)),
             previousEmployment: JSON.parse(JSON.stringify(previousEmployment)),
             educationDetails: eduList.map((e) => ({ ...e })),
         };
@@ -383,7 +394,7 @@ export const Profile = () => {
                         return false;
                     }
 
-                    const docPayload = buildDocPayload(adminId, files);
+                    const docPayload = buildDocPayload(adminId, files, documentMeta);
                     const { ok: docOk, data: docData } = await postUploadDocs(docPayload);
                     if (!docOk) {
                         showToast(docData.message || 'Failed to save documents.', 'error');
@@ -402,7 +413,7 @@ export const Profile = () => {
         setSaveStatus('Saving...');
         const success = await runSave();
         return success;
-    }, [formData, files, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, adminId, getMandatoryValidationErrors, showToast]);
+    }, [formData, files, documentMeta, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, adminId, getMandatoryValidationErrors, showToast]);
 
     const SECTION_SAVE_MESSAGES = {
         personal: 'Personal information saved successfully.',
@@ -472,7 +483,7 @@ export const Profile = () => {
                 if (eduData?.message?.trim()) successMsg = eduData.message.trim();
             }
             if (sectionName === 'documents') {
-                const docPayload = buildDocPayload(adminId, files);
+                const docPayload = buildDocPayload(adminId, files, documentMeta);
                 const { ok: docOk, data: docData } = await postUploadDocs(docPayload);
                 if (!docOk) {
                     showToast(docData.message || 'Failed to save documents.', 'error');
@@ -489,7 +500,7 @@ export const Profile = () => {
             showToast('Failed to save.', 'error');
             return false;
         }
-    }, [adminId, formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, showToast]);
+    }, [adminId, formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, documentMeta, showToast]);
 
     // --- AVATAR HANDLER ---
     const handleAvatarChange = async (imageBlob, validationError) => {
@@ -540,7 +551,8 @@ export const Profile = () => {
                 showEditCards ? sameAsCurrent : savedData.sameAsCurrent,
                 showEditCards ? files : savedData.files,
                 showEditCards ? previousEmployment : savedData.previousEmployment,
-                showEditCards ? educationDetails : savedData.educationDetails || []
+                showEditCards ? educationDetails : savedData.educationDetails || [],
+                showEditCards ? documentMeta : savedData.documentMeta
             ),
         [
             showEditCards,
@@ -549,6 +561,7 @@ export const Profile = () => {
             permanentAddress,
             sameAsCurrent,
             files,
+            documentMeta,
             previousEmployment,
             educationDetails,
             savedData,
@@ -570,6 +583,7 @@ export const Profile = () => {
         setPermanentAddress(savedData.permanentAddress);
         setSameAsCurrent(savedData.sameAsCurrent);
         setFiles(savedData.files);
+        setDocumentMeta(savedData.documentMeta || { ...INITIAL_DOCUMENT_META });
         setPreviousEmployment(savedData.previousEmployment);
         setEducationDetails(
             savedData.educationDetails?.length
@@ -616,6 +630,7 @@ export const Profile = () => {
         const perm = sameAsCurrent ? currentAddress : permanentAddress;
         if (!eq(perm, s.permanentAddress)) return false;
         if (!eq(previousEmployment, s.previousEmployment) || !eq(educationDetails, s.educationDetails)) return false;
+        if (!eq(documentMeta, s.documentMeta || INITIAL_DOCUMENT_META)) return false;
         const fileKeys = Object.keys(files || {});
         const savedKeys = Object.keys(s.files || {});
         if (fileKeys.length !== savedKeys.length) return false;
@@ -626,7 +641,7 @@ export const Profile = () => {
             if (fStr !== sfStr) return false;
         }
         return true;
-    }, [formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, savedData]);
+    }, [formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, documentMeta, savedData]);
 
     const handleDoneEditing = useCallback(async () => {
         try {
@@ -651,6 +666,7 @@ export const Profile = () => {
         setPermanentAddress(savedClone.permanentAddress);
         setSameAsCurrent(savedClone.sameAsCurrent);
         setFiles(savedClone.files);
+        setDocumentMeta(savedClone.documentMeta || { ...INITIAL_DOCUMENT_META });
         setPreviousEmployment(savedClone.previousEmployment);
         setEducationDetails(Array.isArray(savedClone.educationDetails) && savedClone.educationDetails.length > 0
             ? savedClone.educationDetails
@@ -679,6 +695,11 @@ export const Profile = () => {
     const handleFileChange = (name, fileData) => {
         setFiles(prev => ({ ...prev, [name]: fileData }));
         setErrors(prev => ({ ...prev, [name]: '' }));
+    };
+
+    const handleDocumentMetaChange = (name, value) => {
+        setDocumentMeta((prev) => ({ ...prev, [name]: value }));
+        setErrors((prev) => ({ ...prev, [name]: '' }));
     };
 
     const runPincodeLookup = useCallback(
@@ -979,16 +1000,8 @@ export const Profile = () => {
     };
 
     const validateDocumentsSection = () => {
-        const sectionErrors = {};
-        let hasErrors = false;
-
-        MANDATORY_FILES_LIST.forEach(key => {
-            if (!files[key]) {
-                sectionErrors[key] = 'This document is mandatory.';
-                hasErrors = true;
-            }
-        });
-
+        const sectionErrors = validateDocumentSection(files, documentMeta);
+        const hasErrors = Object.keys(sectionErrors).length > 0;
         setErrors(prev => ({ ...prev, ...sectionErrors }));
         return !hasErrors;
     };
@@ -1096,7 +1109,7 @@ export const Profile = () => {
                 }));
                 break;
             case 'documents':
-                setSavedData((prev) => ({ ...prev, files }));
+                setSavedData((prev) => ({ ...prev, files, documentMeta }));
                 break;
             case 'education':
                 setSavedData((prev) => ({ ...prev, educationDetails }));
@@ -1104,7 +1117,7 @@ export const Profile = () => {
             default:
                 break;
         }
-    }, [formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, files, educationDetails]);
+    }, [formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, files, documentMeta, educationDetails]);
 
     const handleSectionSave = async (sectionName) => {
         let isValid = true;
@@ -1178,6 +1191,7 @@ export const Profile = () => {
                 break;
             case 'documents':
                 setFiles(savedClone.files);
+                setDocumentMeta(savedClone.documentMeta || { ...INITIAL_DOCUMENT_META });
                 break;
             case 'education':
                 setEducationDetails(savedClone.educationDetails || []);
@@ -1189,7 +1203,16 @@ export const Profile = () => {
 
     // --- Render Data and Mode Setup ---
     const dataToDisplay = showEditCards
-        ? { formData, previousEmployment, currentAddress, permanentAddress, sameAsCurrent, files, educationDetails: educationDetails || [] }
+        ? {
+            formData,
+            previousEmployment,
+            currentAddress,
+            permanentAddress,
+            sameAsCurrent,
+            files,
+            documentMeta,
+            educationDetails: educationDetails || [],
+        }
         : { ...savedData, educationDetails: savedData.educationDetails || [] };
     const mode = showEditCards ? 'edit' : 'view';
 
@@ -1312,10 +1335,12 @@ export const Profile = () => {
                 />
                 <DocumentUploadSection
                     files={dataToDisplay.files}
+                    documentMeta={dataToDisplay.documentMeta}
                     mode={mode}
                     isExpanded={expandedSection === 'documents'}
                     onToggle={() => handleAccordionToggle('documents')}
                     onFileChange={handleFileChange}
+                    onMetaChange={handleDocumentMetaChange}
                     onSave={() => handleSectionSave('documents')}
                     onUndo={() => handleSectionUndo('documents')}
                     errors={errors}

@@ -79,7 +79,7 @@ export default function ReturnRequests() {
   return (
     <div className="rr-page">
       <div className="rr-topbar">
-        <button className="rr-back-btn" onClick={() => navigate("/it")}>← Back to IT Panel</button>
+        <button className="rr-back-btn" onClick={() => navigate("/it")}>← Back to IT Management</button>
         <h1>Return Requests</h1>
       </div>
 

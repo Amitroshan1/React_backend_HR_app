@@ -26,6 +26,18 @@ from .models.news_feed import NewsFeed, PaySlip
 from .models.monthly_payroll import MonthlyPayroll
 from .models.query import Query
 from .models.education import Education, UploadDoc
+from .models.employee_accounts import EmployeeAccounts
+from .document_identity import (
+    normalize_aadhaar,
+    normalize_pan,
+    normalize_ifsc,
+    validate_aadhaar,
+    validate_pan,
+    validate_ifsc,
+    validate_bank_account,
+    normalize_bank_branch_code,
+    validate_bank_branch_code,
+)
 from .models.prev_com import PreviousCompany
 from .models.master_data import MasterData
 from datetime import datetime, date, timedelta
@@ -803,16 +815,92 @@ def employee_profile():
         })
 
     if upload_doc:
-        profile["documents"] = {
-            "aadhaar_front": upload_doc.aadhaar_front,
-            "aadhaar_back": upload_doc.aadhaar_back,
-            "pan_front": upload_doc.pan_front,
-            "pan_back": upload_doc.pan_back,
-            "appointment_letter": upload_doc.appointment_letter,
-            "passbook_front": upload_doc.passbook_front,
-        }
+        profile["documents"] = _upload_doc_profile_dict(upload_doc)
 
     return jsonify({"success": True, "profile": profile}), 200
+
+
+def _upload_doc_profile_dict(upload_doc):
+    """Serialize UploadDoc for profile / HR / Accounts APIs."""
+    if not upload_doc:
+        return {}
+    return {
+        "aadhaar_number": upload_doc.aadhaar_number,
+        "pan_number": upload_doc.pan_number,
+        "bank_account_number": upload_doc.bank_account_number,
+        "bank_name": upload_doc.bank_name,
+        "bank_branch_code": upload_doc.bank_branch_code,
+        "ifsc_code": upload_doc.ifsc_code,
+        "aadhaar_front": upload_doc.aadhaar_front,
+        "aadhaar_back": upload_doc.aadhaar_back,
+        "pan_front": upload_doc.pan_front,
+        "pan_back": upload_doc.pan_back,
+        "appointment_letter": upload_doc.appointment_letter,
+        "passbook_front": upload_doc.passbook_front,
+    }
+
+
+def _validate_upload_doc_identity_payload(data):
+    """Return (normalized_dict, error_message)."""
+    out = {}
+    if "aadhaar_number" in data:
+        val = normalize_aadhaar(data.get("aadhaar_number"))
+        if val and not validate_aadhaar(val):
+            return None, "Aadhaar number must be 12 digits."
+        out["aadhaar_number"] = val or None
+    if "pan_number" in data:
+        val = normalize_pan(data.get("pan_number"))
+        if val and not validate_pan(val):
+            return None, "PAN must be in format ABCDE1234F."
+        out["pan_number"] = val or None
+    if "bank_account_number" in data:
+        raw = str(data.get("bank_account_number") or "").strip()
+        digits = re.sub(r"\D", "", raw)
+        if digits and not validate_bank_account(digits):
+            return None, "Bank account number must be 9–18 digits."
+        out["bank_account_number"] = digits or None
+    if "bank_name" in data:
+        name = str(data.get("bank_name") or "").strip()[:120]
+        out["bank_name"] = name or None
+    if "bank_branch_code" in data:
+        code = normalize_bank_branch_code(data.get("bank_branch_code"))
+        if code and not validate_bank_branch_code(code):
+            return None, "Bank branch code must be 2–20 letters or numbers."
+        out["bank_branch_code"] = code or None
+    if "ifsc_code" in data:
+        val = normalize_ifsc(data.get("ifsc_code"))
+        if val and not validate_ifsc(val):
+            return None, "IFSC must be 11 characters (e.g. SBIN0001234)."
+        out["ifsc_code"] = val or None
+    return out, None
+
+
+def _sync_upload_doc_to_employee_accounts(admin, upload_doc):
+    """Keep EmployeeAccounts PAN / bank_details aligned with uploaded identity."""
+    if not admin or not upload_doc:
+        return
+    emp_no = (admin.emp_id or "").strip() or None
+    rec = EmployeeAccounts.query.filter_by(admin_id=admin.id).first()
+    if not rec and emp_no:
+        rec = EmployeeAccounts.query.filter_by(employee_number=emp_no).first()
+    if not rec:
+        rec = EmployeeAccounts(admin_id=admin.id, employee_number=emp_no)
+        db.session.add(rec)
+    elif not rec.admin_id:
+        rec.admin_id = admin.id
+    if upload_doc.pan_number:
+        rec.pan = upload_doc.pan_number
+    bank_lines = []
+    if upload_doc.bank_account_number:
+        bank_lines.append(f"Account: {upload_doc.bank_account_number}")
+    if upload_doc.bank_name:
+        bank_lines.append(f"Bank: {upload_doc.bank_name}")
+    if upload_doc.bank_branch_code:
+        bank_lines.append(f"Branch Code: {upload_doc.bank_branch_code}")
+    if upload_doc.ifsc_code:
+        bank_lines.append(f"IFSC: {upload_doc.ifsc_code}")
+    if bank_lines:
+        rec.bank_details = "\n".join(bank_lines)
 
 
 def _static_upload_photo_url(filename):
@@ -1799,6 +1887,11 @@ def upload_profile_file():
 
     allowed_extensions = {".pdf", ".jpg", ".jpeg", ".png"}
     ext = os.path.splitext(secure_filename(file.filename))[1].lower() or ".pdf"
+    if field in allowed and ext not in allowed_extensions:
+        return jsonify({
+            "success": False,
+            "message": "Document must be .pdf, .jpg, .jpeg, or .png only.",
+        }), 400
     if education_cert and ext not in allowed_extensions:
         return jsonify({"success": False, "message": "Certificate must be .pdf, .jpg, or .png"}), 400
 
@@ -1839,38 +1932,96 @@ def save_upload_docs():
             "message": "You can only update your own documents",
         }), 403
 
-    # Check if record exists
+    identity_fields = (
+        "aadhaar_number",
+        "pan_number",
+        "bank_account_number",
+        "bank_name",
+        "bank_branch_code",
+        "ifsc_code",
+    )
+    file_fields = (
+        "aadhaar_front",
+        "aadhaar_back",
+        "pan_front",
+        "pan_back",
+        "appointment_letter",
+        "passbook_front",
+    )
+
+    normalized_identity, identity_err = _validate_upload_doc_identity_payload(data)
+    if identity_err:
+        return jsonify({"success": False, "message": identity_err}), 400
+
     upload_doc = UploadDoc.query.filter_by(admin_id=admin_id).first()
 
-    try:
-        # ---------------- UPDATE ----------------
-        if upload_doc:
-            update_fields = [
-                "aadhaar_front", "aadhaar_back",
-                "pan_front", "pan_back",
-                "appointment_letter",
-                "passbook_front"
-            ]
+    # Require identity numbers before accepting matching file uploads
+    aadhaar_no = normalized_identity.get("aadhaar_number") or (
+        upload_doc.aadhaar_number if upload_doc else None
+    )
+    pan_no = normalized_identity.get("pan_number") or (
+        upload_doc.pan_number if upload_doc else None
+    )
+    bank_ac = normalized_identity.get("bank_account_number") or (
+        upload_doc.bank_account_number if upload_doc else None
+    )
+    bank_name = normalized_identity.get("bank_name") or (
+        upload_doc.bank_name if upload_doc else None
+    )
+    branch_code = normalized_identity.get("bank_branch_code") or (
+        upload_doc.bank_branch_code if upload_doc else None
+    )
+    ifsc = normalized_identity.get("ifsc_code") or (
+        upload_doc.ifsc_code if upload_doc else None
+    )
 
-            for field in update_fields:
+    if data.get("aadhaar_front") and not aadhaar_no:
+        return jsonify({"success": False, "message": "Enter Aadhaar number before uploading Aadhaar images."}), 400
+    if data.get("aadhaar_back") and not aadhaar_no:
+        return jsonify({"success": False, "message": "Enter Aadhaar number before uploading Aadhaar images."}), 400
+    if data.get("pan_front") and not pan_no:
+        return jsonify({"success": False, "message": "Enter PAN before uploading PAN images."}), 400
+    if data.get("pan_back") and not pan_no:
+        return jsonify({"success": False, "message": "Enter PAN before uploading PAN images."}), 400
+    if data.get("passbook_front") and not (bank_ac and bank_name and branch_code and ifsc):
+        return jsonify({
+            "success": False,
+            "message": "Enter account number, bank name, branch code, and IFSC before uploading passbook/cheque.",
+        }), 400
+
+    admin = Admin.query.get(admin_id)
+
+    try:
+        if upload_doc:
+            for field in file_fields:
                 if field in data:
                     setattr(upload_doc, field, data[field])
-
+            for field in identity_fields:
+                if field in normalized_identity:
+                    setattr(upload_doc, field, normalized_identity[field])
+            if admin:
+                _sync_upload_doc_to_employee_accounts(admin, upload_doc)
             db.session.commit()
             return jsonify({"success": True, "message": "Documents updated successfully"}), 200
 
-        # ---------------- CREATE ----------------
         upload_doc = UploadDoc(
             admin_id=admin_id,
+            aadhaar_number=normalized_identity.get("aadhaar_number"),
+            pan_number=normalized_identity.get("pan_number"),
+            bank_account_number=normalized_identity.get("bank_account_number"),
+            bank_name=normalized_identity.get("bank_name"),
+            bank_branch_code=normalized_identity.get("bank_branch_code"),
+            ifsc_code=normalized_identity.get("ifsc_code"),
             aadhaar_front=data.get("aadhaar_front"),
             aadhaar_back=data.get("aadhaar_back"),
             pan_front=data.get("pan_front"),
             pan_back=data.get("pan_back"),
             appointment_letter=data.get("appointment_letter"),
-            passbook_front=data.get("passbook_front")
+            passbook_front=data.get("passbook_front"),
         )
-
         db.session.add(upload_doc)
+        if admin:
+            _sync_upload_doc_to_employee_accounts(admin, upload_doc)
         db.session.commit()
         return jsonify({"success": True, "message": "Documents saved successfully"}), 201
 

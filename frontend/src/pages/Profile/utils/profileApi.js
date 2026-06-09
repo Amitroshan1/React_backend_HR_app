@@ -2,6 +2,13 @@
  * Profile API layer — maps UI state ↔ /api/auth backend contracts.
  */
 import { initialDataState, normalizeAdminDate } from './profileUtils';
+import {
+    documentMetaFromApi,
+    digitsOnly,
+    normalizePan,
+    normalizeIfsc,
+    normalizeBankBranchCode,
+} from './documentIdentity';
 
 export const API_BASE_URL = '/api/auth';
 
@@ -153,6 +160,7 @@ export function mapProfileFromApi(p) {
         permanentAddress: sameAsCurrent ? currentAddr : permAddr,
         sameAsCurrent,
         files: filePaths,
+        documentMeta: documentMetaFromApi(docs),
         previousEmployment: prevEmp,
         educationDetails: eduDetails,
     };
@@ -228,9 +236,16 @@ export function buildEducationItems(educationDetails) {
         }));
 }
 
-export function buildDocPayload(adminId, files) {
+export function buildDocPayload(adminId, files, documentMeta = {}) {
+    const meta = documentMeta || {};
     return {
         admin_id: parseInt(adminId, 10),
+        aadhaar_number: digitsOnly(meta.aadhaarNumber, 12) || null,
+        pan_number: normalizePan(meta.panNumber) || null,
+        bank_account_number: digitsOnly(meta.bankAccountNumber, 18) || null,
+        bank_name: String(meta.bankName || '').trim() || null,
+        bank_branch_code: normalizeBankBranchCode(meta.bankBranchCode) || null,
+        ifsc_code: normalizeIfsc(meta.ifscCode) || null,
         aadhaar_front: typeof files.aadharFront === 'string' ? files.aadharFront : null,
         aadhaar_back: typeof files.aadharBack === 'string' ? files.aadharBack : null,
         pan_front: typeof files.panFront === 'string' ? files.panFront : null,

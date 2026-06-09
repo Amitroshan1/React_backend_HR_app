@@ -5,7 +5,7 @@ const DashboardLayout = ({ children }) => {
   return (
     <div className={styles.container}>
       <nav className={styles.sidebar}>
-        <div className={styles.logo}>IT PANEL</div>
+        <div className={styles.logo}>IT MANAGEMENT</div>
         {/* Navigation items would go here */}
       </nav>
       <div className={styles.content}>

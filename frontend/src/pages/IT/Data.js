@@ -1003,6 +1003,7 @@ const _toLocalParcelExport = (r) => ({
   date: (r.date || "").split("T")[0] || "",
   idNo: r.idNo || "",
   exportedBy: r.exportedBy || "",
+  category: r.inventoryCategory || r.inventory_category || "",
   serialNumbers: (r.assets || []).map((a) => a.serialNo).filter(Boolean),
   assets: (r.assets || []).map((a) => ({
     id: a.id,
@@ -1289,6 +1290,7 @@ export const createParcelExportAPI = async ({
   idNo = "",
   exportedBy = "",
   exportedByAdminId = null,
+  inventoryCategory = "",
   photos = [],
   assets = [],
 }) =>
@@ -1299,6 +1301,7 @@ export const createParcelExportAPI = async ({
       idNo,
       exported_by_name: String(exportedBy || "").trim() || null,
       exported_by_admin_id: exportedByAdminId,
+      inventory_category: String(inventoryCategory || "").trim() || null,
       photos,
       assets: assets.map((a) => ({
         asset_unit_id:

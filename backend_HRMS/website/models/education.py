@@ -35,6 +35,14 @@ class UploadDoc(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
 
+    # Identity numbers (entered before document upload)
+    aadhaar_number = db.Column(db.String(12), nullable=True)
+    pan_number = db.Column(db.String(10), nullable=True)
+    bank_account_number = db.Column(db.String(30), nullable=True)
+    bank_name = db.Column(db.String(120), nullable=True)
+    bank_branch_code = db.Column(db.String(20), nullable=True)
+    ifsc_code = db.Column(db.String(11), nullable=True)
+
     # Aadhaar
     aadhaar_front = db.Column(db.String(200), nullable=True)
     aadhaar_back = db.Column(db.String(200), nullable=True)

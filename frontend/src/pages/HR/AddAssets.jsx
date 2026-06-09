@@ -121,9 +121,6 @@ export const AddAssets = ({ onBack }) => {
   return (
     <div className="assets-page-wrapper">
       <div className="assets-container">
-        <button type="button" className="btn-back-updates" onClick={onBack}>
-          <ArrowLeft size={16} /> Back to Updates
-        </button>
 
         <div className="assets-card">
           <div className="assets-card-header">

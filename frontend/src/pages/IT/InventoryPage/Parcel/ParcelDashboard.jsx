@@ -3,12 +3,20 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import ClickableImage from "../../../../components/ClickableImage";
-import { openFirstImageInNewTab } from "../../../../utils/openImageInNewTab";
+import { openImageInNewTab } from "../../../../utils/openImageInNewTab";
 import { getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
 import "./ParcelDashboard.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PER_PAGE = 10;
+
+const EXPORT_CATEGORY_FILTERS = [
+  { id: "All", label: "All" },
+  { id: "IT Assets", label: "IT" },
+  { id: "Office Assets", label: "Office" },
+  { id: "Infrastructure Assets", label: "Infra" },
+  { id: "Transport Assets", label: "Transport" },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const formatDate = (iso) => {
@@ -73,7 +81,19 @@ function ModalPhotoGrid({ photos, label }) {
       <span className="pcl-modal-label">📦 {label} ({photos.length})</span>
       <div className="pcl-parcel-photo-grid">
         {photos.map((src, i) => (
-          <ClickableImage key={i} src={src} alt={`photo-${i + 1}`} className="pcl-parcel-photo-thumb" />
+          <button
+            key={i}
+            type="button"
+            className="pcl-photo-thumb-btn"
+            onClick={() => openImageInNewTab(src)}
+            title="Open full image in new tab"
+          >
+            <img
+              src={src}
+              alt={`photo-${i + 1}`}
+              className="pcl-parcel-photo-thumb pcl-photo-gallery-img"
+            />
+          </button>
         ))}
       </div>
     </div>
@@ -81,6 +101,49 @@ function ModalPhotoGrid({ photos, label }) {
 }
 
 // ─── Modals ───────────────────────────────────────────────────────────────────
+
+/** Parcel / import photo gallery — click thumbnail to open full image in new tab. */
+function PhotoGalleryModal({ photos, title, onClose }) {
+  if (!photos?.length) return null;
+
+  return (
+    <ModalBackdrop className="pcl-modal-backdrop" onClose={onClose}>
+      <div
+        className="pcl-modal pcl-photo-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pcl-photo-gallery-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <ModalHeader
+          title={title || "Parcel Photos"}
+          subtitle={`${photos.length} photo${photos.length !== 1 ? "s" : ""} — click to open in new tab`}
+          onClose={onClose}
+          titleId="pcl-photo-gallery-title"
+        />
+        <div className="pcl-modal-body pcl-photo-gallery-body">
+          <div className="pcl-parcel-photo-grid pcl-photo-gallery-grid">
+            {photos.map((src, i) => (
+              <button
+                key={i}
+                type="button"
+                className="pcl-photo-thumb-btn"
+                onClick={() => openImageInNewTab(src)}
+                title="Open full image in new tab"
+              >
+                <img
+                  src={src}
+                  alt={`Parcel photo ${i + 1}`}
+                  className="pcl-parcel-photo-thumb pcl-photo-gallery-img"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
 
 /** Exported asset detail modal — shows Exported By */
 function DetailsModal({ asset, onClose }) {
@@ -209,12 +272,14 @@ export default function Parcel() {
 
   const [importedData, setImportedData] = useState([]);
   const [exportedData, setExportedData] = useState([]);
-  const [activeTab,    setActiveTab]    = useState("imported");
-  const [search,       setSearch]       = useState("");
-  const [page,         setPage]         = useState(1);
+  const [activeTab,         setActiveTab]         = useState("imported");
+  const [exportCategory,    setExportCategory]    = useState("All");
+  const [search,            setSearch]            = useState("");
+  const [page,              setPage]              = useState(1);
 
-  const [detailAsset,  setDetailAsset]  = useState(null);
-  const [importDetail, setImportDetail] = useState(null);
+  const [detailAsset,   setDetailAsset]   = useState(null);
+  const [importDetail,  setImportDetail]  = useState(null);
+  const [photoPreview,  setPhotoPreview]  = useState(null);
 
   // ── Data loading ───────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -246,19 +311,36 @@ export default function Parcel() {
   // ── Derived state ──────────────────────────────────────────────────────────
   const rawData = activeTab === "imported" ? importedData : exportedData;
 
+  const exportCountByCategory = useMemo(() => {
+    const counts = Object.fromEntries(
+      EXPORT_CATEGORY_FILTERS.map((c) => [c.id, 0])
+    );
+    exportedData.forEach((r) => {
+      const cat = r.category || "";
+      if (counts[cat] !== undefined) counts[cat]++;
+      counts.All++;
+    });
+    return counts;
+  }, [exportedData]);
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return rawData;
+    let rows = rawData;
+    if (activeTab === "exported" && exportCategory !== "All") {
+      rows = rows.filter((r) => r.category === exportCategory);
+    }
+    if (!search.trim()) return rows;
     const q = search.toLowerCase();
-    return rawData.filter(
+    return rows.filter(
       (r) =>
         String(r.assetName ?? "").toLowerCase().includes(q) ||
         String(r.id ?? "").toLowerCase().includes(q) ||
         String(r.idNo ?? "").toLowerCase().includes(q) ||
         String(r.from || r.to || "").toLowerCase().includes(q) ||
         String(r.receivedBy ?? "").toLowerCase().includes(q) ||
-        String(r.exportedBy ?? "").toLowerCase().includes(q)
+        String(r.exportedBy ?? "").toLowerCase().includes(q) ||
+        String(r.category ?? "").toLowerCase().includes(q)
     );
-  }, [rawData, search]);
+  }, [rawData, search, activeTab, exportCategory]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const paginated  = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
@@ -266,7 +348,13 @@ export default function Parcel() {
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab);
+    setExportCategory("All");
     setSearch("");
+    setPage(1);
+  }, []);
+
+  const handleExportCategoryChange = useCallback((catId) => {
+    setExportCategory(catId);
     setPage(1);
   }, []);
 
@@ -287,7 +375,7 @@ export default function Parcel() {
       {/* Top Bar */}
       <div className="pcl-topbar">
         <button type="button" className="pcl-back-btn" onClick={() => navigate("/it/inventory")}>
-          ← Back to Inventory
+          ← Back to Inventory Management
         </button>
         <div className="pcl-topbar-right">
           <div className="pcl-title-block">
@@ -334,6 +422,24 @@ export default function Parcel() {
           </button>
         </div>
       </div>
+
+      {activeTab === "exported" && (
+        <div className="pcl-export-cat-filters">
+          {EXPORT_CATEGORY_FILTERS.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              className={`pcl-export-cat-btn${exportCategory === cat.id ? " active" : ""}`}
+              onClick={() => handleExportCategoryChange(cat.id)}
+            >
+              {cat.label}
+              <span className="pcl-export-cat-count">
+                {exportCountByCategory[cat.id] ?? 0}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Search */}
       <div className="pcl-search-row">
@@ -389,7 +495,9 @@ export default function Parcel() {
                       ? activeTab === "imported"
                         ? 'No imported parcels yet. Use "+ Add in Import" to add records.'
                         : "No exported parcels yet. Export assets to see them here."
-                      : `No ${activeTab} parcels match your search.`}
+                      : activeTab === "exported" && exportCategory !== "All"
+                        ? `No exported parcels in ${EXPORT_CATEGORY_FILTERS.find((c) => c.id === exportCategory)?.label || exportCategory}.`
+                        : `No ${activeTab} parcels match your search.`}
                   </td>
                 </tr>
               ) : (
@@ -435,8 +543,11 @@ export default function Parcel() {
                         <button
                           type="button"
                           className="pcl-btn-photos"
-                          onClick={() => openFirstImageInNewTab(row.photos)}
-                          title="Open photo in new tab"
+                          onClick={() => setPhotoPreview({
+                            photos: row.photos,
+                            title: row.assetName || "Parcel Photos",
+                          })}
+                          title="View parcel photos"
                         >
                           📷 {row.photos.length}
                         </button>
@@ -478,6 +589,11 @@ export default function Parcel() {
       {/* Modals */}
       <DetailsModal       asset={detailAsset}  onClose={() => setDetailAsset(null)}  />
       <ImportDetailsModal asset={importDetail}  onClose={() => setImportDetail(null)} />
+      <PhotoGalleryModal
+        photos={photoPreview?.photos}
+        title={photoPreview?.title}
+        onClose={() => setPhotoPreview(null)}
+      />
     </div>
   );
 }

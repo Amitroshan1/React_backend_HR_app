@@ -528,6 +528,7 @@ export default function ReadyForExport() {
           destination,
           idNo,
           exportedBy,
+          inventoryCategory: activeCat,
           photos: parcelPhotos,
           assets: selectedAssets.map((a) => ({
             ...a,
@@ -552,7 +553,7 @@ export default function ReadyForExport() {
         showToast(`❌ ${msg}`);
       }
     },
-    [selectedAssets, individualPhotos, loadAssets, showToast]
+    [selectedAssets, individualPhotos, activeCat, loadAssets, showToast]
   );
 
   return (

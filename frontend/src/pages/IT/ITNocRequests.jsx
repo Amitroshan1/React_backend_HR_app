@@ -10,7 +10,7 @@ export default function ITNocRequests() {
     <div className="rr-page">
       <div className="rr-topbar">
         <button type="button" className="rr-back-btn" onClick={() => navigate("/it")}>
-          ← Back to IT Panel
+          ← Back to IT Management
         </button>
         <h1>NOC Requests</h1>
       </div>

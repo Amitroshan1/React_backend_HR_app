@@ -381,7 +381,7 @@ def send_it_return_request_email(*, requester_admin, reason, asset_label):
             <tr><td><strong>Return Reason</strong></td><td>{reason or '-'}</td></tr>
             <tr><td><strong>Requested At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
         </table>
-        <p>Please review and approve/reject from IT panel.</p>
+        <p>Please review and approve/reject from IT Management.</p>
         """
         return send_email_via_zeptomail(
             sender_email=zepto_from,

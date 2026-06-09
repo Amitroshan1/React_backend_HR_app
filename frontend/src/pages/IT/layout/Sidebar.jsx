@@ -5,7 +5,7 @@ import { LayoutDashboard, Users, CreditCard, ShieldCheck, LogOut } from 'lucide-
 export default function Sidebar({ activeTab }) {
   const menu = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20}/> },
-    { id: 'it-panel', label: 'IT Panel', icon: <ShieldCheck size={20}/> },
+    { id: 'it-panel', label: 'IT Management', icon: <ShieldCheck size={20}/> },
     { id: 'users', label: 'Users', icon: <Users size={20}/> },
   ];
 

@@ -2,6 +2,8 @@
 // OPTION LISTS, INITIAL DATA, & UTILITY FUNCTIONS
 // =========================================================================
 
+import { validateDocumentSection } from './documentIdentity';
+
 export const maritalStatusOptions = ['Single', 'Married', 'Divorced', 'Widowed'];
 export const genderOptions = ['Male', 'Female', 'Non-Binary', 'Prefer Not To Say'];
 export const bloodGroupOptions = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -102,6 +104,14 @@ export const initialDataState = {
         passbookFront: null,
         appointmentLetter: null,
     },
+    documentMeta: {
+        aadhaarNumber: '',
+        panNumber: '',
+        bankAccountNumber: '',
+        bankName: '',
+        bankBranchCode: '',
+        ifscCode: '',
+    },
 };
 
 export const DOCUMENT_FIELD_LABELS = {
@@ -136,7 +146,8 @@ export function getProfileSectionCompletion(
     sameAsCurrent,
     files,
     previousEmployment,
-    educationDetails
+    educationDetails,
+    documentMeta
 ) {
     const personalRequired = [
         ['fullName', 'Full name'],
@@ -224,9 +235,8 @@ export function getProfileSectionCompletion(
         });
     }
 
-    const documentsMissing = MANDATORY_FILES_LIST.filter(
-        (key) => !isFilled(files?.[key])
-    ).map((key) => DOCUMENT_FIELD_LABELS[key] || key);
+    const docErrors = validateDocumentSection(files || {}, documentMeta || {});
+    const documentsMissing = Object.values(docErrors);
 
     const sections = [
         {
@@ -285,7 +295,8 @@ export function calculateProfileCompletion(
     sameAsCurrent,
     files,
     previousEmployment,
-    educationDetails
+    educationDetails,
+    documentMeta
 ) {
     return getProfileSectionCompletion(
         formData,
@@ -294,7 +305,8 @@ export function calculateProfileCompletion(
         sameAsCurrent,
         files,
         previousEmployment,
-        educationDetails
+        educationDetails,
+        documentMeta
     ).totalPercent;
 }
 

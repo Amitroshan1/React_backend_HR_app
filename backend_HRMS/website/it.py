@@ -101,6 +101,7 @@ def _ensure_parcel_name_columns_runtime():
 
         addcol("it_parcel_imports", "received_by_name")
         addcol("it_parcel_exports", "exported_by_name")
+        addcol("it_parcel_exports", "inventory_category")
     except Exception as e:
         current_app.logger.warning("parcel runtime column ensure skipped: %s", e)
 
@@ -373,6 +374,7 @@ def _serialize_parcel_export(e):
         "exportedBy": (e.exported_by_name or "").strip() or _admin_name(e.exported_by_admin),
         "date": _iso(e.exported_at),
         "photos": e.parcel_photos_json or [],
+        "inventoryCategory": (e.inventory_category or "").strip() or None,
         "count": len(e.items),
         "assets": [
             {
@@ -1959,6 +1961,9 @@ def create_parcel_export():
     exported_by_name = (
         (data.get("exported_by_name") or data.get("exportedBy") or "").strip() or None
     )
+    inventory_category = (
+        (data.get("inventory_category") or data.get("inventoryCategory") or "").strip() or None
+    )
     row = ITParcelExport(
         export_code=data.get("export_code") or _next_code("EXP", ITParcelExport, "export_code"),
         destination=destination,
@@ -1967,6 +1972,7 @@ def create_parcel_export():
         exported_by_name=exported_by_name,
         exported_at=_parse_dt(data.get("exported_at") or data.get("date")) or datetime.utcnow(),
         parcel_photos_json=data.get("photos") or [],
+        inventory_category=inventory_category,
     )
     db.session.add(row)
     db.session.flush()

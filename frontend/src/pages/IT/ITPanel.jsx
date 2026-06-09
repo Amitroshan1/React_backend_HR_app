@@ -23,7 +23,7 @@ export const ITPanel = () => {
     { title: "Active Devices", route: "/it/ActiveDevices" },
     { title: "Open Tickets", route: OPEN_TICKETS_ROUTE },
     { title: "Assets", route: "/it/Assets" },
-    { title: "Inventory", route: "/it/inventory" },
+    { title: "Inventory Management", route: "/it/inventory" },
     { title: "Return Requests", route: "/it/return-requests" },
     { title: "NOC Request", route: "/it/noc-requests" },
   ];

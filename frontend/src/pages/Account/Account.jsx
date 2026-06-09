@@ -9,6 +9,7 @@ import { useUser } from '../../components/layout/UserContext';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import { fetchDepartmentNocRequests } from '../Manager/api';
 import { hasFeature } from '../../utils/planFeatures';
+import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
 
@@ -3579,84 +3580,29 @@ export const Account = ()  => {
               )}
 
               {hasFeature('account_full_employee_view') ? (
-                <h4 className="section-title" style={{ marginTop: '16px' }}>Uploaded Documents</h4>
-              ) : null}
-              {(() => {
-                const docs = selectedEmployee?.documents || {};
-                const docItems = [
-                  { key: 'passbook_front', label: 'Passbook' },
-                  { key: 'pan_front', label: 'PAN Front' },
-                  { key: 'pan_back', label: 'PAN Back' },
-                  { key: 'aadhaar_front', label: 'Aadhaar Front' },
-                  { key: 'aadhaar_back', label: 'Aadhaar Back' },
-                  { key: 'appointment_letter', label: 'Appointment Letter' },
-                ];
-                const hasAny = docItems.some((d) => !!docs?.[d.key]) || !!selectedEmployee?.form16Path;
-                if (!hasAny) return <p>No documents uploaded.</p>;
-                const leftItems = docItems.slice(0, 3);
-                const rightItems = docItems.slice(3, 6);
-                return (
-                  <>
-                    <div className="accounts-docs-grid">
-                      <div>
-                        {leftItems.map((d) => (
-                          <div key={d.key} style={{ marginBottom: '10px' }}>
-                            <div className="flex-between" style={{ marginBottom: '6px' }}>
-                              <span>{d.label}</span>
-                              <span>{docs?.[d.key] ? 'Available' : 'Not uploaded'}</span>
-                            </div>
-                            {docs?.[d.key] && (
-                              <button
-                                type="button"
-                                className="text-link"
-                                onClick={() => openProtectedFile(docs[d.key])}
-                              >
-                                View
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      <div>
-                        {rightItems.map((d) => (
-                          <div key={d.key} style={{ marginBottom: '10px' }}>
-                            <div className="flex-between" style={{ marginBottom: '6px' }}>
-                              <span>{d.label}</span>
-                              <span>{docs?.[d.key] ? 'Available' : 'Not uploaded'}</span>
-                            </div>
-                            {docs?.[d.key] && (
-                              <button
-                                type="button"
-                                className="text-link"
-                                onClick={() => openProtectedFile(docs[d.key])}
-                              >
-                                View
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '10px' }}>
+                <>
+                  <h4 className="section-title" style={{ marginTop: '16px' }}>Identity &amp; Documents</h4>
+                  <EmployeeIdentityDocsPanel
+                    documents={selectedEmployee?.documents || {}}
+                    onViewFile={openProtectedFile}
+                  />
+                  {selectedEmployee?.form16Path && (
+                    <div style={{ marginTop: 12 }}>
                       <div className="flex-between" style={{ marginBottom: '6px' }}>
                         <span>Form 16</span>
-                        <span>{selectedEmployee?.form16Path ? 'Available' : 'Not uploaded'}</span>
+                        <span>Available</span>
                       </div>
-                      {selectedEmployee?.form16Path && (
-                        <button
-                          type="button"
-                          className="text-link"
-                          onClick={() => openProtectedFile(selectedEmployee.form16Path)}
-                        >
-                          View
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="text-link"
+                        onClick={() => openProtectedFile(selectedEmployee.form16Path)}
+                      >
+                        View
+                      </button>
                     </div>
-                  </>
-                );
-              })()}
+                  )}
+                </>
+              ) : null}
             </div>
          </div>
       )}

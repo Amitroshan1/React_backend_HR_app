@@ -166,7 +166,7 @@ export default function AdminCustomers() {
             className="cust-back"
             onClick={() => navigate('/admin')}
           >
-            ← Admin Panel
+            ← Admin Management
           </button>
           <h1>Customer deployments</h1>
           <p className="cust-sub">

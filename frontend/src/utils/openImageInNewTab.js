@@ -1,58 +1,60 @@
 /**
- * Open an image URL in a new browser tab at full size (works for http(s), blob, and data URLs).
+ * Open an image URL in a new browser tab at full size (http(s), blob, and data URLs).
+ */
+
+function dataUrlToBlobUrl(dataUrl) {
+  const parts = String(dataUrl).split(",");
+  if (parts.length < 2) return null;
+  const mime = parts[0].match(/:(.*?);/)?.[1] || "image/png";
+  const binary = atob(parts[1]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+}
+
+/**
+ * Open a URL in a new tab via a temporary anchor click.
+ * Avoids window.open() return-value false positives (modern browsers return null
+ * for _blank even when the tab opens successfully).
+ */
+function openUrlInNewTab(url) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+/**
+ * Open an image URL in a new browser tab at full size.
  */
 export function openImageInNewTab(src) {
   const trimmed = String(src || "").trim();
   if (!trimmed) return false;
 
-  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith("/")) {
-    const opened = window.open(trimmed, "_blank", "noopener,noreferrer");
-    if (!opened) window.alert("Please allow pop-ups to view the image.");
-    return Boolean(opened);
-  }
+  let objectUrl = null;
 
-  const w = window.open("", "_blank", "noopener,noreferrer");
-  if (!w) {
-    window.alert("Please allow pop-ups to view the image.");
+  try {
+    let openUrl = trimmed;
+    if (trimmed.startsWith("data:")) {
+      objectUrl = dataUrlToBlobUrl(trimmed);
+      if (!objectUrl) return false;
+      openUrl = objectUrl;
+    }
+
+    openUrlInNewTab(openUrl);
+
+    if (objectUrl) {
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 120000);
+    }
+    return true;
+  } catch (err) {
+    console.error("[openImageInNewTab]", err);
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
     return false;
   }
-
-  const safeSrc = trimmed
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  w.document.write(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Image preview</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: #0f172a;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-    }
-    img {
-      max-width: 100%;
-      max-height: 100vh;
-      object-fit: contain;
-      border-radius: 4px;
-    }
-  </style>
-</head>
-<body>
-  <img src="${safeSrc}" alt="Image preview" />
-</body>
-</html>`);
-  w.document.close();
-  return true;
 }
 
 /** Open the first image from a list in a new tab. */

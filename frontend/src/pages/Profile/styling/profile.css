@@ -1038,6 +1038,47 @@
     animation: fadeSlideIn 260ms ease;
 }
 
+.doc-identity-group {
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.doc-identity-group:last-of-type {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.doc-identity-group__title {
+    margin: 0 0 12px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.doc-identity-uploads {
+    margin-top: 12px;
+}
+
+.doc-identity-bank-fields {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.doc-identity-hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #64748b;
+    font-style: italic;
+}
+
+.doc-identity-field .form-control {
+    width: 100%;
+    box-sizing: border-box;
+}
+
 @keyframes fadeSlideIn {
     from {
         opacity: 0;

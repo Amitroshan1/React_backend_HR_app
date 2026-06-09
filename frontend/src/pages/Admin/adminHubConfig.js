@@ -83,7 +83,7 @@ export const ADMIN_HUB_SECTIONS = [
     modules: [
       {
         id: "inventory",
-        title: "IT Inventory",
+        title: "Inventory Management",
         description: "All asset categories and stock",
         icon: "📦",
         route: "/it/inventory",
@@ -146,25 +146,25 @@ export const ADMIN_HUB_SECTIONS = [
   },
 ];
 
-/** Sidebar: open full department workspaces from Admin Panel. */
+/** Sidebar: open full department workspaces from Admin Management. */
 export const ADMIN_DEPARTMENTS = [
   {
     id: "hr",
-    label: "HR",
+    label: "HR Management",
     description: "Payroll, holidays, org updates",
     icon: "🏢",
     route: "/hr",
   },
   {
     id: "account",
-    label: "Accounts",
+    label: "Accounts Management",
     description: "CTC, payroll, finance",
     icon: "📊",
     route: "/account",
   },
   {
     id: "it",
-    label: "IT & Inventory",
+    label: "Inventory Management",
     description: "Assets, tickets, returns",
     icon: "💻",
     route: "/it/inventory",

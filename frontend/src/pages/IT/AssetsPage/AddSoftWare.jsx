@@ -195,7 +195,6 @@ const AddSoftwarePage = () => {
         {/* Header */}
         <div className="ana-main-header">
           <div className="ana-header-top-row">
-            <button className="ana-back-top" onClick={() => navigate(-1)}>← Back</button>
             <h1>Add Software Licenses</h1>
           </div>
           <p className="ana-subtitle">

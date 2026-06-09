@@ -698,7 +698,7 @@ export default function AddNewAssets() {
     <div className="ana-outer">
       <div className="ana-top-bar">
         <button className="ana-back" onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(activeInventoryCategory)}`)}>
-          ← Back to Inventory
+          ← Back to Inventory Management
         </button>
         <h1 className="ana-top-title">Add New Assets</h1>
       </div>

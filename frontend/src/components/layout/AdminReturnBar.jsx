@@ -23,7 +23,7 @@ export function AdminReturnBar({ visible }) {
         ← Back to Admin Command Center
       </button>
       <span className="admin-return-bar__hint">
-        You are working in a department workspace — all admin controls stay in the Admin Panel.
+        You are working in a department workspace — all admin controls stay in Admin Management.
       </span>
     </div>
   );

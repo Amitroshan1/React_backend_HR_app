@@ -262,6 +262,7 @@ def create_app():
 
             addcol("it_parcel_imports", "received_by_name")
             addcol("it_parcel_exports", "exported_by_name")
+            addcol("it_parcel_exports", "inventory_category")
         except Exception as e:
             app.logger.warning("Parcel name column migration skipped: %s", e)
 
@@ -794,8 +795,41 @@ def create_app():
         except Exception as e:
             app.logger.warning("ctc_breakups column migration skipped: %s", e)
 
+    def _ensure_upload_doc_identity_columns():
+        """Aadhaar/PAN/bank metadata on upload_docs (numbers before file upload)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "upload_docs"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            specs = [
+                ("aadhaar_number", "VARCHAR(12) NULL"),
+                ("pan_number", "VARCHAR(10) NULL"),
+                ("bank_account_number", "VARCHAR(30) NULL"),
+                ("bank_name", "VARCHAR(120) NULL"),
+                ("bank_branch_code", "VARCHAR(20) NULL"),
+                ("ifsc_code", "VARCHAR(11) NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("upload_docs identity columns ensure skipped: %s", e)
+
     with app.app_context():
         try:
+            _ensure_upload_doc_identity_columns()
             _ensure_ctc_breakup_columns()
             _ensure_parcel_name_columns()
             _ensure_expense_line_item_rejection_reason()

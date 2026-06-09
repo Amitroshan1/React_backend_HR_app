@@ -195,13 +195,6 @@ const AddDeptCircle = ({ onBack }) => {
   return (
     <div className="add-dept-circle-container">
       <div className="add-dept-circle-wrapper">
-        {/* Back Button */}
-        {onBack && (
-          <button className="btn-back-updates" onClick={onBack}>
-            <ArrowLeft size={16} /> Back to Updates
-          </button>
-        )}
-        
         {/* Page Heading */}
         <div className="page-header">
           <h1 className="page-heading">Department & Circle Management</h1>

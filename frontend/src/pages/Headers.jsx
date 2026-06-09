@@ -123,6 +123,7 @@ import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, 
 import "./style/Headers.css";
 import { hasFeature, clearPlanContext, canAccessItPanel } from "../utils/planFeatures";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
+import { DEPARTMENT_TITLES, getPanelLinkLabel } from "../utils/departmentLabels";
 
 const getPageInfo = (pathname, firstName) => {
     const normalizedPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";
@@ -141,7 +142,7 @@ const getPageInfo = (pathname, firstName) => {
             total: "All Assets",
         };
         return {
-            title: "Inventory",
+            title: DEPARTMENT_TITLES.inventory,
             subtitle: inventorySubtitles[segment] || "Asset Management",
         };
     }
@@ -159,24 +160,36 @@ const getPageInfo = (pathname, firstName) => {
         '/holiday-calendar': { title: 'Holiday Calendar', subtitle: 'Company holiday list by year' },
         '/performance': { title: 'Performance', subtitle: 'Self review and manager feedback' },
         '/wfh': { title: 'Work From Home', subtitle: 'WFH requests and approvals' },
-        '/hr': { title: 'HR Panel', subtitle: 'Administration' },
-        '/account': { title: 'Accounts Panel', subtitle: 'Financial Management' },
-        '/admin': { title: 'Admin Panel', subtitle: 'Admin Management' },
-        '/admin/leaves': { title: 'All Leave Applications', subtitle: 'Admin' },
-        '/admin/queries': { title: 'All Queries', subtitle: 'Admin' },
-        '/admin/claims': { title: 'All Expense Claims', subtitle: 'Admin' },
-        '/admin/resignations': { title: 'All Resignations', subtitle: 'Admin' },
-        '/it/inventory': { title: 'Inventory', subtitle: 'Asset Management' },
+        '/hr': { title: DEPARTMENT_TITLES.hr, subtitle: 'Administration' },
+        '/account': { title: DEPARTMENT_TITLES.account, subtitle: 'Financial Management' },
+        '/admin': { title: DEPARTMENT_TITLES.admin, subtitle: 'Organization Control' },
+        '/admin/leaves': { title: 'All Leave Applications', subtitle: DEPARTMENT_TITLES.admin },
+        '/admin/queries': { title: 'All Queries', subtitle: DEPARTMENT_TITLES.admin },
+        '/admin/claims': { title: 'All Expense Claims', subtitle: DEPARTMENT_TITLES.admin },
+        '/admin/resignations': { title: 'All Resignations', subtitle: DEPARTMENT_TITLES.admin },
+        '/it/inventory': { title: DEPARTMENT_TITLES.inventory, subtitle: 'Asset Management' },
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
         '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
-        '/it': { title: 'IT Panel', subtitle: 'IT Management' },
+        '/it': { title: DEPARTMENT_TITLES.it, subtitle: 'System Administration & Support' },
         '/change-password': { title: 'Change Password', subtitle: '' },
     };
 
     if (pathMap[normalizedPath]) return pathMap[normalizedPath];
 
     if (normalizedPath.startsWith("/it/")) {
-        return { title: "IT Panel", subtitle: "IT Management" };
+        return { title: DEPARTMENT_TITLES.it, subtitle: "System Administration & Support" };
+    }
+
+    if (normalizedPath.startsWith("/hr/")) {
+        return { title: DEPARTMENT_TITLES.hr, subtitle: "Administration" };
+    }
+
+    if (normalizedPath.startsWith("/account/")) {
+        return { title: DEPARTMENT_TITLES.account, subtitle: "Financial Management" };
+    }
+
+    if (normalizedPath.startsWith("/admin/")) {
+        return { title: DEPARTMENT_TITLES.admin, subtitle: "Organization Control" };
     }
 
     return { title: "Portal", subtitle: "" };
@@ -586,7 +599,8 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                         className={({ isActive }) => "dropdown-item" + (isActive ? " active" : "")}
                                         onClick={() => setIsDropdownOpen(false)}
                                     >
-                                        <FaBriefcase className="d-icon" /> <span>{item.display} Panel</span>
+                                        <FaBriefcase className="d-icon" />{" "}
+                                        <span>{getPanelLinkLabel(item)}</span>
                                     </NavLink>
                                 ))}
 

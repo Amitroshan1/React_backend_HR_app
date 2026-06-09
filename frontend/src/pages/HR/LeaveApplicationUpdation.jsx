@@ -207,9 +207,6 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
   return (
     <div className="leave-application-updation-page">
       <div className="leave-application-updation-shell">
-        <button type="button" className="lau-back-btn" onClick={onBack}>
-          <ArrowLeft size={16} /> Back to Updates
-        </button>
         <div className="lau-header-card">
           <h2>Leave/WFH Application Updation</h2>
           <p>HR can update Leave/WFH dates, reason, and status (leave balances auto-adjust including reversals).</p>

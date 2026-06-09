@@ -238,27 +238,6 @@ const ExitEmployee = ({onBack}) => {
 
         <div className="header-section">
           <button
-            className="btn-back-updates"
-            aria-label="Back to Updates"
-            onClick={() => {
-              if (onBack) {
-                // Called from Hr.jsx with onBack prop
-                onBack();
-              } else if (sourceFrom === 'archive') {
-                // Called from Archive page — replace history so back doesn't return here
-                navigate('/archive-employees', { replace: true });
-              } else {
-                // Always navigate to Updates to avoid landing on Archive
-                // Use replace so we don't add extra history entries
-                navigate('/updates', { state: { view: 'updates' }, replace: true });
-              }
-            }}
-          >
-            <ArrowLeft size={20} />
-            <span>Back to Updates</span>
-          </button>
-
-          <button
             className="archive-button"
             aria-label="Open Archive"
             onClick={() => navigate('/archive-employees')}

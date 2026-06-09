@@ -275,6 +275,7 @@ class ITParcelExport(db.Model):
 
     exported_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     parcel_photos_json = db.Column(db.JSON, nullable=True)
+    inventory_category = db.Column(db.String(80), nullable=True, index=True)
 
     exported_by_admin = db.relationship("Admin", backref=db.backref("it_parcel_exports_created", lazy="dynamic"))
     items = db.relationship("ITParcelExportItem", back_populates="parcel_export", cascade="all, delete-orphan")

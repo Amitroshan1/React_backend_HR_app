@@ -73,7 +73,7 @@ export default function AdminLayout() {
         <div className="admin-shell__brand">
           <span className="admin-shell__brand-icon" aria-hidden>⚙️</span>
           <div>
-            <strong>Admin Panel</strong>
+            <strong>Admin Management</strong>
             <span>Full organization control</span>
           </div>
         </div>

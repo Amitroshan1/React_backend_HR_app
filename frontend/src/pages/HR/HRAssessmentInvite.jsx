@@ -925,7 +925,6 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
 
   return (
     <div className="hr-main-container assessment-invite-page">
-      <button className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Updates</button>
       <header className="assessment-invite-header">
         <h2>Assessment Invite</h2>
         <p>Send 15-minute test links and evaluate submissions.</p>

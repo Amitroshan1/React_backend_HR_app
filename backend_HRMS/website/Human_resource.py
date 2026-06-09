@@ -2066,14 +2066,8 @@ def get_employee_profile_hr(admin_id):
             "reason": pc.reason,
         })
     if upload_doc:
-        profile["documents"] = {
-            "aadhaar_front": upload_doc.aadhaar_front,
-            "aadhaar_back": upload_doc.aadhaar_back,
-            "pan_front": upload_doc.pan_front,
-            "pan_back": upload_doc.pan_back,
-            "appointment_letter": upload_doc.appointment_letter,
-            "passbook_front": upload_doc.passbook_front,
-        }
+        from .auth import _upload_doc_profile_dict
+        profile["documents"] = _upload_doc_profile_dict(upload_doc)
     return jsonify({"success": True, "profile": profile}), 200
 
 

@@ -1,0 +1,67 @@
+.emp-identity-docs__block {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.emp-identity-docs__block h5,
+.emp-identity-docs__files h5 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.emp-identity-docs__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0;
+  font-size: 13px;
+  color: #475569;
+}
+
+.emp-identity-docs__meta strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.emp-identity-docs__grid {
+  display: grid;
+  gap: 10px;
+}
+
+.emp-identity-docs__file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.emp-identity-docs__file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.emp-identity-docs__view-btn {
+  border: 1px solid #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.emp-identity-docs__view-btn:hover {
+  background: #dbeafe;
+}

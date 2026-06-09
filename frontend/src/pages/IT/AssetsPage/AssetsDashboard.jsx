@@ -2023,9 +2023,6 @@ export default function AssetsDashboard() {
       <div className="am-container">
         {/* Top bar */}
         <div className="am-topbar">
-          <button className="am-back-btn" onClick={() => navigate(-1)}>
-            ← Back
-          </button>
           <h1 className="am-title">Asset Management</h1>
           <div className="am-topbar-right">
             <div className="am-action-btns">

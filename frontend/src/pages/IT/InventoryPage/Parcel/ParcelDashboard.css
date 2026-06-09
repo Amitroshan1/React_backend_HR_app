@@ -189,6 +189,59 @@
 }
 
 /* ══════════════════════════════════════════
+   EXPORT CATEGORY FILTERS
+══════════════════════════════════════════ */
+.pcl-export-cat-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 32px 0;
+  background: #f8fafc;
+}
+
+.pcl-export-cat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pcl-export-cat-btn:hover {
+  border-color: #06b6d4;
+  color: #0e7490;
+}
+
+.pcl-export-cat-btn.active {
+  background: #ecfeff;
+  border-color: #06b6d4;
+  color: #0e7490;
+  font-weight: 600;
+}
+
+.pcl-export-cat-count {
+  background: #f1f5f9;
+  color: #64748b;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pcl-export-cat-btn.active .pcl-export-cat-count {
+  background: #cffafe;
+  color: #0891b2;
+}
+
+/* ══════════════════════════════════════════
    SEARCH ROW
 ══════════════════════════════════════════ */
 .pcl-search-row {
@@ -473,6 +526,49 @@
 
 .pcl-photo-modal {
   width: min(560px, 100%);
+}
+
+.pcl-photo-gallery-body {
+  padding: 16px 20px 20px;
+}
+
+.pcl-photo-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.pcl-photo-thumb-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pcl-photo-thumb-btn:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.pcl-photo-thumb-btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.pcl-photo-gallery-img {
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  display: block;
 }
 
 @keyframes pcl-slide-in {

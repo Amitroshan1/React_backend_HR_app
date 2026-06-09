@@ -6,6 +6,11 @@ import { ProfileSectionHints } from '../common/ProfileSectionHints';
 import { ProfileSummaryCard } from './ProfileSummaryCard';
 import { formatDateForDisplay, shouldShowReportingManager } from '../../utils/profileUtils';
 import { DOCUMENT_LABELS, documentPreviewUrl } from '../../utils/profileApi';
+import {
+    maskAadhaar,
+    maskPan,
+    maskBankAccount,
+} from '../../utils/documentIdentity';
 
 const formatAddressBlock = (addr) => {
     if (!addr) return '—';
@@ -45,8 +50,15 @@ export const ProfileViewLayout = ({
     onGoToSection,
 }) => {
     const sections = sectionCompletion?.sections || [];
-    const { formData, currentAddress, permanentAddress, previousEmployment, educationDetails, files } =
-        data;
+    const {
+        formData,
+        currentAddress,
+        permanentAddress,
+        previousEmployment,
+        educationDetails,
+        files,
+        documentMeta,
+    } = data;
 
     const personalItems = [
         { label: 'Full name', value: formData.fullName, key: 'fullName' },
@@ -226,6 +238,24 @@ export const ProfileViewLayout = ({
                     </ViewSection>
 
                     <ViewSection id="profile-documents" title="Documents" modifier="documents">
+                        {documentMeta?.aadhaarNumber && (
+                            <Info label="Aadhaar Number" value={maskAadhaar(documentMeta.aadhaarNumber)} />
+                        )}
+                        {documentMeta?.panNumber && (
+                            <Info label="PAN Number" value={maskPan(documentMeta.panNumber)} />
+                        )}
+                        {documentMeta?.bankAccountNumber && (
+                            <Info label="Bank Account" value={maskBankAccount(documentMeta.bankAccountNumber)} />
+                        )}
+                        {documentMeta?.bankName && (
+                            <Info label="Bank Name" value={documentMeta.bankName} />
+                        )}
+                        {documentMeta?.bankBranchCode && (
+                            <Info label="Branch Code" value={documentMeta.bankBranchCode} />
+                        )}
+                        {documentMeta?.ifscCode && (
+                            <Info label="IFSC" value={documentMeta.ifscCode} />
+                        )}
                         <ul className="profile-doc-list">
                             {Object.entries(DOCUMENT_LABELS).map(([key, label]) => {
                                 const path = files?.[key];

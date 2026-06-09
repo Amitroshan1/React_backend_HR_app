@@ -239,10 +239,6 @@ export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circle
   return (
     <div className="leave-page-wrapper">
       <div className="leave-content-area">
-        <button type="button" className="back-to-updates-btn" onClick={onBack}>
-          <ArrowLeft size={16} /> Back to Updates
-        </button>
-
         <div className="leave-search-filter-box">
           <div className="filter-inner-grid">
             <div className="filter-column">
