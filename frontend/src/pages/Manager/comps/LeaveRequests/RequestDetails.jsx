@@ -90,6 +90,9 @@ export const RequestDetails = () => {
   return (
     <div className={`details-page-wrapper ${isVisible ? "fade-in" : ""}`}>
       <header className="details-top-nav">
+        <button type="button" className="back-arrow-btn" onClick={() => navigate(-1)}>
+          <span className="icon">←</span> Back
+        </button>
         <div className="header-meta">
           <h1>{request.employeeName}</h1>
           <span className={`request-badge-pill badge-${request.type?.toLowerCase().split(' ')[0]}`}>

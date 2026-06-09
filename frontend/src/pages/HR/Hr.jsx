@@ -189,6 +189,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
 
   return (
     <div className="hr-sub-page">
+      <button type="button" className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
       <div className="hr-card">
         <h2>Profile – {employee.name}</h2>
         {loading && <p className="hr-loading">Loading...</p>}
@@ -390,6 +391,7 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
 
   return (
     <div className="hr-sub-page">
+      <button type="button" className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
       <div className="hr-card">
         <h2>Attendance – {employee.name}</h2>
         <div className="attendance-controls">
@@ -583,6 +585,7 @@ function HrEmployeeAccountsView({ employee, onBack }) {
 
   return (
     <div className="hr-sub-page">
+      <button type="button" className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
       <div className="hr-card">
         <h2>Employee Accounts – {employee.name}</h2>
         <p style={{ color: '#64748b', marginTop: '-4px' }}>
@@ -862,6 +865,11 @@ function HrPunchFormView({ employee, onBack }) {
   };
   return (
     <div className="hr-punch-page">
+      <div className="hr-punch-page__header">
+        <button type="button" className="hr-punch-page__back" onClick={onBack}>
+          <ArrowLeft size={18} /> Back to Search
+        </button>
+      </div>
       <div className="hr-punch-page__container">
         <div className="hr-punch-page__hero">
           <div className="hr-punch-page__hero-icon">
@@ -1714,6 +1722,9 @@ if (view === 'holiday_calendar') {
 if (view === 'add_circle_type') {
   return (
     <div className="add-circle-placeholder">
+      <button type="button" className="btn-back-updates" onClick={() => setView('updates')}>
+        <ArrowLeft size={16} /> Back to Updates
+      </button>
       <div style={{padding:20}}>
         <h2>Add Circle & Employee Type</h2>
         <p>This view is a placeholder. Implement the add forms here when ready.</p>
@@ -1726,6 +1737,10 @@ if (view === 'noc_requests') {
     <div className="hr-main-container fade-in">
       <div className="rr-page" style={{ minHeight: 'auto', padding: '20px' }}>
         <div className="rr-topbar" style={{ marginBottom: 8 }}>
+          <button type="button" className="rr-back-btn" onClick={() => setView('updates')}>
+            <ArrowLeft size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            Back to Updates
+          </button>
           <h1 style={{ margin: 0, fontSize: 22, color: '#0f172a' }}>NOC Requests (Human Resource)</h1>
         </div>
         <p style={{ color: '#64748b', marginBottom: 16, maxWidth: 720 }}>
@@ -1810,6 +1825,9 @@ if (view === 'noc_requests') {
     return (
       <div className="signup-page-container">
         <div className="signup-content-wrapper">
+          <button type="button" className="btn-back-updates" onClick={() => { setView('updates'); setResetPasswordMessage(''); setResetPasswordError(''); }}>
+            <ArrowLeft size={16} /> Back to Updates
+          </button>
           <div className="signup-card">
             <div className="card-header">
               <h2>Reset employee password</h2>
@@ -1861,6 +1879,21 @@ if (view === 'noc_requests') {
       <div className="signup-page-container">
 
         <div className="signup-content-wrapper">
+          <button
+            type="button"
+            className="btn-back-updates"
+            onClick={() => {
+              const backToUpdateSignUpSearch = !!signupEditEmail;
+              setSignupEditEmail(null);
+              setSignupEditOriginal(null);
+              setCircleTransferNotes('');
+              setSignupError("");
+              setView(backToUpdateSignUpSearch ? "update_signup" : "updates");
+            }}
+          >
+            <ArrowLeft size={16} /> {isEditMode ? "Back to Search" : "Back to Updates"}
+          </button>
+
           <div className="signup-card">
             <div className="card-header">
               <h2>{isEditMode ? 'Update Employee Details' : 'Create New Employee Account'}</h2>
@@ -2022,6 +2055,9 @@ if (view === 'noc_requests') {
   if (view === 'updates') {
     return (
       <div className="hr-main-container">
+        <button type="button" className="btn-back" onClick={() => setView('main')}>
+          <ArrowLeft size={18} /> Back to HR Management
+        </button>
         <div className="updates-grid">
           {visibleUpdateOptions.map((option) => (
             <div key={option.title} className="update-card" onClick={() => handleUpdateCardClick(option.title)}>

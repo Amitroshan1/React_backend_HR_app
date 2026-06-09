@@ -701,6 +701,12 @@ const EmployeeDetails = () => {
   return (
     <div className="employee-assets">
 
+      <div className="back-button-container">
+        <button type="button" className="btn-back" onClick={() => navigate(-1)}>
+          ← Back to Active Devices
+        </button>
+      </div>
+
       {/* ── Profile Card ── */}
       <div className="employee-details-card">
         <div className="employee-layout">

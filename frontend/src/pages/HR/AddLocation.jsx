@@ -108,7 +108,9 @@ export const AddLocation = ({ onBack }) => {
   return (
     <div className="location-page-wrapper">
       <div className="location-container">
-        {/* Navigation Tab */}
+        <button type="button" className="btn-back-tab" onClick={onBack}>
+          <ArrowLeft size={16} /> Back to Updates
+        </button>
 
         <div className="location-card">
           <div className="location-card-header">

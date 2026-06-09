@@ -62,6 +62,9 @@ export const LeaveAccrualSummary = ({ onBack }) => {
 
   return (
     <div className="leave-accrual-page hr-main-container">
+      <button type="button" className="btn-back-updates" onClick={onBack}>
+        <ArrowLeft size={16} /> Back to Updates
+      </button>
 
       <div className="leave-accrual-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>

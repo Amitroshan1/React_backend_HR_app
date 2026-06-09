@@ -903,6 +903,7 @@ const AddEmployee = () => {
 
       {/* Top bar */}
       <div className="ane-topbar">
+        <button type="button" className="ane-back-btn" onClick={() => navigate(-1)}>← Back</button>
         <h1 className="ane-page-title">Add New Employee</h1>
         <div className="ane-step-pills">
           {STEPS.map((s, i) => (

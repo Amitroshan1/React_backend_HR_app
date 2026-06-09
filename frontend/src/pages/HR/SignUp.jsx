@@ -55,6 +55,9 @@ export const SignUp = ({ onBack }) => {
 
       {/* Main Form Area */}
       <div className="signup-content-wrapper">
+        <button type="button" className="btn-back-updates" onClick={onBack}>
+          <ArrowLeft size={16} /> Back to Updates
+        </button>
         <div className="signup-card">
           <div className="card-header">
             <h2>Create New Employee Account</h2>

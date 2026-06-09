@@ -57,6 +57,9 @@ export function CircleTransferHistory({ onBack, circleOptions = [] }) {
 
   return (
     <div className="hr-main-container circle-transfer-page">
+      <button type="button" className="btn-back-updates" onClick={onBack}>
+        <ArrowLeft size={16} /> Back to Updates
+      </button>
 
       <h2 style={{ marginTop: 8 }}>Circle Transfer History</h2>
       <p className="circle-transfer-muted" style={{ marginTop: 0 }}>

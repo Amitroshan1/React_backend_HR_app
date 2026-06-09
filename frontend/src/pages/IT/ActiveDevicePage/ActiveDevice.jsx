@@ -233,6 +233,11 @@ export default function ActiveDevice({ onBack }) {
     });
   };
 
+  const handleBack = () => {
+    if (onBack) onBack();
+    else navigate(-1);
+  };
+
   const secondColHeader =
     activeTab === "Software"
       ? "License Code"
@@ -250,6 +255,9 @@ export default function ActiveDevice({ onBack }) {
         {/* ── Top Bar ── */}
         <div className="asd-topbar">
           <div className="asd-topbar-left">
+            <button type="button" className="asd-back-btn" onClick={handleBack}>
+              ← Back
+            </button>
             <div className="asd-tabs">
               {TABS.map((cat) => (
                 <button

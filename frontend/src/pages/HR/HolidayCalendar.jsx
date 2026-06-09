@@ -178,6 +178,9 @@ export const HolidayCalendar = ({ onBack }) => {
 
   return (
     <div className="holiday-page">
+      <button type="button" className="btn-back-updates" onClick={onBack}>
+        <ArrowLeft size={16} /> Back to Updates
+      </button>
 
       <div className="holiday-card">
         <div className="holiday-header">

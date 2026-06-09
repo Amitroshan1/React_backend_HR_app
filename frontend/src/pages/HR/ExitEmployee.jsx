@@ -238,6 +238,23 @@ const ExitEmployee = ({onBack}) => {
 
         <div className="header-section">
           <button
+            className="btn-back-updates"
+            aria-label="Back to Updates"
+            onClick={() => {
+              if (onBack) {
+                onBack();
+              } else if (sourceFrom === 'archive') {
+                navigate('/archive-employees', { replace: true });
+              } else {
+                navigate('/updates', { state: { view: 'updates' }, replace: true });
+              }
+            }}
+          >
+            <ArrowLeft size={20} />
+            <span>Back to Updates</span>
+          </button>
+
+          <button
             className="archive-button"
             aria-label="Open Archive"
             onClick={() => navigate('/archive-employees')}

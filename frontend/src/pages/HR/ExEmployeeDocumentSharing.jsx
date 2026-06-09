@@ -146,6 +146,9 @@ export function ExEmployeeDocumentSharing({ onBack }) {
 
   return (
     <div className="ex-doc-share">
+      <button type="button" className="ex-doc-share__back" onClick={onBack}>
+        <ArrowLeft size={18} /> Back to Updates
+      </button>
       <div className="ex-doc-share__card">
         <div className="ex-doc-share__header">
           <div className="ex-doc-share__icon">

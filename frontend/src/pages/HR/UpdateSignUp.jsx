@@ -108,6 +108,9 @@ export const UpdateSignUp = ({
   return (
     <div className="update-signup-page">
       <div className="content-container">
+        <button type="button" className="btn-back-nav" onClick={onBack}>
+          <ArrowLeft size={18} /> Back to Updates
+        </button>
 
         <div className="search-filter-card">
           <div className="search-card-header">

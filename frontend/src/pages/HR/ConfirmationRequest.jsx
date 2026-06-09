@@ -43,6 +43,9 @@ export const ConfirmationRequest = ({ onBack }) => {
   return (
     <div className="conf-request-wrapper">
       <div className="conf-request-container">
+        <button type="button" className="btn-back-tab" onClick={onBack}>
+          <ArrowLeft size={16} /> Back to Updates
+        </button>
 
         <div className="conf-request-card">
           <div className="conf-request-header">

@@ -275,6 +275,9 @@ export default function OpenTicket() {
       {/* ── Header ── */}
       <div className="ot-header">
         <div className="ot-header-left">
+          <button className="ot-back-btn" type="button" onClick={() => navigate(-1)}>
+            ← Back
+          </button>
           <div>
             <h1 className="ot-title">Ticket Management</h1>
             <p className="ot-subtitle">Track and resolve employee support requests</p>
