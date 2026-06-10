@@ -18,7 +18,6 @@ import uuid
 from flask import Blueprint, request, current_app, jsonify, send_file, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email, send_news_feed_announcement_email
-from .email_utils import normalize_email_address
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
@@ -2518,10 +2517,16 @@ def _round_leave_value(value):
     return round(float(value or 0.0), 2)
 
 
+def _normalize_updation_status(raw):
+    return (raw or "").strip() or "Pending"
+
+
 def _serialize_leave_updation_row(row):
     admin = row.admin
+    status = _normalize_updation_status(row.status)
     return {
         "id": row.id,
+        "row_key": f"leave-{row.id}",
         "admin_id": row.admin_id,
         "employee_name": admin.first_name if admin else None,
         "employee_email": admin.email if admin else None,
@@ -2532,7 +2537,7 @@ def _serialize_leave_updation_row(row):
         "reason": row.reason,
         "start_date": row.start_date.isoformat() if row.start_date else None,
         "end_date": row.end_date.isoformat() if row.end_date else None,
-        "status": row.status,
+        "status": status,
         "deducted_days": _round_leave_value(row.deducted_days),
         "extra_days": _round_leave_value(row.extra_days),
         "requested_deducted_days": _round_leave_value(getattr(row, "requested_deducted_days", 0.0)),
@@ -2544,8 +2549,10 @@ def _serialize_leave_updation_row(row):
 
 def _serialize_wfh_updation_row(row):
     admin = row.admin
+    status = _normalize_updation_status(row.status)
     return {
         "id": row.id,
+        "row_key": f"wfh-{row.id}",
         "admin_id": row.admin_id,
         "employee_name": admin.first_name if admin else None,
         "employee_email": admin.email if admin else None,
@@ -2556,7 +2563,7 @@ def _serialize_wfh_updation_row(row):
         "reason": row.reason,
         "start_date": row.start_date.isoformat() if row.start_date else None,
         "end_date": row.end_date.isoformat() if row.end_date else None,
-        "status": row.status,
+        "status": status,
         "deducted_days": None,
         "extra_days": None,
         "requested_deducted_days": None,
@@ -3595,11 +3602,11 @@ def create_assessment_invite():
     data = request.get_json(silent=True) or {}
     full_name = (data.get("full_name") or data.get("name") or "").strip()
     department = (data.get("department") or "").strip()
-    if not full_name or not department:
+    candidate_email = (data.get("email") or "").strip().lower()
+    if not full_name or not department or not candidate_email:
         return jsonify({"success": False, "message": "name, department and email are required"}), 400
-    candidate_email, email_err = normalize_email_address(data.get("email") or "")
-    if email_err:
-        return jsonify({"success": False, "message": email_err}), 400
+    if "@" not in candidate_email:
+        return jsonify({"success": False, "message": "Invalid email"}), 400
 
     raw_token = secrets.token_urlsafe(48)
     token_hash = _assessment_hash_token(raw_token)
@@ -3633,22 +3640,19 @@ def create_assessment_invite():
             candidate_email,
             provider_msg,
         )
-        db.session.delete(invite)
-        db.session.commit()
-        return jsonify(
-            {
-                "success": False,
-                "message": provider_msg or "Email could not be sent. Please check the address and try again.",
-            }
-        ), 502
 
     base_url = (current_app.config.get("BASE_URL") or "").rstrip("/")
     link = f"{base_url}/assessment?t={raw_token}"
     return jsonify(
         {
             "success": True,
-            "message": "Assessment link sent successfully.",
-            "email_sent": True,
+            "message": (
+                "Assessment link sent successfully."
+                if mail_ok
+                else "Invite created, but email delivery failed. Please verify recipient/SMTP and retry."
+            ),
+            "email_sent": bool(mail_ok),
+            "email_provider_message": provider_msg or "",
             "invite": {
                 "id": invite.id,
                 "full_name": invite.full_name,
@@ -5137,11 +5141,9 @@ def get_employee_circle_history(email_path):
 @jwt_required()
 @hr_required
 def send_ex_employee_documents():
-    recipient_email, email_err = normalize_email_address(
-        request.form.get("recipient_email") or request.form.get("email") or ""
-    )
-    if email_err:
-        return jsonify({"success": False, "message": email_err}), 400
+    recipient_email = (request.form.get("recipient_email") or request.form.get("email") or "").strip()
+    if not recipient_email or "@" not in recipient_email:
+        return jsonify({"success": False, "message": "A valid recipient email is required"}), 400
 
     display_names_raw = request.form.get("display_names") or "[]"
     try:

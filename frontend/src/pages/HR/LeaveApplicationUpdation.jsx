@@ -22,6 +22,21 @@ const getAuthHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+const STATUS_FILTERS = ["All", "Pending", "Approved", "Rejected"];
+
+const normalizeRequestStatus = (raw) =>
+  String(raw ?? "")
+    .trim()
+    .toLowerCase();
+
+const rowKey = (row) =>
+  row?.row_key || `${String(row?.request_type || "leave").toLowerCase()}-${row?.id}`;
+
+const matchesStatusFilter = (row, statusFilter) => {
+  if (statusFilter === "All") return true;
+  return normalizeRequestStatus(row?.status) === normalizeRequestStatus(statusFilter);
+};
+
 const parseAuditAction = (actionText) => {
   const raw = String(actionText || "");
   const chunks = raw.split("|");
@@ -71,10 +86,10 @@ const parseAuditAction = (actionText) => {
 export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOptions = [] }) => {
   const [filters, setFilters] = useState({
     request_type: "all",
-    status: "All",
     emp_type: "",
     circle: "",
   });
+  const [statusFilter, setStatusFilter] = useState("All");
   const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -192,21 +207,16 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
 
   const stats = useMemo(() => {
     const total = allRows.length;
-    const pending = allRows.filter((r) => String(r.status).toLowerCase() === "pending").length;
-    const approved = allRows.filter((r) => String(r.status).toLowerCase() === "approved").length;
-    const rejected = allRows.filter((r) => String(r.status).toLowerCase() === "rejected").length;
+    const pending = allRows.filter((r) => matchesStatusFilter(r, "Pending")).length;
+    const approved = allRows.filter((r) => matchesStatusFilter(r, "Approved")).length;
+    const rejected = allRows.filter((r) => matchesStatusFilter(r, "Rejected")).length;
     return { total, pending, approved, rejected };
   }, [allRows]);
 
-  const displayRows = useMemo(() => {
-    if (filters.status === "All") return allRows;
-    const want = filters.status.toLowerCase();
-    return allRows.filter((r) => String(r.status).toLowerCase() === want);
-  }, [allRows, filters.status]);
-
-  const setStatusFilter = (nextStatus) => {
-    setFilters((p) => ({ ...p, status: nextStatus }));
-  };
+  const displayRows = useMemo(
+    () => allRows.filter((r) => matchesStatusFilter(r, statusFilter)),
+    [allRows, statusFilter],
+  );
 
   return (
     <div className="leave-application-updation-page">
@@ -224,7 +234,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
             <label>Request Type</label>
             <select
               value={filters.request_type}
-              onChange={(e) => setFilters((p) => ({ ...p, request_type: e.target.value, status: "All" }))}
+              onChange={(e) => setFilters((p) => ({ ...p, request_type: e.target.value }))}
             >
               {REQUEST_TYPE_OPTIONS.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -233,7 +243,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
           </div>
           <div>
             <label>Employee Type</label>
-            <select value={filters.emp_type} onChange={(e) => setFilters((p) => ({ ...p, emp_type: e.target.value, status: "All" }))}>
+            <select value={filters.emp_type} onChange={(e) => setFilters((p) => ({ ...p, emp_type: e.target.value }))}>
               <option value="">All</option>
               {empTypeOptions.map((item) => (
                 <option key={item} value={item}>{item}</option>
@@ -242,7 +252,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
           </div>
           <div>
             <label>Circle</label>
-            <select value={filters.circle} onChange={(e) => setFilters((p) => ({ ...p, circle: e.target.value, status: "All" }))}>
+            <select value={filters.circle} onChange={(e) => setFilters((p) => ({ ...p, circle: e.target.value }))}>
               <option value="">All</option>
               {circleOptions.map((item) => (
                 <option key={item} value={item}>{item}</option>
@@ -255,34 +265,26 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
         </div>
 
         <div className="lau-stats">
-          <button
-            type="button"
-            className={`lau-stat-pill ${filters.status === "All" ? "active" : ""}`}
-            onClick={() => setStatusFilter("All")}
-          >
-            Total: {stats.total}
-          </button>
-          <button
-            type="button"
-            className={`lau-stat-pill ${filters.status === "Pending" ? "active" : ""}`}
-            onClick={() => setStatusFilter("Pending")}
-          >
-            Pending: {stats.pending}
-          </button>
-          <button
-            type="button"
-            className={`lau-stat-pill ${filters.status === "Approved" ? "active" : ""}`}
-            onClick={() => setStatusFilter("Approved")}
-          >
-            Approved: {stats.approved}
-          </button>
-          <button
-            type="button"
-            className={`lau-stat-pill ${filters.status === "Rejected" ? "active" : ""}`}
-            onClick={() => setStatusFilter("Rejected")}
-          >
-            Rejected: {stats.rejected}
-          </button>
+          {STATUS_FILTERS.map((status) => {
+            const count =
+              status === "All"
+                ? stats.total
+                : status === "Pending"
+                  ? stats.pending
+                  : status === "Approved"
+                    ? stats.approved
+                    : stats.rejected;
+            return (
+              <button
+                key={status}
+                type="button"
+                className={`lau-stat-pill ${statusFilter === status ? "active" : ""}`}
+                onClick={() => setStatusFilter(status)}
+              >
+                {status === "All" ? `Total: ${count}` : `${status}: ${count}`}
+              </button>
+            );
+          })}
         </div>
 
         {error && <div className="lau-error">{error}</div>}
@@ -303,14 +305,18 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
             </thead>
             <tbody>
               {displayRows.map((row) => (
-                <tr key={row.id}>
+                <tr key={rowKey(row)}>
                   <td>
                     <div className="lau-emp-name">{row.employee_name || "-"}</div>
                     <small>{row.emp_id || "-"} • {row.circle || "-"}</small>
                   </td>
                   <td>{row.leave_type || (String(row.request_type).toLowerCase() === "wfh" ? "Work From Home" : "-")}</td>
                   <td>{row.start_date} to {row.end_date}</td>
-                  <td><span className={`lau-status ${String(row.status).toLowerCase()}`}>{row.status}</span></td>
+                  <td>
+                    <span className={`lau-status ${normalizeRequestStatus(row.status)}`}>
+                      {row.status || "-"}
+                    </span>
+                  </td>
                   <td>{row.deducted_days == null ? "-" : row.deducted_days}</td>
                   <td>{row.extra_days == null ? "-" : row.extra_days}</td>
                   <td>

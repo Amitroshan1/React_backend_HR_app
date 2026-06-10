@@ -91,21 +91,6 @@
   box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.2);
 }
 
-.ex-doc-share__input--invalid {
-  border-color: #dc2626;
-}
-
-.ex-doc-share__input--invalid:focus {
-  border-color: #dc2626;
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
-}
-
-.ex-doc-share__field-error {
-  font-size: 12px;
-  font-weight: 500;
-  color: #dc2626;
-}
-
 .ex-doc-share__files-head {
   display: flex;
   justify-content: space-between;
