@@ -139,6 +139,12 @@ const isQtyManagedCategory = (category) =>
 const isStockLineItem = (item) =>
   String(item?.category || "").trim().toLowerCase() === "stock";
 
+/** Office / Infrastructure bulk stock and qty-managed lines use quantity actions. */
+const isQuantityStockRow = (row) =>
+  Boolean(row?.isStock) ||
+  isStockLineItem(row) ||
+  isQtyManagedCategory(row?.category);
+
 const readInventory  = () => getInventoryFromStorage() ?? [];
 const writeInventory = (data) => saveInventoryToStorage(data);
 const readUnits      = () => getAssetUnitsFromStorage() ?? [];
@@ -382,12 +388,17 @@ function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
       ? "Dead Device"
       : "Repair";
 
+  const isRemove = actionKey === "removed";
   const maxQty = Math.max(0, Number(row?.available ?? 0));
   const [quantity, setQuantity] = useState(maxQty > 0 ? "1" : "0");
+  const [removedBy, setRemovedBy] = useState("");
+  const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const submit = () => {
     const qty = Number.parseInt(quantity, 10);
+    const nextErrors = {};
     if (!Number.isFinite(qty) || qty < 1) {
       setError("Enter a valid quantity (minimum 1).");
       return;
@@ -396,7 +407,21 @@ function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
       setError(`Quantity cannot exceed available count (${maxQty}).`);
       return;
     }
-    onConfirm(qty);
+    if (isRemove) {
+      if (!removedBy.trim()) nextErrors.removedBy = "Required";
+      if (!reason.trim()) nextErrors.reason = "Required";
+      if (Object.keys(nextErrors).length) {
+        setFieldErrors(nextErrors);
+        setError("");
+        return;
+      }
+    }
+    setError("");
+    setFieldErrors({});
+    onConfirm(
+      qty,
+      isRemove ? { removedBy: removedBy.trim(), reason: reason.trim() } : null,
+    );
   };
 
   return (
@@ -430,6 +455,40 @@ function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
             <span className="inv-modal-hint-sub">Available: {maxQty}</span>
             {error && <span className="inv-modal-err">{error}</span>}
           </div>
+
+          {isRemove && (
+            <>
+              <div className="inv-modal-field">
+                <label className="inv-modal-label">
+                  Removed By <span className="req">*</span>
+                </label>
+                <input
+                  className={`inv-modal-input${fieldErrors.removedBy ? " err" : ""}`}
+                  value={removedBy}
+                  onChange={(e) => setRemovedBy(e.target.value)}
+                  placeholder="Enter your name"
+                />
+                {fieldErrors.removedBy && (
+                  <span className="inv-modal-err">{fieldErrors.removedBy}</span>
+                )}
+              </div>
+              <div className="inv-modal-field">
+                <label className="inv-modal-label">
+                  Reason for Removal <span className="req">*</span>
+                </label>
+                <textarea
+                  className={`inv-modal-textarea${fieldErrors.reason ? " err" : ""}`}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Explain why this asset is being removed..."
+                  rows={3}
+                />
+                {fieldErrors.reason && (
+                  <span className="inv-modal-err">{fieldErrors.reason}</span>
+                )}
+              </div>
+            </>
+          )}
 
           <div className="inv-modal-actions">
             <button className="inv-modal-btn-confirm" onClick={submit}>
@@ -545,46 +604,12 @@ function UnitPickerModal({ row, onAction, onCancel }) {
 
 // ─── ViewActionGroup ──────────────────────────────────────────────────────────
 
-function ViewActionGroup({
-  row,
-  onViewAsset,
-  inventoryCategory,
-  inventoryDeploy = false,
-  onOfficeIssue,
-  onOfficeReturn,
-}) {
-  const deployLabels = getDeployModalConfig(inventoryCategory);
-  const deployable = inventoryDeploy && rowSupportsInventoryDeploy(row, inventoryCategory);
-  const canDeploy = deployable && Number(row.available) > 0;
-  const canReturn = deployable && Number(row.assigned) > 0;
-
+function ViewActionGroup({ row, onViewAsset }) {
   return (
     <div className="inv-action-group">
       <button type="button" className="inv-action-btn" onClick={() => onViewAsset(row)}>
         View
       </button>
-      {deployable && (
-        <>
-          <button
-            type="button"
-            className="inv-action-btn inv-action-btn--issue"
-            disabled={!canDeploy}
-            title={canDeploy ? deployLabels.deployTitle : deployLabels.deployDisabledTitle}
-            onClick={() => onOfficeIssue?.(row)}
-          >
-            {deployLabels.deployLabel}
-          </button>
-          <button
-            type="button"
-            className="inv-action-btn inv-action-btn--return"
-            disabled={!canReturn}
-            title={canReturn ? deployLabels.returnTitle : deployLabels.returnDisabledTitle}
-            onClick={() => onOfficeReturn?.(row)}
-          >
-            {deployLabels.returnLabel}
-          </button>
-        </>
-      )}
     </div>
   );
 }
@@ -756,7 +781,6 @@ function AssetDetailModal({
   const inventoryPhotos = asset?.photos ?? [];
   const inventoryReceipts = asset?.receipts ?? [];
   const stockMode = asset?.isStock || isStockLineItem(asset);
-  const deployLabels = getDeployModalConfig(inventoryCategory || asset?.inventoryCategory);
   const hwFields = getHardwareFields(asset.inventoryCategory, asset.category);
   const showItemMeta =
     !stockMode &&
@@ -997,42 +1021,6 @@ function AssetDetailModal({
 
           <div className="inv-detail-footer">
             <div className="inv-detail-footer-actions">
-              {inventoryDeploy && stockMode && (
-                <>
-                  <button
-                    type="button"
-                    className="inv-inline-action-btn"
-                    style={{
-                      color: "#1d4ed8",
-                      background: "#eff6ff",
-                      borderColor: "#3b82f6",
-                    }}
-                    disabled={Number(asset?.available) < 1}
-                    onClick={() => {
-                      onOfficeIssue?.(asset);
-                      onClose();
-                    }}
-                  >
-                    {deployLabels.deployLabel}
-                  </button>
-                  <button
-                    type="button"
-                    className="inv-inline-action-btn"
-                    style={{
-                      color: "#047857",
-                      background: "#ecfdf5",
-                      borderColor: "#10b981",
-                    }}
-                    disabled={Number(asset?.assigned) < 1}
-                    onClick={() => {
-                      onOfficeReturn?.(asset);
-                      onClose();
-                    }}
-                  >
-                    {deployLabels.returnLabel}
-                  </button>
-                </>
-              )}
               {EDIT_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
@@ -1044,7 +1032,8 @@ function AssetDetailModal({
                     borderColor: opt.borderColor,
                   }}
                   onClick={() => {
-                    onStatusChange?.(asset, opt.key, null);
+                    const actionUnit = stockMode && units.length === 0 ? null : unit;
+                    onStatusChange?.(asset, opt.key, actionUnit);
                     onClose();
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = opt.hoverBg; }}
@@ -1076,11 +1065,14 @@ function useAssetActions(onRefresh) {
   }, []);
 
   const handleStatusChange = useCallback(async (row, actionKey, unit) => {
-    if (!unit && isQtyManagedCategory(row?.category)) {
+    if (!unit && isQuantityStockRow(row)) {
       setQuantityTarget({ row, actionKey });
       return;
     }
-    if (actionKey === "removed") { setRemoveTarget({ ...row, _selectedUnit: unit }); return; }
+    if (actionKey === "removed") {
+      setRemoveTarget({ ...row, _selectedUnit: unit ?? null });
+      return;
+    }
 
     const targetStatus = actionKey === "repair" ? "repair" : "notWorking";
     const all          = readUnits();
@@ -1139,7 +1131,7 @@ function useAssetActions(onRefresh) {
     onRefresh();
   }, [onRefresh, showToast]);
 
-  const handleQuantityConfirm = useCallback(async (qty) => {
+  const handleQuantityConfirm = useCallback(async (qty, removeMeta = null) => {
     if (!quantityTarget) return;
     const { row, actionKey } = quantityTarget;
 
@@ -1182,11 +1174,11 @@ function useAssetActions(onRefresh) {
         await createDeletedLogAPI({
           delete_code: `del-qty-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           inventory_item_id: Number(row.id) || null,
-          deleted_by_name: "Inventory",
+          deleted_by_name: removeMeta?.removedBy || "Inventory",
           asset_name: row.name,
           category: row.category || "Accessories",
           serial_number: "",
-          reason: `Dead quantity marked: ${safeQty}`,
+          reason: removeMeta?.reason || `Dead quantity marked: ${safeQty}`,
         });
         await syncDeletedLogsFromAPI();
       }
@@ -1527,14 +1519,7 @@ function AssetTable({
                 {showAvailable && <td className="td-available">{row.available}</td>}
                 {showAssigned  && <td className="td-assigned">{row.assigned}</td>}
                 <td>
-                  <ViewActionGroup
-                    row={row}
-                    onViewAsset={onViewAsset}
-                    inventoryCategory={inventoryCategory}
-                    inventoryDeploy={inventoryDeploy}
-                    onOfficeIssue={onOfficeIssue}
-                    onOfficeReturn={onOfficeReturn}
-                  />
+                  <ViewActionGroup row={row} onViewAsset={onViewAsset} />
                 </td>
               </tr>
             ))
