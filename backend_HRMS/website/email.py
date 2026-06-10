@@ -22,7 +22,32 @@ from . import db
 ZEPTO_MAX_CC_PER_MESSAGE = 48
 
 
+def _zeptomail_auth_header():
+    """ZeptoMail expects: Zoho-enczapikey <token> (prefix optional in env)."""
+    raw = (current_app.config.get("ZEPTO_API_KEY") or "").strip()
+    if not raw:
+        return None
+    if raw.lower().startswith("zoho-enczapikey"):
+        return raw
+    return f"Zoho-enczapikey {raw}"
+
+
+def zeptomail_config_error():
+    """Return an error string if ZeptoMail is not configured, else None."""
+    if not _zeptomail_auth_header():
+        return "ZEPTO_API_KEY is not configured on the server."
+    if not (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip():
+        return "ZEPTO_SENDER_EMAIL is not configured on the server."
+    base = (current_app.config.get("BASE_URL") or "").strip()
+    if not base or not base.startswith(("http://", "https://")):
+        return "BASE_URL must be set to your site URL (e.g. https://hr.company.com)."
+    return None
+
+
 def _zeptomail_post_payload(payload):
+    auth = _zeptomail_auth_header()
+    if not auth:
+        return False, "ZEPTO_API_KEY is not configured on the server."
     url = current_app.config.get(
         "ZEPTO_BASE_URL",
         "https://api.zeptomail.in/v1.1/email",
@@ -30,7 +55,7 @@ def _zeptomail_post_payload(payload):
     headers = {
         "accept": "application/json",
         "content-type": "application/json",
-        "authorization": current_app.config["ZEPTO_API_KEY"],
+        "authorization": auth,
     }
     response = requests.post(url, json=payload, headers=headers, timeout=30)
     if response.status_code in (200, 201):
@@ -2493,6 +2518,14 @@ def send_ex_employee_documents_email(*, recipient_email, doc_link, document_name
     CC: ZEPTO_CC_HR env (comma-separated allowed), else EMAIL_HR — skipped if same as recipient.
     Returns (success: bool, message: str).
     """
+    cfg_err = zeptomail_config_error()
+    if cfg_err:
+        return False, cfg_err
+
+    to_addr = (recipient_email or "").strip()
+    if not to_addr or "@" not in to_addr:
+        return False, "A valid recipient email is required."
+
     names = [html.escape(str(n).strip()) for n in (document_names or []) if str(n or "").strip()]
     if not names:
         names = [html.escape("Shared documents")]
@@ -2503,9 +2536,10 @@ def send_ex_employee_documents_email(*, recipient_email, doc_link, document_name
         li = "".join(f"<li>{n}</li>" for n in names)
         names_block = f"<p><strong>Documents shared:</strong></p><ul style=\"margin:8px 0;padding-left:18px;\">{li}</ul>"
 
-    subject = "Documents from Human Resources — secure download"
+    subject = "Documents from Human Resources - secure download"
     href_attr = doc_link.replace("&", "&amp;")
     link_text = html.escape(doc_link)
+    sender_name = (current_app.config.get("ZEPTO_SENDER_NAME") or "Human Resources").strip()
     body = f"""
 <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e293b;line-height:1.55;max-width:560px;">
 <p>Good day,</p>
@@ -2522,7 +2556,7 @@ valid for <strong>{valid_hours} hours</strong> and is intended for you only.</p>
     if not raw_hr_cc:
         raw_hr_cc = (current_app.config.get("EMAIL_HR") or "").strip()
     cc_list = []
-    rec_lower = (recipient_email or "").strip().lower()
+    rec_lower = to_addr.lower()
     if raw_hr_cc:
         for part in raw_hr_cc.replace(";", ",").split(","):
             addr = part.strip()
@@ -2533,18 +2567,42 @@ valid for <strong>{valid_hours} hours</strong> and is intended for you only.</p>
             if addr.lower() not in {e.lower() for e in cc_list}:
                 cc_list.append(addr)
     cc_emails = cc_list or None
+    zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
 
     try:
         ok, msg = send_email_via_zeptomail(
-            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            sender_email=zepto_from,
             subject=subject,
             body=body,
-            recipient_email=recipient_email,
+            recipient_email=to_addr,
             cc_emails=cc_emails,
+            from_name=sender_name,
         )
+        if not ok and cc_emails:
+            current_app.logger.warning(
+                "Ex-employee email with HR CC failed for %s (%s); retrying without CC.",
+                to_addr,
+                msg,
+            )
+            ok, msg = send_email_via_zeptomail(
+                sender_email=zepto_from,
+                subject=subject,
+                body=body,
+                recipient_email=to_addr,
+                cc_emails=None,
+                from_name=sender_name,
+            )
+        if ok:
+            current_app.logger.info("Ex-employee documents email sent to %s", to_addr)
+        else:
+            current_app.logger.warning(
+                "Ex-employee documents email failed for %s: %s",
+                to_addr,
+                msg,
+            )
         return ok, msg
     except Exception as e:
-        current_app.logger.warning("Ex-employee documents email failed for %s: %s", recipient_email, e)
+        current_app.logger.warning("Ex-employee documents email failed for %s: %s", to_addr, e)
         return False, str(e)
 
 

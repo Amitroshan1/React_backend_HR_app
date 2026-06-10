@@ -17,7 +17,13 @@ import mimetypes
 import uuid
 from flask import Blueprint, request, current_app, jsonify, send_file, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
-from .email import send_email_via_zeptomail, send_welcome_email, send_ex_employee_documents_email, send_news_feed_announcement_email
+from .email import (
+    send_email_via_zeptomail,
+    send_welcome_email,
+    send_ex_employee_documents_email,
+    send_news_feed_announcement_email,
+    zeptomail_config_error,
+)
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
@@ -5141,6 +5147,10 @@ def get_employee_circle_history(email_path):
 @jwt_required()
 @hr_required
 def send_ex_employee_documents():
+    mail_cfg_err = zeptomail_config_error()
+    if mail_cfg_err:
+        return jsonify({"success": False, "message": mail_cfg_err}), 503
+
     recipient_email = (request.form.get("recipient_email") or request.form.get("email") or "").strip()
     if not recipient_email or "@" not in recipient_email:
         return jsonify({"success": False, "message": "A valid recipient email is required"}), 400
@@ -5211,6 +5221,38 @@ def send_ex_employee_documents():
                     stored_rel_path=rel_path,
                 )
             )
+        db.session.flush()
+
+        base_url = current_app.config.get("BASE_URL", "").rstrip("/")
+        doc_link = f"{base_url}/ex-employee-documents?t={raw_token}"
+
+        email_ok, email_msg = send_ex_employee_documents_email(
+            recipient_email=recipient_email,
+            doc_link=doc_link,
+            document_names=list(display_names),
+            valid_hours=EX_EMPLOYEE_LINK_TTL_HOURS,
+        )
+
+        if not email_ok:
+            db.session.rollback()
+            try:
+                if os.path.isdir(share_dir):
+                    for fn in os.listdir(share_dir):
+                        try:
+                            os.remove(os.path.join(share_dir, fn))
+                        except OSError:
+                            pass
+                    os.rmdir(share_dir)
+            except OSError:
+                pass
+            return jsonify(
+                {
+                    "success": False,
+                    "message": email_msg or "Email could not be sent. Nothing was saved.",
+                    "email_provider_message": email_msg or "",
+                }
+            ), 502
+
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -5226,25 +5268,6 @@ def send_ex_employee_documents():
         except OSError:
             pass
         return jsonify({"success": False, "message": "Failed to store files. Please try again."}), 500
-
-    base_url = current_app.config.get("BASE_URL", "").rstrip("/")
-    doc_link = f"{base_url}/ex-employee-documents?t={raw_token}"
-
-    email_ok, email_msg = send_ex_employee_documents_email(
-        recipient_email=recipient_email,
-        doc_link=doc_link,
-        document_names=list(display_names),
-        valid_hours=EX_EMPLOYEE_LINK_TTL_HOURS,
-    )
-
-    if not email_ok:
-        _delete_ex_share_and_files(share)
-        return jsonify(
-            {
-                "success": False,
-                "message": email_msg or "Email could not be sent. Nothing was saved.",
-            }
-        ), 502
 
     return jsonify(
         {

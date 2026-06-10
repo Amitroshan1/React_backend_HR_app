@@ -104,9 +104,11 @@ export function ExEmployeeDocumentSharing({ onBack }) {
         setRows([newRow()]);
         await loadHistory();
       } else {
+        const providerHint = String(data.email_provider_message || '').trim();
+        const baseErr = data.message || `Could not send (HTTP ${res.status}). Try again.`;
         setMessage({
           type: 'error',
-          text: data.message || 'Could not send. Try again.',
+          text: providerHint ? `${baseErr} — ${providerHint}` : baseErr,
         });
       }
     } catch {
