@@ -6,6 +6,12 @@ import { useUser } from '../../components/layout/UserContext';
 
 const API_BASE_URL = "/api/leave";
 
+const formatLeaveDays = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "—";
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+};
+
 export const Leaves= () => {
     const { userData, refreshUserData } = useUser();
     const [requests, setRequests] = useState([]);
@@ -87,7 +93,8 @@ export const Leaves= () => {
                         type: app.leave_type || 'Unknown',
                         from: app.start_date || '',
                         to: app.end_date || '',
-                        days: app.deducted_days || 0,
+                        paidDays: app.deducted_days ?? 0,
+                        unpaidDays: app.extra_days ?? 0,
                         reason: app.reason || '',
                         status: app.status || 'Pending'
                     }));
@@ -214,7 +221,8 @@ export const Leaves= () => {
                                     <th>TYPE</th>
                                     <th>FROM</th>
                                     <th>TO</th>
-                                    <th>DAYS</th>
+                                    <th>PAID DAYS</th>
+                                    <th>UNPAID LEAVE DAYS</th>
                                     <th>REASON</th>
                                     <th>STATUS</th>
                                 </tr>
@@ -225,8 +233,9 @@ export const Leaves= () => {
                                         <td>{request.type}</td>
                                         <td>{request.from}</td>
                                         <td>{request.to}</td>
-                                        <td>{request.days}</td>
-                                        <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        <td className="days-col paid-days-col">{formatLeaveDays(request.paidDays)}</td>
+                                        <td className="days-col unpaid-days-col">{formatLeaveDays(request.unpaidDays)}</td>
+                                        <td className="reason-col" title={request.reason}>
                                             {request.reason}
                                         </td>
                                         <td>

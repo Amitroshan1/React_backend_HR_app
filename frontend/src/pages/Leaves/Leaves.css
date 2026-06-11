@@ -245,7 +245,7 @@
 .leave-requests-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 560px;
+  min-width: 680px;
   font-size: 0.9rem;
 }
 
@@ -276,14 +276,26 @@
 }
 
 .leave-requests-table .days-col {
-  width: 70px;
+  width: 72px;
   text-align: center;
+  white-space: nowrap;
+}
+
+.leave-requests-table .paid-days-col {
+  color: #059669;
+  font-weight: 600;
+}
+
+.leave-requests-table .unpaid-days-col {
+  color: #dc2626;
+  font-weight: 600;
 }
 
 .leave-requests-table .reason-col {
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Status badges */
