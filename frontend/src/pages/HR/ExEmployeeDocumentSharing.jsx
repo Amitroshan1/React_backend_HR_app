@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Mail, Plus, Trash2, Send } from 'lucide-react';
+import { personalEmailValidationError } from '../../utils/emailDomain';
 import './ExEmployeeDocumentSharing.css';
 
 const HR_API_BASE = '/api/HumanResource';
@@ -52,8 +53,9 @@ export function ExEmployeeDocumentSharing({ onBack }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const email = recipientEmail.trim();
-    if (!email || !email.includes('@')) {
-      setMessage({ type: 'error', text: 'Enter a valid email address.' });
+    const emailErr = personalEmailValidationError(email);
+    if (emailErr) {
+      setMessage({ type: 'error', text: emailErr });
       return;
     }
     const ready = rows.filter((r) => r.file);

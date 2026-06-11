@@ -675,6 +675,8 @@ function HrEmployeeAccountsView({ employee, onBack }) {
               <h4>Identity &amp; Documents</h4>
               <EmployeeIdentityDocsPanel
                 documents={documents}
+                accountsProfile={form}
+                showFullDetails
                 onViewFile={openProtectedFile}
               />
               {form16Path && (

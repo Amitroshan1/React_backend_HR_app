@@ -165,13 +165,15 @@ def manager_queue():
 
     month = (request.args.get("month") or "").strip()
     status = (request.args.get("status") or "").strip()
+    if _norm(status) == "all":
+        status = ""
     q = EmployeePerformance.query.order_by(
         EmployeePerformance.submitted_at.desc(), EmployeePerformance.id.desc()
     )
     if month:
-        q = q.filter(EmployeePerformance.month == month)
+        q = q.filter(func.trim(EmployeePerformance.month) == month)
     if status:
-        q = q.filter(func.lower(EmployeePerformance.status) == _norm(status))
+        q = q.filter(func.lower(func.trim(EmployeePerformance.status)) == _norm(status))
 
     rows = []
     for row in q.all():

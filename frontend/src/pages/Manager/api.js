@@ -234,8 +234,10 @@ export async function fetchManagerTeamAttendance(month, year) {
 
 export async function fetchManagerPerformanceQueue(filters = {}) {
   const params = new URLSearchParams();
-  if (filters.month) params.set("month", filters.month);
-  if (filters.status && filters.status !== "All") params.set("status", filters.status);
+  const month = String(filters.month || "").trim();
+  const status = String(filters.status || "").trim();
+  if (month) params.set("month", month);
+  if (status && status.toLowerCase() !== "all") params.set("status", status);
 
   const query = params.toString();
   const response = await fetch(

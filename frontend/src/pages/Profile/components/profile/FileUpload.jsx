@@ -1,5 +1,27 @@
 import React, { useState, useRef } from 'react';
 
+const IMAGE_EXT_PATTERN = /\.(jpe?g|png|gif|webp|bmp|svg)$/i;
+
+function isImageFile(fileData) {
+    if (!fileData) return false;
+    if (typeof fileData === 'object') {
+        if (fileData.type?.startsWith('image/')) return true;
+        return IMAGE_EXT_PATTERN.test(fileData.name || '');
+    }
+    return IMAGE_EXT_PATTERN.test(String(fileData));
+}
+
+function triggerFileDownload(url, filename) {
+    if (!url) return;
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename || '';
+    anchor.rel = 'noopener noreferrer';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+}
+
 export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId, uploadProfileFileUrl, accept }) => {
     const [progress, setProgress] = useState(0);
     const [isUploading, setIsUploading] = useState(false);
@@ -90,6 +112,17 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
     };
 
     const previewUrl = typeof fileData === 'string' ? `/static/uploads/${fileData}` : (fileData?.url || null);
+    const isImage = isImageFile(fileData);
+
+    const handleOpenFile = (e) => {
+        e?.stopPropagation?.();
+        if (!previewUrl) return;
+        if (isImage) {
+            setIsPreviewOpen(true);
+            return;
+        }
+        triggerFileDownload(previewUrl, getDisplayName() || 'download');
+    };
 
     return (
         <div className="input-box file-upload-box">
@@ -153,11 +186,11 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
                             background: '#f9fafb',
                             cursor: previewUrl ? 'pointer' : 'default'
                         }}
-                        onClick={previewUrl ? () => setIsPreviewOpen(true) : undefined}
-                        title={previewUrl ? 'Click to preview' : undefined}
+                        onClick={previewUrl ? handleOpenFile : undefined}
+                        title={previewUrl ? (isImage ? 'Click to preview' : 'Click to download') : undefined}
                     >
                         <span style={{ fontSize: '24px', flexShrink: 0 }}>
-                            {previewUrl && (typeof fileData === 'object' ? fileData?.type?.startsWith('image/') : /\.(jpe?g|png|gif|webp)$/i.test(String(fileData))) ? (
+                            {previewUrl && isImage ? (
                                 <img
                                     src={previewUrl}
                                     alt="Preview"
@@ -192,85 +225,54 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
                                 </p>
                             )}
                             {typeof fileData === 'string' && (
-                                <a href={previewUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#3b82f6', marginTop: '2px', display: 'inline-block' }}>View</a>
+                                <button
+                                    type="button"
+                                    onClick={handleOpenFile}
+                                    style={{
+                                        fontSize: '12px',
+                                        color: '#3b82f6',
+                                        marginTop: '2px',
+                                        display: 'inline-block',
+                                        border: 'none',
+                                        background: 'none',
+                                        padding: 0,
+                                        cursor: 'pointer',
+                                        textDecoration: 'underline',
+                                    }}
+                                >
+                                    {isImage ? 'View' : 'Download'}
+                                </button>
                             )}
                         </div>
                     </div>
 
-                    {isPreviewOpen && previewUrl && (
+                    {isPreviewOpen && previewUrl && isImage && (
                         <div
                             className="file-preview-backdrop"
-                            style={{
-                                position: 'fixed',
-                                inset: 0,
-                                background: 'rgba(0,0,0,0.75)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                zIndex: 1000
-                            }}
                             onClick={() => setIsPreviewOpen(false)}
                         >
                             <div
                                 className="file-preview-modal"
-                                style={{
-                                    background: '#ffffff',
-                                    borderRadius: '10px',
-                                    maxWidth: '95vw',
-                                    maxHeight: '95vh',
-                                    width: 'auto',
-                                    padding: '12px 16px 16px',
-                                    boxShadow: '0 20px 40px rgba(0,0,0,0.45)',
-                                    boxSizing: 'border-box',
-                                    overflow: 'auto'
-                                }}
                                 onClick={(e) => e.stopPropagation()}
                             >
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        marginBottom: '10px'
-                                    }}
-                                >
-                                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#111827' }}>
+                                <div className="file-preview-modal__header">
+                                    <span className="file-preview-modal__title">
                                         {getDisplayName()}
                                     </span>
                                     <button
                                         type="button"
+                                        className="file-preview-modal__close"
                                         onClick={() => setIsPreviewOpen(false)}
-                                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '18px', lineHeight: 1 }}
                                     >
                                         ✕
                                     </button>
                                 </div>
 
-                                {(typeof fileData === 'object' ? fileData?.type?.startsWith('image/') : /\.(jpe?g|png|gif|webp)$/i.test(String(fileData))) ? (
-                                    <img
-                                        src={previewUrl}
-                                        alt={getDisplayName()}
-                                        style={{
-                                            maxWidth: '100%',
-                                            maxHeight: '80vh',
-                                            display: 'block',
-                                            borderRadius: '6px',
-                                            objectFit: 'contain'
-                                        }}
-                                    />
-                                ) : (
-                                    <iframe
-                                        src={previewUrl}
-                                        title={getDisplayName()}
-                                        style={{
-                                            width: '80vw',
-                                            maxWidth: '100%',
-                                            height: '70vh',
-                                            border: 'none',
-                                            borderRadius: '6px'
-                                        }}
-                                    />
-                                )}
+                                <img
+                                    src={previewUrl}
+                                    alt={getDisplayName()}
+                                    className="file-preview-modal__image"
+                                />
                             </div>
                         </div>
                     )}

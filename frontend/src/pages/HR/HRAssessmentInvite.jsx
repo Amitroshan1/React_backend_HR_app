@@ -4,6 +4,7 @@ import {
   formatAssessmentQuestionHeading,
   getAssessmentFigureSrc,
 } from "../../utils/assessmentFigures";
+import { personalEmailValidationError } from "../../utils/emailDomain";
 import SessionRecordingPlayer from "./SessionRecordingPlayer";
 import "./HRAssessmentInvite.css";
 import "./LeaveApplicationUpdation.css";
@@ -370,6 +371,11 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     setError("");
     setMessage("");
     setMessageType("success");
+    const emailErr = personalEmailValidationError(form.email);
+    if (emailErr) {
+      setError(emailErr);
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch(`${HR_API_BASE}/assessment/invite`, {

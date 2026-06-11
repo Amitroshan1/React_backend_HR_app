@@ -1715,6 +1715,11 @@
 
 .hr-employee-docs-section {
   margin-top: 18px;
+  max-width: 920px;
+}
+
+.hr-employee-docs-section .emp-identity-docs {
+  max-width: 100%;
 }
 
 .hr-employee-docs-grid {

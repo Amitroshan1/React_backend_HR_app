@@ -136,11 +136,12 @@ export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circle
         return;
       }
       setUpdateSuccess(true);
-      setBalance({
-        ...balance,
-        privilege_leave_balance: body.privilege_leave_balance,
-        casual_leave_balance: body.casual_leave_balance,
-        compensatory_leave_balance: body.compensatory_leave_balance,
+      const updated = data.leave_balance || body;
+      setBalance((prev) => ({ ...prev, ...updated }));
+      setFormValues({
+        privilege_leave_balance: String(updated.privilege_leave_balance ?? ''),
+        casual_leave_balance: String(updated.casual_leave_balance ?? ''),
+        compensatory_leave_balance: String(updated.compensatory_leave_balance ?? ''),
       });
     } catch {
       setUpdateError('Network error. Please try again.');

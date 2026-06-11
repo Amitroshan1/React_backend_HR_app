@@ -39,6 +39,7 @@ from .email import (
     send_password_set_email,
     send_password_reset_email,
     send_hr_leave_updation_email,
+    send_hr_wfh_updation_email,
     send_assessment_invite_email,
     send_assessment_submitted_email_to_hr,
     send_assessment_hr_report_email,
@@ -74,9 +75,15 @@ from .punch_aggregate import (
 )
 from werkzeug.utils import secure_filename
 from .leave_attendence import _compute_working_and_sandwich_days
-from .compoff_utils import deduct_comp_leave, restore_comp_leave
+from .compoff_utils import (
+    deduct_comp_leave,
+    get_effective_comp_balance,
+    restore_comp_leave,
+    set_comp_balance_to_target,
+)
 from .models.ex_employee_documents import ExEmployeeDocFile, ExEmployeeDocShare
 from .models.assessment import AssessmentInvite
+from .email_validation import personal_email_validation_error
 
 hr = Blueprint('HumanResource', __name__)
 
@@ -2478,7 +2485,7 @@ def get_leave_balance(employee_id):
         "leave_balance": {
             "privilege_leave_balance": leave_balance.privilege_leave_balance,
             "casual_leave_balance": leave_balance.casual_leave_balance,
-            "compensatory_leave_balance": leave_balance.compensatory_leave_balance
+            "compensatory_leave_balance": get_effective_comp_balance(admin.id),
         }
     }), 200
 
@@ -2503,13 +2510,25 @@ def update_leave_balance(employee_id):
     if "casual_leave_balance" in data:
         leave_balance.casual_leave_balance = float(data["casual_leave_balance"])
     if "compensatory_leave_balance" in data:
-        leave_balance.compensatory_leave_balance = float(data["compensatory_leave_balance"])
+        try:
+            set_comp_balance_to_target(employee_id, data["compensatory_leave_balance"])
+        except ValueError as e:
+            db.session.rollback()
+            return jsonify({
+                "success": False,
+                "message": str(e),
+            }), 400
 
     try:
         db.session.commit()
         return jsonify({
             "success": True,
-            "message": "Leave balance updated successfully"
+            "message": "Leave balance updated successfully",
+            "leave_balance": {
+                "privilege_leave_balance": leave_balance.privilege_leave_balance,
+                "casual_leave_balance": leave_balance.casual_leave_balance,
+                "compensatory_leave_balance": get_effective_comp_balance(employee_id),
+            },
         }), 200
     except Exception as e:
         db.session.rollback()
@@ -2666,7 +2685,7 @@ def _compute_leave_projection(*, admin, leave_balance, leave_type, start_date, e
             extra_days = 0.5
 
     elif leave_type == "Compensatory Leave":
-        available = float(leave_balance.compensatory_leave_balance or 0.0)
+        available = float(get_effective_comp_balance(admin.id))
         if available <= 0:
             return None, "No Compensatory Leave balance available."
         if working_days > 2:
@@ -2819,6 +2838,8 @@ def update_leave_application_by_hr(leave_id):
 
     old_data = {
         "status": leave_obj.status,
+        "leave_type": leave_obj.leave_type,
+        "reason": leave_obj.reason or "",
         "start_date": leave_obj.start_date.isoformat() if leave_obj.start_date else None,
         "end_date": leave_obj.end_date.isoformat() if leave_obj.end_date else None,
         "deducted_days": _round_leave_value(leave_obj.deducted_days),
@@ -2872,6 +2893,11 @@ def update_leave_application_by_hr(leave_id):
                 "paid_adjustment": _round_leave_value(float(leave_obj.deducted_days or 0.0) - float(old_data["deducted_days"] or 0.0)),
                 "lwp_adjustment": _round_leave_value(float(leave_obj.extra_days or 0.0) - float(old_data["extra_days"] or 0.0)),
                 "reversal_applied": reversal_applied,
+            },
+            balance_after={
+                "pl": _round_leave_value(leave_balance.privilege_leave_balance),
+                "cl": _round_leave_value(leave_balance.casual_leave_balance),
+                "comp": _round_leave_value(get_effective_comp_balance(admin.id)),
             },
         )
     except Exception:
@@ -2988,6 +3014,17 @@ def update_wfh_application_by_hr(wfh_id):
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "message": str(exc) or "Failed to update WFH request"}), 500
+
+    try:
+        hr_email = (get_jwt() or {}).get("email")
+        hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+        send_hr_wfh_updation_email(
+            wfh_obj=wfh_obj,
+            hr_admin=hr_admin,
+            old_data=old_data,
+        )
+    except Exception:
+        current_app.logger.warning("send_hr_wfh_updation_email failed for wfh_id=%s", wfh_obj.id)
 
     try:
         hr_email = (get_jwt() or {}).get("email") or "unknown"
@@ -3611,8 +3648,9 @@ def create_assessment_invite():
     candidate_email = (data.get("email") or "").strip().lower()
     if not full_name or not department or not candidate_email:
         return jsonify({"success": False, "message": "name, department and email are required"}), 400
-    if "@" not in candidate_email:
-        return jsonify({"success": False, "message": "Invalid email"}), 400
+    email_err = personal_email_validation_error(candidate_email)
+    if email_err:
+        return jsonify({"success": False, "message": email_err}), 400
 
     raw_token = secrets.token_urlsafe(48)
     token_hash = _assessment_hash_token(raw_token)
@@ -5151,9 +5189,10 @@ def send_ex_employee_documents():
     if mail_cfg_err:
         return jsonify({"success": False, "message": mail_cfg_err}), 503
 
-    recipient_email = (request.form.get("recipient_email") or request.form.get("email") or "").strip()
-    if not recipient_email or "@" not in recipient_email:
-        return jsonify({"success": False, "message": "A valid recipient email is required"}), 400
+    recipient_email = (request.form.get("recipient_email") or request.form.get("email") or "").strip().lower()
+    email_err = personal_email_validation_error(recipient_email)
+    if email_err:
+        return jsonify({"success": False, "message": email_err}), 400
 
     display_names_raw = request.form.get("display_names") or "[]"
     try:

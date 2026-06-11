@@ -83,6 +83,28 @@ def restore_comp_leave(admin_id, days):
     sync_comp_balance_for_admin(admin_id)
 
 
+def set_comp_balance_to_target(admin_id, target_balance):
+    """
+    Adjust CompOffGain rows so effective balance matches target.
+    Increases create gains with 30-day expiry (same as restore_comp_leave);
+    decreases consume oldest gains first (same as deduct_comp_leave).
+    """
+    target = max(0.0, round(float(target_balance or 0), 2))
+    current = round(get_effective_comp_balance(admin_id), 2)
+    delta = round(target - current, 2)
+
+    if delta > 0:
+        restore_comp_leave(admin_id, delta)
+        return
+    if delta < 0:
+        if not deduct_comp_leave(admin_id, abs(delta)):
+            raise ValueError(
+                "Cannot reduce compensatory leave below available non-expired comp-off gains"
+            )
+        return
+    sync_comp_balance_for_admin(admin_id)
+
+
 def sync_comp_balance_for_admin(admin_id):
     """Set LeaveBalance.compensatory_leave_balance from current CompOffGain total."""
     balance = get_effective_comp_balance(admin_id)

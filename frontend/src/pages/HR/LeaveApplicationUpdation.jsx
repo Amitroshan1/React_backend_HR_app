@@ -165,9 +165,35 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     setSaving(false);
   };
 
+  const needsSaveConfirmation = () => {
+    if (!editRow) return false;
+    const wasApproved = normalizeRequestStatus(editRow.status) === "approved";
+    const willReject = normalizeRequestStatus(form.status) === "rejected";
+    const datesShortened =
+      wasApproved &&
+      form.start_date &&
+      form.end_date &&
+      editRow.start_date &&
+      editRow.end_date &&
+      (form.start_date > editRow.start_date || form.end_date < editRow.end_date);
+    const typeChanged =
+      String(editRow.request_type || "").toLowerCase() !== "wfh" &&
+      form.leave_type &&
+      editRow.leave_type &&
+      form.leave_type !== editRow.leave_type;
+    return wasApproved && (willReject || datesShortened || typeChanged);
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!editRow?.id) return;
+    if (needsSaveConfirmation()) {
+      const isWfh = String(editRow.request_type || "").toLowerCase() === "wfh";
+      const msg = isWfh
+        ? "This approved WFH request will be changed. Managers and the employee will be notified by email. Continue?"
+        : "This approved leave will be reversed and recalculated (balance restored/adjusted). Managers and the employee will be notified by email. Continue?";
+      if (!window.confirm(msg)) return;
+    }
     setSaving(true);
     setError("");
     setSuccessMessage("");

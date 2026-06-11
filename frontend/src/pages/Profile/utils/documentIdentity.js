@@ -76,6 +76,50 @@ export function maskBankAccount(value) {
   return `${'X'.repeat(Math.max(0, n.length - 4))}${n.slice(-4)}`;
 }
 
+/** Parse EmployeeAccounts.bank_details multiline text into identity fields. */
+export function parseBankDetailsText(text) {
+  const out = {};
+  if (!text || typeof text !== 'string') return out;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(':');
+    if (idx < 0) continue;
+    const key = trimmed.slice(0, idx).trim().toLowerCase();
+    const val = trimmed.slice(idx + 1).trim();
+    if (!val) continue;
+    if (key === 'account') out.bank_account_number = val;
+    else if (key === 'bank') out.bank_name = val;
+    else if (key === 'branch code') out.bank_branch_code = val;
+    else if (key === 'ifsc') out.ifsc_code = val;
+  }
+  return out;
+}
+
+/** Merge UploadDoc API payload with Accounts profile fallbacks (PAN, bank_details). */
+export function mergeIdentityDocuments(documents = {}, accountsProfile = {}) {
+  const d = { ...(documents || {}) };
+  const pan = String(accountsProfile.pan || '').trim();
+  if (!d.pan_number && pan) d.pan_number = pan;
+
+  const bank = parseBankDetailsText(accountsProfile.bank_details);
+  if (!d.bank_account_number && bank.bank_account_number) {
+    d.bank_account_number = bank.bank_account_number;
+  }
+  if (!d.bank_name && bank.bank_name) d.bank_name = bank.bank_name;
+  if (!d.bank_branch_code && bank.bank_branch_code) {
+    d.bank_branch_code = bank.bank_branch_code;
+  }
+  if (!d.ifsc_code && bank.ifsc_code) d.ifsc_code = bank.ifsc_code;
+
+  return d;
+}
+
+export function formatIdentityDisplay(value, maskFn, showFull) {
+  if (!value) return '—';
+  return showFull ? String(value) : maskFn(value);
+}
+
 /** Map API documents object → documentMeta state */
 export function documentMetaFromApi(docs = {}) {
   return {

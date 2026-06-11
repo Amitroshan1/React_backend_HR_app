@@ -5,7 +5,7 @@
 
 from .models.Admin_models import Admin
 from .models.manager_model import ManagerContact
-from .manager_utils import get_manager_emails
+from .manager_utils import get_manager_emails, resolve_manager_contact_for_employee
 from flask import current_app, url_for
 from .models.expense import ExpenseLineItem
 from .expense_utils import claim_attach_static_filename
@@ -2251,12 +2251,58 @@ def send_leave_decision_email(leave_obj, approver, action: str):
         return False
 
 
-def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustment_data=None):
+def _dedupe_cc_emails(cc_emails, to_email):
+    seen = set()
+    deduped = []
+    to_key = (to_email or "").strip().lower()
+    for e in cc_emails or []:
+        if not e:
+            continue
+        addr = e.strip()
+        key = addr.lower()
+        if key and key not in seen and key != to_key:
+            seen.add(key)
+            deduped.append(addr)
+    return deduped
+
+
+def _hr_updation_cc_emails(admin, hr_admin):
+    """CC list: HR mailbox, acting HR user, and employee manager(s)."""
+    to_email = (getattr(admin, "email", None) or "").strip()
+    cc_emails = []
+
+    hr_cc = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
+    if hr_cc:
+        cc_emails.append(hr_cc)
+
+    actor_email = (getattr(hr_admin, "email", None) or "").strip()
+    if actor_email:
+        cc_emails.append(actor_email)
+
+    manager_contact = resolve_manager_contact_for_employee(admin)
+    if manager_contact:
+        for addr in get_manager_emails(manager_contact, exclude_email=to_email):
+            if addr:
+                cc_emails.append(addr.strip())
+
+    return _dedupe_cc_emails(cc_emails, to_email)
+
+
+def _hr_change_row(label, old_val, new_val):
+    old_s = html.escape(str(old_val if old_val not in (None, "") else "-"))
+    new_s = html.escape(str(new_val if new_val not in (None, "") else "-"))
+    if old_s == new_s:
+        return f"<tr><td><strong>{html.escape(label)}</strong></td><td>{new_s}</td></tr>"
+    return (
+        f"<tr><td><strong>{html.escape(label)}</strong></td>"
+        f"<td>{old_s} &rarr; <strong>{new_s}</strong></td></tr>"
+    )
+
+
+def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustment_data=None, balance_after=None):
     """
     Notify employee about HR leave edits.
-    From: ZEPTO_SENDER_EMAIL (Zepto-verified sender only).
-    TO: employee
-    CC: HR mailbox (ZEPTO_CC_HR or EMAIL_HR) + mapped manager(s)
+    TO: employee | CC: HR mailbox, acting HR user, mapped manager(s)
     """
     try:
         admin = getattr(leave_obj, "admin", None)
@@ -2268,59 +2314,102 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
         if not sender_email:
             return False, "ZEPTO_SENDER_EMAIL not configured"
 
-        cc_emails = []
-        hr_cc = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
-        if hr_cc and hr_cc.lower() != to_email.lower():
-            cc_emails.append(hr_cc)
-
-        manager_contact = ManagerContact.query.filter_by(user_email=admin.email).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type,
-            ).first()
-        if manager_contact:
-            for addr in get_manager_emails(manager_contact, exclude_email=to_email):
-                if addr:
-                    cc_emails.append(addr.strip())
-
-        seen = set()
-        deduped_cc = []
-        for e in cc_emails:
-            if not e:
-                continue
-            addr = e.strip()
-            key = addr.lower()
-            if key and key not in seen and key != to_email.lower():
-                seen.add(key)
-                deduped_cc.append(addr)
-
         old_data = old_data or {}
         adjustment_data = adjustment_data or {}
-        actor_name = (getattr(hr_admin, "first_name", None) or getattr(hr_admin, "email", None) or "HR Team")
+        balance_after = balance_after or {}
+        actor_name = html.escape(
+            getattr(hr_admin, "first_name", None) or getattr(hr_admin, "email", None) or "HR Team"
+        )
+        emp_name = html.escape(admin.first_name or admin.email)
 
-        reversal_html = ""
-        if adjustment_data:
-            reversal_html = f"""
-            <tr><td><strong>Paid Days Adjustment</strong></td><td>{adjustment_data.get('paid_adjustment', 0)}</td></tr>
-            <tr><td><strong>LWP Adjustment</strong></td><td>{adjustment_data.get('lwp_adjustment', 0)}</td></tr>
-            <tr><td><strong>Reversal Applied</strong></td><td>{'Yes' if adjustment_data.get('reversal_applied') else 'No'}</td></tr>
+        reversal_note = ""
+        if adjustment_data.get("reversal_applied"):
+            reversal_note = (
+                "<p><em>Previously approved leave balance was reversed and recalculated based on this update.</em></p>"
+            )
+
+        balance_html = ""
+        if balance_after:
+            balance_html = f"""
+            <h4 style="margin:16px 0 8px;">Updated leave balance</h4>
+            <table border="1" cellpadding="6" cellspacing="0">
+                <tr><td><strong>Privilege Leave (PL)</strong></td><td>{html.escape(balance_after.get('pl', '-'))}</td></tr>
+                <tr><td><strong>Casual Leave (CL)</strong></td><td>{html.escape(balance_after.get('cl', '-'))}</td></tr>
+                <tr><td><strong>Compensatory Leave</strong></td><td>{html.escape(balance_after.get('comp', '-'))}</td></tr>
+            </table>
             """
 
         subject = f"Leave Updated by HR – {admin.first_name or admin.email}"
         body = f"""
-        <p>Hello {admin.first_name or admin.email},</p>
+        <p>Hello {emp_name},</p>
         <p>Your leave application has been updated by <strong>{actor_name}</strong> from HR.</p>
+        {reversal_note}
         <table border="1" cellpadding="6" cellspacing="0">
             <tr><td><strong>Application ID</strong></td><td>{leave_obj.id}</td></tr>
-            <tr><td><strong>Previous Status</strong></td><td>{old_data.get('status', '-')}</td></tr>
-            <tr><td><strong>Updated Status</strong></td><td>{leave_obj.status}</td></tr>
-            <tr><td><strong>Previous Period</strong></td><td>{old_data.get('start_date', '-')} to {old_data.get('end_date', '-')}</td></tr>
-            <tr><td><strong>Updated Period</strong></td><td>{leave_obj.start_date} to {leave_obj.end_date}</td></tr>
-            <tr><td><strong>Leave Type</strong></td><td>{leave_obj.leave_type}</td></tr>
-            <tr><td><strong>Paid Days (Deducted)</strong></td><td>{leave_obj.deducted_days}</td></tr>
-            <tr><td><strong>Unpaid Days (LWP)</strong></td><td>{leave_obj.extra_days}</td></tr>
-            {reversal_html}
+            {_hr_change_row("Status", old_data.get("status"), leave_obj.status)}
+            {_hr_change_row("Leave Type", old_data.get("leave_type"), leave_obj.leave_type)}
+            {_hr_change_row(
+                "Period",
+                f"{old_data.get('start_date', '-')} to {old_data.get('end_date', '-')}",
+                f"{leave_obj.start_date} to {leave_obj.end_date}",
+            )}
+            {_hr_change_row("Paid Days (Deducted)", old_data.get("deducted_days"), leave_obj.deducted_days)}
+            {_hr_change_row("Unpaid Days (LWP)", old_data.get("extra_days"), leave_obj.extra_days)}
+            {_hr_change_row("Reason", old_data.get("reason"), leave_obj.reason)}
+            <tr><td><strong>Paid Days Adjustment</strong></td><td>{adjustment_data.get('paid_adjustment', 0)}</td></tr>
+            <tr><td><strong>LWP Adjustment</strong></td><td>{adjustment_data.get('lwp_adjustment', 0)}</td></tr>
+            <tr><td><strong>Updated At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+        </table>
+        {balance_html}
+        <p>If this update is unexpected, contact HR immediately.</p>
+        <p>Regards,<br><strong>HR Team</strong></p>
+        """
+        return send_email_via_zeptomail(
+            sender_email=sender_email,
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=_hr_updation_cc_emails(admin, hr_admin) or None,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"HR leave updation email failed: {e}")
+        return False, str(e)
+
+
+def send_hr_wfh_updation_email(*, wfh_obj, hr_admin, old_data=None):
+    """
+    Notify employee about HR WFH edits.
+    TO: employee | CC: HR mailbox, acting HR user, mapped manager(s)
+    """
+    try:
+        admin = getattr(wfh_obj, "admin", None)
+        if not admin or not admin.email:
+            return False, "Employee email missing"
+
+        to_email = (admin.email or "").strip()
+        sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        if not sender_email:
+            return False, "ZEPTO_SENDER_EMAIL not configured"
+
+        old_data = old_data or {}
+        actor_name = html.escape(
+            getattr(hr_admin, "first_name", None) or getattr(hr_admin, "email", None) or "HR Team"
+        )
+        emp_name = html.escape(admin.first_name or admin.email)
+
+        subject = f"WFH Updated by HR – {admin.first_name or admin.email}"
+        body = f"""
+        <p>Hello {emp_name},</p>
+        <p>Your work-from-home request has been updated by <strong>{actor_name}</strong> from HR.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Application ID</strong></td><td>{wfh_obj.id}</td></tr>
+            {_hr_change_row("Status", old_data.get("status"), wfh_obj.status)}
+            {_hr_change_row(
+                "Period",
+                f"{old_data.get('start_date', '-')} to {old_data.get('end_date', '-')}",
+                f"{wfh_obj.start_date} to {wfh_obj.end_date}",
+            )}
+            {_hr_change_row("Reason", old_data.get("reason"), wfh_obj.reason)}
             <tr><td><strong>Updated At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
         </table>
         <p>If this update is unexpected, contact HR immediately.</p>
@@ -2331,10 +2420,10 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
             subject=subject,
             body=body,
             recipient_email=to_email,
-            cc_emails=deduped_cc or None,
+            cc_emails=_hr_updation_cc_emails(admin, hr_admin) or None,
         )
     except Exception as e:
-        current_app.logger.warning(f"HR leave updation email failed: {e}")
+        current_app.logger.warning(f"HR WFH updation email failed: {e}")
         return False, str(e)
 
 

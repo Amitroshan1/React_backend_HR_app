@@ -1487,6 +1487,75 @@ def _client_leave_row_summary(admin_id, year, month):
     return "; ".join(parts)
 
 
+_CLIENT_APPROVED_LEAVE_STATUSES = frozenset({
+    "approved",
+    "approved by manager",
+    "approved by hr",
+})
+
+_CLIENT_PENDING_LEAVE_STATUSES = frozenset({
+    "pending",
+})
+
+_CLIENT_FULL_DAY_WORK_SECONDS = 8 * 3600
+
+
+def _client_norm_leave_status(status):
+    return (status or "").strip().lower()
+
+
+def _client_is_approved_leave(leave_app):
+    return _client_norm_leave_status(getattr(leave_app, "status", None)) in _CLIENT_APPROVED_LEAVE_STATUSES
+
+
+def _client_is_pending_leave(leave_app):
+    return _client_norm_leave_status(getattr(leave_app, "status", None)) in _CLIENT_PENDING_LEAVE_STATUSES
+
+
+def _client_punch_work_seconds(punch):
+    if not punch:
+        return 0
+    if getattr(punch, "today_work", None) and str(punch.today_work).strip():
+        s = str(punch.today_work).strip()
+        parts = s.split(":")
+        try:
+            h = int(parts[0]) if len(parts) > 0 else 0
+            m = int(parts[1]) if len(parts) > 1 else 0
+            sec = int(parts[2]) if len(parts) > 2 else 0
+            return h * 3600 + m * 60 + sec
+        except (ValueError, IndexError):
+            pass
+    if punch.punch_in and punch.punch_out:
+        delta = punch.punch_out - punch.punch_in
+        return max(0, int(delta.total_seconds()))
+    return 0
+
+
+def _client_is_half_day_punch(punch):
+    if not punch or not punch.punch_in or not punch.punch_out:
+        return False
+    secs = _client_punch_work_seconds(punch)
+    return 0 < secs < _CLIENT_FULL_DAY_WORK_SECONDS
+
+
+def _client_leave_types_label(leave_apps):
+    leave_types = {
+        (getattr(la, "leave_type", "") or "").strip()
+        for la in leave_apps
+        if getattr(la, "leave_type", None)
+    }
+    return ", ".join(sorted(t for t in leave_types if t)) or "Leave"
+
+
+def _client_write_punch_row_cells(worksheet, row, base_col, punch, base_fmt, half_day_fmt):
+    """Write punch in/out for a working day (used when leave is rejected or absent)."""
+    time_in_str = punch.punch_in.strftime("%H:%M") if punch and punch.punch_in else ""
+    time_out_str = punch.punch_out.strftime("%H:%M") if punch and punch.punch_out else ""
+    row_fmt = half_day_fmt if _client_is_half_day_punch(punch) else base_fmt
+    worksheet.write(row, base_col, time_in_str, row_fmt)
+    worksheet.write(row, base_col + 1, time_out_str, row_fmt)
+
+
 def _client_half_day_row_summary(admin_id, year, month):
     ms, me = _month_date_bounds(year, month)
     leaves = (
@@ -1752,30 +1821,56 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                 worksheet.write(row, base_col,     text, legend_holiday_fmt)
                 worksheet.write(row, base_col + 1, "",   legend_holiday_fmt)
             elif leaves_for_day:
-                # Decide coloring and text based on leave status, and include leave type(s)
-                statuses = { (la.status or "").lower() for la in leaves_for_day }
+                approved_leaves = [la for la in leaves_for_day if _client_is_approved_leave(la)]
+                pending_leaves = [la for la in leaves_for_day if _client_is_pending_leave(la)]
 
-                # Collect leave types for the day (e.g. "Privilege Leave", "Casual Leave")
-                leave_types = {
-                    (getattr(la, "leave_type", "") or "").strip()
-                    for la in leaves_for_day
-                    if getattr(la, "leave_type", None)
-                }
-                type_label = ", ".join(sorted(t for t in leave_types if t)) or "Leave"
-
-                has_pending_only = "pending" in statuses and not any(
-                    s in statuses for s in ("approved", "approved by manager", "approved by hr")
-                )
-
-                if has_pending_only:
-                    cell_text = f"Leave not approved ({type_label})"
+                if approved_leaves:
+                    approved_label = _client_leave_types_label(approved_leaves)
+                    only_half_day = all(
+                        (getattr(la, "leave_type", "") or "").strip() == "Half Day Leave"
+                        for la in approved_leaves
+                    )
+                    if only_half_day:
+                        fmt = legend_half_day_fmt
+                        time_in_str = (
+                            punch.punch_in.strftime("%H:%M") if punch and punch.punch_in else ""
+                        )
+                        time_out_str = (
+                            punch.punch_out.strftime("%H:%M") if punch and punch.punch_out else ""
+                        )
+                        if time_in_str or time_out_str:
+                            worksheet.write(row, base_col, time_in_str, fmt)
+                            worksheet.write(row, base_col + 1, time_out_str, fmt)
+                        else:
+                            cell_text = f"Half Day ({approved_label})"
+                            worksheet.write(row, base_col, cell_text, fmt)
+                            worksheet.write(row, base_col + 1, "", fmt)
+                    else:
+                        cell_text = f"Leave ({approved_label})"
+                        fmt = legend_leave_fmt
+                        worksheet.write(row, base_col, cell_text, fmt)
+                        worksheet.write(row, base_col + 1, "", fmt)
+                elif pending_leaves:
+                    pending_label = _client_leave_types_label(pending_leaves)
+                    cell_text = f"Leave not approved ({pending_label})"
                     fmt = legend_leave_pending_fmt
+                    worksheet.write(row, base_col, cell_text, fmt)
+                    worksheet.write(row, base_col + 1, "", fmt)
                 else:
-                    cell_text = f"Leave ({type_label})"
-                    fmt = legend_leave_fmt
-
-                worksheet.write(row, base_col,     cell_text, fmt)
-                worksheet.write(row, base_col + 1, "",        fmt)
+                    # Rejected (or other non-approved): employee expected to work — show attendance
+                    if is_weekend:
+                        has_punch = punch and (punch.punch_in or punch.punch_out)
+                        if has_punch:
+                            _client_write_punch_row_cells(
+                                worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
+                            )
+                        else:
+                            worksheet.write(row, base_col, "Weekend Off", legend_holiday_fmt)
+                            worksheet.write(row, base_col + 1, "Weekend Off", legend_holiday_fmt)
+                    else:
+                        _client_write_punch_row_cells(
+                            worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
+                        )
             elif is_weekend:
                 has_punch = punch and (punch.punch_in or punch.punch_out)
                 if has_punch:
@@ -1791,15 +1886,9 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                     worksheet.write(row, base_col, "Weekend Off", legend_holiday_fmt)
                     worksheet.write(row, base_col + 1, "Weekend Off", legend_holiday_fmt)
             else:
-                time_in_str = (
-                    punch.punch_in.strftime("%H:%M") if punch and punch.punch_in else ""
+                _client_write_punch_row_cells(
+                    worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
                 )
-                time_out_str = (
-                    punch.punch_out.strftime("%H:%M") if punch and punch.punch_out else ""
-                )
-
-                worksheet.write(row, base_col, time_in_str, base_fmt)
-                worksheet.write(row, base_col + 1, time_out_str, base_fmt)
 
     # ----- Summary rows (Leave / Comp off / Half day) per employee -----
     TABLE_HEADER_ROW_FIXED = TABLE_HEADER_ROW

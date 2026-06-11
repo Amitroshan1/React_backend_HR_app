@@ -628,7 +628,7 @@ def employees_by_type_and_circle():
             "working_days": round(float(working_days or 0.0), 1),
             "bank_details_available": bool(upload_doc and upload_doc.passbook_front),
             "bank_details_path": upload_doc.passbook_front if upload_doc else None,
-            "documents": upload_doc.to_dict() if upload_doc else {},
+            "documents": _serialize_upload_doc(upload_doc),
             "form16_available": bool(latest_form16 and latest_form16.file_path),
             "form16_path": latest_form16.file_path if latest_form16 else None
         })
@@ -638,6 +638,14 @@ def employees_by_type_and_circle():
         "count": len(data),
         "employees": data
     }), 200
+
+
+def _serialize_upload_doc(upload_doc):
+    """Identity fields + file paths for Accounts / HR document views."""
+    if not upload_doc:
+        return {}
+    from .auth import _upload_doc_profile_dict
+    return _upload_doc_profile_dict(upload_doc)
 
 
 @Accounts.route("/employee-documents/<int:admin_id>", methods=["GET"])
@@ -663,7 +671,7 @@ def employee_documents(admin_id):
 
     return jsonify({
         "success": True,
-        "documents": upload_doc.to_dict() if upload_doc else {},
+        "documents": _serialize_upload_doc(upload_doc),
         "form16_path": latest_form16.file_path if latest_form16 else None
     }), 200
 

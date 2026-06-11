@@ -19,9 +19,21 @@ function thisMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function matchesPerformanceFilters(item, monthFilter, statusFilter) {
+  const monthVal = String(monthFilter || "").trim();
+  const statusVal = String(statusFilter || "All").trim();
+  if (monthVal && String(item?.month || "").trim() !== monthVal) return false;
+  if (statusVal !== "All" && String(item?.status || "").toLowerCase() !== statusVal.toLowerCase()) {
+    return false;
+  }
+  return true;
+}
+
 export const ManagerPerformanceReviews = () => {
   const [month, setMonth] = useState("");
   const [status, setStatus] = useState("All");
+  const [appliedMonth, setAppliedMonth] = useState("");
+  const [appliedStatus, setAppliedStatus] = useState("All");
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [error, setError] = useState("");
@@ -31,18 +43,24 @@ export const ManagerPerformanceReviews = () => {
   const [rating, setRating] = useState("Good");
   const [comments, setComments] = useState("");
 
-  const pendingCount = useMemo(
-    () => items.filter((item) => String(item.status || "").toLowerCase() !== "reviewed").length,
-    [items]
+  const filteredItems = useMemo(
+    () => items.filter((item) => matchesPerformanceFilters(item, appliedMonth, appliedStatus)),
+    [items, appliedMonth, appliedStatus]
   );
 
-  const loadQueue = async (opts = {}) => {
+  const pendingCount = useMemo(
+    () =>
+      filteredItems.filter((item) => String(item.status || "").toLowerCase() !== "reviewed").length,
+    [filteredItems]
+  );
+
+  const loadQueue = async (monthFilter = appliedMonth, statusFilter = appliedStatus) => {
     setLoading(true);
     setError("");
     try {
       const rows = await fetchManagerPerformanceQueue({
-        month: opts.month ?? month,
-        status: opts.status ?? status,
+        month: monthFilter,
+        status: statusFilter,
       });
       setItems(rows);
     } catch (err) {
@@ -54,11 +72,13 @@ export const ManagerPerformanceReviews = () => {
   };
 
   useEffect(() => {
-    loadQueue({ month, status });
+    loadQueue("", "All");
   }, []);
 
   const handleApplyFilters = async () => {
-    await loadQueue();
+    setAppliedMonth(month);
+    setAppliedStatus(status);
+    await loadQueue(month, status);
   };
 
   const openReview = (item) => {
@@ -103,7 +123,7 @@ export const ManagerPerformanceReviews = () => {
           <p>Review team monthly self-assessments and submit manager feedback.</p>
         </div>
         <div className="mpr-meta">
-          <span>Total: {items.length}</span>
+          <span>Total: {filteredItems.length}</span>
           <span>Pending: {pendingCount}</span>
         </div>
       </div>
@@ -127,7 +147,12 @@ export const ManagerPerformanceReviews = () => {
             <option value="Reviewed">Reviewed</option>
           </select>
         </div>
-        <button className="mpr-btn" onClick={handleApplyFilters} disabled={loading}>
+        <button
+          type="button"
+          className="mpr-btn"
+          onClick={handleApplyFilters}
+          disabled={loading}
+        >
           {loading ? "Loading..." : "Apply"}
         </button>
       </div>
@@ -155,14 +180,14 @@ export const ManagerPerformanceReviews = () => {
                   Loading queue...
                 </td>
               </tr>
-            ) : items.length === 0 ? (
+            ) : filteredItems.length === 0 ? (
               <tr>
                 <td colSpan="7" className="mpr-empty">
                   No performance submissions found.
                 </td>
               </tr>
             ) : (
-              items.map((item) => (
+              filteredItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.employee_name || "-"}</td>
                   <td>{item.emp_id || "-"}</td>

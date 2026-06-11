@@ -20,7 +20,6 @@ export function CircleTransferHistory({ onBack, circleOptions = [] }) {
     q: "",
     circle: "All",
     effective_from: "",
-    effective_to: "",
   });
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -34,7 +33,6 @@ export function CircleTransferHistory({ onBack, circleOptions = [] }) {
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.circle && filters.circle !== "All") params.set("circle", filters.circle);
       if (filters.effective_from) params.set("effective_from", filters.effective_from);
-      if (filters.effective_to) params.set("effective_to", filters.effective_to);
       const res = await fetch(`${API_BASE}/circle-transfers?${params}`, {
         headers: getAuthHeaders(),
       });
@@ -91,19 +89,11 @@ export function CircleTransferHistory({ onBack, circleOptions = [] }) {
           </select>
         </div>
         <div>
-          <label>Effective from (min)</label>
+          <label>Effective from</label>
           <input
             type="date"
             value={filters.effective_from}
             onChange={(e) => setFilters((p) => ({ ...p, effective_from: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label>Effective from (max)</label>
-          <input
-            type="date"
-            value={filters.effective_to}
-            onChange={(e) => setFilters((p) => ({ ...p, effective_to: e.target.value }))}
           />
         </div>
         <button type="button" className="circle-transfer-search-btn" onClick={fetchTransfers} disabled={loading}>

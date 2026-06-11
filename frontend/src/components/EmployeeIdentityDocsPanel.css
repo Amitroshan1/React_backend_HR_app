@@ -1,67 +1,190 @@
+.emp-identity-docs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.emp-identity-docs__empty {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+}
+
 .emp-identity-docs__block {
-  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
   padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.emp-identity-docs__block--wide {
+  grid-column: 1 / -1;
+}
+
+.emp-identity-docs__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.01em;
+}
+
+.emp-identity-docs__fields {
+  display: grid;
+  gap: 8px;
+}
+
+.emp-identity-docs__fields--bank {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.emp-identity-docs__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
 }
 
-.emp-identity-docs__block h5,
-.emp-identity-docs__files h5 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.emp-identity-docs__meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 4px 0;
-  font-size: 13px;
-  color: #475569;
-}
-
-.emp-identity-docs__meta strong {
-  color: #0f172a;
+.emp-identity-docs__field-label {
+  font-size: 10px;
   font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
 }
 
-.emp-identity-docs__grid {
+.emp-identity-docs__field-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.emp-identity-docs__field-value--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.emp-identity-docs__files {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.emp-identity-docs__files--single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 360px;
 }
 
 .emp-identity-docs__file-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: #fff;
+  background: #f8fafc;
 }
 
-.emp-identity-docs__file-meta {
+.emp-identity-docs__file-row--empty {
+  opacity: 0.72;
+}
+
+.emp-identity-docs__file-main {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 13px;
+  gap: 3px;
+  min-width: 0;
+}
+
+.emp-identity-docs__file-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.2;
+}
+
+.emp-identity-docs__status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.emp-identity-docs__status--ok {
+  color: #047857;
+  background: #d1fae5;
 }
 
 .emp-identity-docs__view-btn {
-  border: 1px solid #3b82f6;
+  flex-shrink: 0;
+  border: 1px solid #93c5fd;
   background: #eff6ff;
   color: #1d4ed8;
-  padding: 6px 12px;
+  padding: 5px 10px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .emp-identity-docs__view-btn:hover {
   background: #dbeafe;
+  border-color: #3b82f6;
+}
+
+@media (max-width: 900px) {
+  .emp-identity-docs__fields--bank {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .emp-identity-docs {
+    grid-template-columns: 1fr;
+  }
+
+  .emp-identity-docs__block--wide {
+    grid-column: auto;
+  }
+
+  .emp-identity-docs__fields--bank {
+    grid-template-columns: 1fr;
+  }
+
+  .emp-identity-docs__files {
+    grid-template-columns: 1fr;
+  }
+
+  .emp-identity-docs__files--single {
+    max-width: none;
+  }
 }

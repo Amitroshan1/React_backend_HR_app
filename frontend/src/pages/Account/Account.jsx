@@ -13,6 +13,20 @@ import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPane
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
 
+/** Financial year input: digits only, displayed as YYYY-YYYY (8 digits max). */
+const formatFinancialYearInput = (value) => {
+  const digits = String(value ?? '').replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 4) return digits;
+  return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+};
+
+const defaultFinancialYear = () => {
+  const y = new Date().getFullYear();
+  return formatFinancialYearInput(`${y}${y + 1}`);
+};
+
+const isValidFinancialYear = (value) => /^\d{4}-\d{4}$/.test(String(value ?? '').trim());
+
 const parseMediclaimYearly = (mediclaimValue) => {
   if (mediclaimValue === '' || mediclaimValue == null) return 0;
   const n = Number(mediclaimValue);
@@ -125,7 +139,7 @@ export const Account = ()  => {
   const [claimLineActionLoading, setClaimLineActionLoading] = useState(null);
   const [claimLineActionError, setClaimLineActionError] = useState('');
   const [claimExcelDownloading, setClaimExcelDownloading] = useState(null);
-  const [bulkForm16Year, setBulkForm16Year] = useState(`${new Date().getFullYear()}-${new Date().getFullYear() + 1}`);
+  const [bulkForm16Year, setBulkForm16Year] = useState(defaultFinancialYear);
   const [bulkForm16Files, setBulkForm16Files] = useState([]);
   const [isBulkForm16Uploading, setIsBulkForm16Uploading] = useState(false);
   const [bulkForm16UploadResult, setBulkForm16UploadResult] = useState(null);
@@ -1714,8 +1728,8 @@ export const Account = ()  => {
   }, [currentView, bulkPayrollMonth, bulkPayrollYear, selectedDept, selectedCircle, employeesList.length]);
 
   const handleBulkForm16Upload = async () => {
-    if (!bulkForm16Year.trim()) {
-      alert('Please enter financial year.');
+    if (!isValidFinancialYear(bulkForm16Year)) {
+      alert('Enter a valid financial year using 8 digits (e.g. 20262027 for 2026-2027).');
       return;
     }
     if (!bulkForm16Files.length) {
@@ -1772,8 +1786,8 @@ export const Account = ()  => {
       alert('Employee not selected.');
       return;
     }
-    if (!form16FinancialYear.trim()) {
-      alert('Please enter financial year.');
+    if (!isValidFinancialYear(form16FinancialYear)) {
+      alert('Enter a valid financial year using 8 digits (e.g. 20262027 for 2026-2027).');
       return;
     }
     if (!form16File) {
@@ -2074,52 +2088,79 @@ export const Account = ()  => {
       >
         <ArrowLeft size={18} /> Back
       </button>
-      <div className="hr-search-card small-width">
-        <h3 className="section-title text-center">Add Payslip for {selectedEmployee?.name}</h3>
-        <div className="input-group">
-          <label>Month</label>
-          <select className="custom-select" value={payslipMonth} onChange={(e) => setPayslipMonth(e.target.value)}>
-            <option>January</option><option>February</option><option>March</option><option>April</option>
-            <option>May</option><option>June</option><option>July</option><option>August</option>
-            <option>September</option><option>October</option><option>November</option><option>December</option>
-          </select>
+      <div className="accounts-upload-card">
+        <div className="accounts-upload-card__head">
+          <h3 className="accounts-upload-card__title">Add Payslip</h3>
+          <p className="accounts-upload-card__sub">
+            {selectedEmployee?.name || 'Employee'}
+            {selectedEmployee?.id ? ` · ${selectedEmployee.id}` : ''}
+          </p>
         </div>
-        <div className="input-group">
-          <label>Year</label>
-          <input
-            type="text"
-            className="custom-input-file"
-            placeholder="e.g. 2026"
-            value={payslipYear}
-            onChange={(e) => setPayslipYear(e.target.value)}
-          />
-        </div>
-        <div className="input-group">
-          <label>File Upload</label>
-          <input
-            type="file"
-            className="custom-input-file"
-            accept=".pdf,.jpg,.jpeg,.png"
-            onChange={(e) => setPayslipFile(e.target.files?.[0] || null)}
-          />
-        </div>
-        <div className="form-actions-row">
-          <button
-            type="button"
-            className="btn-primary full-width"
-            onClick={handleUploadPayslip}
-            disabled={isPayslipUploading}
-          >
-            {isPayslipUploading ? 'Uploading...' : 'Upload Payslip'}
-          </button>
-          <button
-            type="button"
-            className="btn-outline full-width"
-            onClick={() => setCurrentView('employees')}
-            disabled={isPayslipUploading}
-          >
-            Cancel
-          </button>
+        <div className="accounts-upload-form">
+          <div className="accounts-upload-fields accounts-upload-fields--row">
+            <div className="input-group">
+              <label htmlFor="payslip-month">Month</label>
+              <select
+                id="payslip-month"
+                className="custom-select"
+                value={payslipMonth}
+                onChange={(e) => setPayslipMonth(e.target.value)}
+              >
+                <option>January</option><option>February</option><option>March</option><option>April</option>
+                <option>May</option><option>June</option><option>July</option><option>August</option>
+                <option>September</option><option>October</option><option>November</option><option>December</option>
+              </select>
+            </div>
+            <div className="input-group">
+              <label htmlFor="payslip-year">Year</label>
+              <input
+                id="payslip-year"
+                type="number"
+                className="custom-select"
+                min="2000"
+                max="2100"
+                placeholder="e.g. 2026"
+                value={payslipYear}
+                onChange={(e) => setPayslipYear(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="input-group">
+            <span className="accounts-upload-label">Payslip file</span>
+            <label className="accounts-file-picker">
+              <input
+                type="file"
+                className="accounts-file-picker__input"
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={(e) => setPayslipFile(e.target.files?.[0] || null)}
+              />
+              <span className="accounts-file-picker__btn">
+                <Upload size={14} aria-hidden />
+                Choose file
+              </span>
+              <span className={`accounts-file-picker__name${payslipFile ? ' accounts-file-picker__name--selected' : ''}`}>
+                {payslipFile?.name || 'PDF, JPG, or PNG'}
+              </span>
+            </label>
+          </div>
+          <div className="accounts-upload-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleUploadPayslip}
+              disabled={isPayslipUploading}
+            >
+              {isPayslipUploading ? 'Uploading...' : 'Upload Payslip'}
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => setCurrentView('employees')}
+              disabled={isPayslipUploading}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2139,17 +2180,17 @@ export const Account = ()  => {
             <tbody>
               {payslipHistoryLoading && (
                 <tr>
-                  <td colSpan="4">Loading history...</td>
+                  <td colSpan="5">Loading history...</td>
                 </tr>
               )}
               {!payslipHistoryLoading && payslipHistoryError && (
                 <tr>
-                  <td colSpan="4">{payslipHistoryError}</td>
+                  <td colSpan="5">{payslipHistoryError}</td>
                 </tr>
               )}
               {!payslipHistoryLoading && !payslipHistoryError && payslipHistory.length === 0 && (
                 <tr>
-                  <td colSpan="4">No payslip records found.</td>
+                  <td colSpan="5">No payslip records found.</td>
                 </tr>
               )}
               {!payslipHistoryLoading && !payslipHistoryError && payslipHistory.map((item) => (
@@ -2159,7 +2200,13 @@ export const Account = ()  => {
                   <td>{getUploadedOnFromPath(item.file_path)}</td>
                   <td>
                     {item.file_path ? (
-                      <a href={buildFileUrl(item.file_path)} target="_blank" rel="noreferrer">View</a>
+                      <button
+                        type="button"
+                        className="text-link"
+                        onClick={() => openProtectedFile(item.file_path)}
+                      >
+                        View
+                      </button>
                     ) : '-'}
                   </td>
                   <td>
@@ -2189,44 +2236,65 @@ export const Account = ()  => {
       >
         <ArrowLeft size={18} /> Back
       </button>
-      <div className="hr-search-card small-width">
-        <h3 className="section-title text-center">Add Form 16 for {selectedEmployee?.name}</h3>
-        <div className="input-group">
-          <label>Financial Year</label>
-          <input
-            type="text"
-            className="custom-input-file"
-            placeholder="e.g. 2025-2026"
-            value={form16FinancialYear}
-            onChange={(e) => setForm16FinancialYear(e.target.value)}
-          />
+      <div className="accounts-upload-card">
+        <div className="accounts-upload-card__head">
+          <h3 className="accounts-upload-card__title">Add Form 16</h3>
+          <p className="accounts-upload-card__sub">
+            {selectedEmployee?.name || 'Employee'}
+            {selectedEmployee?.id ? ` · ${selectedEmployee.id}` : ''}
+          </p>
         </div>
-        <div className="input-group">
-          <label>Form 16 File</label>
-          <input
-            type="file"
-            className="custom-input-file"
-            accept=".pdf,.jpg,.jpeg,.png"
-            onChange={(e) => setForm16File(e.target.files?.[0] || null)}
-          />
-        </div>
-        <div className="form-actions-row">
-          <button
-            type="button"
-            className="btn-primary full-width"
-            onClick={handleUploadForm16}
-            disabled={isForm16Uploading}
-          >
-            {isForm16Uploading ? 'Uploading...' : 'Upload Form 16'}
-          </button>
-          <button
-            type="button"
-            className="btn-outline full-width"
-            onClick={() => setCurrentView('employees')}
-            disabled={isForm16Uploading}
-          >
-            Cancel
-          </button>
+        <div className="accounts-upload-form">
+          <div className="input-group">
+            <label htmlFor="form16-fy">Financial year</label>
+            <input
+              id="form16-fy"
+              type="text"
+              className="custom-select accounts-field-mono"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="20262027"
+              maxLength={9}
+              value={form16FinancialYear}
+              onChange={(e) => setForm16FinancialYear(formatFinancialYearInput(e.target.value))}
+            />
+          </div>
+          <div className="input-group">
+            <span className="accounts-upload-label">Form 16 file</span>
+            <label className="accounts-file-picker">
+              <input
+                type="file"
+                className="accounts-file-picker__input"
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={(e) => setForm16File(e.target.files?.[0] || null)}
+              />
+              <span className="accounts-file-picker__btn">
+                <Upload size={14} aria-hidden />
+                Choose file
+              </span>
+              <span className={`accounts-file-picker__name${form16File ? ' accounts-file-picker__name--selected' : ''}`}>
+                {form16File?.name || 'PDF, JPG, or PNG'}
+              </span>
+            </label>
+          </div>
+          <div className="accounts-upload-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleUploadForm16}
+              disabled={isForm16Uploading}
+            >
+              {isForm16Uploading ? 'Uploading...' : 'Upload Form 16'}
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => setCurrentView('employees')}
+              disabled={isForm16Uploading}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2263,7 +2331,13 @@ export const Account = ()  => {
                   <td>{formatDateTime(item.created_at)}</td>
                   <td>
                     {item.file_path ? (
-                      <a href={buildFileUrl(item.file_path)} target="_blank" rel="noreferrer">View</a>
+                      <button
+                        type="button"
+                        className="text-link"
+                        onClick={() => openProtectedFile(item.file_path)}
+                      >
+                        View
+                      </button>
                     ) : '-'}
                   </td>
                 </tr>
@@ -2285,12 +2359,13 @@ export const Account = ()  => {
         >
           <ArrowLeft size={18} /> Back
         </button>
-        <div className="table-container-card">
+        <div className="table-container-card ctc-page-card">
           <div className="card-header-row">
             <h3 className="section-title">CTC Breakup for {selectedEmployee?.name}</h3>
           </div>
+          <div className="ctc-page-body">
           <div className="ctc-form-grid">
-            <div className="ctc-form-half">
+            <div className="ctc-form-half ctc-form-half--a">
               <h4 className="ctc-form-half-title">Part A</h4>
                 <div className="input-group">
                   <label>Month (for P.Tax)</label>
@@ -2315,7 +2390,7 @@ export const Account = ()  => {
                     setCtcAnnual(e.target.value);
                   }}
                 />
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                <div className="ctc-field-hint">
                   Optional target — enter once to derive Basic (min ₹12,500). You can then edit Basic
                   or HRA %; Annual CTC (total) in the table below updates accordingly.
                 </div>
@@ -2335,7 +2410,7 @@ export const Account = ()  => {
                     setCtcMediclaim(e.target.value);
                   }}
                 />
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                <div className="ctc-field-hint">
                   Enter manually if applicable. Included inside Annual CTC (not extra).
                 </div>
               </div>
@@ -2354,7 +2429,7 @@ export const Account = ()  => {
                     setCtcForm((p) => ({ ...p, basic_salary: e.target.value }));
                   }}
                 />
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                <div className="ctc-field-hint">
                   Editable. Minimum max(40% of gross, ₹12,500/month); you may enter higher (e.g. ₹13,000).
                 </div>
               </div>
@@ -2373,7 +2448,7 @@ export const Account = ()  => {
                       setCtcHraPct(e.target.value);
                     }}
                   />
-                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                  <div className="ctc-field-hint">
                     {Number(ctcAnnual || 0) > 0 || Number(ctcForm.basic_salary || 0) > 0 ? (
                       <span>
                         {ctcHraPct || 40}% — HRA ₹{Number(ctcComputed.hra_amount || 0).toFixed(2)}.
@@ -2385,7 +2460,7 @@ export const Account = ()  => {
                   </div>
               </div>
             </div>
-            <div className="ctc-form-half">
+            <div className="ctc-form-half ctc-form-half--b">
               <h4 className="ctc-form-half-title">Part B</h4>
               <div className="input-group">
                 <label>Other Allowance</label>
@@ -2400,13 +2475,13 @@ export const Account = ()  => {
                     setCtcForm((p) => ({ ...p, other_allowance: e.target.value }));
                   }}
                 />
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.85 }}>
+                <div className="ctc-field-hint">
                   Enter manually. Not auto-calculated from annual CTC.
                 </div>
               </div>
               <div className="input-group">
                   <label>EPF</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                  <div className="ctc-epf-stack">
                     <select className="custom-select" value={ctcEpfMode} onChange={(e) => setCtcEpfMode(e.target.value)} disabled={Number(ctcForm.basic_salary || 0) < 15000}>
                       <option value="min">Minimum 1800 (basic ≥ 15000)</option>
                       <option value="percent">Percentage (basic ≥ 15000)</option>
@@ -2424,7 +2499,7 @@ export const Account = ()  => {
                     )}
                     <input className="custom-select" type="text" readOnly value={`${Number(ctcComputed.epf_amount || 0).toFixed(2)}`} />
                     {Number(ctcForm.basic_salary || 0) < 15000 && (
-                      <div style={{ fontSize: 13, opacity: 0.85 }}>Basic below 15000: EPF 12% mandatory.</div>
+                      <div className="ctc-field-hint">Basic below 15000: EPF 12% mandatory.</div>
                     )}
                   </div>
               </div>
@@ -2442,55 +2517,61 @@ export const Account = ()  => {
               </div>
             </div>
           </div>
-            <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+            <div className="ctc-summary-section">
               {ctcCalcError && <div className="q-error">{ctcCalcError}</div>}
-              <div className="table-responsive">
-                <table className="results-table">
-                  <thead>
-                    <tr>
-                      <th>Gross Salary (monthly)</th>
-                      <th>Total Deductions</th>
-                      <th>Net Salary</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>{Number(ctcComputed.gross_salary || 0).toFixed(2)}</td>
-                      <td>{Number(ctcComputed.deductions_total || 0).toFixed(2)}</td>
-                      <td>{Number(ctcComputed.net_salary || 0).toFixed(2)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="ctc-summary-table-wrap">
+                <div className="table-responsive">
+                  <table className="results-table">
+                    <thead>
+                      <tr>
+                        <th>Gross Salary (monthly)</th>
+                        <th>Total Deductions</th>
+                        <th>Net Salary</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>{Number(ctcComputed.gross_salary || 0).toFixed(2)}</td>
+                        <td>{Number(ctcComputed.deductions_total || 0).toFixed(2)}</td>
+                        <td>{Number(ctcComputed.net_salary || 0).toFixed(2)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="table-responsive">
-                <table className="results-table">
-                  <thead>
-                    <tr>
-                      <th>Gratuity (yr)</th>
-                      <th>Employer PF (yr)</th>
-                      <th>Employer ESIC (yr)</th>
-                      <th>Mediclaim (yr)</th>
-                      <th>Annual CTC (total)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>{Number(ctcComputed.gratuity_yearly || 0).toFixed(2)}</td>
-                      <td>{Number(ctcComputed.employer_pf_yearly || 0).toFixed(2)}</td>
-                      <td>{Number(ctcComputed.employer_esic_yearly || 0).toFixed(2)}</td>
-                      <td>
-                        {parseMediclaimYearly(ctcMediclaim).toFixed(2)}
-                      </td>
-                      <td>{Number(ctcComputed.annual_ctc_total || 0).toFixed(2)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="ctc-summary-table-wrap ctc-summary-table-wrap--annual">
+                <div className="table-responsive">
+                  <table className="results-table">
+                    <thead>
+                      <tr>
+                        <th>Gratuity (yr)</th>
+                        <th>Employer PF (yr)</th>
+                        <th>Employer ESIC (yr)</th>
+                        <th>Mediclaim (yr)</th>
+                        <th>Annual CTC (total)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>{Number(ctcComputed.gratuity_yearly || 0).toFixed(2)}</td>
+                        <td>{Number(ctcComputed.employer_pf_yearly || 0).toFixed(2)}</td>
+                        <td>{Number(ctcComputed.employer_esic_yearly || 0).toFixed(2)}</td>
+                        <td>
+                          {parseMediclaimYearly(ctcMediclaim).toFixed(2)}
+                        </td>
+                        <td>{Number(ctcComputed.annual_ctc_total || 0).toFixed(2)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          {ctcLoading && <p>Loading CTC breakup...</p>}
-          {ctcError && <div className="q-error">{ctcError}</div>}
-          {ctcSuccess && <div className="q-success">{ctcSuccess}</div>}
-          <div className="form-actions-row">
+          {ctcLoading && <p className="ctc-loading-text">Loading CTC breakup...</p>}
+          <div className="ctc-page-messages">
+            {ctcError && <div className="q-error">{ctcError}</div>}
+            {ctcSuccess && <div className="q-success">{ctcSuccess}</div>}
+          </div>
+          <div className="ctc-save-row">
             <button
               type="button"
               className="btn-primary full-width"
@@ -2500,10 +2581,11 @@ export const Account = ()  => {
               {ctcSaving ? 'Saving...' : 'Save CTC Breakup'}
             </button>
           </div>
+          </div>
         </div>
 
-        <div className="table-container-card form16-history-card">
-          <h4 className="section-title" style={{ marginBottom: '12px' }}>CTC Breakup History</h4>
+        <div className="table-container-card form16-history-card ctc-history-card">
+          <h4 className="section-title">CTC Breakup History</h4>
           <div className="table-responsive">
             <table className="results-table">
               <thead>
@@ -2565,63 +2647,90 @@ export const Account = ()  => {
       >
         <ArrowLeft size={18} /> Back
       </button>
-      <div className="hr-search-card small-width">
-        <h3 className="section-title text-center">Bulk Payslip Upload</h3>
-        <div className="input-group">
-          <label>Month</label>
-          <select className="custom-select" value={bulkPayslipMonth} onChange={(e) => setBulkPayslipMonth(e.target.value)}>
-            <option>January</option><option>February</option><option>March</option><option>April</option>
-            <option>May</option><option>June</option><option>July</option><option>August</option>
-            <option>September</option><option>October</option><option>November</option><option>December</option>
-          </select>
+      <div className="accounts-upload-card accounts-upload-card--bulk">
+        <div className="accounts-upload-card__head">
+          <h3 className="accounts-upload-card__title">Bulk Payslip Upload</h3>
+          <p className="accounts-upload-card__sub">Upload multiple payslips for employees in one go</p>
         </div>
-        <div className="input-group">
-          <label>Year</label>
-          <input
-            type="text"
-            className="custom-input-file"
-            placeholder="e.g. 2026"
-            value={bulkPayslipYear}
-            onChange={(e) => setBulkPayslipYear(e.target.value)}
-          />
-        </div>
-        <div className="input-group">
-          <label>Select Files (Multiple)</label>
-          <input
-            type="file"
-            className="custom-input-file"
-            accept=".pdf,.jpg,.jpeg,.png"
-            multiple
-            onChange={(e) => setBulkPayslipFiles(Array.from(e.target.files || []))}
-          />
-        </div>
-        {bulkPayslipFiles.length > 0 && (
+        <div className="accounts-upload-form">
+          <div className="accounts-upload-fields accounts-upload-fields--row">
+            <div className="input-group">
+              <label htmlFor="bulk-payslip-month">Month</label>
+              <select
+                id="bulk-payslip-month"
+                className="custom-select"
+                value={bulkPayslipMonth}
+                onChange={(e) => setBulkPayslipMonth(e.target.value)}
+              >
+                <option>January</option><option>February</option><option>March</option><option>April</option>
+                <option>May</option><option>June</option><option>July</option><option>August</option>
+                <option>September</option><option>October</option><option>November</option><option>December</option>
+              </select>
+            </div>
+            <div className="input-group">
+              <label htmlFor="bulk-payslip-year">Year</label>
+              <input
+                id="bulk-payslip-year"
+                type="number"
+                className="custom-select"
+                min="2000"
+                max="2100"
+                placeholder="e.g. 2026"
+                value={bulkPayslipYear}
+                onChange={(e) => setBulkPayslipYear(e.target.value)}
+              />
+            </div>
+          </div>
           <div className="input-group">
-            <label>Selected Files ({bulkPayslipFiles.length})</label>
-            <ul className="bulk-file-list">
+            <span className="accounts-upload-label">Payslip files</span>
+            <label className="accounts-file-picker accounts-file-picker--multi">
+              <input
+                type="file"
+                className="accounts-file-picker__input"
+                accept=".pdf,.jpg,.jpeg,.png"
+                multiple
+                onChange={(e) => setBulkPayslipFiles(Array.from(e.target.files || []))}
+              />
+              <span className="accounts-file-picker__btn">
+                <Upload size={14} aria-hidden />
+                Choose files
+              </span>
+              <span
+                className={`accounts-file-picker__name${
+                  bulkPayslipFiles.length ? ' accounts-file-picker__name--selected' : ''
+                }`}
+              >
+                {bulkPayslipFiles.length
+                  ? `${bulkPayslipFiles.length} file${bulkPayslipFiles.length === 1 ? '' : 's'} selected`
+                  : 'Select multiple PDF, JPG, or PNG files'}
+              </span>
+            </label>
+          </div>
+          {bulkPayslipFiles.length > 0 && (
+            <ul className="accounts-bulk-file-list">
               {bulkPayslipFiles.map((file, idx) => (
                 <li key={`${file.name}-${idx}`}>{file.name}</li>
               ))}
             </ul>
+          )}
+          <div className="accounts-upload-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleBulkPayslipUpload}
+              disabled={isBulkUploading}
+            >
+              {isBulkUploading ? 'Uploading...' : 'Upload Payslips'}
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => setCurrentView('employees')}
+              disabled={isBulkUploading}
+            >
+              Cancel
+            </button>
           </div>
-        )}
-        <div className="form-actions-row">
-          <button
-            type="button"
-            className="btn-primary full-width"
-            onClick={handleBulkPayslipUpload}
-            disabled={isBulkUploading}
-          >
-            {isBulkUploading ? 'Uploading...' : 'Upload Bulk Payslips'}
-          </button>
-          <button
-            type="button"
-            className="btn-outline full-width"
-            onClick={() => setCurrentView('employees')}
-            disabled={isBulkUploading}
-          >
-            Cancel
-          </button>
         </div>
       </div>
       {bulkUploadResult && (
@@ -2694,55 +2803,76 @@ export const Account = ()  => {
       >
         <ArrowLeft size={18} /> Back
       </button>
-      <div className="hr-search-card small-width">
-        <h3 className="section-title text-center">Bulk Form 16 Upload</h3>
-        <div className="input-group">
-          <label>Financial Year</label>
-          <input
-            type="text"
-            className="custom-input-file"
-            placeholder="e.g. 2026-2027"
-            value={bulkForm16Year}
-            onChange={(e) => setBulkForm16Year(e.target.value)}
-          />
+      <div className="accounts-upload-card accounts-upload-card--bulk">
+        <div className="accounts-upload-card__head">
+          <h3 className="accounts-upload-card__title">Bulk Form 16 Upload</h3>
+          <p className="accounts-upload-card__sub">Upload Form 16 documents for multiple employees</p>
         </div>
-        <div className="input-group">
-          <label>Select Files (Multiple)</label>
-          <input
-            type="file"
-            className="custom-input-file"
-            accept=".pdf,.jpg,.jpeg,.png"
-            multiple
-            onChange={(e) => setBulkForm16Files(Array.from(e.target.files || []))}
-          />
-        </div>
-        {bulkForm16Files.length > 0 && (
+        <div className="accounts-upload-form">
           <div className="input-group">
-            <label>Selected Files ({bulkForm16Files.length})</label>
-            <ul className="bulk-file-list">
+            <label htmlFor="bulk-form16-fy">Financial year</label>
+            <input
+              id="bulk-form16-fy"
+              type="text"
+              className="custom-select accounts-field-mono"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="20262027"
+              maxLength={9}
+              value={bulkForm16Year}
+              onChange={(e) => setBulkForm16Year(formatFinancialYearInput(e.target.value))}
+            />
+          </div>
+          <div className="input-group">
+            <span className="accounts-upload-label">Form 16 files</span>
+            <label className="accounts-file-picker accounts-file-picker--multi">
+              <input
+                type="file"
+                className="accounts-file-picker__input"
+                accept=".pdf,.jpg,.jpeg,.png"
+                multiple
+                onChange={(e) => setBulkForm16Files(Array.from(e.target.files || []))}
+              />
+              <span className="accounts-file-picker__btn">
+                <Upload size={14} aria-hidden />
+                Choose files
+              </span>
+              <span
+                className={`accounts-file-picker__name${
+                  bulkForm16Files.length ? ' accounts-file-picker__name--selected' : ''
+                }`}
+              >
+                {bulkForm16Files.length
+                  ? `${bulkForm16Files.length} file${bulkForm16Files.length === 1 ? '' : 's'} selected`
+                  : 'Select multiple PDF, JPG, or PNG files'}
+              </span>
+            </label>
+          </div>
+          {bulkForm16Files.length > 0 && (
+            <ul className="accounts-bulk-file-list">
               {bulkForm16Files.map((file, idx) => (
                 <li key={`${file.name}-${idx}`}>{file.name}</li>
               ))}
             </ul>
+          )}
+          <div className="accounts-upload-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleBulkForm16Upload}
+              disabled={isBulkForm16Uploading}
+            >
+              {isBulkForm16Uploading ? 'Uploading...' : 'Upload Form 16'}
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => setCurrentView('employees')}
+              disabled={isBulkForm16Uploading}
+            >
+              Cancel
+            </button>
           </div>
-        )}
-        <div className="form-actions-row">
-          <button
-            type="button"
-            className="btn-primary full-width"
-            onClick={handleBulkForm16Upload}
-            disabled={isBulkForm16Uploading}
-          >
-            {isBulkForm16Uploading ? 'Uploading...' : 'Upload Bulk Form 16'}
-          </button>
-          <button
-            type="button"
-            className="btn-outline full-width"
-            onClick={() => setCurrentView('employees')}
-            disabled={isBulkForm16Uploading}
-          >
-            Cancel
-          </button>
         </div>
       </div>
       {bulkForm16UploadResult && (
@@ -3413,128 +3543,155 @@ export const Account = ()  => {
 
               {hasFeature('account_full_employee_view') && (
               <>
-              <div className={`accounts-profile-grid ${isHr ? '' : 'accounts-readonly'}`}>
-                  <div className="input-group">
-                    <label>Function</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.function}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, function: e.target.value }))}
-                      disabled={!isHr}
-                    />
+              <div className={`accounts-profile-body ${isHr ? '' : 'accounts-readonly'}`}>
+                <section className="accounts-profile-section">
+                  <h5 className="accounts-profile-section__title">Employment</h5>
+                  <div className="accounts-profile-grid">
+                    <div className="input-group">
+                      <label>Function</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.function}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, function: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>Designation</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.designation}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, designation: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>Location</label>
+                      <input
+                        className="custom-select"
+                        value={accountsProfileForm.location}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, location: e.target.value }))}
+                        disabled={!isHr}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>Date of Joining</label>
+                      <input
+                        className="custom-select"
+                        type="date"
+                        value={accountsProfileForm.date_of_joining}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, date_of_joining: e.target.value }))}
+                        disabled={!isHr}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>Employee ID</label>
+                      <input
+                        className="custom-select accounts-field-mono"
+                        value={selectedEmployee?.id || ''}
+                        readOnly
+                      />
+                    </div>
                   </div>
-                  <div className="input-group">
-                    <label>Designation</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.designation}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, designation: e.target.value }))}
-                      disabled={!isHr}
-                    />
+                </section>
+
+                <section className="accounts-profile-section">
+                  <h5 className="accounts-profile-section__title">Statutory &amp; IDs</h5>
+                  <div className="accounts-profile-grid">
+                    <div className="input-group">
+                      <label>PAN</label>
+                      <input
+                        className="custom-select accounts-field-mono"
+                        value={accountsProfileForm.pan}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pan: e.target.value }))}
+                        placeholder="ABCDE1234F"
+                        disabled={!isHr}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>UAN</label>
+                      <input
+                        className="custom-select accounts-field-mono"
+                        value={accountsProfileForm.uan}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, uan: e.target.value }))}
+                        disabled={!isHr}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>PF Account Number</label>
+                      <input
+                        className="custom-select accounts-field-mono"
+                        value={accountsProfileForm.pf_account_number}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pf_account_number: e.target.value }))}
+                        disabled={!isHr}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>ESI Number</label>
+                      <input
+                        className="custom-select accounts-field-mono"
+                        value={accountsProfileForm.esi_number}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, esi_number: e.target.value }))}
+                        disabled={!isHr}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>PRAN</label>
+                      <input
+                        className="custom-select accounts-field-mono"
+                        value={accountsProfileForm.pran}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pran: e.target.value }))}
+                        disabled={!isHr}
+                        placeholder="—"
+                      />
+                    </div>
                   </div>
-                  <div className="input-group">
-                    <label>Location</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.location}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, location: e.target.value }))}
-                      disabled={!isHr}
-                    />
+                </section>
+
+                <section className="accounts-profile-section">
+                  <h5 className="accounts-profile-section__title">Bank &amp; Tax</h5>
+                  <div className="accounts-profile-grid accounts-profile-grid--stack">
+                    <div className="input-group accounts-field-full">
+                      <label>Bank Details</label>
+                      <textarea
+                        className="custom-select"
+                        rows={2}
+                        value={accountsProfileForm.bank_details}
+                        onChange={(e) => setAccountsProfileForm((p) => ({ ...p, bank_details: e.target.value }))}
+                        disabled={!isHr}
+                        placeholder="—"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>Tax Regime</label>
+                      <select
+                        className="custom-select"
+                        value={accountsProfileForm.tax_regime}
+                        onChange={(e) =>
+                          setAccountsProfileForm((p) => ({ ...p, tax_regime: e.target.value }))
+                        }
+                        disabled={!isHr}
+                      >
+                        <option value="">— Select —</option>
+                        {TAX_REGIME_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                        {accountsProfileForm.tax_regime &&
+                        !TAX_REGIME_OPTIONS.includes(accountsProfileForm.tax_regime) ? (
+                          <option value={accountsProfileForm.tax_regime}>
+                            {accountsProfileForm.tax_regime}
+                          </option>
+                        ) : null}
+                      </select>
+                    </div>
                   </div>
-                  <div className="input-group">
-                    <label>Date of Joining</label>
-                    <input
-                      className="custom-select"
-                      type="date"
-                      value={accountsProfileForm.date_of_joining}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, date_of_joining: e.target.value }))}
-                      disabled={!isHr}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label>Employee ID (Emp_ID)</label>
-                    <input className="custom-select" value={selectedEmployee?.id || ''} readOnly />
-                  </div>
-                  <div className="input-group">
-                    <label>PAN</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.pan}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pan: e.target.value }))}
-                      placeholder="ABCDE1234F"
-                      disabled={!isHr}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label>UAN</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.uan}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, uan: e.target.value }))}
-                      disabled={!isHr}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label>PF Account Number</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.pf_account_number}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pf_account_number: e.target.value }))}
-                      disabled={!isHr}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label>ESI Number</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.esi_number}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, esi_number: e.target.value }))}
-                      disabled={!isHr}
-                    />
-                  </div>
-                  <div className="input-group">
-                    <label>PRAN</label>
-                    <input
-                      className="custom-select"
-                      value={accountsProfileForm.pran}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pran: e.target.value }))}
-                      disabled={!isHr}
-                    />
-                  </div>
-                  <div className="input-group accounts-field-full">
-                    <label>Bank Details</label>
-                    <textarea
-                      className="custom-select"
-                      rows={3}
-                      value={accountsProfileForm.bank_details}
-                      onChange={(e) => setAccountsProfileForm((p) => ({ ...p, bank_details: e.target.value }))}
-                      disabled={!isHr}
-                    />
-                  </div>
-                  <div className="input-group accounts-field-full">
-                    <label>Tax Regime</label>
-                    <select
-                      className="custom-select"
-                      value={accountsProfileForm.tax_regime}
-                      onChange={(e) =>
-                        setAccountsProfileForm((p) => ({ ...p, tax_regime: e.target.value }))
-                      }
-                      disabled={!isHr}
-                    >
-                      <option value="">— Select —</option>
-                      {TAX_REGIME_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                      {accountsProfileForm.tax_regime &&
-                      !TAX_REGIME_OPTIONS.includes(accountsProfileForm.tax_regime) ? (
-                        <option value={accountsProfileForm.tax_regime}>
-                          {accountsProfileForm.tax_regime}
-                        </option>
-                      ) : null}
-                    </select>
-                  </div>
+                </section>
               </div>
 
               <div className="form-actions-row accounts-profile-actions">
@@ -3581,11 +3738,15 @@ export const Account = ()  => {
 
               {hasFeature('account_full_employee_view') ? (
                 <>
-                  <h4 className="section-title" style={{ marginTop: '16px' }}>Identity &amp; Documents</h4>
-                  <EmployeeIdentityDocsPanel
-                    documents={selectedEmployee?.documents || {}}
-                    onViewFile={openProtectedFile}
-                  />
+                  <div className="accounts-identity-section">
+                    <h4 className="section-title accounts-identity-section__title">Identity &amp; Documents</h4>
+                    <EmployeeIdentityDocsPanel
+                      documents={selectedEmployee?.documents || {}}
+                      accountsProfile={accountsProfileForm}
+                      showFullDetails
+                      onViewFile={openProtectedFile}
+                    />
+                  </div>
                   {selectedEmployee?.form16Path && (
                     <div style={{ marginTop: 12 }}>
                       <div className="flex-between" style={{ marginBottom: '6px' }}>
