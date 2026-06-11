@@ -1165,11 +1165,16 @@ def calculate_monthly_payroll_from_ctc_and_attendance(*, admin_id: int, year: in
     admin = Admin.query.get(admin_id)
     emp_type = (admin.emp_type or "").strip() if admin else ""
 
+    from .commands.ctc_breakup_logic import maharashtra_professional_tax
+
     ctc = CTCBreakup.query.filter_by(admin_id=admin_id).first()
     ctc_gross_salary = float(ctc.gross_salary or 0.0) if ctc else 0.0
     epf_amount = float(ctc.epf or 0.0) if ctc else 0.0
     esic_amount = float(ctc.esic or 0.0) if ctc else 0.0
-    ptax_amount = float(ctc.ptax or 0.0) if ctc else 0.0
+
+    emp = Employee.query.filter_by(admin_id=admin_id).first()
+    gender = getattr(emp, "gender", None) if emp else None
+    ptax_amount = maharashtra_professional_tax(ctc_gross_salary, gender, month_num)
 
     calendar_days = calendar.monthrange(year, month_num)[1]
     one_day_salary = (ctc_gross_salary / float(calendar_days)) if calendar_days > 0 else 0.0

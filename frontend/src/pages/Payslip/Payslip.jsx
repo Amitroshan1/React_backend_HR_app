@@ -28,6 +28,21 @@ const formatISTDateTime = (value) => {
     });
 };
 
+const formatRupee = (value) => `Rs. ${formatINRCurrency(value)}`;
+
+const formatPtaxMonthLabel = (ptaxMonth) => {
+    if (!ptaxMonth) return "—";
+    const s = String(ptaxMonth).trim();
+    if (/^\d{4}-\d{2}$/.test(s)) {
+        const [y, m] = s.split("-");
+        const d = new Date(Number(y), Number(m) - 1, 1);
+        if (!Number.isNaN(d.getTime())) {
+            return d.toLocaleString("en-IN", { month: "long", year: "numeric" });
+        }
+    }
+    return s;
+};
+
 export const Payslip = () => {
     const { userData } = useUser();
     const [history, setHistory] = useState([]);
@@ -36,8 +51,17 @@ export const Payslip = () => {
     const [downloadingId, setDownloadingId] = useState(null);
     const [downloadingPayrollId, setDownloadingPayrollId] = useState(null);
     const [payrollHistory, setPayrollHistory] = useState([]);
+    const [ctcBreakup, setCtcBreakup] = useState(null);
+    const [ctcLoading, setCtcLoading] = useState(false);
+    const [ctcError, setCtcError] = useState("");
 
     const userId = userData?.user?.id;
+    const displayName =
+        userData?.user?.name
+        || userData?.user?.first_name
+        || userData?.user?.user_name
+        || (userData?.user?.email ? userData.user.email.split("@")[0] : null)
+        || "User";
 
     useEffect(() => {
         if (!userId) {
@@ -54,11 +78,17 @@ export const Payslip = () => {
         setLoading(true);
         setError("");
         const showPayrollHistory = hasFeature("payslip_payroll_history");
+        setCtcLoading(true);
+        setCtcError("");
         const requests = [
             fetch(`${API_BASE_URL}/payslip/history/${userId}`, {
                 method: "GET",
                 headers: { Authorization: `Bearer ${token}` },
             }).then((res) => res.json()),
+            fetch(`${API_BASE_URL}/ctc-breakup/${userId}`, {
+                method: "GET",
+                headers: { Authorization: `Bearer ${token}` },
+            }).then((res) => res.json()).catch(() => ({ success: false })),
         ];
         if (showPayrollHistory) {
             requests.push(
@@ -71,7 +101,8 @@ export const Payslip = () => {
         Promise.all(requests)
             .then((results) => {
                 const result = results[0];
-                const dashboardResult = showPayrollHistory ? results[1] : {};
+                const ctcResult = results[1];
+                const dashboardResult = showPayrollHistory ? results[2] : {};
                 if (result.success && Array.isArray(result.history)) {
                     setHistory(result.history);
                 } else {
@@ -84,13 +115,28 @@ export const Payslip = () => {
                         ? dashboardResult.my_payroll_history
                         : [];
                 setPayrollHistory(payrollRows);
+
+                if (ctcResult?.success) {
+                    setCtcBreakup(ctcResult.ctc_breakup || null);
+                    setCtcError("");
+                } else if (ctcResult?.message) {
+                    setCtcBreakup(null);
+                    setCtcError(ctcResult.message);
+                } else {
+                    setCtcBreakup(null);
+                    setCtcError("");
+                }
             })
             .catch((err) => {
                 setError(err.message || "Failed to load payslips");
                 setHistory([]);
                 setPayrollHistory([]);
+                setCtcBreakup(null);
             })
-            .finally(() => setLoading(false));
+            .finally(() => {
+                setLoading(false);
+                setCtcLoading(false);
+            });
     }, [userId]);
 
     const handleDownload = async (row) => {
@@ -159,8 +205,108 @@ export const Payslip = () => {
         }
     };
 
+    const annualCtcTotal = Number(ctcBreakup?.annual_ctc_computed ?? ctcBreakup?.annual_ctc ?? 0);
+    const hasCtcData = ctcBreakup && (annualCtcTotal > 0 || Number(ctcBreakup.basic_salary || 0) > 0);
+
+    const earningsRows = [
+        { label: "Basic + DA", value: ctcBreakup?.basic_salary },
+        {
+            label: ctcBreakup?.hra_pct != null ? `HRA (${Number(ctcBreakup.hra_pct)}%)` : "HRA",
+            value: ctcBreakup?.hra,
+        },
+        { label: "Other Allowance", value: ctcBreakup?.other_allowance },
+        { label: "Gross Salary", value: ctcBreakup?.gross_salary, tone: "accent" },
+        { label: "Net Salary", value: ctcBreakup?.net_salary, tone: "green" },
+    ];
+
+    const deductionRows = [
+        { label: "EPF (Employee)", value: ctcBreakup?.epf },
+        { label: "ESIC (Employee)", value: ctcBreakup?.esic },
+        { label: "Professional Tax", value: ctcBreakup?.ptax },
+        { label: "Total Deductions", value: ctcBreakup?.deductions_total, tone: "red" },
+    ];
+
+    const annualRows = [
+        { label: "Gratuity", value: ctcBreakup?.gratuity_yearly },
+        { label: "Employer PF", value: ctcBreakup?.employer_pf_yearly },
+        { label: "Employer ESIC", value: ctcBreakup?.employer_esic_yearly },
+        { label: "Mediclaim", value: ctcBreakup?.mediclaim_yearly },
+    ];
+
     return (
         <div className="payslip-page">
+            <div className="payslip-ctc-card">
+                <div className="payslip-ctc-header">
+                    <h2 className="payslip-ctc-title">{displayName}'s CTC Breakup</h2>
+                </div>
+                <div className="payslip-ctc-body">
+                    {ctcLoading && <div className="payslip-loading">Loading CTC breakup…</div>}
+                    {ctcError && !ctcLoading && <div className="payslip-error">{ctcError}</div>}
+                    {!ctcLoading && !ctcError && !hasCtcData && (
+                        <div className="payslip-empty">No CTC breakup on file yet. Contact Accounts if this looks wrong.</div>
+                    )}
+                    {!ctcLoading && hasCtcData && (
+                        <>
+                            <div className="payslip-ctc-hero">
+                                <span className="payslip-ctc-hero-label">Annual CTC (Total)</span>
+                                <span className="payslip-ctc-hero-value">{formatRupee(annualCtcTotal)}</span>
+                                {ctcBreakup?.updated_at && (
+                                    <span className="payslip-ctc-hero-meta">
+                                        Updated {formatISTDateTime(ctcBreakup.updated_at)}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="payslip-ctc-grid">
+                                <section className="payslip-ctc-panel payslip-ctc-panel--earnings">
+                                    <h3 className="payslip-ctc-panel-title">Monthly Earnings</h3>
+                                    <ul className="payslip-ctc-rows">
+                                        {earningsRows.map((row) => (
+                                            <li
+                                                key={row.label}
+                                                className={`payslip-ctc-row${row.tone ? ` payslip-ctc-row--${row.tone}` : ""}`}
+                                            >
+                                                <span>{row.label}</span>
+                                                <span>{formatRupee(row.value)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </section>
+                                <section className="payslip-ctc-panel payslip-ctc-panel--deductions">
+                                    <h3 className="payslip-ctc-panel-title">Monthly Deductions</h3>
+                                    <ul className="payslip-ctc-rows">
+                                        {deductionRows.map((row) => (
+                                            <li
+                                                key={row.label}
+                                                className={`payslip-ctc-row${row.tone ? ` payslip-ctc-row--${row.tone}` : ""}`}
+                                            >
+                                                <span>{row.label}</span>
+                                                <span>{formatRupee(row.value)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    {ctcBreakup?.ptax_month && (
+                                        <p className="payslip-ctc-footnote">
+                                            P.Tax month: {formatPtaxMonthLabel(ctcBreakup.ptax_month)}
+                                        </p>
+                                    )}
+                                </section>
+                            </div>
+                            <section className="payslip-ctc-panel payslip-ctc-panel--annual">
+                                <h3 className="payslip-ctc-panel-title">Annual Employer Cost &amp; Benefits</h3>
+                                <div className="payslip-ctc-annual-grid">
+                                    {annualRows.map((row) => (
+                                        <div key={row.label} className="payslip-ctc-stat">
+                                            <span className="payslip-ctc-stat-label">{row.label}</span>
+                                            <span className="payslip-ctc-stat-value">{formatRupee(row.value)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+                        </>
+                    )}
+                </div>
+            </div>
+
             <div className="payslip-card">
                 <div className="payslip-card-header">
                     <h2 className="payslip-title">My Payslips</h2>

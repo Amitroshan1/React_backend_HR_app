@@ -34,12 +34,15 @@
 /* Page container – matches dashboard content area */
 .payslip-page {
   padding: 24px 24px 32px;
-  max-width: 720px;
+  max-width: 960px;
   margin: 0 auto;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
   animation: payslipSectionEnter 0.4s ease-out;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 /* Card – left accent stripe, 12px radius, same as dashboard/Change Password */
@@ -434,5 +437,218 @@
   .payslip-error {
     padding: 10px 14px;
     font-size: 0.85rem;
+  }
+}
+
+/* CTC Breakup summary card */
+.payslip-ctc-card {
+  background-color: var(--ps-card-bg);
+  border-radius: 12px;
+  box-shadow: var(--ps-shadow);
+  border: 1px solid var(--ps-border);
+  position: relative;
+  overflow: hidden;
+  animation: payslipCardEnter 0.45s ease-out forwards;
+}
+
+.payslip-ctc-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 12px 0 0 12px;
+  background: linear-gradient(180deg, #059669 0%, #10b981 100%);
+}
+
+.payslip-ctc-header {
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--ps-border);
+  text-align: center;
+}
+
+.payslip-ctc-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #059669 0%, #2563eb 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.payslip-ctc-body {
+  padding: 20px 24px 24px;
+}
+
+.payslip-ctc-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 16px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4f46e5 0%, #059669 100%);
+  color: #fff;
+}
+
+.payslip-ctc-hero-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.payslip-ctc-hero-value {
+  margin-top: 6px;
+  font-size: 1.65rem;
+  font-weight: 700;
+}
+
+.payslip-ctc-hero-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.payslip-ctc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.payslip-ctc-panel {
+  border: 1px solid var(--ps-border);
+  border-radius: 12px;
+  padding: 16px;
+  background: #fff;
+}
+
+.payslip-ctc-panel--earnings {
+  border-top: 3px solid #4f46e5;
+}
+
+.payslip-ctc-panel--deductions {
+  border-top: 3px solid #dc2626;
+}
+
+.payslip-ctc-panel--annual {
+  border-top: 3px solid #059669;
+  background: #f8fafc;
+}
+
+.payslip-ctc-panel-title {
+  margin: 0 0 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.payslip-ctc-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.payslip-ctc-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--ps-border);
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.payslip-ctc-row:last-child {
+  border-bottom: none;
+}
+
+.payslip-ctc-row span:last-child {
+  font-weight: 600;
+  color: var(--ps-text-dark);
+  white-space: nowrap;
+}
+
+.payslip-ctc-row--accent span:last-child {
+  color: #4f46e5;
+}
+
+.payslip-ctc-row--green span:last-child {
+  color: #059669;
+}
+
+.payslip-ctc-row--red span:last-child {
+  color: #dc2626;
+}
+
+.payslip-ctc-footnote {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ps-text-muted);
+}
+
+.payslip-ctc-annual-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.payslip-ctc-stat {
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--ps-border);
+  text-align: center;
+}
+
+.payslip-ctc-stat-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ps-text-muted);
+  margin-bottom: 6px;
+}
+
+.payslip-ctc-stat-value {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ps-text-dark);
+}
+
+@media (max-width: 768px) {
+  .payslip-ctc-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payslip-ctc-annual-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .payslip-ctc-body {
+    padding: 16px;
+  }
+
+  .payslip-ctc-header {
+    padding: 16px 16px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .payslip-ctc-annual-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payslip-ctc-hero-value {
+    font-size: 1.35rem;
   }
 }

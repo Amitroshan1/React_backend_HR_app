@@ -301,7 +301,9 @@ def _prorate_earnings_to_gross(basic, hra, other, target_gross):
 from .commands.ctc_breakup_logic import (
     DEFAULT_HRA_PCT,
     annual_ctc_from_monthly,
+    basic_pct_of_monthly_ctc,
     employer_costs_summary,
+    maharashtra_professional_tax,
     monthly_components,
     reverse_ctc_breakup,
 )
@@ -310,8 +312,19 @@ _CTC_RULES = {
     "hra": {"min_pct": 5.0, "max_pct": 50.0},
     "epf": {"mandatory_pct": 12.0, "basic_threshold": 15000.0, "min_amount_if_above_threshold": 1800.0},
     "ptax": {
-        "male": {"slab_7500_10000": 175.0, "slab_above_10000": 200.0, "feb_surcharge": 300.0},
-        "female": {"slab_25000_or_more": 200.0},
+        "basis": "monthly_gross",
+        "state": "Maharashtra",
+        "male": {
+            "upto_7500": 0.0,
+            "7501_to_10000": 175.0,
+            "above_10000": 200.0,
+            "february": 300.0,
+        },
+        "female": {
+            "upto_25000": 0.0,
+            "above_25000": 200.0,
+            "february": 300.0,
+        },
     },
     "esic": {
         "gross_threshold": 21001.0,
@@ -336,30 +349,12 @@ def _ctc_calculate(
     Implements rules exactly as discussed:
     - HRA: between 5% and 50% of (basic + DA)
     - EPF: if basic < 15000 => 12% mandatory; else choose min 1800 OR percentage
-    - PTAX: depends on gender, basic slabs and Feb special
+    - PTAX: Maharashtra slabs on monthly gross, gender, and February
     - ESIC: if gross < 21001 => employee 0.75% and employer 3.25%; else 0
     - Gross = basic + hra_amount + other_allowance
     - Net = Gross - (EPF + PTAX + ESIC_employee)
     """
     other = float(other_allowance or 0)
-
-    # Month parsing: expects "YYYY-MM" (preferred) but tolerates "February"/etc.
-    month_num = None
-    if month:
-        s = str(month).strip()
-        if len(s) >= 7 and s[4] == "-" and s[:4].isdigit() and s[5:7].isdigit():
-            try:
-                month_num = int(s[5:7])
-            except Exception:
-                month_num = None
-        if month_num is None:
-            name = s.lower()
-            month_map = {
-                "january": 1, "february": 2, "march": 3, "april": 4,
-                "may": 5, "june": 6, "july": 7, "august": 8,
-                "september": 9, "october": 10, "november": 11, "december": 12,
-            }
-            month_num = month_map.get(name)
 
     # HRA
     hra_pct_val = None if hra_pct is None or str(hra_pct).strip() == "" else float(hra_pct)
@@ -368,11 +363,13 @@ def _ctc_calculate(
     if hra_pct_val < _CTC_RULES["hra"]["min_pct"] or hra_pct_val > _CTC_RULES["hra"]["max_pct"]:
         raise ValueError(f"HRA percentage must be between {_CTC_RULES['hra']['min_pct']} and {_CTC_RULES['hra']['max_pct']}")
 
+    mediclaim = max(0.0, float(mediclaim_yearly or 0))
     basic, hra_amount, other, gross = monthly_components(
         float(basic_salary or 0),
         hra_pct_val,
         other,
         apply_floor=True,
+        mediclaim_yearly=mediclaim,
     )
 
     # EPF
@@ -397,23 +394,8 @@ def _ctc_calculate(
             epf_mode_effective = "min"
             epf_pct_effective = None
 
-    # PTAX
-    g = (gender or "").strip().lower()
-    is_male = g.startswith("m")
-    is_female = g.startswith("f")
-    ptax_amount = 0.0
-    if is_male:
-        if basic >= 7500 and basic <= 10000:
-            ptax_amount = _CTC_RULES["ptax"]["male"]["slab_7500_10000"]
-        elif basic > 10000:
-            ptax_amount = _CTC_RULES["ptax"]["male"]["slab_above_10000"]
-            if month_num == 2:
-                ptax_amount = _CTC_RULES["ptax"]["male"]["feb_surcharge"]
-    elif is_female:
-        if basic >= 25000:
-            ptax_amount = _CTC_RULES["ptax"]["female"]["slab_25000_or_more"]
-        else:
-            ptax_amount = 0.0
+    # PTAX (Maharashtra — monthly gross salary)
+    ptax_amount = maharashtra_professional_tax(gross, gender, month)
 
     # ESIC
     esic_employee_amount = 0.0
@@ -424,7 +406,6 @@ def _ctc_calculate(
 
     deductions = epf_amount + ptax_amount + esic_employee_amount
     net = gross - deductions
-    mediclaim = max(0.0, float(mediclaim_yearly or 0))
     employer_costs = employer_costs_summary(basic, gross, mediclaim)
     annual_ctc_total = annual_ctc_from_monthly(
         basic, hra_pct_val, other, mediclaim
@@ -442,6 +423,9 @@ def _ctc_calculate(
             "mediclaim_yearly": _round2(mediclaim),
         },
         "computed": {
+            "basic_pct_of_monthly_ctc": _round2(
+                basic_pct_of_monthly_ctc(basic, hra_pct_val, other, mediclaim)
+            ),
             "hra_amount": _round2(hra_amount),
             "epf_amount": _round2(epf_amount),
             "ptax_amount": _round2(ptax_amount),
@@ -509,6 +493,21 @@ def _ctc_reverse_from_annual(
         "employer_costs": solved.get("employer_costs", {}),
     }
     return result
+
+
+def _sync_annual_ctc_computed(row):
+    """Recompute and persist final annual CTC from saved salary components."""
+    basic = float(row.basic_salary or 0)
+    if basic <= 0:
+        return
+    row.annual_ctc_computed = _round2(
+        annual_ctc_from_monthly(
+            basic,
+            row.hra_pct if row.hra_pct is not None else 40,
+            row.other_allowance or 0,
+            row.mediclaim_yearly or 0,
+        )
+    )
 
 
 _EMP_ACC_STRING_FIELDS = (
@@ -1070,6 +1069,9 @@ def get_ctc_breakup(admin_id):
         }), 404
 
     row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    if row:
+        _sync_annual_ctc_computed(row)
+        db.session.commit()
     return jsonify({
         "success": True,
         "ctc_breakup": row.to_dict() if row else None
@@ -1282,6 +1284,8 @@ def upsert_ctc_breakup():
             row.epf_mode = (data.get("epf_mode") or "").strip() or None
         if "ptax_month" in data:
             row.ptax_month = (data.get("ptax_month") or "").strip() or None
+
+        _sync_annual_ctc_computed(row)
 
         row.updated_at = datetime.now()
         db.session.commit()

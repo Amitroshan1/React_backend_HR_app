@@ -193,6 +193,9 @@ export const Account = ()  => {
   const [ctcHistory, setCtcHistory] = useState([]);
   const [ctcHistoryLoading, setCtcHistoryLoading] = useState(false);
   const [ctcHistoryError, setCtcHistoryError] = useState('');
+  const [viewPayslipCtc, setViewPayslipCtc] = useState(null);
+  const [viewPayslipCtcLoading, setViewPayslipCtcLoading] = useState(false);
+  const [viewPayslipCtcError, setViewPayslipCtcError] = useState('');
   const ctcApplyingReverseRef = useRef(false);
   const ctcWantsReverseRef = useRef(false);
 
@@ -941,7 +944,7 @@ export const Account = ()  => {
         employer_esic_yearly: Number(c.employer_esic_yearly || 0),
         employer_esic_monthly: Number(c.employer_esic_monthly || 0),
         mediclaim_yearly: Number(c.mediclaim_yearly || 0),
-        annual_ctc_total: Number(c.annual_ctc || c.annual_ctc_computed || 0),
+        annual_ctc_total: Number(c.annual_ctc_computed || c.annual_ctc || 0),
       });
     } catch (error) {
       console.error('CTC breakup load error:', error);
@@ -961,6 +964,33 @@ export const Account = ()  => {
       setCtcEpfPct('');
     } finally {
       setCtcLoading(false);
+    }
+  };
+
+  const loadViewPayslipCtc = async (adminId) => {
+    const token = localStorage.getItem('token');
+    if (!token || !adminId) {
+      setViewPayslipCtc(null);
+      return;
+    }
+    try {
+      setViewPayslipCtcLoading(true);
+      setViewPayslipCtcError('');
+      const response = await fetch(`${API_BASE_URL}/ctc-breakup/${adminId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load CTC breakup');
+      }
+      setViewPayslipCtc(result.ctc_breakup || null);
+    } catch (error) {
+      console.error('View payslip CTC load error:', error);
+      setViewPayslipCtc(null);
+      setViewPayslipCtcError(error.message || 'Unable to load CTC breakup');
+    } finally {
+      setViewPayslipCtcLoading(false);
     }
   };
 
@@ -1038,7 +1068,7 @@ export const Account = ()  => {
     loadCtcHistory(emp.adminId);
   };
 
-  const applyCtcComputed = (computed, derived = {}, { lockAnnual = false } = {}) => {
+  const applyCtcComputed = (computed, derived = {}) => {
     setCtcComputed({
       hra_amount: Number(computed.hra_amount || 0),
       epf_amount: Number(computed.epf_amount || 0),
@@ -1058,9 +1088,7 @@ export const Account = ()  => {
         derived.mediclaim_yearly ?? computed.mediclaim_yearly ?? computed?.inputs?.mediclaim_yearly ?? 0,
       ),
       annual_ctc_total: Number(
-        lockAnnual
-          ? (derived.annual_ctc ?? derived.annual_ctc_computed ?? computed.annual_ctc_total) || 0
-          : computed.annual_ctc_total || 0,
+        derived.annual_ctc_computed ?? computed.annual_ctc_total ?? derived.annual_ctc ?? 0,
       ),
     });
     // Only overwrite Basic when reverse-calculating from Annual CTC — not while user edits Basic.
@@ -1083,8 +1111,7 @@ export const Account = ()  => {
 
     const annual = Number(ctcAnnual || 0);
     const basic = Number(ctcForm.basic_salary || 0);
-    // Reverse only when user edits Annual CTC input. HRA / other / mediclaim use forward
-    // calc so Basic stays fixed and Annual CTC (total) changes with HRA % (5–50).
+    // Reverse only when user edits Annual CTC. Mediclaim uses forward calc (adds to total, keeps salary).
     const useReverse = ctcWantsReverseRef.current && annual > 0;
 
     if (!useReverse && (!basic || basic <= 0)) {
@@ -1140,7 +1167,7 @@ export const Account = ()  => {
         if (useReverse) {
           ctcApplyingReverseRef.current = true;
           ctcWantsReverseRef.current = false;
-          applyCtcComputed(computed, derived, { lockAnnual: true });
+          applyCtcComputed(computed, derived);
           if (derived.hra_pct != null) {
             setCtcHraPct(String(derived.hra_pct));
           }
@@ -1148,7 +1175,7 @@ export const Account = ()  => {
             ctcApplyingReverseRef.current = false;
           });
         } else {
-          applyCtcComputed(computed, {}, { lockAnnual: false });
+          applyCtcComputed(computed, {});
         }
       } catch (e) {
         if (cancelled) return;
@@ -1247,6 +1274,12 @@ export const Account = ()  => {
     return () => {
       cancelled = true;
     };
+  }, [currentView, selectedEmployee?.adminId]);
+
+  useEffect(() => {
+    if (currentView !== 'viewPayslip' || !selectedEmployee?.adminId) return;
+    if (!hasFeature('account_ctc_breakup')) return;
+    loadViewPayslipCtc(selectedEmployee.adminId);
   }, [currentView, selectedEmployee?.adminId]);
 
   useEffect(() => {
@@ -2349,6 +2382,162 @@ export const Account = ()  => {
     </div>
   );
 
+  const formatPtaxMonthLabel = (ptaxMonth) => {
+    if (!ptaxMonth) return '—';
+    const s = String(ptaxMonth).trim();
+    if (/^\d{4}-\d{2}$/.test(s)) {
+      const [y, m] = s.split('-');
+      const d = new Date(Number(y), Number(m) - 1, 1);
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+      }
+    }
+    return s;
+  };
+
+  const renderViewPayslipCtcCard = () => {
+    if (!hasFeature('account_ctc_breakup')) return null;
+
+    const c = viewPayslipCtc;
+    const annualTotal = Number(c?.annual_ctc_computed ?? c?.annual_ctc ?? 0);
+    const hasData = c && (annualTotal > 0 || Number(c.basic_salary || 0) > 0);
+
+    const earningsRows = [
+      { label: 'Basic + DA', value: c?.basic_salary, monthly: true },
+      {
+        label: c?.hra_pct != null ? `HRA (${Number(c.hra_pct)}%)` : 'HRA',
+        value: c?.hra,
+        monthly: true,
+      },
+      { label: 'Other Allowance', value: c?.other_allowance, monthly: true },
+      { label: 'Gross Salary', value: c?.gross_salary, monthly: true, tone: 'accent' },
+      { label: 'Net Salary', value: c?.net_salary, monthly: true, tone: 'green' },
+    ];
+
+    const deductionRows = [
+      { label: 'EPF (Employee)', value: c?.epf, monthly: true },
+      { label: 'ESIC (Employee)', value: c?.esic, monthly: true },
+      { label: 'Professional Tax', value: c?.ptax, monthly: true },
+      { label: 'Total Deductions', value: c?.deductions_total, monthly: true, tone: 'red' },
+    ];
+
+    const annualRows = [
+      { label: 'Gratuity', value: c?.gratuity_yearly },
+      { label: 'Employer PF', value: c?.employer_pf_yearly },
+      { label: 'Employer ESIC', value: c?.employer_esic_yearly },
+      { label: 'Mediclaim', value: c?.mediclaim_yearly },
+    ];
+
+    return (
+      <div className="table-container-card view-payslip-ctc-card">
+        <div className="view-payslip-ctc-header">
+          <div>
+            <h3 className="section-title view-payslip-ctc-title">
+              <Calculator size={20} className="view-payslip-ctc-title-icon" />
+              CTC Breakup
+            </h3>
+            <p className="view-payslip-ctc-subtitle">
+              Saved salary structure for {selectedEmployee?.name || 'employee'}
+            </p>
+          </div>
+          {selectedEmployee && (
+            <button
+              type="button"
+              className="btn-outline-sm view-payslip-ctc-edit-btn"
+              onClick={() => handleOpenCtcBreakup(selectedEmployee)}
+            >
+              Edit CTC
+            </button>
+          )}
+        </div>
+
+        {viewPayslipCtcLoading && (
+          <p className="view-payslip-ctc-loading">Loading CTC breakup...</p>
+        )}
+        {viewPayslipCtcError && !viewPayslipCtcLoading && (
+          <div className="q-error view-payslip-ctc-error">{viewPayslipCtcError}</div>
+        )}
+        {!viewPayslipCtcLoading && !viewPayslipCtcError && !hasData && (
+          <div className="view-payslip-ctc-empty">
+            <p>No CTC breakup saved yet for this employee.</p>
+            {selectedEmployee && (
+              <button
+                type="button"
+                className="btn-primary-sm"
+                onClick={() => handleOpenCtcBreakup(selectedEmployee)}
+              >
+                Create CTC Breakup
+              </button>
+            )}
+          </div>
+        )}
+
+        {!viewPayslipCtcLoading && hasData && (
+          <div className="view-payslip-ctc-body">
+            <div className="view-payslip-ctc-hero">
+              <span className="view-payslip-ctc-hero-label">Annual CTC (Total)</span>
+              <span className="view-payslip-ctc-hero-value">{formatCurrency(annualTotal)}</span>
+              {c?.updated_at && (
+                <span className="view-payslip-ctc-hero-meta">
+                  Last updated {formatDateTime(c.updated_at)}
+                </span>
+              )}
+            </div>
+
+            <div className="view-payslip-ctc-grid">
+              <section className="view-payslip-ctc-panel view-payslip-ctc-panel--earnings">
+                <h4 className="view-payslip-ctc-panel-title">Monthly Earnings</h4>
+                <ul className="view-payslip-ctc-rows">
+                  {earningsRows.map((row) => (
+                    <li
+                      key={row.label}
+                      className={`view-payslip-ctc-row${row.tone ? ` view-payslip-ctc-row--${row.tone}` : ''}`}
+                    >
+                      <span>{row.label}</span>
+                      <span>{formatCurrency(row.value)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="view-payslip-ctc-panel view-payslip-ctc-panel--deductions">
+                <h4 className="view-payslip-ctc-panel-title">Monthly Deductions</h4>
+                <ul className="view-payslip-ctc-rows">
+                  {deductionRows.map((row) => (
+                    <li
+                      key={row.label}
+                      className={`view-payslip-ctc-row${row.tone ? ` view-payslip-ctc-row--${row.tone}` : ''}`}
+                    >
+                      <span>{row.label}</span>
+                      <span>{formatCurrency(row.value)}</span>
+                    </li>
+                  ))}
+                </ul>
+                {c?.ptax_month && (
+                  <p className="view-payslip-ctc-footnote">
+                    P.Tax slab month: {formatPtaxMonthLabel(c.ptax_month)}
+                  </p>
+                )}
+              </section>
+            </div>
+
+            <section className="view-payslip-ctc-panel view-payslip-ctc-panel--annual">
+              <h4 className="view-payslip-ctc-panel-title">Annual Employer Cost &amp; Benefits</h4>
+              <div className="view-payslip-ctc-annual-grid">
+                {annualRows.map((row) => (
+                  <div key={row.label} className="view-payslip-ctc-stat">
+                    <span className="view-payslip-ctc-stat-label">{row.label}</span>
+                    <span className="view-payslip-ctc-stat-value">{formatCurrency(row.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderCtcBreakup = () => {
     return (
       <div className="form16-page-stack fade-in">
@@ -2370,6 +2559,9 @@ export const Account = ()  => {
                 <div className="input-group">
                   <label>Month (for P.Tax)</label>
                   <input className="custom-select" type="month" value={ctcMonth} onChange={(e) => setCtcMonth(e.target.value)} />
+                  <div className="ctc-field-hint">
+                    Maharashtra P.Tax on monthly gross by gender. February uses ₹300 when applicable.
+                  </div>
                 </div>
               <div className="input-group">
                 <label>Employee ID (Emp_ID)</label>
@@ -2391,8 +2583,8 @@ export const Account = ()  => {
                   }}
                 />
                 <div className="ctc-field-hint">
-                  Optional target — enter once to derive Basic (min ₹12,500). You can then edit Basic
-                  or HRA %; Annual CTC (total) in the table below updates accordingly.
+                  Optional target — enter once to derive Basic + DA (40–50% of monthly CTC). You can
+                  then edit Basic or HRA %; Annual CTC (total) in the table below updates accordingly.
                 </div>
               </div>
               <div className="input-group">
@@ -2411,7 +2603,7 @@ export const Account = ()  => {
                   }}
                 />
                 <div className="ctc-field-hint">
-                  Enter manually if applicable. Included inside Annual CTC (not extra).
+                  Added to Annual CTC (total) below. Does not change Basic, HRA, or other salary parts.
                 </div>
               </div>
               <div className="input-group">
@@ -2430,7 +2622,7 @@ export const Account = ()  => {
                   }}
                 />
                 <div className="ctc-field-hint">
-                  Editable. Minimum max(40% of gross, ₹12,500/month); you may enter higher (e.g. ₹13,000).
+                  Editable. Basic + DA is kept between 40% and 50% of monthly CTC (auto-adjusted on calculate).
                 </div>
               </div>
               <div className="input-group">
@@ -3521,8 +3713,9 @@ export const Account = ()  => {
       {currentView === 'addForm16' && renderAddForm16()}
       {currentView === 'ctcBreakup' && renderCtcBreakup()}
       {currentView === 'viewPayslip' && (
-         <div className="fade-in">
+         <div className="fade-in view-payslip-stack">
             <button className="btn-back" onClick={() => setCurrentView('employees')}><ArrowLeft size={18}/> Back</button>
+            {renderViewPayslipCtcCard()}
             <div className="table-container-card accounts-profile-card">
               <div className="card-header-row accounts-profile-header">
                 <div>
