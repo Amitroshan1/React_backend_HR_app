@@ -18,6 +18,9 @@ import { GiReceiveMoney } from "react-icons/gi";
 import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
 import { hasFeature } from "../../utils/planFeatures";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { formatDateDDMMYYYY } from "../../utils/dateFormat";
+const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 const API_BASE_URL = "/api/auth";
 
 async function postPunchOutRequest(token, body) {
@@ -73,15 +76,6 @@ const parsePunchInToDate = (val) => {
   }
 };
 
-const formatDate = (dateString) => {
-  if (!dateString) return "N/A";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-};
 const formatTime = (timeString) => {
   if (!timeString) return "---";
   try {
@@ -565,13 +559,13 @@ export const Dashboard = () => {
             setNewsFeed([]);
         }
     };
-    useEffect(() => {
+    useRefreshOnNavigate(() => {
         const loadInitialData = async () => {
             await fetchDashboardData();
             await fetchNewsFeed();
         };
         loadInitialData();
-    }, []);
+    });
 
   /** Duplicate items for seamless top-to-bottom loop scroll */
   const loopedNewsFeed = useMemo(() => {
@@ -887,7 +881,7 @@ export const Dashboard = () => {
         return (isNaN(pl) || isNaN(cl)) ? 'N/A' : (pl + cl);
     }, [dynamicData.leave_balance]);
     const punchInTimeDisplay = useMemo(() => formatTime(dynamicData.punch.punch_in), [dynamicData.punch.punch_in]);
-    const todaysDate = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }), []);
+    const todaysDate = useMemo(() => formatDate(new Date()), []);
     const currentStatus = useMemo(() => {
         const open = dynamicData.punch.has_open_session ?? (!!dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
         return open ? "Active" : "Inactive";

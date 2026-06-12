@@ -2,21 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { fetchDepartmentNocRequests, uploadNocDepartmentRequest } from "../api";
 import "./Requests/RequestCard.css";
 import "../../IT/ReturnRequests.css";
+import { formatDate } from "../../../utils/dateFormat";
 
 const NOC_ACCEPT = ".pdf,.doc,.docx,.png,.jpg,.jpeg";
 
-function formatShort(iso) {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
+const formatShort = (iso) => formatDate(iso);
 
 /** Newest NOC lines first: requested_at desc, then id desc. */
 function sortNocRequestsNewestFirst(rows) {

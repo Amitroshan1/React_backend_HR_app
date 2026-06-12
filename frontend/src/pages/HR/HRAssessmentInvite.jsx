@@ -5,9 +5,11 @@ import {
   getAssessmentFigureSrc,
 } from "../../utils/assessmentFigures";
 import { personalEmailValidationError } from "../../utils/emailDomain";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import SessionRecordingPlayer from "./SessionRecordingPlayer";
 import "./HRAssessmentInvite.css";
 import "./LeaveApplicationUpdation.css";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 const HR_API_BASE = "/api/HumanResource";
 
@@ -211,10 +213,9 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchRows();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
 
   // Auto-refresh selected submission while media upload metadata is still catching up.
   useEffect(() => {
@@ -719,7 +720,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
             </p>
             <p style={{ margin: "8px 0 0" }}>
               Status: {selected.status} | Submitted:{" "}
-              {selected.submitted_at ? new Date(selected.submitted_at).toLocaleString() : "-"}
+              {formatDateTimeDDMMYYYY(selected.submitted_at, "-")}
             </p>
           </div>
           <div style={{ flex: "0 0 auto", textAlign: "right", alignSelf: "flex-start" }}>
@@ -1014,7 +1015,7 @@ export function HRAssessmentInvite({ onBack, empTypeOptions = [] }) {
                 <td>{r.department}</td>
                 <td>{renderStatusBadge(r.status)}</td>
                 <td style={{ minWidth: 140 }}><IntegrityListBadges summary={r.integrity_summary} /></td>
-                <td>{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-"}</td>
+                <td>{formatDateTimeDDMMYYYY(r.submitted_at, "-")}</td>
                 <td>{r.total_score ?? "-"}</td>
                 <td>{r.avg_score ?? "-"}</td>
                 <td>

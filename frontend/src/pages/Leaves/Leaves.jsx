@@ -1,8 +1,10 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { FiSun, FiStar, FiRefreshCw, FiPlus } from 'react-icons/fi';
 import { ApplyLeaveModal } from './ApplyLeaveModal';
 import './Leaves.css';
 import { useUser } from '../../components/layout/UserContext';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDate } from '../../utils/dateFormat';
 
 const API_BASE_URL = "/api/leave";
 
@@ -116,10 +118,27 @@ export const Leaves= () => {
         }
     };
 
-    // Fetch leave requests on component mount
-    useEffect(() => {
+    useRefreshOnNavigate(() => {
         fetchLeaveRequests();
-    }, []);
+    });
+
+    useEffect(() => {
+        const onLeaveDataChanged = () => {
+            fetchLeaveRequests();
+            refreshUserData();
+        };
+        window.addEventListener('leaveApplied', onLeaveDataChanged);
+        window.addEventListener('leaveDataUpdated', onLeaveDataChanged);
+        return () => {
+            window.removeEventListener('leaveApplied', onLeaveDataChanged);
+            window.removeEventListener('leaveDataUpdated', onLeaveDataChanged);
+        };
+    }, [refreshUserData]);
+
+    const handleOpenApplyModal = useCallback(async () => {
+        await Promise.all([fetchLeaveRequests(), refreshUserData()]);
+        setIsModalOpen(true);
+    }, [refreshUserData]);
 
     const handleLeaveSubmit = async (requestData) => {
         const token = localStorage.getItem('token');
@@ -203,7 +222,7 @@ export const Leaves= () => {
             <div className="leave-requests-card">
                 <div className="requests-header-row">
                     <h2 className="section-title-leave">Leave Requests</h2>
-                    <button className="apply-leave-button" onClick={() => setIsModalOpen(true)}>
+                    <button className="apply-leave-button" onClick={handleOpenApplyModal}>
                         <FiPlus /> Apply Leave
                     </button>
                 </div>
@@ -231,8 +250,8 @@ export const Leaves= () => {
                                 {requests.map((request) => (
                                     <tr key={request.id}>
                                         <td>{request.type}</td>
-                                        <td>{request.from}</td>
-                                        <td>{request.to}</td>
+                                        <td>{formatDate(request.from)}</td>
+                                        <td>{formatDate(request.to)}</td>
                                         <td className="days-col paid-days-col">{formatLeaveDays(request.paidDays)}</td>
                                         <td className="days-col unpaid-days-col">{formatLeaveDays(request.unpaidDays)}</td>
                                         <td className="reason-col" title={request.reason}>

@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
 import "./HolidayCalendar.css";
+import { formatDate } from "../../utils/dateFormat";
 
 const API_BASE = "/api/HumanResource";
 
@@ -64,7 +66,7 @@ export const HolidayCalendar = ({ onBack }) => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchHolidays(year);
   }, [year]);
 
@@ -319,7 +321,7 @@ export const HolidayCalendar = ({ onBack }) => {
                         />
                       ) : (
                         <span className="holiday-date-display">
-                          {row.display_date || row.holiday_date || "-"}
+                          {formatDate(row.holiday_date) || "-"}
                         </span>
                       )}
                     </td>

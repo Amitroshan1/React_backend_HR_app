@@ -266,6 +266,7 @@ import { MdOutlineWatchLater } from 'react-icons/md';
 import { FiArrowRight, FiDownload, FiChevronDown, FiCalendar, FiRefreshCw } from 'react-icons/fi';
 
 import './Attendance.css';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 
 const API_BASE_URL = "/api/leave";
 
@@ -539,9 +540,9 @@ export const Attendance = () => {
     }
   }, [monthNum, yearNum]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchAttendance();
-  }, [fetchAttendance]);
+  }, [monthNum, yearNum]);
 
     const handleDownloadExcel = async () => {
         const token = localStorage.getItem('token');

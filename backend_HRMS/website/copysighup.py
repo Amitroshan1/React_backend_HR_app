@@ -2,6 +2,7 @@ from website import create_app, db
 from .models.signup import Signup
 from website.models.Admin_models import Admin
 from datetime import datetime
+from website.datetime_utils import utc_now
 
 def migrate_signup_to_admin():
     app = create_app()
@@ -71,7 +72,7 @@ def migrate_signup_to_admin():
                     emp_type=getattr(s, "emp_type", None),
                     circle=getattr(s, "circle", None),
                     is_active=True,
-                    created_at=datetime.utcnow()
+                    created_at=utc_now()
                 )
                 db.session.add(admin)
                 created += 1

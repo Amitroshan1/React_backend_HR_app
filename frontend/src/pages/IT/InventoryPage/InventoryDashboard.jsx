@@ -50,6 +50,7 @@ import {
   isUnitDeployRow,
 } from "../inventoryCategories";
 import { OfficeIssueModal, OfficeReturnModal } from "./OfficeStockModals";
+import { formatDate } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -73,12 +74,6 @@ const EDIT_OPTIONS = [
 ];
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
-
-const formatDate = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-};
 
 const isSoftware = (item) =>
   (item?.category ?? "").trim().toLowerCase() === "software";
@@ -604,12 +599,55 @@ function UnitPickerModal({ row, onAction, onCancel }) {
 
 // ─── ViewActionGroup ──────────────────────────────────────────────────────────
 
-function ViewActionGroup({ row, onViewAsset }) {
+function ViewActionGroup({
+  row,
+  onViewAsset,
+  inventoryCategory,
+  inventoryDeploy = false,
+  onOfficeIssue,
+  onOfficeReturn,
+}) {
+  const deployConfig = inventoryCategory ? getDeployModalConfig(inventoryCategory) : null;
+  const deployable =
+    inventoryDeploy && rowSupportsInventoryDeploy(row, inventoryCategory);
+  const canIssue = deployable && Number(row.available) > 0;
+  const canReturn = deployable && Number(row.assigned) > 0;
+
   return (
     <div className="inv-action-group">
       <button type="button" className="inv-action-btn" onClick={() => onViewAsset(row)}>
         View
       </button>
+      {inventoryDeploy && deployable && (
+        <>
+          <button
+            type="button"
+            className="inv-action-btn inv-action-btn--issue"
+            disabled={!canIssue}
+            title={
+              canIssue
+                ? deployConfig?.deployTitle || "Deploy to location"
+                : deployConfig?.deployDisabledTitle || "Nothing available to deploy"
+            }
+            onClick={() => onOfficeIssue?.(row)}
+          >
+            {deployConfig?.deployLabel || "Deploy"}
+          </button>
+          <button
+            type="button"
+            className="inv-action-btn inv-action-btn--return"
+            disabled={!canReturn}
+            title={
+              canReturn
+                ? deployConfig?.returnTitle || "Return to available"
+                : deployConfig?.returnDisabledTitle || "Nothing currently in use"
+            }
+            onClick={() => onOfficeReturn?.(row)}
+          >
+            {deployConfig?.returnLabel || "Return"}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -792,6 +830,11 @@ function AssetDetailModal({
     invCat === "Infrastructure Assets" &&
     String(asset.category || "").toLowerCase() === "equipment";
   const brandModel = unit ? getUnitBrandModelDisplay(unit, invCat) : { primary: "—", secondary: "" };
+  const deployConfig = invCat ? getDeployModalConfig(invCat) : null;
+  const showDeployActions =
+    inventoryDeploy &&
+    rowSupportsInventoryDeploy(asset, invCat) &&
+    (stockMode || isUnitDeployRow(asset, invCat));
 
   const detailFields = isInfraEquipment
     ? [
@@ -1021,6 +1064,44 @@ function AssetDetailModal({
 
           <div className="inv-detail-footer">
             <div className="inv-detail-footer-actions">
+              {showDeployActions && (
+                <>
+                  <button
+                    type="button"
+                    className="inv-inline-action-btn"
+                    style={{
+                      color: "#1d4ed8",
+                      background: "#eff6ff",
+                      borderColor: "#3b82f6",
+                    }}
+                    disabled={Number(asset?.available) < 1}
+                    title={deployConfig?.deployTitle}
+                    onClick={() => {
+                      onOfficeIssue?.(asset);
+                      onClose();
+                    }}
+                  >
+                    {deployConfig?.deployLabel || "Deploy"}
+                  </button>
+                  <button
+                    type="button"
+                    className="inv-inline-action-btn"
+                    style={{
+                      color: "#047857",
+                      background: "#ecfdf5",
+                      borderColor: "#10b981",
+                    }}
+                    disabled={Number(asset?.assigned) < 1}
+                    title={deployConfig?.returnTitle}
+                    onClick={() => {
+                      onOfficeReturn?.(asset);
+                      onClose();
+                    }}
+                  >
+                    {deployConfig?.returnLabel || "Return"}
+                  </button>
+                </>
+              )}
               {EDIT_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
@@ -1519,7 +1600,14 @@ function AssetTable({
                 {showAvailable && <td className="td-available">{row.available}</td>}
                 {showAssigned  && <td className="td-assigned">{row.assigned}</td>}
                 <td>
-                  <ViewActionGroup row={row} onViewAsset={onViewAsset} />
+                  <ViewActionGroup
+                    row={row}
+                    onViewAsset={onViewAsset}
+                    inventoryCategory={inventoryCategory}
+                    inventoryDeploy={inventoryDeploy}
+                    onOfficeIssue={onOfficeIssue}
+                    onOfficeReturn={onOfficeReturn}
+                  />
                 </td>
               </tr>
             ))

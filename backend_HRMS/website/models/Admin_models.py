@@ -2,6 +2,7 @@ from .. import db
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from ..datetime_utils import utc_now
 from sqlalchemy import text
 from website.models.family_models import FamilyDetails
 from website.models.emp_detail_models import Employee,Asset
@@ -165,7 +166,7 @@ class AuditLog(db.Model):
     action = db.Column(db.String(100))
     performed_by = db.Column(db.String(120))   # HR email
     target_email = db.Column(db.String(120))   # Employee email
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 
 class EmployeeExitHistory(db.Model):
@@ -177,6 +178,6 @@ class EmployeeExitHistory(db.Model):
     exit_type = db.Column(db.String(30), nullable=True)
     exit_reason = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.String(120), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     admin = db.relationship("Admin", backref=db.backref("exit_history", lazy="dynamic"))

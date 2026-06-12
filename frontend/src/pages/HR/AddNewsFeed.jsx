@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft } from 'lucide-react';
 import './AddNewsFeed.css';
+import { formatDate } from '../../utils/dateFormat';
 
 const API_BASE = '/api/HumanResource';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -94,9 +96,9 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchHistory();
-  }, []);
+  });
 
   const handleDeletePost = async (id) => {
     const token = localStorage.getItem('token');
@@ -297,7 +299,7 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
                         <td>{item.title}</td>
                         <td>{item.circle || 'All'}</td>
                         <td>{item.emp_type || 'All'}</td>
-                        <td>{item.created_at ? item.created_at.split('T')[0] : '-'}</td>
+                        <td>{formatDate(item.created_at, '-')}</td>
                         <td>
                           {(item.file_url || item.file_path) ? (
                             <a

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
+from .datetime_utils import utc_now, isoformat_api
 from flask_jwt_extended import get_jwt, jwt_required
 from sqlalchemy import func
 
@@ -73,13 +74,13 @@ def _serialize_performance(row):
         "challenges": row.challenges,
         "goals_next_month": row.goals_next_month,
         "suggestion_improvement": row.suggestion_improvement,
-        "submitted_at": row.submitted_at.isoformat() if row.submitted_at else None,
+        "submitted_at": isoformat_api(row.submitted_at),
         "status": row.status,
         "review": {
             "manager_id": review.manager_id if review else None,
             "rating": review.rating if review else None,
             "comments": review.comments if review else None,
-            "reviewed_at": review.reviewed_at.isoformat() if review and review.reviewed_at else None,
+            "reviewed_at": isoformat_api(review.reviewed_at) if review else None,
         }
         if review
         else None,
@@ -119,7 +120,7 @@ def upsert_self_performance():
             goals_next_month=goals_next_month,
             suggestion_improvement=suggestion_improvement,
             status="Submitted",
-            submitted_at=datetime.utcnow(),
+            submitted_at=utc_now(),
         )
         db.session.add(row)
     else:
@@ -128,7 +129,7 @@ def upsert_self_performance():
         row.goals_next_month = goals_next_month
         row.suggestion_improvement = suggestion_improvement
         row.status = "Submitted"
-        row.submitted_at = datetime.utcnow()
+        row.submitted_at = utc_now()
 
     db.session.commit()
 
@@ -205,7 +206,7 @@ def manager_review(performance_id):
     if row.review:
         row.review.rating = rating
         row.review.comments = comments or None
-        row.review.reviewed_at = datetime.utcnow()
+        row.review.reviewed_at = utc_now()
     else:
         db.session.add(
             ManagerReview(
@@ -213,7 +214,7 @@ def manager_review(performance_id):
                 manager_id=manager_admin.id,
                 rating=rating,
                 comments=comments or None,
-                reviewed_at=datetime.utcnow(),
+                reviewed_at=utc_now(),
             )
         )
     row.status = "Reviewed"
@@ -284,7 +285,7 @@ def manager_summary():
     if month:
         q = q.filter(EmployeePerformance.month == month)
 
-    now = datetime.utcnow()
+    now = utc_now()
     total = reviewed = overdue = 0
     for row in q.all():
         if not row.admin or not _is_manager_for_target(manager_admin, row.admin):

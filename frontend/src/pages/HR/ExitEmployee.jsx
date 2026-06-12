@@ -1,19 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { ArrowLeft, Archive, Search, AlertCircle } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './ExitEmployee.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
-const formatDateDMY = (iso) => {
-  if (!iso) return '-';
-  const s = String(iso).slice(0, 10); // YYYY-MM-DD
-  const parts = s.split('-');
-  if (parts.length !== 3) return s;
-  const [y, m, d] = parts;
-  if (!y || !m || !d) return s;
-  return `${d}-${m}-${y}`;
-};
+const formatDateDMY = (iso) => formatDateDDMMYYYY(iso, '-');
 
 const ExitEmployee = ({onBack}) => {
   const navigate = useNavigate();
@@ -103,8 +97,11 @@ const ExitEmployee = ({onBack}) => {
     }
   }, [getAuthHeaders]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadActiveEmployees();
+  });
+
+  useEffect(() => {
     window.addEventListener('employeeRejoined', loadActiveEmployees);
     return () => window.removeEventListener('employeeRejoined', loadActiveEmployees);
   }, [loadActiveEmployees]);

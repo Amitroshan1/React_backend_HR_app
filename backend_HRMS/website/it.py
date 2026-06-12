@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request, send_file
+from .datetime_utils import utc_now, isoformat_api
 from flask_jwt_extended import get_jwt_identity, jwt_required, get_jwt
 
 from . import db
@@ -55,7 +56,7 @@ def _err(message="Bad request", code=400):
 
 
 def _iso(dt):
-    return dt.isoformat() if dt else None
+    return isoformat_api(dt)
 
 
 def _parse_dt(value):
@@ -785,7 +786,7 @@ def update_unit_status(unit_id):
 
     unit.status = status
     if status == "repair" and not unit.repair_date:
-        unit.repair_date = datetime.utcnow()
+        unit.repair_date = utc_now()
     if status == "available":
         unit.repair_date = None
     _recalc_inventory_counts(unit.inventory_item_id)
@@ -849,7 +850,7 @@ def assign_unit():
 
     unit.status = "assigned"
     unit.assigned_to_admin_id = target_admin.id
-    unit.assigned_at = _parse_dt(data.get("assigned_at")) or datetime.utcnow()
+    unit.assigned_at = _parse_dt(data.get("assigned_at")) or utc_now()
     unit.asset_tag = (data.get("asset_tag") or unit.asset_tag)
     unit.assignment_photos_json = data.get("assignment_photos") or unit.assignment_photos_json or []
 
@@ -913,7 +914,7 @@ def return_unit(unit_id):
     unit.assigned_to_admin_id = None
     unit.assigned_at = None
     if new_status == "repair":
-        unit.repair_date = datetime.utcnow()
+        unit.repair_date = utc_now()
     elif new_status == "available":
         unit.repair_date = None
 
@@ -923,8 +924,8 @@ def return_unit(unit_id):
         assigned_by_admin_id=actor.id if actor else None,
         asset_unit_id=unit.id,
         notes=data.get("notes"),
-        assigned_at=datetime.utcnow(),
-        unassigned_at=datetime.utcnow(),
+        assigned_at=utc_now(),
+        unassigned_at=utc_now(),
     )
     db.session.add(assignment)
     _recalc_inventory_counts(unit.inventory_item_id)
@@ -1004,7 +1005,7 @@ def assign_software():
 
     lic.status = "assigned"
     lic.assigned_to_admin_id = target_admin.id
-    lic.assigned_at = datetime.utcnow()
+    lic.assigned_at = utc_now()
 
     assignment = ITAssetAssignment(
         assignment_type="assign",
@@ -1069,7 +1070,7 @@ def return_software(license_id):
         assigned_by_admin_id=actor.id if actor else None,
         software_license_id=lic.id,
         notes=data.get("notes"),
-        unassigned_at=datetime.utcnow(),
+        unassigned_at=utc_now(),
     )
     db.session.add(assignment)
     _recalc_inventory_counts(lic.inventory_item_id)
@@ -1209,7 +1210,7 @@ def approve_return_request(request_id):
         return _err("Only pending requests can be approved")
     row.status = "approved"
     row.approved_by_admin_id = actor.id if actor else None
-    row.approved_at = datetime.utcnow()
+    row.approved_at = utc_now()
     db.session.commit()
     if row.requester_admin:
         send_it_return_request_status_email(
@@ -1236,7 +1237,7 @@ def reject_return_request(request_id):
         return _err("rejection_reason is required")
     row.status = "rejected"
     row.approved_by_admin_id = actor.id if actor else None
-    row.approved_at = datetime.utcnow()
+    row.approved_at = utc_now()
     row.rejection_reason = rejection_reason
     db.session.commit()
     if row.requester_admin:
@@ -1293,8 +1294,8 @@ def complete_return_request(request_id):
                 assigned_by_admin_id=actor.id if actor else None,
                 asset_unit_id=unit.id,
                 notes=f"Return request completed ({row.request_code})",
-                assigned_at=datetime.utcnow(),
-                unassigned_at=datetime.utcnow(),
+                assigned_at=utc_now(),
+                unassigned_at=utc_now(),
             )
             db.session.add(assignment)
             _recalc_inventory_counts(unit.inventory_item_id)
@@ -1326,7 +1327,7 @@ def complete_return_request(request_id):
                 assigned_by_admin_id=actor.id if actor else None,
                 software_license_id=lic.id,
                 notes=f"Return request completed ({row.request_code})",
-                unassigned_at=datetime.utcnow(),
+                unassigned_at=utc_now(),
             )
             db.session.add(assignment)
             _recalc_inventory_counts(lic.inventory_item_id)
@@ -1362,7 +1363,7 @@ def complete_return_request(request_id):
 
     row.status = "completed"
     row.receipt_confirmed_by_admin_id = actor.id if actor else None
-    row.receipt_confirmed_at = datetime.utcnow()
+    row.receipt_confirmed_at = utc_now()
     db.session.commit()
     if row.requester_admin:
         send_it_return_request_status_email(
@@ -1763,7 +1764,7 @@ def resolve_ticket(ticket_id):
     if not t:
         return _err("Ticket not found", 404)
     t.status = "completed"
-    t.resolved_at = datetime.utcnow()
+    t.resolved_at = utc_now()
     db.session.commit()
     return _ok({"ticket": _serialize_ticket(t)}, "Ticket resolved")
 
@@ -1792,7 +1793,7 @@ def create_removed_asset():
         category=data.get("category"),
         reason=data.get("reason"),
         photos_json=data.get("photos") or [],
-        removed_at=_parse_dt(data.get("removed_at")) or datetime.utcnow(),
+        removed_at=_parse_dt(data.get("removed_at")) or utc_now(),
     )
     db.session.add(r)
     db.session.commit()
@@ -1831,7 +1832,7 @@ def create_deleted_log():
         category=data.get("category"),
         serial_number=data.get("serial_number"),
         reason=data.get("reason"),
-        deleted_at=_parse_dt(data.get("deleted_at")) or datetime.utcnow(),
+        deleted_at=_parse_dt(data.get("deleted_at")) or utc_now(),
     )
     db.session.add(d)
     db.session.commit()
@@ -1910,7 +1911,7 @@ def create_parcel_import():
         id_no=data.get("id_no") or data.get("idNo"),
         received_by_admin_id=data.get("received_by_admin_id"),
         received_by_name=received_by_name,
-        received_at=_parse_dt(data.get("received_at") or data.get("date")) or datetime.utcnow(),
+        received_at=_parse_dt(data.get("received_at") or data.get("date")) or utc_now(),
         photos_json=data.get("photos") or [],
     )
     db.session.add(row)
@@ -1973,7 +1974,7 @@ def create_parcel_export():
         id_no=data.get("id_no") or data.get("idNo"),
         exported_by_admin_id=_coerce_optional_int(data.get("exported_by_admin_id")),
         exported_by_name=exported_by_name,
-        exported_at=_parse_dt(data.get("exported_at") or data.get("date")) or datetime.utcnow(),
+        exported_at=_parse_dt(data.get("exported_at") or data.get("date")) or utc_now(),
         parcel_photos_json=data.get("photos") or [],
         inventory_category=inventory_category,
     )

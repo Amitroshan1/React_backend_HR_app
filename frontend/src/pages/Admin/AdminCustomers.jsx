@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { useNavigate } from 'react-router-dom';
 import './AdminCustomers.css';
+import { formatDate } from '../../utils/dateFormat';
 
 const API_ACCESS = '/api/admin/deployment-guide/access';
 const API_CUSTOMERS = '/api/admin/customers';
@@ -65,9 +67,9 @@ export default function AdminCustomers() {
     }
   }, [navigate]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadCustomers();
-  }, [loadCustomers]);
+  });
 
   const openAdd = () => {
     setAddForm({
@@ -243,7 +245,7 @@ export default function AdminCustomers() {
                     )}
                   </td>
                   <td>{c.database_name || '—'}</td>
-                  <td>{c.go_live_date || '—'}</td>
+                  <td>{formatDate(c.go_live_date)}</td>
                   <td>
                     <span className={`cust-status cust-status--${c.status}`}>
                       {c.status}

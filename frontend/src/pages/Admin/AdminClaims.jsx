@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './AdminList.css';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDate } from '../../utils/dateFormat';
 
 const API = '/api/admin/claims';
 
@@ -10,12 +12,13 @@ const AdminClaims = () => {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('All');
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const token = localStorage.getItem('token');
     if (!token) {
       setLoading(false);
       return;
     }
+    setLoading(true);
     const params = status && status !== 'All' ? `?status=${encodeURIComponent(status)}` : '';
     fetch(`${API}${params}`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => res.json().catch(() => ({})))
@@ -71,8 +74,8 @@ const AdminClaims = () => {
                   <td>{r.emp_id || '—'}</td>
                   <td>{r.circle || '—'}</td>
                   <td>{r.project_name || '—'}</td>
-                  <td>{r.travel_from_date || '—'}</td>
-                  <td>{r.travel_to_date || '—'}</td>
+                  <td>{formatDate(r.travel_from_date)}</td>
+                  <td>{formatDate(r.travel_to_date)}</td>
                   <td><span className={`status-badge ${(r.status || '').toLowerCase().replace(/\s+/g, '-')}`}>{r.status || '—'}</span></td>
                 </tr>
               ))}

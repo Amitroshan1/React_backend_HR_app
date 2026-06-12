@@ -1,4 +1,5 @@
 from datetime import datetime
+from ..datetime_utils import utc_now
 from .. import db
 
 
@@ -14,7 +15,7 @@ class LeaveAccrualLog(db.Model):
     )
     event_key = db.Column(db.String(100), nullable=False)
     run_date = db.Column(db.Date, nullable=False, index=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     __table_args__ = (
         db.UniqueConstraint("admin_id", "event_key", name="uq_leave_accrual_admin_event"),

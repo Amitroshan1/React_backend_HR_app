@@ -4,6 +4,7 @@ Run daily via: flask probation-reminder [--run-date YYYY-MM-DD] [--dry-run]
 """
 import calendar
 from datetime import date, datetime, timedelta
+from ..datetime_utils import utc_now
 import click
 from sqlalchemy import func, or_
 
@@ -138,7 +139,7 @@ def run_probation_reminder(run_date):
         contact = _get_contact_for_admin(admin)
         manager_emails = get_manager_emails(contact) if contact else []
         send_probation_reminder_email(admin, end, manager_emails)
-        existing.reminder_sent_at = datetime.utcnow()
+        existing.reminder_sent_at = utc_now()
         summary["reminders_sent"] += 1
 
     return summary

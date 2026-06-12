@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './AdminList.css';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 
 const API = '/api/admin/queries';
 
@@ -13,12 +15,13 @@ const AdminQueries = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailData, setDetailData] = useState(null);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const token = localStorage.getItem('token');
     if (!token) {
       setLoading(false);
       return;
     }
+    setLoading(true);
     const params = status && status !== 'All' ? `?status=${encodeURIComponent(status)}` : '';
     fetch(`${API}${params}`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => res.json().catch(() => ({})))
@@ -127,14 +130,14 @@ const AdminQueries = () => {
                     <p><strong>Title:</strong> {detailData.query.title || '—'}</p>
                     <p><strong>Department:</strong> {detailData.query.department || '—'}</p>
                     <p><strong>Status:</strong> <span className={`status-badge ${(detailData.query.status || '').toLowerCase()}`}>{detailData.query.status || '—'}</span></p>
-                    <p><strong>Created:</strong> {detailData.query.created_at || '—'}</p>
+                    <p><strong>Created:</strong> {formatDateTimeDDMMYYYY(detailData.query.created_at)}</p>
                   </div>
                   <div className="admin-query-chat">
                     <h3>Conversation</h3>
                     {detailData.chat_messages.map((msg, idx) => (
                       <div key={idx} className={`admin-query-msg admin-query-msg-${(msg.user_type || '').toLowerCase()}`}>
                         <div className="admin-query-msg-meta">
-                          {msg.by} · {msg.user_type} · {msg.created_at || '—'}
+                          {msg.by} · {msg.user_type} · {formatDateTimeDDMMYYYY(msg.created_at)}
                         </div>
                         <div className="admin-query-msg-text">{msg.text}</div>
                       </div>

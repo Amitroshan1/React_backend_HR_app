@@ -331,7 +331,7 @@ def send_it_assignment_notification(
             <tr><td><strong>Circle</strong></td><td>{target_admin.circle or '-'}</td></tr>
             <tr><td><strong>Assigned By (IT)</strong></td><td>{actor_name}</td></tr>
             {details_html}
-            <tr><td><strong>Assigned At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+            <tr><td><strong>Assigned At</strong></td><td>{format_ist_display()} IST</td></tr>
         </table>
         <p>Regards,<br><strong>IT Team</strong></p>
         """
@@ -404,7 +404,7 @@ def send_it_return_request_email(*, requester_admin, reason, asset_label):
             <tr><td><strong>Employee Email</strong></td><td>{requester_admin.email or '-'}</td></tr>
             <tr><td><strong>Asset</strong></td><td>{asset_label or '-'}</td></tr>
             <tr><td><strong>Return Reason</strong></td><td>{reason or '-'}</td></tr>
-            <tr><td><strong>Requested At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+            <tr><td><strong>Requested At</strong></td><td>{format_ist_display()} IST</td></tr>
         </table>
         <p>Please review and approve/reject from IT Management.</p>
         """
@@ -460,6 +460,7 @@ def send_it_return_request_status_email(*, requester_admin, status, asset_label,
 
 
 from datetime import datetime, timedelta
+from .datetime_utils import format_ist_display, utc_now
 import secrets
 from flask import current_app
 
@@ -2358,7 +2359,7 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
             {_hr_change_row("Reason", old_data.get("reason"), leave_obj.reason)}
             <tr><td><strong>Paid Days Adjustment</strong></td><td>{adjustment_data.get('paid_adjustment', 0)}</td></tr>
             <tr><td><strong>LWP Adjustment</strong></td><td>{adjustment_data.get('lwp_adjustment', 0)}</td></tr>
-            <tr><td><strong>Updated At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+            <tr><td><strong>Updated At</strong></td><td>{format_ist_display()} IST</td></tr>
         </table>
         {balance_html}
         <p>If this update is unexpected, contact HR immediately.</p>
@@ -2410,7 +2411,7 @@ def send_hr_wfh_updation_email(*, wfh_obj, hr_admin, old_data=None):
                 f"{wfh_obj.start_date} to {wfh_obj.end_date}",
             )}
             {_hr_change_row("Reason", old_data.get("reason"), wfh_obj.reason)}
-            <tr><td><strong>Updated At</strong></td><td>{datetime.utcnow().strftime('%d %b %Y, %I:%M %p UTC')}</td></tr>
+            <tr><td><strong>Updated At</strong></td><td>{format_ist_display()} IST</td></tr>
         </table>
         <p>If this update is unexpected, contact HR immediately.</p>
         <p>Regards,<br><strong>HR Team</strong></p>
@@ -2561,7 +2562,7 @@ def send_password_set_email(admin):
     try:
         token = secrets.token_urlsafe(32)
         admin.password_reset_token = token
-        admin.password_reset_expiry = datetime.utcnow() + timedelta(hours=1)
+        admin.password_reset_expiry = utc_now() + timedelta(hours=1)
         db.session.commit()
 
         base_url = current_app.config.get("BASE_URL", "").rstrip("/")
@@ -2803,7 +2804,7 @@ def send_assessment_submitted_email_to_hr(*, candidate_name, candidate_email, de
             current_app.logger.warning("send_assessment_submitted_email_to_hr: ZEPTO_SENDER_EMAIL not configured")
             return False
         subject = "Assessment Submitted by Candidate"
-        submitted_on = datetime.utcnow().strftime("%d %b %Y, %I:%M %p UTC")
+        submitted_on = f"{format_ist_display()} IST"
         body = f"""
         <p>Hello HR Team,</p>
         <p>An assessment has been submitted.</p>

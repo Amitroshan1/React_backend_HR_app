@@ -1,18 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import {
   fetchManagerPerformanceQueue,
   submitManagerPerformanceReview,
 } from "./api";
 import "./ManagerPerformanceReviews.css";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 const RATING_OPTIONS = ["Excellent", "Good", "Average", "Needs Improvement"];
 
-function formatDateTime(value) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
-}
+const formatDateTime = (value) => formatDateTimeDDMMYYYY(value, "-");
 
 function thisMonth() {
   const d = new Date();
@@ -71,9 +68,9 @@ export const ManagerPerformanceReviews = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadQueue("", "All");
-  }, []);
+  });
 
   const handleApplyFilters = async () => {
     setAppliedMonth(month);

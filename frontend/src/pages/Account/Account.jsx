@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { 
   Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
@@ -10,6 +11,7 @@ import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import { fetchDepartmentNocRequests } from '../Manager/api';
 import { hasFeature } from '../../utils/planFeatures';
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
+import { formatDate as formatDateDDMMYYYY, formatDateTime as formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
 
@@ -299,7 +301,7 @@ export const Account = ()  => {
     handleOpenNocRequests,
   ]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
@@ -324,7 +326,7 @@ export const Account = ()  => {
     };
 
     loadStats();
-  }, []);
+  });
 
   useEffect(() => {
     if (!isAccountsDept || currentView !== 'main') return;
@@ -376,9 +378,9 @@ export const Account = ()  => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadPayrollSummary();
-  }, []);
+  });
 
   const handleCircleSelect = async (dept, circle, switchView = true) => {
     setSelectedDept(dept);
@@ -544,14 +546,7 @@ export const Account = ()  => {
     return 'badge-pending';
   };
 
-  const formatClaimDate = (value) => {
-    if (!value) return '-';
-    try {
-      return new Date(value).toLocaleDateString('en-IN');
-    } catch {
-      return value;
-    }
-  };
+  const formatClaimDate = (value) => formatDateDDMMYYYY(value, '-');
 
   const handleDownloadClaimExcel = async (claim) => {
     const token = localStorage.getItem('token');
@@ -773,12 +768,7 @@ export const Account = ()  => {
     }
   };
 
-  const formatDateTime = (value) => {
-    if (!value) return '-';
-    const dt = new Date(value);
-    if (Number.isNaN(dt.getTime())) return value;
-    return dt.toLocaleString();
-  };
+  const formatDateTime = (value) => formatDateTimeDDMMYYYY(value, '-');
 
   const getUploadedOnFromPath = (filePath) => {
     if (!filePath) return '-';
@@ -791,9 +781,7 @@ export const Account = ()  => {
     const hh = ts.slice(8, 10);
     const mi = ts.slice(10, 12);
     const ss = ts.slice(12, 14);
-    const dt = new Date(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`);
-    if (Number.isNaN(dt.getTime())) return '-';
-    return dt.toLocaleString();
+    return formatDateTimeDDMMYYYY(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`, '-');
   };
 
   const handleViewBankDetails = async (emp) => {
@@ -3763,7 +3751,7 @@ export const Account = ()  => {
                     .sort()
                     .slice(-1)[0];
                   return latest
-                    ? new Date(latest).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })
+                    ? formatDateTimeDDMMYYYY(latest, '-')
                     : '-';
                 })()
               : '-'}

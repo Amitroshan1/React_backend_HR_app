@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { FileText, Download, Clock } from 'lucide-react';
 import './ExEmployeeDocumentsPublic.css';
 import { AppFooter } from '../../components/layout/AppFooter';
+import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 
 const API_BASE = '/api/HumanResource';
 
@@ -131,7 +132,7 @@ export function ExEmployeeDocumentsPublic() {
             <Clock size={16} />
             <span>
               Link valid until{' '}
-              <strong>{new Date(expiresAt).toLocaleString()}</strong>
+              <strong>{formatDateTimeDDMMYYYY(expiresAt)}</strong>
             </span>
           </div>
         )}

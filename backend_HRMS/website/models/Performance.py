@@ -1,6 +1,7 @@
 from .. import db
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+from ..datetime_utils import utc_now
 
 class EmployeePerformance(db.Model):
     __tablename__ = 'employee_performance'
@@ -14,7 +15,7 @@ class EmployeePerformance(db.Model):
     challenges = db.Column(db.Text, nullable=True)
     goals_next_month = db.Column(db.Text, nullable=True)
     suggestion_improvement = db.Column(db.Text, nullable=True)
-    submitted_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     status = db.Column(db.String(20), default='Pending', nullable=False)
 
     # ✅ Proper relationship (NO backref)
@@ -42,7 +43,7 @@ class ManagerReview(db.Model):
     manager_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
     rating = db.Column(db.String(50), nullable=True)
     comments = db.Column(db.Text, nullable=True)
-    reviewed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
     performance = db.relationship('EmployeePerformance', back_populates='review')
     manager = db.relationship('Admin', backref=db.backref('manager_reviews', lazy='dynamic'))

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
@@ -10,6 +11,7 @@ import {
 } from "./Data";
 import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
 import "./ReturnRequests.css";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 const STATUS_OPTIONS = ["all", "pending", "approved", "rejected", "completed"];
 
@@ -35,9 +37,9 @@ export default function ReturnRequests() {
     }
   }, [status]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     load();
-  }, [load]);
+  }, [status]);
 
   const onApprove = async (id) => {
     try {
@@ -155,7 +157,7 @@ export default function ReturnRequests() {
                       )}
                     </td>
                     <td><span className={`rr-status ${r.status}`}>{r.status}</span></td>
-                    <td>{r.createdAt ? new Date(r.createdAt).toLocaleString("en-IN") : "—"}</td>
+                    <td>{formatDateTimeDDMMYYYY(r.createdAt)}</td>
                     <td>
                       {r.status === "pending" && (
                         <div className="rr-actions">

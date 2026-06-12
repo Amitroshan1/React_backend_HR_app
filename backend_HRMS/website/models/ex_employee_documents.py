@@ -1,6 +1,7 @@
 """Ex-employee document sharing: time-limited download links (no login)."""
 from .. import db
 from datetime import datetime
+from ..datetime_utils import utc_now
 
 
 class ExEmployeeDocShare(db.Model):
@@ -11,7 +12,7 @@ class ExEmployeeDocShare(db.Model):
     recipient_email = db.Column(db.String(255), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
     created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     files = db.relationship(
         "ExEmployeeDocFile",

@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft, Mail, Plus, Trash2, Send } from 'lucide-react';
 import { personalEmailValidationError } from '../../utils/emailDomain';
 import './ExEmployeeDocumentSharing.css';
+import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -140,9 +142,9 @@ export function ExEmployeeDocumentSharing({ onBack }) {
     }
   }, [getAuthHeaders]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadHistory();
-  }, [loadHistory]);
+  });
 
   const filteredHistoryRows = useMemo(() => {
     const q = historyQuery.trim().toLowerCase();
@@ -331,8 +333,8 @@ export function ExEmployeeDocumentSharing({ onBack }) {
                         {(!h.documents || h.documents.length === 0) && '-'}
                       </div>
                     </td>
-                    <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '-'}</td>
-                    <td>{h.expires_at ? new Date(h.expires_at).toLocaleString() : '-'}</td>
+                    <td>{formatDateTimeDDMMYYYY(h.created_at, '-')}</td>
+                    <td>{formatDateTimeDDMMYYYY(h.expires_at, '-')}</td>
                     <td>
                       <span className={`ex-doc-share__status ${h.is_expired ? 'expired' : 'active'}`}>
                         {h.is_expired ? 'Expired' : 'Active'}

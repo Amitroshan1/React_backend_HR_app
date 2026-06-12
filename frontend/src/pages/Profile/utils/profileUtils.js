@@ -348,19 +348,7 @@ export function normalizeAdminDate(value) {
     return s;
 }
 
-/**
- * Formats YYYY-MM-DD date string to MM/DD/YYYY for display.
- */
-export function formatDateForDisplay(dateString) {
-    try {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US');
-    // eslint-disable-next-line no-unused-vars
-    } catch (e) {
-        return dateString;
-    }
-}
+export { formatDateForDisplay } from '../../../utils/dateFormat';
 
 /** @deprecated Use fetchPincodeDetails from profileApi.js */
 export function simulatePincodeLookup(pincode) {

@@ -19,6 +19,7 @@ from .models.manager_model import ManagerContact
 from .manager_utils import get_manager_detail
 from werkzeug.utils import secure_filename
 from datetime import datetime
+from .datetime_utils import isoformat_api
 import json
 import os
 import uuid
@@ -330,7 +331,7 @@ def my_queries():
                 "department": q.department,
                 "query_text": q.query_text,
                 "status": q.status,
-                "created_at": eff.isoformat() if eff else None,
+                "created_at": isoformat_api(eff),
             }
         )
 
@@ -416,7 +417,7 @@ def department_queries():
             "employee": adm.email if adm else None,
             "emp_id": (adm.emp_id if adm else None) or "",
             "status": q.status,
-            "created_at": eff_created.isoformat() if eff_created else None,
+            "created_at": isoformat_api(eff_created),
         }
 
     return jsonify({
@@ -451,7 +452,7 @@ def query_details(query_id):
         {
             "text": query_obj.query_text,
             "user_type": "EMPLOYEE",
-            "created_at": query_obj.created_at,
+            "created_at": isoformat_api(query_obj.created_at),
             "by": query_obj.admin.first_name or query_obj.admin.email
         }
     ]
@@ -459,7 +460,7 @@ def query_details(query_id):
         {
             "text": r.reply_text,
             "user_type": r.user_type,
-            "created_at": r.created_at,
+            "created_at": isoformat_api(r.created_at),
             "by": r.admin.first_name or r.admin.email
         } for r in query_obj.replies
     ])
@@ -471,7 +472,7 @@ def query_details(query_id):
             "title": query_obj.title,
             "department": query_obj.department,
             "status": query_obj.status,
-            "created_at": query_obj.created_at,
+            "created_at": isoformat_api(query_obj.created_at),
             "attachments": attachments
         },
         "chat_messages": chat_messages

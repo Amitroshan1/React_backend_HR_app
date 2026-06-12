@@ -9,6 +9,7 @@ from flask_jwt_extended import jwt_required, get_jwt
 from .email import send_email_via_zeptomail,send_welcome_email,send_payslip_uploaded_email,send_form16_uploaded_email,send_claim_line_item_decision_email
 from .models.Admin_models import Admin
 from datetime import datetime,date,timedelta
+from .datetime_utils import utc_now, isoformat_api
 from zoneinfo import ZoneInfo
 import calendar
 from .email import asset_email,update_asset_email
@@ -767,7 +768,7 @@ def form16_history(admin_id):
             "id": row.id,
             "financial_year": row.financial_year,
             "file_path": row.file_path,
-            "created_at": row.created_at.isoformat() if row.created_at else None
+            "created_at": isoformat_api(row.created_at)
         })
 
     return jsonify({
@@ -2530,8 +2531,8 @@ def payroll_history():
             "esic_final": float(payroll.esic_final or 0.0),
             "actual_working_days": float(payroll.actual_working_days or 0.0),
             "net_salary_final": float(payroll.net_salary_final or 0.0),
-            "created_at": payroll.created_at.isoformat() if payroll.created_at else None,
-            "updated_at": payroll.updated_at.isoformat() if payroll.updated_at else None,
+            "created_at": isoformat_api(payroll.created_at),
+            "updated_at": isoformat_api(payroll.updated_at),
         })
 
     return jsonify({"success": True, "history": history}), 200
@@ -3056,7 +3057,7 @@ def put_employee_accounts_profile():
     if "date_of_joining" in data:
         row.date_of_joining = _parse_doj(data.get("date_of_joining"))
 
-    row.updated_at = datetime.utcnow()
+    row.updated_at = utc_now()
     try:
         db.session.commit()
     except Exception as e:

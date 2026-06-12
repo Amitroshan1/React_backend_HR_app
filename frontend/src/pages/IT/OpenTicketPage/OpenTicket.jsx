@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { getITApiErrorMessage } from "../Data";
 import "./OpenTicket.css";
+import { formatDate as fmt, formatDateTimeDDMMYYYY } from "../../../utils/dateFormat";
 
 const QUERY_API_BASE = "/api/query";
 
@@ -48,17 +49,7 @@ const mapQueryToTicket = (q) => {
   };
 };
 
-const fmt = (iso) =>
-  new Date(iso).toLocaleDateString("en-IN", {
-    day: "2-digit", month: "short", year: "numeric",
-  });
-
-const fmtDateTime = (value) => {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleString();
-};
+const fmtDateTime = (value) => formatDateTimeDDMMYYYY(value, "");
 
 const statusBadgeLabel = (raw) => {
   const s = norm(raw);

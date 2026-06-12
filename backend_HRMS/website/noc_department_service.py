@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 
 from flask import current_app
+from .datetime_utils import isoformat_api
 from sqlalchemy.orm import joinedload
 from werkzeug.utils import secure_filename
 
@@ -31,11 +32,7 @@ def _serialize_date(value):
 
 
 def _serialize_datetime(value):
-    if value is None:
-        return None
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    return str(value)
+    return isoformat_api(value) if value is not None else None
 
 
 def _display_name_for_admin(admin_row):

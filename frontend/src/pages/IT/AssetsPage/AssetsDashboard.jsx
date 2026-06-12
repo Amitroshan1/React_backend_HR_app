@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
 import { UserAvatar } from "../../../components/UserAvatar";
 import { getUserPhotoUrl } from "../../../utils/userPhoto";
+import { formatDate as fmt } from "../../../utils/dateFormat";
 import {
   addRemovedITAsset,
   getInventoryFromStorage,
@@ -252,18 +253,6 @@ function normCat(c) {
   if (CAT_MAP[key]) return CAT_MAP[key];
   if (key.startsWith("consumable")) return "Consumable";
   return String(c).trim();
-}
-
-function fmt(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d)
-    ? iso
-    : d.toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
 }
 
 function daysLeft(end) {

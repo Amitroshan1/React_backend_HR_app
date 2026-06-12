@@ -1,4 +1,5 @@
 from datetime import datetime
+from ..datetime_utils import utc_now
 
 from .. import db
 
@@ -16,6 +17,6 @@ class EmployeeCircleHistory(db.Model):
     effective_to = db.Column(db.Date, nullable=True)
     notes = db.Column(db.String(500), nullable=True)
     recorded_by = db.Column(db.String(120), nullable=True)
-    recorded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    recorded_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
 
     admin = db.relationship("Admin", backref=db.backref("circle_history", lazy="dynamic"))

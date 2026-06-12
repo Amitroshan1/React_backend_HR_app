@@ -465,14 +465,15 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { FiX, FiChevronDown } from 'react-icons/fi';
 import dayjs from 'dayjs'; 
 import './ApplyLeaveModal.css';
+import { formatDate } from '../../utils/dateFormat';
 
 const LEAVE_API_BASE = '/api/leave';
 
 const formatOptionalHolidayLabel = (holiday) =>
-    `${holiday.holiday_name} (${holiday.display_date})`;
+    `${holiday.holiday_name} (${formatDate(holiday.holiday_date)})`;
 
 const buildOptionalLeaveReason = (holiday) =>
-    `Optional leave requested for ${holiday.holiday_name} on ${holiday.display_date}.`;
+    `Optional leave requested for ${holiday.holiday_name} on ${formatDate(holiday.holiday_date)}.`;
 
 const OPTIONAL_LEAVE_ACTIVE_STATUSES = ['Pending', 'Approved'];
 

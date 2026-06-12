@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { fetchProbationReviewsDue, submitProbationReview } from "./api";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import "./ManagerProbationReviews.css";
+import { formatDate } from "../../utils/dateFormat";
 
 const RATING_OPTIONS = ["Excellent", "Good", "Average", "Needs Improvement"];
 
@@ -28,9 +30,9 @@ export const ManagerProbationReviews = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     load();
-  }, []);
+  });
 
   const openForm = (r) => {
     setActiveId(r.id);
@@ -91,7 +93,7 @@ export const ManagerProbationReviews = () => {
                 <span className="manager-probation-email">{r.employee_email}</span>
               </div>
               <div className="manager-probation-meta">
-                DOJ: {r.doj || "—"} · Probation end: {r.probation_end_date || "—"}
+                DOJ: {formatDate(r.doj)} · Probation end: {formatDate(r.probation_end_date)}
               </div>
               {activeId === r.id ? (
                 <div className="manager-probation-form">

@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from . import db
 from .models.attendance import CompOffGain, LeaveBalance
 from .models.Admin_models import Admin
+from .leave_balance_utils import credit_comp_entitlement, sync_leave_balance_totals
 
 
 def get_effective_comp_balance(admin_id):
@@ -81,6 +82,9 @@ def restore_comp_leave(admin_id, days):
             )
         )
     sync_comp_balance_for_admin(admin_id)
+    lb = LeaveBalance.query.filter_by(admin_id=admin_id).first()
+    if lb is not None:
+        credit_comp_entitlement(lb, days)
 
 
 def set_comp_balance_to_target(admin_id, target_balance):
@@ -111,6 +115,7 @@ def sync_comp_balance_for_admin(admin_id):
     lb = LeaveBalance.query.filter_by(admin_id=admin_id).first()
     if lb is not None:
         lb.compensatory_leave_balance = balance
+        sync_leave_balance_totals(lb)
     else:
         admin = Admin.query.get(admin_id)
         if admin:

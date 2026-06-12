@@ -7,6 +7,11 @@ from .. import db
 from ..models.Admin_models import Admin
 from ..models.attendance import LeaveBalance
 from ..models.leave_accrual_log import LeaveAccrualLog
+from ..leave_balance_utils import (
+    credit_cl_entitlement,
+    credit_pl_entitlement,
+    reset_annual_casual_entitlement_counters,
+)
 from .leave_accrual_schedule import (
     ACCRUAL_TRIGGER_DAY,
     build_yearly_accrual_schedule,
@@ -100,15 +105,11 @@ def _try_credit_variable(
         return
 
     if leave_kind == "pl":
-        leave_balance.privilege_leave_balance = float(
-            leave_balance.privilege_leave_balance or 0.0
-        ) + amount
+        credit_pl_entitlement(leave_balance, amount)
         summary["pl_credits"] += 1
         summary["pl_days_credited"] = summary.get("pl_days_credited", 0.0) + amount
     else:
-        leave_balance.casual_leave_balance = float(
-            leave_balance.casual_leave_balance or 0.0
-        ) + amount
+        credit_cl_entitlement(leave_balance, amount)
         summary["cl_credits"] += 1
         summary["cl_days_credited"] = summary.get("cl_days_credited", 0.0) + amount
 
@@ -158,7 +159,7 @@ def _run_leave_accrual_for_date(run_date):
             if _event_exists(admin.id, event_key):
                 summary["events_skipped_existing"] += 1
             else:
-                leave_balance.casual_leave_balance = 0.0
+                reset_annual_casual_entitlement_counters(leave_balance)
                 leave_balance.privilege_leave_balance = min(
                     float(leave_balance.privilege_leave_balance or 0.0),
                     PL_CARRY_FORWARD_CAP,

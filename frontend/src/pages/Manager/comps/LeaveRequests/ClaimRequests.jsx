@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import { RequestCard } from "../Requests/RequestCard";
 import { actOnManagerRequest, fetchManagerRequests } from "../../api";
 
@@ -8,7 +9,7 @@ export const ClaimRequests = ({ statusFilter = "Pending", onRequestUpdated }) =>
   const [error, setError] = useState("");
   const [actingId, setActingId] = useState(null);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const load = async () => {
       try {
         setLoading(true);

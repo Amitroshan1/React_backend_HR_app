@@ -11,6 +11,7 @@ import {
 import { UserAvatar } from "../../../components/UserAvatar";
 import { getUserPhotoUrl } from "../../../utils/userPhoto";
 import "./ActiveDevice.css";
+import { formatDate as fmt } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ASSET_CATEGORIES = ["Hardware", "Software", "Accessories", "Consumables"];
@@ -21,17 +22,6 @@ const CAT_ICONS = {
   Software: "💿",
   Accessories: "🖱",
   Consumables: "🖨",
-};
-
-const fmt = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 };
 
 const normCat = (c) => {

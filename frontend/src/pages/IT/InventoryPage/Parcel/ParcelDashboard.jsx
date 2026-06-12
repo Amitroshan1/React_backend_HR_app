@@ -10,6 +10,7 @@ import {
   getParcelAssetDisplayName,
 } from "../../inventoryCategories";
 import "./ParcelDashboard.css";
+import { formatDate } from "../../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PER_PAGE = 10;
@@ -23,17 +24,6 @@ const EXPORT_CATEGORY_FILTERS = [
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const formatDate = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-};
-
 const readImported = () => {
   try { return JSON.parse(localStorage.getItem("pcl_imported") || "[]"); }
   catch { return []; }

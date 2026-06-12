@@ -1,15 +1,7 @@
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from .. import db
-
-
-IST = ZoneInfo("Asia/Kolkata")
-
-
-def _ist_now_naive():
-    # Store as naive IST to match existing DB patterns (naive DateTime columns).
-    return datetime.now(IST).replace(tzinfo=None)
+from ..datetime_utils import isoformat_api, utc_now
 
 
 class MonthlyPayroll(db.Model):
@@ -49,8 +41,8 @@ class MonthlyPayroll(db.Model):
     deductions_total_final = db.Column(db.Float, nullable=True)
     net_salary_final = db.Column(db.Float, nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=True, default=_ist_now_naive)
-    updated_at = db.Column(db.DateTime, nullable=True, default=_ist_now_naive, onupdate=_ist_now_naive)
+    created_at = db.Column(db.DateTime, nullable=True, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
 
     admin = db.relationship("Admin", back_populates="payroll_records")
 
@@ -78,7 +70,7 @@ class MonthlyPayroll(db.Model):
             "ptax_final": self.ptax_final,
             "deductions_total_final": self.deductions_total_final,
             "net_salary_final": self.net_salary_final,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": isoformat_api(self.created_at),
+            "updated_at": isoformat_api(self.updated_at),
         }
 

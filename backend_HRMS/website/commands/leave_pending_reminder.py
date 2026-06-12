@@ -3,6 +3,7 @@ Remind concern department (managers) when a leave has been pending 6+ days.
 Run daily via scheduler or: flask leave-pending-reminder [--run-date YYYY-MM-DD] [--dry-run]
 """
 from datetime import datetime, timedelta, time as dt_time
+from ..datetime_utils import utc_now
 
 import click
 from flask import current_app
@@ -75,7 +76,7 @@ def run_leave_pending_reminder(run_date, dry_run=False):
         # Atomic claim: only one process should send reminder for a leave row.
         # This prevents duplicate emails when scheduler runs in multiple workers.
         if not dry_run:
-            claim_ts = datetime.utcnow()
+            claim_ts = utc_now()
             claimed = (
                 LeaveApplication.query.filter(
                     LeaveApplication.id == leave.id,

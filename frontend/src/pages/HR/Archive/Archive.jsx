@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, ArrowLeft, UserRoundPlus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
 import './Archive.css';
 
 const HR_API_BASE = '/api/HumanResource';
@@ -73,8 +74,11 @@ const ArchiveEmployees = () => {
     }
   }, [getAuthHeaders]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadArchivedEmployees();
+  });
+
+  useEffect(() => {
     window.addEventListener('employeeArchived', loadArchivedEmployees);
     return () => {
       window.removeEventListener('employeeArchived', loadArchivedEmployees);

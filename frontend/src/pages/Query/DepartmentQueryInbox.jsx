@@ -1,10 +1,22 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { CheckCircle, MessageCircle, Send, X } from "lucide-react";
 import "./DepartmentQueryInbox.css";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import {
+  QUERY_CHAT_PARAM,
+  QUERY_CHAT_POLL_MS,
+  mapChatMessages,
+  messagesChanged,
+  parseChatIdFromSearch,
+} from "./queryChatHelpers";
 
 const API_BASE_URL = "/api/query";
 
 export const DepartmentQueryInbox = () => {
+  const location = useLocation();
+  const [, setSearchParams] = useSearchParams();
   const [queries, setQueries] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [chatMessage, setChatMessage] = useState("");
@@ -16,26 +28,32 @@ export const DepartmentQueryInbox = () => {
   const [filterCircle, setFilterCircle] = useState("");
   const [circleOptions, setCircleOptions] = useState([]);
   const chatEndRef = useRef(null);
+  const openChatRef = useRef(null);
+  const restoreAttemptedRef = useRef(null);
+
+  const setChatInUrl = useCallback((chatId) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (chatId) {
+        next.set(QUERY_CHAT_PARAM, String(chatId));
+      } else {
+        next.delete(QUERY_CHAT_PARAM);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const closeChatPanel = useCallback(() => {
+    setActiveChat(null);
+    setChatInUrl(null);
+  }, [setChatInUrl]);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("token");
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  const formatDateTime = (value) => {
-    if (value == null || value === "") return "";
-    if (typeof value === "string") {
-      let s = value.trim();
-      if (!s) return "";
-      if (/^\d{4}-\d{2}-\d{2} \d/.test(s)) s = s.replace(" ", "T");
-      const date = new Date(s);
-      if (Number.isNaN(date.getTime())) return s;
-      return date.toLocaleString();
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return String(value);
-    return date.toLocaleString();
-  };
+  const formatDateTime = (value) => formatDateTimeDDMMYYYY(value, "");
 
   const getStatusLabel = (status) => {
     if (status === "Open") return "In Progress";
@@ -43,7 +61,8 @@ export const DepartmentQueryInbox = () => {
     return "New";
   };
 
-  const fetchInbox = async (overrides) => {
+  const fetchInbox = async (overrides, options = {}) => {
+    const { silent = false } = options;
     const month =
       overrides && Object.prototype.hasOwnProperty.call(overrides, "month")
         ? overrides.month
@@ -53,8 +72,10 @@ export const DepartmentQueryInbox = () => {
         ? overrides.circle
         : filterCircle;
 
-    setIsLoading(true);
-    setError("");
+    if (!silent) {
+      setIsLoading(true);
+      setError("");
+    }
     try {
       const params = new URLSearchParams();
       if (month) params.set("month", month);
@@ -84,14 +105,20 @@ export const DepartmentQueryInbox = () => {
       mapped.sort((a, b) => new Date(b.createdAtRaw) - new Date(a.createdAtRaw));
       setQueries(mapped);
     } catch (e) {
-      setError(e.message || "Unable to load department queries");
+      if (!silent) {
+        setError(e.message || "Unable to load department queries");
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   };
 
-  const openChat = async (queryItem) => {
-    setError("");
+  const openChat = useCallback(async (queryItem, options = {}) => {
+    const { silent = false, skipUrl = false } = options;
+    if (!queryItem?.id) return;
+    if (!silent) setError("");
     try {
       const response = await fetch(`${API_BASE_URL}/queries/${queryItem.id}`, {
         method: "GET",
@@ -102,24 +129,38 @@ export const DepartmentQueryInbox = () => {
         throw new Error(result.message || "Failed to open query chat");
       }
 
-      const messages = (result.chat_messages || []).map((m, idx) => ({
-        id: `${queryItem.id}-${idx}`,
-        senderName: m.by || "User",
-        sender: m.user_type === "EMPLOYEE" ? "user" : "department",
-        text: m.text,
-        timestamp: formatDateTime(m.created_at),
-      }));
-
-      setActiveChat({
+      const messages = mapChatMessages(result.chat_messages, queryItem.id, formatDateTime);
+      const nextChat = {
         id: queryItem.id,
         title: result.query?.title || queryItem.title,
         status: result.query?.status || queryItem.status,
         messages,
+      };
+
+      setActiveChat((prev) => {
+        if (silent && prev?.id === nextChat.id && !messagesChanged(prev.messages, messages)) {
+          if (prev.status === nextChat.status) return prev;
+        }
+        return nextChat;
       });
+
+      setQueries((prev) =>
+        prev.map((q) =>
+          q.id === nextChat.id ? { ...q, status: nextChat.status, title: nextChat.title } : q
+        )
+      );
+
+      if (!skipUrl) {
+        setChatInUrl(nextChat.id);
+      }
     } catch (e) {
-      setError(e.message || "Unable to open query chat");
+      if (!silent) {
+        setError(e.message || "Unable to open query chat");
+      }
     }
-  };
+  }, [setChatInUrl]);
+
+  openChatRef.current = openChat;
 
   const sendReply = async () => {
     if (!chatMessage.trim() || !activeChat || isSending) return;
@@ -172,10 +213,45 @@ export const DepartmentQueryInbox = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchInbox();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load only; filters refreshed via Apply / Reset
-  }, []);
+  });
+
+  useEffect(() => {
+    if (!parseChatIdFromSearch(location.search)) {
+      restoreAttemptedRef.current = null;
+    }
+  }, [location.search]);
+
+  useEffect(() => {
+    const chatId = parseChatIdFromSearch(location.search);
+    if (!chatId || isLoading) return;
+    if (activeChat?.id === chatId) return;
+    if (restoreAttemptedRef.current === chatId) return;
+
+    const fromList = queries.find((q) => q.id === chatId);
+    const stub = fromList || { id: chatId, title: "Query", status: "Open" };
+    restoreAttemptedRef.current = chatId;
+    openChatRef.current?.(stub, { skipUrl: true });
+  }, [location.search, queries, isLoading, activeChat?.id]);
+
+  useEffect(() => {
+    const chatId = activeChat?.id;
+    if (!chatId) return undefined;
+    const poll = () => {
+      openChatRef.current?.({ id: chatId }, { silent: true, skipUrl: true });
+      fetchInbox(undefined, { silent: true });
+    };
+    const intervalId = window.setInterval(poll, QUERY_CHAT_POLL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [activeChat?.id]);
+
+  useEffect(() => {
+    const chatId = parseChatIdFromSearch(location.search);
+    if (!chatId && activeChat) {
+      setActiveChat(null);
+    }
+  }, [location.search, activeChat]);
 
   useEffect(() => {
     let cancelled = false;
@@ -346,7 +422,7 @@ export const DepartmentQueryInbox = () => {
                   <CheckCircle size={14} /> {closingId === activeChat.id ? "Closing…" : "Close query"}
                 </button>
               )}
-              <button type="button" className="dept-close-btn" onClick={() => setActiveChat(null)} aria-label="Close panel">
+              <button type="button" className="dept-close-btn" onClick={closeChatPanel} aria-label="Close panel">
                 <X size={18} />
               </button>
             </div>

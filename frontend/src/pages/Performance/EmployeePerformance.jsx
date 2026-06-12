@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import "./EmployeePerformance.css";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 const API_BASE = "/api/performance";
 
@@ -15,12 +17,7 @@ function currentMonthValue() {
   return `${y}-${m}`;
 }
 
-function formatDateTime(value) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString();
-}
+const formatDateTime = (value) => formatDateTimeDDMMYYYY(value, "-");
 
 export const EmployeePerformance = () => {
   const [month, setMonth] = useState(currentMonthValue());
@@ -67,9 +64,9 @@ export const EmployeePerformance = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadHistory();
-  }, []);
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();

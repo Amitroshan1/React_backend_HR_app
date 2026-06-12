@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft, Inbox, RefreshCw } from 'lucide-react';
 import './ConfirmationRequest.css';
 
@@ -36,9 +37,9 @@ export const ConfirmationRequest = ({ onBack }) => {
     }
   }, [getAuthHeaders]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchRequests();
-  }, [fetchRequests]);
+  });
 
   return (
     <div className="conf-request-wrapper">

@@ -17,6 +17,7 @@ import ClickableImage from "../../components/ClickableImage";
 import { UserAvatar } from "../../components/UserAvatar";
 import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
 import "./EmployeeAssetsDetails.css";
+import { formatDate, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const swDaysRemaining = (endDate) => {
@@ -81,14 +82,14 @@ const formatReturnUpdate = (r) => {
   if (status === "completed") {
     const who = r.receiptConfirmedByName ? ` by ${r.receiptConfirmedByName}` : "";
     const when = r.receiptConfirmedAt
-      ? ` · ${new Date(r.receiptConfirmedAt).toLocaleString("en-IN")}`
+      ? ` · ${formatDateTimeDDMMYYYY(r.receiptConfirmedAt)}`
       : "";
     return `Received${who}${when}`;
   }
   if (status === "approved") {
     const who = r.approvedByName ? ` by ${r.approvedByName}` : "";
     const when = r.approvedAt
-      ? ` · ${new Date(r.approvedAt).toLocaleString("en-IN")}`
+      ? ` · ${formatDateTimeDDMMYYYY(r.approvedAt)}`
       : "";
     return `Approved${who}${when}. Submit asset to IT desk.`;
   }
@@ -155,7 +156,7 @@ const ReturnHistoryTable = ({ rows, onViewPhotos }) => (
                   </span>
                 </td>
                 <td className="rr-date-cell">
-                  {r.createdAt ? new Date(r.createdAt).toLocaleString("en-IN") : "—"}
+                  {formatDateTimeDDMMYYYY(r.createdAt)}
                 </td>
                 <td className="rr-update-cell">{formatReturnUpdate(r)}</td>
               </tr>
@@ -252,11 +253,11 @@ const SoftwareTable = ({ assets, onRemove }) => (
                 </td>
                 <td className="ea-sw-date">
                   {a.subscriptionStart
-                    ? new Date(a.subscriptionStart).toLocaleDateString("en-IN") : "—"}
+                    ? formatDate(a.subscriptionStart) : "—"}
                 </td>
                 <td className="ea-sw-date">
                   {a.subscriptionEnd || a.licenseExpiry
-                    ? new Date(a.subscriptionEnd || a.licenseExpiry).toLocaleDateString("en-IN")
+                    ? formatDate(a.subscriptionEnd || a.licenseExpiry)
                     : "—"}
                 </td>
                 <td>

@@ -28,19 +28,13 @@ import {
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./InRepair.css";
+import { formatDate } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const REPAIR_STATUS = "repair";
 const SEARCH_FIELDS = ["brand", "assetName", "serialNumber"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const formatDate = (iso) =>
-  iso
-    ? new Date(iso).toLocaleDateString("en-IN", {
-        day: "2-digit", month: "short", year: "numeric",
-      })
-    : "—";
 
 const getDaysElapsed = (iso) =>
   iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000) : 0;

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { UserAvatar } from '../../components/UserAvatar';
 import './EmployeeDetails.css';
+import { formatDate } from '../../utils/dateFormat';
 
 const ADMIN_EMPLOYEE_DETAIL_API = '/api/admin/employees';
 
@@ -156,7 +157,7 @@ const EmployeeDetails = () => {
             <span className="info-icon">🎂</span>
             <div className="info-content">
               {/* <span className="info-label">Date of Birth:</span> */}
-              <span className="info-value">{employee.dob}</span>
+              <span className="info-value">{formatDate(employee.dob)}</span>
             </div>
           </div>
           <div className="info-row">

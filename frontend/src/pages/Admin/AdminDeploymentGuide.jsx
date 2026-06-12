@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './AdminDeploymentGuide.css';
 
@@ -60,9 +61,9 @@ export default function AdminDeploymentGuide() {
     }
   }, [navigate]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     loadGuide();
-  }, [loadGuide]);
+  });
 
   const toggleItem = (sectionId, index) => {
     const key = `${sectionId}:${index}`;

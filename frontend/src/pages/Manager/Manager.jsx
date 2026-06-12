@@ -13,6 +13,7 @@ import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviews
 import { managerCanViewNhqEngineeringTeamAttendance } from "./managerTeamAttendanceEligibility";
 import "./Manager.css";
 import { usePersistedView } from "../../hooks/usePersistedView";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 
 const MANAGER_TABS = [
   "leave",
@@ -82,11 +83,11 @@ export const Manager = () => {
     }
   }, [location.state]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     reloadCounts();
-  }, []);
+  }, [activeTab]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     (async () => {
       try {
         const profile = await fetchManagerProfile();

@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import { RequestCard } from "../Requests/RequestCard";
 import { actOnManagerRequest, fetchManagerRequests } from "../../api";
+import { formatDate } from "../../../../utils/dateFormat";
 
 export const LeaveRequests = ({ statusFilter = "Pending", onRequestUpdated }) => {
   const [requests, setRequests] = useState([]);
@@ -8,7 +10,7 @@ export const LeaveRequests = ({ statusFilter = "Pending", onRequestUpdated }) =>
   const [error, setError] = useState("");
   const [actingId, setActingId] = useState(null);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const load = async () => {
       try {
         setLoading(true);
@@ -19,7 +21,7 @@ export const LeaveRequests = ({ statusFilter = "Pending", onRequestUpdated }) =>
           type: "Leave",
           status: r.status,
           employeeName: r.employee_name || "N/A",
-          reason: `${r.leave_type || "Leave"} (${r.start_date || "-"} to ${r.end_date || "-"})`,
+          reason: `${r.leave_type || "Leave"} (${formatDate(r.start_date)} to ${formatDate(r.end_date)})`,
         }));
         setRequests(mapped.sort((a, b) => (b.id - a.id)));
       } catch (e) {

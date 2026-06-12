@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft, RefreshCw, CalendarClock } from 'lucide-react';
 import './LeaveAccrualSummary.css';
 
@@ -54,9 +55,9 @@ export const LeaveAccrualSummary = ({ onBack }) => {
     }
   }, [getAuthHeaders]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchSummary();
-  }, [fetchSummary]);
+  });
 
   const latest = data.latest_run || {};
 

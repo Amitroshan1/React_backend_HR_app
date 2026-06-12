@@ -29,6 +29,7 @@ import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
 import { designationOptions } from '../Profile/utils/profileUtils';
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
+import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 
 const HR_PANEL_VIEWS = [
   'main',
@@ -56,10 +57,7 @@ const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
 
 function formatDateShort(isoDate) {
-  if (!isoDate) return '';
-  const d = new Date(isoDate);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[d.getMonth()]} ${d.getDate()}`;
+  return formatDateDDMMYYYY(isoDate, '');
 }
 
 function getAuthHeaders() {
@@ -225,7 +223,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
                 {row("Father's name", hrProfileVal(emp.father_name))}
                 {row("Mother's name", hrProfileVal(emp.mother_name))}
                 {row('Marital status', hrProfileVal(emp.marital_status))}
-                {row('Date of birth', emp.dob ? emp.dob.split('T')[0] : null)}
+                {row('Date of birth', formatDateDDMMYYYY(emp.dob, null))}
                 {row('Gender', hrProfileVal(emp.gender))}
                 {row('Blood group', hrProfileVal(emp.blood_group))}
                 {row('Nationality', hrProfileVal(emp.nationality))}
@@ -263,7 +261,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
                 {row('Designation', hrProfileVal(emp.designation))}
                 {row('Employee ID', hrProfileVal(emp.emp_id || admin.emp_id))}
                 {row('Department', hrProfileVal(admin.circle))}
-                {row('Date of joining', admin.doj ? admin.doj.split('T')[0] : null)}
+                {row('Date of joining', formatDateDDMMYYYY(admin.doj, null))}
                 {row('Employment type', hrProfileVal(admin.emp_type))}
               </div>
             </div>
@@ -275,7 +273,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
                 previousEmployment.map((pe, i) => (
                   <div key={i} className="profile-sub-item">
                     <p><strong>{pe.companyName || notProvided}</strong> – {pe.designation || notProvided}</p>
-                    <p>{pe.doj || ''} to {pe.dateOfLeaving || ''} {pe.experienceYears && `(${pe.experienceYears} yrs)`}</p>
+                    <p>{formatDateDDMMYYYY(pe.doj, '')} to {formatDateDDMMYYYY(pe.dateOfLeaving, '')} {pe.experienceYears && `(${pe.experienceYears} yrs)`}</p>
                   </div>
                 ))
               ) : (
@@ -418,7 +416,7 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
               <tbody>
                 {attendance.attendance.map((row, i) => (
                   <tr key={i}>
-                    <td>{row.date}</td>
+                    <td>{formatDateDDMMYYYY(row.date)}</td>
                     <td>{row.punch_in || '–'}</td>
                     <td>{row.punch_out || '–'}</td>
                     <td>{row.location_status_in || '–'}</td>

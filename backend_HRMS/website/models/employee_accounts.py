@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from .. import db
+from ..datetime_utils import isoformat_api, utc_now
 
 
 class EmployeeAccounts(db.Model):
@@ -33,8 +34,8 @@ class EmployeeAccounts(db.Model):
     esi_number = db.Column(db.String(50), nullable=True)
     pran = db.Column(db.String(50), nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=True, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=True, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
 
     admin = db.relationship("Admin", back_populates="employee_accounts_record")
 
@@ -54,6 +55,6 @@ class EmployeeAccounts(db.Model):
             "pf_account_number": self.pf_account_number,
             "esi_number": self.esi_number,
             "pran": self.pran,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": isoformat_api(self.created_at),
+            "updated_at": isoformat_api(self.updated_at),
         }

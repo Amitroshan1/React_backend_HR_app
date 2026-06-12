@@ -6,6 +6,7 @@ import {
   formatAssessmentQuestionHeading,
   getAssessmentFigureSrc,
 } from "../../utils/assessmentFigures";
+import { parseApiUtcMs } from "../../utils/dateFormat";
 
 const API_BASE = "/api/HumanResource/assessment/public";
 
@@ -26,15 +27,6 @@ function AssessmentFigure({ q }) {
     </div>
   );
 }
-
-const parseApiUtcMs = (value) => {
-  const raw = String(value || "").trim();
-  if (!raw) return NaN;
-  // Backend currently sends naive ISO (UTC without timezone); force UTC parsing.
-  const normalized =
-    /[zZ]$|[+\-]\d{2}:\d{2}$/.test(raw) ? raw : `${raw}Z`;
-  return new Date(normalized).getTime();
-};
 
 export default function AssessmentTestPublic() {
   const { token: tokenParam } = useParams();

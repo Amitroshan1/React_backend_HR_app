@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from .. import db
+from ..datetime_utils import utc_now
 
 
 class AssessmentInvite(db.Model):
@@ -35,8 +36,8 @@ class AssessmentInvite(db.Model):
     manual_marks_json = db.Column(db.Text, nullable=True)  # JSON serialized marks for Q26-62
 
     hr_notified_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(
-        db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+        db.DateTime, nullable=False, default=utc_now, onupdate=utc_now
     )
 

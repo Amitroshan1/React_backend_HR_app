@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useUser } from "../../components/layout/UserContext";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { hasFeature } from "../../utils/planFeatures";
 import "./Payslip.css";
+import { formatDateTimeDDMMYYYY, formatMonthYear } from "../../utils/dateFormat";
 
 const API_BASE_URL = "/api/accounts";
 const AUTH_API_BASE_URL = "/api/auth";
@@ -12,21 +14,7 @@ const formatINRCurrency = (value) => {
     return num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-const formatISTDateTime = (value) => {
-    if (!value) return "N/A";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "N/A";
-    return d.toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata",
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true,
-    });
-};
+const formatISTDateTime = (value) => formatDateTimeDDMMYYYY(value, "N/A");
 
 const formatRupee = (value) => `Rs. ${formatINRCurrency(value)}`;
 
@@ -37,7 +25,7 @@ const formatPtaxMonthLabel = (ptaxMonth) => {
         const [y, m] = s.split("-");
         const d = new Date(Number(y), Number(m) - 1, 1);
         if (!Number.isNaN(d.getTime())) {
-            return d.toLocaleString("en-IN", { month: "long", year: "numeric" });
+            return formatMonthYear(d);
         }
     }
     return s;
@@ -63,7 +51,7 @@ export const Payslip = () => {
         || (userData?.user?.email ? userData.user.email.split("@")[0] : null)
         || "User";
 
-    useEffect(() => {
+    useRefreshOnNavigate(() => {
         if (!userId) {
             setLoading(false);
             setError("User not loaded.");

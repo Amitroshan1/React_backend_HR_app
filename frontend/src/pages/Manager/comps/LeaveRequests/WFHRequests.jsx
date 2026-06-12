@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import { RequestCard } from "../Requests/RequestCard";
 import { actOnManagerRequest, fetchManagerRequests } from "../../api";
+import { formatDate } from "../../../../utils/dateFormat";
 
 export const WFHRequests = ({ statusFilter = "Pending", onRequestUpdated }) => {
   const [requests, setRequests] = useState([]);
@@ -8,7 +10,7 @@ export const WFHRequests = ({ statusFilter = "Pending", onRequestUpdated }) => {
   const [error, setError] = useState("");
   const [actingId, setActingId] = useState(null);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const load = async () => {
       try {
         setLoading(true);
@@ -19,7 +21,7 @@ export const WFHRequests = ({ statusFilter = "Pending", onRequestUpdated }) => {
           type: "WFH",
           status: r.status,
           employeeName: r.employee_name || "N/A",
-          reason: `${r.reason || "-"} (${r.start_date || "-"} to ${r.end_date || "-"})`,
+          reason: `${r.reason || "-"} (${formatDate(r.start_date)} to ${formatDate(r.end_date)})`,
         }));
         setRequests(mapped.sort((a, b) => (b.id - a.id)));
       } catch (e) {

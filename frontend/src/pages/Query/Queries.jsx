@@ -487,11 +487,20 @@
 
 
 
-import React, { useState, useRef, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle } from 'lucide-react';
 import './Queries.css';
 import { hasFeature } from '../../utils/planFeatures';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
+import {
+  QUERY_CHAT_PARAM,
+  QUERY_CHAT_POLL_MS,
+  mapChatMessages,
+  messagesChanged,
+  parseChatIdFromSearch,
+} from './queryChatHelpers';
 
 const API_BASE_URL = '/api/query';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -526,6 +535,7 @@ const filterQueryDepartments = (list) => {
 
 export const Queries = () => {
   const location = useLocation();
+  const [, setSearchParams] = useSearchParams();
   const [departments, setDepartments] = useState(FALLBACK_DEPARTMENTS);
   const [queries, setQueries] = useState([]);
   const [formData, setFormData] = useState({ department: '', title: '', text: '' });
@@ -537,8 +547,27 @@ export const Queries = () => {
   const [actionError, setActionError] = useState('');
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const openChatRef = useRef(null);
+  const restoreAttemptedRef = useRef(null);
 
   const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+
+  const setChatInUrl = useCallback((chatId) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (chatId) {
+        next.set(QUERY_CHAT_PARAM, String(chatId));
+      } else {
+        next.delete(QUERY_CHAT_PARAM);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const closeChatPanel = useCallback(() => {
+    setActiveChat(null);
+    setChatInUrl(null);
+  }, [setChatInUrl]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -572,16 +601,7 @@ export const Queries = () => {
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  const formatDateTime = (value) => {
-    if (!value) return '';
-    try {
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return String(value);
-      return date.toLocaleString();
-    } catch {
-      return String(value);
-    }
-  };
+  const formatDateTime = (value) => formatDateTimeDDMMYYYY(value, '');
 
   const getSummary = (text) => {
     if (!text) return '';
@@ -639,9 +659,44 @@ export const Queries = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchMyQueries();
-  }, []);
+  });
+
+  useEffect(() => {
+    if (!parseChatIdFromSearch(location.search)) {
+      restoreAttemptedRef.current = null;
+    }
+  }, [location.search]);
+
+  useEffect(() => {
+    const chatId = parseChatIdFromSearch(location.search);
+    if (!chatId || isLoading) return;
+    if (activeChat?.id === chatId) return;
+    if (restoreAttemptedRef.current === chatId) return;
+
+    const fromList = queries.find((q) => q.id === chatId);
+    const stub = fromList || { id: chatId, title: 'Query', department: '', status: 'Open' };
+    restoreAttemptedRef.current = chatId;
+    openChatRef.current?.(stub, { skipUrl: true });
+  }, [location.search, queries, isLoading, activeChat?.id]);
+
+  useEffect(() => {
+    const chatId = activeChat?.id;
+    if (!chatId) return undefined;
+    const poll = () => {
+      openChatRef.current?.({ id: chatId }, { silent: true, skipUrl: true });
+    };
+    const intervalId = window.setInterval(poll, QUERY_CHAT_POLL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [activeChat?.id]);
+
+  useEffect(() => {
+    const chatId = parseChatIdFromSearch(location.search);
+    if (!chatId && activeChat) {
+      setActiveChat(null);
+    }
+  }, [location.search, activeChat]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -724,8 +779,10 @@ export const Queries = () => {
     }
   };
 
-  const openChat = async (queryItem) => {
-    setActionError('');
+  const openChat = useCallback(async (queryItem, options = {}) => {
+    const { silent = false, skipUrl = false } = options;
+    if (!queryItem?.id) return;
+    if (!silent) setActionError('');
     try {
       const response = await fetch(`${API_BASE_URL}/queries/${queryItem.id}`, {
         method: 'GET',
@@ -737,26 +794,41 @@ export const Queries = () => {
       if (!response.ok || !result.success) {
         throw new Error(result.message || 'Failed to load chat');
       }
-      const messages = (result.chat_messages || []).map((message, idx) => ({
-        id: `${queryItem.id}-${idx}`,
-        sender: message.user_type === 'EMPLOYEE' ? 'user' : 'department',
-        senderName: message.by,
-        text: message.text,
-        timestamp: formatDateTime(message.created_at),
-      }));
+      const messages = mapChatMessages(result.chat_messages, queryItem.id, formatDateTime);
       const updated = {
         ...queryItem,
+        title: result.query?.title || queryItem.title,
+        department: result.query?.department || queryItem.department,
         status: result.query?.status || queryItem.status,
+        queryText: result.query?.query_text || queryItem.queryText,
         createdAt: formatDateTime(result.query?.created_at || queryItem.createdAt),
         messages,
       };
-      setActiveChat(updated);
-      setQueries(prev => prev.map(q => (q.id === updated.id ? updated : q)));
+      setActiveChat((prev) => {
+        if (silent && prev?.id === updated.id && !messagesChanged(prev.messages, messages)) {
+          if (prev.status === updated.status) return prev;
+        }
+        return updated;
+      });
+      setQueries((prev) =>
+        prev.map((q) =>
+          q.id === updated.id
+            ? { ...q, status: updated.status, title: updated.title, department: updated.department }
+            : q
+        )
+      );
+      if (!skipUrl) {
+        setChatInUrl(updated.id);
+      }
     } catch (error) {
       console.error('Open chat error:', error);
-      setActionError(error.message || 'Unable to open chat');
+      if (!silent) {
+        setActionError(error.message || 'Unable to open chat');
+      }
     }
-  };
+  }, [setChatInUrl]);
+
+  openChatRef.current = openChat;
 
   const handleSendMessage = async () => {
     if (!chatMessage.trim() || !activeChat) return;
@@ -796,7 +868,7 @@ export const Queries = () => {
         throw new Error(result.message || 'Failed to close query');
       }
       await fetchMyQueries();
-      if (activeChat?.id === id) setActiveChat(null);
+      if (activeChat?.id === id) closeChatPanel();
     } catch (error) {
       console.error('Close query error:', error);
       setActionError(error.message || 'Unable to close query');
@@ -881,7 +953,7 @@ export const Queries = () => {
                   <h3 className="query-chat-title">{activeChat.title}</h3>
                   <small className="query-chat-dept">{activeChat.department}</small>
                 </div>
-                <button type="button" onClick={() => setActiveChat(null)} className="query-chat-close"><X size={20}/></button>
+                <button type="button" onClick={closeChatPanel} className="query-chat-close"><X size={20}/></button>
               </div>
               <div className="query-chat-messages">
                 {activeChat.messages.map(m => (

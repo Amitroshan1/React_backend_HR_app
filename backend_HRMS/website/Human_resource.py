@@ -27,6 +27,7 @@ from .email import (
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
+from .datetime_utils import utc_now, isoformat_api
 from zoneinfo import ZoneInfo
 import calendar
 from sqlalchemy import and_, or_, func, func, func
@@ -318,7 +319,7 @@ def _serialize_circle_history_row(row, admin=None):
         "effective_to": row.effective_to.isoformat() if row.effective_to else None,
         "notes": row.notes,
         "recorded_by": row.recorded_by,
-        "recorded_at": row.recorded_at.isoformat() if row.recorded_at else None,
+        "recorded_at": isoformat_api(row.recorded_at),
     }
 
 
@@ -1125,7 +1126,7 @@ def send_password_reset():
 
     token = secrets.token_urlsafe(32)
     admin.password_reset_token = token
-    admin.password_reset_expiry = datetime.utcnow() + timedelta(hours=1)
+    admin.password_reset_expiry = utc_now() + timedelta(hours=1)
     db.session.commit()
 
     if not send_password_reset_email(admin, token):
@@ -1589,7 +1590,7 @@ def get_employee_exit_history(admin_id):
                     "exit_type": r.exit_type,
                     "exit_reason": r.exit_reason,
                     "created_by": r.created_by,
-                    "created_at": r.created_at.isoformat() if getattr(r, "created_at", None) else None,
+                    "created_at": isoformat_api(getattr(r, "created_at", None)),
                 }
                 for r in rows
             ],
@@ -1708,7 +1709,7 @@ def get_archived_employee_profile(employee_id):
                     "manager_id": rv.manager_id,
                     "rating": rv.rating,
                     "comments": rv.comments,
-                    "reviewed_at": rv.reviewed_at.isoformat() if rv.reviewed_at else None,
+                    "reviewed_at": isoformat_api(rv.reviewed_at),
                 }
         except Exception:
             rev_payload = None
@@ -1720,7 +1721,7 @@ def get_archived_employee_profile(employee_id):
             "goals_next_month": p.goals_next_month,
             "suggestion_improvement": p.suggestion_improvement,
             "status": p.status,
-            "submitted_at": p.submitted_at.isoformat() if p.submitted_at else None,
+            "submitted_at": isoformat_api(p.submitted_at),
             "review": rev_payload,
         })
 
@@ -1728,7 +1729,7 @@ def get_archived_employee_profile(employee_id):
     queries = [{
         "title": q.title,
         "status": q.status,
-        "created_at": q.created_at.isoformat()
+        "created_at": isoformat_api(q.created_at)
     } for q in admin.queries]
 
     return jsonify({
@@ -2519,15 +2520,27 @@ def update_leave_balance(employee_id):
                 "message": str(e),
             }), 400
 
+    from .leave_balance_utils import leave_balance_payload, sync_leave_balance_totals
+
+    sync_leave_balance_totals(leave_balance)
+
     try:
         db.session.commit()
+        comp_balance = get_effective_comp_balance(employee_id)
+        lb = leave_balance_payload(leave_balance, comp_balance=comp_balance, sync=False)
         return jsonify({
             "success": True,
             "message": "Leave balance updated successfully",
             "leave_balance": {
-                "privilege_leave_balance": leave_balance.privilege_leave_balance,
-                "casual_leave_balance": leave_balance.casual_leave_balance,
-                "compensatory_leave_balance": get_effective_comp_balance(employee_id),
+                "privilege_leave_balance": lb["pl"],
+                "casual_leave_balance": lb["cl"],
+                "compensatory_leave_balance": lb["comp"],
+                "total_privilege_leave": lb["total_pl"],
+                "total_casual_leave": lb["total_cl"],
+                "total_compensatory_leave": lb["total_comp"],
+                "used_privilege_leave": lb["used_pl"],
+                "used_casual_leave": lb["used_cl"],
+                "used_comp_leave": lb["used_comp"],
             },
         }), 200
     except Exception as e:
@@ -2567,7 +2580,7 @@ def _serialize_leave_updation_row(row):
         "extra_days": _round_leave_value(row.extra_days),
         "requested_deducted_days": _round_leave_value(getattr(row, "requested_deducted_days", 0.0)),
         "sandwich_pl_days": _round_leave_value(getattr(row, "sandwich_pl_days", 0.0)),
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": isoformat_api(row.created_at),
         "request_type": "leave",
     }
 
@@ -2593,7 +2606,7 @@ def _serialize_wfh_updation_row(row):
         "extra_days": None,
         "requested_deducted_days": None,
         "sandwich_pl_days": None,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": isoformat_api(row.created_at),
         "request_type": "wfh",
     }
 
@@ -2962,7 +2975,7 @@ def get_leave_updation_audit(leave_id):
                 "action": row.action,
                 "performed_by": row.performed_by,
                 "target_email": row.target_email,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "created_at": isoformat_api(row.created_at),
             }
         )
     return jsonify({"success": True, "audit": items}), 200
@@ -3081,7 +3094,7 @@ def get_wfh_updation_audit(wfh_id):
                 "action": row.action,
                 "performed_by": row.performed_by,
                 "target_email": row.target_email,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "created_at": isoformat_api(row.created_at),
             }
         )
     return jsonify({"success": True, "audit": items}), 200
@@ -3371,12 +3384,12 @@ def _assessment_recording_hr_retention_expired(invite):
     viewed = getattr(invite, "recording_first_viewed_at", None)
     if not viewed:
         return False
-    return datetime.utcnow() - viewed >= timedelta(days=ASSESSMENT_RECORDING_HR_RETENTION_DAYS)
+    return utc_now() - viewed >= timedelta(days=ASSESSMENT_RECORDING_HR_RETENTION_DAYS)
 
 
 def purge_expired_assessment_recordings():
     """Remove session recordings past HR first-view retention. Safe to run from the daily scheduler."""
-    cutoff = datetime.utcnow() - timedelta(days=ASSESSMENT_RECORDING_HR_RETENTION_DAYS)
+    cutoff = utc_now() - timedelta(days=ASSESSMENT_RECORDING_HR_RETENTION_DAYS)
     uploads_root = _assessment_uploads_root()
     rows = (
         AssessmentInvite.query.filter(
@@ -3575,7 +3588,7 @@ def _assessment_session_deadline(invite):
 
 def _assessment_link_open_expired(invite, now=None):
     """True if invite was never started and the 15-minute open window passed."""
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     if invite.started_at or invite.status in ("submitted", "disqualified", "expired"):
         return False
     return bool(invite.expires_at and now > invite.expires_at)
@@ -3583,7 +3596,7 @@ def _assessment_link_open_expired(invite, now=None):
 
 def _assessment_session_expired(invite, now=None):
     """True if a started attempt ran past its allowed test duration."""
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     if invite.status in ("submitted", "disqualified"):
         return False
     deadline = _assessment_session_deadline(invite)
@@ -3611,7 +3624,7 @@ def _assessment_extend_session_expiry(invite):
 
 
 def _assessment_invite_public_payload(invite):
-    now = datetime.utcnow()
+    now = utc_now()
     if invite.status in ("submitted", "disqualified"):
         deadline = invite.expires_at
     elif invite.started_at:
@@ -3627,9 +3640,9 @@ def _assessment_invite_public_payload(invite):
         "status": invite.status,
         "disqualified": invite.status == "disqualified",
         "duration_minutes": invite.duration_minutes,
-        "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
-        "started_at": invite.started_at.isoformat() if invite.started_at else None,
-        "submitted_at": invite.submitted_at.isoformat() if invite.submitted_at else None,
+        "expires_at": isoformat_api(invite.expires_at),
+        "started_at": isoformat_api(invite.started_at),
+        "submitted_at": isoformat_api(invite.submitted_at),
         "seconds_left_to_expiry": seconds_left,
         "link_open_minutes": ASSESSMENT_LINK_TTL_MINUTES,
         "attempt_no": invite.attempt_no,
@@ -3659,7 +3672,7 @@ def create_assessment_invite():
         department=department,
         candidate_email=candidate_email,
         token_hash=token_hash,
-        expires_at=datetime.utcnow() + timedelta(minutes=ASSESSMENT_LINK_TTL_MINUTES),
+        expires_at=utc_now() + timedelta(minutes=ASSESSMENT_LINK_TTL_MINUTES),
         duration_minutes=ASSESSMENT_DURATION_MINUTES,
         status="invited",
     )
@@ -3703,7 +3716,7 @@ def create_assessment_invite():
                 "email": invite.candidate_email,
                 "department": invite.department,
                 "status": invite.status,
-                "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
+                "expires_at": isoformat_api(invite.expires_at),
                 "duration_minutes": invite.duration_minutes,
                 "link": link,
             },
@@ -3730,9 +3743,9 @@ def list_assessment_invites():
                 "department": r.department,
                 "status": r.status,
                 "attempt_no": r.attempt_no,
-                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
-                "started_at": r.started_at.isoformat() if r.started_at else None,
-                "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+                "expires_at": isoformat_api(r.expires_at),
+                "started_at": isoformat_api(r.started_at),
+                "submitted_at": isoformat_api(r.submitted_at),
                 "auto_score": r.auto_score,
                 "manual_score": r.manual_score,
                 "total_score": r.total_score,
@@ -3774,9 +3787,9 @@ def get_assessment_invite_detail(invite_id):
                 "status": invite.status,
                 "attempt_no": invite.attempt_no,
                 "duration_minutes": invite.duration_minutes,
-                "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
-                "started_at": invite.started_at.isoformat() if invite.started_at else None,
-                "submitted_at": invite.submitted_at.isoformat() if invite.submitted_at else None,
+                "expires_at": isoformat_api(invite.expires_at),
+                "started_at": isoformat_api(invite.started_at),
+                "submitted_at": isoformat_api(invite.submitted_at),
                 "selfie_path": invite.selfie_path,
                 "has_selfie": bool((getattr(invite, "selfie_path", None) or "").strip()),
                 "has_recording": bool((invite.recording_path or "").strip()),
@@ -3870,7 +3883,7 @@ def get_assessment_invite_recording(invite_id):
         return jsonify({"success": False, "message": "Recording file missing"}), 404
 
     if invite.recording_first_viewed_at is None:
-        invite.recording_first_viewed_at = datetime.utcnow()
+        invite.recording_first_viewed_at = utc_now()
         db.session.commit()
 
     mt, _enc = mimetypes.guess_type(abs_path)
@@ -3982,7 +3995,7 @@ def evaluate_assessment_invite(invite_id):
     invite.auto_score = round(auto_score, 2)
     invite.total_score = round(total, 2)
     invite.avg_score = avg
-    invite.evaluated_at = datetime.utcnow()
+    invite.evaluated_at = utc_now()
     invite.evaluated_by = (get_jwt() or {}).get("email")
     db.session.commit()
     return jsonify(
@@ -4099,7 +4112,7 @@ def assessment_public_start():
     invite.camera_granted = bool(data.get("camera_granted"))
     invite.mic_granted = bool(data.get("mic_granted"))
     if not invite.started_at:
-        invite.started_at = datetime.utcnow()
+        invite.started_at = utc_now()
     _assessment_extend_session_expiry(invite)
     if invite.status not in ("submitted", "disqualified", "expired"):
         invite.status = "started"
@@ -4173,7 +4186,7 @@ def assessment_public_submit():
     invite.total_score = round(float(invite.auto_score or 0.0) + float(invite.manual_score or 0.0), 2)
     max_total = len(ASSESSMENT_OBJECTIVE_ANSWER_KEY) + float(len(ASSESSMENT_ANY_OPTION_CORRECT_QS) + len(ASSESSMENT_MANUAL_QS))
     invite.avg_score = round((invite.total_score / max_total) * 100.0, 2) if max_total else 0.0
-    invite.submitted_at = datetime.utcnow()
+    invite.submitted_at = utc_now()
     invite.status = "disqualified" if disqualified else "submitted"
     db.session.commit()
 
@@ -4184,7 +4197,7 @@ def assessment_public_submit():
             department=invite.department,
         )
         if ok:
-            invite.hr_notified_at = datetime.utcnow()
+            invite.hr_notified_at = utc_now()
             db.session.commit()
 
     msg = (
@@ -4342,7 +4355,7 @@ def list_news_feed_history():
                     "file_url": p.file_url(),
                     "circle": p.circle,
                     "emp_type": p.emp_type,
-                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "created_at": isoformat_api(p.created_at),
                 }
                 for p in posts
             ],
@@ -5223,7 +5236,7 @@ def send_ex_employee_documents():
 
     raw_token = secrets.token_urlsafe(32)
     token_hash = _hash_ex_employee_token(raw_token)
-    expires_at = datetime.utcnow() + timedelta(hours=EX_EMPLOYEE_LINK_TTL_HOURS)
+    expires_at = utc_now() + timedelta(hours=EX_EMPLOYEE_LINK_TTL_HOURS)
 
     created_by = None
     try:
@@ -5312,7 +5325,7 @@ def send_ex_employee_documents():
         {
             "success": True,
             "message": f"Documents sent. The recipient has {EX_EMPLOYEE_LINK_TTL_HOURS} hours to download using the email link.",
-            "expires_at": expires_at.isoformat() + "Z",
+            "expires_at": isoformat_api(expires_at),
         }
     ), 201
 
@@ -5327,7 +5340,7 @@ def ex_employee_documents_public_info(token):
     share = ExEmployeeDocShare.query.filter_by(token_hash=th).first()
     if not share:
         return jsonify({"success": False, "message": "Invalid or expired link", "expired": True}), 404
-    if datetime.utcnow() > share.expires_at:
+    if utc_now() > share.expires_at:
         return jsonify(
             {
                 "success": False,
@@ -5344,7 +5357,7 @@ def ex_employee_documents_public_info(token):
         {
             "success": True,
             "expired": False,
-            "expires_at": share.expires_at.isoformat() + "Z",
+            "expires_at": isoformat_api(share.expires_at),
             "files": files,
         }
     ), 200
@@ -5360,7 +5373,7 @@ def ex_employee_documents_public_download(token, file_id):
     share = ExEmployeeDocShare.query.filter_by(token_hash=th).first()
     if not share:
         return jsonify({"success": False, "message": "Invalid or expired link"}), 404
-    if datetime.utcnow() > share.expires_at:
+    if utc_now() > share.expires_at:
         return jsonify({"success": False, "message": "This link has expired"}), 410
 
     doc_file = ExEmployeeDocFile.query.filter_by(id=file_id, share_id=share.id).first()
@@ -5399,7 +5412,7 @@ def ex_employee_documents_history():
     if limit > 500:
         limit = 500
 
-    now = datetime.utcnow()
+    now = utc_now()
     shares = (
         ExEmployeeDocShare.query.order_by(ExEmployeeDocShare.created_at.desc(), ExEmployeeDocShare.id.desc())
         .limit(limit)
@@ -5413,8 +5426,8 @@ def ex_employee_documents_history():
             {
                 "share_id": share.id,
                 "recipient_email": share.recipient_email,
-                "created_at": share.created_at.isoformat() + "Z" if share.created_at else None,
-                "expires_at": share.expires_at.isoformat() + "Z" if share.expires_at else None,
+                "created_at": isoformat_api(share.created_at),
+                "expires_at": isoformat_api(share.expires_at),
                 "is_expired": bool(share.expires_at and now > share.expires_at),
                 "document_count": len(files),
                 "documents": [{"id": f.id, "display_name": f.display_name} for f in files],

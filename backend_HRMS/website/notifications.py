@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt
 from . import db
 from .models.Admin_models import Admin
 from .models.notification import Notification
+from .datetime_utils import isoformat_api
 
 
 notifications = Blueprint("notifications", __name__)
@@ -41,7 +42,7 @@ def list_notifications():
             "entity_type": n.entity_type,
             "entity_id": n.entity_id,
             "is_read": bool(n.is_read),
-            "created_at": n.created_at.isoformat() if n.created_at else None,
+            "created_at": isoformat_api(n.created_at),
         }
         for n in rows
     ]

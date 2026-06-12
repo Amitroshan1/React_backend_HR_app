@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { Plus, Trash2, X, ArrowLeft } from 'lucide-react';
 import './AddDeptCircle.css';
 
@@ -50,9 +51,9 @@ const AddDeptCircle = ({ onBack }) => {
     }
   }, [getAuthHeaders]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchMasterRows();
-  }, [fetchMasterRows]);
+  });
 
   // Handle Add Department button click
   const handleAddDeptClick = () => {

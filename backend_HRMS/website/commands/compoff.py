@@ -3,6 +3,7 @@ Daily comp-off job: create gains from Sunday work (max 2/month), sync balance, s
 Run via: flask compoff-process [--run-date YYYY-MM-DD] [--dry-run]
 """
 from datetime import date, datetime, timedelta
+from ..datetime_utils import utc_now
 
 import click
 
@@ -112,7 +113,7 @@ def run_compoff_process(run_date):
         admin = Admin.query.get(g.admin_id)
         if admin and admin.email:
             if send_compoff_expiry_reminder(admin, g.gain_date, g.expiry_date):
-                g.reminder_sent_at = datetime.utcnow()
+                g.reminder_sent_at = utc_now()
                 summary["reminders_sent"] += 1
 
     return summary

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
     hasFeature,
@@ -28,7 +28,19 @@ const normalizePhotoUrl = (url) => {
 export const AppLayout = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { userData, loadingUser, photoVersion } = useUser();
+    const { userData, loadingUser, photoVersion, refreshUserData } = useUser();
+    const prevPathRef = useRef(null);
+    const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
+
+    /* Refresh shared user/leave balance when navigating between pages (skip initial load). */
+    useEffect(() => {
+        if (!hasToken) return;
+        const path = location.pathname || "";
+        if (prevPathRef.current !== null && prevPathRef.current !== path) {
+            refreshUserData();
+        }
+        prevPathRef.current = path;
+    }, [location.pathname, refreshUserData, hasToken]);
 
     useEffect(() => {
         const path = location.pathname || "";
@@ -54,7 +66,6 @@ export const AppLayout = () => {
     }, [location.pathname, navigate, userData?.user]);
 
     /* No token: redirect to login immediately (direct URL, Back after logout) – no dashboard or loading state */
-    const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
     useEffect(() => {
         if (!hasToken) {
             navigate("/", { replace: true });

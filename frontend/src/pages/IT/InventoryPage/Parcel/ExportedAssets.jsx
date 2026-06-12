@@ -16,6 +16,7 @@ import {
   isTransportInventoryCategory,
 } from "../../inventoryCategories";
 import "./ExportedAssets.css";
+import { formatDate } from "../../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ASSET_CATEGORIES = [
@@ -28,12 +29,7 @@ const ASSET_CATEGORIES = [
 const BACK_PATH = "/it/inventory/parcels";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const todayStr = () =>
-  new Date().toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+const todayStr = () => formatDate(new Date());
 
 /** Derive a representative emoji from hwType or assetName. */
 function getEmoji(unit) {

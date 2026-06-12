@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from .. import db
+from ..datetime_utils import utc_now
 
 
 class ITInventoryItem(db.Model):
@@ -27,8 +28,8 @@ class ITInventoryItem(db.Model):
     repair_quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
 
     created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     created_by_admin = db.relationship("Admin", backref=db.backref("it_inventory_items_created", lazy="dynamic"))
     asset_units = db.relationship("ITAssetUnit", back_populates="inventory_item", cascade="all, delete-orphan")
@@ -65,8 +66,8 @@ class ITAssetUnit(db.Model):
     photos_json = db.Column(db.JSON, nullable=True)
     assignment_photos_json = db.Column(db.JSON, nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     inventory_item = db.relationship("ITInventoryItem", back_populates="asset_units")
     assigned_to_admin = db.relationship("Admin", backref=db.backref("it_asset_units_assigned", lazy="dynamic"))
@@ -90,8 +91,8 @@ class ITSoftwareLicense(db.Model):
     assigned_to_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
     assigned_at = db.Column(db.DateTime, nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     inventory_item = db.relationship("ITInventoryItem", back_populates="software_licenses")
     assigned_to_admin = db.relationship("Admin", backref=db.backref("it_software_licenses_assigned", lazy="dynamic"))
@@ -110,8 +111,8 @@ class ITInventoryQuantityAssignment(db.Model):
     )
     assigned_to_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=False, index=True)
     quantity = db.Column(db.Integer, nullable=False, default=0, server_default="0")
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     inventory_item = db.relationship("ITInventoryItem", backref=db.backref("quantity_assignments", lazy="dynamic"))
     assigned_to_admin = db.relationship(
@@ -152,7 +153,7 @@ class ITOfficeStockDeployment(db.Model):
     custodian_emp_id = db.Column(db.String(40), nullable=True)
     notes = db.Column(db.String(500), nullable=True)
     created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     inventory_item = db.relationship(
         "ITInventoryItem",
@@ -182,7 +183,7 @@ class ITAssetAssignment(db.Model):
     software_license_id = db.Column(db.Integer, db.ForeignKey("it_software_licenses.id"), nullable=True, index=True)
 
     notes = db.Column(db.Text, nullable=True)
-    assigned_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    assigned_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     unassigned_at = db.Column(db.DateTime, nullable=True)
 
     assigned_to_admin = db.relationship("Admin", foreign_keys=[assigned_to_admin_id], backref=db.backref("it_assignments_received", lazy="dynamic"))
@@ -206,8 +207,8 @@ class ITSupportTicket(db.Model):
     status = db.Column(db.String(20), nullable=False, default="pending", server_default="pending", index=True)
     resolved_at = db.Column(db.DateTime, nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     requester_admin = db.relationship("Admin", foreign_keys=[requester_admin_id], backref=db.backref("it_tickets_requested", lazy="dynamic"))
     assignee_admin = db.relationship("Admin", foreign_keys=[assignee_admin_id], backref=db.backref("it_tickets_assigned", lazy="dynamic"))
@@ -230,7 +231,7 @@ class ITRemovedAsset(db.Model):
     reason = db.Column(db.Text, nullable=True)
     photos_json = db.Column(db.JSON, nullable=True)
 
-    removed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    removed_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
 
     asset_unit = db.relationship("ITAssetUnit", backref=db.backref("removed_records", lazy="dynamic"))
     inventory_item = db.relationship("ITInventoryItem", backref=db.backref("removed_records", lazy="dynamic"))
@@ -254,7 +255,7 @@ class ITDeletedAssetLog(db.Model):
     serial_number = db.Column(db.String(120), nullable=True)
     reason = db.Column(db.Text, nullable=True)
 
-    deleted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    deleted_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
 
     asset_unit = db.relationship("ITAssetUnit", backref=db.backref("delete_logs", lazy="dynamic"))
     inventory_item = db.relationship("ITInventoryItem", backref=db.backref("delete_logs", lazy="dynamic"))
@@ -273,7 +274,7 @@ class ITParcelExport(db.Model):
     # Free-text who processed the export (no admin link required for parcel tracking)
     exported_by_name = db.Column(db.String(120), nullable=True)
 
-    exported_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    exported_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
     parcel_photos_json = db.Column(db.JSON, nullable=True)
     inventory_category = db.Column(db.String(80), nullable=True, index=True)
 
@@ -313,7 +314,7 @@ class ITParcelImport(db.Model):
     received_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
     # Free-text who received the shipment (no admin link required for parcel tracking)
     received_by_name = db.Column(db.String(120), nullable=True)
-    received_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    received_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
     photos_json = db.Column(db.JSON, nullable=True)
 
     received_by_admin = db.relationship("Admin", backref=db.backref("it_parcel_imports_received", lazy="dynamic"))
@@ -348,8 +349,8 @@ class ITAssetReturnRequest(db.Model):
     receipt_confirmed_at = db.Column(db.DateTime, nullable=True)
     rejection_reason = db.Column(db.Text, nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     requester_admin = db.relationship("Admin", foreign_keys=[requester_admin_id], backref=db.backref("it_return_requests_created", lazy="dynamic"))
     approved_by_admin = db.relationship("Admin", foreign_keys=[approved_by_admin_id], backref=db.backref("it_return_requests_approved", lazy="dynamic"))

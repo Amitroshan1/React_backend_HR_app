@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Receipt, Calendar, Plus, FileText, Trash2, CheckCircle } from 'lucide-react';
 import './Claims.css';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDate } from '../../utils/dateFormat';
 
 const API_BASE_URL = "/api/leave";
 
@@ -104,9 +106,9 @@ export const Claims = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchClaims();
-  }, []);
+  });
 
   const handleAddToClaim = () => {
     // Validation
@@ -252,15 +254,6 @@ export const Claims = () => {
 
   const totalAmount = claims.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '';
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
-  };
 
   return (
     <div className="claims-dashboard-container">

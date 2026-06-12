@@ -22,6 +22,7 @@ from . import db
 from .models.emp_detail_models import Employee
 from .models.attendance import Punch, PunchSession, Location, LeaveBalance, LeaveApplication
 from .compoff_utils import get_effective_comp_balance
+from .leave_balance_utils import leave_balance_payload, sync_leave_balance_totals
 from .models.news_feed import NewsFeed, PaySlip
 from .models.monthly_payroll import MonthlyPayroll
 from .models.query import Query
@@ -41,6 +42,7 @@ from .document_identity import (
 from .models.prev_com import PreviousCompany
 from .models.master_data import MasterData
 from datetime import datetime, date, timedelta
+from .datetime_utils import utc_now, isoformat_api
 from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -131,7 +133,7 @@ def set_password_by_token():
     admin = Admin.query.filter_by(password_reset_token=token).first()
     if not admin:
         return jsonify({"success": False, "message": "Invalid or expired link"}), 400
-    if not admin.password_reset_expiry or admin.password_reset_expiry < datetime.utcnow():
+    if not admin.password_reset_expiry or admin.password_reset_expiry < utc_now():
         admin.password_reset_token = None
         admin.password_reset_expiry = None
         db.session.commit()
@@ -215,7 +217,7 @@ def _safe_doj(admin):
     d = getattr(admin, "doj", None)
     if d is None:
         return None
-    return d.isoformat() if hasattr(d, "isoformat") else str(d)
+    return isoformat_api(d) if d is not None else None
 
 
 @auth.route('/employee/homepage', methods=['GET'])
@@ -363,6 +365,12 @@ def _employee_homepage_impl():
     # 4. LEAVE BALANCE + USAGE (from LeaveBalance table)
     # ------------------------
     leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
+    comp_balance = get_effective_comp_balance(admin.id) if admin else 0.0
+    if leave_balance and sync_leave_balance_totals(leave_balance):
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     # ------------------------
     # 5. MANAGER DETAILS (ManagerContact)
@@ -443,7 +451,7 @@ def _employee_homepage_impl():
                 "gross_salary_for_month": float(row.gross_salary_for_month or 0),
                 "deductions_total_final": float(row.deductions_total_final or 0),
                 "net_salary_final": float(row.net_salary_final or 0),
-                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "created_at": isoformat_api(row.created_at),
             })
 
     # ------------------------
@@ -462,7 +470,7 @@ def _employee_homepage_impl():
     def _punch_iso_val(val):
         if val is None:
             return None
-        return val.isoformat() if hasattr(val, "isoformat") else str(val)
+        return isoformat_api(val) if val is not None else None
 
     # Display name: first_name, else user_name, else email prefix, else "User" (so HR/any user shows in header)
     _first = (getattr(admin, "first_name", None) or "").strip()
@@ -516,17 +524,11 @@ def _employee_homepage_impl():
             "years_of_service": years_of_service,
             "is_joining_today": bool(admin.doj and admin.doj == today),
         },
-        "leave_balance": {
-            "pl": leave_balance.privilege_leave_balance if leave_balance else 0,
-            "cl": leave_balance.casual_leave_balance if leave_balance else 0,
-            "comp": (get_effective_comp_balance(admin.id) if admin else 0),
-            "total_pl": leave_balance.total_privilege_leave if leave_balance else 0,
-            "total_cl": leave_balance.total_casual_leave if leave_balance else 0,
-            "total_comp": leave_balance.total_compensatory_leave if leave_balance else 0,
-            "used_pl": leave_balance.used_privilege_leave if leave_balance else 0,
-            "used_cl": leave_balance.used_casual_leave if leave_balance else 0,
-            "used_comp": leave_balance.used_comp_leave if leave_balance else 0,
-        },
+        "leave_balance": leave_balance_payload(
+            leave_balance,
+            comp_balance=comp_balance,
+            sync=False,
+        ),
         "managers": managers,
         "last_leave": last_leave_data,
         "last_payslip": last_payslip_data,
@@ -625,7 +627,7 @@ def get_news_feed():
             "file_url": p.file_url(),
             "circle": p.circle,
             "emp_type": p.emp_type,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "created_at": isoformat_api(p.created_at),
         }
         for p in posts
     ])
@@ -732,7 +734,7 @@ def employee_profile():
     upload_doc = UploadDoc.query.filter_by(admin_id=admin.id).first()
 
     def _date_iso(d):
-        return d.isoformat() if d and hasattr(d, 'isoformat') else (str(d) if d else None)
+        return isoformat_api(d) if d else None
 
     profile = {
         "admin": {

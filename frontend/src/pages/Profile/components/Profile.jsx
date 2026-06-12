@@ -13,6 +13,7 @@ import {
     INITIAL_DOCUMENT_META,
     DOCUMENT_ERROR_KEYS,
 } from '../utils/documentIdentity';
+import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
 import {
     API_BASE_URL,
     mapProfileFromApi,
@@ -205,10 +206,10 @@ export const Profile = () => {
         }
     }, [applyProfileToState]);
 
-    // --- Fetch profile from backend on mount (and on refresh) ---
-    useEffect(() => {
+    // --- Fetch profile when visiting this page ---
+    useRefreshOnNavigate(() => {
         fetchProfile();
-    }, [fetchProfile]);
+    });
 
     // =========================================================
     // 1. VALIDATION AND SAVE LOGIC

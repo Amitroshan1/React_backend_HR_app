@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import "./HolidayCalendarUser.css";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { formatDate } from "../../utils/dateFormat";
 
 const API_BASE = "/api/HumanResource";
 
@@ -37,7 +39,7 @@ export const HolidayCalendarUser = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchHolidays(year);
   }, [year]);
 
@@ -75,7 +77,7 @@ export const HolidayCalendarUser = () => {
                   rows.map((row) => (
                     <tr key={row.id}>
                       <td>{row.sr_no}</td>
-                      <td>{row.display_date || "-"}</td>
+                      <td>{formatDate(row.holiday_date) || "-"}</td>
                       <td>{row.day || "-"}</td>
                       <td>
                         {row.holiday_name}

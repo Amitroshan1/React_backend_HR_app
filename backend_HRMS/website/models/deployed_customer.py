@@ -2,6 +2,7 @@
 from datetime import datetime, date
 
 from .. import db
+from ..datetime_utils import isoformat_api, utc_now
 
 
 PLAN_ORDER = ("basic", "essential", "enterprise")
@@ -24,12 +25,12 @@ class DeployedCustomer(db.Model):
     notes = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(32), nullable=False, default="active")
     go_live_date = db.Column(db.Date, nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     def plan_label(self):
@@ -54,8 +55,8 @@ class DeployedCustomer(db.Model):
             "notes": self.notes or "",
             "status": self.status or "active",
             "go_live_date": self.go_live_date.isoformat() if self.go_live_date else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": isoformat_api(self.created_at),
+            "updated_at": isoformat_api(self.updated_at),
             "can_upgrade_to": [
                 {"id": p, "label": PLAN_LABELS[p]} for p in self.upgrade_options()
             ],

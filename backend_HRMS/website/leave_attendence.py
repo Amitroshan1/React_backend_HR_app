@@ -21,6 +21,7 @@ from . import db
 from .noc_department_service import reject_pending_noc_rows_for_resignation
 from flask import jsonify
 from datetime import date, datetime, timedelta
+from .datetime_utils import isoformat_api
 from zoneinfo import ZoneInfo
 import calendar
 import os
@@ -1481,9 +1482,7 @@ def get_resignation_status():
         history = []
         for r in history_rows:
             applied_on = getattr(r, 'applied_on', None)
-            created_at_str = applied_on.isoformat() if applied_on and hasattr(applied_on, 'isoformat') else (
-                str(applied_on) if applied_on else None
-            )
+            created_at_str = isoformat_api(applied_on) if applied_on else None
             history.append({
                 "id": r.id,
                 "resignation_date": r.resignation_date.isoformat() if r.resignation_date else None,
@@ -1494,7 +1493,7 @@ def get_resignation_status():
 
         if resignation:
             applied_on = getattr(resignation, 'applied_on', None)
-            created_at_str = applied_on.isoformat() if applied_on and hasattr(applied_on, 'isoformat') else (str(applied_on) if applied_on else None)
+            created_at_str = isoformat_api(applied_on) if applied_on else None
             notice_info = _serialize_notice(resignation)
 
             # Consider "already_submitted" only for active resignations (pending/approved).

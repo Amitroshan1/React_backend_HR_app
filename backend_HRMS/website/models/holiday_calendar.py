@@ -1,4 +1,5 @@
 from datetime import datetime
+from ..datetime_utils import utc_now
 
 from .. import db
 
@@ -12,12 +13,12 @@ class HolidayCalendar(db.Model):
     holiday_date = db.Column(db.Date, nullable=False, index=True)
     is_optional = db.Column(db.Boolean, nullable=False, default=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(
         db.DateTime,
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     __table_args__ = (

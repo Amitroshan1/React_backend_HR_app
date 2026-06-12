@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft, MapPin } from 'lucide-react';
 import './AddLocation.css';
 
@@ -36,9 +37,9 @@ export const AddLocation = ({ onBack }) => {
     }
   }, [getAuthHeaders]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchLocations();
-  }, [fetchLocations]);
+  });
 
   const handleChange = (e) => {
     const { name, value } = e.target;

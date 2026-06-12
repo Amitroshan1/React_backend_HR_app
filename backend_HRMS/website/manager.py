@@ -8,6 +8,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
 from datetime import date, datetime
 
+from .datetime_utils import utc_now, isoformat_api
 from . import db
 from .models.Admin_models import Admin, AuditLog
 from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch
@@ -975,7 +976,7 @@ def probation_reviews_due():
             "employee_email": target.email,
             "doj": _serialize_date(getattr(target, "doj", None)),
             "probation_end_date": _serialize_date(pr.probation_end_date),
-            "reminder_sent_at": pr.reminder_sent_at.isoformat() if pr.reminder_sent_at else None,
+            "reminder_sent_at": isoformat_api(pr.reminder_sent_at),
         })
     return jsonify({"success": True, "reviews": out}), 200
 
@@ -1008,7 +1009,7 @@ def submit_probation_review():
     if not _is_manager_for_target(admin, target):
         return jsonify({"success": False, "message": "You are not the manager for this employee"}), 403
 
-    pr.reviewed_at = datetime.utcnow()
+    pr.reviewed_at = utc_now()
     pr.reviewed_by_admin_id = admin.id
     pr.feedback = feedback or None
     pr.rating = rating or None
@@ -1020,7 +1021,7 @@ def submit_probation_review():
 
     manager_name = (getattr(admin, "first_name", None) or "").strip() or admin.email or "Manager"
     send_probation_review_submitted_email(target, manager_name, feedback_preview=feedback)
-    pr.hr_notified_at = datetime.utcnow()
+    pr.hr_notified_at = utc_now()
     db.session.commit()
 
     return jsonify({

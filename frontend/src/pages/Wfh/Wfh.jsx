@@ -160,18 +160,10 @@
 import React, { useState, useEffect } from 'react';
 import { Toast } from './ui/Toast';
 import './Wfh.css';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDate } from '../../utils/dateFormat';
 
 const API_BASE_URL = "/api/leave";
-
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  try {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  } catch {
-    return dateStr;
-  }
-};
 
 export const Wfh = () => {
   const [requests, setRequests] = useState([]);
@@ -211,9 +203,9 @@ export const Wfh = () => {
     }
   };
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchWfhRequests();
-  }, []);
+  });
 
   const handleFromChange = (e) => {
     const selectedFrom = e.target.value;

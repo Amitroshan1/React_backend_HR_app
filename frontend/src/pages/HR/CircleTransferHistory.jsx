@@ -1,18 +1,14 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { ArrowLeft, Search } from "lucide-react";
 import "./CircleTransferHistory.css";
+import { formatDate } from "../../utils/dateFormat";
 
 const API_BASE = "/api/HumanResource";
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-const formatDate = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 };
 
 export function CircleTransferHistory({ onBack, circleOptions = [] }) {
@@ -49,9 +45,9 @@ export function CircleTransferHistory({ onBack, circleOptions = [] }) {
     }
   }, [filters]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchTransfers();
-  }, [fetchTransfers]);
+  });
 
   return (
     <div className="hr-main-container circle-transfer-page">

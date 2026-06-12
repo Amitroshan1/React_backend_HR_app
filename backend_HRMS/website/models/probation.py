@@ -1,5 +1,6 @@
 """Probation review: 6-month reminder to manager, manager feedback, HR notification."""
 from datetime import datetime
+from ..datetime_utils import utc_now
 from .. import db
 
 
@@ -32,8 +33,8 @@ class ProbationReview(db.Model):
     feedback = db.Column(db.Text, nullable=True)
     rating = db.Column(db.String(20), nullable=True)
     hr_notified_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
     admin = db.relationship("Admin", foreign_keys=[admin_id], backref="probation_reviews")
     reviewed_by = db.relationship("Admin", foreign_keys=[reviewed_by_admin_id])

@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { ArrowLeft, Edit3, Search } from "lucide-react";
 import "./LeaveApplicationUpdation.css";
+import { formatDate, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
 const API_BASE = "/api/HumanResource";
 
@@ -130,9 +132,9 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     }
   }, [filters.request_type, filters.emp_type, filters.circle]);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     fetchRows();
-  }, [fetchRows]);
+  });
 
   const openEditor = (row) => {
     setSuccessMessage("");
@@ -222,6 +224,9 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
       setSuccessMessage(
         isWfh ? "WFH request updated successfully." : "Leave request updated successfully."
       );
+      if (!isWfh) {
+        window.dispatchEvent(new CustomEvent("leaveDataUpdated"));
+      }
       closeEditor();
       await fetchRows();
     } catch (err) {
@@ -337,7 +342,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
                     <small>{row.emp_id || "-"} • {row.circle || "-"}</small>
                   </td>
                   <td>{row.leave_type || (String(row.request_type).toLowerCase() === "wfh" ? "Work From Home" : "-")}</td>
-                  <td>{row.start_date} to {row.end_date}</td>
+                  <td>{formatDate(row.start_date)} to {formatDate(row.end_date)}</td>
                   <td>
                     <span className={`lau-status ${normalizeRequestStatus(row.status)}`}>
                       {row.status || "-"}
@@ -428,7 +433,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
                     <tbody>
                       {auditRows.map((a) => (
                         <tr key={a.id}>
-                          <td>{a.created_at ? new Date(a.created_at).toLocaleString() : "-"}</td>
+                          <td>{formatDateTimeDDMMYYYY(a.created_at, "-")}</td>
                           <td>{a.performed_by || "-"}</td>
                           <td className="lau-audit-action">
                             <div className="lau-audit-chips">
