@@ -807,9 +807,6 @@ function AssetDetailModal({
   onClose,
   onStatusChange,
   inventoryCategory,
-  inventoryDeploy = false,
-  onOfficeIssue,
-  onOfficeReturn,
 }) {
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
 
@@ -830,11 +827,7 @@ function AssetDetailModal({
     invCat === "Infrastructure Assets" &&
     String(asset.category || "").toLowerCase() === "equipment";
   const brandModel = unit ? getUnitBrandModelDisplay(unit, invCat) : { primary: "—", secondary: "" };
-  const deployConfig = invCat ? getDeployModalConfig(invCat) : null;
-  const showDeployActions =
-    inventoryDeploy &&
-    rowSupportsInventoryDeploy(asset, invCat) &&
-    (stockMode || isUnitDeployRow(asset, invCat));
+  const hideInUseInSummary = showInventoryDeploy(invCat);
 
   const detailFields = isInfraEquipment
     ? [
@@ -962,8 +955,8 @@ function AssetDetailModal({
                       {[
                         ["Total Quantity", asset?.total ?? 0],
                         ["Available", asset?.available ?? 0],
-                        ...(!stockMode || inventoryDeploy
-                          ? [[inventoryDeploy ? "In use" : "Assigned", asset?.assigned ?? 0]]
+                        ...(!hideInUseInSummary && !stockMode
+                          ? [["Assigned", asset?.assigned ?? 0]]
                           : []),
                         ["Not Working", asset?.notWorking ?? 0],
                         ["In Repair", asset?.inRepair ?? 0],
@@ -1064,44 +1057,6 @@ function AssetDetailModal({
 
           <div className="inv-detail-footer">
             <div className="inv-detail-footer-actions">
-              {showDeployActions && (
-                <>
-                  <button
-                    type="button"
-                    className="inv-inline-action-btn"
-                    style={{
-                      color: "#1d4ed8",
-                      background: "#eff6ff",
-                      borderColor: "#3b82f6",
-                    }}
-                    disabled={Number(asset?.available) < 1}
-                    title={deployConfig?.deployTitle}
-                    onClick={() => {
-                      onOfficeIssue?.(asset);
-                      onClose();
-                    }}
-                  >
-                    {deployConfig?.deployLabel || "Deploy"}
-                  </button>
-                  <button
-                    type="button"
-                    className="inv-inline-action-btn"
-                    style={{
-                      color: "#047857",
-                      background: "#ecfdf5",
-                      borderColor: "#10b981",
-                    }}
-                    disabled={Number(asset?.assigned) < 1}
-                    title={deployConfig?.returnTitle}
-                    onClick={() => {
-                      onOfficeReturn?.(asset);
-                      onClose();
-                    }}
-                  >
-                    {deployConfig?.returnLabel || "Return"}
-                  </button>
-                </>
-              )}
               {EDIT_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
@@ -1749,9 +1704,6 @@ function TotalAssetsPage({ category }) {
             onClose={() => setDetailAsset(null)}
             onStatusChange={handleStatusChange}
             inventoryCategory={category}
-            inventoryDeploy={inventoryDeploy}
-            onOfficeIssue={setOfficeIssueTarget}
-            onOfficeReturn={setOfficeReturnTarget}
           />
         )
       )}
@@ -1846,9 +1798,6 @@ function OverviewPage({ category }) {
             onClose={() => setDetailAsset(null)}
             onStatusChange={handleStatusChange}
             inventoryCategory={category}
-            inventoryDeploy={inventoryDeploy}
-            onOfficeIssue={setOfficeIssueTarget}
-            onOfficeReturn={setOfficeReturnTarget}
           />
         )
       )}
