@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { 
   Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
-  ArrowLeft, Upload, FileCheck
+  ArrowLeft, Upload, FileCheck, Receipt
 } from 'lucide-react';
 import './Account.css';
 import { useUser } from '../../components/layout/UserContext';
@@ -193,9 +193,17 @@ export const Account = ()  => {
   const [ctcHistory, setCtcHistory] = useState([]);
   const [ctcHistoryLoading, setCtcHistoryLoading] = useState(false);
   const [ctcHistoryError, setCtcHistoryError] = useState('');
-  const [viewPayslipCtc, setViewPayslipCtc] = useState(null);
-  const [viewPayslipCtcLoading, setViewPayslipCtcLoading] = useState(false);
-  const [viewPayslipCtcError, setViewPayslipCtcError] = useState('');
+  const [tdsProjection, setTdsProjection] = useState(null);
+  const [tdsLoading, setTdsLoading] = useState(false);
+  const [tdsError, setTdsError] = useState('');
+  const [tdsForm, setTdsForm] = useState({
+    financial_year: defaultFinancialYear(),
+    rent_paid_annual: '',
+    section_80c_extra: '',
+    section_80d: '',
+    is_metro: false,
+    previous_employer_tds: '',
+  });
   const ctcApplyingReverseRef = useRef(false);
   const ctcWantsReverseRef = useRef(false);
 
@@ -967,33 +975,6 @@ export const Account = ()  => {
     }
   };
 
-  const loadViewPayslipCtc = async (adminId) => {
-    const token = localStorage.getItem('token');
-    if (!token || !adminId) {
-      setViewPayslipCtc(null);
-      return;
-    }
-    try {
-      setViewPayslipCtcLoading(true);
-      setViewPayslipCtcError('');
-      const response = await fetch(`${API_BASE_URL}/ctc-breakup/${adminId}`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || 'Failed to load CTC breakup');
-      }
-      setViewPayslipCtc(result.ctc_breakup || null);
-    } catch (error) {
-      console.error('View payslip CTC load error:', error);
-      setViewPayslipCtc(null);
-      setViewPayslipCtcError(error.message || 'Unable to load CTC breakup');
-    } finally {
-      setViewPayslipCtcLoading(false);
-    }
-  };
-
   const loadCtcHistory = async (adminId) => {
     const token = localStorage.getItem('token');
     if (!token || !adminId) {
@@ -1274,12 +1255,6 @@ export const Account = ()  => {
     return () => {
       cancelled = true;
     };
-  }, [currentView, selectedEmployee?.adminId]);
-
-  useEffect(() => {
-    if (currentView !== 'viewPayslip' || !selectedEmployee?.adminId) return;
-    if (!hasFeature('account_ctc_breakup')) return;
-    loadViewPayslipCtc(selectedEmployee.adminId);
   }, [currentView, selectedEmployee?.adminId]);
 
   useEffect(() => {
@@ -1591,7 +1566,7 @@ export const Account = ()  => {
           name: emp.name,
           one_day_salary: Number(p.one_day_salary || 0),
           gross_salary_for_month: Number(p.gross_salary_for_month || 0),
-          actual_working_days: Number(p.actual_working_days || 0),
+          actual_working_days: Math.max(0, Number(p.actual_working_days || 0)),
           epf_final: Number(p.epf_final || 0),
           ptax_final: Number(p.ptax_final || 0),
           esic_final: Number(p.esic_final || 0),
@@ -2382,158 +2357,293 @@ export const Account = ()  => {
     </div>
   );
 
-  const formatPtaxMonthLabel = (ptaxMonth) => {
-    if (!ptaxMonth) return '—';
-    const s = String(ptaxMonth).trim();
-    if (/^\d{4}-\d{2}$/.test(s)) {
-      const [y, m] = s.split('-');
-      const d = new Date(Number(y), Number(m) - 1, 1);
-      if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  const fetchTdsProjection = async (adminId, formOverrides = {}) => {
+    const token = localStorage.getItem('token');
+    if (!token || !adminId) return;
+    const form = { ...tdsForm, ...formOverrides };
+    try {
+      setTdsLoading(true);
+      setTdsError('');
+      const response = await fetch(`${API_BASE_URL}/tds/projection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          admin_id: adminId,
+          financial_year: form.financial_year || defaultFinancialYear(),
+          rent_paid_annual: form.rent_paid_annual || 0,
+          section_80c_extra: form.section_80c_extra || 0,
+          section_80d: form.section_80d || 0,
+          is_metro: form.is_metro,
+          previous_employer_tds: form.previous_employer_tds || 0,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load TDS projection');
       }
+      setTdsProjection(result.projection || null);
+    } catch (error) {
+      console.error('TDS projection error:', error);
+      setTdsError(error.message || 'Unable to calculate TDS projection');
+      setTdsProjection(null);
+    } finally {
+      setTdsLoading(false);
     }
-    return s;
   };
 
-  const renderViewPayslipCtcCard = () => {
-    if (!hasFeature('account_ctc_breakup')) return null;
+  const openTdsProjection = () => {
+    if (!selectedEmployee?.adminId) return;
+    setPreviousView(currentView);
+    setTdsForm((p) => ({ ...p, financial_year: defaultFinancialYear() }));
+    setTdsProjection(null);
+    setTdsError('');
+    setCurrentView('tdsProjection');
+    fetchTdsProjection(selectedEmployee.adminId);
+  };
 
-    const c = viewPayslipCtc;
-    const annualTotal = Number(c?.annual_ctc_computed ?? c?.annual_ctc ?? 0);
-    const hasData = c && (annualTotal > 0 || Number(c.basic_salary || 0) > 0);
-
-    const earningsRows = [
-      { label: 'Basic + DA', value: c?.basic_salary, monthly: true },
-      {
-        label: c?.hra_pct != null ? `HRA (${Number(c.hra_pct)}%)` : 'HRA',
-        value: c?.hra,
-        monthly: true,
-      },
-      { label: 'Other Allowance', value: c?.other_allowance, monthly: true },
-      { label: 'Gross Salary', value: c?.gross_salary, monthly: true, tone: 'accent' },
-      { label: 'Net Salary', value: c?.net_salary, monthly: true, tone: 'green' },
-    ];
-
-    const deductionRows = [
-      { label: 'EPF (Employee)', value: c?.epf, monthly: true },
-      { label: 'ESIC (Employee)', value: c?.esic, monthly: true },
-      { label: 'Professional Tax', value: c?.ptax, monthly: true },
-      { label: 'Total Deductions', value: c?.deductions_total, monthly: true, tone: 'red' },
-    ];
-
-    const annualRows = [
-      { label: 'Gratuity', value: c?.gratuity_yearly },
-      { label: 'Employer PF', value: c?.employer_pf_yearly },
-      { label: 'Employer ESIC', value: c?.employer_esic_yearly },
-      { label: 'Mediclaim', value: c?.mediclaim_yearly },
-    ];
+  const renderTdsProjection = () => {
+    const p = tdsProjection;
+    const regimeLabel = p?.regime_label || p?.employee?.tax_regime || '—';
+    const isOldRegime = p?.regime === 'old';
 
     return (
-      <div className="table-container-card view-payslip-ctc-card">
-        <div className="view-payslip-ctc-header">
-          <div>
-            <h3 className="section-title view-payslip-ctc-title">
-              <Calculator size={20} className="view-payslip-ctc-title-icon" />
-              CTC Breakup
-            </h3>
-            <p className="view-payslip-ctc-subtitle">
-              Saved salary structure for {selectedEmployee?.name || 'employee'}
-            </p>
-          </div>
-          {selectedEmployee && (
-            <button
-              type="button"
-              className="btn-outline-sm view-payslip-ctc-edit-btn"
-              onClick={() => handleOpenCtcBreakup(selectedEmployee)}
-            >
-              Edit CTC
-            </button>
-          )}
-        </div>
-
-        {viewPayslipCtcLoading && (
-          <p className="view-payslip-ctc-loading">Loading CTC breakup...</p>
-        )}
-        {viewPayslipCtcError && !viewPayslipCtcLoading && (
-          <div className="q-error view-payslip-ctc-error">{viewPayslipCtcError}</div>
-        )}
-        {!viewPayslipCtcLoading && !viewPayslipCtcError && !hasData && (
-          <div className="view-payslip-ctc-empty">
-            <p>No CTC breakup saved yet for this employee.</p>
-            {selectedEmployee && (
-              <button
-                type="button"
-                className="btn-primary-sm"
-                onClick={() => handleOpenCtcBreakup(selectedEmployee)}
-              >
-                Create CTC Breakup
-              </button>
-            )}
-          </div>
-        )}
-
-        {!viewPayslipCtcLoading && hasData && (
-          <div className="view-payslip-ctc-body">
-            <div className="view-payslip-ctc-hero">
-              <span className="view-payslip-ctc-hero-label">Annual CTC (Total)</span>
-              <span className="view-payslip-ctc-hero-value">{formatCurrency(annualTotal)}</span>
-              {c?.updated_at && (
-                <span className="view-payslip-ctc-hero-meta">
-                  Last updated {formatDateTime(c.updated_at)}
+      <div className="form16-page-stack fade-in">
+        <button
+          type="button"
+          className="btn-back"
+          onClick={() => setCurrentView(previousView || 'ctcBreakup')}
+        >
+          <ArrowLeft size={18} /> Back
+        </button>
+        <div className="table-container-card tds-page-card">
+          <div className="card-header-row tds-page-header">
+            <div>
+              <h3 className="section-title tds-page-title">
+                <Receipt size={20} className="tds-page-title-icon" />
+                TDS Projection — {selectedEmployee?.name || 'Employee'}
+              </h3>
+              <p className="tds-page-subtitle">
+                FY {p?.financial_year || tdsForm.financial_year}
+                {' · '}
+                <span className={`tds-regime-badge tds-regime-badge--${p?.regime || 'new'}`}>
+                  {regimeLabel}
                 </span>
-              )}
+                {p?.employee?.pan ? ` · PAN ${p.employee.pan}` : ''}
+              </p>
             </div>
+          </div>
 
-            <div className="view-payslip-ctc-grid">
-              <section className="view-payslip-ctc-panel view-payslip-ctc-panel--earnings">
-                <h4 className="view-payslip-ctc-panel-title">Monthly Earnings</h4>
-                <ul className="view-payslip-ctc-rows">
-                  {earningsRows.map((row) => (
-                    <li
-                      key={row.label}
-                      className={`view-payslip-ctc-row${row.tone ? ` view-payslip-ctc-row--${row.tone}` : ''}`}
-                    >
-                      <span>{row.label}</span>
-                      <span>{formatCurrency(row.value)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section className="view-payslip-ctc-panel view-payslip-ctc-panel--deductions">
-                <h4 className="view-payslip-ctc-panel-title">Monthly Deductions</h4>
-                <ul className="view-payslip-ctc-rows">
-                  {deductionRows.map((row) => (
-                    <li
-                      key={row.label}
-                      className={`view-payslip-ctc-row${row.tone ? ` view-payslip-ctc-row--${row.tone}` : ''}`}
-                    >
-                      <span>{row.label}</span>
-                      <span>{formatCurrency(row.value)}</span>
-                    </li>
-                  ))}
-                </ul>
-                {c?.ptax_month && (
-                  <p className="view-payslip-ctc-footnote">
-                    P.Tax slab month: {formatPtaxMonthLabel(c.ptax_month)}
-                  </p>
-                )}
-              </section>
-            </div>
-
-            <section className="view-payslip-ctc-panel view-payslip-ctc-panel--annual">
-              <h4 className="view-payslip-ctc-panel-title">Annual Employer Cost &amp; Benefits</h4>
-              <div className="view-payslip-ctc-annual-grid">
-                {annualRows.map((row) => (
-                  <div key={row.label} className="view-payslip-ctc-stat">
-                    <span className="view-payslip-ctc-stat-label">{row.label}</span>
-                    <span className="view-payslip-ctc-stat-value">{formatCurrency(row.value)}</span>
-                  </div>
+          <div className="tds-page-body">
+            {p?.warnings?.length > 0 && (
+              <div className="tds-warnings">
+                {p.warnings.map((w) => (
+                  <p key={w}>{w}</p>
                 ))}
               </div>
-            </section>
+            )}
+
+            <div className="tds-adjust-grid">
+              <div className="input-group">
+                <label>Financial Year</label>
+                <input
+                  className="custom-select"
+                  value={tdsForm.financial_year}
+                  onChange={(e) =>
+                    setTdsForm((prev) => ({
+                      ...prev,
+                      financial_year: formatFinancialYearInput(e.target.value),
+                    }))
+                  }
+                  placeholder="2025-2026"
+                />
+              </div>
+              {isOldRegime && (
+                <>
+                  <div className="input-group">
+                    <label>Annual Rent Paid (HRA)</label>
+                    <input
+                      className="custom-select"
+                      type="number"
+                      min="0"
+                      value={tdsForm.rent_paid_annual}
+                      onChange={(e) =>
+                        setTdsForm((prev) => ({ ...prev, rent_paid_annual: e.target.value }))
+                      }
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="input-group tds-metro-check">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={tdsForm.is_metro}
+                        onChange={(e) =>
+                          setTdsForm((prev) => ({ ...prev, is_metro: e.target.checked }))
+                        }
+                      />
+                      Metro city (HRA 50% rule)
+                    </label>
+                  </div>
+                  <div className="input-group">
+                    <label>80C extra (beyond EPF)</label>
+                    <input
+                      className="custom-select"
+                      type="number"
+                      min="0"
+                      value={tdsForm.section_80c_extra}
+                      onChange={(e) =>
+                        setTdsForm((prev) => ({ ...prev, section_80c_extra: e.target.value }))
+                      }
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>80D (Mediclaim)</label>
+                    <input
+                      className="custom-select"
+                      type="number"
+                      min="0"
+                      value={tdsForm.section_80d}
+                      onChange={(e) =>
+                        setTdsForm((prev) => ({ ...prev, section_80d: e.target.value }))
+                      }
+                      placeholder="0"
+                    />
+                  </div>
+                </>
+              )}
+              <div className="input-group">
+                <label>Previous employer TDS</label>
+                <input
+                  className="custom-select"
+                  type="number"
+                  min="0"
+                  value={tdsForm.previous_employer_tds}
+                  onChange={(e) =>
+                    setTdsForm((prev) => ({ ...prev, previous_employer_tds: e.target.value }))
+                  }
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn-outline-sm tds-recalc-btn"
+              disabled={tdsLoading}
+              onClick={() => fetchTdsProjection(selectedEmployee?.adminId)}
+            >
+              {tdsLoading ? 'Calculating…' : 'Recalculate'}
+            </button>
+
+            {tdsLoading && <p className="tds-loading">Calculating TDS projection…</p>}
+            {tdsError && !tdsLoading && <div className="q-error tds-error">{tdsError}</div>}
+
+            {!tdsLoading && p && (
+              <>
+                <div className="tds-hero">
+                  <span className="tds-hero-label">Projected Monthly TDS</span>
+                  <span className="tds-hero-value">{formatCurrency(p.tds?.monthly_tds)}</span>
+                  <span className="tds-hero-meta">
+                    Annual tax {formatCurrency(p.tax?.annual_tax)}
+                    {' · '}
+                    {p.tds?.remaining_months} month(s) remaining in FY
+                  </span>
+                </div>
+
+                <div className="tds-panels">
+                  <section className="tds-panel">
+                    <h4>Income (projected)</h4>
+                    <ul className="tds-rows">
+                      <li><span>Monthly gross</span><span>{formatCurrency(p.income?.monthly_gross)}</span></li>
+                      <li><span>Projected annual gross</span><span>{formatCurrency(p.income?.projected_annual_gross)}</span></li>
+                      <li><span>Basic (annual)</span><span>{formatCurrency(p.income?.basic_annual)}</span></li>
+                      <li><span>HRA (annual)</span><span>{formatCurrency(p.income?.hra_annual)}</span></li>
+                    </ul>
+                  </section>
+                  <section className="tds-panel">
+                    <h4>Deductions / Exemptions</h4>
+                    <ul className="tds-rows">
+                      <li><span>Standard deduction</span><span>{formatCurrency(p.deductions?.standard_deduction)}</span></li>
+                      {isOldRegime && (
+                        <>
+                          <li><span>HRA exemption</span><span>{formatCurrency(p.deductions?.hra_exemption)}</span></li>
+                          <li><span>80C (incl. EPF)</span><span>{formatCurrency(p.deductions?.section_80c)}</span></li>
+                          <li><span>80D</span><span>{formatCurrency(p.deductions?.section_80d)}</span></li>
+                          <li><span>P.Tax (annual)</span><span>{formatCurrency(p.deductions?.professional_tax_annual)}</span></li>
+                        </>
+                      )}
+                      <li className="tds-row--accent"><span>Total exemptions</span><span>{formatCurrency(p.deductions?.total_exemptions)}</span></li>
+                      <li className="tds-row--accent"><span>Taxable income</span><span>{formatCurrency(p.taxable_income)}</span></li>
+                    </ul>
+                  </section>
+                </div>
+
+                <section className="tds-panel tds-panel--full">
+                  <h4>Tax computation</h4>
+                  <ul className="tds-rows">
+                    <li><span>Tax before rebate</span><span>{formatCurrency(p.tax?.tax_before_rebate)}</span></li>
+                    <li><span>Rebate u/s 87A</span><span>{formatCurrency(p.tax?.rebate_87a)}</span></li>
+                    <li><span>Cess ({p.tax?.cess_pct}%)</span><span>{formatCurrency(p.tax?.cess)}</span></li>
+                    <li className="tds-row--green"><span>Annual tax</span><span>{formatCurrency(p.tax?.annual_tax)}</span></li>
+                  </ul>
+                  {p.tax?.slab_breakdown?.length > 0 && (
+                    <div className="tds-slab-table-wrap">
+                      <table className="results-table tds-slab-table">
+                        <thead>
+                          <tr>
+                            <th>Slab</th>
+                            <th>Rate</th>
+                            <th>Taxable</th>
+                            <th>Tax</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {p.tax.slab_breakdown.map((row, idx) => (
+                            <tr key={idx}>
+                              <td>
+                                {formatCurrency(row.from)}
+                                {' – '}
+                                {row.to != null ? formatCurrency(row.to) : 'above'}
+                              </td>
+                              <td>{row.rate_pct}%</td>
+                              <td>{formatCurrency(row.taxable_in_band)}</td>
+                              <td>{formatCurrency(row.tax)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+
+                <section className="tds-panel tds-panel--full">
+                  <h4>Monthly TDS schedule (remaining FY)</h4>
+                  <div className="tds-schedule-grid">
+                    {(p.tds?.schedule || [])
+                      .filter((row) => row.status === 'projected')
+                      .map((row) => (
+                        <div key={row.month} className="tds-schedule-item">
+                          <span>{row.month_label}</span>
+                          <strong>{formatCurrency(row.tds)}</strong>
+                        </div>
+                      ))}
+                  </div>
+                </section>
+
+                <p className="tds-rules-note">
+                  Rules: {p.regime_label || p.rules_version}
+                  {p.employee?.tax_regime
+                    ? ' · Tax regime from Employee Accounts profile'
+                    : ' · Set tax regime in Employee Accounts profile'}
+                </p>
+              </>
+            )}
           </div>
-        )}
+        </div>
       </div>
     );
   };
@@ -2549,8 +2659,17 @@ export const Account = ()  => {
           <ArrowLeft size={18} /> Back
         </button>
         <div className="table-container-card ctc-page-card">
-          <div className="card-header-row">
+          <div className="card-header-row ctc-page-header-row">
             <h3 className="section-title">CTC Breakup for {selectedEmployee?.name}</h3>
+            <button
+              type="button"
+              className="btn-outline-sm ctc-tds-projection-btn"
+              onClick={openTdsProjection}
+              disabled={!selectedEmployee?.adminId}
+            >
+              <Receipt size={16} />
+              TDS Projection
+            </button>
           </div>
           <div className="ctc-page-body">
           <div className="ctc-form-grid">
@@ -3200,11 +3319,18 @@ export const Account = ()  => {
                 </tr>
               )}
               {payrollRows.map((row) => {
-                const gross = Number(row.one_day_salary || 0) * Number(row.actual_working_days || 0);
-                const net = Number(gross || 0)
-                  - Number(row.epf_final || 0)
-                  - Number(row.ptax_final || 0)
-                  - Number(row.esic_final || 0);
+                const payableDays = Math.max(0, Number(row.actual_working_days || 0));
+                const gross = Math.max(
+                  0,
+                  Number(row.one_day_salary || 0) * payableDays,
+                );
+                const net = Math.max(
+                  0,
+                  Number(gross || 0)
+                    - Number(row.epf_final || 0)
+                    - Number(row.ptax_final || 0)
+                    - Number(row.esic_final || 0),
+                );
                 return (
                   <tr key={row.adminId}>
                     <td className="font-bold">{row.name}</td>
@@ -3275,7 +3401,8 @@ export const Account = ()  => {
                         step="0.1"
                         value={row.actual_working_days}
                         onChange={(e) => {
-                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          const raw = parseFloat(e.target.value || '0');
+                          const val = Number.isFinite(raw) ? Math.max(0, raw) : 0;
                           setPayrollRows((prev) =>
                             prev.map((r) =>
                               r.adminId === row.adminId
@@ -3712,10 +3839,10 @@ export const Account = ()  => {
       {currentView === 'expenseClaims' && renderExpenseClaims()}
       {currentView === 'addForm16' && renderAddForm16()}
       {currentView === 'ctcBreakup' && renderCtcBreakup()}
+      {currentView === 'tdsProjection' && renderTdsProjection()}
       {currentView === 'viewPayslip' && (
          <div className="fade-in view-payslip-stack">
             <button className="btn-back" onClick={() => setCurrentView('employees')}><ArrowLeft size={18}/> Back</button>
-            {renderViewPayslipCtcCard()}
             <div className="table-container-card accounts-profile-card">
               <div className="card-header-row accounts-profile-header">
                 <div>

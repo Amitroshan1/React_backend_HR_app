@@ -51,7 +51,7 @@ Accounts = Blueprint('Accounts', __name__)
 
 _ACCOUNTS_ROUTE_FEATURES = (
     ("account_payroll", ("/payroll", "/payroll-summary")),
-    ("account_ctc_breakup", ("/ctc-breakup",)),
+    ("account_ctc_breakup", ("/ctc-breakup", "/tds", "/tax-rules")),
     ("account_for_client", ("/download-excel-client",)),
 )
 
@@ -306,6 +306,14 @@ from .commands.ctc_breakup_logic import (
     maharashtra_professional_tax,
     monthly_components,
     reverse_ctc_breakup,
+)
+from .commands.payroll_logic import payroll_earnings_factor
+from .commands.tds_logic import (
+    financial_year_for_date,
+    list_available_tax_rules,
+    load_tax_rules,
+    normalize_regime,
+    run_tds_projection,
 )
 
 _CTC_RULES = {
@@ -1336,6 +1344,150 @@ def ctc_breakup_history(admin_id):
     }), 200
 
 
+def _parse_iso_date(val):
+    if not val:
+        return None
+    if hasattr(val, "isoformat"):
+        return val
+    s = str(val).strip()
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s[:10])
+    except ValueError:
+        return None
+
+
+def _tds_ytd_gross_and_tds(admin_id, financial_year):
+    """Sum gross from monthly payroll rows in the financial year (if saved)."""
+    from .commands.tds_logic import fy_start_end
+    fy_start, fy_end = fy_start_end(financial_year)
+    rows = MonthlyPayroll.query.filter_by(admin_id=admin_id).all()
+    ytd_gross = 0.0
+    for row in rows:
+        try:
+            y = int(row.year)
+            m = int(row.month_num)
+        except (TypeError, ValueError):
+            continue
+        d = date(y, m, 1)
+        if fy_start <= d <= fy_end:
+            ytd_gross += float(row.gross_salary_for_month or 0)
+    return ytd_gross, 0.0
+
+
+@Accounts.route("/tax-rules", methods=["GET"])
+@jwt_required()
+def get_tax_rules():
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    fy = (request.args.get("financial_year") or "").strip()
+    regime = (request.args.get("regime") or "new").strip()
+
+    if fy:
+        try:
+            rules = load_tax_rules(fy, regime)
+            return jsonify({"success": True, "rules": rules}), 200
+        except ValueError as e:
+            return jsonify({"success": False, "message": str(e)}), 404
+
+    return jsonify({
+        "success": True,
+        "available": list_available_tax_rules(),
+    }), 200
+
+
+@Accounts.route("/tds/projection", methods=["POST"])
+@jwt_required()
+def tds_projection():
+    """
+    Project annual tax and monthly TDS for an employee using CTC breakup
+    and Employee Accounts profile (tax regime, PAN, DOJ).
+    """
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+
+    emp_type_lower = (getattr(viewer, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    target_admin = Admin.query.get(admin_id)
+    if not target_admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    ctc = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    if not ctc or not float(ctc.gross_salary or 0):
+        return jsonify({
+            "success": False,
+            "message": "CTC breakup not found or gross salary is zero. Save CTC first.",
+        }), 400
+
+    profile_row = EmployeeAccounts.query.filter_by(admin_id=admin_id).first()
+    profile = profile_row.to_dict() if profile_row else {}
+
+    financial_year = (data.get("financial_year") or "").strip() or financial_year_for_date()
+    as_of_str = (data.get("as_of") or "").strip()
+    as_of = _parse_iso_date(as_of_str) if as_of_str else date.today()
+
+    doj = _parse_iso_date(profile.get("date_of_joining")) or _parse_iso_date(
+        getattr(target_admin, "doj", None)
+    )
+
+    ytd_gross, ytd_tds = _tds_ytd_gross_and_tds(admin_id, financial_year)
+
+    monthly_ptax = float(ctc.ptax or 0)
+    ptax_annual = monthly_ptax * 12
+
+    try:
+        projection = run_tds_projection(
+            monthly_gross=float(ctc.gross_salary or 0),
+            monthly_basic=float(ctc.basic_salary or 0),
+            monthly_hra=float(ctc.hra or 0),
+            monthly_epf=float(ctc.epf or 0),
+            tax_regime=profile.get("tax_regime"),
+            financial_year=financial_year,
+            pan=profile.get("pan"),
+            date_of_joining=doj,
+            ytd_gross=ytd_gross if data.get("use_ytd_gross", True) else 0,
+            ytd_tds=_parse_amount(data.get("ytd_tds")) or ytd_tds,
+            previous_employer_taxable=_parse_amount(data.get("previous_employer_taxable")) or 0,
+            previous_employer_tds=_parse_amount(data.get("previous_employer_tds")) or 0,
+            rent_paid_annual=_parse_amount(data.get("rent_paid_annual")) or 0,
+            is_metro=bool(data.get("is_metro")),
+            section_80c_extra=_parse_amount(data.get("section_80c_extra")) or 0,
+            section_80d=_parse_amount(data.get("section_80d")) or 0,
+            ptax_annual=ptax_annual,
+            as_of=as_of,
+        )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    projection["employee"] = {
+        "admin_id": admin_id,
+        "name": (target_admin.first_name or "").strip() or target_admin.email,
+        "tax_regime": profile.get("tax_regime"),
+        "pan": profile.get("pan"),
+        "date_of_joining": doj.isoformat() if doj else None,
+    }
+
+    return jsonify({"success": True, "projection": projection}), 200
+
+
 @Accounts.route("/payslip/<int:payslip_id>", methods=["DELETE"])
 @jwt_required()
 def delete_payslip(payslip_id):
@@ -2071,7 +2223,10 @@ def payroll_generate():
 
     deductions_total_final = float(row.epf_final or 0.0) + float(row.esic_final or 0.0) + float(row.ptax_final or 0.0)
     row.deductions_total_final = deductions_total_final
-    row.net_salary_final = float(row.gross_salary_for_month or 0.0) - deductions_total_final
+    row.net_salary_final = max(
+        0.0,
+        float(row.gross_salary_for_month or 0.0) - deductions_total_final,
+    )
 
     db.session.commit()
     return jsonify({"success": True, "payroll": row.to_dict()}), 200
@@ -2133,15 +2288,37 @@ def payroll_deductions_update():
     if "ptax_final" in data:
         row.ptax_final = float(data.get("ptax_final") or 0.0)
     if "actual_working_days" in data:
+        calendar_days = int(
+            row.calendar_days or calendar.monthrange(year_int, month_num)[1]
+        )
         awd = float(data.get("actual_working_days") or 0.0)
-        row.actual_working_days = max(0.0, awd)
-        # Recompute gross based on stored one_day_salary.
+        row.actual_working_days = max(0.0, min(float(calendar_days), awd))
         one_day = float(row.one_day_salary or 0.0)
-        row.gross_salary_for_month = one_day * float(row.actual_working_days or 0.0)
+        row.gross_salary_for_month = max(
+            0.0, one_day * float(row.actual_working_days or 0.0)
+        )
 
-    deductions_total_final = float(row.epf_final or 0.0) + float(row.esic_final or 0.0) + float(row.ptax_final or 0.0)
+        factor = payroll_earnings_factor(row.actual_working_days, calendar_days)
+        ctc = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+        emp = Employee.query.filter_by(admin_id=admin_id).first()
+        gender = getattr(emp, "gender", None) if emp else None
+        if ctc:
+            row.epf_final = round(float(ctc.epf or 0.0) * factor, 2)
+            row.esic_final = round(float(ctc.esic or 0.0) * factor, 2)
+        row.ptax_final = maharashtra_professional_tax(
+            float(row.gross_salary_for_month or 0.0), gender, month_num
+        )
+
+    deductions_total_final = (
+        float(row.epf_final or 0.0)
+        + float(row.esic_final or 0.0)
+        + float(row.ptax_final or 0.0)
+    )
     row.deductions_total_final = deductions_total_final
-    row.net_salary_final = float(row.gross_salary_for_month or 0.0) - deductions_total_final
+    row.net_salary_final = max(
+        0.0,
+        float(row.gross_salary_for_month or 0.0) - deductions_total_final,
+    )
 
     db.session.commit()
     return jsonify({"success": True, "payroll": row.to_dict()}), 200
@@ -2207,6 +2384,22 @@ def payroll_list():
     for admin_id in admin_ids:
         row = existing_by_admin.get(admin_id)
         if row:
+            if float(row.actual_working_days or 0) < 0 or float(row.gross_salary_for_month or 0) < 0:
+                computed = calculate_monthly_payroll_from_ctc_and_attendance(
+                    admin_id=admin_id,
+                    year=year_int,
+                    month_num=month_num,
+                )
+                row.actual_working_days = computed["actual_working_days"]
+                row.gross_salary_for_month = computed["gross_salary_for_month"]
+                row.epf_computed = computed["epf_computed"]
+                row.esic_computed = computed["esic_computed"]
+                row.ptax_computed = computed["ptax_computed"]
+                row.epf_final = computed["epf_computed"]
+                row.esic_final = computed["esic_computed"]
+                row.ptax_final = computed["ptax_computed"]
+                row.deductions_total_final = computed["deductions_total_computed"]
+                row.net_salary_final = computed["net_salary_computed"]
             payrolls.append(row)
             continue
 

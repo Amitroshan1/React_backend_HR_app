@@ -493,3 +493,10 @@
 .disabled-option:hover {
     background-color: #f9f9f9 !important;
 }
+
+.optional-holiday-hint {
+    margin: 8px 0 0;
+    font-size: 13px;
+    color: #b45309;
+    line-height: 1.4;
+}

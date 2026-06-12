@@ -28,6 +28,7 @@ from .circle_transfer_utils import (
     month_circle_note,
     preload_circle_history,
 )
+from .commands.payroll_logic import normalize_payable_days, payroll_earnings_factor
 
 
 def add_circle_transfers_worksheet(workbook, admins, emp_type, circle, year, month, history_by_admin=None):
@@ -1117,7 +1118,8 @@ def calculate_weekend_continuous_absence_penalty(admin_id: int, emp_type: str, y
 
 def calculate_actual_working_days_Accounts(admin_id: int, emp_type: str, year: int, month_num: int) -> float:
     """
-    Actual working days (Accounts Excel style) with continuous weekend-absence penalty.
+    Payable days for monthly salary (Accounts Excel style + sandwich rule).
+    Capped at 0 .. calendar_days so payroll never goes negative.
     """
     working_days_expected, absent_days = calculate_attendance_Accounts(
         admin_id=admin_id,
@@ -1132,7 +1134,9 @@ def calculate_actual_working_days_Accounts(admin_id: int, emp_type: str, year: i
         year=year,
         month=month_num,
     )
-    return float(working_days_expected) - float(absent_days) + float(sundays_in_span) - float(penalty)
+    calendar_days = calendar.monthrange(year, month_num)[1]
+    raw = float(working_days_expected) - float(absent_days) + float(sundays_in_span) - float(penalty)
+    return normalize_payable_days(raw, calendar_days)
 
 
 def calculate_actual_working_days_for_payroll(admin_id: int, year: int, month_num: int) -> float:
@@ -1174,18 +1178,24 @@ def calculate_monthly_payroll_from_ctc_and_attendance(*, admin_id: int, year: in
 
     emp = Employee.query.filter_by(admin_id=admin_id).first()
     gender = getattr(emp, "gender", None) if emp else None
-    ptax_amount = maharashtra_professional_tax(ctc_gross_salary, gender, month_num)
 
     calendar_days = calendar.monthrange(year, month_num)[1]
     one_day_salary = (ctc_gross_salary / float(calendar_days)) if calendar_days > 0 else 0.0
 
-    # Step: gross = one_day_salary * actual_working_days
-    actual_working_days = calculate_actual_working_days_for_payroll(
+    payable_days = calculate_actual_working_days_for_payroll(
         admin_id=admin_id,
         year=year,
         month_num=month_num,
     )
-    gross_salary_for_month = one_day_salary * float(actual_working_days)
+    gross_salary_for_month = max(0.0, one_day_salary * float(payable_days))
+
+    factor = payroll_earnings_factor(payable_days, calendar_days)
+    epf_prorated = round(epf_amount * factor, 2)
+    esic_prorated = round(esic_amount * factor, 2)
+    ptax_amount = maharashtra_professional_tax(gross_salary_for_month, gender, month_num)
+
+    deductions_total = epf_prorated + esic_prorated + ptax_amount
+    net_salary = max(0.0, gross_salary_for_month - deductions_total)
 
     return {
         "admin_id": admin_id,
@@ -1195,13 +1205,14 @@ def calculate_monthly_payroll_from_ctc_and_attendance(*, admin_id: int, year: in
         "ctc_gross_salary": ctc_gross_salary,
         "calendar_days": int(calendar_days),
         "one_day_salary": one_day_salary,
-        "actual_working_days": actual_working_days,
-        "gross_salary_for_month": gross_salary_for_month,
-        "epf_computed": epf_amount,
-        "esic_computed": esic_amount,
+        "actual_working_days": payable_days,
+        "gross_salary_for_month": round(gross_salary_for_month, 2),
+        "epf_computed": epf_prorated,
+        "esic_computed": esic_prorated,
         "ptax_computed": ptax_amount,
-        "deductions_total_computed": epf_amount + esic_amount + ptax_amount,
-        "net_salary_computed": gross_salary_for_month - (epf_amount + esic_amount + ptax_amount),
+        "deductions_total_computed": round(deductions_total, 2),
+        "net_salary_computed": round(net_salary, 2),
+        "lop_days": max(0.0, float(calendar_days) - float(payable_days)),
     }
 
 

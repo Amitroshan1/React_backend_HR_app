@@ -461,10 +461,28 @@
 // };
 
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { FiX, FiChevronDown } from 'react-icons/fi';
 import dayjs from 'dayjs'; 
-import './ApplyLeaveModal.css'; 
+import './ApplyLeaveModal.css';
+
+const LEAVE_API_BASE = '/api/leave';
+
+const formatOptionalHolidayLabel = (holiday) =>
+    `${holiday.holiday_name} (${holiday.display_date})`;
+
+const buildOptionalLeaveReason = (holiday) =>
+    `Optional leave requested for ${holiday.holiday_name} on ${holiday.display_date}.`;
+
+const OPTIONAL_LEAVE_ACTIVE_STATUSES = ['Pending', 'Approved'];
+
+const hasOptionalLeaveForYear = (requests, year) =>
+    requests.some(
+        (req) =>
+            req.type === 'Optional Leave' &&
+            OPTIONAL_LEAVE_ACTIVE_STATUSES.includes(req.status) &&
+            dayjs(req.from).year() === year
+    ); 
 
 // --- Custom Dropdown Component ---
 const CustomDropdown = ({ options, currentValue, onChange, label, disabled = false }) => {
@@ -518,6 +536,9 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
     const [leaveType, setLeaveType] = useState('');
     const [casualLeaveDuration, setCasualLeaveDuration] = useState('Full Day'); 
     const [optionalHoliday, setOptionalHoliday] = useState('');
+    const [optionalHolidays, setOptionalHolidays] = useState([]);
+    const [optionalHolidaysLoading, setOptionalHolidaysLoading] = useState(false);
+    const [optionalHolidaysError, setOptionalHolidaysError] = useState('');
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
     const [reason, setReason] = useState('');
@@ -530,8 +551,8 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
         req.type === 'Casual Leave' && dayjs(req.from).format('YYYY-MM') === currentMonth
     ).length;
 
-    // Check Optional Leave Count (Max 1 per year/total)
-    const hasUsedOptional = initialRequests.some(req => req.type === 'Optional Leave');
+    const currentYear = dayjs().year();
+    const hasUsedOptional = hasOptionalLeaveForYear(initialRequests, currentYear);
 
     const leaveOptions = [
         { label: 'Casual Leave', value: 'Casual Leave', disabled: casualCount >= 2 },
@@ -544,24 +565,157 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
         return opt.label;
     });
 
-    const holidayOptions = ['Gudi Padwa', 'Eid', 'Christmas'];
+    const holidayOptions = useMemo(
+        () => optionalHolidays.map(formatOptionalHolidayLabel),
+        [optionalHolidays]
+    );
     const casualDurationOptions = ['Full Day', 'Half Day'];
+
+    const resetOptionalLeaveFields = useCallback(() => {
+        setOptionalHoliday('');
+        setOptionalHolidays([]);
+        setOptionalHolidaysError('');
+        setFromDate('');
+        setToDate('');
+        setReason('');
+    }, []);
+
+    const handleLeaveTypeChange = (type) => {
+        if (type.includes('Already Used') || type.includes('Limit')) {
+            return;
+        }
+        if (type === 'Optional Leave' && hasUsedOptional) {
+            alert(`You have already used your optional leave for ${currentYear}. Only one optional leave is allowed per year.`);
+            return;
+        }
+        if (type !== 'Optional Leave') {
+            resetOptionalLeaveFields();
+        }
+        setLeaveType(type);
+    };
+
+    const handleOptionalHolidaySelect = (label) => {
+        setOptionalHoliday(label);
+        const holiday = optionalHolidays.find(
+            (item) => formatOptionalHolidayLabel(item) === label
+        );
+        if (!holiday) return;
+
+        setFromDate(holiday.holiday_date);
+        setToDate(holiday.holiday_date);
+        setReason(buildOptionalLeaveReason(holiday));
+    };
+
+    const isHalfDay =
+        leaveType === 'Casual Leave' && casualLeaveDuration === 'Half Day';
+    const isSingleDayLeave = isHalfDay || leaveType === 'Optional Leave';
+    const todayStr = dayjs().format('YYYY-MM-DD');
 
     // --- Day Calculation ---
     const totalDiff = (fromDate && toDate) ? dayjs(toDate).diff(dayjs(fromDate), 'day') + 1 : 0;
-    let finalDays = (leaveType === 'Casual Leave' && casualLeaveDuration === 'Half Day' && totalDiff === 1) ? 0.5 : (totalDiff > 0 ? totalDiff : 0);
-    
-    // Optional Leave can only be 1 day
+    let finalDays = isHalfDay && totalDiff === 1 ? 0.5 : (totalDiff > 0 ? totalDiff : 0);
+
     if (leaveType === 'Optional Leave' && totalDiff > 1) {
-        finalDays = 0; // Will trigger validation error
+        finalDays = 0;
     }
 
-    // Minimum selectable date: 2 weeks ago (cannot select dates older than 2 weeks)
-    const minFromDate = dayjs().subtract(2, 'week').format('YYYY-MM-DD');
-    // To Date: cannot be before minFromDate or before From Date (whichever is later)
-    const minToDate = fromDate
-        ? (dayjs(fromDate).isBefore(minFromDate) ? minFromDate : fromDate)
-        : minFromDate;
+    const minFromDate = todayStr;
+    const minToDate = fromDate || todayStr;
+
+    useEffect(() => {
+        if (!isOpen) return;
+        if (isSingleDayLeave && fromDate) {
+            setToDate(fromDate);
+        }
+    }, [isOpen, isSingleDayLeave, fromDate]);
+
+    useEffect(() => {
+        if (!isOpen || leaveType !== 'Optional Leave') return;
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setOptionalHolidaysError('Please login again to load optional holidays.');
+            return;
+        }
+
+        const year = dayjs().year();
+        let cancelled = false;
+
+        const loadOptionalHolidays = async () => {
+            setOptionalHolidaysLoading(true);
+            setOptionalHolidaysError('');
+            try {
+                const response = await fetch(
+                    `${LEAVE_API_BASE}/optional-holidays?year=${year}`,
+                    {
+                        headers: { Authorization: `Bearer ${token}` },
+                    }
+                );
+                const result = await response.json();
+                if (cancelled) return;
+
+                if (!response.ok || !result.success) {
+                    setOptionalHolidays([]);
+                    setOptionalHolidaysError(result.message || 'Failed to load optional holidays.');
+                    return;
+                }
+
+                if (result.optional_leave_used) {
+                    setOptionalHolidays([]);
+                    setOptionalHolidaysError(
+                        `You have already used your optional leave for ${year}. Only one optional leave is allowed per year.`
+                    );
+                    return;
+                }
+
+                const selectable = result.selectable_holidays || [];
+                setOptionalHolidays(selectable);
+                if (!selectable.length) {
+                    setOptionalHolidaysError('No optional holidays are available to apply for this year.');
+                }
+            } catch {
+                if (!cancelled) {
+                    setOptionalHolidays([]);
+                    setOptionalHolidaysError('Failed to load optional holidays. Please try again.');
+                }
+            } finally {
+                if (!cancelled) {
+                    setOptionalHolidaysLoading(false);
+                }
+            }
+        };
+
+        loadOptionalHolidays();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, leaveType]);
+
+    const handleFromDateChange = (value) => {
+        setFromDate(value);
+        if (isSingleDayLeave) {
+            setToDate(value);
+            return;
+        }
+        if (toDate && dayjs(toDate).isBefore(value)) {
+            setToDate(value);
+        }
+    };
+
+    const handleToDateChange = (value) => {
+        if (isHalfDay) {
+            setToDate(fromDate || value);
+            return;
+        }
+        setToDate(value);
+    };
+
+    const handleDurationChange = (duration) => {
+        setCasualLeaveDuration(duration);
+        if (duration === 'Half Day' && fromDate) {
+            setToDate(fromDate);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -574,19 +728,55 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
             return;
         }
 
-        // Validate Optional Leave requirements
-        if (leaveType === 'Optional Leave') {
-            if (!optionalHoliday) {
-                alert("Please select a holiday for Optional Leave.");
+        if (fromDate && dayjs(fromDate).isBefore(todayStr, 'day')) {
+            alert("Start date cannot be in the past.");
+            return;
+        }
+        if (toDate && dayjs(toDate).isBefore(todayStr, 'day')) {
+            alert("End date cannot be in the past.");
+            return;
+        }
+        if (toDate && fromDate && dayjs(toDate).isBefore(fromDate, 'day')) {
+            alert("End date cannot be before start date.");
+            return;
+        }
+
+        if (isHalfDay) {
+            if (!fromDate) {
+                alert("Please select a date for Half Day leave.");
                 return;
             }
-            if (totalDiff > 1) {
-                alert("Optional Leave can only be applied for one day.");
+            if (toDate !== fromDate) {
+                alert("Half Day leave can only be applied for a single date.");
                 return;
             }
         }
 
-        const finalReason = leaveType === 'Optional Leave' ? `Holiday: ${optionalHoliday}` : reason;
+        // Validate Optional Leave requirements
+        if (leaveType === 'Optional Leave') {
+            if (hasUsedOptional) {
+                alert(`You have already used your optional leave for ${currentYear}. Only one optional leave is allowed per year.`);
+                return;
+            }
+            if (optionalHolidaysLoading) {
+                alert("Optional holidays are still loading. Please wait.");
+                return;
+            }
+            if (!optionalHoliday) {
+                alert("Please select a holiday for Optional Leave.");
+                return;
+            }
+            if (!fromDate || !toDate || totalDiff > 1 || toDate !== fromDate) {
+                alert("Optional Leave can only be applied for one day.");
+                return;
+            }
+            if (!reason || reason.trim().length < 20) {
+                alert("Reason is required for Optional Leave.");
+                return;
+            }
+        }
+
+        const finalReason = leaveType === 'Optional Leave' ? reason.trim() : reason;
         
         // Call parent onSubmit (which will handle API call)
         const success = await onSubmit({ 
@@ -604,7 +794,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
             setFromDate('');
             setToDate('');
             setReason('');
-            setOptionalHoliday('');
+            resetOptionalLeaveFields();
             onClose();
         }
     };
@@ -624,7 +814,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                         <CustomDropdown
                             options={leaveOptions}
                             currentValue={leaveType}
-                            onChange={setLeaveType}
+                            onChange={handleLeaveTypeChange}
                             label="Select leave type"
                         />
                     </div>
@@ -635,9 +825,8 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                             <CustomDropdown
                                 options={casualDurationOptions}
                                 currentValue={casualLeaveDuration}
-                                onChange={setCasualLeaveDuration}
+                                onChange={handleDurationChange}
                                 label="Select duration"
-                                disabled={totalDiff > 1}
                             />
                         </div>
                     )}
@@ -648,34 +837,56 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                             <CustomDropdown
                                 options={holidayOptions}
                                 currentValue={optionalHoliday}
-                                onChange={setOptionalHoliday}
-                                label="Choose a holiday"
+                                onChange={handleOptionalHolidaySelect}
+                                label={
+                                    optionalHolidaysLoading
+                                        ? 'Loading holidays...'
+                                        : holidayOptions.length
+                                            ? 'Choose a holiday'
+                                            : 'No holidays available'
+                                }
+                                disabled={optionalHolidaysLoading || !holidayOptions.length}
                             />
+                            {optionalHolidaysError && (
+                                <p className="optional-holiday-hint">{optionalHolidaysError}</p>
+                            )}
                         </div>
                     )}
 
                     <div className="form-group date-group">
                         <div className="date-inputs">
                             <div className="date-input-block">
-                                <label className="form-label">From Date</label>
+                                <label className="form-label">
+                                    {isSingleDayLeave ? 'Date' : 'From Date'}
+                                </label>
                                 <div className="date-input-wrapper">
-                                    <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="date-input" required min={minFromDate} />
-                                </div>
-                            </div>
-                            <div className="date-input-block">
-                                <label className="form-label">To Date</label>
-                                <div className="date-input-wrapper">
-                                    <input 
-                                        type="date" 
-                                        value={toDate} 
-                                        onChange={(e) => setToDate(e.target.value)} 
-                                        className="date-input" 
-                                        required 
-                                        min={minToDate}
-                                        max={leaveType === 'Optional Leave' ? fromDate : undefined}
+                                    <input
+                                        type="date"
+                                        value={fromDate}
+                                        onChange={(e) => handleFromDateChange(e.target.value)}
+                                        className="date-input"
+                                        required
+                                        min={minFromDate}
+                                        readOnly={leaveType === 'Optional Leave'}
+                                        disabled={leaveType === 'Optional Leave' && !optionalHoliday}
                                     />
                                 </div>
                             </div>
+                            {!isSingleDayLeave && (
+                                <div className="date-input-block">
+                                    <label className="form-label">To Date</label>
+                                    <div className="date-input-wrapper">
+                                        <input
+                                            type="date"
+                                            value={toDate}
+                                            onChange={(e) => handleToDateChange(e.target.value)}
+                                            className="date-input"
+                                            required
+                                            min={minToDate}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -684,19 +895,22 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                         <p className="days-value">{finalDays} Day(s)</p>
                     </div>
 
-                    {leaveType !== 'Optional Leave' && (
-                        <div className="form-group">
-                            <label className="form-label">Reason</label>
-                            <textarea
-                                placeholder="Reason for leave..."
-                                value={reason}
-                                onChange={(e) => setReason(e.target.value)}
-                                className="reason-input"
-                                rows="3"
-                                required
-                            />
-                        </div>
-                    )}
+                    <div className="form-group">
+                        <label className="form-label">Reason</label>
+                        <textarea
+                            placeholder={
+                                leaveType === 'Optional Leave'
+                                    ? 'Select a holiday to auto-fill reason'
+                                    : 'Reason for leave...'
+                            }
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            className="reason-input"
+                            rows="3"
+                            required
+                            readOnly={leaveType === 'Optional Leave'}
+                        />
+                    </div>
                     </div>
                 </form>
 

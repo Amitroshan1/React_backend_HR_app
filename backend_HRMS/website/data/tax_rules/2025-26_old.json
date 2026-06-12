@@ -1,0 +1,20 @@
+{
+  "financial_year": "2025-26",
+  "regime": "old",
+  "label": "Old Tax Regime (FY 2025-26)",
+  "standard_deduction": 50000,
+  "section_80c_cap": 150000,
+  "rebate_87a": {
+    "income_limit": 500000,
+    "max_rebate": 12500
+  },
+  "cess_pct": 4,
+  "slabs": [
+    { "upto": 250000, "rate": 0 },
+    { "upto": 500000, "rate": 5 },
+    { "upto": 1000000, "rate": 20 },
+    { "upto": null, "rate": 30 }
+  ],
+  "hra_metro_pct": 50,
+  "hra_non_metro_pct": 40
+}

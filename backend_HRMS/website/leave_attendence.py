@@ -21,6 +21,7 @@ from . import db
 from .noc_department_service import reject_pending_noc_rows_for_resignation
 from flask import jsonify
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 import calendar
 import os
 from werkzeug.utils import secure_filename
@@ -51,6 +52,75 @@ def _load_holiday_sets(year: int, start_date: date, end_date: date):
     mandatory = {h.holiday_date for h in rows if not getattr(h, "is_optional", False)}
     optional = {h.holiday_date for h in rows if getattr(h, "is_optional", False)}
     return mandatory, optional
+
+
+def _parse_leave_year(value):
+    try:
+        year = int(value)
+    except (TypeError, ValueError):
+        return None
+    if year < 2000 or year > 2100:
+        return None
+    return year
+
+
+def _fetch_optional_holiday_rows(year: int):
+    rows = (
+        HolidayCalendar.query.filter(
+            HolidayCalendar.year == year,
+            HolidayCalendar.is_active.is_(True),
+            HolidayCalendar.is_optional.is_(True),
+        )
+        .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+        .all()
+    )
+    if not rows:
+        from .Human_resource import _seed_holidays_for_year
+
+        _seed_holidays_for_year(year, overwrite=False)
+        rows = (
+            HolidayCalendar.query.filter(
+                HolidayCalendar.year == year,
+                HolidayCalendar.is_active.is_(True),
+                HolidayCalendar.is_optional.is_(True),
+            )
+            .order_by(HolidayCalendar.holiday_date.asc(), HolidayCalendar.id.asc())
+            .all()
+        )
+    return rows
+
+
+def _optional_holiday_on_date(d: date):
+    for row in _fetch_optional_holiday_rows(d.year):
+        if row.holiday_date == d:
+            return row
+    return None
+
+
+def _serialize_optional_holiday(row):
+    dt = row.holiday_date
+    return {
+        "id": row.id,
+        "year": row.year,
+        "holiday_name": row.holiday_name,
+        "holiday_date": dt.isoformat() if dt else None,
+        "display_date": dt.strftime("%d-%m-%Y") if dt else None,
+        "is_optional": True,
+    }
+
+
+def _has_optional_leave_for_year(admin_id: int, year: int) -> bool:
+    """True if employee already has a Pending/Approved Optional Leave in that calendar year."""
+    year_start = date(year, 1, 1)
+    year_end = date(year, 12, 31)
+    existing = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin_id,
+        LeaveApplication.leave_type == "Optional Leave",
+        LeaveApplication.status.in_(["Pending", "Approved"]),
+        LeaveApplication.start_date >= year_start,
+        LeaveApplication.start_date <= year_end,
+    ).first()
+    return existing is not None
 
 
 def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_date: date) -> float:
@@ -572,7 +642,37 @@ def leave_page_summary():
     }), 200
 
 
+@leave.route("/optional-holidays", methods=["GET"])
+@jwt_required()
+def list_optional_holidays_for_leave():
+    """Optional holidays for leave apply (all authenticated employees)."""
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
+    year = _parse_leave_year(request.args.get("year", datetime.now(ZoneInfo("Asia/Kolkata")).year))
+    if not year:
+        return jsonify({
+            "success": False,
+            "message": "Invalid year. Allowed range: 2000-2100",
+        }), 400
+
+    optional_leave_used = _has_optional_leave_for_year(admin.id, year)
+    rows = _fetch_optional_holiday_rows(year)
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+
+    return jsonify({
+        "success": True,
+        "year": year,
+        "optional_leave_used": optional_leave_used,
+        "holidays": [_serialize_optional_holiday(r) for r in rows],
+        "selectable_holidays": [] if optional_leave_used else [
+            _serialize_optional_holiday(r)
+            for r in rows
+            if r.holiday_date and r.holiday_date >= today_ist
+        ],
+    }), 200
 
 
 @leave.route("/apply", methods=["POST"])
@@ -624,6 +724,18 @@ def apply_leave_api():
             "message": "End date cannot be before start date"
         }), 400
 
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    if start_date < today_ist:
+        return jsonify({
+            "success": False,
+            "message": "Cannot apply leave for past dates"
+        }), 400
+    if end_date < today_ist:
+        return jsonify({
+            "success": False,
+            "message": "End date cannot be in the past"
+        }), 400
+
     leave_type = data.get("leave_type")
     reason = (data.get("reason") or "").strip()
 
@@ -643,16 +755,25 @@ def apply_leave_api():
     # 🚫 OPTIONAL LEAVE: Max 1 per year (check FIRST, before overlapping check)
     # -------------------------
     if leave_type == "Optional Leave":
-        existing_optional = LeaveApplication.query.filter(
-            LeaveApplication.admin_id == admin.id,
-            LeaveApplication.leave_type == "Optional Leave",
-            LeaveApplication.status.in_(["Pending", "Approved"])
-        ).first()
-
-        if existing_optional:
+        if _has_optional_leave_for_year(admin.id, start_date.year):
             return jsonify({
                 "success": False,
-                "message": "Optional Leave can only be used once per year. You have already applied for Optional Leave."
+                "message": (
+                    f"Optional Leave can only be used once per year. "
+                    f"You have already applied for Optional Leave in {start_date.year}."
+                )
+            }), 400
+
+        if start_date != end_date:
+            return jsonify({
+                "success": False,
+                "message": "Optional Leave can only be applied for one day"
+            }), 400
+
+        if not _optional_holiday_on_date(start_date):
+            return jsonify({
+                "success": False,
+                "message": "Selected date is not an optional holiday in the company calendar"
             }), 400
 
     # -------------------------
