@@ -218,6 +218,16 @@ def hr_required(fn):
     return wrapper
 
 
+def _sync_probation_after_doj_change(admin):
+    """Create or realign probation review rows when DOJ changes (no commit)."""
+    try:
+        from .commands.probation import sync_probation_for_admin
+
+        sync_probation_for_admin(admin)
+    except Exception as e:
+        current_app.logger.warning("probation sync after DOJ change failed: %s", e)
+
+
 def _delete_punch_for_admin_on_date(admin_id, punch_date):
     """
     Remove the Punch row and all PunchSession rows for this employee + calendar date.
@@ -1069,6 +1079,8 @@ def signup_api():
         _upsert_employee_designation_for_admin(admin, designation)
 
         db.session.add(audit)
+
+        _sync_probation_after_doj_change(admin)
 
         db.session.commit()
 
@@ -5087,6 +5099,7 @@ def update_employee_api(email_path):
     if "doj" in data and data.get("doj"):
         try:
             admin.doj = datetime.fromisoformat(str(data["doj"]).strip()[:10]).date()
+            _sync_probation_after_doj_change(admin)
         except (ValueError, TypeError):
             return jsonify({
                 "success": False,
@@ -5435,4 +5448,27 @@ def ex_employee_documents_history():
         )
 
     return jsonify({"success": True, "history": items}), 200
+
+
+@hr.route("/probation-reviews", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_probation_reviews_route():
+    """List probation reviews (same as /api/probation/hr/reviews)."""
+    from .probation_api import list_hr_probation_reviews
+
+    return list_hr_probation_reviews(request.args.get("status"))
+
+
+@hr.route("/probation-decision", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_probation_decision_route():
+    """Record HR probation decision (same as /api/probation/hr/decision)."""
+    from .probation_api import apply_hr_probation_decision, _current_admin
+
+    admin = _current_admin()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    return apply_hr_probation_decision(admin, request.get_json(silent=True))
 

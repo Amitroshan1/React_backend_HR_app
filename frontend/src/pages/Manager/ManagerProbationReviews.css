@@ -2,6 +2,49 @@
   padding: 1rem 0;
 }
 
+.manager-probation-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.manager-probation-meta-counts {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: var(--text-muted, #666);
+  align-items: flex-start;
+}
+
+.manager-probation-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.manager-probation-filters button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.manager-probation-filters button.active {
+  background: var(--primary, #2563eb);
+  color: #fff;
+  border-color: var(--primary, #2563eb);
+}
+
+.manager-probation-filters button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .manager-probation-title {
   margin: 0 0 0.5rem 0;
   font-size: 1.1rem;
@@ -40,6 +83,53 @@
   border-radius: 8px;
   padding: 1rem;
   background: var(--card-bg, #fff);
+}
+
+.manager-probation-card--submitted {
+  background: var(--card-bg-subtle, #f9fafb);
+}
+
+.manager-probation-status-badge {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.manager-probation-status-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.manager-probation-status-badge.awaiting {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.manager-probation-status-badge.closed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.manager-probation-status-badge.failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.manager-probation-submitted-details {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.manager-probation-submitted-details p {
+  margin: 0.35rem 0;
+}
+
+.manager-probation-awaiting-hr {
+  color: #1e40af;
+  font-weight: 500;
 }
 
 .manager-probation-card-head {

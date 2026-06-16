@@ -22,6 +22,7 @@ from .probation_utils import (
     build_employee_probation_status,
     compute_probation_end_date,
     infer_status_from_row,
+    is_probation_review_row_active,
 )
 
 probation_api = Blueprint("probation_api", __name__)
@@ -36,10 +37,6 @@ def _current_admin():
     if not email:
         return None
     return Admin.query.filter_by(email=email).first()
-
-
-def _is_hr(admin):
-    return _norm(getattr(admin, "emp_type", "")) in {"human resource", "hr"}
 
 
 def _serialize_date(value):
@@ -94,37 +91,40 @@ def _serialize_probation_review(row, run_date=None):
     }
 
 
-@probation_api.route("/self", methods=["GET"])
-@jwt_required()
-def employee_probation_status():
-    """Return probation status for the logged-in employee."""
+def _ensure_hr_access():
+    from .plan_features import can_access_hr_operations
+
     admin = _current_admin()
     if not admin:
-        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+        return None, (jsonify({"success": False, "message": "Unauthorized user"}), 401)
+    if not can_access_hr_operations(get_jwt()):
+        return None, (jsonify({"success": False, "message": "HR access required"}), 403)
+    return admin, None
 
-    status = build_employee_probation_status(admin, run_date=date.today())
-    return jsonify({"success": True, "probation": status}), 200
 
-
-@probation_api.route("/hr/reviews", methods=["GET"])
-@jwt_required()
-def hr_probation_reviews():
-    """List probation reviews for HR with optional filters."""
-    admin = _current_admin()
-    if not admin:
-        return jsonify({"success": False, "message": "Unauthorized user"}), 401
-    if not _is_hr(admin):
-        return jsonify({"success": False, "message": "HR access required"}), 403
-
-    status_filter = _norm(request.args.get("status") or "all")
+def list_hr_probation_reviews(status_filter=None):
+    """Shared HR list logic for /api/probation and /api/HumanResource routes."""
+    status_filter = _norm(status_filter or "all")
     run_date = date.today()
 
-    q = ProbationReview.query.order_by(
-        ProbationReview.probation_end_date.asc(),
-        ProbationReview.id.asc(),
+    rows = (
+        ProbationReview.query.order_by(
+            ProbationReview.probation_end_date.asc(),
+            ProbationReview.id.asc(),
+        ).all()
     )
-    rows = q.all()
-    all_serialized = [_serialize_probation_review(row, run_date=run_date) for row in rows]
+    all_serialized = []
+    for row in rows:
+        admin = row.admin or Admin.query.get(row.admin_id)
+        status = infer_status_from_row(row)
+        if status_filter == "closed":
+            if status not in TERMINAL_STATUSES:
+                continue
+        elif status in TERMINAL_STATUSES:
+            continue
+        elif not is_probation_review_row_active(row, admin, run_date):
+            continue
+        all_serialized.append(_serialize_probation_review(row, run_date=run_date))
     items = all_serialized
     if status_filter == "awaiting_hr":
         items = [i for i in all_serialized if i.get("awaiting_hr_decision")]
@@ -158,17 +158,9 @@ def hr_probation_reviews():
     ), 200
 
 
-@probation_api.route("/hr/decision", methods=["POST"])
-@jwt_required()
-def hr_probation_decision():
-    """HR confirms, extends, or fails a probation review."""
-    admin = _current_admin()
-    if not admin:
-        return jsonify({"success": False, "message": "Unauthorized user"}), 401
-    if not _is_hr(admin):
-        return jsonify({"success": False, "message": "HR access required"}), 403
-
-    data = request.get_json(silent=True) or {}
+def apply_hr_probation_decision(hr_admin, data):
+    """Shared HR decision logic for /api/probation and /api/HumanResource routes."""
+    data = data or {}
     review_id = data.get("probation_review_id") or data.get("id")
     decision = (data.get("decision") or data.get("hr_decision") or "").strip().lower()
     notes = (data.get("notes") or data.get("hr_notes") or "").strip()
@@ -222,7 +214,7 @@ def hr_probation_decision():
     now = utc_now()
     row.hr_decision = decision
     row.hr_decided_at = now
-    row.hr_decided_by_admin_id = admin.id
+    row.hr_decided_by_admin_id = hr_admin.id
     row.hr_notes = notes or None
 
     if decision == HR_DECISION_CONFIRMED:
@@ -250,7 +242,7 @@ def hr_probation_decision():
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
-    hr_name = (getattr(admin, "first_name", None) or "").strip() or admin.email or "HR"
+    hr_name = (getattr(hr_admin, "first_name", None) or "").strip() or hr_admin.email or "HR"
     send_probation_hr_decision_email(
         target,
         hr_name,
@@ -274,3 +266,35 @@ def hr_probation_decision():
             "review": _serialize_probation_review(row),
         }
     ), 200
+
+
+@probation_api.route("/self", methods=["GET"])
+@jwt_required()
+def employee_probation_status():
+    """Return probation status for the logged-in employee."""
+    admin = _current_admin()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    status = build_employee_probation_status(admin, run_date=date.today())
+    return jsonify({"success": True, "probation": status}), 200
+
+
+@probation_api.route("/hr/reviews", methods=["GET"])
+@jwt_required()
+def hr_probation_reviews():
+    """List probation reviews for HR with optional filters."""
+    _admin, err = _ensure_hr_access()
+    if err:
+        return err
+    return list_hr_probation_reviews(request.args.get("status"))
+
+
+@probation_api.route("/hr/decision", methods=["POST"])
+@jwt_required()
+def hr_probation_decision():
+    """HR confirms, extends, or fails a probation review."""
+    admin, err = _ensure_hr_access()
+    if err:
+        return err
+    return apply_hr_probation_decision(admin, request.get_json(silent=True))

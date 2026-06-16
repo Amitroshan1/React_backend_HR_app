@@ -939,13 +939,56 @@ def sprint_performance():
 # ---------------------------
 # Probation reviews (6-month reminder flow)
 # ---------------------------
-@manager.route("/probation-reviews-due", methods=["GET"])
-@jwt_required()
-def probation_reviews_due():
-    """List probation reviews pending manager feedback (reminder sent, review not yet submitted)."""
-    admin, err = _ensure_manager_user()
-    if err:
-        return err
+def _serialize_manager_probation_review(pr, target, run_date):
+    from .probation_utils import (
+        STATUS_REMINDER_SENT,
+        STATUS_MANAGER_SUBMITTED,
+        infer_status_from_row,
+        manager_probation_status_label,
+    )
+
+    status = infer_status_from_row(pr)
+    awaiting_hr = status == STATUS_MANAGER_SUBMITTED and bool(pr.reviewed_at) and not pr.hr_decision
+    return {
+        "id": pr.id,
+        "admin_id": pr.admin_id,
+        "employee_name": (getattr(target, "first_name", None) or "").strip() or target.email or "N/A",
+        "employee_email": target.email,
+        "doj": _serialize_date(getattr(target, "doj", None)),
+        "probation_end_date": _serialize_date(pr.probation_end_date),
+        "reminder_sent_at": isoformat_api(pr.reminder_sent_at),
+        "reviewed_at": isoformat_api(pr.reviewed_at),
+        "status": status,
+        "status_label": manager_probation_status_label(pr),
+        "awaiting_hr_decision": awaiting_hr,
+        "rating": pr.rating,
+        "manager_recommendation": pr.manager_recommendation,
+        "feedback": pr.feedback,
+        "hr_decision": pr.hr_decision,
+        "hr_decided_at": isoformat_api(pr.hr_decided_at),
+        "extended_until": _serialize_date(pr.extended_until),
+        "overdue": bool(
+            run_date
+            and pr.probation_end_date
+            and not pr.reviewed_at
+            and status == STATUS_REMINDER_SENT
+            and pr.probation_end_date < run_date
+        ),
+    }
+
+
+def _list_manager_probation_reviews(manager_admin, status_filter="pending"):
+    from .probation_utils import (
+        infer_status_from_row,
+        STATUS_MANAGER_SUBMITTED,
+        TERMINAL_STATUSES,
+        is_manager_submitted_review_visible,
+        is_probation_review_row_active,
+    )
+
+    status_filter = (status_filter or "pending").strip().lower()
+    if status_filter not in {"pending", "submitted", "all"}:
+        status_filter = "pending"
 
     removed = dedupe_probation_review_rows()
     if removed:
@@ -955,37 +998,75 @@ def probation_reviews_due():
             db.session.rollback()
 
     rows = (
-        ProbationReview.query.filter(
-            ProbationReview.reminder_sent_at.isnot(None),
-            ProbationReview.reviewed_at.is_(None),
-        )
-        .order_by(ProbationReview.probation_end_date.asc())
+        ProbationReview.query.filter(ProbationReview.reminder_sent_at.isnot(None))
+        .order_by(ProbationReview.probation_end_date.asc(), ProbationReview.id.asc())
         .all()
     )
-    from .probation_utils import infer_status_from_row, STATUS_MANAGER_SUBMITTED, TERMINAL_STATUSES
     out = []
+    pending_total = 0
+    submitted_total = 0
+    run_date = date.today()
     for pr in rows:
         target = Admin.query.get(pr.admin_id)
-        if not target:
+        if not target or not _is_manager_for_target(manager_admin, target):
             continue
+
         row_status = infer_status_from_row(pr)
-        if row_status in TERMINAL_STATUSES or row_status == STATUS_MANAGER_SUBMITTED:
+        is_pending = (
+            pr.reviewed_at is None
+            and row_status not in TERMINAL_STATUSES
+            and row_status != STATUS_MANAGER_SUBMITTED
+            and is_probation_review_row_active(pr, target, run_date)
+        )
+        is_submitted = pr.reviewed_at is not None and is_manager_submitted_review_visible(
+            pr, target, run_date
+        )
+        if is_pending:
+            pending_total += 1
+        if is_submitted:
+            submitted_total += 1
+
+        if status_filter == "pending" and not is_pending:
             continue
-        if not _is_manager_for_target(admin, target):
+        if status_filter == "submitted" and not is_submitted:
             continue
-        out.append({
-            "id": pr.id,
-            "admin_id": pr.admin_id,
-            "employee_name": (getattr(target, "first_name", None) or "").strip() or target.email or "N/A",
-            "employee_email": target.email,
-            "doj": _serialize_date(getattr(target, "doj", None)),
-            "probation_end_date": _serialize_date(pr.probation_end_date),
-            "reminder_sent_at": isoformat_api(pr.reminder_sent_at),
-            "status": infer_status_from_row(pr),
-            "rating": pr.rating,
-            "manager_recommendation": pr.manager_recommendation,
-        })
-    return jsonify({"success": True, "reviews": out}), 200
+        if status_filter == "all" and not (is_pending or is_submitted):
+            continue
+
+        out.append(_serialize_manager_probation_review(pr, target, run_date))
+
+    summary = {
+        "total": len(out),
+        "pending": pending_total,
+        "submitted": submitted_total,
+    }
+
+    return {"reviews": out, "summary": summary}
+
+
+@manager.route("/probation-reviews", methods=["GET"])
+@jwt_required()
+def probation_reviews():
+    """List probation reviews for manager: pending, submitted, or all."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    status_filter = request.args.get("status") or "all"
+    payload = _list_manager_probation_reviews(admin, status_filter)
+    return jsonify({"success": True, **payload}), 200
+
+
+@manager.route("/probation-reviews-due", methods=["GET"])
+@jwt_required()
+def probation_reviews_due():
+    """Backward-compatible alias: pending manager probation reviews only."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    payload = _list_manager_probation_reviews(admin, "pending")
+    return jsonify({"success": True, "reviews": payload["reviews"]}), 200
 
 
 @manager.route("/probation-review", methods=["POST"])
@@ -1014,6 +1095,7 @@ def submit_probation_review():
         STATUS_MANAGER_SUBMITTED,
         TERMINAL_STATUSES,
         infer_status_from_row,
+        is_probation_review_row_active,
     )
     if manager_recommendation not in MANAGER_RECOMMENDATIONS:
         return jsonify({"success": False, "message": "Invalid manager_recommendation"}), 400
@@ -1032,6 +1114,8 @@ def submit_probation_review():
         return jsonify({"success": False, "message": "Employee not found"}), 404
     if not _is_manager_for_target(admin, target):
         return jsonify({"success": False, "message": "You are not the manager for this employee"}), 403
+    if not is_probation_review_row_active(pr, target, date.today()):
+        return jsonify({"success": False, "message": "This probation review is no longer active"}), 400
 
     pr.reviewed_at = utc_now()
     pr.reviewed_by_admin_id = admin.id

@@ -291,6 +291,23 @@ export async function fetchProbationReviewsDue() {
   return result.reviews || [];
 }
 
+export async function fetchManagerProbationReviews({ status = "all" } = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const response = await fetch(`${API_BASE}/probation-reviews?${params.toString()}`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load probation reviews");
+  }
+  return {
+    reviews: result.reviews || [],
+    summary: result.summary || {},
+  };
+}
+
 export async function submitProbationReview(probationReviewId, payload) {
   const response = await fetch(`${API_BASE}/probation-review`, {
     method: "POST",

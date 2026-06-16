@@ -7,6 +7,12 @@ from .datetime_utils import isoformat_api
 REMINDER_DAYS_BEFORE = 15
 FOLLOWUP_DAYS_BEFORE = 7
 RECENT_CONFIRMATION_DAYS = 60
+# After probation end, keep manager/HR queue visible only this many days (overdue grace).
+OVERDUE_GRACE_DAYS = 30
+# HR can still decide after manager submit for this long past probation end.
+HR_DECISION_GRACE_DAYS = 90
+# How long managers can see their submitted / HR-closed probation reviews.
+MANAGER_SUBMITTED_HISTORY_DAYS = 180
 
 STATUS_REMINDER_SENT = "reminder_sent"
 STATUS_MANAGER_SUBMITTED = "manager_submitted"
@@ -104,6 +110,108 @@ def infer_status_from_row(row):
     return None
 
 
+def _has_pending_hr_decision(admin):
+    from .models.probation import ProbationReview
+
+    if not admin:
+        return False
+    for row in ProbationReview.query.filter_by(admin_id=admin.id).all():
+        if infer_status_from_row(row) == STATUS_MANAGER_SUBMITTED and row.reviewed_at and not row.hr_decision:
+            return True
+    return False
+
+
+def is_probation_review_eligible(admin, run_date=None, *, allow_awaiting_hr=False):
+    """
+    True when employee is in the current probation review window:
+    from T-15 before probation end through a short grace period after end.
+    Legacy joiners (e.g. DOJ 1999) are excluded.
+    """
+    run_date = run_date or date.today()
+    if not admin or not getattr(admin, "doj", None):
+        return False
+
+    current_end = effective_probation_end_date(admin)
+    if not current_end:
+        return False
+
+    if allow_awaiting_hr and _has_pending_hr_decision(admin):
+        return True
+
+    reminder_start = current_end - timedelta(days=REMINDER_DAYS_BEFORE)
+    review_cutoff = current_end + timedelta(days=OVERDUE_GRACE_DAYS)
+
+    if run_date < reminder_start:
+        return False
+    if run_date > review_cutoff:
+        return False
+    return True
+
+
+def is_probation_review_row_active(row, admin, run_date=None):
+    """Whether a review belongs in manager/HR active queues (not legacy/closed)."""
+    run_date = run_date or date.today()
+    if not row or not admin:
+        return False
+
+    status = infer_status_from_row(row)
+    if status in TERMINAL_STATUSES:
+        return False
+
+    end = row.probation_end_date
+    if not end:
+        return False
+
+    if status == STATUS_MANAGER_SUBMITTED and row.reviewed_at and not row.hr_decision:
+        return end + timedelta(days=HR_DECISION_GRACE_DAYS) >= run_date
+
+    reminder_start = end - timedelta(days=REMINDER_DAYS_BEFORE)
+    review_cutoff = end + timedelta(days=OVERDUE_GRACE_DAYS)
+    if run_date < reminder_start or run_date > review_cutoff:
+        return False
+    return True
+
+
+def is_manager_submitted_review_visible(row, admin, run_date=None):
+    """Whether a manager-submitted review should appear in the manager submitted list."""
+    run_date = run_date or date.today()
+    if not row or not admin or not row.reviewed_at:
+        return False
+
+    status = infer_status_from_row(row)
+    if status == STATUS_MANAGER_SUBMITTED and not row.hr_decision:
+        return is_probation_review_row_active(row, admin, run_date)
+
+    if status in TERMINAL_STATUSES:
+        decided_at = row.hr_decided_at
+        if decided_at:
+            decided_date = (
+                decided_at.date()
+                if hasattr(decided_at, "date") and callable(decided_at.date)
+                else decided_at
+            )
+            return decided_date >= run_date - timedelta(days=MANAGER_SUBMITTED_HISTORY_DAYS)
+        end = row.probation_end_date
+        return bool(end and end >= run_date - timedelta(days=MANAGER_SUBMITTED_HISTORY_DAYS))
+    return False
+
+
+def manager_probation_status_label(row):
+    """Human-readable status for manager probation list."""
+    status = infer_status_from_row(row)
+    if not row or not row.reviewed_at:
+        return "Pending manager review"
+    if status == STATUS_MANAGER_SUBMITTED and not row.hr_decision:
+        return "Awaiting HR decision"
+    if status == STATUS_HR_CONFIRMED:
+        return "Confirmed by HR"
+    if status == STATUS_HR_EXTENDED:
+        return "Extended by HR"
+    if status == STATUS_HR_FAILED:
+        return "Not cleared by HR"
+    return "Submitted"
+
+
 def _current_cycle_review(admin, effective_end):
     from .models.probation import ProbationReview
 
@@ -181,6 +289,9 @@ def build_employee_probation_status(admin, run_date=None):
             "hr_decision": HR_DECISION_FAILED,
             "hr_decided_at": isoformat_api(failed_row.hr_decided_at),
         }
+
+    if not is_probation_review_eligible(admin, run_date, allow_awaiting_hr=True):
+        return {"applicable": False, "show_on_dashboard": False}
 
     on_probation = bool(effective_end and run_date < effective_end)
     days_remaining = max((effective_end - run_date).days, 0) if effective_end and run_date <= effective_end else 0

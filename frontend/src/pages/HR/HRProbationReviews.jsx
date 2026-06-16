@@ -4,7 +4,7 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDate } from "../../utils/dateFormat";
 import "./HRProbationReviews.css";
 
-const API_BASE = "/api/probation";
+const API_BASE = "/api/HumanResource";
 
 const STATUS_FILTERS = [
   { value: "all", label: "All" },
@@ -23,6 +23,26 @@ const RECOMMENDATION_LABELS = {
 function authHeaders() {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function parseApiJson(response) {
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return {};
+  }
+  if (trimmed.startsWith("<")) {
+    const hint =
+      response.status === 404
+        ? "API not found (404). Restart the backend so probation routes are loaded."
+        : `Server returned a web page instead of JSON (${response.status}). Check login and backend logs.`;
+    throw new Error(hint);
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw new Error(`Invalid response from server (${response.status}). Expected JSON.`);
+  }
 }
 
 export const HRProbationReviews = ({ onBack }) => {
@@ -44,10 +64,10 @@ export const HRProbationReviews = ({ onBack }) => {
     try {
       const params = new URLSearchParams();
       if (filter) params.set("status", filter);
-      const res = await fetch(`${API_BASE}/hr/reviews?${params.toString()}`, {
+      const res = await fetch(`${API_BASE}/probation-reviews?${params.toString()}`, {
         headers: authHeaders(),
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (!res.ok || !data.success) {
         throw new Error(data.message || "Failed to load probation reviews");
       }
@@ -99,7 +119,7 @@ export const HRProbationReviews = ({ onBack }) => {
       if (decision === "extended") {
         payload.extension_months = Number(extensionMonths);
       }
-      const res = await fetch(`${API_BASE}/hr/decision`, {
+      const res = await fetch(`${API_BASE}/probation-decision`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -107,7 +127,7 @@ export const HRProbationReviews = ({ onBack }) => {
         },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (!res.ok || !data.success) {
         throw new Error(data.message || "Failed to record decision");
       }
