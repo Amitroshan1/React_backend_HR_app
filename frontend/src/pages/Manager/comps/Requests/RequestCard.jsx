@@ -1,6 +1,6 @@
 import "./RequestCard.css";
 
-export const RequestCard = ({ request, onAction, isActing }) => {
+export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
   const getBadgeClass = (type) => {
     const t = type?.toLowerCase() || "";
     if (t.includes("leave")) return "badge-leave";
@@ -32,6 +32,11 @@ export const RequestCard = ({ request, onAction, isActing }) => {
 
       {isPending && onAction ? (
         <div className="request-actions">
+          {onViewDetails ? (
+            <button type="button" className="details-pill" onClick={onViewDetails}>
+              View details
+            </button>
+          ) : null}
           <button
             className="btn-reject-small"
             onClick={() => onAction(request.id, "reject")}
@@ -47,6 +52,10 @@ export const RequestCard = ({ request, onAction, isActing }) => {
             {isActing ? "Updating..." : "Approve"}
           </button>
         </div>
+      ) : onViewDetails ? (
+        <button type="button" className="details-pill" onClick={onViewDetails}>
+          View details
+        </button>
       ) : (
         <span className="details-pill">Processed</span>
       )}

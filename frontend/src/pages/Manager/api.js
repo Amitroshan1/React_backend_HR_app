@@ -308,6 +308,40 @@ export async function fetchManagerProbationReviews({ status = "all" } = {}) {
   };
 }
 
+export async function fetchManagerClaimById(claimId) {
+  const response = await fetch(`${API_BASE}/claim-requests/${claimId}`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load claim details");
+  }
+  return result.claim;
+}
+
+export function managerClaimFileUrl(claimId, lineItemId) {
+  return `${API_BASE}/claim-requests/${claimId}/files/${lineItemId}`;
+}
+
+export async function fetchManagerClaimFileBlob(claimId, lineItemId) {
+  const response = await fetch(managerClaimFileUrl(claimId, lineItemId), {
+    method: "GET",
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    let msg = "Unable to open file";
+    try {
+      const j = await response.json();
+      msg = j?.message || msg;
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
+  }
+  return response.blob();
+}
+
 export async function submitProbationReview(probationReviewId, payload) {
   const response = await fetch(`${API_BASE}/probation-review`, {
     method: "POST",

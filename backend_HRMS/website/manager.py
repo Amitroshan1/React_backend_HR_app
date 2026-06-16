@@ -2,7 +2,7 @@ import calendar
 import os
 from collections import defaultdict
 
-from flask import Blueprint, jsonify, request, current_app, url_for, send_file
+from flask import Blueprint, jsonify, request, current_app, url_for, send_file, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
@@ -26,6 +26,7 @@ from .models.manager_model import ManagerContact
 from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email, send_probation_review_received_employee_email
 from .employee_photo import photo_url_for_admin
 from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_aggregate, serialize_punch_sessions
+from .expense_utils import claim_attach_storage_name
 
 
 manager = Blueprint("manager", __name__)
@@ -531,6 +532,51 @@ def _claim_status(items):
     return "Partially Approved"
 
 
+def _serialize_line_item(li):
+    file_path = claim_attach_storage_name(li.Attach_file) if li.Attach_file else None
+    return {
+        "id": li.id,
+        "sr_no": li.sr_no,
+        "date": _serialize_date(li.date),
+        "purpose": li.purpose,
+        "amount": float(li.amount or 0),
+        "currency": li.currency,
+        "file": li.Attach_file,
+        "file_path": file_path,
+        "has_file": bool(file_path),
+        "status": li.status,
+        "rejection_reason": getattr(li, "rejection_reason", None),
+    }
+
+
+def _serialize_manager_claim(row, line_items):
+    serialized_lines = [_serialize_line_item(li) for li in line_items]
+    derived_status = _claim_status(line_items)
+    total_amount = sum(li["amount"] for li in serialized_lines)
+    currency = serialized_lines[0]["currency"] if serialized_lines else "INR"
+    return {
+        "id": row.id,
+        "employee_name": row.employee_name,
+        "employee_email": row.email,
+        "emp_id": row.emp_id,
+        "designation": row.designation,
+        "circle": row.admin.circle if row.admin else None,
+        "emp_type": row.admin.emp_type if row.admin else None,
+        "project_name": row.project_name,
+        "country_state": row.country_state,
+        "travel_from_date": _serialize_date(row.travel_from_date),
+        "travel_to_date": _serialize_date(row.travel_to_date),
+        "status": derived_status,
+        "total_amount": total_amount,
+        "currency": currency,
+        "line_items": serialized_lines,
+    }
+
+
+def _claim_uploads_root():
+    return os.path.join(current_app.static_folder, "uploads")
+
+
 @manager.route("/claim-requests", methods=["GET"])
 @jwt_required()
 def list_claim_requests():
@@ -550,34 +596,61 @@ def list_claim_requests():
         if requested_status.lower() != "all" and derived_status.lower() != requested_status.lower():
             continue
 
-        items.append({
-            "id": row.id,
-            "employee_name": row.employee_name,
-            "employee_email": row.email,
-            "emp_id": row.emp_id,
-            "circle": row.admin.circle if row.admin else None,
-            "emp_type": row.admin.emp_type if row.admin else None,
-            "project_name": row.project_name,
-            "country_state": row.country_state,
-            "travel_from_date": _serialize_date(row.travel_from_date),
-            "travel_to_date": _serialize_date(row.travel_to_date),
-            "status": derived_status,
-            "line_items": [
-                {
-                    "id": li.id,
-                    "sr_no": li.sr_no,
-                    "date": _serialize_date(li.date),
-                    "purpose": li.purpose,
-                    "amount": li.amount,
-                    "currency": li.currency,
-                    "file": li.Attach_file,
-                    "status": li.status,
-                }
-                for li in line_items
-            ],
-        })
+        items.append(_serialize_manager_claim(row, line_items))
 
     return jsonify({"success": True, "requests": items}), 200
+
+
+@manager.route("/claim-requests/<int:claim_id>", methods=["GET"])
+@jwt_required()
+def get_claim_request(claim_id):
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    claim = ExpenseClaimHeader.query.get(claim_id)
+    if not claim:
+        return jsonify({"success": False, "message": "Claim request not found"}), 404
+    if not _is_manager_for_target(admin, claim.admin):
+        return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
+
+    line_items = (
+        ExpenseLineItem.query.filter_by(claim_id=claim_id)
+        .order_by(ExpenseLineItem.sr_no.asc())
+        .all()
+    )
+    return jsonify({"success": True, "claim": _serialize_manager_claim(claim, line_items)}), 200
+
+
+@manager.route("/claim-requests/<int:claim_id>/files/<int:line_item_id>", methods=["GET"])
+@jwt_required()
+def serve_claim_line_file(claim_id, line_item_id):
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    claim = ExpenseClaimHeader.query.get(claim_id)
+    if not claim:
+        return jsonify({"success": False, "message": "Claim request not found"}), 404
+    if not _is_manager_for_target(admin, claim.admin):
+        return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
+
+    line_item = ExpenseLineItem.query.filter_by(id=line_item_id, claim_id=claim_id).first()
+    if not line_item or not line_item.Attach_file:
+        return jsonify({"success": False, "message": "Attachment not found"}), 404
+
+    relative_path = claim_attach_storage_name(line_item.Attach_file)
+    if not relative_path or ".." in relative_path.replace("\\", "/").split("/"):
+        return jsonify({"success": False, "message": "Invalid file path"}), 400
+
+    uploads_root = _claim_uploads_root()
+    full_path = os.path.join(uploads_root, relative_path.replace("\\", "/"))
+    if not os.path.isfile(full_path):
+        return jsonify({"success": False, "message": "File not found on server"}), 404
+
+    directory = os.path.dirname(full_path)
+    filename = os.path.basename(full_path)
+    return send_from_directory(directory, filename, as_attachment=False)
 
 
 @manager.route("/claim-requests/<int:claim_id>/action", methods=["POST"])

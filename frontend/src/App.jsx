@@ -28,6 +28,7 @@ import ExitEmployee from "./pages/HR/ExitEmployee";
 import { EmployeePerformance } from "./pages/Performance/EmployeePerformance";
 import { HolidayCalendarUser } from "./pages/Holiday/HolidayCalendarUser";
 import { ManagerPerformanceReviews } from "./pages/Manager/ManagerPerformanceReviews";
+import { ManagerClaimDetails } from "./pages/Manager/ManagerClaimDetails";
 /* Ensure page CSS is in main bundle so it loads in production (fixes CSS missing on deploy) */
 import "./pages/Performance/EmployeePerformance.css";
 import "./pages/Holiday/HolidayCalendarUser.css";
@@ -138,6 +139,7 @@ export const App = () => {
           ],
         },
         { path: "manager",                         element: <Manager /> },
+        { path: "manager/claims/:claimId",         element: <ManagerClaimDetails /> },
         { path: "manager/performance-reviews",     element: <ManagerPerformanceReviews /> },
         { path: "it",                              element: <ITPanel /> },
 
