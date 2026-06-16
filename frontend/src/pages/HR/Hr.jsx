@@ -23,6 +23,7 @@ import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
 import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
 import { CircleTransferHistory } from './CircleTransferHistory';
+import { HRProbationReviews } from './HRProbationReviews';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
@@ -50,6 +51,7 @@ const HR_PANEL_VIEWS = [
   'reset_password',
   'leave_accrual_monitor',
   'holiday_calendar',
+  'probation_reviews',
   'add_circle_type',
 ];
 
@@ -1308,6 +1310,7 @@ export const Hr = () => {
     { title: 'Ex-Employee Document Sharing', icon: Share2, description: 'Send time-limited document links to former staff' },
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
+    { title: 'Probation Reviews', icon: UserCheck, description: 'Review manager feedback and record probation decisions' },
     { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
   ];
 
@@ -1649,6 +1652,9 @@ else if (title === 'Reset Employee Password') {
 else if (title === 'Leave Accrual Monitor') {
   setView('leave_accrual_monitor');
 }
+else if (title === 'Probation Reviews') {
+  setView('probation_reviews');
+}
 else if (title === 'Holiday Calendar') {
   setView('holiday_calendar');
 }
@@ -1712,6 +1718,10 @@ if (view === 'add_dept_circle') { //new condition for add department and cir.
 
 if (view === 'leave_accrual_monitor') {
   return <LeaveAccrualSummary onBack={() => setView('updates')} />;
+}
+
+if (view === 'probation_reviews') {
+  return <HRProbationReviews onBack={() => setView('updates')} />;
 }
 
 if (view === 'holiday_calendar') {

@@ -487,6 +487,10 @@ def _employee_homepage_impl():
             except Exception:
                 photo_url = f"/static/uploads/{photo_fn}"
 
+    from .probation_utils import build_employee_probation_status
+
+    probation = build_employee_probation_status(admin, run_date=today)
+
     return jsonify({
         "success": True,
         "user": {
@@ -533,6 +537,7 @@ def _employee_homepage_impl():
         "last_leave": last_leave_data,
         "last_payslip": last_payslip_data,
         "my_payroll_history": my_payroll_history,
+        "probation": probation,
         **plan_payload(),
     }), 200
 
@@ -820,6 +825,10 @@ def employee_profile():
 
     if upload_doc:
         profile["documents"] = _upload_doc_profile_dict(upload_doc)
+
+    from .probation_utils import build_employee_probation_status
+
+    profile["probation"] = build_employee_probation_status(admin, run_date=date.today())
 
     return jsonify({"success": True, "profile": profile}), 200
 

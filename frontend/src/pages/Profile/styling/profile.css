@@ -2672,3 +2672,51 @@
         --file-preview-header-offset: var(--header-height, 88px);
     }
 }
+
+.profile-probation-panel {
+    border: 1px solid #dbeafe;
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    background: #f8fbff;
+}
+
+.profile-probation-status {
+    margin: 0 0 0.35rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1e3a8a;
+}
+
+.profile-probation-message {
+    margin: 0 0 0.85rem;
+    color: #475569;
+}
+
+.profile-probation-panel--confirmed {
+    border-color: #86efac;
+    background: #f0fdf4;
+}
+
+.profile-probation-panel--confirmed .profile-probation-status {
+    color: #047857;
+}
+
+.profile-probation-panel--failed {
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+
+.profile-probation-panel--failed .profile-probation-status {
+    color: #b91c1c;
+}
+
+.profile-probation-panel--awaiting_hr,
+.profile-probation-panel--review_pending {
+    border-color: #fde68a;
+    background: #fffbeb;
+}
+
+.profile-probation-panel--awaiting_hr .profile-probation-status,
+.profile-probation-panel--review_pending .profile-probation-status {
+    color: #b45309;
+}

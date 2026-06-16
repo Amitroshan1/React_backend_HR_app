@@ -225,6 +225,7 @@ def create_app():
     from .Admin import admin_bp
     from .notifications import notifications
     from .performance_api import performance_api
+    from .probation_api import probation_api
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -236,6 +237,7 @@ def create_app():
     app.register_blueprint(it_bp, url_prefix="/api/it")
     app.register_blueprint(notifications, url_prefix="/api/notifications")
     app.register_blueprint(performance_api, url_prefix="/api/performance")
+    app.register_blueprint(probation_api, url_prefix="/api/probation")
 
     # Lightweight schema patch: free-text parcel tracking (no admin FK required)
     def _ensure_parcel_name_columns():
@@ -828,6 +830,45 @@ def create_app():
         except Exception as e:
             app.logger.warning("upload_docs identity columns ensure skipped: %s", e)
 
+    def _ensure_probation_review_columns():
+        """Phase 1 probation workflow columns on probation_reviews."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.probation import ProbationReview
+
+            insp = inspect(db.engine)
+            table = ProbationReview.__tablename__
+            if table not in insp.get_table_names():
+                ProbationReview.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table %s", table)
+                return
+
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            specs = [
+                ("status", "VARCHAR(30) NULL"),
+                ("followup_reminder_sent_at", "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL"),
+                ("overdue_escalation_sent_at", "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL"),
+                ("manager_recommendation", "VARCHAR(30) NULL"),
+                ("hr_decision", "VARCHAR(20) NULL"),
+                ("hr_decided_at", "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL"),
+                ("hr_decided_by_admin_id", "INTEGER NULL"),
+                ("extended_until", "DATE NULL"),
+                ("hr_notes", "TEXT NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("probation_reviews column migration skipped: %s", e)
+
     with app.app_context():
         try:
             _ensure_upload_doc_identity_columns()
@@ -848,6 +889,7 @@ def create_app():
             _ensure_employee_circle_history_table()
             _ensure_deployed_customers_table()
             _ensure_leave_balance_defaults()
+            _ensure_probation_review_columns()
             _cleanup_zero_qty_inventory_rows()
         except Exception as e:
             app.logger.error(

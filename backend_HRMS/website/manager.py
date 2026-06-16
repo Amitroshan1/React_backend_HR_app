@@ -23,7 +23,7 @@ from .noc_department_service import (
 from .commands.probation import dedupe_probation_review_rows
 from .models.probation import ProbationReview
 from .models.manager_model import ManagerContact
-from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
+from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email, send_probation_review_received_employee_email
 from .employee_photo import photo_url_for_admin
 from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_aggregate, serialize_punch_sessions
 
@@ -962,10 +962,14 @@ def probation_reviews_due():
         .order_by(ProbationReview.probation_end_date.asc())
         .all()
     )
+    from .probation_utils import infer_status_from_row, STATUS_MANAGER_SUBMITTED, TERMINAL_STATUSES
     out = []
     for pr in rows:
         target = Admin.query.get(pr.admin_id)
         if not target:
+            continue
+        row_status = infer_status_from_row(pr)
+        if row_status in TERMINAL_STATUSES or row_status == STATUS_MANAGER_SUBMITTED:
             continue
         if not _is_manager_for_target(admin, target):
             continue
@@ -977,6 +981,9 @@ def probation_reviews_due():
             "doj": _serialize_date(getattr(target, "doj", None)),
             "probation_end_date": _serialize_date(pr.probation_end_date),
             "reminder_sent_at": isoformat_api(pr.reminder_sent_at),
+            "status": infer_status_from_row(pr),
+            "rating": pr.rating,
+            "manager_recommendation": pr.manager_recommendation,
         })
     return jsonify({"success": True, "reviews": out}), 200
 
@@ -993,14 +1000,31 @@ def submit_probation_review():
     review_id = data.get("probation_review_id") or data.get("id")
     feedback = (data.get("feedback") or "").strip()
     rating = (data.get("rating") or "").strip()
+    manager_recommendation = (data.get("manager_recommendation") or data.get("recommendation") or "").strip()
 
     if not review_id:
         return jsonify({"success": False, "message": "probation_review_id required"}), 400
+    if not rating:
+        return jsonify({"success": False, "message": "rating is required"}), 400
+    if not manager_recommendation:
+        return jsonify({"success": False, "message": "manager_recommendation is required"}), 400
+
+    from .probation_utils import (
+        MANAGER_RECOMMENDATIONS,
+        STATUS_MANAGER_SUBMITTED,
+        TERMINAL_STATUSES,
+        infer_status_from_row,
+    )
+    if manager_recommendation not in MANAGER_RECOMMENDATIONS:
+        return jsonify({"success": False, "message": "Invalid manager_recommendation"}), 400
 
     pr = ProbationReview.query.get(review_id)
     if not pr:
         return jsonify({"success": False, "message": "Probation review not found"}), 404
-    if pr.reviewed_at:
+    current_status = infer_status_from_row(pr)
+    if current_status in TERMINAL_STATUSES:
+        return jsonify({"success": False, "message": "Review is already closed by HR"}), 400
+    if pr.reviewed_at or current_status == STATUS_MANAGER_SUBMITTED:
         return jsonify({"success": False, "message": "Review already submitted"}), 400
 
     target = Admin.query.get(pr.admin_id)
@@ -1012,7 +1036,9 @@ def submit_probation_review():
     pr.reviewed_at = utc_now()
     pr.reviewed_by_admin_id = admin.id
     pr.feedback = feedback or None
-    pr.rating = rating or None
+    pr.rating = rating
+    pr.manager_recommendation = manager_recommendation or None
+    pr.status = STATUS_MANAGER_SUBMITTED
     try:
         db.session.commit()
     except Exception as e:
@@ -1020,7 +1046,18 @@ def submit_probation_review():
         return jsonify({"success": False, "message": str(e)}), 500
 
     manager_name = (getattr(admin, "first_name", None) or "").strip() or admin.email or "Manager"
-    send_probation_review_submitted_email(target, manager_name, feedback_preview=feedback)
+    send_probation_review_submitted_email(
+        target,
+        manager_name,
+        feedback_preview=feedback,
+        rating=rating,
+        recommendation=manager_recommendation,
+    )
+    send_probation_review_received_employee_email(
+        target,
+        manager_name,
+        probation_end_date=pr.probation_end_date,
+    )
     pr.hr_notified_at = utc_now()
     db.session.commit()
 

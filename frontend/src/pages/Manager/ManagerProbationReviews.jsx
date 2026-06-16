@@ -5,6 +5,11 @@ import "./ManagerProbationReviews.css";
 import { formatDate } from "../../utils/dateFormat";
 
 const RATING_OPTIONS = ["Excellent", "Good", "Average", "Needs Improvement"];
+const RECOMMENDATION_OPTIONS = [
+  { value: "confirm", label: "Recommend confirmation" },
+  { value: "extend", label: "Recommend extension" },
+  { value: "not_recommend", label: "Do not recommend" },
+];
 
 export const ManagerProbationReviews = () => {
   const [reviews, setReviews] = useState([]);
@@ -13,6 +18,7 @@ export const ManagerProbationReviews = () => {
   const [success, setSuccess] = useState("");
   const [activeId, setActiveId] = useState(null);
   const [rating, setRating] = useState("Good");
+  const [managerRecommendation, setManagerRecommendation] = useState("confirm");
   const [feedback, setFeedback] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -37,6 +43,7 @@ export const ManagerProbationReviews = () => {
   const openForm = (r) => {
     setActiveId(r.id);
     setRating("Good");
+    setManagerRecommendation("confirm");
     setFeedback("");
     setSuccess("");
     setError("");
@@ -45,16 +52,29 @@ export const ManagerProbationReviews = () => {
   const closeForm = () => {
     setActiveId(null);
     setRating("Good");
+    setManagerRecommendation("confirm");
     setFeedback("");
   };
 
   const handleSubmit = async () => {
     if (!activeId) return;
+    if (!rating) {
+      setError("Rating is required.");
+      return;
+    }
+    if (!managerRecommendation) {
+      setError("Recommendation is required.");
+      return;
+    }
     setSubmitting(true);
     setError("");
     setSuccess("");
     try {
-      await submitProbationReview(activeId, { rating, feedback });
+      await submitProbationReview(activeId, {
+        rating,
+        manager_recommendation: managerRecommendation,
+        feedback,
+      });
       setSuccess("Review submitted. HR has been notified.");
       closeForm();
       await load();
@@ -77,7 +97,7 @@ export const ManagerProbationReviews = () => {
     <div className="manager-probation-reviews">
       <h3 className="manager-probation-title">Probation Reviews Due (6-month)</h3>
       <p className="manager-probation-desc">
-        Employees below are due for probation review. Submit your feedback so HR can be notified.
+        Employees below are due for probation review. Submit your rating and recommendation so HR can record a decision.
       </p>
       {error && <p className="manager-probation-error">{error}</p>}
       {success && <p className="manager-probation-success">{success}</p>}
@@ -98,10 +118,22 @@ export const ManagerProbationReviews = () => {
               {activeId === r.id ? (
                 <div className="manager-probation-form">
                   <label>
-                    Rating
-                    <select value={rating} onChange={(e) => setRating(e.target.value)}>
+                    Rating *
+                    <select value={rating} onChange={(e) => setRating(e.target.value)} required>
                       {RATING_OPTIONS.map((opt) => (
                         <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Recommendation *
+                    <select
+                      value={managerRecommendation}
+                      onChange={(e) => setManagerRecommendation(e.target.value)}
+                      required
+                    >
+                      {RECOMMENDATION_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
                   </label>

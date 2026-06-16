@@ -58,6 +58,7 @@ export const ProfileViewLayout = ({
         educationDetails,
         files,
         documentMeta,
+        probation,
     } = data;
 
     const personalItems = [
@@ -154,6 +155,54 @@ export const ProfileViewLayout = ({
                     >
                         <InfoGrid items={employmentItems} />
                     </ViewSection>
+
+                    {probation?.applicable && (
+                        <ViewSection
+                            id="profile-probation"
+                            title="Probation status"
+                            modifier="probation"
+                        >
+                            <div className={`profile-probation-panel profile-probation-panel--${probation.status || 'default'}`}>
+                                <p className="profile-probation-status">{probation.status_label || '—'}</p>
+                                <p className="profile-probation-message">{probation.message || '—'}</p>
+                                <InfoGrid
+                                    items={[
+                                        {
+                                            label: 'Probation start',
+                                            value: formatDateForDisplay(probation.probation_start_date),
+                                            key: 'prob-start',
+                                        },
+                                        {
+                                            label: 'Probation end',
+                                            value: formatDateForDisplay(probation.probation_end_date),
+                                            key: 'prob-end',
+                                        },
+                                        ...(probation.days_remaining > 0
+                                            ? [{
+                                                label: 'Days remaining',
+                                                value: String(probation.days_remaining),
+                                                key: 'prob-days',
+                                            }]
+                                            : []),
+                                        ...(probation.extended_until
+                                            ? [{
+                                                label: 'Extended until',
+                                                value: formatDateForDisplay(probation.extended_until),
+                                                key: 'prob-ext',
+                                            }]
+                                            : []),
+                                        ...(probation.confirmed_at
+                                            ? [{
+                                                label: 'Confirmed on',
+                                                value: formatDateForDisplay(probation.confirmed_at),
+                                                key: 'prob-confirmed',
+                                            }]
+                                            : []),
+                                    ]}
+                                />
+                            </div>
+                        </ViewSection>
+                    )}
 
                     {(previousEmployment || []).length > 0 && (
                         <ViewSection

@@ -2525,7 +2525,266 @@ def send_probation_reminder_email(admin, probation_end_date, manager_emails):
         return False
 
 
-def send_probation_review_submitted_email(admin_employee, manager_name, feedback_preview=None):
+def _probation_email_context(admin, probation_end_date):
+    emp_name = (getattr(admin, "first_name", None) or "").strip() or (admin.email or "Employee")
+    doj = getattr(admin, "doj", None)
+    doj_str = doj.isoformat() if doj and hasattr(doj, "isoformat") else "N/A"
+    end_str = (
+        probation_end_date.isoformat()
+        if probation_end_date and hasattr(probation_end_date, "isoformat")
+        else str(probation_end_date)
+    )
+    return emp_name, doj_str, end_str
+
+
+def _probation_manager_recipients(manager_emails):
+    hr_email = (current_app.config.get("EMAIL_HR") or "").strip()
+    mgr_ordered = []
+    seen_lower = set()
+    for e in manager_emails or []:
+        if not e:
+            continue
+        addr = e.strip()
+        key = addr.lower()
+        if key and key not in seen_lower:
+            seen_lower.add(key)
+            mgr_ordered.append(addr)
+
+    if mgr_ordered:
+        primary = mgr_ordered[0]
+        cc_list = []
+        for addr in mgr_ordered[1:]:
+            if addr.lower() != primary.lower():
+                cc_list.append(addr)
+        if hr_email:
+            hr_low = hr_email.lower()
+            if hr_low != primary.lower() and hr_low not in {c.lower() for c in cc_list}:
+                cc_list.append(hr_email)
+        return primary, cc_list if cc_list else None
+
+    if not hr_email:
+        return None, None
+    return hr_email, None
+
+
+def send_probation_followup_reminder_email(admin, probation_end_date, manager_emails):
+    """T-7 follow-up when manager has not submitted probation review."""
+    try:
+        emp_name, doj_str, end_str = _probation_email_context(admin, probation_end_date)
+        subject = f"Probation Review Reminder (7 days): {emp_name}"
+        body = f"""
+        <p>Hello,</p>
+        <p>This is a follow-up reminder that probation review feedback is still pending for the employee below.
+        Probation ends on <strong>{end_str}</strong> (7 days from today).</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Email</strong></td><td>{admin.email or 'N/A'}</td></tr>
+            <tr><td><strong>Date of Joining</strong></td><td>{doj_str}</td></tr>
+            <tr><td><strong>Probation End Date</strong></td><td>{end_str}</td></tr>
+        </table>
+        <p>Please submit your review from the Manager panel (Probation Reviews).</p>
+        <p>— HRMS</p>
+        """
+        primary, cc_emails = _probation_manager_recipients(manager_emails)
+        if not primary:
+            current_app.logger.warning("Probation follow-up: no HR or manager email configured")
+            return False
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=primary,
+            cc_emails=cc_emails,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning(f"Probation follow-up reminder email failed: {e}")
+        return False
+
+
+def send_probation_overdue_escalation_email(admin, probation_end_date, manager_emails):
+    """Escalate to HR + manager when probation end has passed without manager review."""
+    try:
+        emp_name, doj_str, end_str = _probation_email_context(admin, probation_end_date)
+        subject = f"OVERDUE Probation Review: {emp_name}"
+        body = f"""
+        <p>Hello,</p>
+        <p>The probation period has ended and manager review feedback is still pending for:</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Email</strong></td><td>{admin.email or 'N/A'}</td></tr>
+            <tr><td><strong>Date of Joining</strong></td><td>{doj_str}</td></tr>
+            <tr><td><strong>Probation End Date</strong></td><td>{end_str}</td></tr>
+        </table>
+        <p>Please submit the review urgently from the Manager panel, or process the case from the HR Probation Reviews screen.</p>
+        <p>— HRMS</p>
+        """
+        primary, cc_emails = _probation_manager_recipients(manager_emails)
+        if not primary:
+            current_app.logger.warning("Probation overdue escalation: no HR or manager email configured")
+            return False
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=primary,
+            cc_emails=cc_emails,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning(f"Probation overdue escalation email failed: {e}")
+        return False
+
+
+def send_probation_hr_decision_email(admin_employee, hr_name, decision, probation_end_date, notes=None):
+    """Notify manager when HR records a probation decision."""
+    try:
+        from .manager_utils import resolve_manager_contact_for_employee, get_manager_emails
+
+        contact = resolve_manager_contact_for_employee(admin_employee)
+        manager_emails = get_manager_emails(contact) if contact else []
+        primary, cc_emails = _probation_manager_recipients(manager_emails)
+        if not primary:
+            hr_email = current_app.config.get("EMAIL_HR")
+            if not hr_email:
+                return False
+            primary = hr_email
+            cc_emails = None
+
+        emp_name = (getattr(admin_employee, "first_name", None) or "").strip() or (
+            admin_employee.email or "Employee"
+        )
+        end_str = (
+            probation_end_date.isoformat()
+            if probation_end_date and hasattr(probation_end_date, "isoformat")
+            else str(probation_end_date or "N/A")
+        )
+        subject = f"Probation Decision ({decision}): {emp_name}"
+        body = f"""
+        <p>Hello,</p>
+        <p>HR has recorded the probation decision for <strong>{emp_name}</strong>.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Decision</strong></td><td>{decision}</td></tr>
+            <tr><td><strong>Probation End Date</strong></td><td>{end_str}</td></tr>
+            <tr><td><strong>Decided By</strong></td><td>{hr_name or 'HR'}</td></tr>
+        </table>
+        {f'<p><strong>Notes:</strong> {notes}</p>' if notes else ''}
+        <p>— HRMS</p>
+        """
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=primary,
+            cc_emails=cc_emails,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning(f"Probation HR decision email failed: {e}")
+        return False
+
+
+def send_probation_employee_decision_email(
+    admin_employee,
+    decision,
+    probation_end_date=None,
+    extended_until=None,
+    hr_name=None,
+    notes=None,
+):
+    """Notify employee when HR records a probation decision."""
+    try:
+        to_email = (getattr(admin_employee, "email", None) or "").strip()
+        if not to_email:
+            return False
+
+        emp_name = (getattr(admin_employee, "first_name", None) or "").strip() or to_email
+        end_str = (
+            probation_end_date.isoformat()
+            if probation_end_date and hasattr(probation_end_date, "isoformat")
+            else str(probation_end_date or "N/A")
+        )
+        ext_str = (
+            extended_until.isoformat()
+            if extended_until and hasattr(extended_until, "isoformat")
+            else str(extended_until or "")
+        )
+
+        if decision == "confirmed":
+            subject = "Congratulations — Employment Confirmed"
+            lead = (
+                "We are pleased to inform you that your probation has been successfully completed "
+                "and your employment has been confirmed."
+            )
+        elif decision == "extended":
+            subject = "Probation Period Extended"
+            lead = (
+                f"Your probation period has been extended until <strong>{ext_str or end_str}</strong>. "
+                "HR will share further details if required."
+            )
+        else:
+            subject = "Probation Update — Please Contact HR"
+            lead = (
+                "HR has recorded an update regarding your probation. "
+                "Please contact the HR team for further guidance."
+            )
+
+        body = f"""
+        <p>Hello {emp_name},</p>
+        <p>{lead}</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Decision</strong></td><td>{decision}</td></tr>
+            <tr><td><strong>Probation End Date</strong></td><td>{end_str}</td></tr>
+            {f'<tr><td><strong>Extended Until</strong></td><td>{ext_str}</td></tr>' if ext_str else ''}
+        </table>
+        {f'<p><strong>HR notes:</strong> {notes}</p>' if notes else ''}
+        <p>— HRMS</p>
+        """
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning(f"Probation employee decision email failed: {e}")
+        return False
+
+
+def send_probation_review_received_employee_email(admin_employee, manager_name, probation_end_date=None):
+    """Let employee know their manager submitted a probation review."""
+    try:
+        to_email = (getattr(admin_employee, "email", None) or "").strip()
+        if not to_email:
+            return False
+        emp_name = (getattr(admin_employee, "first_name", None) or "").strip() or to_email
+        end_str = (
+            probation_end_date.isoformat()
+            if probation_end_date and hasattr(probation_end_date, "isoformat")
+            else str(probation_end_date or "N/A")
+        )
+        subject = "Probation Review Submitted"
+        body = f"""
+        <p>Hello {emp_name},</p>
+        <p>Your reporting manager <strong>{manager_name or 'Manager'}</strong> has submitted your probation review.</p>
+        <p>Probation end date: <strong>{end_str}</strong></p>
+        <p>HR will record the final confirmation decision and you will be notified by email.</p>
+        <p>— HRMS</p>
+        """
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning(f"Probation employee review-received email failed: {e}")
+        return False
+
+
+def send_probation_review_submitted_email(admin_employee, manager_name, feedback_preview=None, rating=None, recommendation=None):
     """Notify HR that manager has submitted probation review for the employee."""
     try:
         hr_email = current_app.config.get("EMAIL_HR")
@@ -2534,15 +2793,20 @@ def send_probation_review_submitted_email(admin_employee, manager_name, feedback
             return False
         emp_name = (getattr(admin_employee, "first_name", None) or "").strip() or (admin_employee.email or "Employee")
         subject = f"Probation Review Submitted: {emp_name}"
-        feedback_snippet = (feedback_preview or "")[:200] + ("..." if (feedback_preview or "") and len(feedback_preview or "") > 200 else "")
+        feedback_snippet = (feedback_preview or "")[:200] + (
+            "..." if (feedback_preview or "") and len(feedback_preview or "") > 200 else ""
+        )
         body = f"""
         <p>Hello HR,</p>
         <p>Manager <strong>{manager_name or 'N/A'}</strong> has submitted the probation review for the following employee.</p>
         <table border="1" cellpadding="6" cellspacing="0">
             <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
             <tr><td><strong>Email</strong></td><td>{admin_employee.email or 'N/A'}</td></tr>
+            {f'<tr><td><strong>Rating</strong></td><td>{rating}</td></tr>' if rating else ''}
+            {f'<tr><td><strong>Recommendation</strong></td><td>{recommendation}</td></tr>' if recommendation else ''}
         </table>
         {f'<p><strong>Feedback preview:</strong> {feedback_snippet}</p>' if feedback_snippet else ''}
+        <p>Please record your decision from the HR Probation Reviews screen.</p>
         <p>— HRMS</p>
         """
         send_email_via_zeptomail(

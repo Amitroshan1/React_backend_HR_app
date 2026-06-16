@@ -1,0 +1,186 @@
+.hr-probation-wrapper {
+  padding: 1rem;
+}
+
+.hr-probation-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+}
+
+.hr-probation-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.hr-probation-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.hr-probation-header h3 {
+  margin: 0 0 0.25rem;
+}
+
+.hr-probation-header p {
+  margin: 0;
+  color: #6b7280;
+}
+
+.hr-probation-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+}
+
+.hr-probation-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  color: #374151;
+  font-size: 0.95rem;
+}
+
+.hr-probation-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.hr-probation-filters button {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+
+.hr-probation-filters button.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.hr-probation-loading,
+.hr-probation-empty {
+  color: #6b7280;
+}
+
+.hr-probation-error {
+  color: #b91c1c;
+}
+
+.hr-probation-success {
+  color: #047857;
+}
+
+.hr-probation-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.hr-probation-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.hr-probation-item.overdue {
+  border-color: #fca5a5;
+  background: #fff7f7;
+}
+
+.hr-probation-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+}
+
+.hr-probation-item-head span {
+  color: #6b7280;
+  font-size: 0.92rem;
+}
+
+.hr-probation-meta {
+  margin-top: 0.35rem;
+  color: #4b5563;
+  font-size: 0.92rem;
+}
+
+.hr-probation-feedback {
+  margin: 0.5rem 0 0;
+  padding: 0.65rem 0.75rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  color: #374151;
+}
+
+.hr-probation-decide-btn {
+  margin-top: 0.75rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+
+.hr-probation-decision-form {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.hr-probation-decision-form label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.92rem;
+}
+
+.hr-probation-decision-form select,
+.hr-probation-decision-form textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+}
+
+.hr-probation-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.hr-probation-actions button {
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+
+.hr-probation-actions button:first-child {
+  border: 1px solid #d1d5db;
+  background: #fff;
+}
+
+.hr-probation-actions button:last-child {
+  border: none;
+  background: #2563eb;
+  color: #fff;
+}

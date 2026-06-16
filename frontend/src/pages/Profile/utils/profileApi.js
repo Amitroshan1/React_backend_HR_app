@@ -163,6 +163,7 @@ export function mapProfileFromApi(p) {
         documentMeta: documentMetaFromApi(docs),
         previousEmployment: prevEmp,
         educationDetails: eduDetails,
+        probation: p.probation || null,
     };
 
     const avatarUrl = emp.photo_url ? normalizePhotoUrl(emp.photo_url) : null;

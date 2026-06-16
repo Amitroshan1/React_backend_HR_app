@@ -359,6 +359,7 @@ export const Dashboard = () => {
         managers: {},
         last_leave: null,
         last_payslip: null,
+        probation: null,
     });
     const [punchInDateTime, setPunchInDateTime] = useState(null);
     const [repeatPunchModalOpen, setRepeatPunchModalOpen] = useState(false);
@@ -406,6 +407,7 @@ export const Dashboard = () => {
                     managers: result.managers || {},
                     last_leave: result.last_leave || null,
                     last_payslip: result.last_payslip || null,
+                    probation: result.probation || null,
                 });
                 const open = punch.has_open_session ?? !!(punch.punch_in && !punch.punch_out);
                 if (open && punch.punch_in) {
@@ -873,6 +875,9 @@ export const Dashboard = () => {
         }
         await handlePunchOut("", t);
     };
+    const probation = dynamicData.probation;
+    const showProbationCard = probation?.show_on_dashboard;
+    const probationCardClass = probation?.status ? `probation-status-card--${probation.status}` : '';
     const dojFormatted = useMemo(() => formatDate(dynamicData.user.doj), [dynamicData.user.doj]);
     const experience = useMemo(() => calculateExperience(dynamicData.user.doj), [dynamicData.user.doj]);
     const totalLeave = useMemo(() => {
@@ -953,6 +958,24 @@ export const Dashboard = () => {
                             </button>
                         </div>
                     </div>
+                    {showProbationCard && (
+                        <div className={`probation-status-card ${probationCardClass}`}>
+                            <div className="probation-status-card__content">
+                                <p className="probation-status-card__label">Probation</p>
+                                <h3 className="probation-status-card__title">{probation.status_label}</h3>
+                                <p className="probation-status-card__message">{probation.message}</p>
+                                <div className="probation-status-card__meta">
+                                    <span>End date: {formatDate(probation.probation_end_date)}</span>
+                                    {probation.days_remaining > 0 && (
+                                        <span>{probation.days_remaining} day(s) left</span>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="probation-status-card__icon">
+                                <FiCheckCircle size={28} />
+                            </div>
+                        </div>
+                    )}
                     <div className="main-grid">
                         <div className="dashboard-top-row grid-span-4">
                             <div className="attendance-section">

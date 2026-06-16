@@ -1,29 +1,42 @@
 """
-Probation review reminder: 15 days before 6-month completion, notify HR and manager.
-Run daily via: flask probation-reminder [--run-date YYYY-MM-DD] [--dry-run]
+Probation review reminders:
+- T-15 days: initial reminder to manager + HR
+- T-7 days: follow-up if manager has not submitted
+- Overdue: escalation after probation end if still pending
+
+Run daily via scheduler or: flask probation-reminder [--run-date YYYY-MM-DD] [--dry-run]
 """
-import calendar
 from datetime import date, datetime, timedelta
-from ..datetime_utils import utc_now
+
 import click
 from sqlalchemy import func, or_
 
+from ..datetime_utils import utc_now
 from .. import db
 from ..models.Admin_models import Admin
 from ..models.manager_model import ManagerContact
 from ..models.probation import ProbationReview
-from ..manager_utils import get_manager_emails, get_manager_detail
-from ..email import send_probation_reminder_email
-
-
-PROBATION_MONTHS = 6
-REMINDER_DAYS_BEFORE = 15
+from ..manager_utils import get_manager_emails
+from ..email import (
+    send_probation_reminder_email,
+    send_probation_followup_reminder_email,
+    send_probation_overdue_escalation_email,
+)
+from ..probation_utils import (
+    STATUS_MANAGER_SUBMITTED,
+    STATUS_REMINDER_SENT,
+    TERMINAL_STATUSES,
+    REMINDER_DAYS_BEFORE,
+    FOLLOWUP_DAYS_BEFORE,
+    compute_probation_end_date,
+    infer_status_from_row,
+)
 
 
 def dedupe_probation_review_rows():
     """
     Merge duplicate ProbationReview rows for the same (admin_id, probation_end_date).
-    Keeps one canonical row (prefer one with reviewed_at, else lowest id), merges reminder_sent_at.
+    Keeps one canonical row (prefer one with reviewed_at, else lowest id), merges timestamps.
     Returns number of duplicate rows removed (0 if none).
     """
     dup_groups = (
@@ -51,11 +64,20 @@ def dedupe_probation_review_rows():
         else:
             keeper = rows[0]
         others = [r for r in rows if r.id != keeper.id]
-        latest_reminder = keeper.reminder_sent_at
-        for r in rows:
-            if r.reminder_sent_at and (latest_reminder is None or r.reminder_sent_at > latest_reminder):
-                latest_reminder = r.reminder_sent_at
-        keeper.reminder_sent_at = latest_reminder
+
+        def _latest_ts(attr):
+            latest = getattr(keeper, attr, None)
+            for r in rows:
+                val = getattr(r, attr, None)
+                if val and (latest is None or val > latest):
+                    latest = val
+            return latest
+
+        keeper.reminder_sent_at = _latest_ts("reminder_sent_at")
+        keeper.followup_reminder_sent_at = _latest_ts("followup_reminder_sent_at")
+        keeper.overdue_escalation_sent_at = _latest_ts("overdue_escalation_sent_at")
+        if not keeper.status:
+            keeper.status = infer_status_from_row(keeper)
         for r in others:
             db.session.delete(r)
             removed += 1
@@ -84,27 +106,43 @@ def _get_contact_for_admin(admin):
     ).first()
 
 
-def run_probation_reminder(run_date):
-    """
-    Find employees whose 6-month probation ends in 15 days; create ProbationReview, send email to HR + manager.
-    Returns summary dict.
-    """
-    summary = {
-        "run_date": run_date.isoformat(),
-        "reminders_sent": 0,
-        "skipped_no_doj": 0,
-        "skipped_already_sent": 0,
-        "dedupe_removed": 0,
-    }
-    merged = dedupe_probation_review_rows()
-    summary["dedupe_removed"] = merged
-    if merged:
-        db.session.flush()
+def _manager_emails_for_admin(admin):
+    contact = _get_contact_for_admin(admin)
+    return get_manager_emails(contact) if contact else []
 
-    reminder_date = run_date  # we run for run_date; reminder_date = probation_end - 15
-    # So probation_end_date = reminder_date + 15. We want employees with probation_end_date = run_date + 15.
-    probation_end_date = run_date + timedelta(days=REMINDER_DAYS_BEFORE)
 
+def _is_active_employee(admin):
+    if not admin or not admin.doj:
+        return False
+    if getattr(admin, "is_active", True) is False:
+        return False
+    if getattr(admin, "is_exited", False):
+        return False
+    return True
+
+
+def _pending_manager_review(row):
+    status = infer_status_from_row(row)
+    if status in TERMINAL_STATUSES or status == STATUS_MANAGER_SUBMITTED:
+        return False
+    return bool(row.reminder_sent_at) and not row.reviewed_at
+
+
+def _get_or_create_review(admin, end_date):
+    existing = ProbationReview.query.filter_by(
+        admin_id=admin.id,
+        probation_end_date=end_date,
+    ).first()
+    if existing:
+        return existing
+    row = ProbationReview(admin_id=admin.id, probation_end_date=end_date)
+    db.session.add(row)
+    db.session.flush()
+    return row
+
+
+def _process_initial_reminders(run_date, summary):
+    target_end = run_date + timedelta(days=REMINDER_DAYS_BEFORE)
     admins = Admin.query.filter(
         Admin.doj.isnot(None),
         db.func.coalesce(Admin.is_active, True) == True,
@@ -112,36 +150,99 @@ def run_probation_reminder(run_date):
     ).all()
 
     for admin in admins:
-        doj = admin.doj
-        if not doj:
-            summary["skipped_no_doj"] += 1
+        end = compute_probation_end_date(admin.doj)
+        if not end or end != target_end:
             continue
-        # Probation end = doj + 6 months (calendar months)
-        mo = doj.month + PROBATION_MONTHS
-        yr = doj.year + (mo - 1) // 12
-        mo = (mo - 1) % 12 + 1
-        last = calendar.monthrange(yr, mo)[1]
-        end = date(yr, mo, min(doj.day, last))
-        if end != probation_end_date:
-            continue
-        # This employee's probation ends on probation_end_date; reminder_date is today (run_date)
-        existing = ProbationReview.query.filter_by(
-            admin_id=admin.id,
-            probation_end_date=end,
-        ).first()
-        if existing and existing.reminder_sent_at:
+        existing = _get_or_create_review(admin, end)
+        if existing.reminder_sent_at:
             summary["skipped_already_sent"] += 1
             continue
-        if not existing:
-            existing = ProbationReview(admin_id=admin.id, probation_end_date=end)
-            db.session.add(existing)
-            db.session.flush()
-        contact = _get_contact_for_admin(admin)
-        manager_emails = get_manager_emails(contact) if contact else []
+        manager_emails = _manager_emails_for_admin(admin)
         send_probation_reminder_email(admin, end, manager_emails)
         existing.reminder_sent_at = utc_now()
+        existing.status = STATUS_REMINDER_SENT
         summary["reminders_sent"] += 1
 
+
+def _process_followup_reminders(run_date, summary):
+    target_end = run_date + timedelta(days=FOLLOWUP_DAYS_BEFORE)
+    rows = (
+        ProbationReview.query.filter(
+            ProbationReview.reminder_sent_at.isnot(None),
+            ProbationReview.reviewed_at.is_(None),
+            ProbationReview.probation_end_date == target_end,
+        )
+        .all()
+    )
+    for row in rows:
+        if row.followup_reminder_sent_at:
+            summary["followup_skipped_already_sent"] += 1
+            continue
+        status = infer_status_from_row(row)
+        if status in TERMINAL_STATUSES or status == STATUS_MANAGER_SUBMITTED:
+            summary["followup_skipped_submitted"] += 1
+            continue
+        admin = Admin.query.get(row.admin_id)
+        if not _is_active_employee(admin):
+            summary["followup_skipped_inactive"] += 1
+            continue
+        manager_emails = _manager_emails_for_admin(admin)
+        send_probation_followup_reminder_email(admin, row.probation_end_date, manager_emails)
+        row.followup_reminder_sent_at = utc_now()
+        summary["followup_reminders_sent"] += 1
+
+
+def _process_overdue_escalations(run_date, summary):
+    rows = (
+        ProbationReview.query.filter(
+            ProbationReview.reminder_sent_at.isnot(None),
+            ProbationReview.reviewed_at.is_(None),
+            ProbationReview.probation_end_date < run_date,
+        )
+        .all()
+    )
+    for row in rows:
+        if row.overdue_escalation_sent_at:
+            summary["overdue_skipped_already_sent"] += 1
+            continue
+        status = infer_status_from_row(row)
+        if status in TERMINAL_STATUSES or status == STATUS_MANAGER_SUBMITTED:
+            summary["overdue_skipped_submitted"] += 1
+            continue
+        admin = Admin.query.get(row.admin_id)
+        if not _is_active_employee(admin):
+            summary["overdue_skipped_inactive"] += 1
+            continue
+        manager_emails = _manager_emails_for_admin(admin)
+        send_probation_overdue_escalation_email(admin, row.probation_end_date, manager_emails)
+        row.overdue_escalation_sent_at = utc_now()
+        summary["overdue_escalations_sent"] += 1
+
+
+def run_probation_reminder(run_date):
+    """Run T-15, T-7, and overdue probation reminder jobs for run_date."""
+    summary = {
+        "run_date": run_date.isoformat(),
+        "reminders_sent": 0,
+        "skipped_already_sent": 0,
+        "followup_reminders_sent": 0,
+        "followup_skipped_already_sent": 0,
+        "followup_skipped_submitted": 0,
+        "followup_skipped_inactive": 0,
+        "overdue_escalations_sent": 0,
+        "overdue_skipped_already_sent": 0,
+        "overdue_skipped_submitted": 0,
+        "overdue_skipped_inactive": 0,
+        "dedupe_removed": 0,
+    }
+    merged = dedupe_probation_review_rows()
+    summary["dedupe_removed"] = merged
+    if merged:
+        db.session.flush()
+
+    _process_initial_reminders(run_date, summary)
+    _process_followup_reminders(run_date, summary)
+    _process_overdue_escalations(run_date, summary)
     return summary
 
 
@@ -158,7 +259,7 @@ def register_probation_command(app):
     @click.option("--run-date", default=None, help="Date to run for (YYYY-MM-DD). Default: today.")
     @click.option("--dry-run", is_flag=True, help="Do not commit changes.")
     def probation_reminder_command(run_date, dry_run):
-        """Send probation reminders (15 days before 6-month completion) to HR and manager."""
+        """Send probation reminders (T-15, T-7 follow-up, overdue escalation)."""
         if run_date:
             try:
                 run_date_obj = datetime.strptime(run_date, "%Y-%m-%d").date()
@@ -175,9 +276,10 @@ def register_probation_command(app):
             else:
                 db.session.commit()
             click.echo(
-                f"probation-reminder: date={summary['run_date']}, "
+                "probation-reminder: "
+                f"date={summary['run_date']}, "
                 f"reminders_sent={summary['reminders_sent']}, "
-                f"skipped_no_doj={summary['skipped_no_doj']}, "
-                f"skipped_already_sent={summary['skipped_already_sent']}, "
+                f"followup_reminders_sent={summary['followup_reminders_sent']}, "
+                f"overdue_escalations_sent={summary['overdue_escalations_sent']}, "
                 f"dedupe_removed={summary['dedupe_removed']}"
             )

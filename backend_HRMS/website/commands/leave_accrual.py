@@ -15,16 +15,16 @@ from ..leave_balance_utils import (
 from .leave_accrual_schedule import (
     ACCRUAL_TRIGGER_DAY,
     build_yearly_accrual_schedule,
-    probation_end_date,
 )
+from ..probation_utils import effective_probation_end_date
 
 
 PL_CARRY_FORWARD_CAP = 45.0
 IST_ZONE = ZoneInfo("Asia/Kolkata")
 
 
-def _probation_end_date(doj):
-    return probation_end_date(doj)
+def _probation_end_date(admin):
+    return effective_probation_end_date(admin)
 
 
 def _event_exists(admin_id, event_key):
@@ -149,7 +149,7 @@ def _run_leave_accrual_for_date(run_date):
         if created_new:
             summary["balances_created"] += 1
 
-        probation_end = _probation_end_date(admin.doj)
+        probation_end = _probation_end_date(admin)
         if probation_end is None or run_date < probation_end:
             summary["skipped_on_probation"] += 1
             continue
