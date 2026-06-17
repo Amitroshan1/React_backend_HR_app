@@ -1,0 +1,222 @@
+.employee-tax-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 4px 24px;
+}
+
+.employee-tax-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.employee-tax-back:hover {
+  background: #f8fafc;
+}
+
+.employee-tax-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.employee-tax-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #059669 0%, #0d9488 100%);
+}
+
+.employee-tax-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.employee-tax-header-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.employee-tax-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #111827;
+}
+
+.employee-tax-header p {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.employee-tax-muted {
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.employee-tax-error {
+  color: #b91c1c;
+  font-size: 0.95rem;
+}
+
+.employee-tax-adjust {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.employee-tax-adjust label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.employee-tax-adjust input[type="text"],
+.employee-tax-adjust input[type="number"] {
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.employee-tax-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.employee-tax-recalc {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+  color: #fff;
+  align-self: end;
+}
+
+.employee-tax-recalc:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.employee-tax-hero {
+  text-align: center;
+  padding: 20px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4f46e5 0%, #059669 100%);
+  color: #fff;
+  margin-bottom: 16px;
+}
+
+.employee-tax-hero span {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.9;
+}
+
+.employee-tax-hero strong {
+  display: block;
+  font-size: 1.65rem;
+  margin: 8px 0;
+}
+
+.employee-tax-hero small {
+  opacity: 0.9;
+  font-size: 0.85rem;
+}
+
+.employee-tax-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.employee-tax-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.employee-tax-panel h4 {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.employee-tax-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.employee-tax-panel li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 0.88rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.employee-tax-panel li:last-child {
+  border-bottom: none;
+}
+
+.employee-tax-panel li.accent span:last-child {
+  color: #4f46e5;
+  font-weight: 700;
+}
+
+.employee-tax-panel li.green span:last-child {
+  color: #059669;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .employee-tax-card {
+    padding: 16px;
+  }
+
+  .employee-tax-adjust,
+  .employee-tax-grid {
+    grid-template-columns: 1fr;
+  }
+}

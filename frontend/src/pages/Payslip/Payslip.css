@@ -465,7 +465,28 @@
 .payslip-ctc-header {
   padding: 20px 24px 12px;
   border-bottom: 1px solid var(--ps-border);
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+@media (min-width: 640px) {
+  .payslip-ctc-header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+  }
+
+  .payslip-ctc-title {
+    text-align: left;
+  }
+
+  .payslip-ctc-actions {
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
 }
 
 .payslip-ctc-title {

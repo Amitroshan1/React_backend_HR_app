@@ -1,0 +1,160 @@
+.employee-form16-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 4px 24px;
+}
+
+.employee-form16-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.employee-form16-back:hover {
+  background: #f8fafc;
+}
+
+.employee-form16-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.employee-form16-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #4f46e5 0%, #7c3aed 100%);
+}
+
+.employee-form16-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.employee-form16-header-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.employee-form16-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #111827;
+}
+
+.employee-form16-header p {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.employee-form16-muted {
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.employee-form16-error {
+  color: #b91c1c;
+  font-size: 0.95rem;
+}
+
+.employee-form16-table-wrap {
+  overflow-x: auto;
+}
+
+.employee-form16-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.employee-form16-table th,
+.employee-form16-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.employee-form16-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.employee-form16-download-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #fff;
+}
+
+.employee-form16-download-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .employee-form16-card {
+    padding: 16px;
+  }
+
+  .employee-form16-table thead {
+    display: none;
+  }
+
+  .employee-form16-table tr {
+    display: block;
+    margin-bottom: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 8px;
+  }
+
+  .employee-form16-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border: none;
+    padding: 8px 4px;
+  }
+
+  .employee-form16-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+  }
+}

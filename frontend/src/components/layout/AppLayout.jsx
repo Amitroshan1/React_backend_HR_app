@@ -57,7 +57,10 @@ export const AppLayout = () => {
             navigate("/dashboard", { replace: true });
             return;
         }
-        if (path === "/payslip" && !hasFeature("dashboard_payslip")) {
+        if (
+            (path === "/payslip" || path === "/payslip/form16" || path === "/payslip/tax-projection")
+            && !hasFeature("dashboard_payslip")
+        ) {
             navigate("/dashboard", { replace: true });
         }
         if (path === "/claims" && !hasFeature("dashboard_claims")) {

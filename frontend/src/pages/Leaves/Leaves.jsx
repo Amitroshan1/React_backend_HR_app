@@ -7,6 +7,22 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
 
 const API_BASE_URL = "/api/leave";
+const RECENT_HISTORY_LIMIT = 10;
+
+const MONTH_OPTIONS = [
+    { value: 1, label: "January" },
+    { value: 2, label: "February" },
+    { value: 3, label: "March" },
+    { value: 4, label: "April" },
+    { value: 5, label: "May" },
+    { value: 6, label: "June" },
+    { value: 7, label: "July" },
+    { value: 8, label: "August" },
+    { value: 9, label: "September" },
+    { value: 10, label: "October" },
+    { value: 11, label: "November" },
+    { value: 12, label: "December" },
+];
 
 const formatLeaveDays = (value) => {
     const n = Number(value);
@@ -14,11 +30,101 @@ const formatLeaveDays = (value) => {
     return Number.isInteger(n) ? String(n) : n.toFixed(1);
 };
 
+const padMonth = (month) => String(month).padStart(2, "0");
+
+const monthBounds = (year, month) => {
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+        start: `${year}-${padMonth(month)}-01`,
+        end: `${year}-${padMonth(month)}-${String(lastDay).padStart(2, "0")}`,
+    };
+};
+
+const leaveOverlapsRange = (request, rangeStart, rangeEnd) => {
+    if (!request?.from || !request?.to) return false;
+    return request.from <= rangeEnd && request.to >= rangeStart;
+};
+
+const leaveMatchesFilter = (request, filterYear, filterMonth) => {
+    if (!filterYear) return true;
+    if (filterMonth) {
+        const { start, end } = monthBounds(filterYear, filterMonth);
+        return leaveOverlapsRange(request, start, end);
+    }
+    return leaveOverlapsRange(request, `${filterYear}-01-01`, `${filterYear}-12-31`);
+};
+
 export const Leaves= () => {
     const { userData, refreshUserData } = useUser();
     const [requests, setRequests] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [loadingRequests, setLoadingRequests] = useState(true);
+    const [filterYear, setFilterYear] = useState("");
+    const [filterMonth, setFilterMonth] = useState("");
+
+    const isFilterActive = Boolean(filterYear);
+
+    const yearOptions = useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        const yearsFromData = requests.flatMap((req) => {
+            const fromYear = req.from ? Number(req.from.slice(0, 4)) : NaN;
+            const toYear = req.to ? Number(req.to.slice(0, 4)) : NaN;
+            return [fromYear, toYear].filter((y) => Number.isFinite(y));
+        });
+        const minYear = yearsFromData.length
+            ? Math.min(...yearsFromData, currentYear)
+            : currentYear;
+        const options = [];
+        for (let y = currentYear; y >= minYear; y -= 1) {
+            options.push(y);
+        }
+        return options;
+    }, [requests]);
+
+    const filteredRequests = useMemo(() => {
+        if (!isFilterActive) return requests;
+        return requests.filter((req) => leaveMatchesFilter(req, Number(filterYear), filterMonth ? Number(filterMonth) : null));
+    }, [requests, isFilterActive, filterYear, filterMonth]);
+
+    const visibleRequests = useMemo(() => {
+        if (!isFilterActive) return requests.slice(0, RECENT_HISTORY_LIMIT);
+        return filteredRequests;
+    }, [requests, isFilterActive, filteredRequests]);
+
+    const historySummary = useMemo(() => {
+        const total = requests.length;
+        if (!total) return "";
+
+        if (!isFilterActive) {
+            const shown = Math.min(total, RECENT_HISTORY_LIMIT);
+            if (total <= RECENT_HISTORY_LIMIT) {
+                return `Showing all ${total} request${total === 1 ? "" : "s"}.`;
+            }
+            return `Showing ${shown} most recent of ${total} total. Use month/year filters to view older requests.`;
+        }
+
+        const monthLabel = filterMonth
+            ? MONTH_OPTIONS.find((m) => m.value === Number(filterMonth))?.label
+            : null;
+        const periodLabel = monthLabel
+            ? `${monthLabel} ${filterYear}`
+            : String(filterYear);
+
+        if (!filteredRequests.length) {
+            return `No leave requests in ${periodLabel}.`;
+        }
+        return `Showing ${filteredRequests.length} request${filteredRequests.length === 1 ? "" : "s"} for ${periodLabel} (${total} total).`;
+    }, [requests.length, isFilterActive, filterYear, filterMonth, filteredRequests.length]);
+
+    const handleFilterYearChange = (value) => {
+        setFilterYear(value);
+        if (!value) setFilterMonth("");
+    };
+
+    const clearHistoryFilters = () => {
+        setFilterYear("");
+        setFilterMonth("");
+    };
 
     // Dynamic Calculation of Balances based on backend leave_balance
     const stats = useMemo(() => {
@@ -222,16 +328,59 @@ export const Leaves= () => {
             <div className="leave-requests-card">
                 <div className="requests-header-row">
                     <h2 className="section-title-leave">Leave Requests</h2>
-                    <button className="apply-leave-button" onClick={handleOpenApplyModal}>
-                        <FiPlus /> Apply Leave
-                    </button>
+                    <div className="requests-header-actions">
+                        <div className="leave-history-filters" aria-label="Filter leave history">
+                            <select
+                                className="leave-history-filter-select"
+                                value={filterYear}
+                                onChange={(e) => handleFilterYearChange(e.target.value)}
+                                aria-label="Filter by year"
+                            >
+                                <option value="">Recent</option>
+                                {yearOptions.map((year) => (
+                                    <option key={year} value={year}>{year}</option>
+                                ))}
+                            </select>
+                            <select
+                                className="leave-history-filter-select"
+                                value={filterMonth}
+                                onChange={(e) => setFilterMonth(e.target.value)}
+                                disabled={!filterYear}
+                                aria-label="Filter by month"
+                            >
+                                <option value="">All months</option>
+                                {MONTH_OPTIONS.map((month) => (
+                                    <option key={month.value} value={month.value}>{month.label}</option>
+                                ))}
+                            </select>
+                            {isFilterActive && (
+                                <button
+                                    type="button"
+                                    className="leave-history-filter-clear"
+                                    onClick={clearHistoryFilters}
+                                >
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+                        <button className="apply-leave-button" onClick={handleOpenApplyModal}>
+                            <FiPlus /> Apply Leave
+                        </button>
+                    </div>
                 </div>
+                {!loadingRequests && historySummary && (
+                    <p className="leave-history-summary">{historySummary}</p>
+                )}
                 <div className="leave-table-container">
                     {loadingRequests ? (
                         <p style={{ textAlign: 'center', padding: '20px' }}>Loading leave requests...</p>
                     ) : requests.length === 0 ? (
                         <p style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
                             No leave requests found. Click "Apply Leave" to submit a new request.
+                        </p>
+                    ) : visibleRequests.length === 0 ? (
+                        <p style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                            No leave requests match the selected period.
                         </p>
                     ) : (
                         <table className="leave-requests-table">
@@ -247,7 +396,7 @@ export const Leaves= () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {requests.map((request) => (
+                                {visibleRequests.map((request) => (
                                     <tr key={request.id}>
                                         <td>{request.type}</td>
                                         <td>{formatDate(request.from)}</td>

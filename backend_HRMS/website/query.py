@@ -114,6 +114,8 @@ def _department_variants(department):
         variants.update({"human resource", "human resources", "hr"})
     elif d in {"it", "it department"}:
         variants.update({"it", "it department"})
+    elif d in {"accounts", "account"}:
+        variants.update({"accounts", "account"})
     elif d in {"admin", "administration"}:
         variants.update({"admin", "administration"})
     return list(variants)
@@ -127,6 +129,28 @@ def _department_recipients(department, exclude_admin_id=None):
     if exclude_admin_id:
         q = q.filter(Admin.id != exclude_admin_id)
     return q.all()
+
+
+def count_new_queries_for_department_staff(emp_type):
+    """
+    Badge count for HR / Accounts / IT header: queries awaiting first department response.
+    Only status New, scoped to the viewer's department inbox.
+    """
+    if _norm(emp_type) not in DEPARTMENT_ROLES:
+        return 0
+    department = _emp_type_to_department(emp_type)
+    if not department:
+        return 0
+    dept_variants = _department_variants(department)
+    return Query.query.filter(
+        func.lower(func.coalesce(Query.status, "")) == "new",
+        or_(
+            *[
+                func.lower(func.coalesce(Query.department, "")) == v
+                for v in dept_variants
+            ]
+        ),
+    ).count()
 
 
 def _emp_type_to_department(emp_type):

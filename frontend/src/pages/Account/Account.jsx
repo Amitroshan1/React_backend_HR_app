@@ -57,6 +57,8 @@ export const Account = ()  => {
     ((userData?.user?.emp_type || '') + '').trim().toLowerCase()
   );
 
+  const canEditAccountsProfile = isHr || isAccountsDept;
+
   const getStoredAccountContext = () => {
     try {
       return JSON.parse(localStorage.getItem('account_form16_context') || '{}');
@@ -3851,7 +3853,7 @@ export const Account = ()  => {
 
               {hasFeature('account_full_employee_view') && (
               <>
-              <div className={`accounts-profile-body ${isHr ? '' : 'accounts-readonly'}`}>
+              <div className={`accounts-profile-body ${canEditAccountsProfile ? '' : 'accounts-readonly'}`}>
                 <section className="accounts-profile-section">
                   <h5 className="accounts-profile-section__title">Employment</h5>
                   <div className="accounts-profile-grid">
@@ -3861,7 +3863,7 @@ export const Account = ()  => {
                         className="custom-select"
                         value={accountsProfileForm.function}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, function: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                       />
                     </div>
                     <div className="input-group">
@@ -3870,7 +3872,7 @@ export const Account = ()  => {
                         className="custom-select"
                         value={accountsProfileForm.designation}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, designation: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                       />
                     </div>
                     <div className="input-group">
@@ -3879,7 +3881,7 @@ export const Account = ()  => {
                         className="custom-select"
                         value={accountsProfileForm.location}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, location: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                         placeholder="—"
                       />
                     </div>
@@ -3890,7 +3892,7 @@ export const Account = ()  => {
                         type="date"
                         value={accountsProfileForm.date_of_joining}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, date_of_joining: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                       />
                     </div>
                     <div className="input-group">
@@ -3914,7 +3916,7 @@ export const Account = ()  => {
                         value={accountsProfileForm.pan}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pan: e.target.value }))}
                         placeholder="ABCDE1234F"
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                       />
                     </div>
                     <div className="input-group">
@@ -3923,7 +3925,7 @@ export const Account = ()  => {
                         className="custom-select accounts-field-mono"
                         value={accountsProfileForm.uan}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, uan: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                         placeholder="—"
                       />
                     </div>
@@ -3933,7 +3935,7 @@ export const Account = ()  => {
                         className="custom-select accounts-field-mono"
                         value={accountsProfileForm.pf_account_number}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pf_account_number: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                         placeholder="—"
                       />
                     </div>
@@ -3943,7 +3945,7 @@ export const Account = ()  => {
                         className="custom-select accounts-field-mono"
                         value={accountsProfileForm.esi_number}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, esi_number: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                         placeholder="—"
                       />
                     </div>
@@ -3953,7 +3955,7 @@ export const Account = ()  => {
                         className="custom-select accounts-field-mono"
                         value={accountsProfileForm.pran}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, pran: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                         placeholder="—"
                       />
                     </div>
@@ -3970,7 +3972,7 @@ export const Account = ()  => {
                         rows={2}
                         value={accountsProfileForm.bank_details}
                         onChange={(e) => setAccountsProfileForm((p) => ({ ...p, bank_details: e.target.value }))}
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                         placeholder="—"
                       />
                     </div>
@@ -3982,7 +3984,7 @@ export const Account = ()  => {
                         onChange={(e) =>
                           setAccountsProfileForm((p) => ({ ...p, tax_regime: e.target.value }))
                         }
-                        disabled={!isHr}
+                        disabled={!canEditAccountsProfile}
                       >
                         <option value="">— Select —</option>
                         {TAX_REGIME_OPTIONS.map((opt) => (
@@ -4003,7 +4005,7 @@ export const Account = ()  => {
               </div>
 
               <div className="form-actions-row accounts-profile-actions">
-                {isHr ? (
+                {canEditAccountsProfile ? (
                   <button
                     type="button"
                     className="btn-primary"

@@ -156,6 +156,8 @@ const getPageInfo = (pathname, firstName) => {
         '/claims': { title: 'Expense Claims', subtitle: 'Submit and track your claims' },
         '/separation': { title: 'Separation', subtitle: 'Resignation and clearance process' },
         '/payslip': { title: 'Payslip', subtitle: 'View and download payslips' },
+        '/payslip/form16': { title: 'Form 16', subtitle: 'Download your Form 16 certificates' },
+        '/payslip/tax-projection': { title: 'Tax Projection', subtitle: 'Estimated TDS for the financial year' },
         '/profile': { title: 'Profile', subtitle: 'Your personal and employment details' },
         '/holiday-calendar': { title: 'Holiday Calendar', subtitle: 'Company holiday list by year' },
         '/performance': { title: 'Performance', subtitle: 'Self review and manager feedback' },
@@ -471,13 +473,8 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
 
     const isBellDisabled = queryUnreadCount === 0;
 
-    const isITRole = roleInfo.display?.toLowerCase() === "it";
     const handleQueryShortcutClick = () => {
         if (!queryShortcutAllowed) return;
-        if (isITRole) {
-            navigate("/it/OpenTicket");
-            return;
-        }
         navigate("/queries/inbox?from=notification");
     };
 
@@ -553,7 +550,7 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                         <button
                             type="button"
                             className={`query-shortcut-btn ${isBellDisabled ? "disabled" : ""}`}
-                            title={isITRole ? "IT Queries" : "Department Queries"}
+                            title="New queries awaiting your department's first response"
                             onClick={handleQueryShortcutClick}
                         >
                             Query

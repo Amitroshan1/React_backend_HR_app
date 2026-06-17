@@ -2895,7 +2895,7 @@ def get_employee_accounts_profile():
     employee_number = (request.args.get("employee_number") or "").strip()
 
     target_admin = None
-    if _is_hr(viewer):
+    if _accounts_can_access_any_profile(viewer):
         if admin_id_param:
             target_admin = Admin.query.get(admin_id_param)
         elif employee_number:
@@ -2983,10 +2983,6 @@ def put_employee_accounts_profile():
     viewer = Admin.query.filter_by(email=email).first()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
-
-    # Only HR can update accounts profiles.
-    if not _is_hr(viewer):
-        return jsonify({"success": False, "message": "HR access required"}), 403
 
     data = request.get_json(silent=True) or {}
     admin_id_body = data.get("admin_id")
