@@ -2013,15 +2013,48 @@
     max-height: none !important;
   }
   .dashboard-content .main-grid .dashboard-top-row .attendance-section,
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section,
+  .main-grid .dashboard-top-row .attendance-section,
   .main-grid .dashboard-top-row .news-feed-section {
     grid-column: span 1 !important;
     max-height: none !important;
     min-width: 100% !important;
   }
+  .dashboard-content .main-grid .dashboard-top-row .attendance-section,
+  .main-grid .dashboard-top-row .attendance-section {
+    min-height: 0;
+  }
+  /* Override desktop height:0 stretch trick — mobile needs a real scroll area */
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section,
   .main-grid .dashboard-top-row .news-feed-section {
     height: auto !important;
-    min-height: 220px !important;
-    max-height: 320px;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column;
+  }
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-scroll-viewport,
+  .main-grid .dashboard-top-row .news-feed-section .news-feed-scroll-viewport {
+    flex: 1 1 auto;
+    min-height: 200px;
+    max-height: min(380px, 42vh);
+    overflow: hidden;
+  }
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list,
+  .main-grid .dashboard-top-row .news-feed-section .news-feed-list {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    height: 100%;
+    max-height: 100%;
+    touch-action: pan-y;
+    scrollbar-width: thin;
+    -ms-overflow-style: auto;
+  }
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar,
+  .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar {
+    display: block;
+    width: 4px;
   }
   .actions-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2511,6 +2544,11 @@
   }
   .news-feed-content {
     font-size: 0.85rem;
+  }
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-scroll-viewport,
+  .main-grid .dashboard-top-row .news-feed-section .news-feed-scroll-viewport {
+    min-height: 180px;
+    max-height: min(340px, 40vh);
   }
 }
 

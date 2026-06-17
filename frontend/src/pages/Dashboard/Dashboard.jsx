@@ -376,6 +376,9 @@ export const Dashboard = () => {
     });
     const [newsFeed, setNewsFeed] = useState([]);
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
+    const [newsFeedAutoScroll, setNewsFeedAutoScroll] = useState(
+        () => typeof window !== "undefined" && window.matchMedia("(min-width: 1101px)").matches
+    );
     const newsFeedListRef = useRef(null);
     const autoCapPunchOutRef = useRef(false);
     const fetchDashboardData = async (showAlert = false) => {
@@ -572,15 +575,23 @@ export const Dashboard = () => {
         loadInitialData();
     });
 
-  /** Duplicate items for seamless top-to-bottom loop scroll */
+  /** Duplicate items for seamless top-to-bottom loop scroll (desktop auto-scroll only) */
   const loopedNewsFeed = useMemo(() => {
-    if (newsFeed.length <= 1) return newsFeed;
+    if (!newsFeedAutoScroll || newsFeed.length <= 1) return newsFeed;
     return [...newsFeed, ...newsFeed];
-  }, [newsFeed]);
+  }, [newsFeed, newsFeedAutoScroll]);
 
-  /* News feed auto-scroll: continuous top → bottom loop (pauses on hover) */
+  /* News feed auto-scroll: desktop only; mobile uses touch scroll */
   useEffect(() => {
-    if (!newsFeed.length || newsFeedScrollPaused) return;
+    const mq = window.matchMedia("(min-width: 1101px)");
+    const syncAutoScroll = () => setNewsFeedAutoScroll(mq.matches);
+    syncAutoScroll();
+    mq.addEventListener("change", syncAutoScroll);
+    return () => mq.removeEventListener("change", syncAutoScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!newsFeedAutoScroll || !newsFeed.length || newsFeedScrollPaused) return;
     const el = newsFeedListRef.current;
     if (!el || el.scrollHeight <= el.clientHeight) return;
 
@@ -597,7 +608,7 @@ export const Dashboard = () => {
     }, intervalMs);
 
     return () => clearInterval(id);
-  }, [newsFeed.length, newsFeedScrollPaused, loopedNewsFeed.length]);
+  }, [newsFeedAutoScroll, newsFeed.length, newsFeedScrollPaused, loopedNewsFeed.length]);
   const validateLocationRange = async (lat, lon) => {
     const token = localStorage.getItem("token");
     if (!token)
@@ -1056,6 +1067,9 @@ export const Dashboard = () => {
                                 className="news-feed-section"
                                 onMouseEnter={() => setNewsFeedScrollPaused(true)}
                                 onMouseLeave={() => setNewsFeedScrollPaused(false)}
+                                onTouchStart={() => setNewsFeedScrollPaused(true)}
+                                onTouchEnd={() => setNewsFeedScrollPaused(false)}
+                                onTouchCancel={() => setNewsFeedScrollPaused(false)}
                             >
                             <h2 className="news-feed">
                                 <span 
