@@ -10,6 +10,7 @@ HR manual edits call sync_punch_after_hr_manual_edit so both stay aligned.
 from datetime import datetime, timedelta
 
 from . import db
+from .datetime_utils import isoformat_punch_clock
 from .models.attendance import Punch, PunchSession
 
 
@@ -145,8 +146,8 @@ def serialize_punch_sessions(punch_row, *, attendance_day_only=False):
         out.append(
             {
                 "id": s.id,
-                "clock_in": s.clock_in.isoformat() if s.clock_in else None,
-                "clock_out": s.clock_out.isoformat() if s.clock_out else None,
+                "clock_in": isoformat_punch_clock(s.clock_in),
+                "clock_out": isoformat_punch_clock(s.clock_out),
                 "duration_hms": dur,
                 "is_open": s.clock_out is None,
                 "repeat_reason": (s.repeat_reason or "").strip() or None,
@@ -154,7 +155,7 @@ def serialize_punch_sessions(punch_row, *, attendance_day_only=False):
                 or None,
                 "auto_punched_out": bool(getattr(s, "auto_punched_out", False)),
                 "session_cap_hours": session_cap_hours_display(s) if s.clock_out is None else None,
-                "session_auto_close_at": deadline.isoformat() if deadline else None,
+                "session_auto_close_at": isoformat_punch_clock(deadline) if deadline else None,
                 "location_status": (getattr(s, "location_status", None) or "").strip() or None,
                 "location_status_in": (getattr(s, "location_status_in", None) or "").strip() or None,
                 "location_status_out": (getattr(s, "location_status_out", None) or "").strip() or None,

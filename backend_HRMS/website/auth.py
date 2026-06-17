@@ -42,7 +42,7 @@ from .document_identity import (
 from .models.prev_com import PreviousCompany
 from .models.master_data import MasterData
 from datetime import datetime, date, timedelta
-from .datetime_utils import utc_now, isoformat_api
+from .datetime_utils import utc_now, isoformat_api, isoformat_punch_clock
 from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -470,7 +470,7 @@ def _employee_homepage_impl():
     def _punch_iso_val(val):
         if val is None:
             return None
-        return isoformat_api(val) if val is not None else None
+        return isoformat_punch_clock(val)
 
     # Display name: first_name, else user_name, else email prefix, else "User" (so HR/any user shows in header)
     _first = (getattr(admin, "first_name", None) or "").strip()
@@ -1320,7 +1320,7 @@ def punch_in():
     recompute_punch_aggregate(punch)
     db.session.commit()
 
-    punch_in_str = now.isoformat() if hasattr(now, "isoformat") else str(now)
+    punch_in_str = isoformat_punch_clock(now)
     tw = punch.today_work or "0:00:00"
     return jsonify({
         "success": True,
@@ -1410,9 +1410,7 @@ def punch_out():
 
         today_work_str = punch.today_work or "0:00:00"
         out_display = open_sess.clock_out or clock_out_at or now
-        punch_out_str = (
-            out_display.isoformat() if hasattr(out_display, "isoformat") else str(out_display)
-        )
+        punch_out_str = isoformat_punch_clock(out_display)
         auto_cap_msg = (
             "Auto punch-out at 10-hour daily cap"
             if is_auto and clock_out_at

@@ -57,6 +57,8 @@ function fetchFreshPosition() {
   });
 }
 
+const PUNCH_DISPLAY_TZ = "Asia/Kolkata";
+
 const parsePunchInToDate = (val) => {
   if (!val) return null;
   try {
@@ -84,7 +86,7 @@ const formatTime = (timeString) => {
       const [h, m, sec = 0] = s.split(":").map(Number);
       const d = new Date();
       d.setHours(h, m, sec, 0);
-      return d.toLocaleTimeString("en-US", {
+      return d.toLocaleTimeString("en-IN", {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
@@ -95,11 +97,12 @@ const formatTime = (timeString) => {
       s.includes(" ") && !s.includes("T") ? s.replace(" ", "T") : s;
     const d = new Date(normalized);
     if (isNaN(d.getTime())) return "Invalid Time";
-    return d.toLocaleTimeString("en-US", {
+    return d.toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
       hour12: true,
+      timeZone: PUNCH_DISPLAY_TZ,
     });
   } catch (e) {
     return "Invalid Time";

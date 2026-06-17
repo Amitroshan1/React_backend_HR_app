@@ -45,6 +45,24 @@ def isoformat_api(value) -> str | None:
     return str(value)
 
 
+def isoformat_punch_clock(value) -> str | None:
+    """
+    Serialize punch clock times for JSON (clock_in / clock_out / sessions).
+    Naive values are wall-clock IST (employee punch flows use datetime.now()).
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            dt = value.replace(tzinfo=IST)
+        else:
+            dt = value.astimezone(IST)
+        return dt.isoformat(timespec="seconds")
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def format_ist_display(value=None) -> str:
     """Human-readable DD/MM/YYYY, h:mm AM/PM in Indian Standard Time."""
     dt = value if isinstance(value, datetime) else utc_now()
