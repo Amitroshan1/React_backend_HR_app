@@ -379,6 +379,37 @@
   color: #b91c1c;
 }
 
+.status-cancelled {
+  background-color: rgba(107, 114, 128, 0.15);
+  color: #4b5563;
+}
+
+.leave-actions-col {
+  white-space: nowrap;
+}
+
+.leave-cancel-btn {
+  padding: 6px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.leave-cancel-btn:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+.leave-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* --- FULLY RESPONSIVE (match Dashboard breakpoints) --- */
 
 @media (max-width: 1200px) {

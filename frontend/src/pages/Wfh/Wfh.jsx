@@ -171,6 +171,7 @@ export const Wfh = () => {
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [cancellingId, setCancellingId] = useState(null);
 
   const today = new Date().toISOString().split('T')[0];
   const isFormValid = form.from !== '' && form.to !== '' && form.reason.trim().length > 0;
@@ -261,6 +262,37 @@ export const Wfh = () => {
     }
   };
 
+  const handleCancelWfh = async (req) => {
+    if (!req?.id || req.status !== 'Pending') return;
+    if (!window.confirm('Cancel this pending WFH request?')) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setToast({ show: true, message: 'Please log in to cancel WFH request', type: 'error' });
+      return;
+    }
+
+    setCancellingId(req.id);
+    try {
+      const res = await fetch(`${API_BASE_URL}/wfh/${req.id}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) {
+        setToast({ show: true, message: json.message || 'Failed to cancel WFH request', type: 'error' });
+        return;
+      }
+      setToast({ show: true, message: 'WFH request cancelled.', type: 'success' });
+      await fetchWfhRequests();
+      window.dispatchEvent(new CustomEvent('wfhApplied'));
+    } catch (err) {
+      setToast({ show: true, message: err.message || 'Network error', type: 'error' });
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   return (
     <div className="wfh-dashboard-container">
       {toast.show && (
@@ -325,16 +357,17 @@ export const Wfh = () => {
                 <th>Reason</th>
                 <th>Applied On</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="5" className="wfh-empty-state">Loading...</td>
+                  <td colSpan="6" className="wfh-empty-state">Loading...</td>
                 </tr>
               ) : requests.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="wfh-empty-state">No WFH requests found.</td>
+                  <td colSpan="6" className="wfh-empty-state">No WFH requests found.</td>
                 </tr>
               ) : (
                 requests.map(req => (
@@ -344,11 +377,25 @@ export const Wfh = () => {
                     <td data-label="Reason">{req.reason}</td>
                     <td data-label="Applied On">{formatDate(req.created_at)}</td>
                     <td data-label="Status">
-                      <span className={['pending','approved','rejected'].includes((req.status || 'pending').toLowerCase()) 
+                      <span className={['pending','approved','rejected','cancelled'].includes((req.status || 'pending').toLowerCase()) 
                         ? `wfh-badge wfh-badge-${(req.status || 'pending').toLowerCase()}` 
                         : 'wfh-badge wfh-badge-default'}>
                         {req.status || 'Pending'}
                       </span>
+                    </td>
+                    <td data-label="Actions" className="wfh-actions-col">
+                      {req.status === 'Pending' ? (
+                        <button
+                          type="button"
+                          className="wfh-cancel-btn"
+                          onClick={() => handleCancelWfh(req)}
+                          disabled={cancellingId === req.id}
+                        >
+                          {cancellingId === req.id ? 'Cancelling...' : 'Cancel'}
+                        </button>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                   </tr>
                 ))

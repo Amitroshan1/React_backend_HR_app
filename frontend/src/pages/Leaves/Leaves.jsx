@@ -61,6 +61,7 @@ export const Leaves= () => {
     const [loadingRequests, setLoadingRequests] = useState(true);
     const [filterYear, setFilterYear] = useState("");
     const [filterMonth, setFilterMonth] = useState("");
+    const [cancellingId, setCancellingId] = useState(null);
 
     const isFilterActive = Boolean(filterYear);
 
@@ -246,6 +247,39 @@ export const Leaves= () => {
         setIsModalOpen(true);
     }, [refreshUserData]);
 
+    const handleCancelLeave = async (request) => {
+        if (!request?.id || request.status !== "Pending") return;
+        if (!window.confirm("Cancel this pending leave request?")) return;
+
+        const token = localStorage.getItem("token");
+        if (!token) {
+            alert("Please log in again");
+            return;
+        }
+
+        setCancellingId(request.id);
+        try {
+            const response = await fetch(`${API_BASE_URL}/requests/${request.id}/cancel`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) {
+                alert(result.message || "Failed to cancel leave request");
+                return;
+            }
+            await fetchLeaveRequests();
+            await refreshUserData();
+            window.dispatchEvent(new CustomEvent("leaveDataUpdated"));
+            alert("Leave request cancelled.");
+        } catch (err) {
+            console.error("Error cancelling leave:", err);
+            alert("Failed to cancel leave request. Please try again.");
+        } finally {
+            setCancellingId(null);
+        }
+    };
+
     const handleLeaveSubmit = async (requestData) => {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -393,6 +427,7 @@ export const Leaves= () => {
                                     <th>UNPAID LEAVE DAYS</th>
                                     <th>REASON</th>
                                     <th>STATUS</th>
+                                    <th>ACTIONS</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -410,6 +445,20 @@ export const Leaves= () => {
                                             <span className={`status-badge status-${request.status.toLowerCase()}`}>
                                                 {request.status}
                                             </span>
+                                        </td>
+                                        <td className="leave-actions-col">
+                                            {request.status === "Pending" ? (
+                                                <button
+                                                    type="button"
+                                                    className="leave-cancel-btn"
+                                                    onClick={() => handleCancelLeave(request)}
+                                                    disabled={cancellingId === request.id}
+                                                >
+                                                    {cancellingId === request.id ? "Cancelling..." : "Cancel"}
+                                                </button>
+                                            ) : (
+                                                "—"
+                                            )}
                                         </td>
                                     </tr>
                                 ))}

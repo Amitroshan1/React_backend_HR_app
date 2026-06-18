@@ -799,6 +799,23 @@ def apply_leave_api():
                 )
             }), 409
 
+    overlapping_wfh = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin.id,
+        WorkFromHomeApplication.status.in_(["Pending", "Approved"]),
+        WorkFromHomeApplication.start_date <= end_date,
+        WorkFromHomeApplication.end_date >= start_date,
+    ).first()
+
+    if overlapping_wfh:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"WFH already applied from {overlapping_wfh.start_date} to "
+                f"{overlapping_wfh.end_date} (Status: {overlapping_wfh.status}). "
+                f"Cannot apply leave on the same dates."
+            ),
+        }), 409
+
     # -------------------------
     # Leave calculations (compute requested vs. payable days)
     # NOTE: We ONLY adjust LeaveBalance when manager APPROVES.
@@ -1036,6 +1053,23 @@ def submit_wfh():
             )
         }), 409
 
+    overlapping_leave = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin.id,
+        LeaveApplication.status.in_(["Pending", "Approved"]),
+        LeaveApplication.start_date <= end_d,
+        LeaveApplication.end_date >= start_d,
+    ).first()
+
+    if overlapping_leave:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Leave already applied from {overlapping_leave.start_date} to "
+                f"{overlapping_leave.end_date} (Status: {overlapping_leave.status}). "
+                f"Cannot apply WFH on the same dates."
+            ),
+        }), 409
+
     wfh_application = WorkFromHomeApplication(
         admin_id=admin.id,
         start_date=start_d,
@@ -1095,6 +1129,62 @@ def get_wfh_applications():
             }
             for w in applications
         ]
+    }), 200
+
+
+@leave.route("/requests/<int:leave_id>/cancel", methods=["POST"])
+@jwt_required()
+def cancel_leave_request(leave_id):
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    leave_obj = LeaveApplication.query.filter_by(
+        id=leave_id, admin_id=admin.id
+    ).first()
+    if not leave_obj:
+        return jsonify({"success": False, "message": "Leave request not found"}), 404
+    if leave_obj.status != "Pending":
+        return jsonify({
+            "success": False,
+            "message": "Only pending leave requests can be cancelled",
+        }), 409
+
+    leave_obj.status = "Cancelled"
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "message": "Leave request cancelled successfully",
+    }), 200
+
+
+@leave.route("/wfh/<int:wfh_id>/cancel", methods=["POST"])
+@jwt_required()
+def cancel_wfh_request(wfh_id):
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    wfh_obj = WorkFromHomeApplication.query.filter_by(
+        id=wfh_id, admin_id=admin.id
+    ).first()
+    if not wfh_obj:
+        return jsonify({"success": False, "message": "WFH request not found"}), 404
+    if wfh_obj.status != "Pending":
+        return jsonify({
+            "success": False,
+            "message": "Only pending WFH requests can be cancelled",
+        }), 409
+
+    wfh_obj.status = "Cancelled"
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "message": "WFH request cancelled successfully",
     }), 200
 
 
