@@ -489,7 +489,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle } from 'lucide-react';
+import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle, FileText, Eye } from 'lucide-react';
 import './Queries.css';
 import { hasFeature } from '../../utils/planFeatures';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
@@ -533,6 +533,23 @@ const filterQueryDepartments = (list) => {
   return hrOnly.length ? hrOnly : ['Human Resource'];
 };
 
+const getFileKey = (file) => `${file.name}-${file.size}-${file.lastModified}`;
+
+const formatFileSize = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes || 0} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const isImageFile = (file) =>
+  (file.type || '').startsWith('image/') ||
+  /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(file.name || '');
+
+const isPdfFile = (file) =>
+  file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+
+const canInlinePreview = (file) => isImageFile(file) || isPdfFile(file);
+
 export const Queries = () => {
   const location = useLocation();
   const [, setSearchParams] = useSearchParams();
@@ -549,8 +566,23 @@ export const Queries = () => {
   const fileInputRef = useRef(null);
   const openChatRef = useRef(null);
   const restoreAttemptedRef = useRef(null);
+  const [filePreviewUrls, setFilePreviewUrls] = useState({});
 
   const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+
+  useEffect(() => {
+    const urls = {};
+    selectedFiles.forEach((file) => {
+      urls[getFileKey(file)] = URL.createObjectURL(file);
+    });
+    setFilePreviewUrls((prev) => {
+      Object.values(prev).forEach((url) => URL.revokeObjectURL(url));
+      return urls;
+    });
+    return () => {
+      Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [selectedFiles]);
 
   const setChatInUrl = useCallback((chatId) => {
     setSearchParams((prev) => {
@@ -732,6 +764,23 @@ export const Queries = () => {
     }
     setActionError('');
     setSelectedFiles(files);
+  };
+
+  const handleRemoveFile = (file) => {
+    const key = getFileKey(file);
+    setSelectedFiles((prev) => {
+      const next = prev.filter((f) => getFileKey(f) !== key);
+      if (next.length === 0 && fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return next;
+    });
+  };
+
+  const handlePreviewFile = (file) => {
+    const url = filePreviewUrls[getFileKey(file)];
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleSubmit = async (e) => {
@@ -935,9 +984,52 @@ export const Queries = () => {
                   />
                   {selectedFiles.length > 0 && (
                     <div className="query-file-list">
-                      {selectedFiles.map(file => (
-                        <div key={file.name} className="query-file-item">{file.name}</div>
-                      ))}
+                      <p className="query-file-list-heading">
+                        Attached ({selectedFiles.length}) — review before submit
+                      </p>
+                      {selectedFiles.map((file) => {
+                        const fileKey = getFileKey(file);
+                        const previewUrl = filePreviewUrls[fileKey];
+                        return (
+                          <div key={fileKey} className="query-file-item">
+                            <div className="query-file-preview">
+                              {isImageFile(file) && previewUrl ? (
+                                <img
+                                  src={previewUrl}
+                                  alt={file.name}
+                                  className="query-file-thumb"
+                                />
+                              ) : (
+                                <div className="query-file-icon-wrap" aria-hidden="true">
+                                  <FileText size={22} />
+                                </div>
+                              )}
+                            </div>
+                            <div className="query-file-meta">
+                              <span className="query-file-name" title={file.name}>{file.name}</span>
+                              <span className="query-file-size">{formatFileSize(file.size)}</span>
+                              <div className="query-file-actions">
+                                <button
+                                  type="button"
+                                  className="query-file-action-btn"
+                                  onClick={() => handlePreviewFile(file)}
+                                >
+                                  <Eye size={14} />
+                                  {canInlinePreview(file) ? 'Preview' : 'Open'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="query-file-action-btn query-file-remove-btn"
+                                  onClick={() => handleRemoveFile(file)}
+                                >
+                                  <X size={14} />
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

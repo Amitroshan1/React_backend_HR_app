@@ -919,7 +919,7 @@ def create_app():
             "id": "daily_hr_jobs",
             "func": "website.scheduler:run_daily_hr_jobs",
             "trigger": "cron",
-            "hour": 13,
+            "hour": 6,
             "minute": 1,
         },
         {

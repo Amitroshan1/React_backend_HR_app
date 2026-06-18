@@ -7,6 +7,7 @@ import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import {
   QUERY_CHAT_PARAM,
   QUERY_CHAT_POLL_MS,
+  QUERY_INBOX_POLL_MS,
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
@@ -61,6 +62,53 @@ export const DepartmentQueryInbox = () => {
     return "New";
   };
 
+  const notifyQueryBadgeRefresh = () => {
+    try {
+      window.dispatchEvent(new CustomEvent("queryNotificationsUpdated"));
+    } catch {
+      /* no-op */
+    }
+  };
+
+  const markQueryRead = async (queryId) => {
+    if (!queryId) return;
+    try {
+      await fetch(`${API_BASE_URL}/queries/${queryId}/mark-read`, {
+        method: "POST",
+        headers: { ...getAuthHeaders() },
+      });
+      setQueries((prev) =>
+        prev.map((q) =>
+          q.id === queryId
+            ? { ...q, hasUnreadReply: false, unreadReplyCount: 0 }
+            : q
+        )
+      );
+      notifyQueryBadgeRefresh();
+    } catch {
+      /* non-blocking */
+    }
+  };
+
+  const mapInboxRow = (q) => ({
+    id: q.id,
+    title: q.title,
+    employee: q.employee || "Employee",
+    status: q.status,
+    createdAtRaw: q.created_at,
+    createdAt: formatDateTime(q.created_at) || "—",
+    hasUnreadReply: Boolean(q.has_unread_reply),
+    unreadReplyCount: Number(q.unread_reply_count || 0),
+  });
+
+  const sortInboxRows = (rows) =>
+    [...rows].sort((a, b) => {
+      if (a.hasUnreadReply !== b.hasUnreadReply) {
+        return a.hasUnreadReply ? -1 : 1;
+      }
+      return new Date(b.createdAtRaw) - new Date(a.createdAtRaw);
+    });
+
   const fetchInbox = async (overrides, options = {}) => {
     const { silent = false } = options;
     const month =
@@ -93,16 +141,7 @@ export const DepartmentQueryInbox = () => {
         throw new Error(result.message || "Failed to load department queries");
       }
 
-      const mapped = (result.queries || []).map((q) => ({
-        id: q.id,
-        title: q.title,
-        employee: q.employee || "Employee",
-        status: q.status,
-        createdAtRaw: q.created_at,
-        createdAt: formatDateTime(q.created_at) || "—",
-      }));
-
-      mapped.sort((a, b) => new Date(b.createdAtRaw) - new Date(a.createdAtRaw));
+      const mapped = sortInboxRows((result.queries || []).map(mapInboxRow));
       setQueries(mapped);
     } catch (e) {
       if (!silent) {
@@ -146,9 +185,21 @@ export const DepartmentQueryInbox = () => {
 
       setQueries((prev) =>
         prev.map((q) =>
-          q.id === nextChat.id ? { ...q, status: nextChat.status, title: nextChat.title } : q
+          q.id === nextChat.id
+            ? {
+                ...q,
+                status: nextChat.status,
+                title: nextChat.title,
+                hasUnreadReply: false,
+                unreadReplyCount: 0,
+              }
+            : q
         )
       );
+
+      if (!silent) {
+        await markQueryRead(queryItem.id);
+      }
 
       if (!skipUrl) {
         setChatInUrl(nextChat.id);
@@ -247,6 +298,14 @@ export const DepartmentQueryInbox = () => {
   }, [activeChat?.id]);
 
   useEffect(() => {
+    if (activeChat?.id) return undefined;
+    const intervalId = window.setInterval(() => {
+      fetchInbox(undefined, { silent: true });
+    }, QUERY_INBOX_POLL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [activeChat?.id, filterMonth, filterCircle]);
+
+  useEffect(() => {
     const chatId = parseChatIdFromSearch(location.search);
     if (!chatId && activeChat) {
       setActiveChat(null);
@@ -291,26 +350,22 @@ export const DepartmentQueryInbox = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeChat?.messages]);
 
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    const params = new URLSearchParams(window.location.search);
-    if (!token || params.get("from") !== "notification") return;
-    fetch("/api/notifications/mark-read", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ all: true, type: "query" }),
-    }).catch(() => {});
-  }, []);
+  const unreadQueryCount = queries.filter((q) => q.hasUnreadReply).length;
 
   return (
     <div className="dept-query-page">
       <div className="dept-query-card">
         <div className="dept-query-header">
           <h2>Department Query Inbox</h2>
-          <p>Only queries assigned to your department are shown.</p>
+          <p>
+            Only queries assigned to your department are shown.
+            {unreadQueryCount > 0 && (
+              <span className="dept-inbox-unread-summary">
+                {" "}
+                {unreadQueryCount} with unread {unreadQueryCount === 1 ? "message" : "messages"}.
+              </span>
+            )}
+          </p>
         </div>
 
         <div className="dept-query-filters">
@@ -376,14 +431,35 @@ export const DepartmentQueryInbox = () => {
                 </tr>
               ) : (
                 queries.map((q) => (
-                  <tr key={q.id}>
-                    <td data-label="Title">{q.title}</td>
+                  <tr
+                    key={q.id}
+                    className={q.hasUnreadReply ? "dept-query-row-unread" : undefined}
+                  >
+                    <td data-label="Title">
+                      <div className="dept-title-cell">
+                        {q.hasUnreadReply && (
+                          <span className="dept-unread-dot" title="Unread reply" aria-hidden="true" />
+                        )}
+                        <span className={q.hasUnreadReply ? "dept-title-unread" : undefined}>
+                          {q.title}
+                        </span>
+                        {q.hasUnreadReply && (
+                          <span className="dept-new-reply-pill">New reply</span>
+                        )}
+                      </div>
+                    </td>
                     <td data-label="Employee">{q.employee}</td>
                     <td data-label="Status">{getStatusLabel(q.status)}</td>
                     <td data-label="Created">{q.createdAt}</td>
                     <td className="dept-action-cell" data-label="Action">
                       <button type="button" className="dept-chat-btn" onClick={() => openChat(q)}>
-                        <MessageCircle size={14} /> Open Chat
+                        <MessageCircle size={14} />
+                        Open Chat
+                        {q.unreadReplyCount > 0 && (
+                          <span className="dept-chat-unread-badge">
+                            {q.unreadReplyCount > 9 ? "9+" : q.unreadReplyCount}
+                          </span>
+                        )}
                       </button>
                       {q.status !== "Closed" && (
                         <button

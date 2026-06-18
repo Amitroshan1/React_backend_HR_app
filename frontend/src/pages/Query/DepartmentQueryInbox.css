@@ -148,6 +148,7 @@
 }
 
 .dept-chat-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -492,4 +493,59 @@
   .dept-query-table td:not(.dept-action-cell)::before {
     margin-bottom: -2px;
   }
+}
+
+.dept-inbox-unread-summary {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.dept-query-row-unread {
+  background: #f8fafc;
+}
+
+.dept-title-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dept-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  flex-shrink: 0;
+}
+
+.dept-title-unread {
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.dept-new-reply-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.dept-chat-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
 }

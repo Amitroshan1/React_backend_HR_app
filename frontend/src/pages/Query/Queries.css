@@ -160,17 +160,111 @@
 
 .query-file-list {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.query-file-list-heading {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--query-text-muted);
+}
+
+.query-file-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.query-file-preview {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.query-file-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.query-file-icon-wrap {
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.query-file-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.query-file-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--query-text-dark, #1e293b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-file-size {
+  font-size: 0.75rem;
+  color: var(--query-text-muted);
+}
+
+.query-file-actions {
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 4px;
 }
 
-.query-file-item {
-  font-size: 0.8rem;
-  color: var(--query-text-muted);
+.query-file-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 4px 10px;
-  background: #f3f4f6;
+  font-size: 0.75rem;
+  font-weight: 600;
   border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #2563eb;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.query-file-action-btn:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.query-file-remove-btn {
+  color: #b91c1c;
+}
+
+.query-file-remove-btn:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
 }
 
 .query-btn-submit {

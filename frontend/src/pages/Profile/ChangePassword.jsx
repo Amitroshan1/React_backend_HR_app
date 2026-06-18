@@ -1,6 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import "./ChangePassword.css";
+import PasswordRequirements from "../../components/PasswordRequirements";
+import {
+  canSubmitPasswordForm,
+  passwordsMatch,
+  validatePasswordStrength,
+} from "../../utils/passwordValidation";
 
 const HR_API_BASE = "/api/HumanResource";
 
@@ -13,15 +19,17 @@ const ChangePassword = () => {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const validatePasswordStrength = (pwd) => {
-    if (!pwd || pwd.length < 8) return "Password must be at least 8 characters long.";
-    if (!/[A-Z]/.test(pwd)) return "Password must contain at least one uppercase letter.";
-    if (!/[a-z]/.test(pwd)) return "Password must contain at least one lowercase letter.";
-    if (!/[0-9]/.test(pwd)) return "Password must contain at least one number.";
-    if (!/[!@#$%^&*()_\-+\[\]{};:'",.<>/?\\|]/.test(pwd))
-      return "Password must contain at least one special character.";
-    return "";
-  };
+  const formReady = useMemo(
+    () => canSubmitPasswordForm(password, confirmPassword),
+    [password, confirmPassword]
+  );
+
+  const confirmBorderClass = useMemo(() => {
+    if (!confirmPassword) return "";
+    return passwordsMatch(password, confirmPassword)
+      ? "cp-input-match"
+      : "cp-input-mismatch";
+  }, [password, confirmPassword]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -32,7 +40,7 @@ const ChangePassword = () => {
       setError("Please fill both password fields.");
       return;
     }
-    if (password !== confirmPassword) {
+    if (!passwordsMatch(password, confirmPassword)) {
       setError("Passwords do not match.");
       return;
     }
@@ -83,7 +91,9 @@ const ChangePassword = () => {
           <h2 className="cp-section-title">Change Password</h2>
         </div>
         <div className="cp-card-body">
-          <p className="cp-subtext">Enter your new password below. It must be at least 8 characters with uppercase, lowercase, number, and special character.</p>
+          <p className="cp-subtext">
+            Enter your new password below. Requirements update as you type.
+          </p>
           <form onSubmit={handleSubmit} className="cp-form">
             <div className="cp-form-group">
               <label className="cp-label" htmlFor="newPassword">New Password</label>
@@ -106,13 +116,18 @@ const ChangePassword = () => {
                   {showPassword ? <Eye size={20} /> : <EyeOff size={20} />}
                 </button>
               </div>
+              <PasswordRequirements
+                password={password}
+                confirmPassword={confirmPassword}
+                showMatch={false}
+              />
             </div>
             <div className="cp-form-group">
               <label className="cp-label" htmlFor="confirmPassword">Confirm New Password</label>
               <div className="cp-input-wrap">
                 <input
                   id="confirmPassword"
-                  className="cp-input"
+                  className={`cp-input ${confirmBorderClass}`.trim()}
                   type={showConfirmPassword ? "text" : "password"}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
@@ -128,8 +143,16 @@ const ChangePassword = () => {
                   {showConfirmPassword ? <Eye size={20} /> : <EyeOff size={20} />}
                 </button>
               </div>
+              {confirmPassword.length > 0 && (
+                <PasswordRequirements
+                  password={password}
+                  confirmPassword={confirmPassword}
+                  showRequirements={false}
+                  showMatch
+                />
+              )}
             </div>
-            <button type="submit" className="cp-btn-submit" disabled={loading}>
+            <button type="submit" className="cp-btn-submit" disabled={loading || !formReady}>
               {loading ? "Updating..." : "Update Password"}
             </button>
           </form>
@@ -140,4 +163,3 @@ const ChangePassword = () => {
 };
 
 export default ChangePassword;
-

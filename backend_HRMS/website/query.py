@@ -18,8 +18,7 @@ from .email import notify_query_event, send_query_closed_email
 from .models.manager_model import ManagerContact
 from .manager_utils import get_manager_detail
 from werkzeug.utils import secure_filename
-from datetime import datetime
-from .datetime_utils import isoformat_api
+from .datetime_utils import isoformat_api, utc_now
 import json
 import os
 import uuid
@@ -133,8 +132,8 @@ def _department_recipients(department, exclude_admin_id=None):
 
 def count_new_queries_for_department_staff(emp_type):
     """
-    Badge count for HR / Accounts / IT header: queries awaiting first department response.
-    Only status New, scoped to the viewer's department inbox.
+    Legacy: count of queries with status New in the viewer's department inbox.
+    Prefer count_department_query_unread for header badges.
     """
     if _norm(emp_type) not in DEPARTMENT_ROLES:
         return 0
@@ -151,6 +150,37 @@ def count_new_queries_for_department_staff(emp_type):
             ]
         ),
     ).count()
+
+
+def count_department_query_unread(admin_id, emp_type=None):
+    """Unread query notifications for department inbox badge (new queries + employee replies)."""
+    if not admin_id:
+        return 0
+    if emp_type is not None and _norm(emp_type) not in DEPARTMENT_ROLES:
+        return 0
+    return Notification.query.filter_by(
+        recipient_admin_id=admin_id,
+        notif_type="query",
+        is_read=False,
+    ).count()
+
+
+def _unread_counts_by_query_id(admin_id, query_ids):
+    if not admin_id or not query_ids:
+        return {}
+    rows = (
+        db.session.query(Notification.entity_id, func.count(Notification.id))
+        .filter(
+            Notification.recipient_admin_id == admin_id,
+            Notification.notif_type == "query",
+            Notification.is_read.is_(False),
+            Notification.entity_type == "query",
+            Notification.entity_id.in_(query_ids),
+        )
+        .group_by(Notification.entity_id)
+        .all()
+    )
+    return {int(qid): int(cnt) for qid, cnt in rows if qid is not None}
 
 
 def _emp_type_to_department(emp_type):
@@ -292,7 +322,7 @@ def create_query_api():
         title=title,
         department=department,
         query_text=query_text,
-        created_at=datetime.now(),
+        created_at=utc_now(),
         photo=json.dumps(saved_files) if saved_files else None
     )
 
@@ -346,8 +376,10 @@ def my_queries():
     )
 
     queries_out = []
+    unread_map = _unread_counts_by_query_id(admin.id, [q.id for q in pagination.items])
     for q in pagination.items:
         eff = _query_list_effective_created_at(q)
+        unread = unread_map.get(q.id, 0)
         queries_out.append(
             {
                 "id": q.id,
@@ -356,6 +388,8 @@ def my_queries():
                 "query_text": q.query_text,
                 "status": q.status,
                 "created_at": isoformat_api(eff),
+                "unread_reply_count": unread,
+                "has_unread_reply": unread > 0,
             }
         )
 
@@ -384,6 +418,11 @@ def department_queries():
     department = _emp_type_to_department(emp_type)
     if not department:
         return jsonify({"success": False, "message": "Unsupported department role"}), 403
+
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
 
     _repair_query_created_at_from_history()
 
@@ -430,10 +469,12 @@ def department_queries():
         )
 
     queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
+    unread_map = _unread_counts_by_query_id(admin.id, [row.id for row in queries])
 
     def _serialize_query(q):
         adm = q.admin
         eff_created = _query_list_effective_created_at(q)
+        unread = unread_map.get(q.id, 0)
         return {
             "id": q.id,
             "title": q.title,
@@ -442,6 +483,8 @@ def department_queries():
             "emp_id": (adm.emp_id if adm else None) or "",
             "status": q.status,
             "created_at": isoformat_api(eff_created),
+            "unread_reply_count": unread,
+            "has_unread_reply": unread > 0,
         }
 
     return jsonify({
@@ -449,6 +492,40 @@ def department_queries():
         "queries": [_serialize_query(q) for q in queries]
     }), 200
 
+
+@query.route("/queries/<int:query_id>/mark-read", methods=["POST"])
+@jwt_required()
+def mark_query_notifications_read(query_id):
+    claims = get_jwt()
+    email = claims.get("email")
+    emp_type = claims.get("emp_type")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    query_obj = Query.query.get(query_id)
+    if not query_obj:
+        return jsonify({"success": False, "message": "Query not found"}), 404
+    if not _can_access_query(admin, emp_type, query_obj):
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+
+    rows = Notification.query.filter_by(
+        recipient_admin_id=admin.id,
+        notif_type="query",
+        entity_type="query",
+        entity_id=query_id,
+        is_read=False,
+    ).all()
+    for row in rows:
+        row.is_read = True
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        "updated": len(rows),
+        "unread_reply_count": 0,
+        "has_unread_reply": False,
+    }), 200
 
 
 
@@ -531,7 +608,8 @@ def reply_query(query_id):
         query_id=query_id,
         admin_id=admin.id,
         reply_text=reply_text,
-        user_type=user_type
+        user_type=user_type,
+        created_at=utc_now(),
     )
 
     if query_obj.status == "New":

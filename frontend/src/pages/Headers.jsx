@@ -408,9 +408,14 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
         fetchUnreadCount();
         timerId = window.setInterval(fetchUnreadCount, 30000);
+        const onQueryNotificationsUpdated = () => {
+            fetchUnreadCount();
+        };
+        window.addEventListener("queryNotificationsUpdated", onQueryNotificationsUpdated);
         return () => {
             isMounted = false;
             if (timerId) window.clearInterval(timerId);
+            window.removeEventListener("queryNotificationsUpdated", onQueryNotificationsUpdated);
         };
     }, []);
 

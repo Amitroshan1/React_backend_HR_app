@@ -1,6 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AppFooter } from '../components/layout/AppFooter';
+import PasswordRequirements from '../components/PasswordRequirements';
+import {
+  canSubmitPasswordForm,
+  passwordsMatch,
+  validatePasswordStrength,
+} from '../utils/passwordValidation';
 
 const API = '/api/auth/set-password';
 
@@ -24,8 +30,17 @@ const cardStyle = {
   padding: 32,
   borderRadius: 12,
   boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-  maxWidth: 400,
+  maxWidth: 440,
   width: '100%',
+};
+
+const inputStyle = {
+  width: '100%',
+  padding: '10px 12px',
+  border: '1px solid #dfe6e9',
+  borderRadius: 8,
+  fontSize: 14,
+  boxSizing: 'border-box',
 };
 
 const SetPassword = () => {
@@ -37,19 +52,22 @@ const SetPassword = () => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
+  const formReady = useMemo(
+    () => canSubmitPasswordForm(password, confirmPassword),
+    [password, confirmPassword]
+  );
+
+  const confirmInputStyle = useMemo(() => {
+    if (!confirmPassword) return inputStyle;
+    return {
+      ...inputStyle,
+      borderColor: passwordsMatch(password, confirmPassword) ? '#10b981' : '#f87171',
+    };
+  }, [password, confirmPassword]);
+
   useEffect(() => {
     if (!token) setError('Invalid or missing reset link.');
   }, [token]);
-
-  const validatePassword = (pwd) => {
-    if (!pwd || pwd.length < 8) return 'Password must be at least 8 characters.';
-    if (!/[A-Z]/.test(pwd)) return 'Password must contain at least one uppercase letter.';
-    if (!/[a-z]/.test(pwd)) return 'Password must contain at least one lowercase letter.';
-    if (!/[0-9]/.test(pwd)) return 'Password must contain at least one number.';
-    if (!/[!@#$%^&*()_\-+=[\]{};:'",.<>?/\\|]/.test(pwd))
-      return 'Password must contain at least one special character.';
-    return '';
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -63,11 +81,11 @@ const SetPassword = () => {
       setError('Please fill both password fields.');
       return;
     }
-    if (password !== confirmPassword) {
+    if (!passwordsMatch(password, confirmPassword)) {
       setError('Passwords do not match.');
       return;
     }
-    const validationError = validatePassword(password);
+    const validationError = validatePasswordStrength(password);
     if (validationError) {
       setError(validationError);
       return;
@@ -119,7 +137,9 @@ const SetPassword = () => {
       <div style={pageBodyStyle}>
         <div style={cardStyle}>
           <h2 style={{ margin: '0 0 8px', color: '#2c3e50' }}>Set new password</h2>
-          <p style={{ color: '#7f8c8d', fontSize: 14, margin: '0 0 24px' }}>This link expires in 1 hour.</p>
+          <p style={{ color: '#7f8c8d', fontSize: 14, margin: '0 0 24px' }}>
+            This link expires in 1 hour. Requirements update as you type.
+          </p>
           {message && <p style={{ color: '#27ae60', marginBottom: 16 }}>{message}</p>}
           {error && <p style={{ color: '#e74c3c', marginBottom: 16 }}>{error}</p>}
           <form onSubmit={handleSubmit}>
@@ -129,9 +149,14 @@ const SetPassword = () => {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters, with upper, lower, number, special"
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid #dfe6e9', borderRadius: 8, fontSize: 14 }}
+                placeholder="Enter new password"
+                style={inputStyle}
                 autoComplete="new-password"
+              />
+              <PasswordRequirements
+                password={password}
+                confirmPassword={confirmPassword}
+                showMatch={false}
               />
             </div>
             <div style={{ marginBottom: 20 }}>
@@ -141,23 +166,31 @@ const SetPassword = () => {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm new password"
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid #dfe6e9', borderRadius: 8, fontSize: 14 }}
+                style={confirmInputStyle}
                 autoComplete="new-password"
               />
+              {confirmPassword.length > 0 && (
+                <PasswordRequirements
+                  password={password}
+                  confirmPassword={confirmPassword}
+                  showRequirements={false}
+                  showMatch
+                />
+              )}
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !formReady}
               style={{
                 width: '100%',
                 padding: '12px 16px',
-                background: '#3498db',
+                background: loading || !formReady ? '#cbd5e1' : '#3498db',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 8,
                 fontSize: 15,
                 fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
+                cursor: loading || !formReady ? 'not-allowed' : 'pointer',
               }}
             >
               {loading ? 'Updating…' : 'Set password'}
@@ -172,5 +205,3 @@ const SetPassword = () => {
 };
 
 export default SetPassword;
-
-

@@ -1,5 +1,5 @@
-from datetime import datetime
 from .. import db
+from ..datetime_utils import utc_now
 
 
 class Notification(db.Model):
@@ -13,4 +13,4 @@ class Notification(db.Model):
     entity_type = db.Column(db.String(50), nullable=True)
     entity_id = db.Column(db.Integer, nullable=True, index=True)
     is_read = db.Column(db.Boolean, nullable=False, default=False, index=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)

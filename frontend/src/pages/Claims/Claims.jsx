@@ -1,12 +1,29 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Receipt, Calendar, Plus, FileText, Trash2, CheckCircle } from 'lucide-react';
 import './Claims.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
+import { useUser } from '../../components/layout/UserContext';
 
 const API_BASE_URL = "/api/leave";
 
+const buildEmployeeDefaults = (userData) => {
+  const user = userData?.user || {};
+  const employee = userData?.employee || {};
+  const name =
+    (user.name || '').trim() ||
+    (user.first_name || '').trim() ||
+    (user.user_name || '').trim();
+  return {
+    employeeName: name,
+    designation: (user.designation || employee.designation || '').trim(),
+    employeeId: (user.emp_id || '').trim(),
+    email: (user.email || '').trim(),
+  };
+};
+
 export const Claims = () => {
+  const { userData, loadingUser, refreshUserData } = useUser();
   const [claims, setClaims] = useState([]); // Local list of expense items to be submitted
   const [submittedClaims, setSubmittedClaims] = useState([]); // Claims from backend
   const [loading, setLoading] = useState(true);
@@ -35,6 +52,20 @@ export const Claims = () => {
     const { id, value } = e.target;
     setClaimForm((prev) => ({ ...prev, [id]: value }));
   };
+
+  const applyEmployeeDefaults = useCallback(() => {
+    const defaults = buildEmployeeDefaults(userData);
+    setClaimForm((prev) => ({
+      ...prev,
+      ...defaults,
+    }));
+  }, [userData]);
+
+  useEffect(() => {
+    if (!loadingUser) {
+      applyEmployeeDefaults();
+    }
+  }, [loadingUser, applyEmployeeDefaults]);
 
   const handleFileChange = (e, index) => {
     const file = e.target.files[0];
@@ -107,6 +138,7 @@ export const Claims = () => {
   };
 
   useRefreshOnNavigate(() => {
+    refreshUserData();
     fetchClaims();
   });
 
@@ -244,10 +276,18 @@ export const Claims = () => {
   };
 
   const resetForm = () => {
+    const defaults = buildEmployeeDefaults(userData);
     setClaimForm({
-      employeeName: '', designation: '', employeeId: '', email: '',
-      projectName: '', country: '', travelFrom: '', travelTo: '',
-      expenseDate: '', purpose: '', amount: '', currency: 'INR', attachFile: null,
+      ...defaults,
+      projectName: '',
+      country: '',
+      travelFrom: '',
+      travelTo: '',
+      expenseDate: '',
+      purpose: '',
+      amount: '',
+      currency: 'INR',
+      attachFile: null,
     });
   };
 
@@ -270,19 +310,19 @@ export const Claims = () => {
           <div className="claims-form-grid">
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="employeeName">Employee Name</label>
-              <input className="claims-input" type="text" id="employeeName" value={claimForm.employeeName} onChange={handleInputChange} placeholder="Enter name" />
+              <input className="claims-input claims-input-disabled" type="text" id="employeeName" value={claimForm.employeeName} readOnly disabled placeholder={loadingUser ? 'Loading...' : '—'} />
             </div>
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="designation">Designation</label>
-              <input className="claims-input" type="text" id="designation" value={claimForm.designation} onChange={handleInputChange} placeholder="Enter designation" />
+              <input className="claims-input claims-input-disabled" type="text" id="designation" value={claimForm.designation} readOnly disabled placeholder={loadingUser ? 'Loading...' : '—'} />
             </div>
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="employeeId">Employee ID</label>
-              <input className="claims-input" type="text" id="employeeId" value={claimForm.employeeId} onChange={handleInputChange} placeholder="Enter ID" />
+              <input className="claims-input claims-input-disabled" type="text" id="employeeId" value={claimForm.employeeId} readOnly disabled placeholder={loadingUser ? 'Loading...' : '—'} />
             </div>
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="email">Email</label>
-              <input className="claims-input" type="email" id="email" value={claimForm.email} onChange={handleInputChange} placeholder="Enter email" />
+              <input className="claims-input claims-input-disabled" type="email" id="email" value={claimForm.email} readOnly disabled placeholder={loadingUser ? 'Loading...' : '—'} />
             </div>
           </div>
 

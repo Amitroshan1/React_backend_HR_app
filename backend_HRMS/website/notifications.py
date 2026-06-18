@@ -57,13 +57,13 @@ def unread_count():
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
-    from .query import count_new_queries_for_department_staff
+    from .query import count_department_query_unread
 
     claims = get_jwt() or {}
     emp_type = claims.get("emp_type") or getattr(admin, "emp_type", None)
 
     total = Notification.query.filter_by(recipient_admin_id=admin.id, is_read=False).count()
-    query_count = count_new_queries_for_department_staff(emp_type)
+    query_count = count_department_query_unread(admin.id, emp_type)
 
     return jsonify(
         {

@@ -1,4 +1,5 @@
 export const QUERY_CHAT_POLL_MS = 4000;
+export const QUERY_INBOX_POLL_MS = 30000;
 export const QUERY_CHAT_PARAM = 'chat';
 
 export const parseChatIdFromSearch = (search) => {
