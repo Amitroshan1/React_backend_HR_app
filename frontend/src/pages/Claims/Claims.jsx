@@ -380,13 +380,13 @@ export const Claims = () => {
               <tbody>
                 {claims.map((claim, index) => (
                   <tr key={claim.id}>
-                    <td>{claim.sr_no}</td>
-                    <td>{formatDate(claim.date)}</td>
-                    <td>{claim.purpose}</td>
-                    <td><strong>{claim.amount}</strong></td>
-                    <td>{claim.currency}</td>
-                    <td>{claim.attachFile ? claim.attachFile.name : '-'}</td>
-                    <td>
+                    <td data-label="#">{claim.sr_no}</td>
+                    <td data-label="Date">{formatDate(claim.date)}</td>
+                    <td data-label="Purpose">{claim.purpose}</td>
+                    <td data-label="Amount"><strong>{claim.amount}</strong></td>
+                    <td data-label="Currency">{claim.currency}</td>
+                    <td data-label="File">{claim.attachFile ? claim.attachFile.name : '-'}</td>
+                    <td className="claims-action-cell" data-label="Action">
                       <button type="button" className="claims-btn-remove" onClick={() => handleRemoveClaim(claim.id)}>
                         <Trash2 size={14} />
                       </button>
@@ -426,12 +426,12 @@ export const Claims = () => {
                 ) : (
                   submittedClaims.map((claim) => (
                     <tr key={claim.id}>
-                      <td>{claim.sr_no}</td>
-                      <td>{claim.country}</td>
-                      <td>{formatDate(claim.date)}</td>
-                      <td>{claim.purpose}</td>
-                      <td><strong>{claim.amount} {claim.currency}</strong></td>
-                      <td>
+                      <td data-label="#">{claim.sr_no}</td>
+                      <td data-label="Country">{claim.country}</td>
+                      <td data-label="Date">{formatDate(claim.date)}</td>
+                      <td data-label="Purpose">{claim.purpose}</td>
+                      <td data-label="Amount"><strong>{claim.amount} {claim.currency}</strong></td>
+                      <td data-label="Status">
                         <span className={`claims-status-badge claims-status-${(claim.status || 'pending').toLowerCase()}`}>
                           {(claim.status || 'Pending').toUpperCase()}
                         </span>

@@ -26,6 +26,7 @@ import {
     postEmployee,
     postEducationReplace,
     postPreviousCompanies,
+    buildPreviousCompanyItems,
     postUploadDocs,
     postUploadPhoto,
 } from '../utils/profileApi';
@@ -393,7 +394,9 @@ export const Profile = () => {
                         return false;
                     }
 
-                    const prevRes = await postPreviousCompanies(previousEmployment);
+                    const prevRes = await postPreviousCompanies(
+                        buildPreviousCompanyItems(previousEmployment)
+                    );
                     if (!prevRes.ok) {
                         showToast(prevRes.data.message || 'Failed to save previous employment.', 'error');
                         return false;
@@ -471,7 +474,9 @@ export const Profile = () => {
                 if (errData?.message?.trim()) successMsg = errData.message.trim();
                 setHasEmployeeRecord(true);
                 if (sectionName === 'employment') {
-                    const prevRes = await postPreviousCompanies(previousEmployment);
+                    const prevRes = await postPreviousCompanies(
+                        buildPreviousCompanyItems(previousEmployment)
+                    );
                     if (!prevRes.ok) {
                         showToast(prevRes.data.message || 'Failed to save previous employment.', 'error');
                         return false;

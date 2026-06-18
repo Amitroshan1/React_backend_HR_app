@@ -1938,11 +1938,10 @@ export const Account = ()  => {
             <h3 className="section-title">Payroll by Department</h3>
           </div>
 
-          <div className="table-responsive">
-            <table className="results-table">
+          <div className="table-responsive payroll-dept-wrap">
+            <table className="results-table payroll-dept-table">
               <thead>
                 <tr>
-                  <th width="50"></th>
                   <th>Department</th>
                   <th>Circle Selection</th>
                   <th>Employees</th>
@@ -1952,23 +1951,27 @@ export const Account = ()  => {
               <tbody>
                 {payrollError && (
                   <tr>
-                    <td colSpan="5" className="empty">{payrollError}</td>
+                    <td colSpan="4" className="empty">{payrollError}</td>
                   </tr>
                 )}
                 {payrollSummary.map((dept) => (
                   <React.Fragment key={dept.department}>
                     <tr>
-                      <td>
-                        <button 
-                          className="btn-icon"
-                          onClick={() => setExpandedDept(expandedDept === dept.department ? null : dept.department)}
-                        >
-                          {expandedDept === dept.department ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
-                        </button>
+                      <td className="font-bold" data-label="Department">
+                        <div className="payroll-dept-head">
+                          <button
+                            type="button"
+                            className="btn-icon"
+                            onClick={() => setExpandedDept(expandedDept === dept.department ? null : dept.department)}
+                            aria-label={expandedDept === dept.department ? 'Collapse department' : 'Expand department'}
+                          >
+                            {expandedDept === dept.department ? <ChevronDown size={18}/> : <ChevronRight size={18}/>}
+                          </button>
+                          <span>{dept.department}</span>
+                        </div>
                       </td>
-                      <td className="font-bold">{dept.department}</td>
-                      <td>
-                        <select 
+                      <td data-label="Circle Selection">
+                        <select
                           className="table-select"
                           onChange={(e) => handleCircleSelect(dept.department, e.target.value)}
                           value=""
@@ -1977,8 +1980,8 @@ export const Account = ()  => {
                           {(dept.circles || []).map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                       </td>
-                      <td>{dept.employees}</td>
-                      <td>
+                      <td data-label="Employees">{dept.employees}</td>
+                      <td data-label="Status">
                         <span className="badge-processed">active</span>
                       </td>
                     </tr>
@@ -2003,8 +2006,8 @@ export const Account = ()  => {
           <h3 className="section-title">Results: {selectedCircle} - {selectedDept}</h3>
         </div>
         
-        <div className="table-responsive">
-          <table className="results-table">
+        <div className="table-responsive employees-results-wrap">
+          <table className="results-table employees-results-table">
             <thead className="thead-teal">
               <tr>
                 <th>Name</th>
@@ -2019,15 +2022,17 @@ export const Account = ()  => {
             <tbody>
               {employeesList.map(emp => (
                 <tr key={emp.id}>
-                  <td className="font-bold">{emp.name}</td>
-                  <td>{emp.email}</td>
-                  <td>
+                  <td className="font-bold" data-label="Name">{emp.name}</td>
+                  <td data-label="Email">{emp.email}</td>
+                  <td data-label="Bank Details">
                     <button className="text-link" onClick={() => handleViewBankDetails(emp)}>
                       {emp.bankDetailsAvailable ? 'View' : 'View'}
                     </button>
                   </td>
-                  <td><button className="text-link" onClick={() => handleAddPayslipClick(emp)}>Add Payslip</button></td>
-                  <td>
+                  <td data-label="Update">
+                    <button className="text-link" onClick={() => handleAddPayslipClick(emp)}>Add Payslip</button>
+                  </td>
+                  <td data-label="Form 16">
                     <button
                       className="text-link"
                       onClick={() => handleAddForm16Click(emp)}
@@ -2036,7 +2041,7 @@ export const Account = ()  => {
                     </button>
                   </td>
                   {hasFeature('account_ctc_breakup') ? (
-                    <td>
+                    <td data-label="CTC Breakup">
                       <button
                         className="text-link"
                         onClick={() => handleOpenCtcBreakup(emp)}
@@ -2045,7 +2050,7 @@ export const Account = ()  => {
                       </button>
                     </td>
                   ) : null}
-                  <td>{emp.workingDays}</td>
+                  <td data-label="Working Days">{emp.workingDays}</td>
                 </tr>
               ))}
             </tbody>
@@ -2164,8 +2169,8 @@ export const Account = ()  => {
 
       <div className="table-container-card form16-history-card">
         <h4 className="section-title" style={{ marginBottom: '12px' }}>Payslip Upload History</h4>
-        <div className="table-responsive">
-          <table className="results-table">
+        <div className="table-responsive accounts-mobile-wrap">
+          <table className="results-table accounts-mobile-table">
             <thead>
               <tr>
                 <th>Month</th>
@@ -2178,25 +2183,25 @@ export const Account = ()  => {
             <tbody>
               {payslipHistoryLoading && (
                 <tr>
-                  <td colSpan="5">Loading history...</td>
+                  <td colSpan="5" className="accounts-empty">Loading history...</td>
                 </tr>
               )}
               {!payslipHistoryLoading && payslipHistoryError && (
                 <tr>
-                  <td colSpan="5">{payslipHistoryError}</td>
+                  <td colSpan="5" className="accounts-empty">{payslipHistoryError}</td>
                 </tr>
               )}
               {!payslipHistoryLoading && !payslipHistoryError && payslipHistory.length === 0 && (
                 <tr>
-                  <td colSpan="5">No payslip records found.</td>
+                  <td colSpan="5" className="accounts-empty">No payslip records found.</td>
                 </tr>
               )}
               {!payslipHistoryLoading && !payslipHistoryError && payslipHistory.map((item) => (
                 <tr key={item.id}>
-                  <td>{item.month || '-'}</td>
-                  <td>{item.year || '-'}</td>
-                  <td>{getUploadedOnFromPath(item.file_path)}</td>
-                  <td>
+                  <td data-label="Month">{item.month || '-'}</td>
+                  <td data-label="Year">{item.year || '-'}</td>
+                  <td data-label="Uploaded On">{getUploadedOnFromPath(item.file_path)}</td>
+                  <td data-label="File">
                     {item.file_path ? (
                       <button
                         type="button"
@@ -2207,7 +2212,7 @@ export const Account = ()  => {
                       </button>
                     ) : '-'}
                   </td>
-                  <td>
+                  <td data-label="Delete">
                     <button
                       type="button"
                       className="text-link"
@@ -2298,8 +2303,8 @@ export const Account = ()  => {
 
       <div className="table-container-card form16-history-card">
         <h4 className="section-title" style={{ marginBottom: '12px' }}>Form 16 Upload History</h4>
-        <div className="table-responsive">
-          <table className="results-table">
+        <div className="table-responsive accounts-mobile-wrap">
+          <table className="results-table accounts-mobile-table">
             <thead>
               <tr>
                 <th>Financial Year</th>
@@ -2310,24 +2315,24 @@ export const Account = ()  => {
             <tbody>
               {form16HistoryLoading && (
                 <tr>
-                  <td colSpan="3">Loading history...</td>
+                  <td colSpan="3" className="accounts-empty">Loading history...</td>
                 </tr>
               )}
               {!form16HistoryLoading && form16HistoryError && (
                 <tr>
-                  <td colSpan="3">{form16HistoryError}</td>
+                  <td colSpan="3" className="accounts-empty">{form16HistoryError}</td>
                 </tr>
               )}
               {!form16HistoryLoading && !form16HistoryError && form16History.length === 0 && (
                 <tr>
-                  <td colSpan="3">No Form 16 records found.</td>
+                  <td colSpan="3" className="accounts-empty">No Form 16 records found.</td>
                 </tr>
               )}
               {!form16HistoryLoading && !form16HistoryError && form16History.map((item) => (
                 <tr key={item.id}>
-                  <td>{item.financial_year || '-'}</td>
-                  <td>{formatDateTime(item.created_at)}</td>
-                  <td>
+                  <td data-label="Financial Year">{item.financial_year || '-'}</td>
+                  <td data-label="Uploaded On">{formatDateTime(item.created_at)}</td>
+                  <td data-label="File">
                     {item.file_path ? (
                       <button
                         type="button"
@@ -2582,7 +2587,7 @@ export const Account = ()  => {
                   </ul>
                   {p.tax?.slab_breakdown?.length > 0 && (
                     <div className="tds-slab-table-wrap">
-                      <table className="results-table tds-slab-table">
+                      <table className="results-table tds-slab-table accounts-mobile-table">
                         <thead>
                           <tr>
                             <th>Slab</th>
@@ -2594,14 +2599,14 @@ export const Account = ()  => {
                         <tbody>
                           {p.tax.slab_breakdown.map((row, idx) => (
                             <tr key={idx}>
-                              <td>
+                              <td data-label="Slab">
                                 {formatCurrency(row.from)}
                                 {' – '}
                                 {row.to != null ? formatCurrency(row.to) : 'above'}
                               </td>
-                              <td>{row.rate_pct}%</td>
-                              <td>{formatCurrency(row.taxable_in_band)}</td>
-                              <td>{formatCurrency(row.tax)}</td>
+                              <td data-label="Rate">{row.rate_pct}%</td>
+                              <td data-label="Taxable">{formatCurrency(row.taxable_in_band)}</td>
+                              <td data-label="Tax">{formatCurrency(row.tax)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -2821,8 +2826,8 @@ export const Account = ()  => {
             <div className="ctc-summary-section">
               {ctcCalcError && <div className="q-error">{ctcCalcError}</div>}
               <div className="ctc-summary-table-wrap">
-                <div className="table-responsive">
-                  <table className="results-table">
+                <div className="table-responsive ctc-summary-wrap">
+                  <table className="results-table ctc-summary-table">
                     <thead>
                       <tr>
                         <th>Gross Salary (monthly)</th>
@@ -2832,17 +2837,17 @@ export const Account = ()  => {
                     </thead>
                     <tbody>
                       <tr>
-                        <td>{Number(ctcComputed.gross_salary || 0).toFixed(2)}</td>
-                        <td>{Number(ctcComputed.deductions_total || 0).toFixed(2)}</td>
-                        <td>{Number(ctcComputed.net_salary || 0).toFixed(2)}</td>
+                        <td data-label="Gross Salary (monthly)">{Number(ctcComputed.gross_salary || 0).toFixed(2)}</td>
+                        <td data-label="Total Deductions">{Number(ctcComputed.deductions_total || 0).toFixed(2)}</td>
+                        <td data-label="Net Salary">{Number(ctcComputed.net_salary || 0).toFixed(2)}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
               <div className="ctc-summary-table-wrap ctc-summary-table-wrap--annual">
-                <div className="table-responsive">
-                  <table className="results-table">
+                <div className="table-responsive ctc-summary-wrap">
+                  <table className="results-table ctc-summary-table ctc-summary-table--annual">
                     <thead>
                       <tr>
                         <th>Gratuity (yr)</th>
@@ -2854,13 +2859,13 @@ export const Account = ()  => {
                     </thead>
                     <tbody>
                       <tr>
-                        <td>{Number(ctcComputed.gratuity_yearly || 0).toFixed(2)}</td>
-                        <td>{Number(ctcComputed.employer_pf_yearly || 0).toFixed(2)}</td>
-                        <td>{Number(ctcComputed.employer_esic_yearly || 0).toFixed(2)}</td>
-                        <td>
+                        <td data-label="Gratuity (yr)">{Number(ctcComputed.gratuity_yearly || 0).toFixed(2)}</td>
+                        <td data-label="Employer PF (yr)">{Number(ctcComputed.employer_pf_yearly || 0).toFixed(2)}</td>
+                        <td data-label="Employer ESIC (yr)">{Number(ctcComputed.employer_esic_yearly || 0).toFixed(2)}</td>
+                        <td data-label="Mediclaim (yr)">
                           {parseMediclaimYearly(ctcMediclaim).toFixed(2)}
                         </td>
-                        <td>{Number(ctcComputed.annual_ctc_total || 0).toFixed(2)}</td>
+                        <td data-label="Annual CTC (total)">{Number(ctcComputed.annual_ctc_total || 0).toFixed(2)}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -2887,8 +2892,8 @@ export const Account = ()  => {
 
         <div className="table-container-card form16-history-card ctc-history-card">
           <h4 className="section-title">CTC Breakup History</h4>
-          <div className="table-responsive">
-            <table className="results-table">
+          <div className="table-responsive ctc-history-wrap">
+            <table className="results-table ctc-history-table">
               <thead>
                 <tr>
                   <th>Updated At</th>
@@ -2905,30 +2910,30 @@ export const Account = ()  => {
               <tbody>
                 {ctcHistoryLoading && (
                   <tr>
-                    <td colSpan="9">Loading history...</td>
+                    <td colSpan="9" className="ctc-empty">Loading history...</td>
                   </tr>
                 )}
                 {!ctcHistoryLoading && ctcHistoryError && (
                   <tr>
-                    <td colSpan="9">{ctcHistoryError}</td>
+                    <td colSpan="9" className="ctc-empty">{ctcHistoryError}</td>
                   </tr>
                 )}
                 {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.length === 0 && (
                   <tr>
-                    <td colSpan="9">No CTC breakup records found.</td>
+                    <td colSpan="9" className="ctc-empty">No CTC breakup records found.</td>
                   </tr>
                 )}
                 {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.map((item) => (
                   <tr key={item.id}>
-                    <td>{formatDateTime(item.updated_at || item.created_at)}</td>
-                    <td>{Number(item.basic_salary || 0).toFixed(2)}</td>
-                    <td>{Number(item.hra || 0).toFixed(2)}</td>
-                    <td>{Number(item.other_allowance || 0).toFixed(2)}</td>
-                    <td>{Number(item.gross_salary || 0).toFixed(2)}</td>
-                    <td>{Number(item.epf || 0).toFixed(2)}</td>
-                    <td>{Number(item.esic || 0).toFixed(2)}</td>
-                    <td>{Number(item.ptax || 0).toFixed(2)}</td>
-                    <td>{Number(item.net_salary || 0).toFixed(2)}</td>
+                    <td data-label="Updated At">{formatDateTime(item.updated_at || item.created_at)}</td>
+                    <td data-label="Basic Salary + DA">{Number(item.basic_salary || 0).toFixed(2)}</td>
+                    <td data-label="HRA">{Number(item.hra || 0).toFixed(2)}</td>
+                    <td data-label="Other Allowance">{Number(item.other_allowance || 0).toFixed(2)}</td>
+                    <td data-label="Gross Salary">{Number(item.gross_salary || 0).toFixed(2)}</td>
+                    <td data-label="EPF">{Number(item.epf || 0).toFixed(2)}</td>
+                    <td data-label="ESIC (Employee)">{Number(item.esic || 0).toFixed(2)}</td>
+                    <td data-label="P.Tax">{Number(item.ptax || 0).toFixed(2)}</td>
+                    <td data-label="Net Salary">{Number(item.net_salary || 0).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3041,8 +3046,8 @@ export const Account = ()  => {
 
           <div style={{ marginTop: '10px' }}>
             <h5 style={{ margin: '0 0 8px 0' }}>Unmatched Files</h5>
-            <div className="table-responsive">
-              <table className="results-table">
+            <div className="table-responsive accounts-mobile-wrap">
+              <table className="results-table accounts-mobile-table">
                 <thead>
                   <tr>
                     <th>Filename</th>
@@ -3052,12 +3057,12 @@ export const Account = ()  => {
                 <tbody>
                   {bulkUploadResult.unmatchedFiles.length === 0 ? (
                     <tr>
-                      <td colSpan="2">No unmatched files.</td>
+                      <td colSpan="2" className="accounts-empty">No unmatched files.</td>
                     </tr>
                   ) : bulkUploadResult.unmatchedFiles.map((item, idx) => (
                     <tr key={`${item.filename}-${idx}`}>
-                      <td>{item.filename}</td>
-                      <td>{item.reason}</td>
+                      <td data-label="Filename">{item.filename}</td>
+                      <td data-label="Reason">{item.reason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3067,8 +3072,8 @@ export const Account = ()  => {
 
           <div style={{ marginTop: '14px' }}>
             <h5 style={{ margin: '0 0 8px 0' }}>Email Failures</h5>
-            <div className="table-responsive">
-              <table className="results-table">
+            <div className="table-responsive accounts-mobile-wrap">
+              <table className="results-table accounts-mobile-table">
                 <thead>
                   <tr>
                     <th>Email</th>
@@ -3078,12 +3083,12 @@ export const Account = ()  => {
                 <tbody>
                   {bulkUploadResult.emailFailures.length === 0 ? (
                     <tr>
-                      <td colSpan="2">No email failures.</td>
+                      <td colSpan="2" className="accounts-empty">No email failures.</td>
                     </tr>
                   ) : bulkUploadResult.emailFailures.map((item, idx) => (
                     <tr key={`${item.email}-${idx}`}>
-                      <td>{item.email}</td>
-                      <td>{item.reason}</td>
+                      <td data-label="Email">{item.email}</td>
+                      <td data-label="Reason">{item.reason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3183,8 +3188,8 @@ export const Account = ()  => {
 
           <div style={{ marginTop: '10px' }}>
             <h5 style={{ margin: '0 0 8px 0' }}>Unmatched Files</h5>
-            <div className="table-responsive">
-              <table className="results-table">
+            <div className="table-responsive accounts-mobile-wrap">
+              <table className="results-table accounts-mobile-table">
                 <thead>
                   <tr>
                     <th>Filename</th>
@@ -3194,12 +3199,12 @@ export const Account = ()  => {
                 <tbody>
                   {bulkForm16UploadResult.unmatchedFiles.length === 0 ? (
                     <tr>
-                      <td colSpan="2">No unmatched files.</td>
+                      <td colSpan="2" className="accounts-empty">No unmatched files.</td>
                     </tr>
                   ) : bulkForm16UploadResult.unmatchedFiles.map((item, idx) => (
                     <tr key={`${item.filename}-${idx}`}>
-                      <td>{item.filename}</td>
-                      <td>{item.reason}</td>
+                      <td data-label="Filename">{item.filename}</td>
+                      <td data-label="Reason">{item.reason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3209,8 +3214,8 @@ export const Account = ()  => {
 
           <div style={{ marginTop: '14px' }}>
             <h5 style={{ margin: '0 0 8px 0' }}>Email Failures</h5>
-            <div className="table-responsive">
-              <table className="results-table">
+            <div className="table-responsive accounts-mobile-wrap">
+              <table className="results-table accounts-mobile-table">
                 <thead>
                   <tr>
                     <th>Email</th>
@@ -3220,12 +3225,12 @@ export const Account = ()  => {
                 <tbody>
                   {bulkForm16UploadResult.emailFailures.length === 0 ? (
                     <tr>
-                      <td colSpan="2">No email failures.</td>
+                      <td colSpan="2" className="accounts-empty">No email failures.</td>
                     </tr>
                   ) : bulkForm16UploadResult.emailFailures.map((item, idx) => (
                     <tr key={`${item.email}-${idx}`}>
-                      <td>{item.email}</td>
-                      <td>{item.reason}</td>
+                      <td data-label="Email">{item.email}</td>
+                      <td data-label="Reason">{item.reason}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3252,11 +3257,49 @@ export const Account = ()  => {
         <p style={{ marginTop: 14, color: '#64748b' }}>Loading payroll data...</p>
       )}
 
-      <div className="table-container-card">
-        <div className="table-responsive">
-          <table className="results-table">
+      <div className="table-container-card bulk-payroll-card">
+        <div className="bulk-payroll-toolbar bulk-payroll-toolbar--mobile">
+          <p className="bulk-payroll-toolbar-meta">
+            Circle: {selectedCircle || '-'} · Department: {selectedDept || '-'}
+          </p>
+          <div className="bulk-payroll-toolbar-fields">
+            <div className="input-group">
+              <label htmlFor="bulk-payroll-month-mobile">Month</label>
+              <select
+                id="bulk-payroll-month-mobile"
+                className="custom-select"
+                value={bulkPayrollMonth}
+                onChange={(e) => setBulkPayrollMonth(e.target.value)}
+              >
+                <option>January</option><option>February</option><option>March</option><option>April</option>
+                <option>May</option><option>June</option><option>July</option><option>August</option>
+                <option>September</option><option>October</option><option>November</option><option>December</option>
+              </select>
+            </div>
+            <div className="input-group">
+              <label htmlFor="bulk-payroll-year-mobile">Year</label>
+              <input
+                id="bulk-payroll-year-mobile"
+                type="text"
+                className="custom-input-file"
+                placeholder="e.g. 2026"
+                value={bulkPayrollYear}
+                onChange={(e) => setBulkPayrollYear(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn-outline-sm bulk-payroll-history-btn"
+              onClick={handleOpenPayrollHistory}
+            >
+              History
+            </button>
+          </div>
+        </div>
+        <div className="table-responsive accounts-mobile-wrap">
+          <table className="results-table accounts-mobile-table bulk-payroll-table">
             <thead className="thead-teal">
-              <tr>
+              <tr className="bulk-payroll-toolbar-row">
                 <th colSpan={8} style={{ background: '#06b6d4', color: 'white' }}>
                   Employee | Circle: {selectedCircle || '-'} | Month:{' '}
                   <select
@@ -3303,7 +3346,7 @@ export const Account = ()  => {
             <tbody>
               {payrollRows.length === 0 && !isBulkPayrollGenerating && (
                 <tr>
-                  <td colSpan="8" className="empty" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="8" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
                     No employees in this filtered list for the selected month/year.
                   </td>
                 </tr>
@@ -3323,10 +3366,10 @@ export const Account = ()  => {
                 );
                 return (
                   <tr key={row.adminId}>
-                    <td className="font-bold">{row.name}</td>
-                    <td>{row.empId}</td>
-                    <td>{Number(gross || 0).toFixed(2)}</td>
-                    <td>
+                    <td className="font-bold" data-label="Name">{row.name}</td>
+                    <td data-label="EmpID">{row.empId}</td>
+                    <td data-label="Gross Salary">{Number(gross || 0).toFixed(2)}</td>
+                    <td data-label="EPF">
                       <input
                         className="custom-input-file"
                         style={{ width: 110 }}
@@ -3345,7 +3388,7 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td>
+                    <td data-label="P.Tax">
                       <input
                         className="custom-input-file"
                         style={{ width: 110 }}
@@ -3364,7 +3407,7 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td>
+                    <td data-label="ESIC">
                       <input
                         className="custom-input-file"
                         style={{ width: 110 }}
@@ -3383,7 +3426,7 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td>
+                    <td data-label="Actual Working Days">
                       <input
                         className="custom-input-file"
                         style={{ width: 110 }}
@@ -3403,7 +3446,7 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td>{net.toFixed(2)}</td>
+                    <td data-label="Net Salary">{net.toFixed(2)}</td>
                   </tr>
                 );
               })}
@@ -3543,11 +3586,10 @@ export const Account = ()  => {
         {expenseClaimsError && <div className="q-error">{expenseClaimsError}</div>}
         {expenseClaimsLoading && <p style={{ color: '#64748b' }}>Loading expense claims...</p>}
 
-        <div className="table-responsive">
-          <table className="results-table">
+        <div className="table-responsive accounts-mobile-wrap">
+          <table className="results-table accounts-mobile-table expense-claims-table">
             <thead className="thead-teal">
               <tr>
-                <th width="40"></th>
                 <th>Employee</th>
                 <th>Emp ID</th>
                 <th>Circle</th>
@@ -3562,7 +3604,7 @@ export const Account = ()  => {
             <tbody>
               {!expenseClaimsLoading && expenseClaims.length === 0 && (
                 <tr>
-                  <td colSpan="10" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="9" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
                     No expense claims found.
                   </td>
                 </tr>
@@ -3572,26 +3614,28 @@ export const Account = ()  => {
                 return (
                   <React.Fragment key={claim.id}>
                     <tr>
-                      <td>
-                        <button type="button" className="btn-icon" onClick={() => toggleClaimExpanded(claim.id)}>
-                          {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                        </button>
+                      <td className="font-bold" data-label="Employee">
+                        <div className="expense-claim-head">
+                          <button type="button" className="btn-icon" onClick={() => toggleClaimExpanded(claim.id)}>
+                            {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                          </button>
+                          <span>{claim.employee_name || '-'}</span>
+                        </div>
                       </td>
-                      <td className="font-bold">{claim.employee_name || '-'}</td>
-                      <td>{claim.emp_id || '-'}</td>
-                      <td>{claim.circle || '-'}</td>
-                      <td>{claim.emp_type || '-'}</td>
-                      <td>{claim.project_name || '-'}</td>
-                      <td>
+                      <td data-label="Emp ID">{claim.emp_id || '-'}</td>
+                      <td data-label="Circle">{claim.circle || '-'}</td>
+                      <td data-label="Department">{claim.emp_type || '-'}</td>
+                      <td data-label="Project">{claim.project_name || '-'}</td>
+                      <td data-label="Travel">
                         {formatClaimDate(claim.travel_from_date)} – {formatClaimDate(claim.travel_to_date)}
                       </td>
-                      <td>
+                      <td data-label="Status">
                         <span className={claimStatusBadgeClass(claim.status)}>{claim.status}</span>
                       </td>
-                      <td>
+                      <td data-label="Total">
                         {(claim.line_items?.[0]?.currency || 'INR')} {Number(claim.total_amount || 0).toFixed(2)}
                       </td>
-                      <td>
+                      <td data-label="Download">
                         <button
                           type="button"
                           className="text-link"
@@ -3603,9 +3647,9 @@ export const Account = ()  => {
                       </td>
                     </tr>
                     {expanded && (
-                      <tr>
-                        <td colSpan="10" style={{ background: '#f8fafc', padding: 0 }}>
-                          <table className="results-table expense-claims-lines">
+                      <tr className="expense-claims-expand-row">
+                        <td colSpan="9">
+                          <table className="results-table expense-claims-lines accounts-mobile-table">
                             <thead>
                               <tr>
                                 <th>Sr.</th>
@@ -3620,19 +3664,19 @@ export const Account = ()  => {
                             <tbody>
                               {(claim.line_items || []).map((item) => (
                                 <tr key={item.id}>
-                                  <td>{item.sr_no}</td>
-                                  <td>{formatClaimDate(item.date)}</td>
-                                  <td>
+                                  <td data-label="Sr.">{item.sr_no}</td>
+                                  <td data-label="Date">{formatClaimDate(item.date)}</td>
+                                  <td data-label="Purpose">
                                     <div>{item.purpose || '-'}</div>
                                     {item.status === 'Rejected' && item.rejection_reason ? (
                                       <p className="claim-rejection-note">Reason: {item.rejection_reason}</p>
                                     ) : null}
                                   </td>
-                                  <td>{item.currency || 'INR'} {Number(item.amount || 0).toFixed(2)}</td>
-                                  <td>
+                                  <td data-label="Amount">{item.currency || 'INR'} {Number(item.amount || 0).toFixed(2)}</td>
+                                  <td data-label="Status">
                                     <span className={claimStatusBadgeClass(item.status)}>{item.status}</span>
                                   </td>
-                                  <td>
+                                  <td data-label="Attachment">
                                     {item.file_path ? (
                                       <button
                                         type="button"
@@ -3646,7 +3690,7 @@ export const Account = ()  => {
                                       '-'
                                     )}
                                   </td>
-                                  <td>
+                                  <td data-label="Action">
                                     {(item.status || 'Pending') === 'Pending' ? (
                                       <div className="claim-line-actions">
                                         <button
@@ -3743,7 +3787,7 @@ export const Account = ()  => {
 
       <div className="table-container-card">
         <div className="card-header-row">
-          <h3 className="section-title">
+          <h3 className="section-title payroll-history-title">
             Payroll History | Circle: {selectedCircle || '-'} | Department: {selectedDept || '-'} | Month: {bulkPayrollMonth} | Year: {bulkPayrollYear} | Created At:{' '}
             {payrollHistoryRows.length > 0
               ? (() => {
@@ -3763,8 +3807,8 @@ export const Account = ()  => {
         {payrollHistoryError && <div className="q-error">{payrollHistoryError}</div>}
         {payrollHistoryLoading && <p style={{ color: '#64748b' }}>Loading...</p>}
 
-        <div className="table-responsive">
-          <table className="results-table">
+        <div className="table-responsive accounts-mobile-wrap">
+          <table className="results-table accounts-mobile-table">
             <thead className="thead-teal">
               <tr>
                 <th>Name</th>
@@ -3780,21 +3824,21 @@ export const Account = ()  => {
             <tbody>
               {!payrollHistoryLoading && payrollHistoryRows.length === 0 && (
                 <tr>
-                  <td colSpan="8" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="8" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
                     No payroll history found for this month/year.
                   </td>
                 </tr>
               )}
               {payrollHistoryRows.map((r) => (
                 <tr key={r.admin_id}>
-                  <td className="font-bold">{r.name}</td>
-                  <td>{r.emp_id}</td>
-                  <td>{Number(r.gross_salary_for_month || 0).toFixed(2)}</td>
-                  <td>{Number(r.epf_final || 0).toFixed(2)}</td>
-                  <td>{Number(r.ptax_final || 0).toFixed(2)}</td>
-                  <td>{Number(r.esic_final || 0).toFixed(2)}</td>
-                  <td>{Number(r.actual_working_days || 0).toFixed(1)}</td>
-                  <td>{Number(r.net_salary_final || 0).toFixed(2)}</td>
+                  <td className="font-bold" data-label="Name">{r.name}</td>
+                  <td data-label="EmpID">{r.emp_id}</td>
+                  <td data-label="Gross Salary">{Number(r.gross_salary_for_month || 0).toFixed(2)}</td>
+                  <td data-label="EPF">{Number(r.epf_final || 0).toFixed(2)}</td>
+                  <td data-label="P.Tax">{Number(r.ptax_final || 0).toFixed(2)}</td>
+                  <td data-label="ESIC">{Number(r.esic_final || 0).toFixed(2)}</td>
+                  <td data-label="Actual Working Days">{Number(r.actual_working_days || 0).toFixed(1)}</td>
+                  <td data-label="Net Salary">{Number(r.net_salary_final || 0).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

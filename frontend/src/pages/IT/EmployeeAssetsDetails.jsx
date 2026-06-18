@@ -125,19 +125,19 @@ const ReturnHistoryTable = ({ rows, onViewPhotos }) => (
             const qty = Math.max(1, Number(r.quantity) || 1);
             return (
               <tr key={r.id}>
-                <td className="rr-code">{r.requestCode || "—"}</td>
-                <td>
+                <td className="rr-code" data-label="Request Code">{r.requestCode || "—"}</td>
+                <td data-label="Asset">
                   <strong>{r.assetName || "—"}</strong>
                   <div className="rr-asset-cat">{r.category || "—"}</div>
                 </td>
-                <td>{qty > 1 || r.inventoryItemId ? qty : "—"}</td>
-                <td>
+                <td data-label="Qty">{qty > 1 || r.inventoryItemId ? qty : "—"}</td>
+                <td data-label="Return To">
                   <span className={`rr-dest-badge ${destBadgeCls(r.returnDestination)}`}>
                     {formatReturnDest(r.returnDestination)}
                   </span>
                 </td>
-                <td className="rr-reason-cell">{r.reason || "—"}</td>
-                <td>
+                <td className="rr-reason-cell" data-label="Reason">{r.reason || "—"}</td>
+                <td data-label="Files">
                   {photos.length > 0 ? (
                     <button
                       type="button"
@@ -150,15 +150,15 @@ const ReturnHistoryTable = ({ rows, onViewPhotos }) => (
                     <span className="ea-no-photos">—</span>
                   )}
                 </td>
-                <td>
+                <td data-label="Status">
                   <span className={`rr-status-badge ${rrStatusCls(r.status)}`}>
                     {r.status || "pending"}
                   </span>
                 </td>
-                <td className="rr-date-cell">
+                <td className="rr-date-cell" data-label="Requested">
                   {formatDateTimeDDMMYYYY(r.createdAt)}
                 </td>
-                <td className="rr-update-cell">{formatReturnUpdate(r)}</td>
+                <td className="rr-update-cell" data-label="Update">{formatReturnUpdate(r)}</td>
               </tr>
             );
           })
@@ -198,20 +198,20 @@ const HardwareTable = ({ assets, onRemove, onViewDetails }) => (
         ) : (
           assets.map((a) => (
             <tr key={a.id}>
-              <td>
+              <td data-label="Asset Name">
                 <strong className="ea-asset-name">{a.name}</strong>
                 {(a.assetTag || a.assetId) && (
                   <div className="ea-asset-id-sub">#{a.assetTag || a.assetId}</div>
                 )}
               </td>
-              <td>
+              <td data-label="Details">
                 <button className="ea-btn-view-details" onClick={() => onViewDetails(a)}>
                   View Details
                 </button>
               </td>
-              <td><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
-              <td><PhotosCell photos={a.photos} /></td>
-              <td>
+              <td data-label="Status"><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
+              <td data-label="Photos"><PhotosCell photos={a.photos} /></td>
+              <td className="ea-action-cell" data-label="Action">
                 <button className="ea-btn-remove" onClick={() => onRemove(a.assetId, a.id)}>
                   Return
                 </button>
@@ -247,32 +247,32 @@ const SoftwareTable = ({ assets, onRemove }) => (
                 key={a.id}
                 className={isExpired ? "ea-sw-expired" : isWarning ? "ea-sw-warning" : ""}
               >
-                <td><strong className="ea-asset-name">{a.name}</strong></td>
-                <td>
+                <td data-label="Software Name"><strong className="ea-asset-name">{a.name}</strong></td>
+                <td data-label="License ID">
                   <span className="ea-sw-license-id">{a.licenseId || a.swId || "—"}</span>
                 </td>
-                <td className="ea-sw-date">
+                <td className="ea-sw-date" data-label="Start Date">
                   {a.subscriptionStart
                     ? formatDate(a.subscriptionStart) : "—"}
                 </td>
-                <td className="ea-sw-date">
+                <td className="ea-sw-date" data-label="Valid Till">
                   {a.subscriptionEnd || a.licenseExpiry
                     ? formatDate(a.subscriptionEnd || a.licenseExpiry)
                     : "—"}
                 </td>
-                <td>
+                <td data-label="Days Left">
                   {days === null ? "—" : (
                     <span className={`ea-sw-days ${isExpired ? "expired" : isWarning ? "warning" : "ok"}`}>
                       {isExpired ? "Expired" : `${days}d`}
                     </span>
                   )}
                 </td>
-                <td>
+                <td data-label="Status">
                   <span className={`ea-status-badge ${isExpired ? "not-working" : "assigned"}`}>
                     {isExpired ? "Expired" : a.status || "Assigned"}
                   </span>
                 </td>
-                <td>
+                <td className="ea-action-cell" data-label="Action">
                   <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
                     Return
                   </button>
@@ -481,13 +481,13 @@ const NonHardwareTable = ({ assets, onRemove }) => (
         ) : (
           assets.map((a) => (
             <tr key={a.id}>
-              <td><strong className="ea-asset-name">{a.name}</strong></td>
-              <td>
+              <td data-label="Asset Name"><strong className="ea-asset-name">{a.name}</strong></td>
+              <td data-label="Category">
                 <span className={`ea-cat-badge ${a.category.toLowerCase()}`}>{a.category}</span>
               </td>
-              <td><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
-              <td><PhotosCell photos={a.photos} /></td>
-              <td>
+              <td data-label="Status"><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
+              <td data-label="Photos"><PhotosCell photos={a.photos} /></td>
+              <td className="ea-action-cell" data-label="Action">
                 <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
                   Return
                 </button>

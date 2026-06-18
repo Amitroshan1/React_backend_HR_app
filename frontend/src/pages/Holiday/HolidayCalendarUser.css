@@ -224,15 +224,66 @@
     padding: 16px;
   }
   .hc-table-wrap {
-    margin: 0 -4px;
+    overflow-x: visible;
+    margin: 0;
   }
   .hc-table {
-    min-width: 460px;
+    min-width: 0;
     font-size: 0.85rem;
   }
-  .hc-table th,
+  .hc-table thead {
+    display: none;
+  }
+  .hc-table tbody tr {
+    display: block;
+    border: 1px solid var(--hc-border);
+    border-radius: 10px;
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #fafbfc;
+  }
+  .hc-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+  .hc-table tbody tr:hover {
+    background-color: #fafbfc;
+  }
   .hc-table td {
-    padding: 10px 10px;
+    display: grid;
+    grid-template-columns: minmax(72px, 32%) 1fr;
+    gap: 8px 12px;
+    align-items: start;
+    padding: 8px 0;
+    border-bottom: 1px solid #eef2f7;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .hc-table td:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .hc-table td::before {
+    content: attr(data-label);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    line-height: 1.35;
+  }
+  .hc-table td.hc-empty {
+    display: block;
+    text-align: center;
+    padding: 16px 8px !important;
+    border: none;
+  }
+  .hc-table td.hc-empty::before {
+    display: none;
+  }
+  .hc-table tr:has(td.hc-empty) {
+    background: transparent;
+    border: none;
+    padding: 0;
   }
   .hc-empty {
     padding: 32px 12px !important;
@@ -266,17 +317,6 @@
   .hc-card-header {
     padding: 14px;
   }
-  .hc-table {
-    min-width: 400px;
-    font-size: 0.8rem;
-  }
-  .hc-table th,
-  .hc-table td {
-    padding: 8px 8px;
-  }
-  .hc-table th {
-    font-size: 0.7rem;
-  }
   .hc-empty {
     padding: 24px 10px !important;
     font-size: 0.8rem;
@@ -300,17 +340,6 @@
   }
   .hc-section-title {
     font-size: 1rem;
-  }
-  .hc-table {
-    min-width: 360px;
-    font-size: 0.75rem;
-  }
-  .hc-table th,
-  .hc-table td {
-    padding: 6px 6px;
-  }
-  .hc-table th {
-    font-size: 0.65rem;
   }
   .hc-note {
     margin-top: 12px;

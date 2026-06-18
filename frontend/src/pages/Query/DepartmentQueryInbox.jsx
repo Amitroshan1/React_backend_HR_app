@@ -377,11 +377,11 @@ export const DepartmentQueryInbox = () => {
               ) : (
                 queries.map((q) => (
                   <tr key={q.id}>
-                    <td>{q.title}</td>
-                    <td>{q.employee}</td>
-                    <td>{getStatusLabel(q.status)}</td>
-                    <td>{q.createdAt}</td>
-                    <td className="dept-action-cell">
+                    <td data-label="Title">{q.title}</td>
+                    <td data-label="Employee">{q.employee}</td>
+                    <td data-label="Status">{getStatusLabel(q.status)}</td>
+                    <td data-label="Created">{q.createdAt}</td>
+                    <td className="dept-action-cell" data-label="Action">
                       <button type="button" className="dept-chat-btn" onClick={() => openChat(q)}>
                         <MessageCircle size={14} /> Open Chat
                       </button>

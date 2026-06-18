@@ -357,16 +357,70 @@
     padding: 16px;
   }
   .wfh-table-responsive {
-    margin: 0 -4px;
+    overflow-x: visible;
+    margin: 0;
     border-radius: 6px;
   }
   .wfh-results-table {
-    min-width: 520px;
+    min-width: 0;
     font-size: 0.8rem;
   }
-  .wfh-results-table th,
+  .wfh-results-table thead {
+    display: none;
+  }
+  .wfh-results-table tbody tr {
+    display: block;
+    border: 1px solid var(--wfh-border);
+    border-radius: 10px;
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #fafbfc;
+  }
+  .wfh-results-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+  .wfh-results-table tbody tr:hover {
+    background-color: #fafbfc;
+  }
   .wfh-results-table td {
-    padding: 10px 10px;
+    display: grid;
+    grid-template-columns: minmax(88px, 34%) 1fr;
+    gap: 8px 12px;
+    align-items: start;
+    padding: 8px 0;
+    border-bottom: 1px solid #eef2f7;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-width: none;
+    overflow: visible;
+    text-overflow: unset;
+  }
+  .wfh-results-table td:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .wfh-results-table td::before {
+    content: attr(data-label);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    line-height: 1.35;
+  }
+  .wfh-results-table td.wfh-empty-state {
+    display: block;
+    text-align: center;
+    padding: 16px 8px !important;
+    border: none;
+  }
+  .wfh-results-table td.wfh-empty-state::before {
+    display: none;
+  }
+  .wfh-results-table tr:has(td.wfh-empty-state) {
+    background: transparent;
+    border: none;
+    padding: 0;
   }
   .wfh-empty-state {
     padding: 32px 12px !important;
@@ -403,17 +457,6 @@
   }
   .wfh-table-card {
     padding: 14px;
-  }
-  .wfh-results-table {
-    min-width: 480px;
-    font-size: 0.75rem;
-  }
-  .wfh-results-table th,
-  .wfh-results-table td {
-    padding: 8px 8px;
-  }
-  .wfh-results-table td:nth-child(3) {
-    max-width: 120px;
   }
   .wfh-empty-state {
     padding: 24px 10px !important;
@@ -455,14 +498,6 @@
   }
   .wfh-table-card {
     padding: 12px;
-  }
-  .wfh-results-table {
-    min-width: 440px;
-    font-size: 0.7rem;
-  }
-  .wfh-results-table th,
-  .wfh-results-table td {
-    padding: 6px 6px;
   }
   .wfh-badge {
     font-size: 0.6rem;

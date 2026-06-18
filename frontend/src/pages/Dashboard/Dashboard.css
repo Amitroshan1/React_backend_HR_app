@@ -2043,18 +2043,19 @@
   }
   .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list,
   .main-grid .dashboard-top-row .news-feed-section .news-feed-list {
-    overflow-y: auto !important;
+    overflow: hidden !important;
     overflow-x: hidden !important;
     height: 100%;
     max-height: 100%;
-    touch-action: pan-y;
-    scrollbar-width: thin;
-    -ms-overflow-style: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
   .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar,
   .main-grid .dashboard-top-row .news-feed-section .news-feed-list::-webkit-scrollbar {
-    display: block;
-    width: 4px;
+    display: none;
+    width: 0;
+    height: 0;
   }
   .actions-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2161,25 +2162,34 @@
 
 /* Mobile landscape / large phone: 768px */
 @media (max-width: 768px) {
-  .dashboard-content .main-grid .dashboard-top-row,
-  .main-grid .dashboard-top-row,
-  .dashboard-top-row {
-    grid-template-columns: 1fr !important;
-    display: grid !important;
-  }
   .main-grid {
     display: flex !important;
     flex-direction: column !important;
     width: 100%;
   }
+  /* Flatten top row so news feed can sit below quick-actions on mobile */
+  .dashboard-content .main-grid .dashboard-top-row,
+  .main-grid .dashboard-top-row,
   .dashboard-top-row {
+    display: contents !important;
+  }
+  .attendance-section {
     order: 1;
+  }
+  .dashboard-top-row {
+    order: unset;
   }
   .quick-actions {
     order: 2;
   }
-  .recent-box {
+  .dashboard-content .main-grid .news-feed-section,
+  .main-grid .news-feed-section,
+  .news-feed-section {
     order: 3;
+    width: 100%;
+  }
+  .recent-box {
+    order: 4;
   }
   /* Avoid double padding: Dashboard has nested content-area inside AppLayout's */
   .main-layout .main-layout .content-area {

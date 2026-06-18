@@ -1810,6 +1810,19 @@ def replace_education():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+def _prev_employment_row_is_empty(item):
+    """True when the client sent a blank previous-employment card (no real data)."""
+    if not isinstance(item, dict):
+        return True
+    com = (item.get("companyName") or "").strip()
+    des = (item.get("designation") or "").strip()
+    dol_str = (item.get("dateOfLeaving") or "").strip()
+    exp = str(item.get("experienceYears") or "").strip()
+    if com in ("", "-") and des in ("", "-") and not dol_str and not exp:
+        return True
+    return False
+
+
 @auth.route("/previous-companies", methods=["POST"])
 @jwt_required()
 def save_previous_companies():
@@ -1835,31 +1848,46 @@ def save_previous_companies():
         PreviousCompany.query.filter_by(admin_id=admin_id).delete()
 
         for item in items:
-            com_name = (item.get("companyName") or "").strip() or "-"
-            designation = (item.get("designation") or "").strip() or "-"
-            dol_str = item.get("dateOfLeaving") or ""
-            exp_years = item.get("experienceYears") or ""
+            if _prev_employment_row_is_empty(item):
+                continue
 
-            dol = None
-            if dol_str:
-                try:
-                    dol = datetime.strptime(dol_str.split("T")[0], "%Y-%m-%d").date()
-                except (ValueError, AttributeError):
-                    dol = date.today()
+            com_name = (item.get("companyName") or "").strip()
+            designation = (item.get("designation") or "").strip()
+            dol_str = (item.get("dateOfLeaving") or "").strip()
+            exp_years = str(item.get("experienceYears") or "").strip()
+
+            if not com_name or com_name == "-":
+                return jsonify({
+                    "success": False,
+                    "message": "Company name is required for each previous employment entry.",
+                }), 400
+            if not designation or designation == "-":
+                return jsonify({
+                    "success": False,
+                    "message": "Designation is required for each previous employment entry.",
+                }), 400
+            if not dol_str:
+                return jsonify({
+                    "success": False,
+                    "message": "Date of leaving is required for each previous employment entry.",
+                }), 400
+
+            try:
+                dol = datetime.strptime(dol_str.split("T")[0], "%Y-%m-%d").date()
+            except (ValueError, AttributeError):
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid date of leaving. Use YYYY-MM-DD.",
+                }), 400
 
             doj = dol
-            if dol and exp_years:
+            if exp_years:
                 try:
                     yrs = float(str(exp_years).replace(",", "."))
                     from datetime import timedelta
                     doj = dol - timedelta(days=int(365.25 * yrs))
                 except (ValueError, TypeError):
                     pass
-
-            if not doj:
-                doj = date.today()
-            if not dol:
-                dol = date.today()
 
             pc = PreviousCompany(
                 admin_id=admin_id,

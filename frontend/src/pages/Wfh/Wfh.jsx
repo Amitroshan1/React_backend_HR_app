@@ -339,11 +339,11 @@ export const Wfh = () => {
               ) : (
                 requests.map(req => (
                   <tr key={req.id}>
-                    <td>{formatDate(req.start_date)}</td>
-                    <td>{formatDate(req.end_date)}</td>
-                    <td>{req.reason}</td>
-                    <td>{formatDate(req.created_at)}</td>
-                    <td>
+                    <td data-label="From Date">{formatDate(req.start_date)}</td>
+                    <td data-label="To Date">{formatDate(req.end_date)}</td>
+                    <td data-label="Reason">{req.reason}</td>
+                    <td data-label="Applied On">{formatDate(req.created_at)}</td>
+                    <td data-label="Status">
                       <span className={['pending','approved','rejected'].includes((req.status || 'pending').toLowerCase()) 
                         ? `wfh-badge wfh-badge-${(req.status || 'pending').toLowerCase()}` 
                         : 'wfh-badge wfh-badge-default'}>

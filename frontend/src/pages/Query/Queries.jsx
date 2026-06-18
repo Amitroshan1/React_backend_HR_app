@@ -1000,15 +1000,15 @@ export const Queries = () => {
                 ) : (
                   queries.map(q => (
                     <tr key={q.id}>
-                      <td><div className="query-cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
-                      <td>{getSummary(q.queryText)}</td>
-                      <td><span className={`query-status-badge query-status-${(q.status || '').toLowerCase()}`}>{getStatusLabel(q.status)}</span></td>
-                      <td>
+                      <td data-label="Query Details"><div className="query-cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
+                      <td data-label="Description">{getSummary(q.queryText)}</td>
+                      <td data-label="Status"><span className={`query-status-badge query-status-${(q.status || '').toLowerCase()}`}>{getStatusLabel(q.status)}</span></td>
+                      <td data-label="Close">
                         {q.status !== 'Closed' ? (
                           <button type="button" className="query-close-btn" onClick={() => closeQuery(q.id)}><CheckCircle size={14}/> Close</button>
                         ) : (<span className="query-closed-text">Closed</span>)}
                       </td>
-                      <td><button type="button" onClick={() => openChat(q)} className="query-chat-link">Chat</button></td>
+                      <td className="query-action-cell" data-label="Action"><button type="button" onClick={() => openChat(q)} className="query-chat-link">Chat</button></td>
                     </tr>
                   ))
                 )}

@@ -108,17 +108,27 @@ export function mapProfileFromApi(p) {
         reportingManager: (admin.reporting_manager || '').trim(),
     };
 
-    const prevEmp =
-        prevList.length > 0
-            ? prevList.map((pe) => ({
-                  companyName: pe.companyName || pe.com_name || '',
-                  designation: pe.designation || '',
-                  dateOfLeaving: (pe.dateOfLeaving || pe.dol)
-                      ? String(pe.dateOfLeaving || pe.dol).split('T')[0]
-                      : '',
-                  experienceYears: pe.experienceYears || '',
-              }))
-            : [];
+    const normalizePrevField = (val) => {
+        const s = String(val ?? '').trim();
+        return s === '-' ? '' : s;
+    };
+
+    const prevEmp = prevList
+        .map((pe) => ({
+            companyName: normalizePrevField(pe.companyName || pe.com_name),
+            designation: normalizePrevField(pe.designation),
+            dateOfLeaving: (pe.dateOfLeaving || pe.dol)
+                ? String(pe.dateOfLeaving || pe.dol).split('T')[0]
+                : '',
+            experienceYears: normalizePrevField(pe.experienceYears),
+        }))
+        .filter(
+            (row) =>
+                row.companyName ||
+                row.designation ||
+                row.dateOfLeaving ||
+                row.experienceYears
+        );
 
     const eduDetails =
         eduList.length > 0
@@ -215,6 +225,29 @@ export function buildEmployeePayload({
         present_district: currentAddress.district || currentAddress.city || '',
         present_state: currentAddress.state || '',
     };
+}
+
+export function buildPreviousCompanyItems(previousEmployment) {
+    const isFilled = (val) => {
+        const s = String(val ?? '').trim();
+        return s !== '' && s !== '-';
+    };
+
+    return (previousEmployment || [])
+        .filter(
+            (row) =>
+                row &&
+                (isFilled(row.companyName) ||
+                    isFilled(row.designation) ||
+                    isFilled(row.dateOfLeaving) ||
+                    isFilled(row.experienceYears))
+        )
+        .map((row) => ({
+            companyName: String(row.companyName || '').trim(),
+            designation: String(row.designation || '').trim(),
+            dateOfLeaving: row.dateOfLeaving ? String(row.dateOfLeaving).split('T')[0] : '',
+            experienceYears: String(row.experienceYears ?? '').trim(),
+        }));
 }
 
 export function buildEducationItems(educationDetails) {

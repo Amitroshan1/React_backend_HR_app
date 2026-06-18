@@ -376,9 +376,6 @@ export const Dashboard = () => {
     });
     const [newsFeed, setNewsFeed] = useState([]);
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
-    const [newsFeedAutoScroll, setNewsFeedAutoScroll] = useState(
-        () => typeof window !== "undefined" && window.matchMedia("(min-width: 1101px)").matches
-    );
     const newsFeedListRef = useRef(null);
     const autoCapPunchOutRef = useRef(false);
     const fetchDashboardData = async (showAlert = false) => {
@@ -575,40 +572,49 @@ export const Dashboard = () => {
         loadInitialData();
     });
 
-  /** Duplicate items for seamless top-to-bottom loop scroll (desktop auto-scroll only) */
+  /** Duplicate items for seamless top-to-bottom loop scroll */
   const loopedNewsFeed = useMemo(() => {
-    if (!newsFeedAutoScroll || newsFeed.length <= 1) return newsFeed;
+    if (newsFeed.length <= 1) return newsFeed;
     return [...newsFeed, ...newsFeed];
-  }, [newsFeed, newsFeedAutoScroll]);
+  }, [newsFeed]);
 
-  /* News feed auto-scroll: desktop only; mobile uses touch scroll */
+  /* News feed auto-scroll: continuous top → bottom loop (pauses on hover/touch) */
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1101px)");
-    const syncAutoScroll = () => setNewsFeedAutoScroll(mq.matches);
-    syncAutoScroll();
-    mq.addEventListener("change", syncAutoScroll);
-    return () => mq.removeEventListener("change", syncAutoScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!newsFeedAutoScroll || !newsFeed.length || newsFeedScrollPaused) return;
+    if (!newsFeed.length || newsFeedScrollPaused) return;
     const el = newsFeedListRef.current;
-    if (!el || el.scrollHeight <= el.clientHeight) return;
+    if (!el) return;
 
-    const step = 1;
-    const intervalMs = 32;
-    const loopAt = newsFeed.length > 1 ? el.scrollHeight / 2 : el.scrollHeight;
+    let intervalId = null;
+    let retryTimeoutId = null;
 
-    const id = setInterval(() => {
-      if (!el) return;
-      el.scrollTop += step;
-      if (el.scrollTop >= loopAt - 1) {
-        el.scrollTop = 0;
+    const startScroll = () => {
+      if (!el || el.scrollHeight <= el.clientHeight) return false;
+      const step = 1;
+      const intervalMs = 32;
+      const loopAt = newsFeed.length > 1 ? el.scrollHeight / 2 : el.scrollHeight;
+
+      intervalId = window.setInterval(() => {
+        if (!el) return;
+        el.scrollTop += step;
+        if (el.scrollTop >= loopAt - 1) {
+          el.scrollTop = 0;
+        }
+      }, intervalMs);
+      return true;
+    };
+
+    const raf = window.requestAnimationFrame(() => {
+      if (!startScroll()) {
+        retryTimeoutId = window.setTimeout(() => startScroll(), 300);
       }
-    }, intervalMs);
+    });
 
-    return () => clearInterval(id);
-  }, [newsFeedAutoScroll, newsFeed.length, newsFeedScrollPaused, loopedNewsFeed.length]);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      if (retryTimeoutId) window.clearTimeout(retryTimeoutId);
+      if (intervalId) window.clearInterval(intervalId);
+    };
+  }, [newsFeed.length, newsFeedScrollPaused, loopedNewsFeed.length]);
   const validateLocationRange = async (lat, lon) => {
     const token = localStorage.getItem("token");
     if (!token)

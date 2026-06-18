@@ -484,15 +484,77 @@
   }
   .claims-table-wrap {
     padding: 0 12px 16px;
-    margin: 0 -4px;
+    overflow-x: visible;
+    margin: 0;
   }
   .claims-table {
-    min-width: 520px;
+    min-width: 0;
     font-size: 0.85rem;
   }
-  .claims-table th,
+  .claims-table thead {
+    display: none;
+  }
+  .claims-table tbody tr {
+    display: block;
+    border: 1px solid var(--claims-border);
+    border-radius: 10px;
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #fafbfc;
+  }
+  .claims-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+  .claims-table tbody tr:hover {
+    background-color: #fafbfc;
+  }
   .claims-table td {
-    padding: 10px 10px;
+    display: grid;
+    grid-template-columns: minmax(88px, 34%) 1fr;
+    gap: 8px 12px;
+    align-items: start;
+    padding: 8px 0;
+    border-bottom: 1px solid #eef2f7;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .claims-table td:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .claims-table td::before {
+    content: attr(data-label);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    line-height: 1.35;
+  }
+  .claims-table td.claims-empty {
+    display: block;
+    text-align: center;
+    padding: 16px 8px !important;
+    border: none;
+  }
+  .claims-table td.claims-empty::before {
+    display: none;
+  }
+  .claims-table tr:has(td.claims-empty) {
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+  .claims-table td.claims-action-cell {
+    display: block;
+  }
+  .claims-table td.claims-action-cell::before {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .claims-table td.claims-action-cell .claims-btn-remove {
+    width: 100%;
+    padding: 10px 12px;
   }
   .claims-summary-section {
     flex-direction: column;
@@ -527,14 +589,6 @@
   .claims-input {
     font-size: 16px; /* prevent zoom on iOS */
   }
-  .claims-table {
-    min-width: 460px;
-    font-size: 0.8rem;
-  }
-  .claims-table th,
-  .claims-table td {
-    padding: 8px 8px;
-  }
   .claims-status-badge {
     font-size: 0.7rem;
     padding: 4px 10px;
@@ -561,14 +615,6 @@
   .claims-btn-final {
     padding: 10px 16px;
     font-size: 0.9rem;
-  }
-  .claims-table {
-    min-width: 400px;
-    font-size: 0.75rem;
-  }
-  .claims-table th,
-  .claims-table td {
-    padding: 6px 6px;
   }
   .claims-status-badge {
     font-size: 0.65rem;

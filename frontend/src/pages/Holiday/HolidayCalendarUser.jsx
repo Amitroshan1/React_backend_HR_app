@@ -76,10 +76,10 @@ export const HolidayCalendarUser = () => {
                 ) : (
                   rows.map((row) => (
                     <tr key={row.id}>
-                      <td>{row.sr_no}</td>
-                      <td>{formatDate(row.holiday_date) || "-"}</td>
-                      <td>{row.day || "-"}</td>
-                      <td>
+                      <td data-label="Sr. No.">{row.sr_no}</td>
+                      <td data-label="Date">{formatDate(row.holiday_date) || "-"}</td>
+                      <td data-label="Day">{row.day || "-"}</td>
+                      <td data-label="Holiday">
                         {row.holiday_name}
                         {row.is_optional ? " (OPTIONAL)" : ""}
                       </td>
