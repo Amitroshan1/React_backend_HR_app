@@ -668,7 +668,7 @@ export const Queries = () => {
 
   const getSummary = (text) => {
     if (!text) return '';
-    const words = String(text).trim().split(/\s+/).slice(0, 20);
+    const words = String(text).trim().split(/\s+/).slice(0, 12);
     return words.join(' ');
   };
 
@@ -1172,7 +1172,11 @@ export const Queries = () => {
                   queries.map(q => (
                     <tr key={q.id}>
                       <td data-label="Query Details"><div className="query-cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
-                      <td data-label="Description">{getSummary(q.queryText)}</td>
+                      <td data-label="Description" className="query-desc-td">
+                        <span className="query-desc-cell" title={q.queryText || ''}>
+                          {getSummary(q.queryText)}
+                        </span>
+                      </td>
                       <td data-label="Files" className="query-files-cell">
                         {q.attachments?.length ? (
                           <ul className="query-history-files">
