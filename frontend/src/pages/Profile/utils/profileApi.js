@@ -63,14 +63,14 @@ export function mapProfileFromApi(p) {
 
     const currentAddr = {
         street: emp.present_address_line1 || '',
-        city: emp.present_district || '',
+        city: emp.present_city || '',
         state: emp.present_state || '',
         district: emp.present_district || '',
         pincode: emp.present_pincode || '',
     };
     const permAddr = {
         street: emp.permanent_address_line1 || '',
-        city: emp.permanent_district || '',
+        city: emp.permanent_city || '',
         state: emp.permanent_state || '',
         district: emp.permanent_district || '',
         pincode: emp.permanent_pincode || '',
@@ -218,11 +218,13 @@ export function buildEmployeePayload({
         emp_type: (formData.employmentType || '').trim() || null,
         permanent_address_line1: permAddr.street || '',
         permanent_pincode: permAddr.pincode || '',
-        permanent_district: permAddr.district || permAddr.city || '',
+        permanent_city: permAddr.city || '',
+        permanent_district: permAddr.district || '',
         permanent_state: permAddr.state || '',
         present_address_line1: currentAddress.street || '',
         present_pincode: currentAddress.pincode || '',
-        present_district: currentAddress.district || currentAddress.city || '',
+        present_city: currentAddress.city || '',
+        present_district: currentAddress.district || '',
         present_state: currentAddress.state || '',
     };
 }

@@ -31,11 +31,13 @@ class Employee(db.Model,UserMixin):
 
     permanent_address_line1 = db.Column(db.String(400), nullable=True)
     permanent_pincode = db.Column(db.String(10), nullable=True)
+    permanent_city = db.Column(db.String(100), nullable=True)
     permanent_district = db.Column(db.String(100), nullable=True)
     permanent_state = db.Column(db.String(100), nullable=True)
 
     present_address_line1 = db.Column(db.String(400), nullable=True)
     present_pincode = db.Column(db.String(10), nullable=True)
+    present_city = db.Column(db.String(100), nullable=True)
     present_district = db.Column(db.String(100), nullable=True)
     present_state = db.Column(db.String(100), nullable=True)
 

@@ -42,7 +42,7 @@ from .document_identity import (
 from .models.prev_com import PreviousCompany
 from .models.master_data import MasterData
 from datetime import datetime, date, timedelta
-from .datetime_utils import utc_now, isoformat_api, isoformat_punch_clock
+from .datetime_utils import utc_now, isoformat_api, isoformat_punch_clock, IST, ensure_utc
 from flask_jwt_extended import create_access_token, get_jwt_identity, get_jwt, jwt_required
 import logging
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
@@ -542,6 +542,19 @@ def _employee_homepage_impl():
     }), 200
 
 
+NEWS_FEED_VISIBLE_DAYS = 6
+
+
+def _is_news_post_visible(created_at) -> bool:
+    """Hide HR announcement posts older than NEWS_FEED_VISIBLE_DAYS (IST calendar days)."""
+    if not created_at:
+        return False
+    dt = ensure_utc(created_at)
+    post_date = dt.astimezone(IST).date()
+    cutoff = datetime.now(IST).date() - timedelta(days=NEWS_FEED_VISIBLE_DAYS)
+    return post_date >= cutoff
+
+
 @auth.route("/news-feed", methods=["GET"])
 @jwt_required()
 def get_news_feed():
@@ -615,7 +628,7 @@ def get_news_feed():
                     "created_at": today.isoformat(),
                 })
 
-    # 3. Regular news feed posts
+    # 3. Regular news feed posts (visible for NEWS_FEED_VISIBLE_DAYS only)
     posts = NewsFeed.query.filter(
         or_(NewsFeed.circle == user_circle, NewsFeed.circle == "All"),
         or_(NewsFeed.emp_type == user_emp_type, NewsFeed.emp_type == "All")
@@ -635,8 +648,13 @@ def get_news_feed():
             "created_at": isoformat_api(p.created_at),
         }
         for p in posts
+        if _is_news_post_visible(p.created_at)
     ])
-    return jsonify({"success": True, "news_feed": items}), 200
+    return jsonify({
+        "success": True,
+        "news_feed": items,
+        "visible_days": NEWS_FEED_VISIBLE_DAYS,
+    }), 200
 
 
 def _parse_postal_pincode_payload(payload):
@@ -784,10 +802,12 @@ def employee_profile():
             "designation": employee.designation,
             "permanent_address_line1": employee.permanent_address_line1,
             "permanent_pincode": employee.permanent_pincode,
+            "permanent_city": employee.permanent_city or "",
             "permanent_district": employee.permanent_district or "",
             "permanent_state": employee.permanent_state or "",
             "present_address_line1": employee.present_address_line1,
             "present_pincode": employee.present_pincode,
+            "present_city": employee.present_city or "",
             "present_district": employee.present_district or "",
             "present_state": employee.present_state or "",
             "photo_url": photo_url,
@@ -1510,8 +1530,8 @@ def create_or_update_employee():
             }
             optional_string_fields = {"mother_name", "emergency_mobile"}
             optional_address_fields = {
-                "permanent_district", "permanent_state",
-                "present_district", "present_state"
+                "permanent_city", "permanent_district", "permanent_state",
+                "present_city", "present_district", "present_state"
             }
 
             for field in [
@@ -1519,9 +1539,9 @@ def create_or_update_employee():
                 "dob", "emp_id", "mobile", "gender", "emergency_mobile",
                 "nationality", "blood_group",
                 "permanent_address_line1", "permanent_pincode",
-                "permanent_district", "permanent_state",
+                "permanent_city", "permanent_district", "permanent_state",
                 "present_address_line1", "present_pincode",
-                "present_district", "present_state"
+                "present_city", "present_district", "present_state"
             ]:
                 if field not in data:
                     continue
@@ -1617,10 +1637,18 @@ def create_or_update_employee():
             s = _str(data.get(key))
             if s and len(s) > 400:
                 return jsonify({"success": False, "message": "Street address cannot exceed 400 characters."}), 400
-        for key in ("permanent_district", "permanent_state", "present_district", "present_state"):
+        for key in (
+            "permanent_city", "permanent_district", "permanent_state",
+            "present_city", "present_district", "present_state",
+        ):
             s = _str(data.get(key))
             if s and len(s) > 100:
-                label = "District" if "district" in key else ("State" if "state" in key else "City")
+                if "district" in key:
+                    label = "District"
+                elif "state" in key:
+                    label = "State"
+                else:
+                    label = "City"
                 return jsonify({"success": False, "message": f"{label} cannot exceed 100 characters."}), 400
 
         def _mobile(s, max_len=20):
@@ -1645,11 +1673,13 @@ def create_or_update_employee():
 
             permanent_address_line1=_str(data.get("permanent_address_line1")),
             permanent_pincode=_str(data.get("permanent_pincode")),
+            permanent_city=data.get("permanent_city") or None,
             permanent_district=data.get("permanent_district") or None,
             permanent_state=data.get("permanent_state") or None,
 
             present_address_line1=_str(data.get("present_address_line1")),
             present_pincode=_str(data.get("present_pincode")),
+            present_city=data.get("present_city") or None,
             present_district=data.get("present_district") or None,
             present_state=data.get("present_state") or None,
         )

@@ -2069,10 +2069,12 @@ def get_employee_profile_hr(admin_id):
             "designation": employee.designation,
             "permanent_address_line1": employee.permanent_address_line1,
             "permanent_pincode": employee.permanent_pincode,
+            "permanent_city": employee.permanent_city or "",
             "permanent_district": employee.permanent_district or "",
             "permanent_state": employee.permanent_state or "",
             "present_address_line1": employee.present_address_line1,
             "present_pincode": employee.present_pincode,
+            "present_city": employee.present_city or "",
             "present_district": employee.present_district or "",
             "present_state": employee.present_state or "",
         }
@@ -2436,9 +2438,9 @@ def update_employee_api(emp_id):
         "dob", "mobile", "gender", "emergency_mobile",
         "nationality", "blood_group", "designation",
         "permanent_address_line1", "permanent_pincode",
-        "permanent_district", "permanent_state",
+        "permanent_city", "permanent_district", "permanent_state",
         "present_address_line1", "present_pincode",
-        "present_district", "present_state"
+        "present_city", "present_district", "present_state"
     ]:
         if field in data:
             setattr(emp, field, data.get(field))

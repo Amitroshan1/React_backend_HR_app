@@ -14,8 +14,8 @@ class NewsFeed(db.Model):
     emp_type = db.Column(db.String(50), nullable=False) 
     created_at = db.Column(db.DateTime, default=datetime.now)
 
-    def is_new(self): 
-        return datetime.now() - self.created_at <= timedelta(weeks=1)
+    def is_new(self):
+        return datetime.now() - self.created_at <= timedelta(days=6)
 
     def file_url(self):
         if self.file_path:

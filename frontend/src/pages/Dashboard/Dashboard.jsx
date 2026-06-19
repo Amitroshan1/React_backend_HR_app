@@ -19,8 +19,21 @@ import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
 import { hasFeature } from "../../utils/planFeatures";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
-import { formatDateDDMMYYYY } from "../../utils/dateFormat";
+import { formatDateDDMMYYYY, parseAppDate } from "../../utils/dateFormat";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
+
+const NEWS_FEED_VISIBLE_DAYS = 6;
+
+const isNewsFeedPostVisible = (item) => {
+    const type = item?.type || "post";
+    if (type !== "post") return true;
+    const created = parseAppDate(item?.created_at);
+    if (!created) return true;
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - NEWS_FEED_VISIBLE_DAYS);
+    return created >= cutoff;
+};
 const API_BASE_URL = "/api/auth";
 
 async function postPunchOutRequest(token, body) {
@@ -558,7 +571,7 @@ export const Dashboard = () => {
             });
             const data = await res.json();
             if (data.success && Array.isArray(data.news_feed)) {
-                setNewsFeed(data.news_feed);
+                setNewsFeed(data.news_feed.filter(isNewsFeedPostVisible));
             }
         } catch {
             setNewsFeed([]);
