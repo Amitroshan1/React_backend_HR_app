@@ -1010,6 +1010,40 @@
   height: 0;
 }
 
+/* Manual scroll + visible scrollbar when cursor is on news feed (or touch pause) */
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list,
+.main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list,
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list,
+.main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar,
+.main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar,
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar,
+.main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar-thumb,
+.main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar-thumb,
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar-thumb,
+.main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar-track,
+.main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar-track,
+.dashboard-content .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar-track,
+.main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 999px;
+}
+
 /* Empty news feed: grow with card so bottom aligns with Today's Status */
 .dashboard-content .main-grid .dashboard-top-row .news-feed-section .news-feed-empty,
 .main-grid .dashboard-top-row .news-feed-section .news-feed-empty {
@@ -2056,6 +2090,21 @@
     display: none;
     width: 0;
     height: 0;
+  }
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list,
+  .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list,
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list,
+  .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list {
+    overflow-y: auto !important;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #f1f5f9;
+  }
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar,
+  .main-grid .dashboard-top-row .news-feed-section:hover .news-feed-list::-webkit-scrollbar,
+  .dashboard-content .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar,
+  .main-grid .dashboard-top-row .news-feed-section.news-feed-section--manual-scroll .news-feed-list::-webkit-scrollbar {
+    display: block;
+    width: 6px;
   }
   .actions-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

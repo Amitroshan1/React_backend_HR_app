@@ -1083,7 +1083,7 @@ export const Dashboard = () => {
                             </div>
                             </div>
                             <div 
-                                className="news-feed-section"
+                                className={`news-feed-section${newsFeedScrollPaused ? ' news-feed-section--manual-scroll' : ''}`}
                                 onMouseEnter={() => setNewsFeedScrollPaused(true)}
                                 onMouseLeave={() => setNewsFeedScrollPaused(false)}
                                 onTouchStart={() => setNewsFeedScrollPaused(true)}

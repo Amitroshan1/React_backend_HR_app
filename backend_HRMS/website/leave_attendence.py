@@ -1266,22 +1266,20 @@ def submit_expense_claim():
         )
         os.makedirs(upload_folder, exist_ok=True)
 
-        files = request.files.getlist("attachments")
-
         # -------------------------
         # Save line items
         # -------------------------
         for index, exp in enumerate(expenses):
             filename = None
 
-            if index < len(files):
-                file = files[index]
-                if file and file.filename:
-                    basename = secure_filename(
-                        f"{data.get('emp_id')}_{header.id}_{index+1}_{file.filename}"
-                    )
-                    file.save(os.path.join(upload_folder, basename))
-                    filename = claim_attach_storage_name(basename)
+            file = request.files.get(f"attachments_{index}")
+            if file and file.filename:
+                sr = exp.get("sr_no") or (index + 1)
+                basename = secure_filename(
+                    f"{data.get('emp_id')}_{header.id}_{sr}_{file.filename}"
+                )
+                file.save(os.path.join(upload_folder, basename))
+                filename = claim_attach_storage_name(basename)
 
             try:
                 item_date = datetime.strptime(

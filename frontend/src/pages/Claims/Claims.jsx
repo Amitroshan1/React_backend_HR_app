@@ -305,10 +305,10 @@ export const Claims = () => {
       }));
       formData.append('expenses', JSON.stringify(expenses));
 
-      // Files
-      claims.forEach(c => {
+      // Files — keyed by row index so sparse rows (e.g. 1, 3, 6) map correctly
+      claims.forEach((c, index) => {
         if (c.attachFile) {
-          formData.append('attachments', c.attachFile);
+          formData.append(`attachments_${index}`, c.attachFile);
         }
       });
 

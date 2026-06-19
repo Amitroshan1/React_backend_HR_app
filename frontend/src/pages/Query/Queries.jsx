@@ -1105,35 +1105,35 @@ export const Queries = () => {
                 </div>
                 <button type="button" onClick={closeChatPanel} className="query-chat-close"><X size={20}/></button>
               </div>
-              {activeChat.attachments?.length > 0 && (
-                <div className="query-chat-attachments">
-                  <span className="query-chat-attachments-label">Attachments</span>
-                  <ul className="query-history-files">
-                    {activeChat.attachments.map((file) => (
-                      <li key={file}>
-                        <button
-                          type="button"
-                          className="query-history-file-link"
-                          onClick={() => openQueryAttachment(activeChat.id, file)}
-                          title={queryAttachmentDisplayName(file)}
-                        >
-                          <Paperclip size={13} aria-hidden="true" />
-                          <span>{queryAttachmentDisplayName(file)}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
               <div className="query-chat-messages">
-                {activeChat.messages.map(m => (
-                  <div key={m.id} className={`query-msg ${m.sender}`}>
-                    <div className="query-bubble">
-                      <div className="query-sender">{m.senderName}</div>
-                      {m.text}
-                      <span className="query-msg-time">{m.timestamp}</span>
+                {activeChat.messages.map((m, index) => (
+                  <React.Fragment key={m.id}>
+                    {index === 0 && activeChat.attachments?.length > 0 && (
+                      <div className={`query-msg ${m.sender}`}>
+                        <div className="query-msg-attachments">
+                          {activeChat.attachments.map((file) => (
+                            <button
+                              key={file}
+                              type="button"
+                              className="query-msg-attachment-link"
+                              onClick={() => openQueryAttachment(activeChat.id, file)}
+                              title={queryAttachmentDisplayName(file)}
+                            >
+                              <Paperclip size={13} aria-hidden="true" />
+                              <span>{queryAttachmentDisplayName(file)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className={`query-msg ${m.sender}`}>
+                      <div className="query-bubble">
+                        <div className="query-sender">{m.senderName}</div>
+                        {m.text}
+                        <span className="query-msg-time">{m.timestamp}</span>
+                      </div>
                     </div>
-                  </div>
+                  </React.Fragment>
                 ))}
                 <div ref={chatEndRef} />
               </div>
@@ -1159,8 +1159,8 @@ export const Queries = () => {
                   <th>Description</th>
                   <th>Files</th>
                   <th>Status</th>
-                  <th>Close</th>
                   <th>Action</th>
+                  <th>Close</th>
                 </tr>
               </thead>
               <tbody>
@@ -1199,12 +1199,12 @@ export const Queries = () => {
                         )}
                       </td>
                       <td data-label="Status"><span className={`query-status-badge query-status-${(q.status || '').toLowerCase()}`}>{getStatusLabel(q.status)}</span></td>
+                      <td className="query-action-cell" data-label="Action"><button type="button" onClick={() => openChat(q)} className="query-chat-link">Chat</button></td>
                       <td data-label="Close">
                         {q.status !== 'Closed' ? (
                           <button type="button" className="query-close-btn" onClick={() => closeQuery(q.id)}><CheckCircle size={14}/> Close</button>
                         ) : (<span className="query-closed-text">Closed</span>)}
                       </td>
-                      <td className="query-action-cell" data-label="Action"><button type="button" onClick={() => openChat(q)} className="query-chat-link">Chat</button></td>
                     </tr>
                   ))
                 )}

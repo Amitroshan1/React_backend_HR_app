@@ -539,36 +539,35 @@ export const DepartmentQueryInbox = () => {
             </div>
           </div>
 
-          {activeChat.attachments?.length > 0 && (
-            <div className="dept-chat-attachments">
-              <span className="dept-chat-attachments-label">Employee attachments</span>
-              <ul className="dept-chat-files">
-                {activeChat.attachments.map((file) => (
-                  <li key={file}>
-                    <button
-                      type="button"
-                      className="dept-chat-file-link"
-                      onClick={() => openQueryAttachment(activeChat.id, file)}
-                      title={queryAttachmentDisplayName(file)}
-                    >
-                      <Paperclip size={13} aria-hidden="true" />
-                      <span>{queryAttachmentDisplayName(file)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           <div className="dept-chat-messages">
-            {activeChat.messages.map((m) => (
-              <div key={m.id} className={`dept-msg ${m.sender}`}>
-                <div className="dept-bubble">
-                  <div className="dept-sender">{m.senderName}</div>
-                  {m.text}
-                  <span className="dept-time">{m.timestamp}</span>
+            {activeChat.messages.map((m, index) => (
+              <React.Fragment key={m.id}>
+                {index === 0 && activeChat.attachments?.length > 0 && (
+                  <div className={`dept-msg ${m.sender}`}>
+                    <div className="dept-msg-attachments">
+                      {activeChat.attachments.map((file) => (
+                        <button
+                          key={file}
+                          type="button"
+                          className="dept-chat-file-link dept-msg-attachment-chip"
+                          onClick={() => openQueryAttachment(activeChat.id, file)}
+                          title={queryAttachmentDisplayName(file)}
+                        >
+                          <Paperclip size={13} aria-hidden="true" />
+                          <span>{queryAttachmentDisplayName(file)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={`dept-msg ${m.sender}`}>
+                  <div className="dept-bubble">
+                    <div className="dept-sender">{m.senderName}</div>
+                    {m.text}
+                    <span className="dept-time">{m.timestamp}</span>
+                  </div>
                 </div>
-              </div>
+              </React.Fragment>
             ))}
             <div ref={chatEndRef} />
           </div>
