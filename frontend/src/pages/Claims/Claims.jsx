@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Receipt, Calendar, Plus, FileText, Trash2, CheckCircle } from 'lucide-react';
 import './Claims.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
@@ -6,6 +6,17 @@ import { formatDate } from '../../utils/dateFormat';
 import { useUser } from '../../components/layout/UserContext';
 
 const API_BASE_URL = "/api/leave";
+
+const isTravelRangeValid = (from, to) => Boolean(from && to && from <= to);
+
+const isDateInTravelRange = (date, from, to) =>
+  Boolean(date && from && to && date >= from && date <= to);
+
+const travelRangeError = (from, to) => {
+  if (!from || !to) return 'Please set Travel From and Travel To dates first.';
+  if (from > to) return 'Travel From cannot be after Travel To.';
+  return null;
+};
 
 const buildEmployeeDefaults = (userData) => {
   const user = userData?.user || {};
@@ -50,8 +61,41 @@ export const Claims = () => {
 
   const handleInputChange = (e) => {
     const { id, value } = e.target;
-    setClaimForm((prev) => ({ ...prev, [id]: value }));
+    setClaimForm((prev) => {
+      const next = { ...prev, [id]: value };
+      if (id === 'travelFrom' || id === 'travelTo') {
+        const { travelFrom, travelTo, expenseDate } = next;
+        if (
+          expenseDate &&
+          travelFrom &&
+          travelTo &&
+          !isDateInTravelRange(expenseDate, travelFrom, travelTo)
+        ) {
+          next.expenseDate = '';
+        }
+      }
+      return next;
+    });
   };
+
+  const travelDatesReady = Boolean(claimForm.travelFrom && claimForm.travelTo);
+  const travelRangeIsValid = isTravelRangeValid(claimForm.travelFrom, claimForm.travelTo);
+
+  const outOfRangeClaimIds = useMemo(() => {
+    if (!travelRangeIsValid) return new Set();
+    return new Set(
+      claims
+        .filter(
+          (c) =>
+            !isDateInTravelRange(
+              c.date,
+              claimForm.travelFrom,
+              claimForm.travelTo
+            )
+        )
+        .map((c) => c.id)
+    );
+  }, [claims, claimForm.travelFrom, claimForm.travelTo, travelRangeIsValid]);
 
   const applyEmployeeDefaults = useCallback(() => {
     const defaults = buildEmployeeDefaults(userData);
@@ -143,9 +187,27 @@ export const Claims = () => {
   });
 
   const handleAddToClaim = () => {
-    // Validation
+    const rangeErr = travelRangeError(claimForm.travelFrom, claimForm.travelTo);
+    if (rangeErr) {
+      alert(rangeErr);
+      return;
+    }
+
     if (!claimForm.expenseDate || !claimForm.purpose || !claimForm.amount) {
-      alert("Please fill in Date, Purpose, and Amount");
+      alert('Please fill in Date, Purpose, and Amount');
+      return;
+    }
+
+    if (
+      !isDateInTravelRange(
+        claimForm.expenseDate,
+        claimForm.travelFrom,
+        claimForm.travelTo
+      )
+    ) {
+      alert(
+        `Expense date must be between ${formatDate(claimForm.travelFrom)} and ${formatDate(claimForm.travelTo)}.`
+      );
       return;
     }
 
@@ -191,7 +253,20 @@ export const Claims = () => {
 
     if (!claimForm.employeeName || !claimForm.designation || !claimForm.employeeId || 
         !claimForm.email || !claimForm.projectName || !claimForm.travelFrom || !claimForm.travelTo) {
-      alert("Please fill in all employee and travel details");
+      alert('Please fill in all employee and travel details');
+      return;
+    }
+
+    const rangeErr = travelRangeError(claimForm.travelFrom, claimForm.travelTo);
+    if (rangeErr) {
+      alert(rangeErr);
+      return;
+    }
+
+    if (outOfRangeClaimIds.size > 0) {
+      alert(
+        `${outOfRangeClaimIds.size} expense item(s) fall outside the travel period. Remove or update them before submitting.`
+      );
       return;
     }
 
@@ -337,11 +412,25 @@ export const Claims = () => {
             </div>
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="travelFrom">Travel From</label>
-              <input className="claims-input" type="date" id="travelFrom" value={claimForm.travelFrom} onChange={handleInputChange} />
+              <input
+                className="claims-input"
+                type="date"
+                id="travelFrom"
+                value={claimForm.travelFrom}
+                max={claimForm.travelTo || undefined}
+                onChange={handleInputChange}
+              />
             </div>
             <div className="claims-form-group">
               <label className="claims-label" htmlFor="travelTo">Travel To</label>
-              <input className="claims-input" type="date" id="travelTo" value={claimForm.travelTo} onChange={handleInputChange} />
+              <input
+                className="claims-input"
+                type="date"
+                id="travelTo"
+                value={claimForm.travelTo}
+                min={claimForm.travelFrom || undefined}
+                onChange={handleInputChange}
+              />
             </div>
           </div>
 
@@ -355,7 +444,29 @@ export const Claims = () => {
             </div>
             <div className="claims-form-group claims-col-date">
               <label className="claims-label">Date</label>
-              <input className="claims-input" type="date" id="expenseDate" value={claimForm.expenseDate} onChange={handleInputChange} />
+              <input
+                className="claims-input"
+                type="date"
+                id="expenseDate"
+                value={claimForm.expenseDate}
+                min={travelRangeIsValid ? claimForm.travelFrom : undefined}
+                max={travelRangeIsValid ? claimForm.travelTo : undefined}
+                disabled={!travelRangeIsValid}
+                onChange={handleInputChange}
+              />
+              {!travelDatesReady && (
+                <span className="claims-field-hint">Set travel dates first</span>
+              )}
+              {travelDatesReady && !travelRangeIsValid && (
+                <span className="claims-field-hint claims-field-hint--error">
+                  Travel From must be on or before Travel To
+                </span>
+              )}
+              {travelRangeIsValid && (
+                <span className="claims-field-hint">
+                  Between {formatDate(claimForm.travelFrom)} and {formatDate(claimForm.travelTo)}
+                </span>
+              )}
             </div>
             <div className="claims-form-group claims-col-purpose">
               <label className="claims-label">Purpose/Description</label>
@@ -419,7 +530,10 @@ export const Claims = () => {
               </thead>
               <tbody>
                 {claims.map((claim, index) => (
-                  <tr key={claim.id}>
+                  <tr
+                    key={claim.id}
+                    className={outOfRangeClaimIds.has(claim.id) ? 'claims-row-invalid' : undefined}
+                  >
                     <td data-label="#">{claim.sr_no}</td>
                     <td data-label="Date">{formatDate(claim.date)}</td>
                     <td data-label="Purpose">{claim.purpose}</td>

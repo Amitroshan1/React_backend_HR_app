@@ -1237,6 +1237,12 @@ def submit_expense_claim():
                 "message": "Invalid travel date format (YYYY-MM-DD)"
             }), 400
 
+        if travel_from_date > travel_to_date:
+            return jsonify({
+                "success": False,
+                "message": "Travel From cannot be after Travel To"
+            }), 400
+
         header = ExpenseClaimHeader(
             admin_id=admin.id,
             employee_name=data.get("employee_name"),
@@ -1285,6 +1291,15 @@ def submit_expense_claim():
                 return jsonify({
                     "success": False,
                     "message": f"Invalid expense date at item {index + 1}"
+                }), 400
+
+            if not (travel_from_date <= item_date <= travel_to_date):
+                return jsonify({
+                    "success": False,
+                    "message": (
+                        f"Expense item {index + 1} date must be within the travel period "
+                        f"({travel_from_date.isoformat()} to {travel_to_date.isoformat()})"
+                    )
                 }), 400
 
             item = ExpenseLineItem(
