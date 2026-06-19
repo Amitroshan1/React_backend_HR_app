@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { CheckCircle, MessageCircle, Send, X } from "lucide-react";
+import { CheckCircle, MessageCircle, Send, X, Paperclip } from "lucide-react";
 import "./DepartmentQueryInbox.css";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
@@ -11,6 +11,8 @@ import {
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
+  queryAttachmentDisplayName,
+  buildQueryAttachmentUrl,
 } from "./queryChatHelpers";
 
 const API_BASE_URL = "/api/query";
@@ -154,6 +156,29 @@ export const DepartmentQueryInbox = () => {
     }
   };
 
+  const openQueryAttachment = async (queryId, storedName) => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setError("Please log in again to view attachments.");
+      return;
+    }
+    try {
+      const response = await fetch(buildQueryAttachmentUrl(API_BASE_URL, queryId, storedName), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error("Unable to open file");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      console.error("Open query attachment error:", e);
+      setError(e.message || "Unable to open attachment");
+    }
+  };
+
   const openChat = useCallback(async (queryItem, options = {}) => {
     const { silent = false, skipUrl = false } = options;
     if (!queryItem?.id) return;
@@ -169,16 +194,26 @@ export const DepartmentQueryInbox = () => {
       }
 
       const messages = mapChatMessages(result.chat_messages, queryItem.id, formatDateTime);
+      const attachments = Array.isArray(result.query?.attachments)
+        ? result.query.attachments
+        : (queryItem.attachments || []);
       const nextChat = {
         id: queryItem.id,
         title: result.query?.title || queryItem.title,
         status: result.query?.status || queryItem.status,
+        attachments,
         messages,
       };
 
       setActiveChat((prev) => {
-        if (silent && prev?.id === nextChat.id && !messagesChanged(prev.messages, messages)) {
-          if (prev.status === nextChat.status) return prev;
+        if (
+          silent &&
+          prev?.id === nextChat.id &&
+          !messagesChanged(prev.messages, messages) &&
+          prev.status === nextChat.status &&
+          JSON.stringify(prev.attachments || []) === JSON.stringify(attachments)
+        ) {
+          return prev;
         }
         return nextChat;
       });
@@ -503,6 +538,27 @@ export const DepartmentQueryInbox = () => {
               </button>
             </div>
           </div>
+
+          {activeChat.attachments?.length > 0 && (
+            <div className="dept-chat-attachments">
+              <span className="dept-chat-attachments-label">Employee attachments</span>
+              <ul className="dept-chat-files">
+                {activeChat.attachments.map((file) => (
+                  <li key={file}>
+                    <button
+                      type="button"
+                      className="dept-chat-file-link"
+                      onClick={() => openQueryAttachment(activeChat.id, file)}
+                      title={queryAttachmentDisplayName(file)}
+                    >
+                      <Paperclip size={13} aria-hidden="true" />
+                      <span>{queryAttachmentDisplayName(file)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="dept-chat-messages">
             {activeChat.messages.map((m) => (

@@ -30,3 +30,16 @@ export const messagesChanged = (prevMessages, nextMessages) => {
     prevLast?.senderName !== nextLast?.senderName
   );
 };
+
+export const queryAttachmentDisplayName = (storedName) => {
+  const name = String(storedName || '').trim();
+  if (!name) return 'Attachment';
+  const idx = name.indexOf('_');
+  if (idx >= 0 && idx < name.length - 1) {
+    return name.slice(idx + 1);
+  }
+  return name;
+};
+
+export const buildQueryAttachmentUrl = (apiBase, queryId, storedName) =>
+  `${apiBase}/queries/${queryId}/files/${encodeURIComponent(storedName)}`;

@@ -610,12 +610,9 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
       <div className="manager-search-overlay">
         <div className="manager-content-wrapper">
         <div className={`search-manager-card ${employees.length > 0 ? 'has-results' : ''}`}>
-        <div className="manager-card-top-bar manager-card-top-bar--split">
+        <div className="manager-card-top-bar">
           <button type="button" className="manager-in-card-back" onClick={() => setView('landing')}>
             <ArrowLeft size={16} /> Back
-          </button>
-          <button type="button" className="manager-in-card-back" onClick={onBack}>
-            <ArrowLeft size={16} /> Back to Updates
           </button>
         </div>
         <h2>Search Employees</h2>

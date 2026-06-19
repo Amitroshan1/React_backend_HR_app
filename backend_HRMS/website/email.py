@@ -568,7 +568,9 @@ def get_department_email(department):
     department_map = {
         "Human Resource": current_app.config.get("EMAIL_HR"),
         "Accounts": current_app.config.get("EMAIL_ACCOUNTS"),
+        "IT": current_app.config.get("EMAIL_IT"),
         "IT Department": current_app.config.get("EMAIL_IT"),
+        "Inventory": current_app.config.get("EMAIL_IT"),
         "Administration": current_app.config.get("EMAIL_ADMIN"),
     }
     return department_map.get(department)

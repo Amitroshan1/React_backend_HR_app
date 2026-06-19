@@ -76,6 +76,22 @@ ACCOUNTS_DEPARTMENT_ALIASES = frozenset({
     "accountant",
 })
 
+IT_DEPARTMENT_ALIASES = frozenset({
+    "it",
+    "it department",
+})
+
+INVENTORY_DEPARTMENT_ALIASES = frozenset({
+    "inventory",
+})
+
+QUERY_DEPARTMENT_CANONICAL = (
+    "Human Resource",
+    "IT",
+    "Accounts",
+    "Inventory",
+)
+
 
 def get_plan() -> str:
     p = (current_app.config.get("CUSTOMER_PLAN") or "essential").strip().lower()
@@ -180,7 +196,48 @@ def is_accounts_department(name: str) -> bool:
     return n.startswith("account") or "accounts" in n
 
 
+def is_it_department(name: str) -> bool:
+    n = (name or "").strip().lower()
+    return bool(n) and n in IT_DEPARTMENT_ALIASES
+
+
+def is_inventory_department(name: str) -> bool:
+    n = (name or "").strip().lower()
+    return bool(n) and n in INVENTORY_DEPARTMENT_ALIASES
+
+
+def canonical_query_department(name: str) -> str | None:
+    if is_hr_department(name):
+        return "Human Resource"
+    if is_it_department(name):
+        return "IT"
+    if is_accounts_department(name):
+        return "Accounts"
+    if is_inventory_department(name):
+        return "Inventory"
+    return None
+
+
+def is_whitelisted_query_department(name: str) -> bool:
+    return canonical_query_department(name) is not None
+
+
+def _resolve_query_department_options(departments: list[str]) -> list[str]:
+    """Raise-a-query dropdown: fixed set, preferring MasterData spellings when present."""
+    out: list[str] = []
+    for canonical in QUERY_DEPARTMENT_CANONICAL:
+        matched = None
+        for dept in departments or []:
+            if canonical_query_department(dept) == canonical:
+                matched = (dept or "").strip()
+                break
+        out.append(matched or canonical)
+    return out
+
+
 def is_allowed_query_department(name: str) -> bool:
+    if not is_whitelisted_query_department(name):
+        return False
     if has_feature("query_all_departments"):
         return True
     if has_feature("query_hr_and_accounts"):
@@ -189,9 +246,10 @@ def is_allowed_query_department(name: str) -> bool:
 
 
 def filter_query_departments(departments: list[str]) -> list[str]:
+    options = _resolve_query_department_options(departments)
     if has_feature("query_all_departments"):
-        return departments
-    filtered = [d for d in departments if is_allowed_query_department(d)]
+        return options
+    filtered = [d for d in options if is_allowed_query_department(d)]
     if filtered:
         return filtered
     if has_feature("query_hr_and_accounts"):

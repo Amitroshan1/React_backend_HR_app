@@ -6,7 +6,7 @@
 
 
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import joinedload, selectinload
@@ -90,6 +90,23 @@ def _repair_query_created_at_from_history():
 
 
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
+
+
+def _parse_query_attachments(photo_field):
+    if not photo_field:
+        return []
+    try:
+        data = json.loads(photo_field)
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _attachment_display_name(stored_name):
+    name = (stored_name or "").strip()
+    if "_" in name:
+        return name.split("_", 1)[1] or name
+    return name
 DEPARTMENT_ROLES = {
     "human resource",
     "human resources",
@@ -97,6 +114,7 @@ DEPARTMENT_ROLES = {
     "accounts",
     "it",
     "it department",
+    "inventory",
     "admin",
     "administration",
 }
@@ -117,6 +135,8 @@ def _department_variants(department):
         variants.update({"accounts", "account"})
     elif d in {"admin", "administration"}:
         variants.update({"admin", "administration"})
+    elif d == "inventory":
+        variants.update({"inventory"})
     return list(variants)
 
 
@@ -188,7 +208,9 @@ def _emp_type_to_department(emp_type):
     if normalized in {"human resource", "human resources", "hr"}:
         return "Human Resource"
     if normalized in {"it", "it department"}:
-        return "IT Department"
+        return "IT"
+    if normalized == "inventory":
+        return "Inventory"
     if normalized in {"admin", "administration"}:
         return "Administration"
     if normalized == "accounts":
@@ -207,6 +229,7 @@ def _department_staff_can_close(emp_type):
         "engineering",
         "it",
         "it department",
+        "inventory",
         "admin",
         "administration",
     }
@@ -390,6 +413,7 @@ def my_queries():
                 "created_at": isoformat_api(eff),
                 "unread_reply_count": unread,
                 "has_unread_reply": unread > 0,
+                "attachments": _parse_query_attachments(q.photo),
             }
         )
 
@@ -542,12 +566,7 @@ def query_details(query_id):
     if not _can_access_query(admin, emp_type, query_obj):
         return jsonify({"success": False, "message": "Unauthorized"}), 403
 
-    attachments = []
-    if query_obj.photo:
-        try:
-            attachments = json.loads(query_obj.photo)
-        except json.JSONDecodeError:
-            attachments = []
+    attachments = _parse_query_attachments(query_obj.photo)
 
     chat_messages = [
         {
@@ -581,6 +600,37 @@ def query_details(query_id):
 
 
 
+
+
+@query.route("/queries/<int:query_id>/files/<path:filename>", methods=["GET"])
+@jwt_required()
+def download_query_file(query_id, filename):
+    claims = get_jwt()
+    email = claims.get("email")
+    emp_type = claims.get("emp_type")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+
+    query_obj = Query.query.get(query_id)
+    if not query_obj:
+        return jsonify({"success": False, "message": "Query not found"}), 404
+    if not _can_access_query(admin, emp_type, query_obj):
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+
+    stored = (filename or "").strip()
+    if not stored or stored != secure_filename(stored) or ".." in stored:
+        return jsonify({"success": False, "message": "Invalid file name"}), 400
+
+    allowed = _parse_query_attachments(query_obj.photo)
+    if stored not in allowed:
+        return jsonify({"success": False, "message": "File not found"}), 404
+
+    file_path = os.path.join(UPLOAD_DIR, stored)
+    if not os.path.isfile(file_path):
+        return jsonify({"success": False, "message": "File not found"}), 404
+
+    return send_from_directory(UPLOAD_DIR, stored, as_attachment=False)
 
 
 #reply to a query

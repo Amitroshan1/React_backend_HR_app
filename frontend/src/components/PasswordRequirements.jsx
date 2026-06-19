@@ -17,10 +17,16 @@ export function PasswordRequirements({
   const allMet = isPasswordStrong(password);
   const hasConfirm = confirmPassword.length > 0;
   const match = passwordsMatch(password, confirmPassword);
+  const showReqList = showRequirements && password.length > 0;
+  const showMatchLine = showMatch && hasConfirm;
+
+  if (!showReqList && !showMatchLine) {
+    return null;
+  }
 
   return (
     <div className="pwd-req-wrap">
-      {showRequirements && (
+      {showReqList && (
         <>
           <p className="pwd-req-heading">Password must include:</p>
           <ul className="pwd-req-list" aria-live="polite">
@@ -41,7 +47,7 @@ export function PasswordRequirements({
           )}
         </>
       )}
-      {showMatch && hasConfirm && (
+      {showMatchLine && (
         <p
           className={`pwd-req-match ${match ? 'pwd-req-match-ok' : 'pwd-req-match-bad'}`}
           aria-live="polite"

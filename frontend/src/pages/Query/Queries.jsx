@@ -489,7 +489,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle, FileText, Eye } from 'lucide-react';
+import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle, FileText, Eye, Paperclip } from 'lucide-react';
 import './Queries.css';
 import { hasFeature } from '../../utils/planFeatures';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
@@ -500,12 +500,42 @@ import {
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
+  queryAttachmentDisplayName,
+  buildQueryAttachmentUrl,
 } from './queryChatHelpers';
 
 const API_BASE_URL = '/api/query';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
 
-const FALLBACK_DEPARTMENTS = ['Human Resource', 'Accounts', 'IT Department', 'Administration'];
+const QUERY_DEPARTMENT_CANONICAL = ['Human Resource', 'IT', 'Accounts', 'Inventory'];
+
+const FALLBACK_DEPARTMENTS = QUERY_DEPARTMENT_CANONICAL;
+
+const canonicalQueryDepartment = (name) => {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return null;
+  if (n === 'human resource' || n === 'human resources' || n === 'hr' || n.includes('human resource')) {
+    return 'Human Resource';
+  }
+  if (n === 'it' || n === 'it department') return 'IT';
+  if (
+    n === 'account' ||
+    n === 'accounts' ||
+    n === 'accountant' ||
+    n.startsWith('account') ||
+    n.includes('accounts')
+  ) {
+    return 'Accounts';
+  }
+  if (n === 'inventory') return 'Inventory';
+  return null;
+};
+
+const resolveQueryDepartments = (apiList) =>
+  QUERY_DEPARTMENT_CANONICAL.map((canonical) => {
+    const fromApi = (apiList || []).find((d) => canonicalQueryDepartment(d) === canonical);
+    return fromApi || canonical;
+  });
 
 const isHrDepartmentName = (name) => {
   const n = String(name || '').trim().toLowerCase();
@@ -524,12 +554,13 @@ const isAccountsDepartmentName = (name) => {
 };
 
 const filterQueryDepartments = (list) => {
-  if (hasFeature('query_all_departments')) return list;
+  const options = resolveQueryDepartments(list);
+  if (hasFeature('query_all_departments')) return options;
   if (hasFeature('query_hr_and_accounts')) {
-    const filtered = list.filter((d) => isHrDepartmentName(d) || isAccountsDepartmentName(d));
+    const filtered = options.filter((d) => isHrDepartmentName(d) || isAccountsDepartmentName(d));
     return filtered.length ? filtered : ['Human Resource', 'Accounts'];
   }
-  const hrOnly = list.filter(isHrDepartmentName);
+  const hrOnly = options.filter(isHrDepartmentName);
   return hrOnly.length ? hrOnly : ['Human Resource'];
 };
 
@@ -673,6 +704,7 @@ export const Queries = () => {
         department: q.department,
         status: q.status,
         queryText: q.query_text,
+        attachments: Array.isArray(q.attachments) ? q.attachments : [],
         createdAtRaw: q.created_at,
         createdAt: formatDateTime(q.created_at),
         messages: []
@@ -783,6 +815,29 @@ export const Queries = () => {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  const openQueryAttachment = async (queryId, storedName) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setActionError('Please log in again to view attachments.');
+      return;
+    }
+    try {
+      const response = await fetch(buildQueryAttachmentUrl(API_BASE_URL, queryId, storedName), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error('Unable to open file');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      console.error('Open query attachment error:', error);
+      setActionError(error.message || 'Unable to open attachment');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setActionError('');
@@ -850,6 +905,9 @@ export const Queries = () => {
         department: result.query?.department || queryItem.department,
         status: result.query?.status || queryItem.status,
         queryText: result.query?.query_text || queryItem.queryText,
+        attachments: Array.isArray(result.query?.attachments)
+          ? result.query.attachments
+          : (queryItem.attachments || []),
         createdAt: formatDateTime(result.query?.created_at || queryItem.createdAt),
         messages,
       };
@@ -862,7 +920,7 @@ export const Queries = () => {
       setQueries((prev) =>
         prev.map((q) =>
           q.id === updated.id
-            ? { ...q, status: updated.status, title: updated.title, department: updated.department }
+            ? { ...q, status: updated.status, title: updated.title, department: updated.department, attachments: updated.attachments }
             : q
         )
       );
@@ -1047,6 +1105,26 @@ export const Queries = () => {
                 </div>
                 <button type="button" onClick={closeChatPanel} className="query-chat-close"><X size={20}/></button>
               </div>
+              {activeChat.attachments?.length > 0 && (
+                <div className="query-chat-attachments">
+                  <span className="query-chat-attachments-label">Attachments</span>
+                  <ul className="query-history-files">
+                    {activeChat.attachments.map((file) => (
+                      <li key={file}>
+                        <button
+                          type="button"
+                          className="query-history-file-link"
+                          onClick={() => openQueryAttachment(activeChat.id, file)}
+                          title={queryAttachmentDisplayName(file)}
+                        >
+                          <Paperclip size={13} aria-hidden="true" />
+                          <span>{queryAttachmentDisplayName(file)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="query-chat-messages">
                 {activeChat.messages.map(m => (
                   <div key={m.id} className={`query-msg ${m.sender}`}>
@@ -1079,6 +1157,7 @@ export const Queries = () => {
                 <tr>
                   <th>Query Details</th>
                   <th>Description</th>
+                  <th>Files</th>
                   <th>Status</th>
                   <th>Close</th>
                   <th>Action</th>
@@ -1086,14 +1165,35 @@ export const Queries = () => {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan="5" className="query-empty">Loading...</td></tr>
+                  <tr><td colSpan="6" className="query-empty">Loading...</td></tr>
                 ) : queries.length === 0 ? (
-                  <tr><td colSpan="5" className="query-empty">No queries yet.</td></tr>
+                  <tr><td colSpan="6" className="query-empty">No queries yet.</td></tr>
                 ) : (
                   queries.map(q => (
                     <tr key={q.id}>
                       <td data-label="Query Details"><div className="query-cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
                       <td data-label="Description">{getSummary(q.queryText)}</td>
+                      <td data-label="Files" className="query-files-cell">
+                        {q.attachments?.length ? (
+                          <ul className="query-history-files">
+                            {q.attachments.map((file) => (
+                              <li key={file}>
+                                <button
+                                  type="button"
+                                  className="query-history-file-link"
+                                  onClick={() => openQueryAttachment(q.id, file)}
+                                  title={queryAttachmentDisplayName(file)}
+                                >
+                                  <Paperclip size={13} aria-hidden="true" />
+                                  <span>{queryAttachmentDisplayName(file)}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="query-no-files">—</span>
+                        )}
+                      </td>
                       <td data-label="Status"><span className={`query-status-badge query-status-${(q.status || '').toLowerCase()}`}>{getStatusLabel(q.status)}</span></td>
                       <td data-label="Close">
                         {q.status !== 'Closed' ? (
