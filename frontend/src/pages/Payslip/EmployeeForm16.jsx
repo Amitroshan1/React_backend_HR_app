@@ -93,9 +93,9 @@ export const EmployeeForm16 = () => {
 
     return (
         <div className="employee-form16-page">
-            <button type="button" className="employee-form16-back" onClick={() => navigate("/payslip")}>
+            <button type="button" className="employee-form16-back" onClick={() => navigate("/tax-declaration")}>
                 <ArrowLeft size={18} aria-hidden />
-                Back to Payslip
+                Back to Tax Declaration
             </button>
 
             <div className="employee-form16-card">

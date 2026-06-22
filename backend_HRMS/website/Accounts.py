@@ -68,6 +68,8 @@ def _accounts_plan_guard():
         return plan_forbidden_response("account_panel")
 
     path = (request.path or "").lower()
+    if "/tax-declaration" in path:
+        return None
     for feature, prefixes in _ACCOUNTS_ROUTE_FEATURES:
         if any(p in path for p in prefixes) and not has_feature(feature):
             return plan_forbidden_response(feature)
@@ -1487,6 +1489,39 @@ def tds_projection():
     }
 
     return jsonify({"success": True, "projection": projection}), 200
+
+
+from . import tax_declaration_service as tax_decl
+
+
+@Accounts.route("/tax-declaration/self", methods=["GET"])
+def get_tax_declaration_self_accounts():
+    return tax_decl.get_tax_declaration_self()
+
+
+@Accounts.route("/tax-declaration/self", methods=["POST"])
+def save_tax_declaration_self_accounts():
+    return tax_decl.save_tax_declaration_self()
+
+
+@Accounts.route("/tax-declarations", methods=["GET"])
+def list_tax_declarations_review_accounts():
+    return tax_decl.list_tax_declarations_review()
+
+
+@Accounts.route("/tax-declarations/<int:decl_id>/review", methods=["POST"])
+def review_tax_declaration_accounts(decl_id):
+    return tax_decl.review_tax_declaration(decl_id)
+
+
+@Accounts.route("/tax-declarations/<int:decl_id>", methods=["GET"])
+def get_tax_declaration_detail_accounts(decl_id):
+    return tax_decl.get_tax_declaration_detail(decl_id)
+
+
+@Accounts.route("/tax-declaration/financial-years", methods=["GET"])
+def list_tax_declaration_financial_years_accounts():
+    return tax_decl.list_tax_declaration_financial_years()
 
 
 @Accounts.route("/payslip/<int:payslip_id>", methods=["DELETE"])

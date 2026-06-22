@@ -159,6 +159,12 @@ def create_app():
     from .models.holiday_calendar import HolidayCalendar
     from .models.probation import ProbationReview
     from .models.employee_accounts import EmployeeAccounts
+    from .models.employee_tax_declaration import (
+        EmployeeTaxDeclaration,
+        TaxDeclarationItem,
+        TaxDeclarationDocument,
+        TaxDeclarationApprovalHistory,
+    )
     from .models.ctc_breakup import CTCBreakup
     from .models.monthly_payroll import MonthlyPayroll
     from .models.assessment import AssessmentInvite
@@ -869,6 +875,64 @@ def create_app():
         except Exception as e:
             app.logger.warning("probation_reviews column migration skipped: %s", e)
 
+    def _ensure_employee_tax_declarations_table():
+        try:
+            from sqlalchemy import inspect, text
+            from .models.employee_tax_declaration import (
+                EmployeeTaxDeclaration,
+                TaxDeclarationApprovalHistory,
+                TaxDeclarationDocument,
+                TaxDeclarationItem,
+            )
+
+            for model in (
+                EmployeeTaxDeclaration,
+                TaxDeclarationItem,
+                TaxDeclarationDocument,
+                TaxDeclarationApprovalHistory,
+            ):
+                model.__table__.create(bind=db.engine, checkfirst=True)
+
+            insp = inspect(db.engine)
+            table = EmployeeTaxDeclaration.__tablename__
+            if table in insp.get_table_names():
+                existing = {c["name"] for c in insp.get_columns(table)}
+                dialect = db.engine.dialect.name
+                specs = [
+                    ("regime_declaration_accepted", "TINYINT(1) NOT NULL DEFAULT 0" if dialect == "mysql" else "BOOLEAN NOT NULL DEFAULT FALSE"),
+                    ("new_regime_acknowledged", "TINYINT(1) NOT NULL DEFAULT 0" if dialect == "mysql" else "BOOLEAN NOT NULL DEFAULT FALSE"),
+                    ("final_declaration_accepted", "TINYINT(1) NOT NULL DEFAULT 0" if dialect == "mysql" else "BOOLEAN NOT NULL DEFAULT FALSE"),
+                    ("declaration_place", "VARCHAR(120) NULL"),
+                    ("declaration_signed_at", "DATE NULL"),
+                    ("reviewed_by_admin_id", "INTEGER NULL"),
+                    ("reviewed_at", "DATETIME NULL"),
+                    ("rejection_reason", "TEXT NULL"),
+                ]
+                for col, col_type in specs:
+                    if col in existing:
+                        continue
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column %s.%s", table, col)
+
+            doc_table = TaxDeclarationDocument.__tablename__
+            if doc_table in insp.get_table_names():
+                doc_existing = {c["name"] for c in insp.get_columns(doc_table)}
+                doc_specs = [
+                    ("section_code", "VARCHAR(40) NULL"),
+                    ("item_code", "VARCHAR(60) NULL"),
+                ]
+                for col, col_type in doc_specs:
+                    if col in doc_existing:
+                        continue
+                    stmt = text(f"ALTER TABLE {doc_table} ADD COLUMN {col} {col_type}")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column %s.%s", doc_table, col)
+        except Exception as e:
+            app.logger.warning("employee_tax_declarations table ensure skipped: %s", e)
+
     with app.app_context():
         try:
             _ensure_upload_doc_identity_columns()
@@ -890,6 +954,7 @@ def create_app():
             _ensure_deployed_customers_table()
             _ensure_leave_balance_defaults()
             _ensure_probation_review_columns()
+            _ensure_employee_tax_declarations_table()
             _cleanup_zero_qty_inventory_rows()
         except Exception as e:
             app.logger.error(

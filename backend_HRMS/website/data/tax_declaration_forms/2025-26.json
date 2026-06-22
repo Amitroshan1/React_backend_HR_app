@@ -1,0 +1,156 @@
+{
+  "financial_year": "2025-26",
+  "label": "Tax Saving Declaration FY 2025-26",
+  "regime_section": {
+    "id": "REGIME",
+    "title": "Section A: Tax Regime Selection",
+    "declaration_text": "I hereby declare that I wish to opt for the selected tax regime for the current financial year."
+  },
+  "new_regime_section": {
+    "id": "NEW_REGIME",
+    "title": "Section C: New Tax Regime",
+    "acknowledgment_text": "I understand that most deductions and exemptions are not available under the New Tax Regime. I confirm that I have opted for the New Tax Regime for the current financial year."
+  },
+  "final_declaration": {
+    "text": "I hereby declare that the information provided above is true and correct to the best of my knowledge. I understand that submission of false information may lead to incorrect tax computation and disciplinary action."
+  },
+  "general_document_types": [
+    { "code": "pan_card", "label": "PAN Card" }
+  ],
+  "document_types": [
+    { "code": "pan_card", "label": "PAN Card" },
+    { "code": "rent_receipts", "label": "Rent Receipts" },
+    { "code": "home_loan", "label": "Home Loan Certificate" },
+    { "code": "insurance", "label": "Insurance Premium Receipts" },
+    { "code": "ppf", "label": "PPF Statements" },
+    { "code": "elss", "label": "ELSS Proof" },
+    { "code": "nps", "label": "NPS Statement" },
+    { "code": "donation", "label": "Donation Receipts" },
+    { "code": "education_loan", "label": "Education Loan Certificate" },
+    { "code": "lta", "label": "LTA Travel Proof" },
+    { "code": "other", "label": "Other Supporting Documents" }
+  ],
+  "sections": [
+    {
+      "id": "80C",
+      "title": "1. Section 80C",
+      "subtitle": "Combined maximum limit applies to all items below (including EPF)",
+      "visible_when": { "regime": "old" },
+      "cap_key": "section_80c_cap",
+      "items": [
+        { "code": "EPF", "label": "Employee Provident Fund (EPF)", "type": "amount", "auto_from": "ctc.epf_annual", "readonly": true, "cap_scope": "section", "cap_key": "section_80c_cap" },
+        { "code": "PPF", "label": "Public Provident Fund (PPF)", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "ppf", "proof_required": true },
+        { "code": "ELSS", "label": "ELSS Mutual Funds", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "elss", "proof_required": true },
+        { "code": "LIC", "label": "Life Insurance Premium", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "insurance", "proof_required": true },
+        { "code": "NSC", "label": "National Savings Certificate (NSC)", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "other", "proof_required": true },
+        { "code": "SSY", "label": "Sukanya Samriddhi Yojana", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "other", "proof_required": true },
+        { "code": "FD", "label": "Tax Saving Fixed Deposit", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "other", "proof_required": true },
+        { "code": "TUITION", "label": "Tuition Fees", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "other", "proof_required": true },
+        { "code": "HOME_LOAN_PRINCIPAL", "label": "Principal Repayment on Home Loan", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "home_loan", "proof_required": true },
+        { "code": "80C_OTHER", "label": "Others", "type": "amount", "cap_scope": "section", "cap_key": "section_80c_cap", "document_type": "other", "proof_required": true }
+      ]
+    },
+    {
+      "id": "80CCD1B",
+      "title": "2. Section 80CCD(1B)",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "NPS_ADDITIONAL", "label": "NPS Additional Contribution", "type": "amount", "cap_scope": "item", "cap_key": "section_80ccd1b_cap", "document_type": "nps", "proof_required": true }
+      ]
+    },
+    {
+      "id": "80D",
+      "title": "3. Section 80D",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "SELF_HEALTH", "label": "Self & Family Health Insurance", "type": "amount", "cap_scope": "item", "cap_key": "section_80d_self_cap", "document_type": "insurance", "proof_required": true },
+        { "code": "PARENTS_HEALTH", "label": "Parents Health Insurance", "type": "amount", "cap_scope": "item", "cap_key": "section_80d_parents_cap", "document_type": "insurance", "proof_required": true }
+      ]
+    },
+    {
+      "id": "SEC24",
+      "title": "4. Home Loan Interest (Section 24)",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "HOME_LOAN_INTEREST", "label": "Interest on Housing Loan", "type": "amount", "cap_scope": "item", "cap_key": "section_24_cap", "document_type": "home_loan", "proof_required": true }
+      ]
+    },
+    {
+      "id": "HRA",
+      "title": "5. House Rent Allowance (HRA)",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "RENT_MONTHLY", "label": "Monthly Rent Paid", "type": "amount", "document_type": "rent_receipts", "proof_required": true },
+        { "code": "LANDLORD_NAME", "label": "Landlord Name", "type": "text" },
+        { "code": "LANDLORD_PAN", "label": "Landlord PAN", "type": "text" },
+        { "code": "CITY", "label": "City of Residence", "type": "text" },
+        { "code": "IS_METRO", "label": "Metro city", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "LTA",
+      "title": "6. Leave Travel Allowance (LTA)",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "LTA_CLAIMED", "label": "Claimed Amount", "type": "amount", "document_type": "lta", "proof_required": true }
+      ]
+    },
+    {
+      "id": "80E",
+      "title": "7. Education Loan Interest (80E)",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "EDU_LOAN_INTEREST", "label": "Interest Paid", "type": "amount", "document_type": "education_loan", "proof_required": true }
+      ]
+    },
+    {
+      "id": "80G",
+      "title": "8. Donations (80G)",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "DONATION_AMOUNT", "label": "Donation Amount", "type": "amount", "document_type": "donation", "proof_required": true },
+        { "code": "INSTITUTION_NAME", "label": "Institution Name", "type": "text" }
+      ]
+    },
+    {
+      "id": "OTHER_DED",
+      "title": "9. Other Deductions",
+      "visible_when": { "regime": "old" },
+      "items": [
+        { "code": "80TTA", "label": "80TTA (Savings Interest)", "type": "amount", "cap_scope": "item", "cap_key": "section_80tta_cap", "document_type": "other", "proof_required": false },
+        { "code": "80TTB", "label": "80TTB (Senior Citizen Interest)", "type": "amount", "cap_scope": "item", "cap_key": "section_80ttb_cap", "document_type": "other", "proof_required": false },
+        { "code": "80U", "label": "80U", "type": "amount", "document_type": "other", "proof_required": true },
+        { "code": "80DD", "label": "80DD", "type": "amount", "document_type": "other", "proof_required": true },
+        { "code": "OTHER", "label": "Other", "type": "amount", "document_type": "other", "proof_required": true }
+      ]
+    },
+    {
+      "id": "NEW_REGIME_DED",
+      "title": "New Regime — Eligible Deductions",
+      "visible_when": { "regime": "new" },
+      "items": [
+        { "code": "EMPLOYER_NPS", "label": "Employer NPS Contribution", "type": "amount", "document_type": "nps", "proof_required": false },
+        { "code": "OTHER_ELIGIBLE", "label": "Other Eligible Deductions", "type": "amount", "document_type": "other", "proof_required": false }
+      ]
+    },
+    {
+      "id": "OTHER_INCOME",
+      "title": "Section D: Income From Other Sources",
+      "items": [
+        { "code": "BANK_INTEREST", "label": "Bank Interest", "type": "amount" },
+        { "code": "FD_INTEREST", "label": "Fixed Deposit Interest", "type": "amount" },
+        { "code": "RENTAL_INCOME", "label": "Rental Income", "type": "amount" },
+        { "code": "OTHER_INCOME", "label": "Other Income", "type": "amount" }
+      ]
+    },
+    {
+      "id": "PREV_EMPLOYER",
+      "title": "Section E: Previous Employer Income",
+      "items": [
+        { "code": "EMPLOYER_NAME", "label": "Previous Employer Name", "type": "text" },
+        { "code": "GROSS_INCOME", "label": "Gross Income", "type": "amount" },
+        { "code": "TAX_DEDUCTED", "label": "Tax Deducted", "type": "amount" }
+      ]
+    }
+  ]
+}

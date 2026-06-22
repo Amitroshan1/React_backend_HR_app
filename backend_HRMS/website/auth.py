@@ -66,6 +66,7 @@ from .punch_auto_close import (
     repair_attendance_integrity_for_admin,
     validate_manual_punch_out_extended_reason,
 )
+from . import tax_declaration_service as tax_decl
 
 auth = Blueprint('auth', __name__)
 
@@ -109,6 +110,41 @@ def get_master_options():
         "departments": departments,
         "circles": [r.name for r in circle_rows],
     }), 200
+
+
+@auth.route("/tax-declaration/self", methods=["GET"])
+def get_tax_declaration_self_auth():
+    return tax_decl.get_tax_declaration_self()
+
+
+@auth.route("/tax-declaration/self", methods=["POST"])
+def save_tax_declaration_self_auth():
+    return tax_decl.save_tax_declaration_self()
+
+
+@auth.route("/tax-declaration/form-schema", methods=["GET"])
+def get_tax_declaration_form_schema_auth():
+    return tax_decl.get_tax_declaration_form_schema()
+
+
+@auth.route("/tax-declaration/financial-years", methods=["GET"])
+def list_tax_declaration_financial_years_auth():
+    return tax_decl.list_tax_declaration_financial_years()
+
+
+@auth.route("/tax-declaration/self/documents", methods=["POST"])
+def upload_tax_declaration_document_auth():
+    return tax_decl.upload_tax_declaration_document()
+
+
+@auth.route("/tax-declaration/self/documents/<int:doc_id>", methods=["DELETE"])
+def delete_tax_declaration_document_auth(doc_id):
+    return tax_decl.delete_tax_declaration_document(doc_id)
+
+
+@auth.route("/tax-declaration/<int:decl_id>", methods=["GET"])
+def get_tax_declaration_detail_auth(decl_id):
+    return tax_decl.get_tax_declaration_detail(decl_id)
 
 
 # ===================================================

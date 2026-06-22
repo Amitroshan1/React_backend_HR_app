@@ -3,22 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Receipt } from "lucide-react";
 import { useUser } from "../../components/layout/UserContext";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import {
+    defaultFinancialYear,
+    financialYearOptions,
+} from "../../utils/financialYear";
 import "./EmployeeTaxProjection.css";
 
 const API_BASE_URL = "/api/accounts";
-
-const formatFinancialYearInput = (value) => {
-    const digits = String(value ?? "").replace(/\D/g, "").slice(0, 8);
-    if (digits.length <= 4) return digits;
-    return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-};
-
-const defaultFinancialYear = () => {
-    const y = new Date().getFullYear();
-    const m = new Date().getMonth() + 1;
-    const start = m >= 4 ? y : y - 1;
-    return formatFinancialYearInput(`${start}${start + 1}`);
-};
 
 const formatINRCurrency = (value) => {
     const num = Number(value);
@@ -44,6 +35,7 @@ export const EmployeeTaxProjection = () => {
     const [tdsProjection, setTdsProjection] = useState(null);
     const [tdsLoading, setTdsLoading] = useState(false);
     const [tdsError, setTdsError] = useState("");
+    const [fyOptions] = useState(() => financialYearOptions());
     const [tdsForm, setTdsForm] = useState({
         financial_year: defaultFinancialYear(),
         rent_paid_annual: "",
@@ -160,9 +152,9 @@ export const EmployeeTaxProjection = () => {
 
     return (
         <div className="employee-tax-page">
-            <button type="button" className="employee-tax-back" onClick={() => navigate("/payslip")}>
+            <button type="button" className="employee-tax-back" onClick={() => navigate("/tax-declaration")}>
                 <ArrowLeft size={18} aria-hidden />
-                Back to Payslip
+                Back to Tax Declaration
             </button>
 
             <div className="employee-tax-card">
@@ -187,58 +179,80 @@ export const EmployeeTaxProjection = () => {
                 {!ctcLoading && hasCtcData && (
                     <>
                         <div className="employee-tax-adjust">
-                            <label>
-                                Financial Year
-                                <input
-                                    value={tdsForm.financial_year}
-                                    onChange={(e) =>
-                                        setTdsForm((prev) => ({
-                                            ...prev,
-                                            financial_year: formatFinancialYearInput(e.target.value),
-                                        }))
-                                    }
-                                    placeholder="2025-2026"
-                                />
-                            </label>
+                            <div className="employee-tax-adjust-toolbar">
+                                <label className="employee-tax-field employee-tax-field--fy">
+                                    <span className="employee-tax-label">Financial Year</span>
+                                    <select
+                                        className="employee-tax-control"
+                                        value={tdsForm.financial_year}
+                                        onChange={(e) =>
+                                            setTdsForm((prev) => ({
+                                                ...prev,
+                                                financial_year: e.target.value,
+                                            }))
+                                        }
+                                    >
+                                        {fyOptions.map((fy) => (
+                                            <option key={fy} value={fy}>{fy}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <button
+                                    type="button"
+                                    className="employee-tax-recalc"
+                                    disabled={tdsLoading}
+                                    onClick={() => fetchTdsProjection()}
+                                >
+                                    {tdsLoading ? "Calculating…" : "Recalculate"}
+                                </button>
+                            </div>
+
+                            <div className="employee-tax-adjust-grid">
                             {isOldRegime && (
                                 <>
-                                    <label>
-                                        Annual Rent (HRA)
+                                    <label className="employee-tax-field">
+                                        <span className="employee-tax-label">Annual Rent (HRA)</span>
                                         <input
                                             type="number"
                                             min="0"
+                                            className="employee-tax-control"
                                             value={tdsForm.rent_paid_annual}
                                             onChange={(e) =>
                                                 setTdsForm((prev) => ({ ...prev, rent_paid_annual: e.target.value }))
                                             }
                                         />
                                     </label>
-                                    <label className="employee-tax-check">
-                                        <input
-                                            type="checkbox"
-                                            checked={tdsForm.is_metro}
-                                            onChange={(e) =>
-                                                setTdsForm((prev) => ({ ...prev, is_metro: e.target.checked }))
-                                            }
-                                        />
-                                        Metro city
+                                    <label className="employee-tax-field employee-tax-field--check">
+                                        <span className="employee-tax-label">Location</span>
+                                        <span className="employee-tax-check-row">
+                                            <input
+                                                type="checkbox"
+                                                checked={tdsForm.is_metro}
+                                                onChange={(e) =>
+                                                    setTdsForm((prev) => ({ ...prev, is_metro: e.target.checked }))
+                                                }
+                                            />
+                                            Metro city
+                                        </span>
                                     </label>
-                                    <label>
-                                        80C extra
+                                    <label className="employee-tax-field">
+                                        <span className="employee-tax-label">80C extra</span>
                                         <input
                                             type="number"
                                             min="0"
+                                            className="employee-tax-control"
                                             value={tdsForm.section_80c_extra}
                                             onChange={(e) =>
                                                 setTdsForm((prev) => ({ ...prev, section_80c_extra: e.target.value }))
                                             }
                                         />
                                     </label>
-                                    <label>
-                                        80D
+                                    <label className="employee-tax-field">
+                                        <span className="employee-tax-label">80D</span>
                                         <input
                                             type="number"
                                             min="0"
+                                            className="employee-tax-control"
                                             value={tdsForm.section_80d}
                                             onChange={(e) =>
                                                 setTdsForm((prev) => ({ ...prev, section_80d: e.target.value }))
@@ -247,25 +261,19 @@ export const EmployeeTaxProjection = () => {
                                     </label>
                                 </>
                             )}
-                            <label>
-                                Previous employer TDS
+                            <label className="employee-tax-field">
+                                <span className="employee-tax-label">Previous employer TDS</span>
                                 <input
                                     type="number"
                                     min="0"
+                                    className="employee-tax-control"
                                     value={tdsForm.previous_employer_tds}
                                     onChange={(e) =>
                                         setTdsForm((prev) => ({ ...prev, previous_employer_tds: e.target.value }))
                                     }
                                 />
                             </label>
-                            <button
-                                type="button"
-                                className="employee-tax-recalc"
-                                disabled={tdsLoading}
-                                onClick={() => fetchTdsProjection()}
-                            >
-                                {tdsLoading ? "Calculating…" : "Recalculate"}
-                            </button>
+                            </div>
                         </div>
 
                         {tdsLoading && <p className="employee-tax-muted">Calculating TDS projection…</p>}

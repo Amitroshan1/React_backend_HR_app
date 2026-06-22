@@ -4,6 +4,13 @@
   "label": "Old Tax Regime (FY 2025-26)",
   "standard_deduction": 50000,
   "section_80c_cap": 150000,
+  "section_80ccd1b_cap": 50000,
+  "section_80d_self_cap": 25000,
+  "section_80d_parents_cap": 50000,
+  "section_24_cap": 200000,
+  "section_80tta_cap": 10000,
+  "section_80ttb_cap": 50000,
+  "section_lta_cap": 0,
   "rebate_87a": {
     "income_limit": 500000,
     "max_rebate": 12500

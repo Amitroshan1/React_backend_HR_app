@@ -11,23 +11,15 @@ import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import { fetchDepartmentNocRequests } from '../Manager/api';
 import { hasFeature } from '../../utils/planFeatures';
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
+import { TaxDeclarationReview } from '../TaxDeclaration/TaxDeclarationReview';
 import { formatDate as formatDateDDMMYYYY, formatDateTime as formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
+import {
+  defaultFinancialYear,
+  formatFinancialYearInput,
+  isValidFinancialYear,
+} from '../../utils/financialYear';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
-
-/** Financial year input: digits only, displayed as YYYY-YYYY (8 digits max). */
-const formatFinancialYearInput = (value) => {
-  const digits = String(value ?? '').replace(/\D/g, '').slice(0, 8);
-  if (digits.length <= 4) return digits;
-  return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-};
-
-const defaultFinancialYear = () => {
-  const y = new Date().getFullYear();
-  return formatFinancialYearInput(`${y}${y + 1}`);
-};
-
-const isValidFinancialYear = (value) => /^\d{4}-\d{4}$/.test(String(value ?? '').trim());
 
 const parseMediclaimYearly = (mediclaimValue) => {
   if (mediclaimValue === '' || mediclaimValue == null) return 0;
@@ -87,6 +79,10 @@ export const Account = ()  => {
   const [nocSummary, setNocSummary] = useState({
     pending: 0,
     total: 0,
+    loading: true,
+  });
+  const [taxDeclSummary, setTaxDeclSummary] = useState({
+    pending: 0,
     loading: true,
   });
   const [attendanceMonth, setAttendanceMonth] = useState(() => {
@@ -261,6 +257,12 @@ export const Account = ()  => {
     setCurrentView('noc_requests');
   }, []);
 
+  const handleOpenTaxDeclarations = useCallback(() => {
+    setCurrentView('taxDeclarations');
+  }, []);
+
+  const canReviewTaxDeclarations = isHr || isAccountsDept;
+
   const stats = useMemo(() => {
     const base = [
       { title: 'Total Employees', value: statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
@@ -294,13 +296,32 @@ export const Account = ()  => {
       });
     }
 
+    if (canReviewTaxDeclarations) {
+      const pending = taxDeclSummary.pending;
+      base.push({
+        title: 'Tax Declarations',
+        value: taxDeclSummary.loading ? '—' : pending,
+        subtitle: pending > 0
+          ? `${pending} awaiting review`
+          : 'Employee tax saving declarations',
+        icon: <Receipt size={20} />,
+        clickable: true,
+        onClick: handleOpenTaxDeclarations,
+        hasNotification: !taxDeclSummary.loading && pending > 0,
+        notificationText: pending === 1 ? '1 declaration pending' : `${pending} declarations pending`,
+      });
+    }
+
     return base;
   }, [
     statsData,
     isAccountsDept,
+    canReviewTaxDeclarations,
     nocSummary,
+    taxDeclSummary,
     handleOpenExpenseClaims,
     handleOpenNocRequests,
+    handleOpenTaxDeclarations,
   ]);
 
   useRefreshOnNavigate(() => {
@@ -357,6 +378,34 @@ export const Account = ()  => {
     loadNocSummary();
     return () => { cancelled = true; };
   }, [isAccountsDept, currentView]);
+
+  useEffect(() => {
+    if (!canReviewTaxDeclarations || currentView !== 'main') return;
+
+    let cancelled = false;
+    const loadTaxDeclSummary = async () => {
+      try {
+        setTaxDeclSummary((prev) => ({ ...prev, loading: true }));
+        const token = localStorage.getItem('token');
+        const fyCurrent = defaultFinancialYear();
+        const res = await fetch(
+          `${API_BASE_URL}/tax-declarations?status=submitted&financial_year=${encodeURIComponent(fyCurrent)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const data = await res.json();
+        if (cancelled) return;
+        const pending = data.success ? (data.declarations || []).length : 0;
+        setTaxDeclSummary({ pending, loading: false });
+      } catch {
+        if (!cancelled) {
+          setTaxDeclSummary({ pending: 0, loading: false });
+        }
+      }
+    };
+
+    loadTaxDeclSummary();
+    return () => { cancelled = true; };
+  }, [canReviewTaxDeclarations, currentView, API_BASE_URL]);
 
   const loadPayrollSummary = async () => {
     const token = localStorage.getItem('token');
@@ -3871,6 +3920,12 @@ export const Account = ()  => {
       {currentView === 'bulkPayroll' && renderBulkPayroll()}
       {currentView === 'payrollHistory' && renderPayrollHistory()}
       {currentView === 'expenseClaims' && renderExpenseClaims()}
+      {currentView === 'taxDeclarations' && (
+        <TaxDeclarationReview
+          apiBase={API_BASE_URL}
+          onBack={() => setCurrentView('main')}
+        />
+      )}
       {currentView === 'addForm16' && renderAddForm16()}
       {currentView === 'ctcBreakup' && renderCtcBreakup()}
       {currentView === 'tdsProjection' && renderTdsProjection()}

@@ -12,6 +12,7 @@ import {
   FiClock,
   FiDollarSign,
   FiUser,
+  FiFileText,
 } from "react-icons/fi";
 import { MdBadge, MdCalendarToday } from "react-icons/md";
 import { GiReceiveMoney } from "react-icons/gi";
@@ -1238,6 +1239,18 @@ export const Dashboard = () => {
                                 <FiChevronRight className="arrow" />
                             </NavLink>
                              ) : null}
+                            {hasFeature("dashboard_payslip") ? (
+                            <NavLink to="/tax-declaration" className="action-card nav-link-card">
+                                <div className="action-icon-group">
+                                    <div className="action-icon orange"><div className="action-icon-inner"><FiFileText /></div></div>
+                                    <div>
+                                        <h4>Tax Declaration</h4>
+                                        <p>Declare investments &amp; tax details</p>
+                                    </div>
+                                </div>
+                                <FiChevronRight className="arrow" />
+                            </NavLink>
+                            ) : null}
                             <NavLink to="/change-password" className="action-card nav-link-card"> 
                                 <div className="action-icon-group">
                                     <div className="action-icon blue"><div className="action-icon-inner"><FiKey /></div></div>

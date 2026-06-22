@@ -11,13 +11,16 @@ const authHeaders = () => {
   };
 };
 
-const countOpenQueries = (queries) =>
-  (queries || []).filter((q) => String(q.status || "").trim().toLowerCase() !== "closed")
-    .length;
+const countUnreadTicketReplies = (queries) =>
+  (queries || []).filter((q) => {
+    const closed = String(q.status || "").trim().toLowerCase() === "closed";
+    if (closed) return false;
+    return Boolean(q.has_unread_reply) || Number(q.unread_reply_count || 0) > 0;
+  }).length;
 
 export const ITPanel = () => {
   const navigate = useNavigate();
-  const [openTicketCount, setOpenTicketCount] = useState(0);
+  const [unreadTicketCount, setUnreadTicketCount] = useState(0);
 
   const cards = [
     { title: "Active Devices", route: "/it/ActiveDevices" },
@@ -28,7 +31,7 @@ export const ITPanel = () => {
     { title: "NOC Request", route: "/it/noc-requests" },
   ];
 
-  const refreshOpenTicketCount = useCallback(async () => {
+  const refreshUnreadTicketCount = useCallback(async () => {
     try {
       const res = await fetch("/api/query/queries", {
         method: "GET",
@@ -36,30 +39,30 @@ export const ITPanel = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        setOpenTicketCount(0);
+        setUnreadTicketCount(0);
         return;
       }
-      setOpenTicketCount(countOpenQueries(data.queries));
+      setUnreadTicketCount(countUnreadTicketReplies(data.queries));
     } catch {
-      setOpenTicketCount(0);
+      setUnreadTicketCount(0);
     }
   }, []);
 
   useEffect(() => {
-    refreshOpenTicketCount();
-  }, [refreshOpenTicketCount]);
+    refreshUnreadTicketCount();
+  }, [refreshUnreadTicketCount]);
 
   useEffect(() => {
-    const onFocus = () => refreshOpenTicketCount();
+    const onFocus = () => refreshUnreadTicketCount();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [refreshOpenTicketCount]);
+  }, [refreshUnreadTicketCount]);
 
   useEffect(() => {
-    const onUpdated = () => refreshOpenTicketCount();
+    const onUpdated = () => refreshUnreadTicketCount();
     window.addEventListener("it-open-tickets-updated", onUpdated);
     return () => window.removeEventListener("it-open-tickets-updated", onUpdated);
-  }, [refreshOpenTicketCount]);
+  }, [refreshUnreadTicketCount]);
 
   return (
     <div className="it-panel-container">
@@ -79,9 +82,12 @@ export const ITPanel = () => {
                 if (e.key === "Enter" || e.key === " ") navigate(c.route);
               }}
             >
-              {c.route === OPEN_TICKETS_ROUTE && openTicketCount > 0 ? (
-                <span className="it-open-ticket-badge" title={`${openTicketCount} open ticket(s)`}>
-                  {openTicketCount > 99 ? "99+" : openTicketCount}
+              {c.route === OPEN_TICKETS_ROUTE && unreadTicketCount > 0 ? (
+                <span
+                  className="it-open-ticket-badge"
+                  title={`${unreadTicketCount} ticket${unreadTicketCount === 1 ? "" : "s"} with unread ${unreadTicketCount === 1 ? "reply" : "replies"}`}
+                >
+                  {unreadTicketCount > 99 ? "99+" : unreadTicketCount}
                 </span>
               ) : null}
               <h3>{c.title}</h3>

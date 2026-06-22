@@ -58,7 +58,9 @@ export const AppLayout = () => {
             return;
         }
         if (
-            (path === "/payslip" || path === "/payslip/form16" || path === "/payslip/tax-projection")
+            (path === "/payslip"
+                || path === "/tax-declaration"
+                || path.startsWith("/tax-declaration/"))
             && !hasFeature("dashboard_payslip")
         ) {
             navigate("/dashboard", { replace: true });

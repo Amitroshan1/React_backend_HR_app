@@ -9,6 +9,7 @@ import { Salary } from "./pages/Salary/Salary";
 import { Payslip } from "./pages/Payslip/Payslip";
 import { EmployeeForm16 } from "./pages/Payslip/EmployeeForm16";
 import { EmployeeTaxProjection } from "./pages/Payslip/EmployeeTaxProjection";
+import { TaxDeclaration } from "./pages/TaxDeclaration/TaxDeclaration";
 import { Leaves } from "./pages/Leaves/Leaves";
 import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
@@ -111,8 +112,9 @@ export const App = () => {
         { path: "attendance",                      element: <Attendance /> },
         { path: "salary",                          element: <Salary /> },
         { path: "payslip",                         element: <Payslip /> },
-        { path: "payslip/form16",                  element: <EmployeeForm16 /> },
-        { path: "payslip/tax-projection",          element: <EmployeeTaxProjection /> },
+        { path: "tax-declaration",                 element: <TaxDeclaration /> },
+        { path: "tax-declaration/form16",          element: <EmployeeForm16 /> },
+        { path: "tax-declaration/tax-projection",  element: <EmployeeTaxProjection /> },
         { path: "leaves",                          element: <Leaves /> },
         { path: "profile",                         element: <Profile /> },
         { path: "change-password",                 element: <ChangePassword /> },

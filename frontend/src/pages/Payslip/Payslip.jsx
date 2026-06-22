@@ -4,7 +4,6 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { hasFeature } from "../../utils/planFeatures";
 import "./Payslip.css";
 import { formatDateTimeDDMMYYYY, formatMonthYear } from "../../utils/dateFormat";
-import { PayslipCtcActions } from "./PayslipCtcActions";
 
 const API_BASE_URL = "/api/accounts";
 const AUTH_API_BASE_URL = "/api/auth";
@@ -227,9 +226,6 @@ export const Payslip = () => {
             <div className="payslip-ctc-card">
                 <div className="payslip-ctc-header">
                     <h2 className="payslip-ctc-title">{displayName}'s CTC Breakup</h2>
-                    {userId && (
-                        <PayslipCtcActions hasCtcData={hasCtcData} />
-                    )}
                 </div>
                 <div className="payslip-ctc-body">
                     {ctcLoading && <div className="payslip-loading">Loading CTC breakup…</div>}
