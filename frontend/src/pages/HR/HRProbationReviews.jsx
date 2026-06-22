@@ -143,7 +143,7 @@ export const HRProbationReviews = ({ onBack }) => {
 
   return (
     <div className="hr-probation-wrapper">
-      <button type="button" className="hr-probation-back" onClick={onBack}>
+      <button type="button" className="btn-back-updates" onClick={onBack}>
         <ArrowLeft size={16} /> Back to Updates
       </button>
 

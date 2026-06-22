@@ -381,12 +381,47 @@
 @media (max-width: 768px) {
   .ai-topbar {
     padding: 14px 16px;
+    flex-wrap: wrap;
+    gap: 12px;
   }
+
+  .ai-title {
+    font-size: 16px;
+  }
+
   .ai-card {
-    margin: 16px 16px 0;
+    margin: 12px 12px 0;
+    border-radius: 10px;
   }
+
+  .ai-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 14px 16px;
+  }
+
+  .ai-table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+
   .ai-footer {
     padding: 12px 16px;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ai-btn-cancel,
+  .ai-btn-submit {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .ai-back-btn {
+    padding: 8px 12px;
+    font-size: 12px;
   }
 }
 

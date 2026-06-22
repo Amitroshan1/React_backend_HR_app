@@ -1039,6 +1039,7 @@ def _serialize_manager_probation_review(pr, target, run_date):
         "feedback": pr.feedback,
         "hr_decision": pr.hr_decision,
         "hr_decided_at": isoformat_api(pr.hr_decided_at),
+        "hr_notes": pr.hr_notes,
         "extended_until": _serialize_date(pr.extended_until),
         "overdue": bool(
             run_date

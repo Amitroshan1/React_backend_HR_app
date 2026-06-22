@@ -5,6 +5,8 @@ import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
 import './Archive.css';
 
 const HR_API_BASE = '/api/HumanResource';
+const ALL_TYPES_LABEL = 'All Types';
+const ALL_CIRCLES_LABEL = 'All Circles';
 
 const ArchiveEmployees = () => {
   const navigate = useNavigate();
@@ -244,12 +246,20 @@ const ArchiveEmployees = () => {
                   type="text"
                   placeholder="Select or type"
                   className="filter-input"
-                  value={typeSearch !== '' ? typeSearch : employeeType}
-                  onFocus={() => !isEmailFilterActive && setShowTypeList(true)}
+                  value={typeSearch !== '' ? typeSearch : (employeeType || ALL_TYPES_LABEL)}
+                  onFocus={(e) => {
+                    if (!isEmailFilterActive) {
+                      setShowTypeList(true);
+                      if (!employeeType && typeSearch === '') {
+                        requestAnimationFrame(() => e.target.select());
+                      }
+                    }
+                  }}
                   onChange={(e) => {
                     if (!isEmailFilterActive) {
-                      setTypeSearch(e.target.value);
-                      if (e.target.value === '') {
+                      const val = e.target.value;
+                      setTypeSearch(val);
+                      if (val === '' || val === ALL_TYPES_LABEL) {
                         setEmployeeType('');
                       }
                       setShowTypeList(true);
@@ -266,14 +276,14 @@ const ArchiveEmployees = () => {
                 {showTypeList && !isEmailFilterActive && (
                   <div className="dropdown-list">
                     <div
-                      className="dropdown-item"
+                      className={`dropdown-item${!employeeType ? ' dropdown-item-selected' : ''}`}
                       onClick={() => {
                         setEmployeeType('');
                         setTypeSearch('');
                         setShowTypeList(false);
                       }}
                     >
-                      All Types
+                      {ALL_TYPES_LABEL}
                     </div>
 
                     {employeeTypes
@@ -306,12 +316,20 @@ const ArchiveEmployees = () => {
                   type="text"
                   placeholder="Select or type"
                   className="filter-input"
-                  value={circleSearch !== '' ? circleSearch : circle}
-                  onFocus={() => !isEmailFilterActive && setShowCircleList(true)}
+                  value={circleSearch !== '' ? circleSearch : (circle || ALL_CIRCLES_LABEL)}
+                  onFocus={(e) => {
+                    if (!isEmailFilterActive) {
+                      setShowCircleList(true);
+                      if (!circle && circleSearch === '') {
+                        requestAnimationFrame(() => e.target.select());
+                      }
+                    }
+                  }}
                   onChange={(e) => {
                     if (!isEmailFilterActive) {
-                      setCircleSearch(e.target.value);
-                      if (e.target.value === '') {
+                      const val = e.target.value;
+                      setCircleSearch(val);
+                      if (val === '' || val === ALL_CIRCLES_LABEL) {
                         setCircle('');
                       }
                       setShowCircleList(true);
@@ -328,14 +346,14 @@ const ArchiveEmployees = () => {
                 {showCircleList && !isEmailFilterActive && (
                   <div className="dropdown-list">
                     <div
-                      className="dropdown-item"
+                      className={`dropdown-item${!circle ? ' dropdown-item-selected' : ''}`}
                       onClick={() => {
                         setCircle('');
                         setCircleSearch('');
                         setShowCircleList(false);
                       }}
                     >
-                      All Circles
+                      {ALL_CIRCLES_LABEL}
                     </div>
 
                     {circles

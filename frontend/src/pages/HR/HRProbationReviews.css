@@ -2,15 +2,8 @@
   padding: 1rem;
 }
 
-.hr-probation-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
+.hr-probation-wrapper .btn-back-updates {
   margin-bottom: 1rem;
-  background: none;
-  border: none;
-  color: #2563eb;
-  cursor: pointer;
 }
 
 .hr-probation-card {

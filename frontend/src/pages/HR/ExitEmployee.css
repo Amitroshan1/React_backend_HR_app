@@ -229,6 +229,12 @@
   background: #f3f4f6;
 }
 
+.exit-employee-container .dropdown-item-selected {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
 /* Email filter */
 .exit-employee-container .email-filter {
   flex: 1.5;

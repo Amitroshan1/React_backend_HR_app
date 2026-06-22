@@ -222,6 +222,11 @@ export const ManagerProbationReviews = () => {
                     ) : r.awaiting_hr_decision ? (
                       <p className="manager-probation-awaiting-hr">Awaiting HR decision</p>
                     ) : null}
+                    {r.hr_notes ? (
+                      <p>
+                        <strong>HR notes:</strong> {r.hr_notes}
+                      </p>
+                    ) : null}
                     {r.extended_until ? (
                       <p>
                         <strong>Extended until:</strong> {formatDate(r.extended_until)}

@@ -5,13 +5,13 @@
    PAGE
 ───────────────────────────────────────────────────────────────────────────── */
 .employee-assets {
-  padding: 24px 28px;
+  padding: 0 28px 24px;
   background: #f4f6f9;
   min-height: 100vh;
   font-family: "DM Sans", system-ui, sans-serif;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 16px;
 }
 
 .ea-loading {
@@ -27,8 +27,17 @@
    BACK BUTTON
 ───────────────────────────────────────────────────────────────────────────── */
 .back-button-container {
-  margin-top:-45px;
-  height: 66px;
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  margin: -12px -28px 0;
+  padding: 10px 28px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .btn-back {
@@ -1001,7 +1010,13 @@
 ───────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .employee-assets {
-    padding: 18px 16px;
+    padding: 0 16px 18px;
+  }
+  .back-button-container {
+    margin-left: -16px;
+    margin-right: -16px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
   .hdm-panel {
     max-width: 96vw;
@@ -1010,13 +1025,13 @@
 
 @media (max-width: 768px) {
   .employee-assets {
-    padding: 14px 12px;
+    padding: 0 16px 14px;
     gap: 12px;
   }
   .back-button-container {
-    margin-top: 0;
-    height: auto;
-    margin-bottom: 4px;
+    margin: -10px -16px 0;
+    padding: 10px 16px;
+    min-height: 52px;
   }
   .btn-back {
     width: 100%;

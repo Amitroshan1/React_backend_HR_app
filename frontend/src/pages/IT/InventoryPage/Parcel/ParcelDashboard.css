@@ -768,25 +768,65 @@
   .pcl-topbar,
   .pcl-search-row {
     padding: 14px 16px;
+    flex-wrap: wrap;
+    gap: 12px;
   }
+
+  .pcl-topbar-right {
+    width: 100%;
+  }
+
+  .pcl-title {
+    font-size: 17px;
+  }
+
   .pcl-tab-action-row {
-    padding: 0 16px;
+    padding: 0 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
   }
+
+  .pcl-tabs {
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pcl-tab {
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+
   .pcl-table-card {
-    margin: 16px 16px 0;
+    margin: 12px 12px 0;
+    border-radius: 10px;
   }
+
+  .pcl-table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+
   .pcl-search-wrap {
     width: 100%;
   }
+
   .pcl-actions {
     flex-direction: column;
     width: 100%;
     padding-bottom: 12px;
   }
+
   .pcl-btn-import,
   .pcl-btn-export {
     width: 100%;
     justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .pcl-back-btn {
+    padding: 8px 12px;
+    font-size: 12px;
   }
 }
 

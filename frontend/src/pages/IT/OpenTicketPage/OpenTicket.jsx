@@ -1,8 +1,14 @@
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
+import { Paperclip } from "lucide-react";
 import { toast } from "react-toastify";
 import { getITApiErrorMessage } from "../Data";
+import {
+  buildQueryAttachmentUrl,
+  queryAttachmentDisplayName,
+  QUERY_INBOX_POLL_MS,
+} from "../../Query/queryChatHelpers";
 import "./OpenTicket.css";
 import { formatDate as fmt, formatDateTimeDDMMYYYY } from "../../../utils/dateFormat";
 
@@ -46,6 +52,8 @@ const mapQueryToTicket = (q) => {
     date: q.created_at,
     status: closed ? "completed" : "pending",
     rawStatus: q.status || "New",
+    hasUnreadReply: Boolean(q.has_unread_reply),
+    unreadReplyCount: Number(q.unread_reply_count || 0),
   };
 };
 
@@ -90,6 +98,7 @@ export default function OpenTicket() {
 
   const [chatTicket, setChatTicket] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
+  const [chatAttachments, setChatAttachments] = useState([]);
   const [chatQueryMeta, setChatQueryMeta] = useState(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
@@ -136,11 +145,43 @@ export default function OpenTicket() {
     run();
   }, [loadTickets]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      loadTickets().catch(() => {});
+    }, QUERY_INBOX_POLL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [loadTickets]);
+
+  const markTicketRead = useCallback(async (ticketId) => {
+    if (!ticketId) return;
+    try {
+      await fetch(`${QUERY_API_BASE}/queries/${ticketId}/mark-read`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === ticketId
+            ? { ...t, hasUnreadReply: false, unreadReplyCount: 0 }
+            : t,
+        ),
+      );
+      try {
+        window.dispatchEvent(new Event("it-open-tickets-updated"));
+      } catch {
+        /* no-op */
+      }
+    } catch {
+      /* non-blocking */
+    }
+  }, []);
+
   const openChat = useCallback(async (ticket) => {
     setChatTicket(ticket);
     setReplyText("");
     setChatLoading(true);
     setChatMessages([]);
+    setChatAttachments([]);
     setChatQueryMeta(null);
     try {
       const response = await fetch(`${QUERY_API_BASE}/queries/${ticket.id}`, {
@@ -152,6 +193,9 @@ export default function OpenTicket() {
         throw new Error(result.message || "Failed to open query chat");
       }
       setChatQueryMeta(result.query || null);
+      setChatAttachments(
+        Array.isArray(result.query?.attachments) ? result.query.attachments : [],
+      );
       const messages = (result.chat_messages || []).map((m, idx) => ({
         id: `${ticket.id}-${idx}`,
         senderName: m.by || "User",
@@ -160,6 +204,19 @@ export default function OpenTicket() {
         ts: fmtDateTime(m.created_at),
       }));
       setChatMessages(messages);
+      setChatTicket((prev) =>
+        prev?.id === ticket.id
+          ? { ...prev, hasUnreadReply: false, unreadReplyCount: 0 }
+          : prev,
+      );
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === ticket.id
+            ? { ...t, hasUnreadReply: false, unreadReplyCount: 0 }
+            : t,
+        ),
+      );
+      await markTicketRead(ticket.id);
     } catch (err) {
       console.error("[OpenTicket] Chat load failed:", err);
       toast.error(getITApiErrorMessage(err, "Could not load chat history."));
@@ -167,13 +224,38 @@ export default function OpenTicket() {
     } finally {
       setChatLoading(false);
     }
-  }, []);
+  }, [markTicketRead]);
 
   const closeChat = useCallback(() => {
     setChatTicket(null);
     setChatMessages([]);
+    setChatAttachments([]);
     setChatQueryMeta(null);
     setReplyText("");
+  }, []);
+
+  const openQueryAttachment = useCallback(async (queryId, storedName) => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      toast.error("Please log in again to view attachments.");
+      return;
+    }
+    try {
+      const response = await fetch(
+        buildQueryAttachmentUrl(QUERY_API_BASE, queryId, storedName),
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) {
+        throw new Error("Unable to open file");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      console.error("[OpenTicket] Open attachment failed:", err);
+      toast.error(getITApiErrorMessage(err, "Unable to open attachment."));
+    }
   }, []);
 
   const sendReply = useCallback(async () => {
@@ -225,6 +307,9 @@ export default function OpenTicket() {
     });
 
     return [...result].sort((a, b) => {
+      if (a.hasUnreadReply !== b.hasUnreadReply) {
+        return a.hasUnreadReply ? -1 : 1;
+      }
       const ta = ticketCreatedMs(a);
       const tb = ticketCreatedMs(b);
       let diff = ta - tb;
@@ -232,6 +317,11 @@ export default function OpenTicket() {
       return sortOrder === "oldest" ? diff : -diff;
     });
   }, [tickets, search, statusTab, sortOrder]);
+
+  const unreadPendingCount = useMemo(
+    () => tickets.filter((t) => t.status === "pending" && t.hasUnreadReply).length,
+    [tickets],
+  );
 
   const handleResolve = async (id) => {
     if (!window.confirm("Mark this query as resolved (closed)?")) return;
@@ -333,6 +423,13 @@ export default function OpenTicket() {
             </span>
             <span className="ot-card-desc">
               Sorted by {sortOrder === "newest" ? "newest first" : "oldest first"}
+              {unreadPendingCount > 0 && (
+                <span className="ot-unread-summary">
+                  {" "}
+                  · {unreadPendingCount} with unread{" "}
+                  {unreadPendingCount === 1 ? "reply" : "replies"}
+                </span>
+              )}
             </span>
           </div>
           <span className="ot-card-count">
@@ -370,12 +467,25 @@ export default function OpenTicket() {
                   const meta = STATUS_META[ticket.status];
                   const bLabel = statusBadgeLabel(ticket.rawStatus);
                   return (
-                    <tr key={ticket.id} className="ot-tr">
+                    <tr
+                      key={ticket.id}
+                      className={ticket.hasUnreadReply ? "ot-tr ot-tr-unread" : "ot-tr"}
+                    >
                       <td className="ot-td-idx">{i + 1}</td>
                       <td><span className="ot-emp-id">{ticket.empId}</span></td>
                       <td><span className="ot-email">{ticket.email}</span></td>
                       <td className="ot-td-query">
-                        <span className="ot-query-title">{ticket.title}</span>
+                        <div className="ot-query-title-cell">
+                          {ticket.hasUnreadReply && (
+                            <span className="ot-unread-dot" title="Unread reply" aria-hidden="true" />
+                          )}
+                          <span className={ticket.hasUnreadReply ? "ot-query-title ot-query-title-unread" : "ot-query-title"}>
+                            {ticket.title}
+                          </span>
+                          {ticket.hasUnreadReply && (
+                            <span className="ot-new-reply-pill">New reply</span>
+                          )}
+                        </div>
                         <span className="ot-query">{ticket.query}</span>
                       </td>
                       <td><span className="ot-date">{fmt(ticket.date)}</span></td>
@@ -395,10 +505,16 @@ export default function OpenTicket() {
                       <td>
                         <button
                           type="button"
-                          className="ot-chat-btn"
+                          className={`ot-chat-btn${ticket.hasUnreadReply ? " ot-chat-btn-unread" : ""}`}
                           onClick={() => openChat(ticket)}
+                          title={ticket.hasUnreadReply ? "Unread employee reply" : "Open chat"}
                         >
                           ✉ Chat
+                          {ticket.unreadReplyCount > 0 && (
+                            <span className="ot-chat-unread-badge">
+                              {ticket.unreadReplyCount > 9 ? "9+" : ticket.unreadReplyCount}
+                            </span>
+                          )}
                         </button>
                       </td>
                       {statusTab === "Pending" && (
@@ -455,14 +571,34 @@ export default function OpenTicket() {
                 <p className="ot-chat-loading">Loading conversation…</p>
               ) : (
                 <>
-                  {chatMessages.map((m) => (
-                    <div key={m.id} className={`ot-msg ot-msg--${m.side}`}>
-                      <div className="ot-msg-bubble">
-                        <div className="ot-msg-from">{m.senderName}</div>
-                        <div className="ot-msg-text">{m.text}</div>
-                        <div className="ot-msg-time">{m.ts}</div>
+                  {chatMessages.map((m, index) => (
+                    <Fragment key={m.id}>
+                      {index === 0 && chatAttachments.length > 0 && (
+                        <div className={`ot-msg ot-msg--${m.side}`}>
+                          <div className="ot-msg-attachments">
+                            {chatAttachments.map((file) => (
+                              <button
+                                key={file}
+                                type="button"
+                                className="ot-msg-attachment-chip"
+                                onClick={() => openQueryAttachment(chatTicket.id, file)}
+                                title={queryAttachmentDisplayName(file)}
+                              >
+                                <Paperclip size={13} aria-hidden="true" />
+                                <span>{queryAttachmentDisplayName(file)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div className={`ot-msg ot-msg--${m.side}`}>
+                        <div className="ot-msg-bubble">
+                          <div className="ot-msg-from">{m.senderName}</div>
+                          <div className="ot-msg-text">{m.text}</div>
+                          <div className="ot-msg-time">{m.ts}</div>
+                        </div>
                       </div>
-                    </div>
+                    </Fragment>
                   ))}
                   <div ref={chatEndRef} />
                 </>
