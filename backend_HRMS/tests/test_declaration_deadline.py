@@ -91,6 +91,33 @@ class TestDeclarationDeadline(unittest.TestCase):
             deadline = self.tds.effective_declaration_deadline("2026-2027")
         self.assertEqual(deadline, date(2027, 2, 25))
 
+    def test_saving_default_date_does_not_create_override(self):
+        with patch.object(self.tds, "_SETTINGS_PATH", self.settings_file):
+            self.tds.set_declaration_deadline_override("2026-2027", date(2027, 2, 25))
+            saved = json.loads(self.settings_file.read_text(encoding="utf-8"))
+            deadline = self.tds.effective_declaration_deadline("2026-2027")
+            payload = self.tds.declaration_deadline_payload("2026-2027")
+        self.assertEqual(saved.get("declaration_deadline_overrides"), {})
+        self.assertEqual(deadline, date(2027, 2, 25))
+        self.assertFalse(payload["is_extended"])
+        self.assertNotIn("extended by Finance", payload["notice"])
+
+    def test_stale_override_matching_default_is_ignored(self):
+        self.settings_file.write_text(
+            json.dumps(
+                {
+                    "declaration_deadline_default_day": 25,
+                    "declaration_deadline_default_month": 2,
+                    "declaration_deadline_overrides": {"2026-27": "2027-02-25"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        with patch.object(self.tds, "_SETTINGS_PATH", self.settings_file):
+            payload = self.tds.declaration_deadline_payload("2026-2027")
+        self.assertFalse(payload["is_extended"])
+        self.assertNotIn("extended by Finance", payload["notice"])
+
 
 if __name__ == "__main__":
     unittest.main()

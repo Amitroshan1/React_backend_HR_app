@@ -10,7 +10,5 @@
   "max_declaration_amendments_per_fy": 2,
   "declaration_deadline_default_day": 25,
   "declaration_deadline_default_month": 2,
-  "declaration_deadline_overrides": {
-    "2026-27": "2027-03-10"
-  }
+  "declaration_deadline_overrides": {}
 }

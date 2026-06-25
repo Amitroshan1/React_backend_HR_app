@@ -163,14 +163,17 @@ def effective_declaration_deadline(financial_year: str) -> date:
     overrides = settings.get("declaration_deadline_overrides") or {}
     compact = fy_compact_key(financial_year)
     fy_display = _format_fy_display(financial_year)
+    default = default_declaration_deadline(financial_year)
     for key in (compact, fy_display, str(financial_year).strip()):
         raw = overrides.get(key)
         if raw:
             try:
-                return date.fromisoformat(str(raw).strip())
+                override = date.fromisoformat(str(raw).strip())
+                if override != default:
+                    return override
             except ValueError:
                 pass
-    return default_declaration_deadline(financial_year)
+    return default
 
 
 def is_declaration_submission_open(financial_year: str, as_of: date | None = None) -> bool:
@@ -220,9 +223,12 @@ def set_declaration_deadline_override(financial_year: str, deadline: date | None
     overrides = dict(settings.get("declaration_deadline_overrides") or {})
     compact = fy_compact_key(financial_year)
     fy_display = _format_fy_display(financial_year)
-    if deadline is None:
-        for key in (compact, fy_display, str(financial_year).strip()):
+    keys = (compact, fy_display, str(financial_year).strip())
+    if deadline is None or deadline == default_declaration_deadline(financial_year):
+        for key in keys:
             overrides.pop(key, None)
     else:
+        for key in keys:
+            overrides.pop(key, None)
         overrides[compact] = deadline.isoformat()
     return save_tds_settings({"declaration_deadline_overrides": overrides})
