@@ -28,6 +28,10 @@ class EmployeeAccounts(db.Model):
     bank_details = db.Column(db.Text, nullable=True)
     date_of_joining = db.Column(db.Date, nullable=True)
     tax_regime = db.Column(db.String(80), nullable=True)
+    tax_regime_override = db.Column(db.String(80), nullable=True)
+    tax_regime_override_reason = db.Column(db.Text, nullable=True)
+    tax_regime_override_at = db.Column(db.DateTime, nullable=True)
+    tax_regime_override_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
     pan = db.Column(db.String(20), nullable=True)
     uan = db.Column(db.String(30), nullable=True)
     pf_account_number = db.Column(db.String(50), nullable=True)
@@ -37,7 +41,15 @@ class EmployeeAccounts(db.Model):
     created_at = db.Column(db.DateTime, nullable=True, default=utc_now)
     updated_at = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
 
-    admin = db.relationship("Admin", back_populates="employee_accounts_record")
+    admin = db.relationship(
+        "Admin",
+        back_populates="employee_accounts_record",
+        foreign_keys=[admin_id],
+    )
+    tax_regime_override_by = db.relationship(
+        "Admin",
+        foreign_keys=[tax_regime_override_by_admin_id],
+    )
 
     def to_dict(self):
         return {
@@ -50,6 +62,10 @@ class EmployeeAccounts(db.Model):
             "bank_details": self.bank_details,
             "date_of_joining": self.date_of_joining.isoformat() if self.date_of_joining else None,
             "tax_regime": self.tax_regime,
+            "tax_regime_override": self.tax_regime_override,
+            "tax_regime_override_reason": self.tax_regime_override_reason,
+            "tax_regime_override_at": isoformat_api(self.tax_regime_override_at),
+            "tax_regime_override_by_admin_id": self.tax_regime_override_by_admin_id,
             "pan": self.pan,
             "uan": self.uan,
             "pf_account_number": self.pf_account_number,

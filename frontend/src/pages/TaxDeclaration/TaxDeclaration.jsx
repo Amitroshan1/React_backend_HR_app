@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronDown, ChevronUp, FileText, Upload } from "lucide-react";
 import { useUser } from "../../components/layout/UserContext";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { notifyError, notifyInfo, notifySuccess, notifyWarning } from "../../utils/notify";
 import { TaxDeclarationActions } from "./TaxDeclarationActions";
 import {
     clampAmountInput,
     docsForItem,
+    effectiveDocsForItem,
+    FINAL_PROOF_DOC_TYPE,
     formatCapINR,
     formatSectionCapSummary,
     generalDocuments,
@@ -39,8 +42,29 @@ async function parseApiResponse(res) {
     }
 }
 
-function itemsFromDeclaration(declItems = []) {
+function schemaItemTypes(schema) {
+    const amountKeys = new Set();
+    const textKeys = new Set();
+    (schema?.sections || []).forEach((sec) => {
+        (sec.items || []).forEach((def) => {
+            const k = itemKey(sec.id, def.code);
+            if (def.type === "amount") amountKeys.add(k);
+            else if (def.type === "text") textKeys.add(k);
+        });
+    });
+    return { amountKeys, textKeys };
+}
+
+function resolveDeclaredAmount(it) {
+    if (it.amount != null && it.amount !== "") return it.amount;
+    if (it.amount === 0 || it.amount === "0") return 0;
+    return null;
+}
+
+function itemsFromDeclaration(declItems = [], schema = null, documents = []) {
+    const { amountKeys, textKeys } = schemaItemTypes(schema);
     const map = {};
+
     declItems.forEach((it) => {
         const k = itemKey(it.section_code, it.item_code);
         if (it.item_code === "IS_METRO") {
@@ -50,14 +74,25 @@ function itemsFromDeclaration(declItems = []) {
                 type: "boolean",
                 value: (it.text_value || "").toLowerCase() === "true",
             };
-        } else if (it.amount != null && it.amount !== "") {
+            return;
+        }
+
+        const isAmountLine =
+            amountKeys.has(k) ||
+            (!schema && it.item_code !== "IS_METRO" && (it.amount != null || it.final_amount != null));
+
+        if (isAmountLine) {
+            const declared = resolveDeclaredAmount(it);
             map[k] = {
                 section_code: it.section_code,
                 item_code: it.item_code,
                 type: "amount",
-                amount: it.amount,
+                amount: declared != null ? declared : "",
             };
-        } else {
+            return;
+        }
+
+        if (textKeys.has(k) || (it.text_value != null && it.text_value !== "")) {
             map[k] = {
                 section_code: it.section_code,
                 item_code: it.item_code,
@@ -66,15 +101,70 @@ function itemsFromDeclaration(declItems = []) {
             };
         }
     });
+
+    (documents || []).forEach((doc) => {
+        if (!doc.section_code || !doc.item_code) return;
+        const k = itemKey(doc.section_code, doc.item_code);
+        const declItem = declItems.find(
+            (it) => itemKey(it.section_code, it.item_code) === k
+        );
+        const declared = declItem ? resolveDeclaredAmount(declItem) : null;
+        if (map[k]) {
+            if ((map[k].amount === "" || map[k].amount == null) && declared != null) {
+                map[k] = { ...map[k], amount: declared };
+            }
+            return;
+        }
+        if (amountKeys.has(k) || declared != null) {
+            map[k] = {
+                section_code: doc.section_code,
+                item_code: doc.item_code,
+                type: "amount",
+                amount: declared != null ? declared : "",
+            };
+        }
+    });
+
     return map;
 }
 
-function buildItemsArray(itemsMap, schema) {
+function mergeItemsMapWithPersisted(itemsMap, persistedItems = []) {
+    const merged = { ...itemsMap };
+    persistedItems.forEach((it) => {
+        const k = itemKey(it.section_code, it.item_code);
+        if (it.item_code === "IS_METRO") {
+            if (!merged[k]) {
+                merged[k] = {
+                    section_code: it.section_code,
+                    item_code: it.item_code,
+                    type: "boolean",
+                    value: (it.text_value || "").toLowerCase() === "true",
+                };
+            }
+            return;
+        }
+        const declared = resolveDeclaredAmount(it);
+        if (declared == null) return;
+        const existing = merged[k];
+        if (!existing || existing.amount === "" || existing.amount == null) {
+            merged[k] = {
+                section_code: it.section_code,
+                item_code: it.item_code,
+                type: "amount",
+                amount: declared,
+            };
+        }
+    });
+    return merged;
+}
+
+function buildItemsArray(itemsMap, schema, persistedItems = []) {
+    const mergedMap = mergeItemsMapWithPersisted(itemsMap, persistedItems);
     const out = [];
     (schema?.sections || []).forEach((sec) => {
         (sec.items || []).forEach((def) => {
             const k = itemKey(sec.id, def.code);
-            const row = itemsMap[k];
+            const row = mergedMap[k];
             if (!row) return;
             if (def.type === "boolean") {
                 out.push({
@@ -121,10 +211,8 @@ export const TaxDeclaration = () => {
     const [ctc, setCtc] = useState({});
     const [documents, setDocuments] = useState([]);
     const [status, setStatus] = useState("draft");
-    const [rejectionReason, setRejectionReason] = useState("");
-    const [error, setError] = useState("");
-    const [success, setSuccess] = useState("");
     const [openSections, setOpenSections] = useState({});
+    const statusNotifiedRef = useRef("");
 
     const [financialYear, setFinancialYear] = useState(defaultFinancialYear);
     const [fyOptions, setFyOptions] = useState(() => financialYearOptions());
@@ -136,6 +224,10 @@ export const TaxDeclaration = () => {
     const [declarationPlace, setDeclarationPlace] = useState("");
     const [uploadDocType, setUploadDocType] = useState("pan_card");
     const [uploadingKey, setUploadingKey] = useState(null);
+    const [declarationPhase, setDeclarationPhase] = useState("provisional");
+    const [finalProofStatus, setFinalProofStatus] = useState("");
+    const [persistedDeclItems, setPersistedDeclItems] = useState([]);
+    const [submissionDeadline, setSubmissionDeadline] = useState(null);
 
     const authHeaders = () => {
         const token = localStorage.getItem("token");
@@ -144,6 +236,25 @@ export const TaxDeclaration = () => {
 
     const regime = normalizeRegime(taxRegime);
     const isLocked = status === "submitted" || status === "approved";
+    const submissionClosed = submissionDeadline && submissionDeadline.is_open === false;
+    const finalProofEditable =
+        status === "approved" &&
+        ["", "draft", "rejected"].includes((finalProofStatus || "").toLowerCase());
+    const showFinalProofBanner = status === "approved";
+
+    const finalProofBannerMessage = useMemo(() => {
+        const fps = (finalProofStatus || "").toLowerCase();
+        if (fps === "approved") {
+            return "Year-end proof is approved. Open Final proof (top right) to view amounts and documents.";
+        }
+        if (fps === "submitted") {
+            return "Your year-end proof is under Finance review. Open Final proof (top right) to view what you submitted.";
+        }
+        if (fps === "rejected") {
+            return "Year-end proof was rejected. Open Final proof (top right) to update amounts and re-upload documents.";
+        }
+        return "After FY end, open Final proof (top right) to enter actual amounts and upload updated receipts.";
+    }, [finalProofStatus]);
 
     const loadFinancialYears = useCallback(async () => {
         try {
@@ -179,7 +290,6 @@ export const TaxDeclaration = () => {
     const loadData = useCallback(async (fy) => {
         if (!userId) return;
         setLoading(true);
-        setError("");
         try {
             const res = await fetch(
                 `${AUTH_API}/tax-declaration/self?financial_year=${encodeURIComponent(fy)}`,
@@ -196,8 +306,13 @@ export const TaxDeclaration = () => {
             setRules(data.rules || { old: {}, new: {} });
             setEmployee(data.employee || {});
             setCtc(data.ctc || {});
+            setSubmissionDeadline(data.submission_deadline || null);
             const decl = data.declaration;
-            const map = decl ? itemsFromDeclaration(decl.items || []) : {};
+            const declItems = decl?.items || [];
+            const declDocs = decl?.documents || [];
+            const map = decl
+                ? itemsFromDeclaration(declItems, data.schema || {}, declDocs)
+                : {};
             if (data.ctc?.epf_annual != null) {
                 map[itemKey("80C", "EPF")] = {
                     section_code: "80C",
@@ -208,19 +323,42 @@ export const TaxDeclaration = () => {
                 };
             }
             setItemsMap(map);
+            setPersistedDeclItems(declItems);
 
             if (decl) {
                 setStatus(decl.status || "draft");
-                setRejectionReason(decl.rejection_reason || "");
+                setDeclarationPhase(decl.declaration_phase || "provisional");
+                setFinalProofStatus(decl.final_proof_status || "");
                 setTaxRegime(normalizeRegime(decl.tax_regime) === "old" ? "old" : "new");
-                setDocuments(decl.documents || []);
+                setDocuments(declDocs);
                 setRegimeAccepted(Boolean(decl.regime_declaration_accepted));
                 setNewRegimeAck(Boolean(decl.new_regime_acknowledged));
                 setFinalAccepted(Boolean(decl.final_declaration_accepted));
                 setDeclarationPlace(decl.declaration_place || "");
+
+                const notifyKey = `${fy}:${decl.status}:${decl.rejection_reason || ""}`;
+                if (statusNotifiedRef.current !== notifyKey) {
+                    statusNotifiedRef.current = notifyKey;
+                    if (decl.status === "rejected" && decl.rejection_reason) {
+                        notifyWarning(`Rejected: ${decl.rejection_reason}. Please update and resubmit.`);
+                    } else if (decl.status === "submitted") {
+                        notifyInfo("Your declaration is under review. Editing is locked until Finance responds.");
+                    } else if (decl.status === "approved") {
+                        notifyInfo("Your declaration is approved and locked. Contact Finance to amend if needed.");
+                    } else if (decl.status === "draft") {
+                        const wasAmended = (decl.approval_history || []).some(
+                            (h) => (h.action || "").toLowerCase() === "amend_unlock"
+                        );
+                        if (wasAmended) {
+                            notifyInfo("Declaration unlocked for amendment. Update amounts and resubmit.");
+                        }
+                    }
+                }
             } else {
                 setStatus("draft");
-                setRejectionReason("");
+                setDeclarationPhase("provisional");
+                setFinalProofStatus("");
+                setPersistedDeclItems([]);
                 const profRegime = data.profile?.tax_regime || data.employee?.tax_regime;
                 setTaxRegime(normalizeRegime(profRegime) === "old" ? "old" : "new");
                 setDocuments([]);
@@ -230,7 +368,7 @@ export const TaxDeclaration = () => {
                 setDeclarationPlace("");
             }
         } catch (err) {
-            setError(err.message || "Unable to load tax declaration");
+            notifyError(err.message || "Unable to load tax declaration");
         } finally {
             setLoading(false);
         }
@@ -255,13 +393,11 @@ export const TaxDeclaration = () => {
 
     const save = async (submit) => {
         setSaving(true);
-        setError("");
-        setSuccess("");
         try {
             const body = {
                 financial_year: financialYear,
                 tax_regime: taxRegime === "old" ? "Old Tax Regime" : "New Tax Regime",
-                items: buildItemsArray(itemsMap, schema),
+                items: buildItemsArray(itemsMap, schema, persistedDeclItems),
                 regime_declaration_accepted: regimeAccepted,
                 new_regime_acknowledged: newRegimeAck,
                 final_declaration_accepted: finalAccepted,
@@ -281,12 +417,34 @@ export const TaxDeclaration = () => {
                     : (data.message || "Save failed");
                 throw new Error(msg);
             }
-            setStatus(data.declaration?.status || (submit ? "submitted" : "draft"));
-            setDocuments(data.declaration?.documents || documents);
-            setSuccess(data.message);
-            if (submit) setRejectionReason("");
+            const savedDecl = data.declaration;
+            setStatus(savedDecl?.status || (submit ? "submitted" : "draft"));
+            if (data.submission_deadline) {
+                setSubmissionDeadline(data.submission_deadline);
+            }
+            if (savedDecl) {
+                const savedItems = savedDecl.items || [];
+                setPersistedDeclItems(savedItems);
+                setDocuments(savedDecl.documents || documents);
+                const refreshedMap = itemsFromDeclaration(
+                    savedItems,
+                    schema,
+                    savedDecl.documents || []
+                );
+                if (ctc?.epf_annual != null) {
+                    refreshedMap[itemKey("80C", "EPF")] = {
+                        section_code: "80C",
+                        item_code: "EPF",
+                        type: "amount",
+                        amount: ctc.epf_annual,
+                        readonly: true,
+                    };
+                }
+                setItemsMap(refreshedMap);
+            }
+            notifySuccess(data.message);
         } catch (err) {
-            setError(err.message || "Unable to save");
+            notifyError(err.message || "Unable to save");
         } finally {
             setSaving(false);
         }
@@ -297,7 +455,6 @@ export const TaxDeclaration = () => {
         if (!file) return;
         const key = itemKey(sec.id, def.code);
         setUploadingKey(key);
-        setError("");
         try {
             const fd = new FormData();
             fd.append("financial_year", financialYear);
@@ -312,17 +469,39 @@ export const TaxDeclaration = () => {
             });
             const { ok, data } = await parseApiResponse(res);
             if (!ok || !data.success) throw new Error(data.message || "Upload failed");
+            setItemsMap((prev) => {
+                const k = itemKey(sec.id, def.code);
+                if (prev[k]?.amount != null && prev[k].amount !== "") return prev;
+                const declItem = persistedDeclItems.find(
+                    (it) => itemKey(it.section_code, it.item_code) === k
+                );
+                const declared =
+                    declItem?.amount != null && declItem.amount !== ""
+                        ? declItem.amount
+                        : "";
+                return {
+                    ...prev,
+                    [k]: {
+                        section_code: sec.id,
+                        item_code: def.code,
+                        type: "amount",
+                        amount: prev[k]?.amount ?? declared,
+                    },
+                };
+            });
             setDocuments((prev) => {
-                const filtered = prev.filter(
-                    (d) =>
+                const filtered = prev.filter((d) => {
+                    if ((d.doc_type || "").toLowerCase() === FINAL_PROOF_DOC_TYPE) return true;
+                    return (
                         String(d.section_code || "").toUpperCase() !== String(sec.id).toUpperCase()
                         || String(d.item_code || "").toUpperCase() !== String(def.code).toUpperCase()
-                );
+                    );
+                });
                 return [...filtered, data.document];
             });
-            setSuccess("Document uploaded.");
+            notifySuccess("Document uploaded.");
         } catch (err) {
-            setError(err.message || "Upload failed");
+            notifyError(err.message || "Upload failed");
         } finally {
             setUploadingKey(null);
             e.target.value = "";
@@ -332,7 +511,6 @@ export const TaxDeclaration = () => {
     const handleUpload = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        setError("");
         try {
             const fd = new FormData();
             fd.append("financial_year", financialYear);
@@ -346,9 +524,9 @@ export const TaxDeclaration = () => {
             const { ok, data } = await parseApiResponse(res);
             if (!ok || !data.success) throw new Error(data.message || "Upload failed");
             setDocuments((prev) => [...prev, data.document]);
-            setSuccess("Document uploaded.");
+            notifySuccess("Document uploaded.");
         } catch (err) {
-            setError(err.message || "Upload failed");
+            notifyError(err.message || "Upload failed");
         } finally {
             e.target.value = "";
         }
@@ -364,7 +542,7 @@ export const TaxDeclaration = () => {
             if (!ok || !data.success) throw new Error(data.message || "Delete failed");
             setDocuments((prev) => prev.filter((d) => d.id !== docId));
         } catch (err) {
-            setError(err.message || "Delete failed");
+            notifyError(err.message || "Delete failed");
         }
     };
 
@@ -374,7 +552,11 @@ export const TaxDeclaration = () => {
         const readonly = isLocked || def.readonly || def.code === "EPF";
         const capLabel = getCapLabel(def, sec, itemsMap, ctc);
         const itemCap = itemEffectiveCap(def, sec, itemsMap, ctc);
-        const itemDocs = docsForItem(documents, sec.id, def.code);
+        const { docs: itemDocs, isYearEnd: isYearEndProof } = effectiveDocsForItem(
+            documents,
+            sec.id,
+            def.code
+        );
         const isUploading = uploadingKey === k;
         const overCap = itemCap != null && Number(row.amount || 0) > itemCap;
 
@@ -406,29 +588,44 @@ export const TaxDeclaration = () => {
                     />
                 </div>
                 <div className="tax-decl-item-row__proof">
-                    {def.proof_required && !readonly ? (
+                    {def.proof_required && (!readonly || itemDocs.length > 0) ? (
                         <>
-                            <label className="tax-decl-item-upload">
-                                <Upload size={14} aria-hidden />
-                                {isUploading ? "Uploading…" : itemDocs.length ? "Replace" : "Upload proof"}
-                                <input
-                                    type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    hidden
-                                    disabled={isUploading}
-                                    onChange={(ev) => handleItemUpload(ev, sec, def)}
-                                />
-                            </label>
-                            {itemDocs.map((doc) => (
-                                <div key={doc.id} className="tax-decl-item-doc">
-                                    <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                                        {doc.original_name || "View"}
-                                    </a>
-                                    {!isLocked && (
-                                        <button type="button" onClick={() => removeDoc(doc.id)}>×</button>
-                                    )}
-                                </div>
-                            ))}
+                            {!readonly && (
+                                <label className="tax-decl-item-upload">
+                                    <Upload size={14} aria-hidden />
+                                    {isUploading ? "Uploading…" : itemDocs.length ? "Replace" : "Upload proof"}
+                                    <input
+                                        type="file"
+                                        hidden
+                                        disabled={isUploading}
+                                        onChange={(ev) => handleItemUpload(ev, sec, def)}
+                                    />
+                                </label>
+                            )}
+                            {itemDocs.length > 0 ? (
+                                itemDocs.map((doc) => (
+                                    <div key={doc.id} className="tax-decl-item-doc">
+                                        <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                                            {doc.original_name || "View"}
+                                        </a>
+                                        {isYearEndProof && (
+                                            <small className="tax-decl-proof-updated-note">
+                                                Updated — year-end proof
+                                            </small>
+                                        )}
+                                        {!isLocked && !isYearEndProof && (
+                                            <button type="button" onClick={() => removeDoc(doc.id)}>×</button>
+                                        )}
+                                        {!isLocked && isYearEndProof && (
+                                            <span className="tax-decl-muted tax-decl-proof-updated-hint">
+                                                Manage on Final proof page
+                                            </span>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                !readonly && <span className="tax-decl-muted">No file yet</span>
+                            )}
                         </>
                     ) : (
                         <span className="tax-decl-muted">—</span>
@@ -540,26 +737,55 @@ export const TaxDeclaration = () => {
                             </p>
                         </div>
                     </div>
-                    <TaxDeclarationActions hasCtcData={Boolean(ctc?.has_ctc)} />
+                    <TaxDeclarationActions
+                        hasCtcData={Boolean(ctc?.has_ctc)}
+                        declarationApproved={status === "approved"}
+                        finalProofEditable={finalProofEditable}
+                        finalProofNeedsAction={finalProofEditable}
+                    />
                 </div>
 
+                {submissionDeadline?.notice && (
+                    <div
+                        className={`tax-decl-deadline-marquee tax-decl-deadline-marquee--${
+                            submissionDeadline.is_open ? "open" : "closed"
+                        }`}
+                        role="status"
+                    >
+                        <div className="tax-decl-deadline-marquee-track">
+                            <span>{submissionDeadline.notice}</span>
+                            <span aria-hidden="true">{submissionDeadline.notice}</span>
+                        </div>
+                    </div>
+                )}
+
+                {showFinalProofBanner && (
+                    <div
+                        className={`tax-decl-banner tax-decl-banner--final-proof${
+                            finalProofEditable ? "" : " tax-decl-banner--muted"
+                        }`}
+                        role="status"
+                    >
+                        <strong>Year-end final proof</strong>
+                        <p className="tax-decl-muted">
+                            {finalProofBannerMessage}
+                        </p>
+                        <p className="tax-decl-muted tax-decl-banner--final-proof-meta">
+                            Phase: <strong>{declarationPhase}</strong>
+                            {finalProofStatus ? (
+                                <>
+                                    {" · "}
+                                    Status: <strong>{finalProofStatus}</strong>
+                                </>
+                            ) : null}
+                        </p>
+                    </div>
+                )}
+
                 {loading && <p className="tax-decl-muted">Loading…</p>}
-                {error && <div className="tax-decl-alert tax-decl-alert--error" role="alert">{error}</div>}
-                {success && <div className="tax-decl-alert tax-decl-alert--success" role="status">{success}</div>}
 
                 {!loading && (
                     <>
-                        {status === "rejected" && rejectionReason && (
-                            <div className="tax-decl-banner tax-decl-banner--warn">
-                                Rejected: {rejectionReason}. Please update and resubmit.
-                            </div>
-                        )}
-                        {isLocked && (
-                            <div className="tax-decl-banner tax-decl-banner--submitted">
-                                This declaration is locked while under review or approved.
-                            </div>
-                        )}
-
                         <section className="tax-decl-section">
                             <h2 className="tax-decl-section-title">Employee Information</h2>
                             <div className="tax-decl-info-grid">
@@ -676,7 +902,7 @@ export const TaxDeclaration = () => {
 
                         <section className="tax-decl-section">
                             <h2 className="tax-decl-section-title">Section F: General Documents</h2>
-                            <p className="tax-decl-muted">Upload PAN and any other general supporting documents (PDF, JPG, PNG — max 5 MB)</p>
+                            <p className="tax-decl-muted">Upload PAN and any other general supporting documents (PDF, Word, Excel, images, etc. — max 5 MB)</p>
                             {!isLocked && (
                                 <div className="tax-decl-upload-row">
                                     <select
@@ -693,7 +919,6 @@ export const TaxDeclaration = () => {
                                         {uploadingKey === "general" ? "Uploading…" : "Choose file"}
                                         <input
                                             type="file"
-                                            accept=".pdf,.jpg,.jpeg,.png"
                                             hidden
                                             onChange={async (e) => {
                                                 setUploadingKey("general");
@@ -773,8 +998,13 @@ export const TaxDeclaration = () => {
                                     <button
                                         type="button"
                                         className="tax-decl-btn tax-decl-btn--primary"
-                                        disabled={saving || !ctc.has_ctc}
+                                        disabled={saving || !ctc.has_ctc || submissionClosed}
                                         onClick={() => save(true)}
+                                        title={
+                                            submissionClosed
+                                                ? `Submission closed on ${submissionDeadline?.deadline_display || "deadline"}`
+                                                : undefined
+                                        }
                                     >
                                         {saving ? "Submitting…" : "Submit declaration"}
                                     </button>

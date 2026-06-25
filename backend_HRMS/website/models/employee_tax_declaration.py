@@ -38,6 +38,11 @@ class EmployeeTaxDeclaration(db.Model):
     declaration_signed_at = db.Column(db.Date, nullable=True)
 
     status = db.Column(db.String(30), nullable=False, default="draft", index=True)
+    declaration_phase = db.Column(db.String(20), nullable=False, default="provisional")
+    final_proof_status = db.Column(db.String(30), nullable=True)
+    final_proof_submitted_at = db.Column(db.DateTime, nullable=True)
+    final_proof_reviewed_at = db.Column(db.DateTime, nullable=True)
+    final_proof_rejection_reason = db.Column(db.Text, nullable=True)
     submitted_at = db.Column(db.DateTime, nullable=True)
     reviewed_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
     reviewed_at = db.Column(db.DateTime, nullable=True)
@@ -89,6 +94,11 @@ class EmployeeTaxDeclaration(db.Model):
             "declaration_place": self.declaration_place,
             "declaration_signed_at": self.declaration_signed_at.isoformat() if self.declaration_signed_at else None,
             "status": self.status,
+            "declaration_phase": self.declaration_phase or "provisional",
+            "final_proof_status": self.final_proof_status,
+            "final_proof_submitted_at": isoformat_api(self.final_proof_submitted_at),
+            "final_proof_reviewed_at": isoformat_api(self.final_proof_reviewed_at),
+            "final_proof_rejection_reason": self.final_proof_rejection_reason,
             "submitted_at": isoformat_api(self.submitted_at),
             "reviewed_by_admin_id": self.reviewed_by_admin_id,
             "reviewed_at": isoformat_api(self.reviewed_at),
@@ -116,6 +126,7 @@ class TaxDeclarationItem(db.Model):
     section_code = db.Column(db.String(40), nullable=False, index=True)
     item_code = db.Column(db.String(60), nullable=False)
     amount = db.Column(db.Float, nullable=True)
+    final_amount = db.Column(db.Float, nullable=True)
     text_value = db.Column(db.String(500), nullable=True)
     meta_json = db.Column(db.JSON, nullable=True)
 
@@ -127,6 +138,7 @@ class TaxDeclarationItem(db.Model):
             "section_code": self.section_code,
             "item_code": self.item_code,
             "amount": float(self.amount) if self.amount is not None else None,
+            "final_amount": float(self.final_amount) if self.final_amount is not None else None,
             "text_value": self.text_value,
             "meta_json": self.meta_json,
         }

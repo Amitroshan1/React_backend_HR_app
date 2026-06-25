@@ -265,6 +265,14 @@ def run_tds_projection(
     is_metro: bool = False,
     section_80c_extra: float = 0,
     section_80d: float = 0,
+    section_80ccd1b: float = 0,
+    section_24_interest: float = 0,
+    lta_exemption: float = 0,
+    section_80e: float = 0,
+    section_80g: float = 0,
+    other_deductions: float = 0,
+    other_income: float = 0,
+    new_regime_deductions: float = 0,
     ptax_annual: float = 0,
     as_of: date | None = None,
     rules_override: dict | None = None,
@@ -290,6 +298,13 @@ def run_tds_projection(
     hra_exemption = 0.0
     section_80c = 0.0
     section_80d_allowed = 0.0
+    section_80ccd1b_allowed = 0.0
+    section_24_allowed = 0.0
+    lta_allowed = 0.0
+    section_80e_allowed = 0.0
+    section_80g_allowed = 0.0
+    other_ded_allowed = 0.0
+    new_regime_allowed = 0.0
 
     if regime == "old":
         hra_exemption = compute_hra_exemption(
@@ -302,12 +317,45 @@ def run_tds_projection(
         cap_80c = float(rules.get("section_80c_cap", 150000))
         section_80c = min(cap_80c, epf_annual + max(0.0, section_80c_extra))
         section_80d_allowed = max(0.0, section_80d)
+        section_80ccd1b_allowed = min(
+            float(rules.get("section_80ccd1b_cap", 50000)),
+            max(0.0, section_80ccd1b),
+        )
+        section_24_allowed = min(
+            float(rules.get("section_24_cap", 200000)),
+            max(0.0, section_24_interest),
+        )
+        lta_allowed = max(0.0, lta_exemption)
+        lta_cap = float(rules.get("section_lta_cap", 0) or 0)
+        if lta_cap > 0:
+            lta_allowed = min(lta_allowed, lta_cap)
+        section_80e_allowed = max(0.0, section_80e)
+        section_80g_allowed = max(0.0, section_80g) * 0.5
+        other_ded_allowed = max(0.0, other_deductions)
+    else:
+        new_regime_allowed = max(0.0, new_regime_deductions)
 
-    total_exemptions = standard_deduction + hra_exemption + section_80c + section_80d_allowed
+    chapter_via_a = (
+        section_80ccd1b_allowed
+        + section_24_allowed
+        + lta_allowed
+        + section_80e_allowed
+        + section_80g_allowed
+        + other_ded_allowed
+    )
+    total_exemptions = (
+        standard_deduction
+        + hra_exemption
+        + section_80c
+        + section_80d_allowed
+        + chapter_via_a
+        + new_regime_allowed
+    )
     if regime == "old" and ptax_annual > 0:
         total_exemptions += ptax_annual
 
-    taxable_income = max(0.0, projected_gross - total_exemptions)
+    gross_with_other = projected_gross + max(0.0, other_income)
+    taxable_income = max(0.0, gross_with_other - total_exemptions)
     tax_result = compute_annual_tax(taxable_income, rules)
 
     annual_tax = tax_result["annual_tax"]
@@ -364,6 +412,14 @@ def run_tds_projection(
             "hra_exemption": _round2(hra_exemption),
             "section_80c": _round2(section_80c),
             "section_80d": _round2(section_80d_allowed),
+            "section_80ccd1b": _round2(section_80ccd1b_allowed),
+            "section_24_interest": _round2(section_24_allowed),
+            "lta_exemption": _round2(lta_allowed),
+            "section_80e": _round2(section_80e_allowed),
+            "section_80g": _round2(section_80g_allowed),
+            "other_deductions": _round2(other_ded_allowed),
+            "new_regime_deductions": _round2(new_regime_allowed),
+            "other_income": _round2(max(0.0, other_income)),
             "professional_tax_annual": _round2(ptax_annual if regime == "old" else 0),
             "total_exemptions": _round2(total_exemptions),
         },

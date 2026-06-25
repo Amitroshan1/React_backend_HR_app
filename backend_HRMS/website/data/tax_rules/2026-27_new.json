@@ -1,0 +1,20 @@
+{
+  "financial_year": "2026-27",
+  "regime": "new",
+  "label": "New Tax Regime (FY 2026-27)",
+  "standard_deduction": 75000,
+  "section_80c_cap": 0,
+  "rebate_87a": {
+    "income_limit": 1200000,
+    "max_rebate": 60000
+  },
+  "cess_pct": 4,
+  "slabs": [
+    { "upto": 400000, "rate": 0 },
+    { "upto": 800000, "rate": 5 },
+    { "upto": 1200000, "rate": 10 },
+    { "upto": 1600000, "rate": 15 },
+    { "upto": 2000000, "rate": 20 },
+    { "upto": null, "rate": 30 }
+  ]
+}

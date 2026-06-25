@@ -119,6 +119,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation, Link, NavLink, useNavigate } from 'react-router-dom';
 import { toast } from "react-toastify";
+import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
 import { hasFeature, clearPlanContext, canAccessItPanel } from "../utils/planFeatures";
@@ -147,6 +148,13 @@ const getPageInfo = (pathname, firstName) => {
         };
     }
 
+    if (normalizedPath.startsWith("/tax-declaration/history/")) {
+        return {
+            title: "Declaration Details",
+            subtitle: "Full view of your submitted tax saving declaration",
+        };
+    }
+
     const pathMap = {
         '/dashboard': { title: `Welcome, ${firstName}!`, subtitle: "Overview", isDashboard: true },
         '/attendance': { title: 'Attendance', subtitle: 'Manage records' },
@@ -157,6 +165,8 @@ const getPageInfo = (pathname, firstName) => {
         '/separation': { title: 'Separation', subtitle: 'Resignation and clearance process' },
         '/payslip': { title: 'Payslip', subtitle: 'View and download payslips' },
         '/tax-declaration': { title: 'Tax Declaration', subtitle: 'Submit your tax investment declaration for the financial year' },
+        '/tax-declaration/final-proof': { title: 'Year-end Final Proof', subtitle: 'Enter actual amounts and upload proof documents' },
+        '/tax-declaration/history': { title: 'Declaration History', subtitle: 'View your past tax saving declarations' },
         '/tax-declaration/form16': { title: 'Form 16', subtitle: 'Download your Form 16 certificates' },
         '/tax-declaration/tax-projection': { title: 'Tax Projection', subtitle: 'Estimated TDS for the financial year' },
         '/profile': { title: 'Profile', subtitle: 'Your personal and employment details' },
@@ -467,6 +477,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
     const handleLogout = () => {
         toast.info("Logged out successfully");
+        clearLoginNotificationsFlag();
         localStorage.removeItem('token');
         localStorage.removeItem('lastActivityAt');
         clearPlanContext();

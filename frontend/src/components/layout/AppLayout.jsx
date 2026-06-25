@@ -13,6 +13,7 @@ import { AdminReturnBar } from "./AdminReturnBar";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 import { AppFooter } from "./AppFooter";
+import { useFloatingNotifications } from "../../hooks/useFloatingNotifications";
 // import "../../pages/style/Dashboard.css"
 import "../../pages/Dashboard/Dashboard.css"
 
@@ -31,6 +32,8 @@ export const AppLayout = () => {
     const { userData, loadingUser, photoVersion, refreshUserData } = useUser();
     const prevPathRef = useRef(null);
     const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
+
+    useFloatingNotifications(hasToken && !loadingUser);
 
     /* Refresh shared user/leave balance when navigating between pages (skip initial load). */
     useEffect(() => {

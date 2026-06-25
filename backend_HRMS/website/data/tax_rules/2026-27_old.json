@@ -1,0 +1,27 @@
+{
+  "financial_year": "2026-27",
+  "regime": "old",
+  "label": "Old Tax Regime (FY 2026-27)",
+  "standard_deduction": 50000,
+  "section_80c_cap": 150000,
+  "section_80ccd1b_cap": 50000,
+  "section_80d_self_cap": 25000,
+  "section_80d_parents_cap": 50000,
+  "section_24_cap": 200000,
+  "section_80tta_cap": 10000,
+  "section_80ttb_cap": 50000,
+  "section_lta_cap": 0,
+  "rebate_87a": {
+    "income_limit": 500000,
+    "max_rebate": 12500
+  },
+  "cess_pct": 4,
+  "slabs": [
+    { "upto": 250000, "rate": 0 },
+    { "upto": 500000, "rate": 5 },
+    { "upto": 1000000, "rate": 20 },
+    { "upto": null, "rate": 30 }
+  ],
+  "hra_metro_pct": 50,
+  "hra_non_metro_pct": 40
+}

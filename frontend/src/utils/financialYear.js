@@ -30,7 +30,7 @@ export function defaultFinancialYear(date = new Date()) {
  */
 export function financialYearOptions({
     yearsBack = FINANCIAL_YEAR_LOOKBACK,
-    yearsForward = 0,
+    yearsForward = 1,
     date = new Date(),
     extraYears = [],
 } = {}) {

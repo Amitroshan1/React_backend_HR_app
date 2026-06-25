@@ -142,9 +142,76 @@ def delete_tax_declaration_document_auth(doc_id):
     return tax_decl.delete_tax_declaration_document(doc_id)
 
 
+@auth.route("/tax-declaration/self/history", methods=["GET"])
+def list_tax_declaration_self_history_auth():
+    return tax_decl.list_tax_declaration_self_history()
+
+
 @auth.route("/tax-declaration/<int:decl_id>", methods=["GET"])
 def get_tax_declaration_detail_auth(decl_id):
     return tax_decl.get_tax_declaration_detail(decl_id)
+
+
+@auth.route("/tax-declaration/self/final-proof", methods=["GET"])
+def get_final_proof_self_auth():
+    return tax_decl.get_final_proof_self()
+
+
+@auth.route("/tax-declaration/self/final-proof", methods=["POST"])
+def save_final_proof_self_auth():
+    return tax_decl.save_final_proof_self()
+
+
+@auth.route("/tax-declaration/deadline", methods=["GET"])
+def get_declaration_deadline_auth():
+    return tax_decl.get_declaration_deadline_route()
+
+
+@auth.route("/form16/reconciliation", methods=["GET"])
+@jwt_required()
+def form16_reconciliation_self():
+    from .Accounts import form16_reconciliation
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    return form16_reconciliation(admin.id)
+
+
+@auth.route("/tds/projection", methods=["POST"])
+@jwt_required()
+def tds_projection_auth():
+    from .Accounts import tds_projection
+    return tds_projection()
+
+
+@auth.route("/tds/variance", methods=["POST"])
+@jwt_required()
+def tds_variance_auth():
+    from .Accounts import tds_variance
+    return tds_variance()
+
+
+@auth.route("/form16/summary", methods=["GET"])
+@jwt_required()
+def form16_summary_self():
+    from .Accounts import form16_summary
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    return form16_summary(admin.id)
+
+
+@auth.route("/form16/summary/download", methods=["GET"])
+@jwt_required()
+def form16_summary_download_self():
+    from .Accounts import form16_summary_download
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    return form16_summary_download(admin.id)
 
 
 # ===================================================
@@ -485,6 +552,10 @@ def _employee_homepage_impl():
                 "year": row.year,
                 "actual_working_days": float(row.actual_working_days or 0),
                 "gross_salary_for_month": float(row.gross_salary_for_month or 0),
+                "epf_final": float(row.epf_final or 0),
+                "ptax_final": float(row.ptax_final or 0),
+                "esic_final": float(row.esic_final or 0),
+                "tds_final": float(row.tds_final if row.tds_final is not None else row.tds_computed or 0),
                 "deductions_total_final": float(row.deductions_total_final or 0),
                 "net_salary_final": float(row.net_salary_final or 0),
                 "created_at": isoformat_api(row.created_at),

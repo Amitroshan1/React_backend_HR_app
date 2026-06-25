@@ -318,6 +318,12 @@ from .commands.tds_logic import (
     normalize_regime,
     run_tds_projection,
 )
+from . import tax_declaration_service as tax_decl
+from . import payroll_tds_service as payroll_tds
+from . import form16_service as form16_svc
+from . import traces_import_service as traces_svc
+from . import form16_variance_service as form16_variance_svc
+from . import tax_savings_service as tax_savings
 
 _CTC_RULES = {
     "hra": {"min_pct": 5.0, "max_pct": 50.0},
@@ -718,14 +724,32 @@ def upload_form16():
     os.makedirs(upload_folder, exist_ok=True)
 
     safe_name = secure_filename(file.filename)
+    cert_type = (request.form.get("certificate_type") or "upload_manual").strip().lower()
+    part_type = (request.form.get("part_type") or "combined").strip().lower()
+    is_official = cert_type == "official_traces"
+    if is_official and not safe_name.lower().endswith(".pdf"):
+        return jsonify({
+            "success": False,
+            "message": "Official TRACES Form 16 must be uploaded as PDF.",
+        }), 400
+
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     final_name = f"{admin_id}_{financial_year}_{timestamp}_{safe_name}"
     file.save(os.path.join(upload_folder, final_name))
 
+    data_source = "official_traces" if is_official else (request.form.get("data_source") or "upload_manual").strip()
+
     form16 = Form16(
         admin_id=admin_id,
         financial_year=financial_year,
-        file_path=f"form16/{final_name}"
+        file_path=f"form16/{final_name}",
+        parsed_gross_salary=request.form.get("parsed_gross_salary", type=float),
+        parsed_tds_deducted=request.form.get("parsed_tds_deducted", type=float),
+        parsed_taxable_income=request.form.get("parsed_taxable_income", type=float),
+        parsed_annual_tax=request.form.get("parsed_annual_tax", type=float),
+        data_source=data_source or "upload_manual",
+        certificate_type=cert_type or "upload_manual",
+        part_type=part_type if part_type in ("part_a", "part_b", "combined") else "combined",
     )
     db.session.add(form16)
     db.session.commit()
@@ -738,10 +762,19 @@ def upload_form16():
             f"Form16 upload email failed for admin_id={admin_id}"
         )
 
+    variance_result = None
+    try:
+        variance_result = form16_variance_svc.notify_form16_variance_if_needed(admin_id, financial_year)
+    except Exception:
+        current_app.logger.warning("Form16 variance check failed for admin_id=%s", admin_id)
+
     return jsonify({
         "success": True,
         "message": "Form 16 uploaded successfully",
-        "file_path": form16.file_path
+        "file_path": form16.file_path,
+        "certificate_type": form16.certificate_type,
+        "part_type": form16.part_type,
+        "variance_alert": variance_result,
     }), 201
 
 
@@ -770,7 +803,18 @@ def form16_history(admin_id):
             "id": row.id,
             "financial_year": row.financial_year,
             "file_path": row.file_path,
-            "created_at": isoformat_api(row.created_at)
+            "created_at": isoformat_api(row.created_at),
+            "parsed_gross_salary": float(row.parsed_gross_salary) if row.parsed_gross_salary is not None else None,
+            "parsed_tds_deducted": float(row.parsed_tds_deducted) if row.parsed_tds_deducted is not None else None,
+            "parsed_taxable_income": float(row.parsed_taxable_income) if row.parsed_taxable_income is not None else None,
+            "parsed_annual_tax": float(row.parsed_annual_tax) if row.parsed_annual_tax is not None else None,
+            "data_source": row.data_source,
+            "certificate_type": getattr(row, "certificate_type", None) or row.data_source,
+            "part_type": getattr(row, "part_type", None),
+            "is_official_traces": (
+                (getattr(row, "certificate_type", None) or "").lower() == "official_traces"
+                or (row.data_source or "").lower() == "official_traces"
+            ),
         })
 
     return jsonify({
@@ -1362,21 +1406,18 @@ def _parse_iso_date(val):
 
 
 def _tds_ytd_gross_and_tds(admin_id, financial_year):
-    """Sum gross from monthly payroll rows in the financial year (if saved)."""
-    from .commands.tds_logic import fy_start_end
-    fy_start, fy_end = fy_start_end(financial_year)
-    rows = MonthlyPayroll.query.filter_by(admin_id=admin_id).all()
-    ytd_gross = 0.0
-    for row in rows:
-        try:
-            y = int(row.year)
-            m = int(row.month_num)
-        except (TypeError, ValueError):
-            continue
-        d = date(y, m, 1)
-        if fy_start <= d <= fy_end:
-            ytd_gross += float(row.gross_salary_for_month or 0)
-    return ytd_gross, 0.0
+    """Sum gross and TDS from monthly payroll rows in the financial year."""
+    return payroll_tds.payroll_ytd_in_financial_year(admin_id, financial_year)
+
+
+def _savings_declaration_inputs(admin_id, financial_year, profile, tds_inputs):
+    """Inputs for tax-savings comparison — always from saved declaration when present."""
+    if tds_inputs.get("declaration_source", {}).get("found"):
+        return tds_inputs
+    alt = tax_decl.resolved_tds_inputs_for_projection(
+        admin_id, financial_year, profile, {}, use_declaration=True
+    )
+    return alt if alt.get("declaration_source", {}).get("found") else {}
 
 
 @Accounts.route("/tax-rules", methods=["GET"])
@@ -1456,24 +1497,44 @@ def tds_projection():
     monthly_ptax = float(ctc.ptax or 0)
     ptax_annual = monthly_ptax * 12
 
+    use_declaration = data.get("use_declaration", True)
+    if isinstance(use_declaration, str):
+        use_declaration = use_declaration.strip().lower() not in ("0", "false", "no")
+
+    tds_inputs = tax_decl.resolved_tds_inputs_for_projection(
+        admin_id,
+        financial_year,
+        profile,
+        data,
+        use_declaration=bool(use_declaration),
+    )
+
     try:
         projection = run_tds_projection(
             monthly_gross=float(ctc.gross_salary or 0),
             monthly_basic=float(ctc.basic_salary or 0),
             monthly_hra=float(ctc.hra or 0),
             monthly_epf=float(ctc.epf or 0),
-            tax_regime=profile.get("tax_regime"),
+            tax_regime=tds_inputs.get("tax_regime"),
             financial_year=financial_year,
             pan=profile.get("pan"),
             date_of_joining=doj,
             ytd_gross=ytd_gross if data.get("use_ytd_gross", True) else 0,
             ytd_tds=_parse_amount(data.get("ytd_tds")) or ytd_tds,
-            previous_employer_taxable=_parse_amount(data.get("previous_employer_taxable")) or 0,
-            previous_employer_tds=_parse_amount(data.get("previous_employer_tds")) or 0,
-            rent_paid_annual=_parse_amount(data.get("rent_paid_annual")) or 0,
-            is_metro=bool(data.get("is_metro")),
-            section_80c_extra=_parse_amount(data.get("section_80c_extra")) or 0,
-            section_80d=_parse_amount(data.get("section_80d")) or 0,
+            previous_employer_taxable=tds_inputs.get("previous_employer_taxable") or 0,
+            previous_employer_tds=tds_inputs.get("previous_employer_tds") or 0,
+            rent_paid_annual=tds_inputs.get("rent_paid_annual") or 0,
+            is_metro=bool(tds_inputs.get("is_metro")),
+            section_80c_extra=tds_inputs.get("section_80c_extra") or 0,
+            section_80d=tds_inputs.get("section_80d") or 0,
+            section_80ccd1b=tds_inputs.get("section_80ccd1b") or 0,
+            section_24_interest=tds_inputs.get("section_24_interest") or 0,
+            lta_exemption=tds_inputs.get("lta_exemption") or 0,
+            section_80e=tds_inputs.get("section_80e") or 0,
+            section_80g=tds_inputs.get("section_80g") or 0,
+            other_deductions=tds_inputs.get("other_deductions") or 0,
+            other_income=tds_inputs.get("other_income") or 0,
+            new_regime_deductions=tds_inputs.get("new_regime_deductions") or 0,
             ptax_annual=ptax_annual,
             as_of=as_of,
         )
@@ -1483,15 +1544,228 @@ def tds_projection():
     projection["employee"] = {
         "admin_id": admin_id,
         "name": (target_admin.first_name or "").strip() or target_admin.email,
-        "tax_regime": profile.get("tax_regime"),
+        "tax_regime": tds_inputs.get("tax_regime") or profile.get("tax_regime"),
         "pan": profile.get("pan"),
         "date_of_joining": doj.isoformat() if doj else None,
     }
+    projection["declaration_source"] = tds_inputs.get("declaration_source")
+    projection["inputs_used"] = {
+        "tax_regime": tds_inputs.get("tax_regime"),
+        "rent_paid_annual": tds_inputs.get("rent_paid_annual"),
+        "is_metro": tds_inputs.get("is_metro"),
+        "section_80c_extra": tds_inputs.get("section_80c_extra"),
+        "section_80d": tds_inputs.get("section_80d"),
+        "section_80ccd1b": tds_inputs.get("section_80ccd1b"),
+        "section_24_interest": tds_inputs.get("section_24_interest"),
+        "lta_exemption": tds_inputs.get("lta_exemption"),
+        "section_80e": tds_inputs.get("section_80e"),
+        "section_80g": tds_inputs.get("section_80g"),
+        "other_deductions": tds_inputs.get("other_deductions"),
+        "other_income": tds_inputs.get("other_income"),
+        "new_regime_deductions": tds_inputs.get("new_regime_deductions"),
+        "previous_employer_taxable": tds_inputs.get("previous_employer_taxable"),
+        "previous_employer_tds": tds_inputs.get("previous_employer_tds"),
+        "from_declaration": bool(use_declaration and tds_inputs.get("declaration_source", {}).get("found")),
+        "tds_basis": tds_inputs.get("declaration_source", {}).get("tds_basis"),
+    }
+
+    projection["tds"]["schedule"] = payroll_tds.merge_schedule_with_payroll_actuals(
+        admin_id,
+        financial_year,
+        projection.get("tds", {}).get("schedule") or [],
+    )
+    projection["variance"] = payroll_tds.build_tds_variance_report(
+        admin_id, financial_year, projection
+    )
+    projection["tax_savings"] = tax_savings.build_tax_savings_comparison(
+        monthly_gross=float(ctc.gross_salary or 0),
+        monthly_basic=float(ctc.basic_salary or 0),
+        monthly_hra=float(ctc.hra or 0),
+        monthly_epf=float(ctc.epf or 0),
+        tax_regime=tds_inputs.get("tax_regime"),
+        financial_year=financial_year,
+        pan=profile.get("pan"),
+        date_of_joining=doj,
+        ytd_gross=ytd_gross if data.get("use_ytd_gross", True) else 0,
+        ytd_tds=_parse_amount(data.get("ytd_tds")) or ytd_tds,
+        ptax_annual=ptax_annual,
+        as_of=as_of,
+        declaration_inputs=_savings_declaration_inputs(
+            admin_id, financial_year, profile, tds_inputs
+        ),
+    )
+
+    if use_declaration and not tds_inputs.get("declaration_source", {}).get("found"):
+        projection.setdefault("warnings", []).append(
+            "No tax declaration found for this FY — projection uses CTC and profile only. "
+            "Submit a tax declaration for accurate TDS estimates."
+        )
+    elif tds_inputs.get("declaration_source", {}).get("status") == "draft":
+        projection.setdefault("warnings", []).append(
+            "Using draft declaration — submit and get approval for payroll-ready TDS."
+        )
+    elif tds_inputs.get("declaration_source", {}).get("status") == "submitted":
+        projection.setdefault("warnings", []).append(
+            "Provisional declaration — payroll TDS uses submitted values until Accounts approves (final)."
+        )
+    elif tds_inputs.get("declaration_source", {}).get("status") == "approved":
+        projection.setdefault("warnings", []).append(
+            "Final declaration approved — payroll TDS uses verified declaration values."
+        )
+    elif tds_inputs.get("regime_norm") == "new":
+        projection.setdefault("warnings", []).append(
+            "New Tax Regime selected — Chapter VI-A deductions (80C, 80D, HRA) do not reduce taxable income."
+        )
 
     return jsonify({"success": True, "projection": projection}), 200
 
 
-from . import tax_declaration_service as tax_decl
+@Accounts.route("/tds/variance", methods=["POST"])
+@jwt_required()
+def tds_variance():
+    """TDS reconciliation: declared/projected tax vs payroll deductions YTD."""
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+
+    emp_type_lower = (getattr(viewer, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    proj_resp = tds_projection()
+    if isinstance(proj_resp, tuple):
+        body, status = proj_resp
+        if status != 200:
+            return proj_resp
+        payload = body.get_json()
+    else:
+        payload = proj_resp.get_json()
+
+    if not payload.get("success"):
+        return jsonify(payload), 400
+
+    return jsonify({
+        "success": True,
+        "variance": payload.get("projection", {}).get("variance"),
+        "projection": payload.get("projection"),
+    }), 200
+
+
+@Accounts.route("/form16/summary/<int:admin_id>", methods=["GET"])
+@jwt_required()
+def form16_summary(admin_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    emp_type_lower = (getattr(viewer, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    financial_year = (request.args.get("financial_year") or "").strip() or financial_year_for_date()
+    try:
+        summary = form16_svc.build_form16_summary(admin_id, financial_year)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    return jsonify({"success": True, "summary": summary}), 200
+
+
+@Accounts.route("/form16/summary/<int:admin_id>/download", methods=["GET"])
+@jwt_required()
+def form16_summary_download(admin_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    emp_type_lower = (getattr(viewer, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    financial_year = (request.args.get("financial_year") or "").strip() or financial_year_for_date()
+    try:
+        pdf_buffer = form16_svc.generate_form16_summary_pdf(admin_id, financial_year)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    filename = f"form16-summary-{admin_id}-{financial_year.replace('/', '-')}.pdf"
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@Accounts.route("/form16/reconciliation/<int:admin_id>", methods=["GET"])
+@jwt_required()
+def form16_reconciliation(admin_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    emp_type_lower = (getattr(viewer, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    financial_year = (request.args.get("financial_year") or "").strip() or financial_year_for_date()
+    try:
+        summary = form16_svc.build_form16_summary(admin_id, financial_year)
+        reconciliation = summary.get("reconciliation") or form16_svc.build_form16_reconciliation(
+            admin_id, summary["financial_year"], summary
+        )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    return jsonify({"success": True, "reconciliation": reconciliation, "summary": summary}), 200
+
+
+@Accounts.route("/form16/traces-import", methods=["POST"])
+@jwt_required()
+def form16_traces_import():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    emp_type_lower = (getattr(viewer, "emp_type", None) or "").strip().lower()
+    if emp_type_lower not in ("account", "accounts", "accountant", "hr", "human resource", "admin"):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    financial_year = (request.form.get("financial_year") or "").strip() or financial_year_for_date()
+    upload = request.files.get("file")
+    if not upload or not upload.filename:
+        return jsonify({"success": False, "message": "CSV file is required"}), 400
+
+    try:
+        content = upload.read()
+        rows = traces_svc.parse_traces_csv(content)
+        result = traces_svc.import_traces_rows(rows, financial_year=financial_year, data_source="traces")
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    return jsonify({
+        "success": True,
+        "message": f"Imported {result['imported']} row(s).",
+        **result,
+    }), 200
 
 
 @Accounts.route("/tax-declaration/self", methods=["GET"])
@@ -1522,6 +1796,58 @@ def get_tax_declaration_detail_accounts(decl_id):
 @Accounts.route("/tax-declaration/financial-years", methods=["GET"])
 def list_tax_declaration_financial_years_accounts():
     return tax_decl.list_tax_declaration_financial_years()
+
+
+@Accounts.route("/tax-declaration/backfill-regime", methods=["POST"])
+@jwt_required()
+def backfill_tax_regime_accounts():
+    return tax_decl.backfill_tax_regime_route()
+
+
+@Accounts.route("/tax-declaration/self/final-proof", methods=["GET"])
+def get_final_proof_self_accounts():
+    return tax_decl.get_final_proof_self()
+
+
+@Accounts.route("/tax-declaration/self/final-proof", methods=["POST"])
+def save_final_proof_self_accounts():
+    return tax_decl.save_final_proof_self()
+
+
+@Accounts.route("/tax-declarations/<int:decl_id>/final-proof-review", methods=["POST"])
+@jwt_required()
+def review_final_proof_accounts(decl_id):
+    return tax_decl.review_final_proof(decl_id)
+
+
+@Accounts.route("/tax-declarations/<int:decl_id>/amend", methods=["POST"])
+@jwt_required()
+def amend_tax_declaration_accounts(decl_id):
+    return tax_decl.amend_tax_declaration(decl_id)
+
+
+@Accounts.route("/tax-declaration/deadline", methods=["GET"])
+@jwt_required()
+def get_declaration_deadline_accounts():
+    return tax_decl.get_declaration_deadline_route()
+
+
+@Accounts.route("/tax-declaration/deadline", methods=["PUT"])
+@jwt_required()
+def update_declaration_deadline_accounts():
+    return tax_decl.update_declaration_deadline_route()
+
+
+@Accounts.route("/employees/<int:admin_id>/tax-regime-override", methods=["PUT"])
+@jwt_required()
+def set_tax_regime_override_accounts(admin_id):
+    return tax_decl.set_tax_regime_override_route(admin_id)
+
+
+@Accounts.route("/employees/<int:admin_id>/tax-regime-override", methods=["DELETE"])
+@jwt_required()
+def clear_tax_regime_override_accounts(admin_id):
+    return tax_decl.clear_tax_regime_override_route(admin_id)
 
 
 @Accounts.route("/payslip/<int:payslip_id>", methods=["DELETE"])
@@ -2257,15 +2583,12 @@ def payroll_generate():
     row.esic_final = result["esic_computed"]
     row.ptax_final = result["ptax_computed"]
 
-    deductions_total_final = float(row.epf_final or 0.0) + float(row.esic_final or 0.0) + float(row.ptax_final or 0.0)
-    row.deductions_total_final = deductions_total_final
-    row.net_salary_final = max(
-        0.0,
-        float(row.gross_salary_for_month or 0.0) - deductions_total_final,
-    )
+    tds_meta = payroll_tds.apply_tds_to_payroll_row(row, overwrite_final=True)
 
     db.session.commit()
-    return jsonify({"success": True, "payroll": row.to_dict()}), 200
+    payload = row.to_dict()
+    payload["tds_meta"] = tds_meta
+    return jsonify({"success": True, "payroll": payload}), 200
 
 
 @Accounts.route("/payroll/deductions-update", methods=["PUT"])
@@ -2316,6 +2639,9 @@ def payroll_deductions_update():
     if not row:
         return jsonify({"success": False, "message": "Payroll row not found. Generate it first."}), 404
 
+    prev_awd = float(row.actual_working_days or 0)
+    working_days_changed = False
+
     # Optional overrides; if omitted, keep existing values
     if "epf_final" in data:
         row.epf_final = float(data.get("epf_final") or 0.0)
@@ -2329,6 +2655,7 @@ def payroll_deductions_update():
         )
         awd = float(data.get("actual_working_days") or 0.0)
         row.actual_working_days = max(0.0, min(float(calendar_days), awd))
+        working_days_changed = abs(float(row.actual_working_days or 0) - prev_awd) > 1e-6
         one_day = float(row.one_day_salary or 0.0)
         row.gross_salary_for_month = max(
             0.0, one_day * float(row.actual_working_days or 0.0)
@@ -2345,15 +2672,14 @@ def payroll_deductions_update():
             float(row.gross_salary_for_month or 0.0), gender, month_num
         )
 
-    deductions_total_final = (
-        float(row.epf_final or 0.0)
-        + float(row.esic_final or 0.0)
-        + float(row.ptax_final or 0.0)
-    )
-    row.deductions_total_final = deductions_total_final
-    row.net_salary_final = max(
-        0.0,
-        float(row.gross_salary_for_month or 0.0) - deductions_total_final,
+    requested_tds = None
+    if "tds_final" in data:
+        requested_tds = float(data.get("tds_final") or 0.0)
+
+    payroll_tds.refresh_payroll_tds_final(
+        row,
+        working_days_changed=working_days_changed,
+        requested_tds_final=requested_tds,
     )
 
     db.session.commit()
@@ -2434,8 +2760,9 @@ def payroll_list():
                 row.epf_final = computed["epf_computed"]
                 row.esic_final = computed["esic_computed"]
                 row.ptax_final = computed["ptax_computed"]
-                row.deductions_total_final = computed["deductions_total_computed"]
-                row.net_salary_final = computed["net_salary_computed"]
+                payroll_tds.apply_tds_to_payroll_row(row, overwrite_final=True)
+            elif row.tds_final is None and row.tds_computed is None:
+                payroll_tds.apply_tds_to_payroll_row(row, overwrite_final=True)
             payrolls.append(row)
             continue
 
@@ -2464,8 +2791,7 @@ def payroll_list():
         new_row.epf_final = computed["epf_computed"]
         new_row.esic_final = computed["esic_computed"]
         new_row.ptax_final = computed["ptax_computed"]
-        new_row.deductions_total_final = computed["deductions_total_computed"]
-        new_row.net_salary_final = computed["net_salary_computed"]
+        payroll_tds.apply_tds_to_payroll_row(new_row, overwrite_final=True)
 
         db.session.add(new_row)
         rows_to_create.append(new_row)
@@ -2488,6 +2814,8 @@ def payroll_list():
                 "epf_final": p.epf_final,
                 "ptax_final": p.ptax_final,
                 "esic_final": p.esic_final,
+                "tds_final": p.tds_final,
+                "tds_computed": p.tds_computed,
                 "net_salary_final": p.net_salary_final,
             }
             for p in payrolls
@@ -2564,6 +2892,7 @@ def payroll_history():
             "epf_final": float(payroll.epf_final or 0.0),
             "ptax_final": float(payroll.ptax_final or 0.0),
             "esic_final": float(payroll.esic_final or 0.0),
+            "tds_final": float(payroll.tds_final or 0.0),
             "actual_working_days": float(payroll.actual_working_days or 0.0),
             "net_salary_final": float(payroll.net_salary_final or 0.0),
             "created_at": isoformat_api(payroll.created_at),
@@ -2607,6 +2936,10 @@ def download_payroll_slip(payroll_id):
     epf = float(getattr(payroll, "epf_final", 0.0) or 0.0)
     ptax = float(getattr(payroll, "ptax_final", 0.0) or 0.0)
     esic = float(getattr(payroll, "esic_final", 0.0) or 0.0)
+    _tds_final = getattr(payroll, "tds_final", None)
+    tds = float(
+        _tds_final if _tds_final is not None else getattr(payroll, "tds_computed", 0.0) or 0.0
+    )
     total_ded = float(getattr(payroll, "deductions_total_final", 0.0) or 0.0)
     net = float(getattr(payroll, "net_salary_final", 0.0) or 0.0)
     work_days = float(getattr(payroll, "actual_working_days", 0.0) or 0.0)
@@ -2618,7 +2951,8 @@ def download_payroll_slip(payroll_id):
     cum_earn3 = gross
     cum_ded1 = epf
     cum_ded2 = epf + ptax
-    cum_ded3 = total_ded
+    cum_ded3 = epf + ptax + esic
+    cum_ded4 = total_ded
 
     leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
     pl_balance = float((leave_balance.privilege_leave_balance if leave_balance else 0.0) or 0.0)
@@ -2874,7 +3208,10 @@ def download_payroll_slip(payroll_id):
     _amt_right(x6, r, _fmt_money(cum_ded3))
 
     r -= row_h
-    # Blank spacer row (matches typical payslip layout)
+    c.drawString(x3 + 4, r, "Income Tax (TDS)")
+    _amt_right(x5, r, _fmt_money(tds))
+    _amt_right(x6, r, _fmt_money(cum_ded4))
+
     r -= row_h
     c.setFont("Helvetica-Bold", 10)
     c.drawString(x0 + 4, r, "Total Earnings")
@@ -3078,6 +3415,16 @@ def put_employee_accounts_profile():
             row.employee_number = employee_number_in
         elif not row.employee_number and target_admin.emp_id:
             row.employee_number = (target_admin.emp_id or "").strip() or None
+
+    if "tax_regime" in data and not _accounts_can_access_any_profile(viewer):
+        from . import tax_regime_service as regime_svc
+        from .commands.tds_logic import normalize_regime
+        new_regime = (data.get("tax_regime") or "").strip()
+        old_regime = (row.tax_regime or "").strip() if row else ""
+        if normalize_regime(new_regime) != normalize_regime(old_regime):
+            allowed, lock_msg = regime_svc.employee_may_change_regime(target_admin.id)
+            if not allowed:
+                return jsonify({"success": False, "message": lock_msg}), 400
 
     for key in _EMP_ACC_STRING_FIELDS:
         if key not in data:

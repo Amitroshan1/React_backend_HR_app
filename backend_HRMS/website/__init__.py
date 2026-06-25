@@ -875,6 +875,28 @@ def create_app():
         except Exception as e:
             app.logger.warning("probation_reviews column migration skipped: %s", e)
 
+    def _ensure_monthly_payroll_tds_columns():
+        try:
+            from sqlalchemy import inspect, text
+            insp = inspect(db.engine)
+            table = MonthlyPayroll.__tablename__
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            specs = [
+                ("tds_computed", "FLOAT NULL"),
+                ("tds_final", "FLOAT NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("monthly_payrolls TDS columns ensure skipped: %s", e)
+
     def _ensure_employee_tax_declarations_table():
         try:
             from sqlalchemy import inspect, text
@@ -907,6 +929,11 @@ def create_app():
                     ("reviewed_by_admin_id", "INTEGER NULL"),
                     ("reviewed_at", "DATETIME NULL"),
                     ("rejection_reason", "TEXT NULL"),
+                    ("declaration_phase", "VARCHAR(20) NOT NULL DEFAULT 'provisional'"),
+                    ("final_proof_status", "VARCHAR(30) NULL"),
+                    ("final_proof_submitted_at", "DATETIME NULL"),
+                    ("final_proof_reviewed_at", "DATETIME NULL"),
+                    ("final_proof_rejection_reason", "TEXT NULL"),
                 ]
                 for col, col_type in specs:
                     if col in existing:
@@ -915,6 +942,20 @@ def create_app():
                     with db.engine.begin() as conn:
                         conn.execute(stmt)
                     app.logger.info("Added column %s.%s", table, col)
+
+            item_table = TaxDeclarationItem.__tablename__
+            if item_table in insp.get_table_names():
+                item_existing = {c["name"] for c in insp.get_columns(item_table)}
+                item_specs = [
+                    ("final_amount", "FLOAT NULL"),
+                ]
+                for col, col_type in item_specs:
+                    if col in item_existing:
+                        continue
+                    stmt = text(f"ALTER TABLE {item_table} ADD COLUMN {col} {col_type}")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column %s.%s", item_table, col)
 
             doc_table = TaxDeclarationDocument.__tablename__
             if doc_table in insp.get_table_names():
@@ -932,6 +973,61 @@ def create_app():
                     app.logger.info("Added column %s.%s", doc_table, col)
         except Exception as e:
             app.logger.warning("employee_tax_declarations table ensure skipped: %s", e)
+
+    def _ensure_employee_accounts_regime_columns():
+        try:
+            from sqlalchemy import inspect, text
+            from .models.employee_accounts import EmployeeAccounts
+
+            table = EmployeeAccounts.__tablename__
+            insp = inspect(db.engine)
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            specs = [
+                ("tax_regime_override", "VARCHAR(80) NULL"),
+                ("tax_regime_override_reason", "TEXT NULL"),
+                ("tax_regime_override_at", "DATETIME NULL"),
+                ("tax_regime_override_by_admin_id", "INTEGER NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("employee_accounts regime columns ensure skipped: %s", e)
+
+    def _ensure_form16_parsed_columns():
+        try:
+            from sqlalchemy import inspect, text
+            from .models.news_feed import Form16
+
+            table = Form16.__tablename__
+            insp = inspect(db.engine)
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            specs = [
+                ("parsed_gross_salary", "FLOAT NULL"),
+                ("parsed_tds_deducted", "FLOAT NULL"),
+                ("parsed_taxable_income", "FLOAT NULL"),
+                ("parsed_annual_tax", "FLOAT NULL"),
+                ("data_source", "VARCHAR(30) NULL"),
+                ("certificate_type", "VARCHAR(30) NULL"),
+                ("part_type", "VARCHAR(20) NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("form16 parsed columns ensure skipped: %s", e)
 
     with app.app_context():
         try:
@@ -955,6 +1051,9 @@ def create_app():
             _ensure_leave_balance_defaults()
             _ensure_probation_review_columns()
             _ensure_employee_tax_declarations_table()
+            _ensure_employee_accounts_regime_columns()
+            _ensure_form16_parsed_columns()
+            _ensure_monthly_payroll_tds_columns()
             _cleanup_zero_qty_inventory_rows()
         except Exception as e:
             app.logger.error(

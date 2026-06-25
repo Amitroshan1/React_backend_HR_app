@@ -804,9 +804,24 @@
   .query-table {
     min-width: 0;
     font-size: 0.85rem;
+    table-layout: auto;
+    display: block;
   }
   .query-table thead {
     display: none;
+  }
+  .query-table tbody {
+    display: block;
+  }
+  /* Reset desktop fixed column widths — they squish card rows on narrow screens */
+  .query-table th,
+  .query-table td {
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible;
+  }
+  .query-desc-td {
+    max-width: none;
   }
   .query-table tbody tr {
     display: block;
@@ -860,15 +875,16 @@
     padding: 0;
   }
   .query-table td.query-action-cell {
-    display: block;
-  }
-  .query-table td.query-action-cell::before {
-    display: block;
-    margin-bottom: 8px;
+    display: grid;
+    grid-template-columns: minmax(88px, 34%) 1fr;
   }
   .query-cell-main strong {
     overflow-wrap: anywhere;
     word-break: break-word;
+    white-space: normal;
+  }
+  .query-cell-main small {
+    white-space: normal;
   }
   .query-close-btn,
   .query-table td.query-action-cell .query-chat-link {
@@ -913,6 +929,13 @@
 }
 
 @media (max-width: 576px) {
+  .query-table td {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .query-table td::before {
+    margin-bottom: 2px;
+  }
   .query-dashboard-container {
     padding: 10px 10px 16px;
   }

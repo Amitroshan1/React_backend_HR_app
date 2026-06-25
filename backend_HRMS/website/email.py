@@ -533,6 +533,119 @@ def send_payslip_uploaded_email(admin, month, year):
         return False, str(e)
 
 
+def send_tax_declaration_tds_updated_email(
+    admin,
+    financial_year: str,
+    *,
+    status: str,
+    monthly_tds: float | None = None,
+    tax_saved_annual: float | None = None,
+):
+    """
+    Notify employee that tax declaration affects payroll TDS projection.
+    Non-blocking; returns (success, message).
+    """
+    try:
+        status_label = {
+            "submitted": "submitted (provisional)",
+            "approved": "approved (final)",
+        }.get((status or "").lower(), status or "updated")
+        savings_line = ""
+        if tax_saved_annual is not None and float(tax_saved_annual) > 0:
+            savings_line = (
+                f"<p>Estimated annual tax saved vs no declaration: "
+                f"<strong>₹{float(tax_saved_annual):,.2f}</strong></p>"
+            )
+        tds_line = ""
+        if monthly_tds is not None:
+            tds_line = (
+                f"<p>Projected monthly TDS from payroll: "
+                f"<strong>₹{float(monthly_tds):,.2f}</strong></p>"
+            )
+        subject = f"Tax Declaration {status.title()} — FY {financial_year}"
+        body = f"""
+        <p>Dear {admin.first_name},</p>
+        <p>Your tax declaration for <strong>{financial_year}</strong> has been <strong>{status_label}</strong>.</p>
+        <p>Payroll TDS for this financial year has been recalculated using your declaration.</p>
+        {tds_line}
+        {savings_line}
+        <p>View details in <strong>Tax Projection</strong> on the HRMS portal.</p>
+        <p>Regards,<br><strong>Accounts Team</strong></p>
+        """
+        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        cc_emails = []
+        if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
+            cc_emails.append(accounts_email.strip())
+        return send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=admin.email,
+            cc_emails=cc_emails or None,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"Tax declaration TDS email failed for {admin.email}: {e}")
+        return False, str(e)
+
+
+def send_form16_variance_alert_email(admin, financial_year: str, reconciliation: dict):
+    """Notify employee and Accounts when Form 16 figures differ from computed payroll."""
+    try:
+        diffs = reconciliation.get("differences") or {}
+        lines = "".join(
+            f"<li><strong>{k.replace('_', ' ').title()}</strong>: "
+            f"Rs. {float(v):,.2f} difference</li>"
+            for k, v in diffs.items()
+        )
+        subject = f"Form 16 variance alert — FY {financial_year}"
+        body = f"""
+        <p>Dear {admin.first_name},</p>
+        <p>Uploaded/TRACES Form 16 figures for <strong>{financial_year}</strong> do not match
+        the system-computed payroll summary (tolerance exceeded).</p>
+        <ul>{lines}</ul>
+        <p>Please review in <strong>Form 16</strong> on the HRMS portal or contact Accounts.</p>
+        <p>Regards,<br><strong>Accounts Team</strong></p>
+        """
+        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        cc_emails = []
+        if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
+            cc_emails.append(accounts_email.strip())
+        return send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=admin.email,
+            cc_emails=cc_emails or None,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"Form 16 variance email failed for {admin.email}: {e}")
+        return False, str(e)
+
+
+def send_tax_declaration_amendment_unlocked_email(admin, financial_year: str, reason: str):
+    """Notify employee that HR unlocked their approved declaration for amendment."""
+    try:
+        subject = f"Tax Declaration Unlocked for Amendment — FY {financial_year}"
+        body = f"""
+        <p>Dear {admin.first_name},</p>
+        <p>Your approved tax declaration for <strong>{financial_year}</strong> has been
+        <strong>unlocked for amendment</strong> by Finance.</p>
+        <p><strong>Reason:</strong> {reason}</p>
+        <p>Please open <strong>Tax Declaration</strong>, update your details, and resubmit.</p>
+        <p>Payroll TDS will use profile/CTC only until you resubmit and Finance approves again.</p>
+        <p>Regards,<br><strong>Accounts Team</strong></p>
+        """
+        return send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=admin.email,
+        )
+    except Exception as e:
+        current_app.logger.warning(f"Amendment unlock email failed for {admin.email}: {e}")
+        return False, str(e)
+
+
 def send_form16_uploaded_email(admin, financial_year):
     """
     Notify employee that Form 16 is uploaded in HRMS portal.

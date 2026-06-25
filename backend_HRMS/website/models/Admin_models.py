@@ -97,6 +97,7 @@ class Admin(db.Model, UserMixin):
         back_populates='admin',
         uselist=False,
         cascade='all, delete-orphan',
+        foreign_keys='EmployeeAccounts.admin_id',
     )
 
     # Single CTC breakup row per Admin.

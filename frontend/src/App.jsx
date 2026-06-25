@@ -10,6 +10,9 @@ import { Payslip } from "./pages/Payslip/Payslip";
 import { EmployeeForm16 } from "./pages/Payslip/EmployeeForm16";
 import { EmployeeTaxProjection } from "./pages/Payslip/EmployeeTaxProjection";
 import { TaxDeclaration } from "./pages/TaxDeclaration/TaxDeclaration";
+import { TaxDeclarationFinalProof } from "./pages/TaxDeclaration/TaxDeclarationFinalProof";
+import { TaxDeclarationHistory } from "./pages/TaxDeclaration/TaxDeclarationHistory";
+import { TaxDeclarationHistoryDetail } from "./pages/TaxDeclaration/TaxDeclarationHistoryDetail";
 import { Leaves } from "./pages/Leaves/Leaves";
 import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
@@ -113,6 +116,9 @@ export const App = () => {
         { path: "salary",                          element: <Salary /> },
         { path: "payslip",                         element: <Payslip /> },
         { path: "tax-declaration",                 element: <TaxDeclaration /> },
+        { path: "tax-declaration/final-proof",     element: <TaxDeclarationFinalProof /> },
+        { path: "tax-declaration/history",         element: <TaxDeclarationHistory /> },
+        { path: "tax-declaration/history/:declId", element: <TaxDeclarationHistoryDetail /> },
         { path: "tax-declaration/form16",          element: <EmployeeForm16 /> },
         { path: "tax-declaration/tax-projection",  element: <EmployeeTaxProjection /> },
         { path: "leaves",                          element: <Leaves /> },
@@ -171,7 +177,16 @@ export const App = () => {
 
   return (
     <UserProvider>
-      <ToastContainer position="bottom-right" autoClose={3000} hideProgressBar={false} theme="light" />
+      <ToastContainer
+        position="bottom-right"
+        autoClose={4000}
+        hideProgressBar={false}
+        theme="light"
+        newestOnTop
+        closeOnClick
+        pauseOnHover
+        draggable
+      />
       <RouterProvider router={router} />
     </UserProvider>
   );

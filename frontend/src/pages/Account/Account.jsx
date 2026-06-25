@@ -12,6 +12,7 @@ import { fetchDepartmentNocRequests } from '../Manager/api';
 import { hasFeature } from '../../utils/planFeatures';
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
 import { TaxDeclarationReview } from '../TaxDeclaration/TaxDeclarationReview';
+import { TaxDeclarationReviewDetail } from '../TaxDeclaration/TaxDeclarationReviewDetail';
 import { formatDate as formatDateDDMMYYYY, formatDateTime as formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 import {
   defaultFinancialYear,
@@ -30,6 +31,71 @@ const parseMediclaimYearly = (mediclaimValue) => {
 const blockCtcNumberWheel = (e) => {
   e.currentTarget.blur();
 };
+
+const EMPLOYEE_SCOPED_VIEWS = new Set([
+  'addForm16',
+  'addPayslip',
+  'ctcBreakup',
+  'tdsProjection',
+  'viewPayslip',
+]);
+
+const ACCOUNT_VIEWS = new Set([
+  'main',
+  'noc_requests',
+  'employees',
+  'addPayslip',
+  'bulkPayslip',
+  'bulkForm16',
+  'bulkPayroll',
+  'payrollHistory',
+  'expenseClaims',
+  'taxDeclarations',
+  'taxDeclarationDetail',
+  'addForm16',
+  'ctcBreakup',
+  'tdsProjection',
+  'viewPayslip',
+]);
+
+function getStoredAccountContext() {
+  try {
+    return JSON.parse(localStorage.getItem('account_form16_context') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+/** Restore a safe Accounts sub-view after hard refresh (avoid blank screen). */
+function resolveStoredAccountView() {
+  const view = localStorage.getItem('account_current_view') || 'main';
+  const taxDeclRaw = localStorage.getItem('account_selected_tax_decl_id');
+  const taxDeclId = taxDeclRaw ? Number(taxDeclRaw) : null;
+  const ctx = getStoredAccountContext();
+  const hasEmployee = Boolean(ctx?.selectedEmployee?.adminId);
+  const hasDeptCircle = Boolean(ctx?.selectedDept && ctx?.selectedCircle);
+
+  if (!ACCOUNT_VIEWS.has(view)) {
+    return { view: 'main', taxDeclId: null };
+  }
+
+  if (view === 'taxDeclarationDetail') {
+    if (!taxDeclId || Number.isNaN(taxDeclId)) {
+      return { view: 'taxDeclarations', taxDeclId: null };
+    }
+    return { view, taxDeclId };
+  }
+
+  if (EMPLOYEE_SCOPED_VIEWS.has(view) && !hasEmployee) {
+    return { view: hasDeptCircle ? 'employees' : 'main', taxDeclId: null };
+  }
+
+  if (view === 'employees' && !hasDeptCircle) {
+    return { view: 'main', taxDeclId: null };
+  }
+
+  return { view, taxDeclId: taxDeclId && !Number.isNaN(taxDeclId) ? taxDeclId : null };
+}
 
 export const Account = ()  => {
   const { userData } = useUser();
@@ -51,21 +117,15 @@ export const Account = ()  => {
 
   const canEditAccountsProfile = isHr || isAccountsDept;
 
-  const getStoredAccountContext = () => {
-    try {
-      return JSON.parse(localStorage.getItem('account_form16_context') || '{}');
-    } catch {
-      return {};
-    }
-  };
-
   const initialAccountContext = getStoredAccountContext();
-  const [currentView, setCurrentView] = useState(() => localStorage.getItem('account_current_view') || 'main');
+  const initialViewState = resolveStoredAccountView();
+  const [currentView, setCurrentView] = useState(initialViewState.view);
   const [expandedDept, setExpandedDept] = useState(null);
   const [selectedCircle, setSelectedCircle] = useState(initialAccountContext.selectedCircle || '');
   const [selectedDept, setSelectedDept] = useState(initialAccountContext.selectedDept || '');
   const [selectedEmployee, setSelectedEmployee] = useState(initialAccountContext.selectedEmployee || null);
   const [previousView, setPreviousView] = useState('employees');
+  const [selectedTaxDeclId, setSelectedTaxDeclId] = useState(initialViewState.taxDeclId);
   const [employeesList, setEmployeesList] = useState([]);
   const [payrollSummary, setPayrollSummary] = useState([]);
   const [payrollError, setPayrollError] = useState('');
@@ -143,8 +203,19 @@ export const Account = ()  => {
   const [bulkForm16Files, setBulkForm16Files] = useState([]);
   const [isBulkForm16Uploading, setIsBulkForm16Uploading] = useState(false);
   const [bulkForm16UploadResult, setBulkForm16UploadResult] = useState(null);
+  const [tracesCsvFile, setTracesCsvFile] = useState(null);
+  const [tracesImportResult, setTracesImportResult] = useState(null);
+  const [isTracesImporting, setIsTracesImporting] = useState(false);
   const [form16FinancialYear, setForm16FinancialYear] = useState('');
   const [form16File, setForm16File] = useState(null);
+  const [form16Parsed, setForm16Parsed] = useState({
+    parsed_gross_salary: '',
+    parsed_tds_deducted: '',
+    parsed_taxable_income: '',
+    parsed_annual_tax: '',
+  });
+  const [form16OfficialTraces, setForm16OfficialTraces] = useState(false);
+  const [form16PartType, setForm16PartType] = useState('combined');
   const [isForm16Uploading, setIsForm16Uploading] = useState(false);
   const [form16History, setForm16History] = useState([]);
   const [form16HistoryLoading, setForm16HistoryLoading] = useState(false);
@@ -225,12 +296,31 @@ export const Account = ()  => {
   const [accountsProfileSaving, setAccountsProfileSaving] = useState(false);
   const [accountsProfileError, setAccountsProfileError] = useState('');
   const [accountsProfileSuccess, setAccountsProfileSuccess] = useState('');
+  const [regimeOverrideForm, setRegimeOverrideForm] = useState({
+    tax_regime: '',
+    reason: '',
+  });
+  const [regimeOverrideSaving, setRegimeOverrideSaving] = useState(false);
 
   const API_BASE_URL = '/api/accounts';
 
   useEffect(() => {
     localStorage.setItem('account_current_view', currentView);
   }, [currentView]);
+
+  useEffect(() => {
+    if (selectedTaxDeclId) {
+      localStorage.setItem('account_selected_tax_decl_id', String(selectedTaxDeclId));
+    } else {
+      localStorage.removeItem('account_selected_tax_decl_id');
+    }
+  }, [selectedTaxDeclId]);
+
+  useEffect(() => {
+    if (currentView === 'taxDeclarationDetail' && !selectedTaxDeclId) {
+      setCurrentView('taxDeclarations');
+    }
+  }, [currentView, selectedTaxDeclId]);
 
   useEffect(() => {
     localStorage.setItem('account_form16_context', JSON.stringify({
@@ -877,6 +967,10 @@ export const Account = ()  => {
         pf_account_number: p.pf_account_number || '',
         esi_number: p.esi_number || '',
         pran: p.pran || '',
+      });
+      setRegimeOverrideForm({
+        tax_regime: p.tax_regime_override || p.tax_regime || '',
+        reason: p.tax_regime_override_reason || '',
       });
       if (!profileJson.profile) {
         setAccountsProfileSuccess('No Accounts Profile yet. Fill details and click Save.');
@@ -1589,12 +1683,13 @@ export const Account = ()  => {
         (result.payrolls || []).map((p) => [p.admin_id, p])
       );
 
-      const calcNet = (gross, epf, ptax, esic) => {
+      const calcNet = (gross, epf, ptax, esic, tds) => {
         const g = Number(gross || 0);
         const e = Number(epf || 0);
         const t = Number(ptax || 0);
         const s = Number(esic || 0);
-        return g - e - t - s;
+        const d = Number(tds || 0);
+        return g - e - t - s - d;
       };
 
       const mapped = (employeesList || []).map((emp) => {
@@ -1609,11 +1704,13 @@ export const Account = ()  => {
           epf_final: Number(p.epf_final || 0),
           ptax_final: Number(p.ptax_final || 0),
           esic_final: Number(p.esic_final || 0),
+          tds_final: Number(p.tds_final || 0),
           net_salary_final: Number(p.net_salary_final || calcNet(
             p.gross_salary_for_month,
             p.epf_final,
             p.ptax_final,
-            p.esic_final
+            p.esic_final,
+            p.tds_final
           )),
         };
       });
@@ -1653,6 +1750,7 @@ export const Account = ()  => {
             epf_final: Number(row.epf_final || 0),
             ptax_final: Number(row.ptax_final || 0),
             esic_final: Number(row.esic_final || 0),
+            tds_final: Number(row.tds_final || 0),
             actual_working_days: Number(row.actual_working_days || 0),
           };
 
@@ -1828,6 +1926,81 @@ export const Account = ()  => {
     }
   };
 
+  const handleTracesCsvImport = async () => {
+    if (!isValidFinancialYear(bulkForm16Year)) {
+      alert('Enter a valid financial year using 8 digits (e.g. 20262027 for 2026-2027).');
+      return;
+    }
+    if (!tracesCsvFile) {
+      alert('Please choose a TRACES CSV file.');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please login again.');
+      return;
+    }
+    try {
+      setIsTracesImporting(true);
+      setTracesImportResult(null);
+      const payload = new FormData();
+      payload.append('financial_year', bulkForm16Year.trim());
+      payload.append('file', tracesCsvFile);
+      const response = await fetch(`${API_BASE_URL}/form16/traces-import`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: payload,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'TRACES import failed');
+      }
+      setTracesImportResult(result);
+      setTracesCsvFile(null);
+      alert(`TRACES import complete. Imported: ${result.imported || 0}, Skipped: ${result.skipped || 0}`);
+    } catch (error) {
+      console.error('TRACES import error:', error);
+      alert(error.message || 'TRACES import failed');
+    } finally {
+      setIsTracesImporting(false);
+    }
+  };
+
+  const handleDownloadForm16Summary = async () => {
+    if (!selectedEmployee?.adminId) return;
+    if (!isValidFinancialYear(form16FinancialYear)) {
+      alert('Enter a valid financial year (e.g. 2025-26).');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please login again.');
+      return;
+    }
+    try {
+      const fy = form16FinancialYear.trim();
+      const res = await fetch(
+        `${API_BASE_URL}/form16/summary/${selectedEmployee.adminId}/download?financial_year=${encodeURIComponent(fy)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Download failed');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `form16-summary-${selectedEmployee.id || selectedEmployee.adminId}-${fy}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(error.message || 'Unable to download Form 16 summary');
+    }
+  };
+
   const handleUploadForm16 = async () => {
     if (!selectedEmployee?.adminId) {
       alert('Employee not selected.');
@@ -1841,6 +2014,10 @@ export const Account = ()  => {
       alert('Please choose a Form 16 file.');
       return;
     }
+    if (form16OfficialTraces && !form16File.name?.toLowerCase().endsWith('.pdf')) {
+      alert('Official TRACES Form 16 must be a PDF file.');
+      return;
+    }
 
     const token = localStorage.getItem('token');
     if (!token) {
@@ -1852,6 +2029,20 @@ export const Account = ()  => {
     payload.append('admin_id', selectedEmployee.adminId);
     payload.append('financial_year', form16FinancialYear.trim());
     payload.append('form16_file', form16File);
+    payload.append('certificate_type', form16OfficialTraces ? 'official_traces' : 'upload_manual');
+    payload.append('part_type', form16PartType);
+    if (form16Parsed.parsed_gross_salary !== '') {
+      payload.append('parsed_gross_salary', form16Parsed.parsed_gross_salary);
+    }
+    if (form16Parsed.parsed_tds_deducted !== '') {
+      payload.append('parsed_tds_deducted', form16Parsed.parsed_tds_deducted);
+    }
+    if (form16Parsed.parsed_taxable_income !== '') {
+      payload.append('parsed_taxable_income', form16Parsed.parsed_taxable_income);
+    }
+    if (form16Parsed.parsed_annual_tax !== '') {
+      payload.append('parsed_annual_tax', form16Parsed.parsed_annual_tax);
+    }
 
     try {
       setIsForm16Uploading(true);
@@ -1869,6 +2060,8 @@ export const Account = ()  => {
 
       alert('Form 16 uploaded successfully');
       setForm16File(null);
+      setForm16OfficialTraces(false);
+      setForm16PartType('combined');
       await loadForm16History(selectedEmployee.adminId);
       await handleCircleSelect(selectedDept, selectedCircle, false);
     } catch (error) {
@@ -1876,6 +2069,67 @@ export const Account = ()  => {
       alert(error.message || 'Unable to upload Form 16');
     } finally {
       setIsForm16Uploading(false);
+    }
+  };
+
+  const handleSaveRegimeOverride = async () => {
+    if (!selectedEmployee?.adminId) return;
+    if (!regimeOverrideForm.reason.trim()) {
+      alert('Reason is required for HR regime override.');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setRegimeOverrideSaving(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/employees/${selectedEmployee.adminId}/tax-regime-override`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            tax_regime: regimeOverrideForm.tax_regime,
+            reason: regimeOverrideForm.reason.trim(),
+          }),
+        }
+      );
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message || 'Override failed');
+      setAccountsProfileSuccess('Tax regime override saved.');
+      if (result.profile) {
+        setAccountsProfileForm((p) => ({
+          ...p,
+          tax_regime: result.profile.tax_regime || p.tax_regime,
+        }));
+      }
+    } catch (err) {
+      setAccountsProfileError(err.message || 'Unable to save regime override');
+    } finally {
+      setRegimeOverrideSaving(false);
+    }
+  };
+
+  const handleClearRegimeOverride = async () => {
+    if (!selectedEmployee?.adminId) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setRegimeOverrideSaving(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/employees/${selectedEmployee.adminId}/tax-regime-override`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+      );
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message || 'Clear failed');
+      setRegimeOverrideForm((p) => ({ ...p, reason: '' }));
+      setAccountsProfileSuccess('Tax regime override cleared.');
+    } catch (err) {
+      setAccountsProfileError(err.message || 'Unable to clear override');
+    } finally {
+      setRegimeOverrideSaving(false);
     }
   };
 
@@ -2317,7 +2571,7 @@ export const Account = ()  => {
               <input
                 type="file"
                 className="accounts-file-picker__input"
-                accept=".pdf,.jpg,.jpeg,.png"
+                accept={form16OfficialTraces ? '.pdf' : '.pdf,.jpg,.jpeg,.png'}
                 onChange={(e) => setForm16File(e.target.files?.[0] || null)}
               />
               <span className="accounts-file-picker__btn">
@@ -2325,9 +2579,85 @@ export const Account = ()  => {
                 Choose file
               </span>
               <span className={`accounts-file-picker__name${form16File ? ' accounts-file-picker__name--selected' : ''}`}>
-                {form16File?.name || 'PDF, JPG, or PNG'}
+                {form16File?.name || (form16OfficialTraces ? 'PDF only' : 'PDF, JPG, or PNG')}
               </span>
             </label>
+          </div>
+          <div className="accounts-upload-form accounts-upload-form--grid">
+            <label className="input-group accounts-checkbox-row">
+              <input
+                type="checkbox"
+                checked={form16OfficialTraces}
+                onChange={(e) => setForm16OfficialTraces(e.target.checked)}
+              />
+              <span>Official TRACES Form 16 (PDF certificate from TRACES portal)</span>
+            </label>
+            <div className="input-group">
+              <label htmlFor="form16-part-type">Certificate part</label>
+              <select
+                id="form16-part-type"
+                className="custom-select"
+                value={form16PartType}
+                onChange={(e) => setForm16PartType(e.target.value)}
+              >
+                <option value="combined">Combined (Part A + B)</option>
+                <option value="part_a">Part A only</option>
+                <option value="part_b">Part B only</option>
+              </select>
+            </div>
+          </div>
+          <p className="accounts-upload-card__sub">
+            Optional: enter figures from official Form 16 / TRACES for reconciliation
+          </p>
+          <div className="accounts-upload-form accounts-upload-form--grid">
+            <div className="input-group">
+              <label>Gross salary (annual)</label>
+              <input
+                type="number"
+                min="0"
+                className="custom-select"
+                value={form16Parsed.parsed_gross_salary}
+                onChange={(e) =>
+                  setForm16Parsed((p) => ({ ...p, parsed_gross_salary: e.target.value }))
+                }
+              />
+            </div>
+            <div className="input-group">
+              <label>TDS deducted</label>
+              <input
+                type="number"
+                min="0"
+                className="custom-select"
+                value={form16Parsed.parsed_tds_deducted}
+                onChange={(e) =>
+                  setForm16Parsed((p) => ({ ...p, parsed_tds_deducted: e.target.value }))
+                }
+              />
+            </div>
+            <div className="input-group">
+              <label>Taxable income</label>
+              <input
+                type="number"
+                min="0"
+                className="custom-select"
+                value={form16Parsed.parsed_taxable_income}
+                onChange={(e) =>
+                  setForm16Parsed((p) => ({ ...p, parsed_taxable_income: e.target.value }))
+                }
+              />
+            </div>
+            <div className="input-group">
+              <label>Annual tax</label>
+              <input
+                type="number"
+                min="0"
+                className="custom-select"
+                value={form16Parsed.parsed_annual_tax}
+                onChange={(e) =>
+                  setForm16Parsed((p) => ({ ...p, parsed_annual_tax: e.target.value }))
+                }
+              />
+            </div>
           </div>
           <div className="accounts-upload-actions">
             <button
@@ -2337,6 +2667,15 @@ export const Account = ()  => {
               disabled={isForm16Uploading}
             >
               {isForm16Uploading ? 'Uploading...' : 'Upload Form 16'}
+            </button>
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={handleDownloadForm16Summary}
+              disabled={!selectedEmployee?.adminId || isForm16Uploading}
+            >
+              <Download size={14} aria-hidden />
+              Download computed summary
             </button>
             <button
               type="button"
@@ -2357,6 +2696,8 @@ export const Account = ()  => {
             <thead>
               <tr>
                 <th>Financial Year</th>
+                <th>Type</th>
+                <th>Part</th>
                 <th>Uploaded On</th>
                 <th>File</th>
               </tr>
@@ -2364,22 +2705,38 @@ export const Account = ()  => {
             <tbody>
               {form16HistoryLoading && (
                 <tr>
-                  <td colSpan="3" className="accounts-empty">Loading history...</td>
+                  <td colSpan="5" className="accounts-empty">Loading history...</td>
                 </tr>
               )}
               {!form16HistoryLoading && form16HistoryError && (
                 <tr>
-                  <td colSpan="3" className="accounts-empty">{form16HistoryError}</td>
+                  <td colSpan="5" className="accounts-empty">{form16HistoryError}</td>
                 </tr>
               )}
               {!form16HistoryLoading && !form16HistoryError && form16History.length === 0 && (
                 <tr>
-                  <td colSpan="3" className="accounts-empty">No Form 16 records found.</td>
+                  <td colSpan="5" className="accounts-empty">No Form 16 records found.</td>
                 </tr>
               )}
               {!form16HistoryLoading && !form16HistoryError && form16History.map((item) => (
                 <tr key={item.id}>
                   <td data-label="Financial Year">{item.financial_year || '-'}</td>
+                  <td data-label="Type">
+                    {item.is_official_traces || item.certificate_type === 'official_traces'
+                      ? 'Official TRACES'
+                      : item.data_source === 'traces'
+                        ? 'TRACES import'
+                        : 'Manual upload'}
+                  </td>
+                  <td data-label="Part">
+                    {item.part_type === 'part_a'
+                      ? 'Part A'
+                      : item.part_type === 'part_b'
+                        ? 'Part B'
+                        : item.part_type === 'combined'
+                          ? 'Combined'
+                          : '—'}
+                  </td>
                   <td data-label="Uploaded On">{formatDateTime(item.created_at)}</td>
                   <td data-label="File">
                     {item.file_path ? (
@@ -2440,7 +2797,6 @@ export const Account = ()  => {
 
   const openTdsProjection = () => {
     if (!selectedEmployee?.adminId) return;
-    setPreviousView(currentView);
     setTdsForm((p) => ({ ...p, financial_year: defaultFinancialYear() }));
     setTdsProjection(null);
     setTdsError('');
@@ -2458,7 +2814,7 @@ export const Account = ()  => {
         <button
           type="button"
           className="btn-back"
-          onClick={() => setCurrentView(previousView || 'ctcBreakup')}
+          onClick={() => setCurrentView('ctcBreakup')}
         >
           <ArrowLeft size={18} /> Back
         </button>
@@ -2665,18 +3021,79 @@ export const Account = ()  => {
                 </section>
 
                 <section className="tds-panel tds-panel--full">
-                  <h4>Monthly TDS schedule (remaining FY)</h4>
+                  <h4>Monthly TDS schedule (FY)</h4>
                   <div className="tds-schedule-grid">
-                    {(p.tds?.schedule || [])
-                      .filter((row) => row.status === 'projected')
-                      .map((row) => (
-                        <div key={row.month} className="tds-schedule-item">
-                          <span>{row.month_label}</span>
-                          <strong>{formatCurrency(row.tds)}</strong>
-                        </div>
-                      ))}
+                    {(p.tds?.schedule || []).map((row) => (
+                      <div
+                        key={row.month}
+                        className={`tds-schedule-item tds-schedule-item--${row.status || row.source || 'projected'}`}
+                      >
+                        <span>{row.month_label}</span>
+                        <strong>{formatCurrency(row.tds)}</strong>
+                        <small>{row.status === 'actual' ? 'Payroll' : 'Projected'}</small>
+                      </div>
+                    ))}
                   </div>
                 </section>
+
+                {p.tax_savings && (
+                  <section className="tds-panel tds-panel--full tds-savings-panel">
+                    <h4>Tax saved with declaration</h4>
+                    <ul className="tds-rows">
+                      <li>
+                        <span>Annual tax (no declaration)</span>
+                        <span>{formatCurrency(p.tax_savings.without_declaration?.annual_tax)}</span>
+                      </li>
+                      <li>
+                        <span>Annual tax (with declaration)</span>
+                        <span>{formatCurrency(p.tax_savings.with_declaration?.annual_tax)}</span>
+                      </li>
+                      <li className="tds-row--green">
+                        <span>Tax saved (annual)</span>
+                        <span>{formatCurrency(p.tax_savings.tax_saved_annual)}</span>
+                      </li>
+                      <li>
+                        <span>Monthly TDS saved</span>
+                        <span>{formatCurrency(p.tax_savings.monthly_tds_saved)}</span>
+                      </li>
+                    </ul>
+                    {p.tax_savings.note && (
+                      <p className="tds-rules-note">{p.tax_savings.note}</p>
+                    )}
+                  </section>
+                )}
+
+                {p.variance && (
+                  <section className="tds-panel tds-panel--full tds-variance-panel">
+                    <h4>TDS variance dashboard</h4>
+                    <ul className="tds-rows">
+                      <li>
+                        <span>Declaration basis</span>
+                        <span>{p.variance.declaration_basis === 'final' ? 'Final (approved)' : p.variance.declaration_basis === 'provisional' ? 'Provisional (submitted)' : '—'}</span>
+                      </li>
+                      <li>
+                        <span>YTD gross (payroll)</span>
+                        <span>{formatCurrency(p.variance.ytd_gross_payroll)}</span>
+                      </li>
+                      <li>
+                        <span>YTD TDS deducted</span>
+                        <span>{formatCurrency(p.variance.ytd_tds_deducted)}</span>
+                      </li>
+                      <li>
+                        <span>Annual tax (projected)</span>
+                        <span>{formatCurrency(p.variance.annual_tax_projected)}</span>
+                      </li>
+                      <li>
+                        <span>Remaining tax liability</span>
+                        <span>{formatCurrency(p.variance.remaining_tax_liability)}</span>
+                      </li>
+                      <li className="tds-row--accent">
+                        <span>Catch-up TDS needed</span>
+                        <span>{formatCurrency(p.variance.catch_up_tds_needed)}</span>
+                      </li>
+                    </ul>
+                  </section>
+                )}
 
                 <p className="tds-rules-note">
                   Rules: {p.regime_label || p.rules_version}
@@ -3230,6 +3647,65 @@ export const Account = ()  => {
           </div>
         </div>
       </div>
+
+      <div className="accounts-upload-card accounts-upload-card--bulk" style={{ marginTop: 16 }}>
+        <div className="accounts-upload-card__head">
+          <h3 className="accounts-upload-card__title">TRACES CSV import</h3>
+          <p className="accounts-upload-card__sub">
+            Import Form 16 Part A figures from TRACES export (PAN or Employee ID, TDS columns)
+          </p>
+        </div>
+        <div className="accounts-upload-form">
+          <div className="input-group">
+            <span className="accounts-upload-label">TRACES CSV file</span>
+            <label className="accounts-file-picker">
+              <input
+                type="file"
+                className="accounts-file-picker__input"
+                accept=".csv,.txt"
+                onChange={(e) => setTracesCsvFile(e.target.files?.[0] || null)}
+              />
+              <span className="accounts-file-picker__btn">
+                <Upload size={14} aria-hidden />
+                Choose CSV
+              </span>
+              <span
+                className={`accounts-file-picker__name${
+                  tracesCsvFile ? ' accounts-file-picker__name--selected' : ''
+                }`}
+              >
+                {tracesCsvFile?.name || 'CSV with PAN/Emp ID, Gross, TDS columns'}
+              </span>
+            </label>
+          </div>
+          <div className="accounts-upload-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleTracesCsvImport}
+              disabled={isTracesImporting}
+            >
+              {isTracesImporting ? 'Importing…' : 'Import TRACES CSV'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {tracesImportResult && (
+        <div className="table-container-card form16-history-card">
+          <h4 className="section-title" style={{ marginBottom: '12px' }}>TRACES Import Result</h4>
+          <p><strong>Imported:</strong> {tracesImportResult.imported}</p>
+          <p><strong>Skipped:</strong> {tracesImportResult.skipped}</p>
+          {tracesImportResult.errors?.length > 0 && (
+            <ul className="accounts-bulk-file-list">
+              {tracesImportResult.errors.slice(0, 10).map((err, idx) => (
+                <li key={idx}>{err}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {bulkForm16UploadResult && (
         <div className="table-container-card form16-history-card">
           <h4 className="section-title" style={{ marginBottom: '12px' }}>Bulk Form16 Upload Result</h4>
@@ -3388,6 +3864,7 @@ export const Account = ()  => {
                 <th>EPF</th>
                 <th>P.Tax</th>
                 <th>ESIC</th>
+                <th>TDS</th>
                 <th>Actual Working Days</th>
                 <th>Net Salary</th>
               </tr>
@@ -3395,7 +3872,7 @@ export const Account = ()  => {
             <tbody>
               {payrollRows.length === 0 && !isBulkPayrollGenerating && (
                 <tr>
-                  <td colSpan="8" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="9" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
                     No employees in this filtered list for the selected month/year.
                   </td>
                 </tr>
@@ -3411,7 +3888,8 @@ export const Account = ()  => {
                   Number(gross || 0)
                     - Number(row.epf_final || 0)
                     - Number(row.ptax_final || 0)
-                    - Number(row.esic_final || 0),
+                    - Number(row.esic_final || 0)
+                    - Number(row.tds_final || 0),
                 );
                 return (
                   <tr key={row.adminId}>
@@ -3469,6 +3947,25 @@ export const Account = ()  => {
                             prev.map((r) =>
                               r.adminId === row.adminId
                                 ? { ...r, esic_final: val }
+                                : r
+                            )
+                          );
+                        }}
+                      />
+                    </td>
+                    <td data-label="TDS">
+                      <input
+                        className="custom-input-file"
+                        style={{ width: 110 }}
+                        type="number"
+                        step="0.01"
+                        value={row.tds_final}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          setPayrollRows((prev) =>
+                            prev.map((r) =>
+                              r.adminId === row.adminId
+                                ? { ...r, tds_final: val }
                                 : r
                             )
                           );
@@ -3866,6 +4363,7 @@ export const Account = ()  => {
                 <th>EPF</th>
                 <th>P.Tax</th>
                 <th>ESIC</th>
+                <th>TDS</th>
                 <th>Actual Working Days</th>
                 <th>Net Salary</th>
               </tr>
@@ -3873,7 +4371,7 @@ export const Account = ()  => {
             <tbody>
               {!payrollHistoryLoading && payrollHistoryRows.length === 0 && (
                 <tr>
-                  <td colSpan="8" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="9" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
                     No payroll history found for this month/year.
                   </td>
                 </tr>
@@ -3886,6 +4384,7 @@ export const Account = ()  => {
                   <td data-label="EPF">{Number(r.epf_final || 0).toFixed(2)}</td>
                   <td data-label="P.Tax">{Number(r.ptax_final || 0).toFixed(2)}</td>
                   <td data-label="ESIC">{Number(r.esic_final || 0).toFixed(2)}</td>
+                  <td data-label="TDS">{Number(r.tds_final || 0).toFixed(2)}</td>
                   <td data-label="Actual Working Days">{Number(r.actual_working_days || 0).toFixed(1)}</td>
                   <td data-label="Net Salary">{Number(r.net_salary_final || 0).toFixed(2)}</td>
                 </tr>
@@ -3896,6 +4395,23 @@ export const Account = ()  => {
       </div>
     </div>
   );
+
+  const accountViewVisible =
+    (currentView === 'main')
+    || (currentView === 'noc_requests')
+    || (currentView === 'employees')
+    || (currentView === 'addPayslip')
+    || (currentView === 'bulkPayslip')
+    || (currentView === 'bulkForm16')
+    || (currentView === 'bulkPayroll')
+    || (currentView === 'payrollHistory')
+    || (currentView === 'expenseClaims')
+    || (currentView === 'taxDeclarations')
+    || (currentView === 'taxDeclarationDetail' && selectedTaxDeclId)
+    || (currentView === 'addForm16')
+    || (currentView === 'ctcBreakup')
+    || (currentView === 'tdsProjection')
+    || (currentView === 'viewPayslip');
 
   return (
     <div className="hr-main-container">
@@ -3924,6 +4440,20 @@ export const Account = ()  => {
         <TaxDeclarationReview
           apiBase={API_BASE_URL}
           onBack={() => setCurrentView('main')}
+          onOpenDetail={(declId) => {
+            setSelectedTaxDeclId(declId);
+            setCurrentView('taxDeclarationDetail');
+          }}
+        />
+      )}
+      {currentView === 'taxDeclarationDetail' && selectedTaxDeclId && (
+        <TaxDeclarationReviewDetail
+          apiBase={API_BASE_URL}
+          declId={selectedTaxDeclId}
+          onBack={() => {
+            setSelectedTaxDeclId(null);
+            setCurrentView('taxDeclarations');
+          }}
         />
       )}
       {currentView === 'addForm16' && renderAddForm16()}
@@ -4100,6 +4630,60 @@ export const Account = ()  => {
                       </select>
                     </div>
                   </div>
+                  {canEditAccountsProfile && (
+                    <div className="accounts-profile-regime-override">
+                      <h5 className="accounts-profile-section__title">HR tax regime override</h5>
+                      <p className="accounts-profile-meta">
+                        Use when employee cannot change regime after declaration submit.
+                      </p>
+                      <div className="accounts-profile-grid">
+                        <div className="input-group">
+                          <label>Override regime</label>
+                          <select
+                            className="custom-select"
+                            value={regimeOverrideForm.tax_regime}
+                            onChange={(e) =>
+                              setRegimeOverrideForm((p) => ({ ...p, tax_regime: e.target.value }))
+                            }
+                          >
+                            <option value="">— Select —</option>
+                            {TAX_REGIME_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="input-group accounts-profile-grid__full">
+                          <label>Reason (required)</label>
+                          <input
+                            className="custom-select"
+                            value={regimeOverrideForm.reason}
+                            onChange={(e) =>
+                              setRegimeOverrideForm((p) => ({ ...p, reason: e.target.value }))
+                            }
+                            placeholder="e.g. Regime correction after HR review"
+                          />
+                        </div>
+                      </div>
+                      <div className="form-actions-row">
+                        <button
+                          type="button"
+                          className="btn-outline"
+                          disabled={regimeOverrideSaving}
+                          onClick={handleSaveRegimeOverride}
+                        >
+                          {regimeOverrideSaving ? 'Saving…' : 'Save override'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-outline"
+                          disabled={regimeOverrideSaving}
+                          onClick={handleClearRegimeOverride}
+                        >
+                          Clear override
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </section>
               </div>
 
@@ -4176,6 +4760,8 @@ export const Account = ()  => {
             </div>
          </div>
       )}
+
+      {!accountViewVisible && renderMainView()}
 
       {attendancePickerOpen && (
         <div className="attendance-modal-overlay" onClick={() => setAttendancePickerOpen(false)}>

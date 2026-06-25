@@ -287,9 +287,287 @@ select.employee-tax-control {
   font-weight: 700;
 }
 
+.employee-tax-decl-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.employee-tax-decl-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.employee-tax-decl-banner-text strong {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.employee-tax-decl-banner-text span {
+  font-size: 0.9rem;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.employee-tax-decl-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.employee-tax-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.employee-tax-link-btn:hover {
+  background: #f1f5f9;
+}
+
+.employee-tax-decl-banner--approved {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.employee-tax-decl-banner--submitted {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.employee-tax-decl-banner--draft {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.employee-tax-decl-banner--rejected {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.employee-tax-decl-banner--missing {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+.employee-tax-warnings {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.employee-tax-warnings li {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 0.85rem;
+}
+
+.employee-tax-decl-readonly {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.employee-tax-decl-readonly-title {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.employee-tax-decl-readonly-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.employee-tax-decl-readonly-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.employee-tax-decl-readonly-grid span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.03em;
+}
+
+.employee-tax-decl-readonly-grid strong {
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+
+.employee-tax-decl-readonly-note {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+}
+
+.employee-tax-basis {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.employee-tax-basis--provisional {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.employee-tax-basis--final {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.employee-tax-panel--full {
+  margin-top: 16px;
+}
+
+.employee-tax-schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.employee-tax-schedule-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #f8fafc;
+}
+
+.employee-tax-schedule-item strong {
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.employee-tax-schedule-item small {
+  font-size: 0.7rem;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.employee-tax-schedule-item--actual {
+  border-color: #6ee7b7;
+  background: #ecfdf5;
+}
+
+.employee-tax-schedule-item--projected {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.employee-tax-schedule-item--past {
+  opacity: 0.85;
+}
+
+.employee-tax-savings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.employee-tax-savings-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.employee-tax-savings-grid span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.employee-tax-savings-grid strong {
+  font-size: 1rem;
+  color: #0f172a;
+}
+
+.employee-tax-savings-grid small {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.employee-tax-savings-highlight {
+  border-color: #6ee7b7 !important;
+  background: #ecfdf5 !important;
+}
+
+.employee-tax-savings-highlight strong {
+  color: #047857;
+}
+
 @media (max-width: 640px) {
+  .employee-tax-page {
+    padding: 0 10px 20px;
+  }
+
+  .employee-tax-back {
+    width: 100%;
+    justify-content: center;
+    box-sizing: border-box;
+    margin-bottom: 12px;
+  }
+
   .employee-tax-card {
-    padding: 16px;
+    padding: 14px;
+  }
+
+  .employee-tax-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+  }
+
+  .employee-tax-header h1 {
+    font-size: 1.1rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .employee-tax-header p {
+    font-size: 0.82rem;
   }
 
   .employee-tax-adjust-toolbar {
@@ -303,10 +581,32 @@ select.employee-tax-control {
 
   .employee-tax-recalc {
     width: 100%;
+    justify-content: center;
   }
 
   .employee-tax-adjust-grid,
-  .employee-tax-grid {
+  .employee-tax-grid,
+  .employee-tax-savings-grid,
+  .employee-tax-decl-readonly-grid {
     grid-template-columns: 1fr;
+  }
+
+  .employee-tax-schedule-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .employee-tax-decl-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .employee-tax-panel li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .employee-tax-hero strong {
+    font-size: 1.35rem;
   }
 }

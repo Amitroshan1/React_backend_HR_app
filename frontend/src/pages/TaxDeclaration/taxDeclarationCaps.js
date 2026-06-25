@@ -79,14 +79,35 @@ export function getCapLabel(def, sec, itemsMap, ctc) {
     return null;
 }
 
-export function docsForItem(documents, sectionCode, itemCode) {
+export const FINAL_PROOF_DOC_TYPE = "final_proof";
+
+export function docsForItem(documents, sectionCode, itemCode, docType = null) {
     const s = String(sectionCode || "").toUpperCase();
     const c = String(itemCode || "").toUpperCase();
-    return (documents || []).filter(
-        (d) =>
-            String(d.section_code || "").toUpperCase() === s
-            && String(d.item_code || "").toUpperCase() === c
-    );
+    return (documents || []).filter((d) => {
+        if (String(d.section_code || "").toUpperCase() !== s) return false;
+        if (String(d.item_code || "").toUpperCase() !== c) return false;
+        const dt = (d.doc_type || "").toLowerCase();
+        if (docType === FINAL_PROOF_DOC_TYPE) {
+            return dt === FINAL_PROOF_DOC_TYPE;
+        }
+        if (docType) {
+            return dt === String(docType).toLowerCase();
+        }
+        return dt !== FINAL_PROOF_DOC_TYPE;
+    });
+}
+
+/** Prefer year-end final proof; otherwise provisional declaration proof. */
+export function effectiveDocsForItem(documents, sectionCode, itemCode) {
+    const finalDocs = docsForItem(documents, sectionCode, itemCode, FINAL_PROOF_DOC_TYPE);
+    if (finalDocs.length > 0) {
+        return { docs: finalDocs, isYearEnd: true };
+    }
+    return {
+        docs: docsForItem(documents, sectionCode, itemCode),
+        isYearEnd: false,
+    };
 }
 
 export function generalDocuments(documents) {

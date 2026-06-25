@@ -34,6 +34,9 @@ class MonthlyPayroll(db.Model):
     esic_computed = db.Column(db.Float, nullable=True)
     ptax_computed = db.Column(db.Float, nullable=True)
 
+    tds_computed = db.Column(db.Float, nullable=True)
+    tds_final = db.Column(db.Float, nullable=True)
+
     epf_final = db.Column(db.Float, nullable=True)
     esic_final = db.Column(db.Float, nullable=True)
     ptax_final = db.Column(db.Float, nullable=True)
@@ -65,6 +68,8 @@ class MonthlyPayroll(db.Model):
             "epf_computed": self.epf_computed,
             "esic_computed": self.esic_computed,
             "ptax_computed": self.ptax_computed,
+            "tds_computed": self.tds_computed,
+            "tds_final": self.tds_final,
             "epf_final": self.epf_final,
             "esic_final": self.esic_final,
             "ptax_final": self.ptax_final,

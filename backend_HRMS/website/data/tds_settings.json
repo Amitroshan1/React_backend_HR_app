@@ -1,0 +1,16 @@
+{
+  "payroll_tds_approved_only": false,
+  "block_employee_regime_change_after_submit": true,
+  "regime_override_hr_only": true,
+  "employer_name": "Saffo Solution Technology LLP",
+  "employer_tan": "",
+  "employer_pan": "",
+  "form16_variance_tolerance_inr": 100,
+  "form16_variance_alert_enabled": true,
+  "max_declaration_amendments_per_fy": 2,
+  "declaration_deadline_default_day": 25,
+  "declaration_deadline_default_month": 2,
+  "declaration_deadline_overrides": {
+    "2026-27": "2027-03-10"
+  }
+}

@@ -1,68 +1,30 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Check, FileText, X } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import { formatDateTime as formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import {
     defaultFinancialYear,
     financialYearOptions,
     mergeFinancialYears,
 } from "../../utils/financialYear";
+import {
+    authHeaders,
+    parseApiResponse,
+    statusBadgeClass,
+} from "./taxDeclarationReviewUtils";
+import { notifyError, notifySuccess } from "../../utils/notify";
 import "./TaxDeclaration.css";
 
-async function parseApiResponse(res) {
-    const text = await res.text();
-    if (!text) return { ok: res.ok, data: {} };
-    try {
-        return { ok: res.ok, data: JSON.parse(text) };
-    } catch {
-        throw new Error(
-            res.status === 404
-                ? "Tax declaration API not found. Restart the backend server."
-                : "Server returned an invalid response."
-        );
-    }
-}
-
-function authHeaders() {
-    const token = localStorage.getItem("token");
-    return {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-    };
-}
-
-function formatAmount(val) {
-    const n = Number(val);
-    if (!Number.isFinite(n) || n === 0) return "—";
-    return `₹${n.toLocaleString("en-IN")}`;
-}
-
-function statusBadgeClass(status) {
-    const s = (status || "").toLowerCase();
-    if (s === "approved") return "tax-decl-status tax-decl-status--approved";
-    if (s === "rejected") return "tax-decl-status tax-decl-status--rejected";
-    if (s === "submitted") return "tax-decl-status tax-decl-status--submitted";
-    return "tax-decl-status tax-decl-status--draft";
-}
-
-function itemLabel(schema, sectionCode, itemCode) {
-    const sec = (schema?.sections || []).find((s) => s.id === sectionCode);
-    const item = (sec?.items || []).find((i) => i.code === itemCode);
-    return item?.label || itemCode;
-}
-
-export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
+export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpenDetail }) {
     const [financialYear, setFinancialYear] = useState(defaultFinancialYear);
-    const [statusFilter, setStatusFilter] = useState("submitted");
+    const [statusFilter, setStatusFilter] = useState("all");
     const [declarations, setDeclarations] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-    const [selectedId, setSelectedId] = useState(null);
-    const [detail, setDetail] = useState(null);
-    const [detailLoading, setDetailLoading] = useState(false);
-    const [reviewComment, setReviewComment] = useState("");
-    const [reviewing, setReviewing] = useState(false);
-    const [success, setSuccess] = useState("");
     const [fyOptions, setFyOptions] = useState(() => financialYearOptions());
+    const [backfillLoading, setBackfillLoading] = useState(false);
+    const [submissionDeadline, setSubmissionDeadline] = useState(null);
+    const [deadlineDate, setDeadlineDate] = useState("");
+    const [deadlineLoading, setDeadlineLoading] = useState(false);
+    const [deadlineSaving, setDeadlineSaving] = useState(false);
 
     const loadFinancialYears = useCallback(async () => {
         try {
@@ -86,7 +48,6 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
 
     const loadList = useCallback(async () => {
         setLoading(true);
-        setError("");
         try {
             const params = new URLSearchParams({
                 status: statusFilter,
@@ -105,89 +66,125 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                 setFyOptions((prev) => mergeFinancialYears(prev, yearsFromRows));
             }
         } catch (err) {
-            setError(err.message || "Unable to load tax declarations");
+            notifyError(err.message || "Unable to load tax declarations");
             setDeclarations([]);
         } finally {
             setLoading(false);
         }
     }, [apiBase, financialYear, statusFilter]);
 
-    const loadDetail = useCallback(
-        async (declId) => {
-            setDetailLoading(true);
-            setError("");
-            try {
-                const res = await fetch(`${apiBase}/tax-declarations/${declId}`, {
-                    headers: authHeaders(),
-                });
-                const { ok, data } = await parseApiResponse(res);
-                if (!ok || !data.success) throw new Error(data.message || "Failed to load declaration");
-                setDetail(data);
-                setReviewComment("");
-            } catch (err) {
-                setError(err.message || "Unable to load declaration detail");
-                setDetail(null);
-            } finally {
-                setDetailLoading(false);
-            }
-        },
-        [apiBase]
-    );
-
     useEffect(() => {
         loadList();
     }, [loadList]);
 
-    const openDetail = (declId) => {
-        setSelectedId(declId);
-        setSuccess("");
-        loadDetail(declId);
-    };
+    const loadDeadline = useCallback(async () => {
+        setDeadlineLoading(true);
+        try {
+            const params = new URLSearchParams({ financial_year: financialYear });
+            const res = await fetch(`${apiBase}/tax-declaration/deadline?${params}`, {
+                headers: authHeaders(),
+            });
+            const { ok, data } = await parseApiResponse(res);
+            if (!ok || !data.success) {
+                throw new Error(data.message || "Failed to load submission deadline");
+            }
+            const info = data.submission_deadline || null;
+            setSubmissionDeadline(info);
+            setDeadlineDate(info?.deadline || "");
+        } catch (err) {
+            notifyError(err.message || "Unable to load submission deadline");
+            setSubmissionDeadline(null);
+        } finally {
+            setDeadlineLoading(false);
+        }
+    }, [apiBase, financialYear]);
 
-    const closeDetail = () => {
-        setSelectedId(null);
-        setDetail(null);
-        setReviewComment("");
-    };
+    useEffect(() => {
+        loadDeadline();
+    }, [loadDeadline]);
 
-    const handleReview = async (action) => {
-        if (!selectedId) return;
-        if (action === "reject" && !reviewComment.trim()) {
-            setError("Please enter a reason for rejection.");
+    const saveDeadline = async () => {
+        if (!deadlineDate) {
+            notifyError("Choose a submission deadline date.");
             return;
         }
-        setReviewing(true);
-        setError("");
-        setSuccess("");
+        setDeadlineSaving(true);
         try {
-            const res = await fetch(`${apiBase}/tax-declarations/${selectedId}/review`, {
-                method: "POST",
-                headers: authHeaders(),
+            const res = await fetch(`${apiBase}/tax-declaration/deadline`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", ...authHeaders() },
                 body: JSON.stringify({
-                    action,
-                    comment: reviewComment.trim() || undefined,
+                    financial_year: financialYear,
+                    deadline_date: deadlineDate,
                 }),
             });
             const { ok, data } = await parseApiResponse(res);
-            if (!ok || !data.success) throw new Error(data.message || "Review failed");
-            setSuccess(data.message || `Declaration ${action}d.`);
-            await loadList();
-            if (statusFilter === "submitted") {
-                closeDetail();
-            } else {
-                await loadDetail(selectedId);
+            if (!ok || !data.success) {
+                throw new Error(data.message || "Failed to update deadline");
             }
+            setSubmissionDeadline(data.submission_deadline || null);
+            if (data.submission_deadline?.deadline) {
+                setDeadlineDate(data.submission_deadline.deadline);
+            }
+            notifySuccess(data.message || "Deadline updated.");
         } catch (err) {
-            setError(err.message || "Review failed");
+            notifyError(err.message || "Unable to update deadline");
         } finally {
-            setReviewing(false);
+            setDeadlineSaving(false);
         }
     };
 
-    const decl = detail?.declaration;
-    const schema = detail?.schema;
-    const employee = detail?.employee;
-    const canReview = decl?.status === "submitted";
+    const resetDeadline = async () => {
+        setDeadlineSaving(true);
+        try {
+            const res = await fetch(`${apiBase}/tax-declaration/deadline`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", ...authHeaders() },
+                body: JSON.stringify({
+                    financial_year: financialYear,
+                    clear: true,
+                }),
+            });
+            const { ok, data } = await parseApiResponse(res);
+            if (!ok || !data.success) {
+                throw new Error(data.message || "Failed to reset deadline");
+            }
+            setSubmissionDeadline(data.submission_deadline || null);
+            setDeadlineDate(data.submission_deadline?.deadline || "");
+            notifySuccess(data.message || "Deadline reset to default.");
+        } catch (err) {
+            notifyError(err.message || "Unable to reset deadline");
+        } finally {
+            setDeadlineSaving(false);
+        }
+    };
+
+    const handleOpenDetail = (declId) => {
+        if (onOpenDetail) {
+            onOpenDetail(declId);
+        }
+    };
+
+    const handleBackfillRegime = async () => {
+        setBackfillLoading(true);
+        try {
+            const res = await fetch(`${apiBase}/tax-declaration/backfill-regime`, {
+                method: "POST",
+                headers: authHeaders(),
+            });
+            const { ok, data } = await parseApiResponse(res);
+            if (!ok || !data.success) {
+                throw new Error(data.message || "Backfill failed");
+            }
+            alert(
+                `Tax regime backfill complete.\nProfiles updated: ${data.profiles_updated || 0}\nEmployees considered: ${data.employees_considered || 0}`
+            );
+        } catch (err) {
+            notifyError(err.message || "Unable to backfill tax regime");
+        } finally {
+            setBackfillLoading(false);
+        }
+    };
 
     return (
         <div className="tax-decl-page tax-decl-review">
@@ -229,17 +226,70 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
                         >
+                            <option value="all">All</option>
                             <option value="submitted">Submitted (pending)</option>
                             <option value="approved">Approved</option>
                             <option value="rejected">Rejected</option>
                             <option value="draft">Draft</option>
-                            <option value="all">All</option>
                         </select>
                     </label>
+                    <button
+                        type="button"
+                        className="tax-decl-btn tax-decl-btn--secondary"
+                        onClick={handleBackfillRegime}
+                        disabled={backfillLoading}
+                        title="Sync Employee Accounts tax regime from approved declarations"
+                    >
+                        {backfillLoading ? "Syncing…" : "Sync regime from approved"}
+                    </button>
                 </div>
 
-                {error && <div className="tax-decl-alert tax-decl-alert--error" role="alert">{error}</div>}
-                {success && <div className="tax-decl-alert tax-decl-alert--success" role="status">{success}</div>}
+                <section className="tax-decl-review-deadline">
+                    <h3>Declaration submission deadline</h3>
+                    <p>
+                        Default is 25 February (FY end year). Employees see a scrolling notice on the
+                        tax declaration page. Extend the date below to allow submissions later.
+                    </p>
+                    {deadlineLoading && <p className="tax-decl-muted">Loading deadline…</p>}
+                    {!deadlineLoading && submissionDeadline && (
+                        <p className="tax-decl-muted">
+                            Current: <strong>{submissionDeadline.deadline_display}</strong>
+                            {submissionDeadline.is_extended ? " (extended)" : " (default)"}
+                            {" · "}
+                            {submissionDeadline.is_open ? "Submissions open" : "Submissions closed"}
+                        </p>
+                    )}
+                    <div className="tax-decl-review-deadline-row">
+                        <label className="tax-decl-field">
+                            <span className="tax-decl-label">Allow submissions until</span>
+                            <input
+                                type="date"
+                                className="tax-decl-control"
+                                value={deadlineDate}
+                                onChange={(e) => setDeadlineDate(e.target.value)}
+                                disabled={deadlineSaving}
+                            />
+                        </label>
+                        <div className="tax-decl-review-deadline-actions">
+                            <button
+                                type="button"
+                                className="tax-decl-btn tax-decl-btn--primary"
+                                onClick={saveDeadline}
+                                disabled={deadlineSaving || deadlineLoading}
+                            >
+                                {deadlineSaving ? "Saving…" : "Save deadline"}
+                            </button>
+                            <button
+                                type="button"
+                                className="tax-decl-btn tax-decl-btn--secondary"
+                                onClick={resetDeadline}
+                                disabled={deadlineSaving || deadlineLoading}
+                            >
+                                Reset to 25 Feb
+                            </button>
+                        </div>
+                    </div>
+                </section>
 
                 {loading ? (
                     <p className="tax-decl-muted">Loading declarations…</p>
@@ -254,6 +304,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                                     <th>FY</th>
                                     <th>Regime</th>
                                     <th>Status</th>
+                                    <th>Final proof</th>
                                     <th>Submitted</th>
                                     <th />
                                 </tr>
@@ -261,7 +312,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                             <tbody>
                                 {declarations.length === 0 && (
                                     <tr>
-                                        <td colSpan={8} className="tax-decl-muted tax-decl-review-empty">
+                                        <td colSpan={9} className="tax-decl-muted tax-decl-review-empty">
                                             No declarations found for the selected filters.
                                         </td>
                                     </tr>
@@ -269,7 +320,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                                 {declarations.map((row) => {
                                     const emp = row.employee || {};
                                     return (
-                                        <tr key={row.id} className={selectedId === row.id ? "tax-decl-review-row--active" : ""}>
+                                        <tr key={row.id}>
                                             <td data-label="Employee">{emp.employee_name || "—"}</td>
                                             <td data-label="Emp ID">{emp.employee_id || "—"}</td>
                                             <td data-label="Department">{emp.department || "—"}</td>
@@ -277,6 +328,9 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                                             <td data-label="Regime">{(row.tax_regime || "—").replace(/_/g, " ")}</td>
                                             <td data-label="Status">
                                                 <span className={statusBadgeClass(row.status)}>{row.status}</span>
+                                            </td>
+                                            <td data-label="Final proof">
+                                                {row.final_proof_status || "—"}
                                             </td>
                                             <td data-label="Submitted">
                                                 {row.submitted_at
@@ -287,9 +341,15 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                                                 <button
                                                     type="button"
                                                     className="tax-decl-btn tax-decl-btn--secondary tax-decl-btn--sm"
-                                                    onClick={() => openDetail(row.id)}
+                                                    onClick={() => handleOpenDetail(row.id)}
                                                 >
-                                                    {row.status === "submitted" ? "Review" : "View"}
+                                                    {row.status === "submitted"
+                                                        ? "Review"
+                                                        : row.final_proof_status === "submitted"
+                                                          ? "Review final"
+                                                          : row.status === "approved"
+                                                            ? "Amend"
+                                                            : "View"}
                                                 </button>
                                             </td>
                                         </tr>
@@ -297,130 +357,6 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack }) {
                                 })}
                             </tbody>
                         </table>
-                    </div>
-                )}
-
-                {selectedId && (
-                    <div className="tax-decl-review-detail">
-                        <div className="tax-decl-review-detail-head">
-                            <h2>Declaration detail</h2>
-                            <button type="button" className="tax-decl-btn tax-decl-btn--link" onClick={closeDetail}>
-                                Close
-                            </button>
-                        </div>
-
-                        {detailLoading && <p className="tax-decl-muted">Loading detail…</p>}
-
-                        {!detailLoading && decl && (
-                            <>
-                                <div className="tax-decl-info-grid">
-                                    <div><span>Employee</span><strong>{employee?.employee_name || "—"}</strong></div>
-                                    <div><span>Emp ID</span><strong>{employee?.employee_id || "—"}</strong></div>
-                                    <div><span>PAN</span><strong>{employee?.pan || "—"}</strong></div>
-                                    <div><span>Financial Year</span><strong>{decl.financial_year}</strong></div>
-                                    <div><span>Tax Regime</span><strong>{(decl.tax_regime || "—").replace(/_/g, " ")}</strong></div>
-                                    <div>
-                                        <span>Status</span>
-                                        <strong><span className={statusBadgeClass(decl.status)}>{decl.status}</span></strong>
-                                    </div>
-                                    <div><span>Place</span><strong>{decl.declaration_place || "—"}</strong></div>
-                                    <div><span>80C (extra)</span><strong>{formatAmount(decl.section_80c_extra)}</strong></div>
-                                    <div><span>80D</span><strong>{formatAmount(decl.section_80d)}</strong></div>
-                                    <div><span>Rent (annual)</span><strong>{formatAmount(decl.rent_paid_annual)}</strong></div>
-                                </div>
-
-                                {decl.rejection_reason && (
-                                    <div className="tax-decl-banner tax-decl-banner--warn">
-                                        Rejection reason: {decl.rejection_reason}
-                                    </div>
-                                )}
-
-                                {(decl.items || []).length > 0 && (
-                                    <section className="tax-decl-section">
-                                        <h3 className="tax-decl-section-title">Declared items</h3>
-                                        <div className="tax-decl-review-table-wrap">
-                                            <table className="tax-decl-review-table tax-decl-review-table--compact">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Section</th>
-                                                        <th>Item</th>
-                                                        <th>Amount / Value</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {(decl.items || []).map((it) => (
-                                                        <tr key={it.id}>
-                                                            <td>{it.section_code}</td>
-                                                            <td>{itemLabel(schema, it.section_code, it.item_code)}</td>
-                                                            <td>
-                                                                {it.amount != null && it.amount !== ""
-                                                                    ? formatAmount(it.amount)
-                                                                    : it.text_value || "—"}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </section>
-                                )}
-
-                                {(decl.documents || []).length > 0 && (
-                                    <section className="tax-decl-section">
-                                        <h3 className="tax-decl-section-title">Documents</h3>
-                                        <ul className="tax-decl-doc-list">
-                                            {(decl.documents || []).map((doc) => (
-                                                <li key={doc.id}>
-                                                    <a href={doc.url} target="_blank" rel="noopener noreferrer">
-                                                        {doc.original_name || doc.doc_type}
-                                                    </a>
-                                                    <span className="tax-decl-muted">
-                                                        {doc.section_code && doc.item_code
-                                                            ? `${itemLabel(schema, doc.section_code, doc.item_code)} (${doc.doc_type})`
-                                                            : doc.doc_type}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </section>
-                                )}
-
-                                {canReview && (
-                                    <div className="tax-decl-review-actions">
-                                        <label className="tax-decl-field tax-decl-field--full">
-                                            <span className="tax-decl-label">Comment (required for rejection)</span>
-                                            <textarea
-                                                className="tax-decl-control tax-decl-control--textarea"
-                                                rows={3}
-                                                value={reviewComment}
-                                                onChange={(e) => setReviewComment(e.target.value)}
-                                                placeholder="Optional for approval; required if rejecting"
-                                            />
-                                        </label>
-                                        <div className="tax-decl-actions">
-                                            <button
-                                                type="button"
-                                                className="tax-decl-btn tax-decl-btn--primary"
-                                                disabled={reviewing}
-                                                onClick={() => handleReview("approve")}
-                                            >
-                                                <Check size={16} aria-hidden />
-                                                {reviewing ? "Processing…" : "Approve"}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="tax-decl-btn tax-decl-btn--secondary"
-                                                disabled={reviewing}
-                                                onClick={() => handleReview("reject")}
-                                            >
-                                                <X size={16} aria-hidden />
-                                                Reject
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        )}
                     </div>
                 )}
             </div>

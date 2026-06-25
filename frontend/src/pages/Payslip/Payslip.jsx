@@ -385,6 +385,10 @@ export const Payslip = () => {
                                             <strong>{`Rs. ${formatINRCurrency(item.gross_salary_for_month)}`}</strong>
                                         </div>
                                         <div className="payroll-month-row">
+                                            <span>TDS</span>
+                                            <strong>{`Rs. ${formatINRCurrency(item.tds_final)}`}</strong>
+                                        </div>
+                                        <div className="payroll-month-row">
                                             <span>Deductions</span>
                                             <strong>{`Rs. ${formatINRCurrency(item.deductions_total_final)}`}</strong>
                                         </div>

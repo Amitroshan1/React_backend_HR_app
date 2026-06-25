@@ -185,6 +185,7 @@ import { FiEye, FiEyeOff } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
 import { setPlanContext } from "../utils/planFeatures";
+import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 
 import "./style/HeroSection.css";
 
@@ -308,6 +309,7 @@ export const HeroSection = () => {
     const data = await res.json();
     console.log(data);
     if (data.success) {
+      clearLoginNotificationsFlag();
       localStorage.setItem("token", data.token);
       localStorage.setItem("lastActivityAt", String(Date.now()));
       setPlanContext(data.plan, data.features);
