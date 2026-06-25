@@ -7,16 +7,6 @@ export function clearLoginNotificationsFlag() {
     sessionStorage.removeItem(LOGIN_NOTIF_KEY);
 }
 
-function countUniqueQueryThreads(notifications) {
-    const ids = new Set();
-    notifications.forEach((n) => {
-        if (n.entity_id != null) {
-            ids.add(n.entity_id);
-        }
-    });
-    return ids.size || notifications.length;
-}
-
 export function useFloatingNotifications(enabled) {
     const fetchedRef = useRef(false);
 
@@ -39,7 +29,7 @@ export function useFloatingNotifications(enabled) {
                 if (!data.success || cancelled) return;
 
                 const unread = (data.notifications || []).filter((n) => !n.is_read);
-                const queryUnread = unread.filter((n) => n.type === "query");
+                // Query replies use inline Chat badges + header count — no login toasts.
                 const otherUnread = unread.filter((n) => n.type !== "query");
 
                 let toastIndex = 0;
@@ -50,16 +40,6 @@ export function useFloatingNotifications(enabled) {
                     }, toastIndex * 450);
                     toastIndex += 1;
                 };
-
-                if (queryUnread.length > 0) {
-                    const threadCount = countUniqueQueryThreads(queryUnread);
-                    scheduleToast(
-                        threadCount === 1
-                            ? "You have a new reply on your query. Open Queries to view."
-                            : `${threadCount} queries have new replies. Open Queries to view.`,
-                        6000
-                    );
-                }
 
                 otherUnread.slice(0, 3).forEach((n) => {
                     const message = [n.title, n.body].filter(Boolean).join(" — ");
