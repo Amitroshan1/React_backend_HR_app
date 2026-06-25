@@ -7,6 +7,16 @@ export function clearLoginNotificationsFlag() {
     sessionStorage.removeItem(LOGIN_NOTIF_KEY);
 }
 
+function countUniqueQueryThreads(notifications) {
+    const ids = new Set();
+    notifications.forEach((n) => {
+        if (n.entity_id != null) {
+            ids.add(n.entity_id);
+        }
+    });
+    return ids.size || notifications.length;
+}
+
 export function useFloatingNotifications(enabled) {
     const fetchedRef = useRef(false);
 
@@ -29,20 +39,36 @@ export function useFloatingNotifications(enabled) {
                 if (!data.success || cancelled) return;
 
                 const unread = (data.notifications || []).filter((n) => !n.is_read);
-                unread.slice(0, 5).forEach((n, i) => {
+                const queryUnread = unread.filter((n) => n.type === "query");
+                const otherUnread = unread.filter((n) => n.type !== "query");
+
+                let toastIndex = 0;
+                const scheduleToast = (message, autoClose = 5000) => {
                     window.setTimeout(() => {
                         if (cancelled) return;
-                        const message = [n.title, n.body].filter(Boolean).join(" — ");
-                        notifyInfo(message || "You have a new notification", { autoClose: 5000 });
-                    }, i * 450);
+                        notifyInfo(message, { autoClose });
+                    }, toastIndex * 450);
+                    toastIndex += 1;
+                };
+
+                if (queryUnread.length > 0) {
+                    const threadCount = countUniqueQueryThreads(queryUnread);
+                    scheduleToast(
+                        threadCount === 1
+                            ? "You have a new reply on your query. Open Queries to view."
+                            : `${threadCount} queries have new replies. Open Queries to view.`,
+                        6000
+                    );
+                }
+
+                otherUnread.slice(0, 3).forEach((n) => {
+                    const message = [n.title, n.body].filter(Boolean).join(" — ");
+                    scheduleToast(message || "You have a new notification");
                 });
 
-                if (unread.length > 5) {
-                    window.setTimeout(() => {
-                        if (!cancelled) {
-                            notifyInfo(`${unread.length - 5} more unread notifications`, { autoClose: 4000 });
-                        }
-                    }, 5 * 450);
+                const otherBeyond = otherUnread.length - 3;
+                if (otherBeyond > 0) {
+                    scheduleToast(`${otherBeyond} more unread notifications`, 4000);
                 }
 
                 sessionStorage.setItem(LOGIN_NOTIF_KEY, "1");

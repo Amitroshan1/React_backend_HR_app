@@ -719,6 +719,97 @@
   transition: color 0.2s;
 }
 
+.query-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.query-chat-btn:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+
+.query-chat-btn--unread {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.query-chat-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.query-history-unread-summary {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.query-row-unread {
+  background: rgba(239, 246, 255, 0.65);
+}
+
+.query-title-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.query-title-cell > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.query-unread-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #2563eb;
+  flex-shrink: 0;
+}
+
+.query-title-unread {
+  color: #1e3a8a;
+}
+
+.query-new-reply-pill {
+  display: inline-block;
+  width: fit-content;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .query-action-cell {
   white-space: nowrap;
 }
@@ -887,20 +978,16 @@
     white-space: normal;
   }
   .query-close-btn,
-  .query-table td.query-action-cell .query-chat-link {
+  .query-table td.query-action-cell .query-chat-btn {
     width: 100%;
     justify-content: center;
     box-sizing: border-box;
   }
-  .query-table td.query-action-cell .query-chat-link {
+
+  .query-table td.query-action-cell .query-chat-btn {
     display: inline-flex;
     align-items: center;
     padding: 10px 12px;
-    background: #eef2ff;
-    color: #4338ca;
-    border: 1px solid #c7d2fe;
-    border-radius: 8px;
-    text-decoration: none;
   }
   .query-close-btn {
     padding: 10px 12px;

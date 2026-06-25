@@ -497,6 +497,7 @@ import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 import {
   QUERY_CHAT_PARAM,
   QUERY_CHAT_POLL_MS,
+  QUERY_INBOX_POLL_MS,
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
@@ -684,9 +685,50 @@ export const Queries = () => {
     return 2;
   };
 
-  const fetchMyQueries = async () => {
-    setIsLoading(true);
-    setActionError('');
+  const sortMyQueries = (rows) =>
+    [...rows].sort((a, b) => {
+      if (a.hasUnreadReply !== b.hasUnreadReply) {
+        return a.hasUnreadReply ? -1 : 1;
+      }
+      const rankDiff = getStatusRank(a.status) - getStatusRank(b.status);
+      if (rankDiff !== 0) return rankDiff;
+      return new Date(b.createdAtRaw) - new Date(a.createdAtRaw);
+    });
+
+  const notifyQueryBadgeRefresh = () => {
+    try {
+      window.dispatchEvent(new CustomEvent('queryNotificationsUpdated'));
+    } catch {
+      /* no-op */
+    }
+  };
+
+  const markQueryRead = async (queryId) => {
+    if (!queryId) return;
+    try {
+      await fetch(`${API_BASE_URL}/queries/${queryId}/mark-read`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+      });
+      setQueries((prev) =>
+        prev.map((q) =>
+          q.id === queryId
+            ? { ...q, hasUnreadReply: false, unreadReplyCount: 0 }
+            : q
+        )
+      );
+      notifyQueryBadgeRefresh();
+    } catch {
+      /* non-blocking */
+    }
+  };
+
+  const fetchMyQueries = async (options = {}) => {
+    const { silent = false } = options;
+    if (!silent) {
+      setIsLoading(true);
+      setActionError('');
+    }
     try {
       const response = await fetch(`${API_BASE_URL}/queries/my?page=1&limit=50`, {
         method: 'GET',
@@ -707,19 +749,20 @@ export const Queries = () => {
         attachments: Array.isArray(q.attachments) ? q.attachments : [],
         createdAtRaw: q.created_at,
         createdAt: formatDateTime(q.created_at),
+        hasUnreadReply: Boolean(q.has_unread_reply),
+        unreadReplyCount: Number(q.unread_reply_count || 0),
         messages: []
       }));
-      const sorted = mapped.sort((a, b) => {
-        const rankDiff = getStatusRank(a.status) - getStatusRank(b.status);
-        if (rankDiff !== 0) return rankDiff;
-        return new Date(b.createdAtRaw) - new Date(a.createdAtRaw);
-      });
-      setQueries(sorted);
+      setQueries(sortMyQueries(mapped));
     } catch (error) {
       console.error('Load queries error:', error);
-      setActionError(error.message || 'Unable to load queries');
+      if (!silent) {
+        setActionError(error.message || 'Unable to load queries');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -750,8 +793,17 @@ export const Queries = () => {
     if (!chatId) return undefined;
     const poll = () => {
       openChatRef.current?.({ id: chatId }, { silent: true, skipUrl: true });
+      fetchMyQueries({ silent: true });
     };
     const intervalId = window.setInterval(poll, QUERY_CHAT_POLL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [activeChat?.id]);
+
+  useEffect(() => {
+    if (activeChat?.id) return undefined;
+    const intervalId = window.setInterval(() => {
+      fetchMyQueries({ silent: true });
+    }, QUERY_INBOX_POLL_MS);
     return () => window.clearInterval(intervalId);
   }, [activeChat?.id]);
 
@@ -927,6 +979,9 @@ export const Queries = () => {
       if (!skipUrl) {
         setChatInUrl(updated.id);
       }
+      if (!silent) {
+        await markQueryRead(queryItem.id);
+      }
     } catch (error) {
       console.error('Open chat error:', error);
       if (!silent) {
@@ -984,6 +1039,7 @@ export const Queries = () => {
 
   const hrOnlyQuery = !hasFeature('query_all_departments') && !hasFeature('query_hr_and_accounts');
   const hrAccountsQuery = !hasFeature('query_all_departments') && hasFeature('query_hr_and_accounts');
+  const unreadQueryCount = queries.filter((q) => q.hasUnreadReply).length;
 
   return (
     <div className="query-dashboard-container">
@@ -1149,6 +1205,12 @@ export const Queries = () => {
         <div className="query-card query-table-card">
           <div className="query-card-header">
             <h2 className="query-section-title">Your Query History</h2>
+            {unreadQueryCount > 0 && (
+              <p className="query-history-unread-summary">
+                {unreadQueryCount} {unreadQueryCount === 1 ? 'query has' : 'queries have'} new{' '}
+                {unreadQueryCount === 1 ? 'reply' : 'replies'}.
+              </p>
+            )}
           </div>
           {actionError && <div className="query-error">{actionError}</div>}
           <div className="query-table-wrapper">
@@ -1170,8 +1232,21 @@ export const Queries = () => {
                   <tr><td colSpan="6" className="query-empty">No queries yet.</td></tr>
                 ) : (
                   queries.map(q => (
-                    <tr key={q.id}>
-                      <td data-label="Query Details"><div className="query-cell-main"><strong>{q.title}</strong><small>{q.department} • {q.createdAt}</small></div></td>
+                    <tr key={q.id} className={q.hasUnreadReply ? 'query-row-unread' : undefined}>
+                      <td data-label="Query Details">
+                        <div className="query-cell-main query-title-cell">
+                          {q.hasUnreadReply && (
+                            <span className="query-unread-dot" title="New reply" aria-hidden="true" />
+                          )}
+                          <div>
+                            <strong className={q.hasUnreadReply ? 'query-title-unread' : undefined}>{q.title}</strong>
+                            <small>{q.department} • {q.createdAt}</small>
+                            {q.hasUnreadReply && (
+                              <span className="query-new-reply-pill">New reply</span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
                       <td data-label="Description" className="query-desc-td">
                         <span className="query-desc-cell" title={q.queryText || ''}>
                           {getSummary(q.queryText)}
@@ -1199,7 +1274,22 @@ export const Queries = () => {
                         )}
                       </td>
                       <td data-label="Status"><span className={`query-status-badge query-status-${(q.status || '').toLowerCase()}`}>{getStatusLabel(q.status)}</span></td>
-                      <td className="query-action-cell" data-label="Action"><button type="button" onClick={() => openChat(q)} className="query-chat-link">Chat</button></td>
+                      <td className="query-action-cell" data-label="Action">
+                        <button
+                          type="button"
+                          onClick={() => openChat(q)}
+                          className={`query-chat-btn${q.hasUnreadReply ? ' query-chat-btn--unread' : ''}`}
+                          title={q.hasUnreadReply ? 'New reply — open chat' : 'Open chat'}
+                        >
+                          <MessageCircle size={14} aria-hidden="true" />
+                          Chat
+                          {q.unreadReplyCount > 0 && (
+                            <span className="query-chat-unread-badge">
+                              {q.unreadReplyCount > 9 ? '9+' : q.unreadReplyCount}
+                            </span>
+                          )}
+                        </button>
+                      </td>
                       <td data-label="Close">
                         {q.status !== 'Closed' ? (
                           <button type="button" className="query-close-btn" onClick={() => closeQuery(q.id)}><CheckCircle size={14}/> Close</button>
