@@ -1,7 +1,7 @@
-
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import {
   compressImage,
   createReturnRequestAPI,
@@ -536,46 +536,46 @@ const EmployeeDetails = () => {
     }
   }, [empId]);
 
-  useEffect(() => {
-    const load = async () => {
-      const id = empId || "";
-      if (!id) {
-        setEmployee(null);
-        setLoading(false);
-        return;
-      }
-      try {
-        await syncITDataFromAPI();
-        const apiEmployee = await fetchEmployeeAssetsAPI(id);
-        setEmployee(apiEmployee || null);
-        if (apiEmployee) await loadReturnHistory(apiEmployee);
-      } catch (err) {
-        console.error("[EmployeeAssetsDetails] API load failed, using fallback:", err);
-        toast.error(
-          getITApiErrorMessage(
-            err,
-            "Could not load this employee from the server. Showing saved or cached data.",
-          ),
+  const loadEmployee = useCallback(async () => {
+    const id = empId || "";
+    if (!id) {
+      setEmployee(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      await syncITDataFromAPI();
+      const apiEmployee = await fetchEmployeeAssetsAPI(id);
+      setEmployee(apiEmployee || null);
+      if (apiEmployee) await loadReturnHistory(apiEmployee);
+    } catch (err) {
+      console.error("[EmployeeAssetsDetails] API load failed, using fallback:", err);
+      toast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not load this employee from the server. Showing saved or cached data.",
+        ),
+      );
+      const fromState = location.state?.employee;
+      if (fromState) await loadReturnHistory(fromState);
+      else await loadReturnHistory({ empId: id, id });
+      if (fromState) {
+        setEmployee(fromState);
+      } else {
+        const found = getEmployees().find(
+          (e) =>
+            (e.id || "").toUpperCase() === id.toUpperCase() ||
+            (e.empId || "").toUpperCase() === id.toUpperCase(),
         );
-        const fromState = location.state?.employee;
-        if (fromState) await loadReturnHistory(fromState);
-        else await loadReturnHistory({ empId: id, id });
-        if (fromState) {
-          setEmployee(fromState);
-        } else {
-          const found = getEmployees().find(
-            (e) =>
-              (e.id || "").toUpperCase() === id.toUpperCase() ||
-              (e.empId || "").toUpperCase() === id.toUpperCase(),
-          );
-          setEmployee(found || null);
-        }
-      } finally {
-        setLoading(false);
+        setEmployee(found || null);
       }
-    };
-    load();
+    } finally {
+      setLoading(false);
+    }
   }, [empId, location.state, loadReturnHistory]);
+
+  useRefreshOnNavigate(loadEmployee, [empId]);
 
   const allAssets = employee?.assignedAssets || [];
 

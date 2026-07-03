@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import ClickableImage from "../../../../components/ClickableImage";
 import { openImageInNewTab } from "../../../../utils/openImageInNewTab";
 import { getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
@@ -294,8 +295,9 @@ export default function Parcel() {
     setExportedData(readExported());
   }, []);
 
+  useRefreshOnNavigate(loadData);
+
   useEffect(() => {
-    loadData();
     window.addEventListener("inventory-updated", loadData);
     window.addEventListener("storage", loadData);
     return () => {

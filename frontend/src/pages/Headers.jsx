@@ -340,7 +340,14 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     };
 
     const roleInfo = getRoleInfo(rawRole, user);
-    const queryShortcutAllowed = ["hr", "account", "accounts", "it"].includes(roleInfo.display?.toLowerCase());
+    const queryShortcutAllowed = (() => {
+        const display = roleInfo.display?.toLowerCase();
+        if (["hr", "account", "accounts", "it"].includes(display)) return true;
+        const candidates = [user?.emp_type, user?.designation, user?.department, rawRole].filter(Boolean);
+        return candidates.some((c) =>
+            /\bhuman\s+resources?\b|\bhr\b|\baccounts?\b|\baccountant\b|\bit\b|\binventory\b/i.test(String(c))
+        );
+    })();
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
     const isAdminRole =
         ["admin", "administrator", "administration"].includes(roleKey) ||

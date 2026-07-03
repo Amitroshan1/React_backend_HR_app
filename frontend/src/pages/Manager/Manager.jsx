@@ -4,6 +4,7 @@ import { LeaveRequests } from "./comps/LeaveRequests/LeaveRequests";
 import { ClaimRequests } from "./comps/LeaveRequests/ClaimRequests";
 import { WFHRequests } from "./comps/LeaveRequests/WFHRequests";
 import { ResignationRequests } from "./comps/LeaveRequests/ResignationRequests";
+import { TeamOffboarding } from "./comps/TeamOffboarding/TeamOffboarding";
 import { NocRequests } from "./comps/LeaveRequests/NocRequests";
 import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
 import { ManagerProbationReviews } from "./ManagerProbationReviews";
@@ -20,6 +21,7 @@ const MANAGER_TABS = [
   "wfh",
   "claims",
   "resignation",
+  "offboarding",
   "noc",
   "performance",
   "probation",
@@ -31,6 +33,7 @@ const APPROVAL_TABS = [
   { key: "wfh", label: "Work From Home", countKey: "wfh" },
   { key: "claims", label: "Claims", countKey: "claim" },
   { key: "resignation", label: "Resignation", countKey: "resignation" },
+  { key: "offboarding", label: "Team Exit", countKey: "offboarding" },
   { key: "noc", label: "NOC Request", countKey: "noc" },
 ];
 const PERFORMANCE_TAB = { key: "performance", label: "Performance", countKey: "performance" };
@@ -194,6 +197,7 @@ export const Manager = () => {
   };
 
   const isApprovalTab = APPROVAL_TABS.some((t) => t.key === activeTab);
+  const showStatusFilters = isApprovalTab && activeTab !== 'offboarding';
 
   const renderTabContent = () => {
     const panelProps = {
@@ -209,6 +213,8 @@ export const Manager = () => {
         return <WFHRequests {...panelProps} />;
       case "resignation":
         return <ResignationRequests {...panelProps} />;
+      case "offboarding":
+        return <TeamOffboarding />;
       case "noc":
         return <NocRequests {...panelProps} />;
       case "performance":
@@ -221,8 +227,6 @@ export const Manager = () => {
         return <LeaveRequests {...panelProps} />;
     }
   };
-
-  const showStatusFilters = isApprovalTab;
 
   return (
     <div className="manager-dashboard-wrapper">

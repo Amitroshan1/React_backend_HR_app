@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowLeft, Check, FileText, Unlock, X } from "lucide-react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { TaxDeclarationDetailBody } from "./TaxDeclarationDetailBody";
 import {
     authHeaders,
@@ -33,9 +34,7 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
         }
     }, [apiBase, declId]);
 
-    useEffect(() => {
-        loadDetail();
-    }, [loadDetail]);
+    useRefreshOnNavigate(loadDetail, [declId]);
 
     const handleReview = async (action) => {
         if (!declId) return;

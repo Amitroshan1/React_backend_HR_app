@@ -1,0 +1,62 @@
+.team-ob-panel {
+  margin-top: 8px;
+}
+
+.team-ob-intro {
+  margin: 0 0 12px;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.team-ob-muted {
+  color: #94a3b8;
+  padding: 12px 0;
+}
+
+.team-ob-error {
+  color: #b91c1c;
+  padding: 12px 0;
+}
+
+.team-ob-table-wrap {
+  overflow-x: auto;
+}
+
+.team-ob-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+.team-ob-table th,
+.team-ob-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.team-ob-table th {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.team-ob-sub {
+  display: block;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.team-ob-status {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.team-ob-status--initiated { background: #f1f5f9; color: #475569; }
+.team-ob-status--notice { background: #fef3c7; color: #b45309; }
+.team-ob-status--clearance { background: #dbeafe; color: #1d4ed8; }
+.team-ob-status--ready { background: #d1fae5; color: #047857; }

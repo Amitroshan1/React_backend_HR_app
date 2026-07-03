@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './UpdateLeave.css';
 
 const API_BASE = '/api/HumanResource';
@@ -27,6 +28,7 @@ export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circle
   const [updateLoading, setUpdateLoading] = useState(false);
   const [updateError, setUpdateError] = useState('');
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const hasSearchedRef = useRef(false);
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
@@ -70,6 +72,7 @@ export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circle
         return;
       }
       setEmployees(data.employees || []);
+      hasSearchedRef.current = true;
     } catch {
       setSearchError('Network error. Please try again.');
       setEmployees([]);
@@ -77,6 +80,12 @@ export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circle
       setSearchLoading(false);
     }
   }, [filters.emp_type, filters.circle, getAuthHeaders]);
+
+  useRefreshOnNavigate(() => {
+    if (hasSearchedRef.current || employees.length > 0) {
+      handleSearch();
+    }
+  }, [view]);
 
   const handleViewBalance = useCallback(async (emp) => {
     if (!emp.id) return;
@@ -157,6 +166,9 @@ export const UpdateLeave = ({ onBack, empTypeOptions: propEmpTypeOptions, circle
     setBalanceError('');
     setUpdateError('');
     setUpdateSuccess(false);
+    if (hasSearchedRef.current || employees.length > 0) {
+      handleSearch();
+    }
   };
 
   // --- EDIT VIEW: Leave balance form ---

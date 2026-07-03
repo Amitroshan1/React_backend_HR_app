@@ -491,6 +491,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle, FileText, Eye, Paperclip } from 'lucide-react';
 import './Queries.css';
+import { QueryChatModal } from './QueryChatModal';
+import { QueryChatAttachmentsBar } from './QueryChatAttachmentsBar';
 import { hasFeature } from '../../utils/planFeatures';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
@@ -1046,8 +1048,7 @@ export const Queries = () => {
       <div className="query-inner">
         {/* FORM / CHAT SECTION */}
         <div className="query-card query-form-card">
-          {!activeChat ? (
-            <div className="query-form-wrap">
+          <div className="query-form-wrap">
               <div className="query-card-header">
                 <h2 className="query-section-title">Raise a Query</h2>
                 {hrOnlyQuery && (
@@ -1151,55 +1152,63 @@ export const Queries = () => {
                   {isSubmitting ? <Loader2 className="query-spin" /> : "Submit Request"}
                 </button>
               </form>
-            </div>
-          ) : (
-            <div className="query-chat-wrap">
+          </div>
+        </div>
+
+        <QueryChatModal
+          open={Boolean(activeChat)}
+          onClose={closeChatPanel}
+          ariaLabelledBy="query-employee-chat-title"
+        >
+          {activeChat && (
+            <div className="query-chat-wrap query-chat-wrap--modal">
               <div className="query-chat-header">
                 <div>
-                  <h3 className="query-chat-title">{activeChat.title}</h3>
+                  <h3 id="query-employee-chat-title" className="query-chat-title">{activeChat.title}</h3>
                   <small className="query-chat-dept">{activeChat.department}</small>
                 </div>
-                <button type="button" onClick={closeChatPanel} className="query-chat-close"><X size={20}/></button>
+                <button type="button" onClick={closeChatPanel} className="query-chat-close" aria-label="Close chat">
+                  <X size={20}/>
+                </button>
               </div>
+              <QueryChatAttachmentsBar
+                attachments={activeChat.attachments}
+                label="Your uploaded files"
+                onOpenFile={(file) => openQueryAttachment(activeChat.id, file)}
+              />
               <div className="query-chat-messages">
-                {activeChat.messages.map((m, index) => (
-                  <React.Fragment key={m.id}>
-                    {index === 0 && activeChat.attachments?.length > 0 && (
-                      <div className={`query-msg ${m.sender}`}>
-                        <div className="query-msg-attachments">
-                          {activeChat.attachments.map((file) => (
-                            <button
-                              key={file}
-                              type="button"
-                              className="query-msg-attachment-link"
-                              onClick={() => openQueryAttachment(activeChat.id, file)}
-                              title={queryAttachmentDisplayName(file)}
-                            >
-                              <Paperclip size={13} aria-hidden="true" />
-                              <span>{queryAttachmentDisplayName(file)}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <div className={`query-msg ${m.sender}`}>
-                      <div className="query-bubble">
-                        <div className="query-sender">{m.senderName}</div>
-                        {m.text}
-                        <span className="query-msg-time">{m.timestamp}</span>
-                      </div>
+                {activeChat.messages.map((m) => (
+                  <div key={m.id} className={`query-msg ${m.sender}`}>
+                    <div className="query-bubble">
+                      <div className="query-sender">{m.senderName}</div>
+                      {m.text}
+                      <span className="query-msg-time">{m.timestamp}</span>
                     </div>
-                  </React.Fragment>
+                  </div>
                 ))}
                 <div ref={chatEndRef} />
               </div>
               <div className="query-chat-input">
-                <input className="query-input" placeholder="Type a message..." value={chatMessage} onChange={(e) => setChatMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} disabled={activeChat.status === 'Closed'} />
-                <button type="button" onClick={handleSendMessage} className="query-send-btn" disabled={activeChat.status === 'Closed'}><Send size={18}/></button>
+                <input
+                  className="query-input"
+                  placeholder="Type a message..."
+                  value={chatMessage}
+                  onChange={(e) => setChatMessage(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                  disabled={activeChat.status === 'Closed'}
+                />
+                <button
+                  type="button"
+                  onClick={handleSendMessage}
+                  className="query-send-btn"
+                  disabled={activeChat.status === 'Closed'}
+                >
+                  <Send size={18}/>
+                </button>
               </div>
             </div>
           )}
-        </div>
+        </QueryChatModal>
 
         {/* TABLE SECTION */}
         <div className="query-card query-table-card">

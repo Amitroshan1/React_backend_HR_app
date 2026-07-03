@@ -2,6 +2,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast as rtToast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import {
   createParcelExportAPI,
   getITApiErrorMessage,
@@ -437,22 +438,24 @@ export default function ReadyForExport() {
     setAllAssets(getAvailableAssetsFromStorage());
   }, []);
 
+  const bootstrapExportAssets = useCallback(async () => {
+    try {
+      await syncITDataFromAPI();
+    } catch (err) {
+      console.error("[ReadyForExport] sync IT data failed:", err);
+      rtToast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not refresh inventory from the server. Showing cached assets if any.",
+        ),
+      );
+    }
+    loadAssets();
+  }, [loadAssets]);
+
+  useRefreshOnNavigate(bootstrapExportAssets);
+
   useEffect(() => {
-    const bootstrap = async () => {
-      try {
-        await syncITDataFromAPI();
-      } catch (err) {
-        console.error("[ReadyForExport] sync IT data failed:", err);
-        rtToast.error(
-          getITApiErrorMessage(
-            err,
-            "Could not refresh inventory from the server. Showing cached assets if any.",
-          ),
-        );
-      }
-      loadAssets();
-    };
-    bootstrap();
     window.addEventListener("inventory-updated", loadAssets);
     window.addEventListener("storage", loadAssets);
     return () => {

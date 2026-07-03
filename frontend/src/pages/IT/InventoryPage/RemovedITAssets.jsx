@@ -1,6 +1,7 @@
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { toast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import {
   buildDeletedLogApiPayload,
   createDeletedLogAPI,
@@ -434,7 +435,7 @@ export default function RemovedITAssets() {
     setAssets(getRemovedITAssets());
   }, []);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const load = async () => {
       try {
         await syncRemovedITFromAPI();

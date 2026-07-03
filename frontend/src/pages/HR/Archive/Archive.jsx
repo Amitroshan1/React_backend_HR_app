@@ -1,12 +1,22 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, ArrowLeft, UserRoundPlus } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Search, ArrowLeft, UserRoundPlus, History, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
+import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
 import './Archive.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const ALL_TYPES_LABEL = 'All Types';
 const ALL_CIRCLES_LABEL = 'All Circles';
+
+const mergeFilterOptions = (masterList, records, pickValue) => {
+  const values = [
+    ...(masterList || []),
+    ...records.map(pickValue).filter(Boolean),
+  ];
+  return [...new Set(values)].sort((a, b) => String(a).localeCompare(String(b)));
+};
 
 const ArchiveEmployees = () => {
   const navigate = useNavigate();
@@ -33,6 +43,14 @@ const ArchiveEmployees = () => {
   const [historyError, setHistoryError] = useState('');
   const [historyRows, setHistoryRows] = useState([]);
   const [historyEmployee, setHistoryEmployee] = useState(null);
+  const [showRehireModal, setShowRehireModal] = useState(false);
+  const [rehireEditEmp, setRehireEditEmp] = useState(null);
+  const [rehireForm, setRehireForm] = useState({
+    rehire_eligible: true,
+    rehire_cooldown_until: '',
+    rehire_notes: '',
+  });
+  const [rehireSaving, setRehireSaving] = useState(false);
   
   // Check if email filter is active
   const isEmailFilterActive = email.trim() !== '';
@@ -66,6 +84,9 @@ const ArchiveEmployees = () => {
         employeeType: emp.emp_type || '',
         email: emp.email || '',
         exitDate: emp.exit_date || null,
+        exitType: emp.exit_type || null,
+        fnfStatus: emp.fnf_status || 'none',
+        rehirePolicy: emp.rehire_policy || null,
       }));
       setArchivedEmployees(mapped);
     } catch {
@@ -129,13 +150,19 @@ const ArchiveEmployees = () => {
   }, [archivedEmployees, employeeType, circle, email]);
 
   const employeeTypes = useMemo(() => {
-    if (masterOptions.departments.length) return masterOptions.departments;
-    return [...new Set(archivedEmployees.map((e) => e.employeeType).filter(Boolean))];
+    return mergeFilterOptions(
+      masterOptions.departments,
+      archivedEmployees,
+      (e) => e.employeeType,
+    );
   }, [masterOptions.departments, archivedEmployees]);
 
   const circles = useMemo(() => {
-    if (masterOptions.circles.length) return masterOptions.circles;
-    return [...new Set(archivedEmployees.map((e) => e.circle).filter(Boolean))];
+    return mergeFilterOptions(
+      masterOptions.circles,
+      archivedEmployees,
+      (e) => e.circle,
+    );
   }, [masterOptions.circles, archivedEmployees]);
 
   const handleViewDetails = (employee) => {
@@ -145,6 +172,10 @@ const ArchiveEmployees = () => {
 
   const handleRejoin = async (emp) => {
     if (!emp?.id) return;
+    if (emp.rehirePolicy && !emp.rehirePolicy.can_rejoin_now) {
+      setError(emp.rehirePolicy.rehire_block_reason || 'Rejoin is not allowed for this employee');
+      return;
+    }
     const ok = window.confirm(
       `Rejoin “${emp.name}” (${emp.email})?\n\n` +
         'They will be restored as an active employee with the same profile and records. ' +
@@ -170,6 +201,54 @@ const ArchiveEmployees = () => {
       setError('Network error while restoring employee');
     } finally {
       setRejoiningId(null);
+    }
+  };
+
+  const openRehirePolicyModal = (emp) => {
+    if (!emp?.id) return;
+    const policy = emp.rehirePolicy || {};
+    setRehireEditEmp(emp);
+    setRehireForm({
+      rehire_eligible: policy.rehire_eligible !== false,
+      rehire_cooldown_until: policy.rehire_cooldown_until
+        ? String(policy.rehire_cooldown_until).slice(0, 10)
+        : '',
+      rehire_notes: policy.rehire_notes || '',
+    });
+    setShowRehireModal(true);
+  };
+
+  const closeRehirePolicyModal = () => {
+    setShowRehireModal(false);
+    setRehireEditEmp(null);
+    setRehireSaving(false);
+  };
+
+  const saveRehirePolicy = async () => {
+    if (!rehireEditEmp?.id) return;
+    setRehireSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${HR_API_BASE}/archive/employee/${rehireEditEmp.id}/rehire-policy`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          rehire_eligible: rehireForm.rehire_eligible,
+          rehire_cooldown_until: rehireForm.rehire_cooldown_until || null,
+          rehire_notes: rehireForm.rehire_notes || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setError(data.message || 'Could not update rehire policy');
+        return;
+      }
+      closeRehirePolicyModal();
+      await loadArchivedEmployees();
+    } catch {
+      setError('Network error while updating rehire policy');
+    } finally {
+      setRehireSaving(false);
     }
   };
 
@@ -423,6 +502,8 @@ const ArchiveEmployees = () => {
                 <th>Circle</th>
                 <th>Employee Type</th>
                 <th>Email</th>
+                <th>F&amp;F</th>
+                <th>Rehire policy</th>
                 <th>Rejoin</th>
                 <th>Action</th>
               </tr>
@@ -431,13 +512,13 @@ const ArchiveEmployees = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="no-data">
+                  <td colSpan="9" className="no-data">
                     Loading archived employees...
                   </td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="no-data">
+                  <td colSpan="9" className="no-data">
                     No archived employees found
                   </td>
                 </tr>
@@ -469,25 +550,65 @@ const ArchiveEmployees = () => {
                       {emp.email}
                     </td>
                     <td>
+                      <span className={`archive-fnf-badge archive-fnf-badge--${(emp.fnfStatus || 'none').replace(/\s+/g, '-')}`}>
+                        {emp.fnfStatus || 'none'}
+                      </span>
+                    </td>
+                    <td>
+                      {emp.rehirePolicy ? (
+                        <div className="archive-rehire-cell">
+                          <span className={`archive-rehire-badge ${emp.rehirePolicy.can_rejoin_now ? 'archive-rehire-badge--ok' : 'archive-rehire-badge--blocked'}`}>
+                            {emp.rehirePolicy.can_rejoin_now ? 'Eligible' : 'Blocked'}
+                          </span>
+                          {!emp.rehirePolicy.can_rejoin_now && emp.rehirePolicy.rehire_block_reason && (
+                            <small className="archive-rehire-reason">{emp.rehirePolicy.rehire_block_reason}</small>
+                          )}
+                          <button
+                            type="button"
+                            className="archive-rehire-edit"
+                            onClick={() => openRehirePolicyModal(emp)}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>
                       <button
                         type="button"
                         className="archive-rejoin-btn"
                         onClick={() => handleRejoin(emp)}
-                        disabled={rejoiningId === emp.id}
-                        title="Restore as active employee (same profile data)"
+                        disabled={rejoiningId === emp.id || (emp.rehirePolicy && !emp.rehirePolicy.can_rejoin_now)}
+                        title={
+                          emp.rehirePolicy && !emp.rehirePolicy.can_rejoin_now
+                            ? (emp.rehirePolicy.rehire_block_reason || 'Rejoin not allowed')
+                            : 'Restore as active employee (same profile data)'
+                        }
                       >
                         <UserRoundPlus size={16} aria-hidden />
                         {rejoiningId === emp.id ? 'Restoring…' : 'Rejoin'}
                       </button>
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="action-button"
-                        onClick={() => handleViewDetails(emp)}
-                      >
-                        View details
-                      </button>
+                      <div className="archive-action-cell">
+                        <button
+                          type="button"
+                          className="action-button archive-history-btn"
+                          onClick={(e) => openExitHistory(emp, e)}
+                        >
+                          <History size={14} aria-hidden />
+                          History
+                        </button>
+                        <button
+                          type="button"
+                          className="action-button"
+                          onClick={() => handleViewDetails(emp)}
+                        >
+                          View details
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -496,6 +617,86 @@ const ArchiveEmployees = () => {
           </table>
         </div>
       </div>
+
+      {showHistoryModal && createPortal(
+        <div className="archive-modal-overlay" onClick={closeExitHistory}>
+          <div className="archive-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="archive-modal__header">
+              <h2>Exit history — {historyEmployee?.name}</h2>
+              <button type="button" className="archive-modal__close" onClick={closeExitHistory} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            {historyLoading ? (
+              <p className="archive-modal__muted">Loading exit history…</p>
+            ) : historyError ? (
+              <p className="archive-error">{historyError}</p>
+            ) : historyRows.length === 0 ? (
+              <p className="archive-modal__muted">No exit history records found.</p>
+            ) : (
+              <ul className="archive-history-list">
+                {historyRows.map((row) => (
+                  <li key={row.id} className="archive-history-item">
+                    <div>
+                      <strong>{row.exit_type || 'Exit'}</strong>
+                      <span>LWD: {formatDateDDMMYYYY(row.last_working_day || row.exit_date)}</span>
+                      {row.notice_shortfall_days > 0 && (
+                        <span>Notice shortfall: {row.notice_shortfall_days} day(s)</span>
+                      )}
+                      {row.exit_reason && <p>{row.exit_reason}</p>}
+                    </div>
+                    <small>{row.created_by || '—'} · {formatDateDDMMYYYY(row.created_at)}</small>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {showRehireModal && rehireEditEmp && createPortal(
+        <div className="archive-modal-overlay" onClick={closeRehirePolicyModal}>
+          <div className="archive-modal archive-modal--form" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="archive-modal__header">
+              <h2>Rehire policy — {rehireEditEmp.name}</h2>
+              <button type="button" className="archive-modal__close" onClick={closeRehirePolicyModal} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <label className="archive-modal__check">
+              <input
+                type="checkbox"
+                checked={rehireForm.rehire_eligible}
+                onChange={(e) => setRehireForm((f) => ({ ...f, rehire_eligible: e.target.checked }))}
+              />
+              Eligible for rehire
+            </label>
+            <label className="archive-modal__label">Rehire cooldown until (optional)</label>
+            <input
+              type="date"
+              className="archive-modal__input"
+              value={rehireForm.rehire_cooldown_until}
+              onChange={(e) => setRehireForm((f) => ({ ...f, rehire_cooldown_until: e.target.value }))}
+            />
+            <label className="archive-modal__label">Notes</label>
+            <textarea
+              className="archive-modal__textarea"
+              rows={3}
+              value={rehireForm.rehire_notes}
+              onChange={(e) => setRehireForm((f) => ({ ...f, rehire_notes: e.target.value }))}
+              placeholder="HR notes on rehire eligibility"
+            />
+            <div className="archive-modal__actions">
+              <button type="button" className="action-button" onClick={closeRehirePolicyModal}>Cancel</button>
+              <button type="button" className="archive-rejoin-btn" onClick={saveRehirePolicy} disabled={rehireSaving}>
+                {rehireSaving ? 'Saving…' : 'Save policy'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
     </div>
   );

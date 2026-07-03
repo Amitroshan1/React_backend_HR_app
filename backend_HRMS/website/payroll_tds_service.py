@@ -155,6 +155,18 @@ def resolved_tds_inputs_for_payroll(
         }
 
     from .commands.tds_logic import normalize_regime
+    from .commands.ctc_advanced_logic import resolve_is_metro_hra
+
+    if not declaration_source.get("found"):
+        ctc_row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+        explicit_metro = None
+        if ctc_row and getattr(ctc_row, "is_metro_hra", None) is not None:
+            explicit_metro = bool(ctc_row.is_metro_hra)
+        inputs["is_metro"] = resolve_is_metro_hra(
+            location=profile.get("location"),
+            explicit=explicit_metro,
+        )
+
     return {
         **inputs,
         "declaration_source": declaration_source,
@@ -262,15 +274,24 @@ def compute_monthly_tds_for_payroll(
 
 
 def recompute_payroll_deduction_totals(row: MonthlyPayroll) -> None:
+    total_gross = (
+        float(row.gross_salary_for_month or 0)
+        + float(row.arrears_gross_final or 0)
+        + float(row.leave_encashment_final or 0)
+        + float(row.reimbursement_final or 0)
+        + float(row.statutory_bonus_final or 0)
+    )
     row.deductions_total_final = round(
         float(row.epf_final or 0)
         + float(row.esic_final or 0)
         + float(row.ptax_final or 0)
+        + float(row.lwf_final or 0)
+        + float(row.loan_recovery_final or 0)
         + float(row.tds_final if row.tds_final is not None else row.tds_computed or 0),
         2,
     )
     row.net_salary_final = round(
-        max(0.0, float(row.gross_salary_for_month or 0) - float(row.deductions_total_final or 0)),
+        max(0.0, total_gross - float(row.deductions_total_final or 0)),
         2,
     )
 

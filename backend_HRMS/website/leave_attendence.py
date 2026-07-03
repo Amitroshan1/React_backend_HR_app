@@ -18,7 +18,7 @@ from .expense_utils import claim_attach_storage_name
 from .manager_utils import get_manager_emails
 from .utility import generate_attendance_excel, send_excel_file
 from . import db
-from .noc_department_service import reject_pending_noc_rows_for_resignation
+from .noc_department_service import reject_pending_noc_rows_for_resignation, NOC_DEPT_LABELS, _effective_noc_row_status
 from flask import jsonify
 from datetime import date, datetime, timedelta
 from .datetime_utils import isoformat_api
@@ -234,6 +234,51 @@ def _serialize_notice(resignation):
         "notice_end_date": notice_end.isoformat(),
         "days_left": days_left,
         "can_revoke": _is_active_resignation_status(status),
+    }
+
+
+def _serialize_department_noc_requests(resignation):
+    if not resignation:
+        return []
+    rows = (
+        NocDepartmentRequest.query.filter_by(
+            admin_id=resignation.admin_id,
+            resignation_id=resignation.id,
+        )
+        .order_by(NocDepartmentRequest.id.asc())
+        .all()
+    )
+    out = []
+    for row in rows:
+        dk = (row.department_key or "").strip().upper()
+        out.append(
+            {
+                "department_key": dk,
+                "department_label": NOC_DEPT_LABELS.get(dk, dk),
+                "status": _effective_noc_row_status(row, resignation),
+                "requested_at": isoformat_api(row.requested_at) if row.requested_at else None,
+            }
+        )
+    return out
+
+
+def _serialize_employee_offboarding(admin):
+    if not admin or not getattr(admin, "is_exited", False):
+        return None
+    from .offboarding_service import get_latest_fnf_status
+
+    return {
+        "is_exited": True,
+        "exit_date": admin.exit_date.isoformat() if admin.exit_date else None,
+        "exit_type": admin.exit_type,
+        "login_until": (
+            admin.exit_login_until.isoformat()
+            if getattr(admin, "exit_login_until", None)
+            else None
+        ),
+        "fnf_status": get_latest_fnf_status(admin.id) or "none",
+        "can_download_relieving_letter": True,
+        "can_download_experience_letter": True,
     }
 
 
@@ -610,7 +655,8 @@ def leave_page_summary():
 
     total_pl = leave_balance.privilege_leave_balance if leave_balance else 0.0
     total_cl = leave_balance.casual_leave_balance if leave_balance else 0.0
-    total_compoff = leave_balance.compensatory_leave_balance if leave_balance else 0.0
+    from .compoff_utils import get_effective_comp_balance
+    total_compoff = get_effective_comp_balance(admin.id)
 
     # -------- FETCH ALL LEAVE APPLICATIONS --------
     leave_applications = LeaveApplication.query.filter_by(
@@ -1619,6 +1665,8 @@ def get_resignation_status():
                     "uploaded": noc_upload is not None,
                     "filename": os.path.basename(noc_upload.file_path) if noc_upload and noc_upload.file_path else None
                 },
+                "department_noc": _serialize_department_noc_requests(resignation),
+                "employee_offboarding": _serialize_employee_offboarding(admin),
                 "history": history
             }), 200
 
@@ -1633,6 +1681,8 @@ def get_resignation_status():
                 "circle": admin.circle or "",
                 "emp_type": admin.emp_type or ""
             },
+            "department_noc": [],
+            "employee_offboarding": _serialize_employee_offboarding(admin),
             "history": history
         }), 200
 
@@ -1719,4 +1769,116 @@ def get_my_noc_document():
     except Exception as e:
         current_app.logger.exception("noc-document download error")
         return jsonify({"success": False, "message": "Failed to download"}), 500
+
+
+@leave.route("/relieving-letter", methods=["GET"])
+@jwt_required()
+def download_my_relieving_letter():
+    """Exited employee downloads their relieving letter PDF."""
+    try:
+        claims = get_jwt()
+        email = claims.get("email")
+        if not email:
+            return jsonify({"success": False, "message": "Invalid token"}), 401
+
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({"success": False, "message": "Employee not found"}), 404
+        if not getattr(admin, "is_exited", False):
+            return jsonify({"success": False, "message": "Relieving letter is available after exit"}), 409
+
+        from .relieving_letter_service import generate_relieving_letter_pdf
+
+        pdf_buffer = generate_relieving_letter_pdf(admin.id)
+        filename = f"relieving-letter-{admin.emp_id or admin.id}.pdf"
+        return send_file(
+            pdf_buffer,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        current_app.logger.exception("relieving-letter download error")
+        return jsonify({"success": False, "message": "Failed to generate relieving letter"}), 500
+
+
+@leave.route("/exit-interview", methods=["GET", "POST"])
+@jwt_required()
+def employee_exit_interview():
+    """Employee exit interview feedback (during notice or after exit)."""
+    try:
+        claims = get_jwt()
+        email = claims.get("email")
+        if not email:
+            return jsonify({"success": False, "message": "Invalid token"}), 401
+
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({"success": False, "message": "Employee not found"}), 404
+
+        from .models.exit_interview import ExitInterview
+        from .exit_interview_service import submit_exit_interview
+
+        if request.method == "GET":
+            row = ExitInterview.query.filter_by(admin_id=admin.id).first()
+            return jsonify(
+                {
+                    "success": True,
+                    "exit_interview": row.to_dict() if row else None,
+                    "is_exited": bool(getattr(admin, "is_exited", False)),
+                }
+            ), 200
+
+        data = request.get_json() or {}
+        payload = submit_exit_interview(
+            admin.id,
+            overall_rating=int(data.get("overall_rating") or 0),
+            would_recommend=bool(data.get("would_recommend")),
+            feedback=(data.get("feedback") or "").strip(),
+            reason_for_leaving=data.get("reason_for_leaving"),
+        )
+        db.session.commit()
+        return jsonify({"success": True, "exit_interview": payload}), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception("exit-interview error")
+        return jsonify({"success": False, "message": str(e) or "Failed to save exit interview"}), 500
+
+
+@leave.route("/experience-letter", methods=["GET"])
+@jwt_required()
+def download_my_experience_letter():
+    """Exited employee downloads experience certificate PDF."""
+    try:
+        claims = get_jwt()
+        email = claims.get("email")
+        if not email:
+            return jsonify({"success": False, "message": "Invalid token"}), 401
+
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({"success": False, "message": "Employee not found"}), 404
+        if not getattr(admin, "is_exited", False):
+            return jsonify({"success": False, "message": "Experience letter is available after exit"}), 409
+
+        from .experience_letter_service import generate_experience_letter_pdf
+
+        pdf_buffer = generate_experience_letter_pdf(admin.id)
+        filename = f"experience-letter-{admin.emp_id or admin.id}.pdf"
+        return send_file(
+            pdf_buffer,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        current_app.logger.exception("experience-letter download error")
+        return jsonify({"success": False, "message": "Failed to generate experience letter"}), 500
 

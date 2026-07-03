@@ -4,6 +4,7 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { hasFeature } from "../../utils/planFeatures";
 import "./Payslip.css";
 import { formatDateTimeDDMMYYYY, formatMonthYear } from "../../utils/dateFormat";
+import { formatCtcRupee, resolveAnnualCtcTotal, resolveTotalCtcAnnual, buildCtcEarningsRows } from "../../utils/ctcBreakupDisplay";
 
 const API_BASE_URL = "/api/accounts";
 const AUTH_API_BASE_URL = "/api/auth";
@@ -16,7 +17,7 @@ const formatINRCurrency = (value) => {
 
 const formatISTDateTime = (value) => formatDateTimeDDMMYYYY(value, "N/A");
 
-const formatRupee = (value) => `Rs. ${formatINRCurrency(value)}`;
+const formatRupee = (value) => formatCtcRupee(value);
 
 const formatPtaxMonthLabel = (ptaxMonth) => {
     if (!ptaxMonth) return "—";
@@ -193,19 +194,11 @@ export const Payslip = () => {
         }
     };
 
-    const annualCtcTotal = Number(ctcBreakup?.annual_ctc_computed ?? ctcBreakup?.annual_ctc ?? 0);
-    const hasCtcData = ctcBreakup && (annualCtcTotal > 0 || Number(ctcBreakup.basic_salary || 0) > 0);
+    const fixedCtc = resolveAnnualCtcTotal(ctcBreakup);
+    const totalCtc = resolveTotalCtcAnnual(ctcBreakup);
+    const hasCtcData = ctcBreakup && (fixedCtc > 0 || Number(ctcBreakup.basic_salary || 0) > 0);
 
-    const earningsRows = [
-        { label: "Basic + DA", value: ctcBreakup?.basic_salary },
-        {
-            label: ctcBreakup?.hra_pct != null ? `HRA (${Number(ctcBreakup.hra_pct)}%)` : "HRA",
-            value: ctcBreakup?.hra,
-        },
-        { label: "Other Allowance", value: ctcBreakup?.other_allowance },
-        { label: "Gross Salary", value: ctcBreakup?.gross_salary, tone: "accent" },
-        { label: "Net Salary", value: ctcBreakup?.net_salary, tone: "green" },
-    ];
+    const earningsRows = buildCtcEarningsRows(ctcBreakup).filter((row) => row.tone !== "sub");
 
     const deductionRows = [
         { label: "EPF (Employee)", value: ctcBreakup?.epf },
@@ -217,6 +210,8 @@ export const Payslip = () => {
     const annualRows = [
         { label: "Gratuity", value: ctcBreakup?.gratuity_yearly },
         { label: "Employer PF", value: ctcBreakup?.employer_pf_yearly },
+        { label: "PF Admin", value: ctcBreakup?.pf_admin_yearly },
+        { label: "EDLI", value: ctcBreakup?.edli_yearly },
         { label: "Employer ESIC", value: ctcBreakup?.employer_esic_yearly },
         { label: "Mediclaim", value: ctcBreakup?.mediclaim_yearly },
     ];
@@ -236,8 +231,13 @@ export const Payslip = () => {
                     {!ctcLoading && hasCtcData && (
                         <>
                             <div className="payslip-ctc-hero">
-                                <span className="payslip-ctc-hero-label">Annual CTC (Total)</span>
-                                <span className="payslip-ctc-hero-value">{formatRupee(annualCtcTotal)}</span>
+                                <span className="payslip-ctc-hero-label">Fixed Annual CTC</span>
+                                <span className="payslip-ctc-hero-value">{formatRupee(fixedCtc)}</span>
+                                {Number(ctcBreakup?.variable_ctc_annual || 0) > 0 && (
+                                    <span className="payslip-ctc-hero-meta">
+                                        Total CTC (incl. variable): {formatRupee(totalCtc)}
+                                    </span>
+                                )}
                                 {ctcBreakup?.updated_at && (
                                     <span className="payslip-ctc-hero-meta">
                                         Updated {formatISTDateTime(ctcBreakup.updated_at)}

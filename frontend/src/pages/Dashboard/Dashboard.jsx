@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { NavLink } from "react-router-dom";
 import {
   FiChevronRight,
@@ -13,6 +14,9 @@ import {
   FiDollarSign,
   FiUser,
   FiFileText,
+  FiStar,
+  FiRefreshCw,
+  FiX,
 } from "react-icons/fi";
 import { MdBadge, MdCalendarToday } from "react-icons/md";
 import { GiReceiveMoney } from "react-icons/gi";
@@ -383,6 +387,7 @@ export const Dashboard = () => {
     const [repeatPunchReason, setRepeatPunchReason] = useState("");
     const [extendedHoursModalOpen, setExtendedHoursModalOpen] = useState(false);
     const [extendedHoursReason, setExtendedHoursReason] = useState("");
+    const [leaveBalanceModalOpen, setLeaveBalanceModalOpen] = useState(false);
     const punchDataRef = useRef({
         sessions: [],
         punch_in: null,
@@ -919,6 +924,48 @@ export const Dashboard = () => {
         const cl = Number(dynamicData.leave_balance.cl);
         return (isNaN(pl) || isNaN(cl)) ? 'N/A' : (pl + cl);
     }, [dynamicData.leave_balance]);
+    const leaveBreakdown = useMemo(() => {
+        const lb = dynamicData.leave_balance || {};
+        const remainingPl = Number(lb.pl ?? 0);
+        const remainingCl = Number(lb.cl ?? 0);
+        const remainingComp = Number(lb.comp ?? 0);
+        const totalPl = Number(lb.total_pl ?? 0);
+        const totalCl = Number(lb.total_cl ?? 0);
+        const usedPl = Number(lb.used_pl ?? 0);
+        const usedCl = Number(lb.used_cl ?? 0);
+        const usedComp = Number(lb.used_comp ?? 0);
+        const compSubtext = remainingComp > 0
+            ? `Available now · each valid 30 days`
+            : usedComp > 0
+                ? `Used ${usedComp} · no active comp-off`
+                : 'Earned on Sundays · valid 30 days';
+        return [
+            {
+                key: 'pl',
+                label: 'Privilege Leave (PL)',
+                remaining: remainingPl,
+                subtext: `Total ${totalPl}, Used ${usedPl}`,
+                icon: <FiStar size={22} />,
+                colorClass: 'blue',
+            },
+            {
+                key: 'cl',
+                label: 'Casual Leave (CL)',
+                remaining: remainingCl,
+                subtext: `Total ${totalCl}, Used ${usedCl}`,
+                icon: <FiSun size={22} />,
+                colorClass: 'green',
+            },
+            {
+                key: 'comp',
+                label: 'Compensatory Leave (Comp Off)',
+                remaining: remainingComp,
+                subtext: compSubtext,
+                icon: <FiRefreshCw size={22} />,
+                colorClass: 'orange',
+            },
+        ];
+    }, [dynamicData.leave_balance]);
     const punchInTimeDisplay = useMemo(() => formatTime(dynamicData.punch.punch_in), [dynamicData.punch.punch_in]);
     const todaysDate = useMemo(() => formatDate(new Date()), []);
     const currentStatus = useMemo(() => {
@@ -936,6 +983,21 @@ export const Dashboard = () => {
     const showWfhQuickAction = userCircle === "NHQ";
     const myEmpId =
         (dynamicData.user?.emp_id || dynamicData.user?.empId || dynamicData.employee?.emp_id || "").trim();
+
+    useEffect(() => {
+        if (!leaveBalanceModalOpen) return undefined;
+        const onKeyDown = (e) => {
+            if (e.key === "Escape") setLeaveBalanceModalOpen(false);
+        };
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        window.addEventListener("keydown", onKeyDown);
+        return () => {
+            document.body.style.overflow = prevOverflow;
+            window.removeEventListener("keydown", onKeyDown);
+        };
+    }, [leaveBalanceModalOpen]);
+
     if (loading) return (
         <div className="full-height-center">
             <h2 className="loader"></h2>
@@ -967,7 +1029,19 @@ export const Dashboard = () => {
                                 <MdCalendarToday className="icon-white" size={24} />
                             </div>
                         </div>
-                        <div className="card top-card simple-card">
+                        <div
+                            className="card top-card simple-card leave-balance-card--clickable"
+                            role="button"
+                            tabIndex={0}
+                            aria-label="View leave balance breakdown"
+                            onClick={() => setLeaveBalanceModalOpen(true)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setLeaveBalanceModalOpen(true);
+                                }
+                            }}
+                        >
                             <div className="card-content-wrapper">
                                 <h4 className="card-label">Leave Balance</h4>
                                 <h3 className="card-value">{totalLeave} Days</h3> 
@@ -1310,6 +1384,54 @@ export const Dashboard = () => {
                 </div>
             </div>
         </div>
+        {leaveBalanceModalOpen && createPortal(
+            <div
+                className="dashboard-leave-balance-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="leave-balance-title"
+                onClick={() => setLeaveBalanceModalOpen(false)}
+            >
+                <div className="dashboard-leave-balance-modal" onClick={(e) => e.stopPropagation()}>
+                    <div className="dashboard-leave-balance-modal__header">
+                        <div>
+                            <h3 id="leave-balance-title">Leave Balance</h3>
+                            <p className="dashboard-leave-balance-modal__subtitle">
+                                {dynamicData.user?.first_name
+                                    ? `${dynamicData.user.first_name}'s available leave`
+                                    : 'Your available leave'}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            className="dashboard-leave-balance-modal__close"
+                            aria-label="Close"
+                            onClick={() => setLeaveBalanceModalOpen(false)}
+                        >
+                            <FiX size={20} />
+                        </button>
+                    </div>
+                    <div className="dashboard-leave-balance-grid">
+                        {leaveBreakdown.map((item) => (
+                            <div
+                                key={item.key}
+                                className={`dashboard-leave-balance-item dashboard-leave-balance-item--${item.colorClass}`}
+                            >
+                                <div className="dashboard-leave-balance-item__content">
+                                    <span className="dashboard-leave-balance-item__value">
+                                        {Number.isFinite(item.remaining) ? item.remaining : 'N/A'}
+                                    </span>
+                                    <span className="dashboard-leave-balance-item__label">{item.label}</span>
+                                    <span className="dashboard-leave-balance-item__subtext">{item.subtext}</span>
+                                </div>
+                                <div className="dashboard-leave-balance-item__icon">{item.icon}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>,
+            document.body,
+        )}
         {repeatPunchModalOpen && (
             <div
                 className="dashboard-repeat-punch-overlay"

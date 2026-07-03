@@ -69,6 +69,21 @@ export async function fetchDepartmentNocRequests(apiBase = API_BASE, statusFilte
   return result.requests || [];
 }
 
+export async function fetchTeamOffboarding() {
+  const response = await fetch(`${API_BASE}/team-offboarding`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      ...authHeaders(),
+    },
+  });
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load team offboarding");
+  }
+  return result.members || [];
+}
+
 export async function fetchManagerRequests(type, statusFilter = "Pending") {
   const config = endpointMap[type];
   if (!config) throw new Error(`Unsupported manager request type: ${type}`);

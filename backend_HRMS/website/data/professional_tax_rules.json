@@ -1,0 +1,390 @@
+{
+  "AN": {
+    "name": "Andaman and Nicobar Islands",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "AP": {
+    "name": "Andhra Pradesh",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 15000, "amount": 0 },
+      { "upto": 20000, "amount": 150 },
+      { "upto": null, "amount": 200 }
+    ]
+  },
+  "AR": {
+    "name": "Arunachal Pradesh",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "AS": {
+    "name": "Assam",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 10000, "amount": 0 },
+      { "upto": 15000, "amount": 150 },
+      { "upto": 24999, "amount": 180 },
+      { "upto": null, "amount": 208 }
+    ]
+  },
+  "BR": {
+    "name": "Bihar",
+    "levies_pt": true,
+    "engine": "annual_tax_slab",
+    "frequency": "annual",
+    "slabs": [
+      { "upto": 300000, "amount": 0 },
+      { "upto": 500000, "amount": 1000 },
+      { "upto": 1000000, "amount": 2000 },
+      { "upto": null, "amount": 2500 }
+    ],
+    "note": "Annual tax; monthly payroll uses tax÷12."
+  },
+  "CG": {
+    "name": "Chhattisgarh",
+    "levies_pt": true,
+    "engine": "annual_gross_monthly",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 100000, "amount": 0 },
+      { "upto": 150000, "amount": 130 },
+      { "upto": 200000, "amount": 150 },
+      { "upto": 250000, "amount": 200 },
+      { "upto": null, "amount": 208 }
+    ],
+    "peak_month": 3,
+    "peak_month_amount": 212,
+    "peak_annual_min": 250001,
+    "note": "₹212 in last month of cycle when annual gross > ₹2.5L."
+  },
+  "CH": {
+    "name": "Chandigarh",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "DD": {
+    "name": "Dadra and Nagar Haveli and Daman and Diu",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "DL": {
+    "name": "Delhi",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "GA": {
+    "name": "Goa",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "GJ": {
+    "name": "Gujarat",
+    "levies_pt": true,
+    "engine": "flat",
+    "frequency": "monthly",
+    "min_gross": 12000,
+    "amount": 200
+  },
+  "HP": {
+    "name": "Himachal Pradesh",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "HR": {
+    "name": "Haryana",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "JH": {
+    "name": "Jharkhand",
+    "levies_pt": true,
+    "engine": "annual_gross_monthly",
+    "frequency": "quarterly",
+    "slabs": [
+      { "upto": 300000, "amount": 0 },
+      { "upto": 500000, "amount": 100 },
+      { "upto": 800000, "amount": 150 },
+      { "upto": 1000000, "amount": 175 },
+      { "upto": null, "amount": 208 }
+    ],
+    "note": "Filed quarterly; monthly equivalent used for payroll estimate."
+  },
+  "JK": {
+    "name": "Jammu and Kashmir",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "KA": {
+    "name": "Karnataka",
+    "levies_pt": true,
+    "engine": "flat",
+    "frequency": "monthly",
+    "min_gross": 25000,
+    "amount": 200,
+    "february_amount": 300,
+    "note": "Exemption up to ₹25,000/month (from Apr 2025). ₹300 in February for ₹2,500 annual cap."
+  },
+  "KL": {
+    "name": "Kerala",
+    "levies_pt": true,
+    "engine": "half_yearly_slab",
+    "frequency": "half_yearly",
+    "slabs": [
+      { "upto": 12000, "amount": 0 },
+      { "upto": 17999, "amount": 320 },
+      { "upto": 29999, "amount": 450 },
+      { "upto": 44999, "amount": 600 },
+      { "upto": 99999, "amount": 750 },
+      { "upto": 124999, "amount": 1000 },
+      { "upto": null, "amount": 1250 }
+    ],
+    "note": "Half-yearly slabs; monthly = half-year tax ÷ 6."
+  },
+  "LA": {
+    "name": "Ladakh",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "LD": {
+    "name": "Lakshadweep",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "MH": {
+    "name": "Maharashtra",
+    "levies_pt": true,
+    "engine": "maharashtra",
+    "frequency": "monthly",
+    "note": "Gender-based slabs; ₹300 in February when applicable."
+  },
+  "ML": {
+    "name": "Meghalaya",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 4166, "amount": 0 },
+      { "upto": 6250, "amount": 16.5 },
+      { "upto": 8333, "amount": 25 },
+      { "upto": 12500, "amount": 41.5 },
+      { "upto": 16666, "amount": 62.5 },
+      { "upto": 20833, "amount": 83.33 },
+      { "upto": 25000, "amount": 104.16 },
+      { "upto": 29166, "amount": 125 },
+      { "upto": 33333, "amount": 150 },
+      { "upto": 37500, "amount": 175 },
+      { "upto": 41666, "amount": 200 },
+      { "upto": null, "amount": 208 }
+    ]
+  },
+  "MN": {
+    "name": "Manipur",
+    "levies_pt": true,
+    "engine": "annual_tax_slab",
+    "frequency": "annual",
+    "slabs": [
+      { "upto": 50000, "amount": 0 },
+      { "upto": 75000, "amount": 1200 },
+      { "upto": 100000, "amount": 2000 },
+      { "upto": 125000, "amount": 2400 },
+      { "upto": null, "amount": 2500 }
+    ],
+    "note": "Annual tax; monthly payroll uses tax÷12."
+  },
+  "MP": {
+    "name": "Madhya Pradesh",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 18750, "amount": 0 },
+      { "upto": 25000, "amount": 125 },
+      { "upto": 33333, "amount": 166 },
+      { "upto": null, "amount": 208 }
+    ],
+    "peak_month": 3,
+    "peak_month_amount": 212,
+    "peak_base_min": 208,
+    "note": "₹174/₹212 peak month for mid/high slabs per state rules."
+  },
+  "MZ": {
+    "name": "Mizoram",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 5000, "amount": 0 },
+      { "upto": 8000, "amount": 75 },
+      { "upto": 10000, "amount": 120 },
+      { "upto": 12000, "amount": 150 },
+      { "upto": 15000, "amount": 180 },
+      { "upto": null, "amount": 208 }
+    ]
+  },
+  "NL": {
+    "name": "Nagaland",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 4000, "amount": 0 },
+      { "upto": 5000, "amount": 35 },
+      { "upto": 7000, "amount": 75 },
+      { "upto": 9000, "amount": 110 },
+      { "upto": 12000, "amount": 180 },
+      { "upto": null, "amount": 208 }
+    ]
+  },
+  "OR": {
+    "name": "Odisha",
+    "levies_pt": true,
+    "engine": "annual_gross_monthly",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 159999, "amount": 0 },
+      { "upto": 300000, "amount": 125 },
+      { "upto": null, "amount": 200 }
+    ],
+    "peak_month": 3,
+    "peak_month_amount": 300,
+    "peak_annual_min": 300001,
+    "note": "₹300 in last month when annual gross ≥ ₹3L."
+  },
+  "PB": {
+    "name": "Punjab",
+    "levies_pt": true,
+    "engine": "flat",
+    "frequency": "monthly",
+    "min_gross": 20834,
+    "amount": 200,
+    "note": "₹200/month when monthly gross exceeds ₹20,833."
+  },
+  "PY": {
+    "name": "Puducherry",
+    "levies_pt": true,
+    "engine": "half_yearly_slab",
+    "frequency": "half_yearly",
+    "slabs": [
+      { "upto": 99999, "amount": 0 },
+      { "upto": 200000, "amount": 250 },
+      { "upto": 300000, "amount": 500 },
+      { "upto": 400000, "amount": 750 },
+      { "upto": 500000, "amount": 1000 },
+      { "upto": null, "amount": 1250 }
+    ],
+    "note": "Half-yearly slabs; monthly = half-year tax ÷ 6."
+  },
+  "RJ": {
+    "name": "Rajasthan",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "SK": {
+    "name": "Sikkim",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 20000, "amount": 0 },
+      { "upto": 30000, "amount": 125 },
+      { "upto": 40000, "amount": 150 },
+      { "upto": null, "amount": 200 }
+    ],
+    "note": "Remittance is quarterly; monthly slab used for payroll estimate."
+  },
+  "TN": {
+    "name": "Tamil Nadu",
+    "levies_pt": true,
+    "engine": "half_yearly_slab",
+    "frequency": "half_yearly",
+    "slabs": [
+      { "upto": 21000, "amount": 0 },
+      { "upto": 30000, "amount": 180 },
+      { "upto": 45000, "amount": 425 },
+      { "upto": 60000, "amount": 930 },
+      { "upto": 75000, "amount": 1025 },
+      { "upto": null, "amount": 1250 }
+    ],
+    "note": "Half-yearly slabs; monthly = half-year tax ÷ 6."
+  },
+  "TS": {
+    "name": "Telangana",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 15000, "amount": 0 },
+      { "upto": 20000, "amount": 150 },
+      { "upto": null, "amount": 200 }
+    ]
+  },
+  "TR": {
+    "name": "Tripura",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 7500, "amount": 0 },
+      { "upto": 15000, "amount": 150 },
+      { "upto": null, "amount": 208 }
+    ],
+    "note": "Annual payment; monthly slab used for payroll estimate."
+  },
+  "UK": {
+    "name": "Uttarakhand",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "UP": {
+    "name": "Uttar Pradesh",
+    "levies_pt": false,
+    "engine": "none",
+    "frequency": "none",
+    "note": "Professional tax not levied."
+  },
+  "WB": {
+    "name": "West Bengal",
+    "levies_pt": true,
+    "engine": "slab",
+    "frequency": "monthly",
+    "slabs": [
+      { "upto": 10000, "amount": 0 },
+      { "upto": 15000, "amount": 110 },
+      { "upto": 25000, "amount": 130 },
+      { "upto": 40000, "amount": 150 },
+      { "upto": null, "amount": 200 }
+    ],
+    "note": "Annual remittance; monthly slab used for payroll estimate."
+  }
+}

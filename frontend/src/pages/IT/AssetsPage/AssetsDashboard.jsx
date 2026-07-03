@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
 import { UserAvatar } from "../../../components/UserAvatar";
@@ -1894,9 +1895,10 @@ export default function AssetsDashboard() {
   const [detailItem, setDetailItem] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-    const refresh = () => setRefreshKey((k) => k + 1);
-    syncITDataFromAPI().then(refresh).catch((err) => {
+  const bumpRefreshKey = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  const syncAssetsFromServer = useCallback(() => {
+    syncITDataFromAPI().then(bumpRefreshKey).catch((err) => {
       console.error("[AssetsDashboard] API sync failed, using cached data:", err);
       toast.error(
         getITApiErrorMessage(
@@ -1904,15 +1906,20 @@ export default function AssetsDashboard() {
           "Could not sync IT data from the server. Showing cached assets.",
         ),
       );
-      refresh();
+      bumpRefreshKey();
     });
-    window.addEventListener("inventory-updated", refresh);
-    window.addEventListener("storage", refresh);
+  }, [bumpRefreshKey]);
+
+  useRefreshOnNavigate(syncAssetsFromServer);
+
+  useEffect(() => {
+    window.addEventListener("inventory-updated", bumpRefreshKey);
+    window.addEventListener("storage", bumpRefreshKey);
     return () => {
-      window.removeEventListener("inventory-updated", refresh);
-      window.removeEventListener("storage", refresh);
+      window.removeEventListener("inventory-updated", bumpRefreshKey);
+      window.removeEventListener("storage", bumpRefreshKey);
     };
-  }, []);
+  }, [bumpRefreshKey]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   const availableData = useMemo(() => buildAvailableData(), [refreshKey]);

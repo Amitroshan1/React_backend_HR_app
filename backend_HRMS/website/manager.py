@@ -863,6 +863,20 @@ def list_team_members():
     return jsonify({"success": True, "members": members}), 200
 
 
+@manager.route("/team-offboarding", methods=["GET"])
+@jwt_required()
+def list_team_offboarding():
+    """Direct reports in separation / offboarding pipeline."""
+    manager_admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    from .offboarding_service import build_manager_team_offboarding
+
+    members = build_manager_team_offboarding(manager_admin)
+    return jsonify({"success": True, "count": len(members), "members": members}), 200
+
+
 @manager.route("/team-attendance", methods=["GET"])
 @jwt_required()
 def team_attendance():

@@ -166,6 +166,9 @@ def create_app():
         TaxDeclarationApprovalHistory,
     )
     from .models.ctc_breakup import CTCBreakup
+    from .models.ctc_breakup_revision import CTCBreakupRevision
+    from .models.employee_salary_loan import EmployeeSalaryLoan
+    from .models.fnf_settlement import FnfSettlement
     from .models.monthly_payroll import MonthlyPayroll
     from .models.assessment import AssessmentInvite
     from .models.employee_circle_history import EmployeeCircleHistory
@@ -190,10 +193,12 @@ def create_app():
     # ---------------------------
     @login_manager.user_loader
     def load_user(user_id):
+        from .offboarding_service import admin_login_allowed
+
         user = Admin.query.get(int(user_id))
         if not user:
             return None
-        if user.is_active is False or user.is_exited is True:
+        if not admin_login_allowed(user):
             return None
         return user
 
@@ -793,6 +798,87 @@ def create_app():
                 additions.append(
                     ("ptax_month", "VARCHAR(7) NULL" if dialect == "postgresql" else "VARCHAR(7) NULL")
                 )
+            phase1_float_cols = (
+                "dearness_allowance",
+                "special_allowance",
+                "conveyance_allowance",
+                "medical_allowance",
+                "lta_allowance",
+                "variable_ctc_annual",
+                "pf_admin_yearly",
+                "pf_admin_monthly",
+                "edli_yearly",
+                "edli_monthly",
+                "statutory_bonus_yearly",
+                "statutory_bonus_monthly",
+                "lwf_employer_yearly",
+                "lwf_employee_yearly",
+            )
+            for col in phase1_float_cols:
+                if col not in existing:
+                    additions.append(
+                        (col, 'DOUBLE PRECISION NULL' if dialect == "postgresql" else "FLOAT NULL")
+                    )
+            if "include_pf_admin_in_ctc" not in existing:
+                additions.append(
+                    (
+                        "include_pf_admin_in_ctc",
+                        "BOOLEAN NULL DEFAULT TRUE"
+                        if dialect == "postgresql"
+                        else "TINYINT(1) NULL DEFAULT 1",
+                    )
+                )
+            if "include_edli_in_ctc" not in existing:
+                additions.append(
+                    (
+                        "include_edli_in_ctc",
+                        "BOOLEAN NULL DEFAULT TRUE"
+                        if dialect == "postgresql"
+                        else "TINYINT(1) NULL DEFAULT 1",
+                    )
+                )
+            if "ptax_state" not in existing:
+                additions.append(("ptax_state", "VARCHAR(2) NULL"))
+            phase3_bool_cols = (
+                "include_statutory_bonus_in_ctc",
+                "include_lwf_in_ctc",
+            )
+            for col in phase3_bool_cols:
+                if col not in existing:
+                    additions.append(
+                        (
+                            col,
+                            "BOOLEAN NULL DEFAULT FALSE"
+                            if dialect == "postgresql"
+                            else "TINYINT(1) NULL DEFAULT 0",
+                        )
+                    )
+            if "effective_from" not in existing:
+                additions.append(("effective_from", "DATE NULL"))
+            phase7_float_cols = (
+                "vpf_monthly",
+                "nps_employer_pct",
+                "reimbursement_monthly",
+            )
+            for col in phase7_float_cols:
+                if col not in existing:
+                    additions.append(
+                        (col, 'DOUBLE PRECISION NULL' if dialect == "postgresql" else "FLOAT NULL")
+                    )
+            phase7_bool_cols = (
+                "include_nps_in_ctc",
+                "is_metro_hra",
+            )
+            for col in phase7_bool_cols:
+                if col not in existing:
+                    additions.append(
+                        (
+                            col,
+                            "BOOLEAN NULL DEFAULT FALSE"
+                            if dialect == "postgresql"
+                            else "TINYINT(1) NULL DEFAULT 0",
+                        )
+                    )
             for col, col_type in additions:
                 if dialect == "postgresql":
                     stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
@@ -886,6 +972,16 @@ def create_app():
             specs = [
                 ("tds_computed", "FLOAT NULL"),
                 ("tds_final", "FLOAT NULL"),
+                ("lwf_computed", "FLOAT NULL"),
+                ("lwf_final", "FLOAT NULL"),
+                ("arrears_gross_computed", "FLOAT NULL"),
+                ("arrears_gross_final", "FLOAT NULL"),
+                ("leave_encashment_computed", "FLOAT NULL"),
+                ("leave_encashment_final", "FLOAT NULL"),
+                ("loan_recovery_computed", "FLOAT NULL"),
+                ("loan_recovery_final", "FLOAT NULL"),
+                ("reimbursement_computed", "FLOAT NULL"),
+                ("reimbursement_final", "FLOAT NULL"),
             ]
             for col, col_type in specs:
                 if col in existing:
@@ -896,6 +992,79 @@ def create_app():
                 app.logger.info("Added column %s.%s", table, col)
         except Exception as e:
             app.logger.warning("monthly_payrolls TDS columns ensure skipped: %s", e)
+
+    def _ensure_ctc_revision_table():
+        try:
+            from .models.ctc_breakup_revision import CTCBreakupRevision
+
+            CTCBreakupRevision.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as e:
+            app.logger.warning("ctc_breakup_revisions table ensure skipped: %s", e)
+
+    def _ensure_payroll_lifecycle_tables():
+        try:
+            from .models.employee_salary_loan import EmployeeSalaryLoan
+            from .models.fnf_settlement import FnfSettlement
+
+            EmployeeSalaryLoan.__table__.create(bind=db.engine, checkfirst=True)
+            FnfSettlement.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as e:
+            app.logger.warning("payroll lifecycle tables ensure skipped: %s", e)
+
+    def _ensure_payroll_governance_columns():
+        """Phase 8 — payroll status, statutory bonus, audit log."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.monthly_payroll import MonthlyPayroll
+            from .models.payroll_audit_log import PayrollAuditLog
+
+            PayrollAuditLog.__table__.create(bind=db.engine, checkfirst=True)
+
+            insp = inspect(db.engine)
+            table = MonthlyPayroll.__tablename__
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            float_cols = (
+                "statutory_bonus_computed",
+                "statutory_bonus_final",
+            )
+            for col in float_cols:
+                if col in existing:
+                    continue
+                col_type = "DOUBLE PRECISION NULL" if dialect == "postgresql" else "FLOAT NULL"
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                if dialect != "postgresql":
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+            if "status" not in existing:
+                col_type = (
+                    "VARCHAR(20) NOT NULL DEFAULT 'draft'"
+                    if dialect == "postgresql"
+                    else "VARCHAR(20) NOT NULL DEFAULT 'draft'"
+                )
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN status {col_type}')
+                if dialect != "postgresql":
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN status {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.status", table)
+            if "status_changed_at" not in existing:
+                ts_type = "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL"
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN status_changed_at {ts_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.status_changed_at", table)
+            if "status_changed_by_admin_id" not in existing:
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN status_changed_by_admin_id INTEGER NULL")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.status_changed_by_admin_id", table)
+        except Exception as e:
+            app.logger.warning("payroll governance columns ensure skipped: %s", e)
 
     def _ensure_employee_tax_declarations_table():
         try:
@@ -1029,6 +1198,115 @@ def create_app():
         except Exception as e:
             app.logger.warning("form16 parsed columns ensure skipped: %s", e)
 
+    def _ensure_employee_exit_history_columns():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "employee_exit_history"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            specs = [
+                ("last_working_day", "DATE NULL"),
+                ("notice_shortfall_days", "INTEGER NULL"),
+                ("resignation_date_snapshot", "DATE NULL"),
+                ("force_override", "BOOLEAN NULL"),
+                ("force_override_reason", "TEXT NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                if dialect == "mysql" and col == "force_override":
+                    col_type = "TINYINT(1) NULL"
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("employee_exit_history columns ensure skipped: %s", e)
+
+    def _ensure_admin_exit_login_until_column():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "admins"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "exit_login_until" in existing:
+                return
+            dialect = db.engine.dialect.name
+            col_type = "DATE NULL"
+            if dialect == "postgresql":
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN exit_login_until {col_type}')
+            else:
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN exit_login_until {col_type}")
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            app.logger.info("Added column %s.exit_login_until", table)
+        except Exception as e:
+            app.logger.warning("admins.exit_login_until ensure skipped: %s", e)
+
+    def _ensure_offboarding_reminder_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.offboarding_reminder import OffboardingReminderLog
+
+            insp = inspect(db.engine)
+            if "offboarding_reminder_logs" not in insp.get_table_names():
+                OffboardingReminderLog.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table offboarding_reminder_logs")
+        except Exception as e:
+            app.logger.warning("offboarding_reminder_logs ensure skipped: %s", e)
+
+    def _ensure_employee_archive_rehire_columns():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "employee_archive"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            specs = [
+                ("rehire_eligible", "BOOLEAN NULL"),
+                ("rehire_cooldown_until", "DATE NULL"),
+                ("rehire_notes", "TEXT NULL"),
+            ]
+            for col, col_type in specs:
+                if col in existing:
+                    continue
+                if dialect == "mysql" and col == "rehire_eligible":
+                    col_type = "TINYINT(1) NULL"
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("employee_archive rehire columns ensure skipped: %s", e)
+
+    def _ensure_exit_interview_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.exit_interview import ExitInterview
+
+            insp = inspect(db.engine)
+            if "exit_interviews" not in insp.get_table_names():
+                ExitInterview.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table exit_interviews")
+        except Exception as e:
+            app.logger.warning("exit_interviews table ensure skipped: %s", e)
+
     with app.app_context():
         try:
             _ensure_upload_doc_identity_columns()
@@ -1054,6 +1332,14 @@ def create_app():
             _ensure_employee_accounts_regime_columns()
             _ensure_form16_parsed_columns()
             _ensure_monthly_payroll_tds_columns()
+            _ensure_ctc_revision_table()
+            _ensure_payroll_lifecycle_tables()
+            _ensure_payroll_governance_columns()
+            _ensure_employee_exit_history_columns()
+            _ensure_admin_exit_login_until_column()
+            _ensure_offboarding_reminder_table()
+            _ensure_employee_archive_rehire_columns()
+            _ensure_exit_interview_table()
             _cleanup_zero_qty_inventory_rows()
         except Exception as e:
             app.logger.error(
@@ -1068,6 +1354,10 @@ def create_app():
     register_probation_command(app)
     from .commands.leave_pending_reminder import register_leave_pending_reminder_command
     register_leave_pending_reminder_command(app)
+    from .commands.offboarding import register_offboarding_commands
+    register_offboarding_commands(app)
+    from .commands.offboarding_reminders import register_offboarding_reminders_command
+    register_offboarding_reminders_command(app)
 
     # ---------------------------
     # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention

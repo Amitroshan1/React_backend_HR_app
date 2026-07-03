@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
-import { CheckCircle, MessageCircle, Send, X, Paperclip } from "lucide-react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { CheckCircle, MessageCircle, Send, X } from "lucide-react";
 import "./DepartmentQueryInbox.css";
+import { QueryChatModal } from "./QueryChatModal";
+import { QueryChatAttachmentsBar } from "./QueryChatAttachmentsBar";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import {
@@ -11,13 +13,14 @@ import {
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
-  queryAttachmentDisplayName,
   buildQueryAttachmentUrl,
+  readApiResponse,
 } from "./queryChatHelpers";
 
 const API_BASE_URL = "/api/query";
 
 export const DepartmentQueryInbox = () => {
+  const navigate = useNavigate();
   const location = useLocation();
   const [, setSearchParams] = useSearchParams();
   const [queries, setQueries] = useState([]);
@@ -95,7 +98,8 @@ export const DepartmentQueryInbox = () => {
   const mapInboxRow = (q) => ({
     id: q.id,
     title: q.title,
-    employee: q.employee || "Employee",
+    employeeName: q.employee_name || "Employee",
+    employeeEmail: q.employee_email || q.employee || "—",
     status: q.status,
     createdAtRaw: q.created_at,
     createdAt: formatDateTime(q.created_at) || "—",
@@ -138,9 +142,13 @@ export const DepartmentQueryInbox = () => {
           headers: { ...getAuthHeaders() },
         }
       );
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to load department queries");
+      const { ok, data: result, error: parseError } = await readApiResponse(response);
+      if (response.status === 403) {
+        navigate("/queries", { replace: true });
+        return;
+      }
+      if (!ok || !result.success) {
+        throw new Error(parseError || result.message || "Failed to load department queries");
       }
 
       const mapped = sortInboxRows((result.queries || []).map(mapInboxRow));
@@ -188,9 +196,9 @@ export const DepartmentQueryInbox = () => {
         method: "GET",
         headers: { ...getAuthHeaders() },
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to open query chat");
+      const { ok, data: result, error: parseError } = await readApiResponse(response);
+      if (!ok || !result.success) {
+        throw new Error(parseError || result.message || "Failed to open query chat");
       }
 
       const messages = mapChatMessages(result.chat_messages, queryItem.id, formatDateTime);
@@ -261,9 +269,9 @@ export const DepartmentQueryInbox = () => {
         },
         body: JSON.stringify({ reply_text: chatMessage.trim() }),
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to send reply");
+      const { ok, data: result, error: parseError } = await readApiResponse(response);
+      if (!ok || !result.success) {
+        throw new Error(parseError || result.message || "Failed to send reply");
       }
       setChatMessage("");
       await openChat(activeChat);
@@ -284,9 +292,9 @@ export const DepartmentQueryInbox = () => {
         method: "POST",
         headers: { ...getAuthHeaders() },
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Failed to close query");
+      const { ok, data: result, error: parseError } = await readApiResponse(response);
+      if (!ok || !result.success) {
+        throw new Error(parseError || result.message || "Failed to close query");
       }
       await fetchInbox();
       if (activeChat?.id === id) {
@@ -318,7 +326,7 @@ export const DepartmentQueryInbox = () => {
     const fromList = queries.find((q) => q.id === chatId);
     const stub = fromList || { id: chatId, title: "Query", status: "Open" };
     restoreAttemptedRef.current = chatId;
-    openChatRef.current?.(stub, { skipUrl: true });
+    openChatRef.current?.(stub, { skipUrl: true, silent: true });
   }, [location.search, queries, isLoading, activeChat?.id]);
 
   useEffect(() => {
@@ -444,8 +452,9 @@ export const DepartmentQueryInbox = () => {
           <table className="dept-query-table">
             <thead>
               <tr>
+                <th>Name</th>
+                <th>Email</th>
                 <th>Title</th>
-                <th>Employee</th>
                 <th>Status</th>
                 <th>Created</th>
                 <th>Action</th>
@@ -454,11 +463,11 @@ export const DepartmentQueryInbox = () => {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan="5" className="dept-empty">Loading...</td>
+                  <td colSpan="6" className="dept-empty">Loading...</td>
                 </tr>
               ) : queries.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="dept-empty">
+                  <td colSpan="6" className="dept-empty">
                     {hasActiveFilters
                       ? "No queries match your filters."
                       : "No queries for your department."}
@@ -470,6 +479,8 @@ export const DepartmentQueryInbox = () => {
                     key={q.id}
                     className={q.hasUnreadReply ? "dept-query-row-unread" : undefined}
                   >
+                    <td data-label="Name">{q.employeeName}</td>
+                    <td data-label="Email">{q.employeeEmail}</td>
                     <td data-label="Title">
                       <div className="dept-title-cell">
                         {q.hasUnreadReply && (
@@ -483,7 +494,6 @@ export const DepartmentQueryInbox = () => {
                         )}
                       </div>
                     </td>
-                    <td data-label="Employee">{q.employee}</td>
                     <td data-label="Status">{getStatusLabel(q.status)}</td>
                     <td data-label="Created">{q.createdAt}</td>
                     <td className="dept-action-cell" data-label="Action">
@@ -515,77 +525,69 @@ export const DepartmentQueryInbox = () => {
         </div>
       </div>
 
-      {activeChat && (
-        <div className="dept-chat-panel">
-          <div className="dept-chat-header">
-            <div>
-              <h3>{activeChat.title}</h3>
-              <small>Reply as Department</small>
-            </div>
-            <div className="dept-chat-header-actions">
-              {activeChat.status !== "Closed" && (
-                <button
-                  type="button"
-                  className="dept-close-query-btn dept-close-query-btn--compact"
-                  disabled={closingId === activeChat.id}
-                  onClick={() => closeQuery(activeChat.id)}
-                >
-                  <CheckCircle size={14} /> {closingId === activeChat.id ? "Closing…" : "Close query"}
-                </button>
-              )}
-              <button type="button" className="dept-close-btn" onClick={closeChatPanel} aria-label="Close panel">
-                <X size={18} />
-              </button>
-            </div>
-          </div>
-
-          <div className="dept-chat-messages">
-            {activeChat.messages.map((m, index) => (
-              <React.Fragment key={m.id}>
-                {index === 0 && activeChat.attachments?.length > 0 && (
-                  <div className={`dept-msg ${m.sender}`}>
-                    <div className="dept-msg-attachments">
-                      {activeChat.attachments.map((file) => (
-                        <button
-                          key={file}
-                          type="button"
-                          className="dept-chat-file-link dept-msg-attachment-chip"
-                          onClick={() => openQueryAttachment(activeChat.id, file)}
-                          title={queryAttachmentDisplayName(file)}
-                        >
-                          <Paperclip size={13} aria-hidden="true" />
-                          <span>{queryAttachmentDisplayName(file)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+      <QueryChatModal
+        open={Boolean(activeChat)}
+        onClose={closeChatPanel}
+        ariaLabelledBy="query-dept-chat-title"
+      >
+        {activeChat && (
+          <div className="dept-chat-panel dept-chat-panel--modal">
+            <div className="dept-chat-header">
+              <div>
+                <h3 id="query-dept-chat-title">{activeChat.title}</h3>
+                <small>Reply as Department</small>
+              </div>
+              <div className="dept-chat-header-actions">
+                {activeChat.status !== "Closed" && (
+                  <button
+                    type="button"
+                    className="dept-close-query-btn dept-close-query-btn--compact"
+                    disabled={closingId === activeChat.id}
+                    onClick={() => closeQuery(activeChat.id)}
+                  >
+                    <CheckCircle size={14} /> {closingId === activeChat.id ? "Closing…" : "Close query"}
+                  </button>
                 )}
-                <div className={`dept-msg ${m.sender}`}>
+                <button type="button" className="dept-close-btn" onClick={closeChatPanel} aria-label="Close chat">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <QueryChatAttachmentsBar
+              attachments={activeChat.attachments}
+              label="Files uploaded by employee"
+              onOpenFile={(file) => openQueryAttachment(activeChat.id, file)}
+            />
+
+            <div className="dept-chat-messages">
+              {activeChat.messages.map((m) => (
+                <div key={m.id} className={`dept-msg ${m.sender}`}>
                   <div className="dept-bubble">
                     <div className="dept-sender">{m.senderName}</div>
                     {m.text}
                     <span className="dept-time">{m.timestamp}</span>
                   </div>
                 </div>
-              </React.Fragment>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
 
-          <div className="dept-chat-input">
-            <input
-              value={chatMessage}
-              onChange={(e) => setChatMessage(e.target.value)}
-              placeholder="Type your reply..."
-              onKeyDown={(e) => e.key === "Enter" && sendReply()}
-              disabled={activeChat.status === "Closed"}
-            />
-            <button onClick={sendReply} disabled={activeChat.status === "Closed" || isSending}>
-              <Send size={16} />
-            </button>
+            <div className="dept-chat-input">
+              <input
+                value={chatMessage}
+                onChange={(e) => setChatMessage(e.target.value)}
+                placeholder="Type your reply..."
+                onKeyDown={(e) => e.key === "Enter" && sendReply()}
+                disabled={activeChat.status === "Closed"}
+              />
+              <button onClick={sendReply} disabled={activeChat.status === "Closed" || isSending}>
+                <Send size={16} />
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </QueryChatModal>
     </div>
   );
 };

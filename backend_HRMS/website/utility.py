@@ -1169,7 +1169,9 @@ def calculate_monthly_payroll_from_ctc_and_attendance(*, admin_id: int, year: in
     admin = Admin.query.get(admin_id)
     emp_type = (admin.emp_type or "").strip() if admin else ""
 
-    from .commands.ctc_breakup_logic import maharashtra_professional_tax
+    from .commands.professional_tax import professional_tax, resolve_ptax_state_for_employee
+    from .models.employee_accounts import EmployeeAccounts
+    from .ctc_settings import load_ctc_settings
 
     ctc = CTCBreakup.query.filter_by(admin_id=admin_id).first()
     ctc_gross_salary = float(ctc.gross_salary or 0.0) if ctc else 0.0
@@ -1192,9 +1194,37 @@ def calculate_monthly_payroll_from_ctc_and_attendance(*, admin_id: int, year: in
     factor = payroll_earnings_factor(payable_days, calendar_days)
     epf_prorated = round(epf_amount * factor, 2)
     esic_prorated = round(esic_amount * factor, 2)
-    ptax_amount = maharashtra_professional_tax(gross_salary_for_month, gender, month_num)
+    reimbursement_monthly = float(getattr(ctc, "reimbursement_monthly", 0) or 0) if ctc else 0.0
+    reimbursement_prorated = round(reimbursement_monthly * factor, 2)
+    ptax_state = resolve_ptax_state_for_employee(
+        explicit_state=getattr(ctc, "ptax_state", None) if ctc else None,
+        saved_state=getattr(ctc, "ptax_state", None) if ctc else None,
+        location=(
+            getattr(
+                EmployeeAccounts.query.filter_by(admin_id=admin_id).first(),
+                "location",
+                None,
+            )
+        ),
+        default_state=load_ctc_settings().get("default_ptax_state", "MH"),
+    )
+    ptax_amount = professional_tax(
+        gross_salary_for_month, gender, month_num, state_code=ptax_state
+    )
 
-    deductions_total = epf_prorated + esic_prorated + ptax_amount
+    from .commands.lwf import lwf_employee_monthly
+    from .ctc_settings import load_ctc_settings
+
+    policy = load_ctc_settings()
+    lwf_monthly = lwf_employee_monthly(
+        ptax_state,
+        month_num,
+        policy_employee_yearly=float(
+            getattr(ctc, "lwf_employee_yearly", None) or policy.get("lwf_employee_yearly") or 0
+        ),
+    )
+
+    deductions_total = epf_prorated + esic_prorated + ptax_amount + lwf_monthly
     net_salary = max(0.0, gross_salary_for_month - deductions_total)
 
     return {
@@ -1210,6 +1240,8 @@ def calculate_monthly_payroll_from_ctc_and_attendance(*, admin_id: int, year: in
         "epf_computed": epf_prorated,
         "esic_computed": esic_prorated,
         "ptax_computed": ptax_amount,
+        "lwf_computed": lwf_monthly,
+        "reimbursement_computed": reimbursement_prorated,
         "deductions_total_computed": round(deductions_total, 2),
         "net_salary_computed": round(net_salary, 2),
         "lop_days": max(0.0, float(calendar_days) - float(payable_days)),

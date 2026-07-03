@@ -139,12 +139,16 @@ export const Leaves= () => {
         // Total entitlements from backend (fixed totals - e.g., CL=8, PL=13)
         const totalPl = Number(lb.total_pl ?? 0);
         const totalCl = Number(lb.total_cl ?? 0);
-        const totalComp = Number(lb.total_comp ?? 0);
-
         // Used values from backend (how much has been used from total)
         const usedCasual = Number(lb.used_cl ?? 0);
         const usedPrivilege = Number(lb.used_pl ?? 0);
         const usedComp = Number(lb.used_comp ?? 0);
+
+        const compSubtext = remainingComp > 0
+            ? `Available now · each valid 30 days`
+            : usedComp > 0
+                ? `Used ${usedComp} · no active comp-off`
+                : 'Earned on Sundays · valid 30 days';
 
         return [
             { 
@@ -163,8 +167,8 @@ export const Leaves= () => {
             },
             {
                 type: 'Compensatory Leave',
-                value: remainingComp,  // Big number: Show remaining/pending
-                subtext: `Total ${totalComp}, Used ${usedComp}`,  // Subtext: Total entitlement and how much used
+                value: remainingComp,
+                subtext: compSubtext,
                 icon: <FiRefreshCw size={22} />,
                 colorClass: 'orange-card'
             }
@@ -227,6 +231,7 @@ export const Leaves= () => {
 
     useRefreshOnNavigate(() => {
         fetchLeaveRequests();
+        refreshUserData();
     });
 
     useEffect(() => {
@@ -240,6 +245,12 @@ export const Leaves= () => {
             window.removeEventListener('leaveApplied', onLeaveDataChanged);
             window.removeEventListener('leaveDataUpdated', onLeaveDataChanged);
         };
+    }, [refreshUserData]);
+
+    useEffect(() => {
+        const onFocus = () => refreshUserData();
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
     }, [refreshUserData]);
 
     const handleOpenApplyModal = useCallback(async () => {

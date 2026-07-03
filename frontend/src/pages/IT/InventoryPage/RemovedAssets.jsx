@@ -1,6 +1,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import {
   getAssetUnitsFromStorage,
   getDeletedAssetsFromStorage,
@@ -144,7 +145,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
     }
     setRecords(getDeletedAssetsFromStorage());
   }, []);
-  useEffect(() => { reload(); }, [reload]);
+  useRefreshOnNavigate(reload, [inventoryCategory]);
 
   const showToast = useCallback((msg) => {
     setToast(msg);

@@ -6,7 +6,7 @@
 
 
 
-from flask import Blueprint, request, jsonify, send_from_directory
+from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import joinedload, selectinload
@@ -15,12 +15,14 @@ from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
 from .models.notification import Notification
 from .email import notify_query_event, send_query_closed_email
+from .models.emp_detail_models import Employee
 from .models.manager_model import ManagerContact
 from .manager_utils import get_manager_detail
 from werkzeug.utils import secure_filename
 from .datetime_utils import isoformat_api, utc_now
 import json
 import os
+import re
 import uuid
 
 
@@ -45,48 +47,52 @@ def _query_list_effective_created_at(q):
 
 def _repair_query_created_at_from_history():
     """Repair legacy query timestamps from existing historical events, never from current time."""
-    rows = (
-        Query.query.options(selectinload(Query.replies))
-        .all()
-    )
-    if not rows:
-        return
-
-    notification_dates = {
-        query_id: created_at
-        for query_id, created_at in (
-            db.session.query(Notification.entity_id, func.min(Notification.created_at))
-            .filter(
-                Notification.entity_type == "query",
-                Notification.entity_id.isnot(None),
-                Notification.created_at.isnot(None),
-            )
-            .group_by(Notification.entity_id)
+    try:
+        rows = (
+            Query.query.options(selectinload(Query.replies))
             .all()
         )
-    }
+        if not rows:
+            return
 
-    changed = False
-    for row in rows:
-        candidates = []
-        notification_created_at = notification_dates.get(row.id)
-        if notification_created_at:
-            candidates.append(notification_created_at)
-        candidates.extend(
-            r.created_at
-            for r in (getattr(row, "replies", None) or [])
-            if getattr(r, "created_at", None)
-        )
-        if not candidates:
-            continue
+        notification_dates = {
+            query_id: created_at
+            for query_id, created_at in (
+                db.session.query(Notification.entity_id, func.min(Notification.created_at))
+                .filter(
+                    Notification.entity_type == "query",
+                    Notification.entity_id.isnot(None),
+                    Notification.created_at.isnot(None),
+                )
+                .group_by(Notification.entity_id)
+                .all()
+            )
+        }
 
-        historical_created_at = min(candidates)
-        if row.created_at is None or historical_created_at < row.created_at:
-            row.created_at = historical_created_at
-            changed = True
+        changed = False
+        for row in rows:
+            candidates = []
+            notification_created_at = notification_dates.get(row.id)
+            if notification_created_at:
+                candidates.append(notification_created_at)
+            candidates.extend(
+                r.created_at
+                for r in (getattr(row, "replies", None) or [])
+                if getattr(r, "created_at", None)
+            )
+            if not candidates:
+                continue
 
-    if changed:
-        db.session.commit()
+            historical_created_at = min(candidates)
+            if row.created_at is None or historical_created_at < row.created_at:
+                row.created_at = historical_created_at
+                changed = True
+
+        if changed:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("query created_at repair skipped")
 
 
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
@@ -112,11 +118,14 @@ DEPARTMENT_ROLES = {
     "human resources",
     "hr",
     "accounts",
+    "account",
+    "accountant",
     "it",
     "it department",
     "inventory",
     "admin",
     "administration",
+    "engineering",
 }
 
 
@@ -150,14 +159,14 @@ def _department_recipients(department, exclude_admin_id=None):
     return q.all()
 
 
-def count_new_queries_for_department_staff(emp_type):
+def count_new_queries_for_department_staff(emp_type, admin=None):
     """
     Legacy: count of queries with status New in the viewer's department inbox.
     Prefer count_department_query_unread for header badges.
     """
-    if _norm(emp_type) not in DEPARTMENT_ROLES:
+    if admin is None and emp_type is None:
         return 0
-    department = _emp_type_to_department(emp_type)
+    department = _resolve_department_for_inbox(admin, emp_type) if admin else _emp_type_to_department(emp_type)
     if not department:
         return 0
     dept_variants = _department_variants(department)
@@ -176,7 +185,10 @@ def count_department_query_unread(admin_id, emp_type=None):
     """Unread query notifications for department inbox badge (new queries + employee replies)."""
     if not admin_id:
         return 0
-    if emp_type is not None and _norm(emp_type) not in DEPARTMENT_ROLES:
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return 0
+    if _resolve_department_for_inbox(admin, emp_type) is None:
         return 0
     return Notification.query.filter_by(
         recipient_admin_id=admin_id,
@@ -207,14 +219,68 @@ def _emp_type_to_department(emp_type):
     normalized = _norm(emp_type)
     if normalized in {"human resource", "human resources", "hr"}:
         return "Human Resource"
-    if normalized in {"it", "it department"}:
+    if normalized in {"it", "it department", "engineering"}:
         return "IT"
     if normalized == "inventory":
         return "Inventory"
     if normalized in {"admin", "administration"}:
         return "Administration"
-    if normalized == "accounts":
+    if normalized in {"accounts", "account", "accountant"}:
         return "Accounts"
+    return None
+
+
+def _infer_department_from_text(value):
+    text = (value or "").strip()
+    if not text:
+        return None
+    if re.search(r"\bhuman\s+resources?\b|\bhr\b", text, re.I):
+        return "Human Resource"
+    if re.search(r"\binformation\s+technology\b|\bit\s+department\b|\bit\b", text, re.I):
+        return "IT"
+    if re.search(r"\baccounts\b|\baccountant\b|\baccount\b", text, re.I):
+        return "Accounts"
+    if re.search(r"\binventory\b", text, re.I):
+        return "Inventory"
+    if re.search(r"\badministration\b|\badmin\b", text, re.I):
+        return "Administration"
+    return None
+
+
+def _resolve_department_for_inbox(admin, jwt_emp_type=None):
+    """Map a staff user to their query inbox department (JWT, profile, or job title)."""
+    if not admin:
+        return None
+
+    candidates = []
+    for value in (jwt_emp_type, getattr(admin, "emp_type", None)):
+        if value and str(value).strip():
+            candidates.append(str(value).strip())
+
+    employee = Employee.query.filter_by(admin_id=admin.id).first()
+    if employee and getattr(employee, "designation", None):
+        candidates.append(str(employee.designation).strip())
+
+    seen = set()
+    for cand in candidates:
+        key = cand.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        dept = _emp_type_to_department(cand)
+        if dept:
+            return dept
+
+        if _norm(cand) in DEPARTMENT_ROLES:
+            inferred = _infer_department_from_text(cand)
+            if inferred:
+                return inferred
+
+        inferred = _infer_department_from_text(cand)
+        if inferred:
+            return inferred
+
     return None
 
 
@@ -241,7 +307,7 @@ def _can_access_query(admin, emp_type, query_obj):
     if query_obj.admin_id == admin.id:
         return True
 
-    department = _emp_type_to_department(emp_type)
+    department = _resolve_department_for_inbox(admin, emp_type)
     if not department:
         return False
     # Match department_queries list filter (e.g. "IT" vs "IT Department") so visible tickets are chat-allowed.
@@ -433,88 +499,98 @@ def my_queries():
 @query.route("/queries", methods=["GET"])
 @jwt_required()
 def department_queries():
-    claims = get_jwt()
-    emp_type = claims.get("emp_type")
+    try:
+        claims = get_jwt()
+        emp_type = claims.get("emp_type")
 
-    if _norm(emp_type) not in DEPARTMENT_ROLES:
-        return jsonify({"success": False, "message": "Unauthorized"}), 403
+        email = get_jwt().get("email")
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({"success": False, "message": "User not found"}), 404
 
-    department = _emp_type_to_department(emp_type)
-    if not department:
-        return jsonify({"success": False, "message": "Unsupported department role"}), 403
+        department = _resolve_department_for_inbox(admin, emp_type)
+        if not department:
+            return jsonify({"success": False, "message": "Unauthorized"}), 403
 
-    email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
-    if not admin:
-        return jsonify({"success": False, "message": "User not found"}), 404
+        _repair_query_created_at_from_history()
 
-    _repair_query_created_at_from_history()
-
-    dept_variants = _department_variants(department)
-    q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
-        or_(
-            *[
-                func.lower(func.coalesce(Query.department, "")) == v
-                for v in dept_variants
-            ]
+        dept_variants = _department_variants(department)
+        q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
+            or_(
+                *[
+                    func.lower(func.coalesce(Query.department, "")) == v
+                    for v in dept_variants
+                ]
+            )
         )
-    )
 
-    reply_created_at_subquery = (
-        db.session.query(func.min(QueryReply.created_at))
-        .filter(QueryReply.query_id == Query.id)
-        .correlate(Query)
-        .scalar_subquery()
-    )
-    effective_created_at = func.coalesce(Query.created_at, reply_created_at_subquery)
+        reply_created_at_subquery = (
+            db.session.query(func.min(QueryReply.created_at))
+            .filter(QueryReply.query_id == Query.id)
+            .correlate(Query)
+            .scalar_subquery()
+        )
+        effective_created_at = func.coalesce(Query.created_at, reply_created_at_subquery)
 
-    month_str = (request.args.get("month") or "").strip()
-    if month_str:
-        try:
-            year_m, month_m = map(int, month_str.split("-"))
-            if not (1 <= month_m <= 12):
-                raise ValueError()
+        month_str = (request.args.get("month") or "").strip()
+        if month_str:
+            try:
+                year_m, month_m = map(int, month_str.split("-"))
+                if not (1 <= month_m <= 12):
+                    raise ValueError()
+                q = q.filter(
+                    extract("year", effective_created_at) == year_m,
+                    extract("month", effective_created_at) == month_m,
+                )
+            except ValueError:
+                return jsonify(
+                    {"success": False, "message": "Invalid month format. Use YYYY-MM"}
+                ), 400
+
+        circle_param = (request.args.get("circle") or "").strip()
+        if circle_param:
+            circle_param_lower = circle_param.lower()
             q = q.filter(
-                extract("year", effective_created_at) == year_m,
-                extract("month", effective_created_at) == month_m,
+                Query.admin.has(
+                    func.lower(func.trim(func.coalesce(Admin.circle, ""))) == circle_param_lower
+                )
             )
-        except ValueError:
-            return jsonify(
-                {"success": False, "message": "Invalid month format. Use YYYY-MM"}
-            ), 400
 
-    circle_param = (request.args.get("circle") or "").strip()
-    if circle_param:
-        circle_param_lower = circle_param.lower()
-        q = q.filter(
-            Query.admin.has(
-                func.lower(func.trim(func.coalesce(Admin.circle, ""))) == circle_param_lower
+        queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
+        unread_map = _unread_counts_by_query_id(admin.id, [row.id for row in queries])
+
+        def _serialize_query(q):
+            adm = q.admin
+            eff_created = _query_list_effective_created_at(q)
+            unread = unread_map.get(q.id, 0)
+            employee_email = adm.email if adm else None
+            employee_name = (
+                ((adm.first_name or "").strip() if adm else "")
+                or employee_email
+                or "Employee"
             )
-        )
+            return {
+                "id": q.id,
+                "title": q.title,
+                "query_text": q.query_text,
+                "employee": employee_email,
+                "employee_name": employee_name,
+                "employee_email": employee_email,
+                "emp_id": (adm.emp_id if adm else None) or "",
+                "status": q.status,
+                "created_at": isoformat_api(eff_created),
+                "unread_reply_count": unread,
+                "has_unread_reply": unread > 0,
+            }
 
-    queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
-    unread_map = _unread_counts_by_query_id(admin.id, [row.id for row in queries])
-
-    def _serialize_query(q):
-        adm = q.admin
-        eff_created = _query_list_effective_created_at(q)
-        unread = unread_map.get(q.id, 0)
-        return {
-            "id": q.id,
-            "title": q.title,
-            "query_text": q.query_text,
-            "employee": adm.email if adm else None,
-            "emp_id": (adm.emp_id if adm else None) or "",
-            "status": q.status,
-            "created_at": isoformat_api(eff_created),
-            "unread_reply_count": unread,
-            "has_unread_reply": unread > 0,
-        }
-
-    return jsonify({
-        "success": True,
-        "queries": [_serialize_query(q) for q in queries]
-    }), 200
+        return jsonify({
+            "success": True,
+            "queries": [_serialize_query(q) for q in queries]
+        }), 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("department_queries failed")
+        return jsonify({"success": False, "message": "Failed to load department queries"}), 500
 
 
 @query.route("/queries/<int:query_id>/mark-read", methods=["POST"])
@@ -567,13 +643,19 @@ def query_details(query_id):
         return jsonify({"success": False, "message": "Unauthorized"}), 403
 
     attachments = _parse_query_attachments(query_obj.photo)
+    query_admin = query_obj.admin
+    query_author = (
+        (query_admin.first_name if query_admin else None)
+        or (query_admin.email if query_admin else None)
+        or "Employee"
+    )
 
     chat_messages = [
         {
             "text": query_obj.query_text,
             "user_type": "EMPLOYEE",
             "created_at": isoformat_api(query_obj.created_at),
-            "by": query_obj.admin.first_name or query_obj.admin.email
+            "by": query_author,
         }
     ]
     chat_messages.extend([
@@ -581,7 +663,11 @@ def query_details(query_id):
             "text": r.reply_text,
             "user_type": r.user_type,
             "created_at": isoformat_api(r.created_at),
-            "by": r.admin.first_name or r.admin.email
+            "by": (
+                (r.admin.first_name if r.admin else None)
+                or (r.admin.email if r.admin else None)
+                or "User"
+            ),
         } for r in query_obj.replies
     ])
 
@@ -652,7 +738,7 @@ def reply_query(query_id):
     if not reply_text:
         return jsonify({"success": False, "message": "reply_text required"}), 400
 
-    user_type = "DEPARTMENT" if _norm(emp_type) in DEPARTMENT_ROLES else "EMPLOYEE"
+    user_type = "DEPARTMENT" if _resolve_department_for_inbox(admin, emp_type) else "EMPLOYEE"
 
     reply = QueryReply(
         query_id=query_id,

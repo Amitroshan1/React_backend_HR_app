@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { fetchDepartmentNocRequests, uploadNocDepartmentRequest } from "../api";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import "./Requests/RequestCard.css";
 import "../../IT/ReturnRequests.css";
 import { formatDate } from "../../../utils/dateFormat";
@@ -213,22 +214,21 @@ export const DepartmentNocPanel = ({
   const [pendingFiles, setPendingFiles] = useState({});
   const [preview, setPreview] = useState(null);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const rows = await fetchDepartmentNocRequests(apiBase, statusFilter);
-        setRequests(sortNocRequestsNewestFirst(rows));
-      } catch (e) {
-        setError(e.message || "Unable to load NOC requests");
-        setRequests([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  const loadRequests = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const rows = await fetchDepartmentNocRequests(apiBase, statusFilter);
+      setRequests(sortNocRequestsNewestFirst(rows));
+    } catch (e) {
+      setError(e.message || "Unable to load NOC requests");
+      setRequests([]);
+    } finally {
+      setLoading(false);
+    }
   }, [apiBase, statusFilter]);
+
+  useRefreshOnNavigate(loadRequests, [apiBase, statusFilter]);
 
   useEffect(() => {
     return () => {

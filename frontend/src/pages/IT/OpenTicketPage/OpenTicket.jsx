@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useCallback, useRef, Fragment } from "rea
 import { useNavigate } from "react-router-dom";
 import { Paperclip } from "lucide-react";
 import { toast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import { getITApiErrorMessage } from "../Data";
 import {
   buildQueryAttachmentUrl,
@@ -122,28 +123,25 @@ export default function OpenTicket() {
     }
   }, []);
 
-  useEffect(() => {
-    const run = async () => {
+  const refreshTickets = useCallback(() => {
+    loadTickets().catch((err) => {
+      console.error("[OpenTicket] Failed to load queries:", err);
+      toast.error(
+        getITApiErrorMessage(
+          err,
+          "Could not load queries from the server. You may need department (e.g. IT) access.",
+        ),
+      );
+      setTickets([]);
       try {
-        await loadTickets();
-      } catch (err) {
-        console.error("[OpenTicket] Failed to load queries:", err);
-        toast.error(
-          getITApiErrorMessage(
-            err,
-            "Could not load queries from the server. You may need department (e.g. IT) access.",
-          ),
-        );
-        setTickets([]);
-        try {
-          window.dispatchEvent(new Event("it-open-tickets-updated"));
-        } catch {
-          /* no-op */
-        }
+        window.dispatchEvent(new Event("it-open-tickets-updated"));
+      } catch {
+        /* no-op */
       }
-    };
-    run();
+    });
   }, [loadTickets]);
+
+  useRefreshOnNavigate(refreshTickets);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {

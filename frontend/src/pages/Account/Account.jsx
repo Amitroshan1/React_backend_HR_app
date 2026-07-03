@@ -3,7 +3,7 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { 
   Users, FileText, TrendingUp, Download, 
   Send, Calculator, ChevronDown, ChevronRight, 
-  ArrowLeft, Upload, FileCheck, Receipt
+  ArrowLeft, Upload, FileCheck, Receipt, Landmark
 } from 'lucide-react';
 import './Account.css';
 import { useUser } from '../../components/layout/UserContext';
@@ -14,6 +14,7 @@ import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPane
 import { TaxDeclarationReview } from '../TaxDeclaration/TaxDeclarationReview';
 import { TaxDeclarationReviewDetail } from '../TaxDeclaration/TaxDeclarationReviewDetail';
 import { formatDate as formatDateDDMMYYYY, formatDateTime as formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
+import { formatCtcRupee, resolveAnnualCtcTotal, resolveTotalCtcAnnual } from '../../utils/ctcBreakupDisplay';
 import {
   defaultFinancialYear,
   formatFinancialYearInput,
@@ -21,6 +22,58 @@ import {
 } from '../../utils/financialYear';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
+
+const ctcAllowanceFieldsFromRecord = (c = {}) => {
+  const hasHeads =
+    Number(c.special_allowance || 0)
+    + Number(c.conveyance_allowance || 0)
+    + Number(c.medical_allowance || 0)
+    + Number(c.lta_allowance || 0) > 0;
+  if (hasHeads) {
+    return {
+      special_allowance: c.special_allowance ?? '',
+      conveyance_allowance: c.conveyance_allowance ?? '',
+      medical_allowance: c.medical_allowance ?? '',
+      lta_allowance: c.lta_allowance ?? '',
+    };
+  }
+  return {
+    special_allowance: c.other_allowance ?? '',
+    conveyance_allowance: '',
+    medical_allowance: '',
+    lta_allowance: '',
+  };
+};
+
+const ctcAllowancePayload = (form) => ({
+  special_allowance: form.special_allowance || 0,
+  conveyance_allowance: form.conveyance_allowance || 0,
+  medical_allowance: form.medical_allowance || 0,
+  lta_allowance: form.lta_allowance || 0,
+});
+
+const ctcMetroHraPayload = (metroMode) => {
+  if (metroMode === 'metro') return { is_metro_hra: true };
+  if (metroMode === 'nonmetro') return { is_metro_hra: false };
+  return {};
+};
+
+const ctcAdvancedPayload = ({
+  vpfMonthly,
+  includeNps,
+  npsPct,
+  reimbursementMonthly,
+  metroMode,
+}) => ({
+  vpf_monthly: Number(vpfMonthly || 0),
+  include_nps_in_ctc: includeNps,
+  nps_employer_pct: Number(npsPct || 10),
+  reimbursement_monthly: Number(reimbursementMonthly || 0),
+  ...ctcMetroHraPayload(metroMode),
+});
+
+const ctcBasicWage = (form) =>
+  Number(form.basic_salary || 0) + Number(form.dearness_allowance || 0);
 
 const parseMediclaimYearly = (mediclaimValue) => {
   if (mediclaimValue === '' || mediclaimValue == null) return 0;
@@ -49,6 +102,8 @@ const ACCOUNT_VIEWS = new Set([
   'bulkForm16',
   'bulkPayroll',
   'payrollHistory',
+  'complianceExports',
+  'payrollLifecycle',
   'expenseClaims',
   'taxDeclarations',
   'taxDeclarationDetail',
@@ -91,6 +146,10 @@ function resolveStoredAccountView() {
   }
 
   if (view === 'employees' && !hasDeptCircle) {
+    return { view: 'main', taxDeclId: null };
+  }
+
+  if (['bulkPayroll', 'payrollHistory', 'complianceExports', 'payrollLifecycle'].includes(view) && !hasDeptCircle) {
     return { view: 'main', taxDeclId: null };
   }
 
@@ -152,6 +211,8 @@ export const Account = ()  => {
   const [attendancePickerOpen, setAttendancePickerOpen] = useState(false);
   const [pendingAttendanceMonth, setPendingAttendanceMonth] = useState(attendanceMonth);
   const [attendanceDownloadMode, setAttendanceDownloadMode] = useState('accounts'); // 'accounts' or 'client'
+  const [empHeaderMenu, setEmpHeaderMenu] = useState(null); // 'bulk' | 'payroll' | null
+  const empHeaderToolbarRef = useRef(null);
   
   // Form States
   const [payslipMonth, setPayslipMonth] = useState('January');
@@ -175,8 +236,27 @@ export const Account = ()  => {
   const [isBulkPayrollGenerating, setIsBulkPayrollGenerating] = useState(false);
   const [bulkPayrollResult, setBulkPayrollResult] = useState(null); // used for Save result messages
   const [bulkPayrollError, setBulkPayrollError] = useState('');
+  const [complianceError, setComplianceError] = useState('');
+  const [complianceLoading, setComplianceLoading] = useState(false);
+  const [complianceQuarter, setComplianceQuarter] = useState(1);
+  const [complianceFy, setComplianceFy] = useState(defaultFinancialYear());
+  const [ptSummary, setPtSummary] = useState(null);
+  const [ptCalendar, setPtCalendar] = useState([]);
+  const [lifecycleEmployeeId, setLifecycleEmployeeId] = useState('');
+  const [fnfSeparationDate, setFnfSeparationDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fnfLastWorkingDay, setFnfLastWorkingDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fnfNoticeDays, setFnfNoticeDays] = useState(0);
+  const [fnfIncludeCl, setFnfIncludeCl] = useState(false);
+  const [fnfPreview, setFnfPreview] = useState(null);
+  const [fnfSettlements, setFnfSettlements] = useState([]);
+  const [fnfStatusUpdatingId, setFnfStatusUpdatingId] = useState(null);
+  const [encashPreview, setEncashPreview] = useState(null);
+  const [salaryLoans, setSalaryLoans] = useState([]);
+  const [loanForm, setLoanForm] = useState({ principal_amount: '', emi_monthly: '', description: '' });
   const [payrollRows, setPayrollRows] = useState([]);
   const [isPayrollSaving, setIsPayrollSaving] = useState(false);
+  const [isPayrollStatusUpdating, setIsPayrollStatusUpdating] = useState(false);
+  const [isBonusRunLoading, setIsBonusRunLoading] = useState(false);
   const [payrollHistoryRows, setPayrollHistoryRows] = useState([]);
   const [payrollHistoryLoading, setPayrollHistoryLoading] = useState(false);
   const [payrollHistoryError, setPayrollHistoryError] = useState('');
@@ -222,12 +302,31 @@ export const Account = ()  => {
   const [form16HistoryError, setForm16HistoryError] = useState('');
   const [ctcForm, setCtcForm] = useState({
     basic_salary: '',
+    dearness_allowance: '',
+    special_allowance: '',
+    conveyance_allowance: '',
+    medical_allowance: '',
+    lta_allowance: '',
     hra: '',
-    other_allowance: '',
     epf: '',
     esic: '',
     ptax: '',
   });
+  const [ctcVariableAnnual, setCtcVariableAnnual] = useState('');
+  const [ctcIncludePfAdmin, setCtcIncludePfAdmin] = useState(true);
+  const [ctcIncludeEdli, setCtcIncludeEdli] = useState(true);
+  const [ctcIncludeBonus, setCtcIncludeBonus] = useState(false);
+  const [ctcIncludeLwf, setCtcIncludeLwf] = useState(false);
+  const [ctcVpfMonthly, setCtcVpfMonthly] = useState('');
+  const [ctcIncludeNps, setCtcIncludeNps] = useState(false);
+  const [ctcNpsPct, setCtcNpsPct] = useState('10');
+  const [ctcMetroMode, setCtcMetroMode] = useState('auto');
+  const [ctcReimbursementMonthly, setCtcReimbursementMonthly] = useState('');
+  const [ctcPtaxState, setCtcPtaxState] = useState('MH');
+  const [ctcPolicy, setCtcPolicy] = useState(null);
+  const [ctcPolicySaving, setCtcPolicySaving] = useState(false);
+  const [ctcPolicyDraft, setCtcPolicyDraft] = useState(null);
+  const [ctcPdfDownloading, setCtcPdfDownloading] = useState(false);
   const [ctcMonth, setCtcMonth] = useState(() => {
     const d = new Date();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -254,16 +353,43 @@ export const Account = ()  => {
     employer_esic_yearly: 0,
     employer_esic_monthly: 0,
     mediclaim_yearly: 0,
+    pf_admin_yearly: 0,
+    pf_admin_monthly: 0,
+    edli_yearly: 0,
+    edli_monthly: 0,
+    statutory_bonus_yearly: 0,
+    statutory_bonus_monthly: 0,
+    lwf_employer_yearly: 0,
+    lwf_employer_monthly: 0,
+    nps_employer_yearly: 0,
+    nps_employer_monthly: 0,
+    eps_contribution_yearly: 0,
+    epf_er_contribution_yearly: 0,
+    vpf_amount: 0,
+    epf_statutory_amount: 0,
+    is_metro_hra: false,
+    ptax_state: 'MH',
+    esic_applicable: false,
+    esic_wage_ceiling: 21001,
+    ptax_gender_unknown: false,
     annual_ctc_total: 0,
+    fixed_ctc_annual: 0,
+    variable_ctc_annual: 0,
+    total_ctc_annual: 0,
   });
   const [ctcCalcError, setCtcCalcError] = useState('');
   const [ctcSaving, setCtcSaving] = useState(false);
   const [ctcLoading, setCtcLoading] = useState(false);
   const [ctcError, setCtcError] = useState('');
   const [ctcSuccess, setCtcSuccess] = useState('');
+  const [ctcHistoryExpanded, setCtcHistoryExpanded] = useState(true);
   const [ctcHistory, setCtcHistory] = useState([]);
   const [ctcHistoryLoading, setCtcHistoryLoading] = useState(false);
   const [ctcHistoryError, setCtcHistoryError] = useState('');
+  const [ctcEffectiveFrom, setCtcEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ctcRevisionNote, setCtcRevisionNote] = useState('');
+  const [ctcArrearsPreview, setCtcArrearsPreview] = useState(null);
+  const [ctcArrearsApplying, setCtcArrearsApplying] = useState(false);
   const [tdsProjection, setTdsProjection] = useState(null);
   const [tdsLoading, setTdsLoading] = useState(false);
   const [tdsError, setTdsError] = useState('');
@@ -306,6 +432,30 @@ export const Account = ()  => {
 
   useEffect(() => {
     localStorage.setItem('account_current_view', currentView);
+  }, [currentView]);
+
+  useEffect(() => {
+    if (!empHeaderMenu) return undefined;
+    const onDocClick = (e) => {
+      if (empHeaderToolbarRef.current && !empHeaderToolbarRef.current.contains(e.target)) {
+        setEmpHeaderMenu(null);
+      }
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setEmpHeaderMenu(null);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [empHeaderMenu]);
+
+  useEffect(() => {
+    if (currentView !== 'employees') {
+      setEmpHeaderMenu(null);
+    }
   }, [currentView]);
 
   useEffect(() => {
@@ -415,6 +565,7 @@ export const Account = ()  => {
   ]);
 
   useRefreshOnNavigate(() => {
+    if (currentView !== 'main') return;
     const token = localStorage.getItem('token');
     if (!token) return;
 
@@ -439,7 +590,8 @@ export const Account = ()  => {
     };
 
     loadStats();
-  });
+    loadPayrollSummary();
+  }, [currentView]);
 
   useEffect(() => {
     if (!isAccountsDept || currentView !== 'main') return;
@@ -519,10 +671,6 @@ export const Account = ()  => {
     }
   };
 
-  useRefreshOnNavigate(() => {
-    loadPayrollSummary();
-  });
-
   const handleCircleSelect = async (dept, circle, switchView = true) => {
     setSelectedDept(dept);
     setSelectedCircle(circle);
@@ -544,6 +692,7 @@ export const Account = ()  => {
       }
       const mapped = (result.employees || []).map(emp => ({
         id: emp.emp_id || emp.id,
+        empId: emp.emp_id || String(emp.id),
         adminId: emp.id,
         name: emp.first_name || 'N/A',
         email: emp.email || 'N/A',
@@ -1023,6 +1172,57 @@ export const Account = ()  => {
     }
   };
 
+  const loadCtcPolicy = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/ctc-policy`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        setCtcPolicy(result.policy || null);
+        if (!ctcPolicyDraft) {
+          setCtcPolicyDraft(result.policy || null);
+        }
+      }
+    } catch (error) {
+      console.error('CTC policy load error:', error);
+    }
+  };
+
+  const handleSaveCtcPolicy = async () => {
+    if (!ctcPolicyDraft) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please login again.');
+      return;
+    }
+    try {
+      setCtcPolicySaving(true);
+      const response = await fetch(`${API_BASE_URL}/ctc-policy`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(ctcPolicyDraft),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to save CTC policy');
+      }
+      setCtcPolicy(result.policy || null);
+      setCtcPolicyDraft(result.policy || null);
+      setCtcSuccess('Company CTC policy saved.');
+    } catch (error) {
+      setCtcError(error.message || 'Unable to save CTC policy');
+    } finally {
+      setCtcPolicySaving(false);
+    }
+  };
+
   const loadCtcBreakup = async (adminId) => {
     const token = localStorage.getItem('token');
     if (!token || !adminId) return;
@@ -1043,11 +1243,40 @@ export const Account = ()  => {
       setCtcAnnual(
         c.annual_ctc != null && c.annual_ctc !== '' ? String(c.annual_ctc) : '',
       );
+      ctcWantsReverseRef.current = Boolean(
+        c.annual_ctc && Number(c.annual_ctc) > 0 && !(Number(c.basic_salary || 0) > 0),
+      );
       setCtcMediclaim(c.mediclaim_yearly != null ? String(c.mediclaim_yearly) : '');
+      setCtcVariableAnnual(
+        c.variable_ctc_annual != null && c.variable_ctc_annual !== ''
+          ? String(c.variable_ctc_annual)
+          : '',
+      );
+      setCtcIncludePfAdmin(
+        c.include_pf_admin_in_ctc == null ? true : Boolean(c.include_pf_admin_in_ctc),
+      );
+      setCtcIncludeEdli(
+        c.include_edli_in_ctc == null ? true : Boolean(c.include_edli_in_ctc),
+      );
+      setCtcIncludeBonus(Boolean(c.include_statutory_bonus_in_ctc));
+      setCtcIncludeLwf(Boolean(c.include_lwf_in_ctc));
+      setCtcVpfMonthly(c.vpf_monthly != null && c.vpf_monthly !== '' ? String(c.vpf_monthly) : '');
+      setCtcIncludeNps(Boolean(c.include_nps_in_ctc));
+      setCtcNpsPct(c.nps_employer_pct != null ? String(c.nps_employer_pct) : '10');
+      setCtcReimbursementMonthly(
+        c.reimbursement_monthly != null && c.reimbursement_monthly !== ''
+          ? String(c.reimbursement_monthly)
+          : '',
+      );
+      if (c.is_metro_hra === true) setCtcMetroMode('metro');
+      else if (c.is_metro_hra === false) setCtcMetroMode('nonmetro');
+      else setCtcMetroMode('auto');
+      setCtcPtaxState(c.ptax_state || ctcPolicy?.default_ptax_state || 'MH');
       setCtcForm({
         basic_salary: c.basic_salary ?? '',
+        dearness_allowance: c.dearness_allowance ?? '',
+        ...ctcAllowanceFieldsFromRecord(c),
         hra: c.hra ?? '',
-        other_allowance: c.other_allowance ?? '',
         epf: c.epf ?? '',
         esic: c.esic ?? '',
         ptax: c.ptax ?? '',
@@ -1069,6 +1298,10 @@ export const Account = ()  => {
       if (c.ptax_month) {
         setCtcMonth(c.ptax_month);
       }
+      if (c.effective_from) {
+        setCtcEffectiveFrom(String(c.effective_from).slice(0, 10));
+      }
+      setCtcArrearsPreview(null);
       setCtcComputed({
         hra_amount: Number(c.hra || 0),
         epf_amount: Number(c.epf || 0),
@@ -1085,21 +1318,48 @@ export const Account = ()  => {
         employer_esic_yearly: Number(c.employer_esic_yearly || 0),
         employer_esic_monthly: Number(c.employer_esic_monthly || 0),
         mediclaim_yearly: Number(c.mediclaim_yearly || 0),
-        annual_ctc_total: Number(c.annual_ctc_computed || c.annual_ctc || 0),
+        pf_admin_yearly: Number(c.pf_admin_yearly || 0),
+        pf_admin_monthly: Number(c.pf_admin_monthly || 0),
+        edli_yearly: Number(c.edli_yearly || 0),
+        edli_monthly: Number(c.edli_monthly || 0),
+        statutory_bonus_yearly: Number(c.statutory_bonus_yearly || 0),
+        statutory_bonus_monthly: Number(c.statutory_bonus_monthly || 0),
+        lwf_employer_yearly: Number(c.lwf_employer_yearly || 0),
+        lwf_employer_monthly: Number((c.lwf_employer_yearly || 0) / 12),
+        ptax_state: c.ptax_state || 'MH',
+        annual_ctc_total: resolveAnnualCtcTotal(c),
+        fixed_ctc_annual: resolveAnnualCtcTotal(c),
+        variable_ctc_annual: Number(c.variable_ctc_annual || 0),
+        total_ctc_annual: resolveTotalCtcAnnual(c),
       });
     } catch (error) {
       console.error('CTC breakup load error:', error);
       setCtcError(error.message || 'Unable to load CTC breakup');
       setCtcForm({
         basic_salary: '',
+        dearness_allowance: '',
+        special_allowance: '',
+        conveyance_allowance: '',
+        medical_allowance: '',
+        lta_allowance: '',
         hra: '',
-        other_allowance: '',
         epf: '',
         esic: '',
         ptax: '',
       });
       setCtcAnnual('');
       setCtcMediclaim('');
+      setCtcVariableAnnual('');
+      setCtcIncludePfAdmin(true);
+      setCtcIncludeEdli(true);
+      setCtcIncludeBonus(false);
+      setCtcIncludeLwf(false);
+      setCtcVpfMonthly('');
+      setCtcIncludeNps(false);
+      setCtcNpsPct('10');
+      setCtcMetroMode('auto');
+      setCtcReimbursementMonthly('');
+      setCtcPtaxState(ctcPolicy?.default_ptax_state || 'MH');
       setCtcHraPct('40');
       setCtcEpfMode('min');
       setCtcEpfPct('');
@@ -1145,14 +1405,21 @@ export const Account = ()  => {
     setSelectedEmployee(emp);
     setCtcForm({
       basic_salary: '',
+      dearness_allowance: '',
+      special_allowance: '',
+      conveyance_allowance: '',
+      medical_allowance: '',
+      lta_allowance: '',
       hra: '',
-      other_allowance: '',
       epf: '',
       esic: '',
       ptax: '',
     });
     setCtcAnnual('');
     setCtcMediclaim('');
+    setCtcVariableAnnual('');
+    setCtcIncludePfAdmin(true);
+    setCtcIncludeEdli(true);
     setCtcHraPct('40');
     setCtcEpfMode('min');
     setCtcEpfPct('');
@@ -1174,15 +1441,37 @@ export const Account = ()  => {
       employer_esic_monthly: 0,
       mediclaim_yearly: 0,
       annual_ctc_total: 0,
+      fixed_ctc_annual: 0,
+      variable_ctc_annual: 0,
+      total_ctc_annual: 0,
     });
     setCtcError('');
     setCtcSuccess('');
+    setCtcEffectiveFrom(new Date().toISOString().slice(0, 10));
+    setCtcRevisionNote('');
+    setCtcArrearsPreview(null);
     setCurrentView('ctcBreakup');
     loadCtcBreakup(emp.adminId);
     loadCtcHistory(emp.adminId);
   };
 
-  const applyCtcComputed = (computed, derived = {}) => {
+  const applyCtcComputed = (computed, derived = {}, inputs = {}) => {
+    const fixed = resolveAnnualCtcTotal({
+      annual_ctc_computed: derived.annual_ctc_computed ?? computed.annual_ctc_total ?? computed.fixed_ctc_annual,
+      gross_salary: computed.gross_salary,
+      gratuity_yearly: derived.gratuity_yearly ?? computed.gratuity_yearly,
+      employer_pf_yearly: computed.employer_pf_yearly,
+      pf_admin_yearly: computed.pf_admin_yearly,
+      edli_yearly: computed.edli_yearly,
+      statutory_bonus_yearly: computed.statutory_bonus_yearly,
+      lwf_employer_yearly: computed.lwf_employer_yearly,
+      employer_esic_yearly: computed.employer_esic_yearly,
+      mediclaim_yearly:
+        derived.mediclaim_yearly ?? computed.mediclaim_yearly ?? computed?.inputs?.mediclaim_yearly,
+    });
+    const variable = Number(
+      derived.variable_ctc_annual ?? computed.variable_ctc_annual ?? inputs.variable_ctc_annual ?? 0,
+    );
     setCtcComputed({
       hra_amount: Number(computed.hra_amount || 0),
       epf_amount: Number(computed.epf_amount || 0),
@@ -1201,15 +1490,48 @@ export const Account = ()  => {
       mediclaim_yearly: Number(
         derived.mediclaim_yearly ?? computed.mediclaim_yearly ?? computed?.inputs?.mediclaim_yearly ?? 0,
       ),
-      annual_ctc_total: Number(
-        derived.annual_ctc_computed ?? computed.annual_ctc_total ?? derived.annual_ctc ?? 0,
-      ),
+      pf_admin_yearly: Number(computed.pf_admin_yearly || 0),
+      pf_admin_monthly: Number(computed.pf_admin_monthly || 0),
+      edli_yearly: Number(computed.edli_yearly || 0),
+      edli_monthly: Number(computed.edli_monthly || 0),
+      statutory_bonus_yearly: Number(computed.statutory_bonus_yearly || 0),
+      statutory_bonus_monthly: Number(computed.statutory_bonus_monthly || 0),
+      lwf_employer_yearly: Number(computed.lwf_employer_yearly || 0),
+      lwf_employer_monthly: Number(computed.lwf_employer_monthly || 0),
+      nps_employer_yearly: Number(computed.nps_employer_yearly || 0),
+      nps_employer_monthly: Number(computed.nps_employer_monthly || 0),
+      eps_contribution_yearly: Number(computed.eps_contribution_yearly || 0),
+      epf_er_contribution_yearly: Number(computed.epf_er_contribution_yearly || 0),
+      vpf_amount: Number(computed.vpf_amount || 0),
+      epf_statutory_amount: Number(computed.epf_statutory_amount || 0),
+      is_metro_hra: Boolean(computed.is_metro_hra ?? inputs.is_metro_hra),
+      ptax_state: computed.ptax_state || inputs.ptax_state || ctcPtaxState,
+      esic_applicable: Boolean(computed.esic_applicable),
+      esic_wage_ceiling: Number(computed.esic_wage_ceiling || 21001),
+      ptax_gender_unknown: Boolean(computed.ptax_gender_unknown),
+      annual_ctc_total: fixed,
+      fixed_ctc_annual: fixed,
+      variable_ctc_annual: variable,
+      total_ctc_annual: Math.round((fixed + variable) * 100) / 100,
     });
-    // Only overwrite Basic when reverse-calculating from Annual CTC — not while user edits Basic.
     const basicToSync = derived.basic_salary != null ? derived.basic_salary : null;
+    const daToSync = derived.dearness_allowance != null ? derived.dearness_allowance : null;
     setCtcForm((p) => ({
       ...p,
       ...(basicToSync != null ? { basic_salary: String(basicToSync) } : {}),
+      ...(daToSync != null ? { dearness_allowance: String(daToSync) } : {}),
+      special_allowance: String(
+        derived.special_allowance ?? inputs.special_allowance ?? p.special_allowance ?? '',
+      ),
+      conveyance_allowance: String(
+        derived.conveyance_allowance ?? inputs.conveyance_allowance ?? p.conveyance_allowance ?? '',
+      ),
+      medical_allowance: String(
+        derived.medical_allowance ?? inputs.medical_allowance ?? p.medical_allowance ?? '',
+      ),
+      lta_allowance: String(
+        derived.lta_allowance ?? inputs.lta_allowance ?? p.lta_allowance ?? '',
+      ),
       hra: computed.hra_amount ?? '',
       epf: computed.epf_amount ?? '',
       ptax: computed.ptax_amount ?? '',
@@ -1224,11 +1546,11 @@ export const Account = ()  => {
     if (!token) return;
 
     const annual = Number(ctcAnnual || 0);
-    const basic = Number(ctcForm.basic_salary || 0);
-    // Reverse only when user edits Annual CTC. Mediclaim uses forward calc (adds to total, keeps salary).
-    const useReverse = ctcWantsReverseRef.current && annual > 0;
+    const basicWage = ctcBasicWage(ctcForm);
+    // Reverse-solve when Annual CTC is set and Basic+DA not yet entered (or user just changed annual).
+    const useReverse = annual > 0 && (ctcWantsReverseRef.current || basicWage <= 0);
 
-    if (!useReverse && (!basic || basic <= 0)) {
+    if (!useReverse && (!basicWage || basicWage <= 0)) {
       setCtcCalcError('');
       setCtcComputed((p) => ({ ...p, gross_salary: 0, net_salary: 0, deductions_total: 0 }));
       return;
@@ -1242,26 +1564,51 @@ export const Account = ()  => {
           ? `${API_BASE_URL}/ctc-breakup/reverse-calculate`
           : `${API_BASE_URL}/ctc-breakup/calculate`;
         const mediclaimYearly = parseMediclaimYearly(ctcMediclaim);
+        const variableYearly = parseMediclaimYearly(ctcVariableAnnual);
+        const allowancePayload = ctcAllowancePayload(ctcForm);
+        const advancedPayload = ctcAdvancedPayload({
+          vpfMonthly: ctcVpfMonthly,
+          includeNps: ctcIncludeNps,
+          npsPct: ctcNpsPct,
+          reimbursementMonthly: ctcReimbursementMonthly,
+          metroMode: ctcMetroMode,
+        });
         const body = useReverse
           ? {
               admin_id: selectedEmployee.adminId,
               annual_ctc: annual,
               hra_pct: ctcHraPct || 40,
-              other_allowance: ctcForm.other_allowance || 0,
+              dearness_allowance: ctcForm.dearness_allowance || 0,
+              ...allowancePayload,
               mediclaim_yearly: mediclaimYearly,
+              variable_ctc_annual: variableYearly,
+              include_pf_admin_in_ctc: ctcIncludePfAdmin,
+              include_edli_in_ctc: ctcIncludeEdli,
+              include_statutory_bonus_in_ctc: ctcIncludeBonus,
+              include_lwf_in_ctc: ctcIncludeLwf,
+              ptax_state: ctcPtaxState,
               epf_mode: ctcEpfMode,
               epf_pct: ctcEpfPct,
               month: ctcMonth,
+              ...advancedPayload,
             }
           : {
               admin_id: selectedEmployee.adminId,
               basic_salary: ctcForm.basic_salary,
+              dearness_allowance: ctcForm.dearness_allowance || 0,
               hra_pct: ctcHraPct,
-              other_allowance: ctcForm.other_allowance,
+              ...allowancePayload,
               mediclaim_yearly: mediclaimYearly,
+              variable_ctc_annual: variableYearly,
+              include_pf_admin_in_ctc: ctcIncludePfAdmin,
+              include_edli_in_ctc: ctcIncludeEdli,
+              include_statutory_bonus_in_ctc: ctcIncludeBonus,
+              include_lwf_in_ctc: ctcIncludeLwf,
+              ptax_state: ctcPtaxState,
               epf_mode: ctcEpfMode,
               epf_pct: ctcEpfPct,
               month: ctcMonth,
+              ...advancedPayload,
             };
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -1278,10 +1625,11 @@ export const Account = ()  => {
         if (cancelled) return;
         const computed = result?.data?.computed || {};
         const derived = result?.data?.derived || {};
+        const inputs = result?.data?.inputs || {};
         if (useReverse) {
           ctcApplyingReverseRef.current = true;
           ctcWantsReverseRef.current = false;
-          applyCtcComputed(computed, derived);
+          applyCtcComputed(computed, derived, inputs);
           if (derived.hra_pct != null) {
             setCtcHraPct(String(derived.hra_pct));
           }
@@ -1289,7 +1637,7 @@ export const Account = ()  => {
             ctcApplyingReverseRef.current = false;
           });
         } else {
-          applyCtcComputed(computed, {});
+          applyCtcComputed(computed, {}, inputs);
         }
       } catch (e) {
         if (cancelled) return;
@@ -1306,8 +1654,23 @@ export const Account = ()  => {
     selectedEmployee?.adminId,
     ctcAnnual,
     ctcMediclaim,
+    ctcVariableAnnual,
+    ctcIncludePfAdmin,
+    ctcIncludeEdli,
+    ctcIncludeBonus,
+    ctcIncludeLwf,
+    ctcVpfMonthly,
+    ctcIncludeNps,
+    ctcNpsPct,
+    ctcMetroMode,
+    ctcReimbursementMonthly,
+    ctcPtaxState,
     ctcForm.basic_salary,
-    ctcForm.other_allowance,
+    ctcForm.dearness_allowance,
+    ctcForm.special_allowance,
+    ctcForm.conveyance_allowance,
+    ctcForm.medical_allowance,
+    ctcForm.lta_allowance,
     ctcHraPct,
     ctcEpfMode,
     ctcEpfPct,
@@ -1315,7 +1678,11 @@ export const Account = ()  => {
   ]);
 
   useEffect(() => {
-    // After a hard refresh, state is restored from localStorage but fetched data may be stale/missing.
+    if (currentView !== 'ctcBreakup') return;
+    loadCtcPolicy();
+  }, [currentView]);
+
+  useEffect(() => {
     // If user is on the "viewPayslip" page, re-fetch both docs (UploadDoc) and accounts profile.
     if (currentView !== 'viewPayslip') return;
     if (!selectedEmployee?.adminId) return;
@@ -1381,7 +1748,9 @@ export const Account = ()  => {
         if (cancelled) return;
         setAccountsProfileError(e.message || 'Unable to load employee data');
       } finally {
-        if (!cancelled) setAccountsProfileLoading(false);
+        if (!cancelled) {
+          setAccountsProfileLoading(false);
+        }
       }
     })();
 
@@ -1401,10 +1770,10 @@ export const Account = ()  => {
       loadCtcBreakup(selectedEmployee.adminId);
       loadCtcHistory(selectedEmployee.adminId);
     }
-  }, []);
+  }, [currentView, selectedEmployee?.adminId]);
 
-  useEffect(() => {
-    if (currentView === 'employees' && selectedDept && selectedCircle && employeesList.length === 0) {
+  useRefreshOnNavigate(() => {
+    if (currentView === 'employees' && selectedDept && selectedCircle) {
       handleCircleSelect(selectedDept, selectedCircle, false);
     }
   }, [currentView, selectedDept, selectedCircle]);
@@ -1634,6 +2003,303 @@ export const Account = ()  => {
     setCurrentView('bulkPayroll');
   };
 
+  const handleOpenComplianceExports = () => {
+    if (!hasFeature('account_payroll')) {
+      alert('Compliance exports require the payroll feature in your plan.');
+      return;
+    }
+    if (!selectedDept || !selectedCircle) {
+      alert('Select a department and circle first (Results screen).');
+      return;
+    }
+    setPreviousView(currentView);
+    setComplianceError('');
+    setPtSummary(null);
+    setCurrentView('complianceExports');
+  };
+
+  const handleOpenPayrollLifecycle = () => {
+    if (!hasFeature('account_payroll')) {
+      alert('Payroll lifecycle requires the payroll feature in your plan.');
+      return;
+    }
+    if (!selectedDept || !selectedCircle) {
+      alert('Select a department and circle first (Results screen).');
+      return;
+    }
+    setPreviousView(currentView);
+    setComplianceError('');
+    setFnfPreview(null);
+    setEncashPreview(null);
+    setLifecycleEmployeeId(employeesList[0]?.adminId ? String(employeesList[0].adminId) : '');
+    setCurrentView('payrollLifecycle');
+  };
+
+  const complianceQueryParams = (extra = {}) => {
+    const params = new URLSearchParams({
+      year: bulkPayrollYear.trim(),
+      month: bulkPayrollMonth,
+      ...extra,
+    });
+    if (selectedCircle) params.set('circle', selectedCircle);
+    if (selectedDept) params.set('emp_type', selectedDept);
+    return params;
+  };
+
+  const downloadComplianceCsv = async (endpoint, filename, extraParams = {}) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setComplianceError('Please login again.');
+      return;
+    }
+    try {
+      setComplianceLoading(true);
+      setComplianceError('');
+      const params = complianceQueryParams({ format: 'csv', ...extraParams });
+      const res = await fetch(`${API_BASE_URL}${endpoint}?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Download failed');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setComplianceError(e?.message || 'Compliance export failed');
+    } finally {
+      setComplianceLoading(false);
+    }
+  };
+
+  const loadPtSummary = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      setComplianceLoading(true);
+      setComplianceError('');
+      const params = complianceQueryParams({ format: 'json' });
+      const res = await fetch(`${API_BASE_URL}/compliance/pt-summary?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        throw new Error(result.message || 'Failed to load PT summary');
+      }
+      setPtSummary(result);
+    } catch (e) {
+      setComplianceError(e?.message || 'Unable to load PT summary');
+    } finally {
+      setComplianceLoading(false);
+    }
+  };
+
+  const loadPtCalendar = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const params = new URLSearchParams({ year: bulkPayrollYear.trim() });
+      const res = await fetch(`${API_BASE_URL}/compliance/pt-remittance-calendar?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setPtCalendar(result.calendar || []);
+      }
+    } catch {
+      setPtCalendar([]);
+    }
+  };
+
+  const loadSalaryLoans = async (adminId) => {
+    const token = localStorage.getItem('token');
+    if (!token || !adminId) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/payroll/loans?admin_id=${adminId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setSalaryLoans(result.loans || []);
+      }
+    } catch {
+      setSalaryLoans([]);
+    }
+  };
+
+  const loadFnfSettlements = async (adminId) => {
+    const token = localStorage.getItem('token');
+    if (!token || !adminId) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/payroll/fnf-settlements?admin_id=${adminId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setFnfSettlements(result.settlements || []);
+      } else {
+        setFnfSettlements([]);
+      }
+    } catch {
+      setFnfSettlements([]);
+    }
+  };
+
+  const handlePreviewEncashment = async () => {
+    const adminId = Number(lifecycleEmployeeId);
+    if (!adminId) return;
+    const token = localStorage.getItem('token');
+    try {
+      setComplianceLoading(true);
+      const res = await fetch(`${API_BASE_URL}/payroll/leave-encashment-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ admin_id: adminId, include_cl: fnfIncludeCl }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message || 'Preview failed');
+      setEncashPreview(result.preview);
+    } catch (e) {
+      setComplianceError(e?.message || 'Leave encashment preview failed');
+    } finally {
+      setComplianceLoading(false);
+    }
+  };
+
+  const handlePreviewFnf = async () => {
+    const adminId = Number(lifecycleEmployeeId);
+    if (!adminId) return;
+    const token = localStorage.getItem('token');
+    try {
+      setComplianceLoading(true);
+      const res = await fetch(`${API_BASE_URL}/payroll/fnf-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          admin_id: adminId,
+          separation_date: fnfSeparationDate,
+          last_working_day: fnfLastWorkingDay,
+          include_cl_encashment: fnfIncludeCl,
+          notice_recovery_days: Number(fnfNoticeDays || 0),
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message || 'FnF preview failed');
+      setFnfPreview(result.preview);
+    } catch (e) {
+      setComplianceError(e?.message || 'FnF preview failed');
+    } finally {
+      setComplianceLoading(false);
+    }
+  };
+
+  const handleSaveFnf = async () => {
+    const adminId = Number(lifecycleEmployeeId);
+    if (!adminId || !fnfPreview?.settlement) return;
+    const token = localStorage.getItem('token');
+    try {
+      setComplianceLoading(true);
+      const res = await fetch(`${API_BASE_URL}/payroll/fnf-settlements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          admin_id: adminId,
+          separation_date: fnfSeparationDate,
+          last_working_day: fnfLastWorkingDay,
+          settlement: fnfPreview.settlement,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message || 'Failed to save FnF');
+      alert('FnF settlement saved.');
+      await loadFnfSettlements(adminId);
+    } catch (e) {
+      setComplianceError(e?.message || 'Failed to save FnF settlement');
+    } finally {
+      setComplianceLoading(false);
+    }
+  };
+
+  const handleUpdateFnfStatus = async (settlementId, status) => {
+    const token = localStorage.getItem('token');
+    if (!settlementId || !token) return;
+    try {
+      setFnfStatusUpdatingId(settlementId);
+      const res = await fetch(`${API_BASE_URL}/payroll/fnf-settlements/${settlementId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message || 'Status update failed');
+      if (status === 'paid') {
+        alert('F&F marked as paid. Settlement PDF will be emailed to the employee via a secure link.');
+      }
+      const adminId = Number(lifecycleEmployeeId);
+      if (adminId) await loadFnfSettlements(adminId);
+    } catch (e) {
+      setComplianceError(e?.message || 'Failed to update F&F status');
+    } finally {
+      setFnfStatusUpdatingId(null);
+    }
+  };
+
+  const handleDownloadFnfPdf = async (settlementId) => {
+    const token = localStorage.getItem('token');
+    if (!settlementId || !token) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/payroll/fnf-settlements/${settlementId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('PDF download failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fnf-settlement-${settlementId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setComplianceError(e?.message || 'Failed to download F&F PDF');
+    }
+  };
+
+  const handleCreateLoan = async () => {
+    const adminId = Number(lifecycleEmployeeId);
+    if (!adminId) return;
+    const token = localStorage.getItem('token');
+    try {
+      setComplianceLoading(true);
+      const res = await fetch(`${API_BASE_URL}/payroll/loans`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          admin_id: adminId,
+          principal_amount: Number(loanForm.principal_amount || 0),
+          emi_monthly: Number(loanForm.emi_monthly || 0),
+          description: loanForm.description || undefined,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message || 'Failed to create loan');
+      setLoanForm({ principal_amount: '', emi_monthly: '', description: '' });
+      await loadSalaryLoans(adminId);
+    } catch (e) {
+      setComplianceError(e?.message || 'Failed to create loan');
+    } finally {
+      setComplianceLoading(false);
+    }
+  };
+
   const handleGeneratePayrollForFiltered = async ({ clearMessages = true } = {}) => {
     if (clearMessages) {
       setBulkPayrollError('');
@@ -1683,13 +2349,9 @@ export const Account = ()  => {
         (result.payrolls || []).map((p) => [p.admin_id, p])
       );
 
-      const calcNet = (gross, epf, ptax, esic, tds) => {
-        const g = Number(gross || 0);
-        const e = Number(epf || 0);
-        const t = Number(ptax || 0);
-        const s = Number(esic || 0);
-        const d = Number(tds || 0);
-        return g - e - t - s - d;
+      const calcNet = (gross, epf, ptax, esic, lwf, tds, arrears = 0, encash = 0, loan = 0, bonus = 0, reimb = 0) => {
+        const g = Number(gross || 0) + Number(arrears || 0) + Number(encash || 0) + Number(bonus || 0) + Number(reimb || 0);
+        return g - Number(epf || 0) - Number(ptax || 0) - Number(esic || 0) - Number(lwf || 0) - Number(loan || 0) - Number(tds || 0);
       };
 
       const mapped = (employeesList || []).map((emp) => {
@@ -1698,19 +2360,31 @@ export const Account = ()  => {
           adminId: emp.adminId,
           empId: emp.id,
           name: emp.name,
+          payroll_id: p.payroll_id,
+          status: p.status || 'draft',
           one_day_salary: Number(p.one_day_salary || 0),
           gross_salary_for_month: Number(p.gross_salary_for_month || 0),
           actual_working_days: Math.max(0, Number(p.actual_working_days || 0)),
           epf_final: Number(p.epf_final || 0),
           ptax_final: Number(p.ptax_final || 0),
           esic_final: Number(p.esic_final || 0),
+          lwf_final: Number(p.lwf_final || 0),
+          arrears_gross_final: Number(p.arrears_gross_final || 0),
+          leave_encashment_final: Number(p.leave_encashment_final || 0),
+          loan_recovery_final: Number(p.loan_recovery_final || 0),
+          statutory_bonus_final: Number(p.statutory_bonus_final || 0),
           tds_final: Number(p.tds_final || 0),
           net_salary_final: Number(p.net_salary_final || calcNet(
             p.gross_salary_for_month,
             p.epf_final,
             p.ptax_final,
             p.esic_final,
-            p.tds_final
+            p.lwf_final,
+            p.tds_final,
+            p.arrears_gross_final,
+            p.leave_encashment_final,
+            p.loan_recovery_final,
+            p.statutory_bonus_final,
           )),
         };
       });
@@ -1720,6 +2394,78 @@ export const Account = ()  => {
       setBulkPayrollError(e?.message || 'Bulk payroll generation failed');
     } finally {
       setIsBulkPayrollGenerating(false);
+    }
+  };
+
+  const payrollRowEditable = (row) => (row?.status || 'draft') === 'draft';
+
+  const handlePayrollStatusUpdate = async (status) => {
+    if (!payrollRows.length) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setBulkPayrollError('Please login again.');
+      return;
+    }
+    try {
+      setIsPayrollStatusUpdating(true);
+      setBulkPayrollError('');
+      const res = await fetch(`${API_BASE_URL}/payroll/status`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          admin_ids: payrollRows.map((r) => r.adminId),
+          month: bulkPayrollMonth,
+          year: bulkPayrollYear.trim(),
+          status,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || (!result.success && !result.updated?.length)) {
+        throw new Error(result.message || result.errors?.[0]?.message || 'Status update failed');
+      }
+      await handleGeneratePayrollForFiltered({ clearMessages: false });
+    } catch (e) {
+      setBulkPayrollError(e?.message || 'Payroll status update failed');
+    } finally {
+      setIsPayrollStatusUpdating(false);
+    }
+  };
+
+  const handleStatutoryBonusRun = async (payoutMode = 'monthly') => {
+    if (!payrollRows.length) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setBulkPayrollError('Please login again.');
+      return;
+    }
+    try {
+      setIsBonusRunLoading(true);
+      setBulkPayrollError('');
+      const res = await fetch(`${API_BASE_URL}/payroll/statutory-bonus-run`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          admin_ids: payrollRows.map((r) => r.adminId),
+          month: bulkPayrollMonth,
+          year: bulkPayrollYear.trim(),
+          payout_mode: payoutMode,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || (!result.success && !result.results?.length)) {
+        throw new Error(result.message || result.errors?.[0]?.message || 'Bonus run failed');
+      }
+      await handleGeneratePayrollForFiltered({ clearMessages: false });
+    } catch (e) {
+      setBulkPayrollError(e?.message || 'Statutory bonus run failed');
+    } finally {
+      setIsBonusRunLoading(false);
     }
   };
 
@@ -1742,6 +2488,9 @@ export const Account = ()  => {
       const failures = [];
 
       for (const row of payrollRows) {
+        if (!payrollRowEditable(row)) {
+          continue;
+        }
         try {
           const payload = {
             admin_id: row.adminId,
@@ -1750,8 +2499,13 @@ export const Account = ()  => {
             epf_final: Number(row.epf_final || 0),
             ptax_final: Number(row.ptax_final || 0),
             esic_final: Number(row.esic_final || 0),
+            lwf_final: Number(row.lwf_final || 0),
+            arrears_gross_final: Number(row.arrears_gross_final || 0),
+            leave_encashment_final: Number(row.leave_encashment_final || 0),
+            loan_recovery_final: Number(row.loan_recovery_final || 0),
             tds_final: Number(row.tds_final || 0),
             actual_working_days: Number(row.actual_working_days || 0),
+            apply_loan_balance: true,
           };
 
           const res = await fetch(`${API_BASE_URL}/payroll/deductions-update`, {
@@ -2133,6 +2887,44 @@ export const Account = ()  => {
     }
   };
 
+  const handleDownloadCtcPdf = async () => {
+    if (!selectedEmployee?.adminId) {
+      alert('Employee not selected.');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please login again.');
+      return;
+    }
+    try {
+      setCtcPdfDownloading(true);
+      setCtcError('');
+      const response = await fetch(
+        `${API_BASE_URL}/ctc-breakup/${selectedEmployee.adminId}/pdf`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.message || 'Failed to download CTC annexure PDF');
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ctc-annexure-${selectedEmployee.id || selectedEmployee.adminId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('CTC PDF download error:', error);
+      setCtcError(error.message || 'Unable to download CTC annexure PDF');
+    } finally {
+      setCtcPdfDownloading(false);
+    }
+  };
+
   const handleSaveCtcBreakup = async () => {
     if (!selectedEmployee?.adminId) {
       alert('Employee not selected.');
@@ -2151,9 +2943,10 @@ export const Account = ()  => {
       const payload = {
         admin_id: selectedEmployee.adminId,
         basic_salary: ctcForm.basic_salary,
+        dearness_allowance: ctcForm.dearness_allowance || 0,
         hra: ctcComputed.hra_amount ?? ctcForm.hra,
         hra_pct: ctcHraPct ? Number(ctcHraPct) : null,
-        other_allowance: ctcForm.other_allowance,
+        ...ctcAllowancePayload(ctcForm),
         gross_salary: ctcComputed.gross_salary,
         net_salary: ctcComputed.net_salary,
         deductions_total: ctcComputed.deductions_total,
@@ -2164,15 +2957,36 @@ export const Account = ()  => {
         esic_employer: ctcComputed.esic_employer_amount,
         ptax: ctcComputed.ptax_amount,
         ptax_month: ctcMonth,
+        ptax_state: ctcPtaxState,
         annual_ctc: ctcAnnual ? Number(ctcAnnual) : null,
-        annual_ctc_computed: ctcComputed.annual_ctc_total,
+        annual_ctc_computed: ctcComputed.fixed_ctc_annual ?? ctcComputed.annual_ctc_total,
+        variable_ctc_annual: parseMediclaimYearly(ctcVariableAnnual),
+        include_pf_admin_in_ctc: ctcIncludePfAdmin,
+        include_edli_in_ctc: ctcIncludeEdli,
+        include_statutory_bonus_in_ctc: ctcIncludeBonus,
+        include_lwf_in_ctc: ctcIncludeLwf,
         mediclaim_yearly: parseMediclaimYearly(ctcMediclaim),
         gratuity_yearly: ctcComputed.gratuity_yearly,
         gratuity_monthly: ctcComputed.gratuity_monthly,
         employer_pf_yearly: ctcComputed.employer_pf_yearly,
         employer_pf_monthly: ctcComputed.employer_pf_monthly,
+        pf_admin_yearly: ctcComputed.pf_admin_yearly,
+        pf_admin_monthly: ctcComputed.pf_admin_monthly,
+        edli_yearly: ctcComputed.edli_yearly,
+        edli_monthly: ctcComputed.edli_monthly,
+        statutory_bonus_yearly: ctcComputed.statutory_bonus_yearly,
+        statutory_bonus_monthly: ctcComputed.statutory_bonus_monthly,
+        lwf_employer_yearly: ctcComputed.lwf_employer_yearly,
         employer_esic_yearly: ctcComputed.employer_esic_yearly,
         employer_esic_monthly: ctcComputed.employer_esic_monthly,
+        vpf_monthly: ctcComputed.vpf_amount ?? Number(ctcVpfMonthly || 0),
+        include_nps_in_ctc: ctcIncludeNps,
+        nps_employer_pct: Number(ctcNpsPct || 10),
+        reimbursement_monthly: Number(ctcReimbursementMonthly || 0),
+        ...ctcMetroHraPayload(ctcMetroMode),
+        effective_from: ctcEffectiveFrom,
+        revision_note: ctcRevisionNote || undefined,
+        include_arrears_preview: true,
       };
       const response = await fetch(`${API_BASE_URL}/ctc-breakup`, {
         method: 'PUT',
@@ -2187,6 +3001,9 @@ export const Account = ()  => {
         throw new Error(result.message || 'Failed to save CTC breakup');
       }
       setCtcSuccess('CTC breakup saved successfully.');
+      if (result.arrears_preview) {
+        setCtcArrearsPreview(result.arrears_preview);
+      }
       await loadCtcBreakup(selectedEmployee.adminId);
       await loadCtcHistory(selectedEmployee.adminId);
     } catch (error) {
@@ -2196,6 +3013,87 @@ export const Account = ()  => {
       setCtcSaving(false);
     }
   };
+
+  const handlePreviewArrears = async () => {
+    if (!selectedEmployee?.adminId) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      setCtcError('');
+      const today = new Date();
+      const response = await fetch(`${API_BASE_URL}/ctc-breakup/arrears-preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          admin_id: selectedEmployee.adminId,
+          effective_from: ctcEffectiveFrom,
+          through_year: today.getFullYear(),
+          through_month: today.getMonth() + 1,
+          new_gross_monthly: ctcComputed.gross_salary,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Arrears preview failed');
+      }
+      setCtcArrearsPreview(result.preview || null);
+    } catch (error) {
+      setCtcError(error.message || 'Unable to preview arrears');
+    }
+  };
+
+  const handleApplyArrears = async () => {
+    if (!selectedEmployee?.adminId || !ctcArrearsPreview?.months?.length) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      setCtcArrearsApplying(true);
+      setCtcError('');
+      const response = await fetch(`${API_BASE_URL}/payroll/apply-arrears`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          admin_id: selectedEmployee.adminId,
+          applications: ctcArrearsPreview.months.map((m) => ({
+            year: m.year,
+            month_num: m.month_num,
+            arrears_gross: m.arrears_gross,
+          })),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.message || 'Failed to apply arrears');
+      }
+      setCtcSuccess(
+        `Arrears applied to ${(result.updated || []).length} payroll month(s).`,
+      );
+    } catch (error) {
+      setCtcError(error.message || 'Unable to apply arrears');
+    } finally {
+      setCtcArrearsApplying(false);
+    }
+  };
+
+  const ctcHistorySnapshot = (item) => {
+    const snap = item?.snapshot && typeof item.snapshot === 'object' ? item.snapshot : item;
+    return {
+      ...snap,
+      id: item.id ?? snap.id,
+      effective_from: item.effective_from || snap.effective_from,
+      note: item.note,
+      updated_at: item.created_at || item.updated_at || snap.updated_at,
+    };
+  };
+
+  const ctcHistoryMetric = (value) =>
+    Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const renderMainView = () => (
     <div className="fade-in">
@@ -2305,81 +3203,219 @@ export const Account = ()  => {
       </button>
       
       <div className="table-container-card">
-        <div className="card-header-row">
-          <h3 className="section-title">Results: {selectedCircle} - {selectedDept}</h3>
+        <div className="emp-dept-header">
+          <div className="emp-dept-header__main">
+            <span className="emp-dept-header__icon-wrap" aria-hidden>
+              <Users size={20} />
+            </span>
+            <div className="emp-dept-header__text">
+              <div className="emp-dept-header__crumbs">
+                <span className="emp-dept-chip emp-dept-chip--circle">{selectedCircle}</span>
+                <span className="emp-dept-chip__sep" aria-hidden>›</span>
+                <span className="emp-dept-chip emp-dept-chip--dept">{selectedDept}</span>
+              </div>
+              <h3 className="emp-dept-header__title">Employee roster</h3>
+            </div>
+          </div>
+          <div className="emp-dept-header__aside">
+            <span className="emp-dept-header__count">
+              {employeesList.length} {employeesList.length === 1 ? 'employee' : 'employees'}
+            </span>
+            <div className="emp-header-toolbar" ref={empHeaderToolbarRef}>
+              {hasFeature('account_for_client') ? (
+                <button
+                  type="button"
+                  className="emp-toolbar-btn emp-toolbar-btn--client"
+                  onClick={handleDownloadClientAttendanceExcel}
+                >
+                  <Download size={16} aria-hidden />
+                  For Client
+                </button>
+              ) : null}
+              <div className={`emp-toolbar-dropdown${empHeaderMenu === 'bulk' ? ' is-open' : ''}`}>
+                <button
+                  type="button"
+                  className="emp-toolbar-btn emp-toolbar-btn--bulk"
+                  aria-expanded={empHeaderMenu === 'bulk'}
+                  aria-haspopup="menu"
+                  onClick={() => setEmpHeaderMenu((prev) => (prev === 'bulk' ? null : 'bulk'))}
+                >
+                  <Upload size={16} aria-hidden />
+                  Bulk Upload
+                  <ChevronDown size={15} className="emp-toolbar-btn__chevron" aria-hidden />
+                </button>
+                {empHeaderMenu === 'bulk' ? (
+                  <div className="emp-toolbar-menu" role="menu">
+                    <button
+                      type="button"
+                      className="emp-toolbar-menu__item emp-toolbar-menu__item--payslip"
+                      role="menuitem"
+                      onClick={() => {
+                        setEmpHeaderMenu(null);
+                        handleOpenBulkPayslip();
+                      }}
+                    >
+                      <span className="emp-toolbar-menu__icon"><FileText size={16} aria-hidden /></span>
+                      <span className="emp-toolbar-menu__copy">
+                        <span className="emp-toolbar-menu__label">Bulk Payslips</span>
+                        <span className="emp-toolbar-menu__hint">Upload payslips for this department</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="emp-toolbar-menu__item emp-toolbar-menu__item--form16"
+                      role="menuitem"
+                      onClick={() => {
+                        setEmpHeaderMenu(null);
+                        handleOpenBulkForm16();
+                      }}
+                    >
+                      <span className="emp-toolbar-menu__icon"><FileCheck size={16} aria-hidden /></span>
+                      <span className="emp-toolbar-menu__copy">
+                        <span className="emp-toolbar-menu__label">Bulk Form 16</span>
+                        <span className="emp-toolbar-menu__hint">Upload Form 16 for multiple employees</span>
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {hasFeature('account_payroll') ? (
+                <div className={`emp-toolbar-dropdown${empHeaderMenu === 'payroll' ? ' is-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="emp-toolbar-btn emp-toolbar-btn--payroll"
+                    aria-expanded={empHeaderMenu === 'payroll'}
+                    aria-haspopup="menu"
+                    onClick={() => setEmpHeaderMenu((prev) => (prev === 'payroll' ? null : 'payroll'))}
+                  >
+                    <Calculator size={16} aria-hidden />
+                    Payroll
+                    <ChevronDown size={15} className="emp-toolbar-btn__chevron" aria-hidden />
+                  </button>
+                  {empHeaderMenu === 'payroll' ? (
+                    <div className="emp-toolbar-menu" role="menu">
+                      <button
+                        type="button"
+                        className="emp-toolbar-menu__item emp-toolbar-menu__item--payroll"
+                        role="menuitem"
+                        disabled={isBulkPayrollGenerating}
+                        onClick={() => {
+                          setEmpHeaderMenu(null);
+                          handleOpenBulkPayroll();
+                        }}
+                      >
+                        <span className="emp-toolbar-menu__icon"><Calculator size={16} aria-hidden /></span>
+                        <span className="emp-toolbar-menu__copy">
+                          <span className="emp-toolbar-menu__label">
+                            {isBulkPayrollGenerating ? 'Generating payroll…' : 'Run Payroll'}
+                          </span>
+                          <span className="emp-toolbar-menu__hint">Generate payroll for this department</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="emp-toolbar-menu__item emp-toolbar-menu__item--compliance"
+                        role="menuitem"
+                        onClick={() => {
+                          setEmpHeaderMenu(null);
+                          handleOpenComplianceExports();
+                        }}
+                      >
+                        <span className="emp-toolbar-menu__icon"><FileCheck size={16} aria-hidden /></span>
+                        <span className="emp-toolbar-menu__copy">
+                          <span className="emp-toolbar-menu__label">Compliance Exports</span>
+                          <span className="emp-toolbar-menu__hint">Download statutory compliance files</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="emp-toolbar-menu__item emp-toolbar-menu__item--lifecycle"
+                        role="menuitem"
+                        onClick={() => {
+                          setEmpHeaderMenu(null);
+                          handleOpenPayrollLifecycle();
+                        }}
+                      >
+                        <span className="emp-toolbar-menu__icon"><Receipt size={16} aria-hidden /></span>
+                        <span className="emp-toolbar-menu__copy">
+                          <span className="emp-toolbar-menu__label">Payroll Lifecycle</span>
+                          <span className="emp-toolbar-menu__hint">F&amp;F, loans, encashment &amp; settlements</span>
+                        </span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
         
         <div className="table-responsive employees-results-wrap">
           <table className="results-table employees-results-table">
             <thead className="thead-teal">
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Bank Details</th>
-                <th>Update</th>
-                <th>Form 16</th>
-                {hasFeature('account_ctc_breakup') ? <th>CTC Breakup</th> : null}
-                <th>Working Days</th>
+                <th>Employee</th>
+                <th className="emp-col-actions">Actions</th>
+                <th className="emp-col-working-days">Working days</th>
               </tr>
             </thead>
             <tbody>
               {employeesList.map(emp => (
                 <tr key={emp.id}>
-                  <td className="font-bold" data-label="Name">{emp.name}</td>
-                  <td data-label="Email">{emp.email}</td>
-                  <td data-label="Bank Details">
-                    <button className="text-link" onClick={() => handleViewBankDetails(emp)}>
-                      {emp.bankDetailsAvailable ? 'View' : 'View'}
-                    </button>
+                  <td data-label="Employee">
+                    <div className="emp-result-identity">
+                      <div className="emp-result-name-row">
+                        <span className="emp-result-name">{emp.name}</span>
+                        <span className="emp-result-empid">{emp.empId}</span>
+                      </div>
+                      <span className="emp-result-email">{emp.email}</span>
+                    </div>
                   </td>
-                  <td data-label="Update">
-                    <button className="text-link" onClick={() => handleAddPayslipClick(emp)}>Add Payslip</button>
-                  </td>
-                  <td data-label="Form 16">
-                    <button
-                      className="text-link"
-                      onClick={() => handleAddForm16Click(emp)}
-                    >
-                      Add Form16
-                    </button>
-                  </td>
-                  {hasFeature('account_ctc_breakup') ? (
-                    <td data-label="CTC Breakup">
+                  <td data-label="Actions">
+                    <div className="emp-action-toolbar">
                       <button
-                        className="text-link"
-                        onClick={() => handleOpenCtcBreakup(emp)}
+                        type="button"
+                        className="emp-action-chip emp-action-chip--bank"
+                        onClick={() => handleViewBankDetails(emp)}
                       >
-                        CTC Breakup
+                        <Landmark size={14} aria-hidden />
+                        Bank
                       </button>
-                    </td>
-                  ) : null}
-                  <td data-label="Working Days">{emp.workingDays}</td>
+                      <button
+                        type="button"
+                        className="emp-action-chip emp-action-chip--payslip"
+                        onClick={() => handleAddPayslipClick(emp)}
+                      >
+                        <FileText size={14} aria-hidden />
+                        Payslip
+                      </button>
+                      <button
+                        type="button"
+                        className="emp-action-chip emp-action-chip--form16"
+                        onClick={() => handleAddForm16Click(emp)}
+                      >
+                        <FileCheck size={14} aria-hidden />
+                        Form 16
+                      </button>
+                      {hasFeature('account_ctc_breakup') ? (
+                        <button
+                          type="button"
+                          className="emp-action-chip emp-action-chip--ctc"
+                          onClick={() => handleOpenCtcBreakup(emp)}
+                        >
+                          <TrendingUp size={14} aria-hidden />
+                          CTC
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td data-label="Working days">
+                    <span className="emp-working-days-pill">{emp.workingDays}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-
-        <div className="results-actions-grid">
-           <button className="btn-success" onClick={handleDownloadAttendanceExcel}>
-             <Download size={16}/> Attendance Excel
-           </button>
-           {hasFeature('account_for_client') ? (
-           <button className="btn-secondary" onClick={handleDownloadClientAttendanceExcel}>
-             <Download size={16}/> For Client
-           </button>
-           ) : null}
-           <button className="btn-warning" onClick={handleOpenBulkPayslip}>
-             <Upload size={16}/> Bulk Payslips
-           </button>
-           <button className="btn-primary" onClick={handleOpenBulkForm16}>
-             <Upload size={16}/> Bulk Form 16
-           </button>
-           {hasFeature('account_payroll') ? (
-           <button className="btn-secondary" onClick={handleOpenBulkPayroll} disabled={isBulkPayrollGenerating}>
-             <Calculator size={16}/> Payroll
-           </button>
-           ) : null}
         </div>
       </div>
     </div>
@@ -2795,6 +3831,12 @@ export const Account = ()  => {
     }
   };
 
+  useRefreshOnNavigate(() => {
+    if (currentView === 'tdsProjection' && selectedEmployee?.adminId) {
+      fetchTdsProjection(selectedEmployee.adminId);
+    }
+  }, [currentView, selectedEmployee?.adminId]);
+
   const openTdsProjection = () => {
     if (!selectedEmployee?.adminId) return;
     setTdsForm((p) => ({ ...p, financial_year: defaultFinancialYear() }));
@@ -3122,51 +4164,152 @@ export const Account = ()  => {
         <div className="table-container-card ctc-page-card">
           <div className="card-header-row ctc-page-header-row">
             <h3 className="section-title">CTC Breakup for {selectedEmployee?.name}</h3>
-            <button
-              type="button"
-              className="btn-outline-sm ctc-tds-projection-btn"
-              onClick={openTdsProjection}
-              disabled={!selectedEmployee?.adminId}
-            >
-              <Receipt size={16} />
-              TDS Projection
-            </button>
+            <div className="ctc-page-header-actions">
+              <button
+                type="button"
+                className="btn-outline-sm ctc-tds-projection-btn"
+                onClick={handleDownloadCtcPdf}
+                disabled={!selectedEmployee?.adminId || ctcPdfDownloading}
+              >
+                <Download size={16} />
+                {ctcPdfDownloading ? 'Downloading…' : 'CTC PDF'}
+              </button>
+              <button
+                type="button"
+                className="btn-outline-sm ctc-tds-projection-btn"
+                onClick={openTdsProjection}
+                disabled={!selectedEmployee?.adminId}
+              >
+                <Receipt size={16} />
+                TDS Projection
+              </button>
+            </div>
           </div>
           <div className="ctc-page-body">
-          <div className="ctc-form-grid">
+          {canEditAccountsProfile && ctcPolicyDraft && (
+            <div className="ctc-policy-card">
+              <div className="ctc-policy-card__head">
+                <h4 className="ctc-policy-card__title">Company CTC Policy</h4>
+                <button
+                  type="button"
+                  className="btn-outline-sm ctc-policy-save-btn"
+                  onClick={handleSaveCtcPolicy}
+                  disabled={ctcPolicySaving}
+                >
+                  {ctcPolicySaving ? 'Saving…' : 'Save company policy'}
+                </button>
+              </div>
+              <div className="ctc-policy-grid">
+                <div className="input-group">
+                  <label>Default P.Tax State</label>
+                  <select
+                    className="custom-select"
+                    value={ctcPolicyDraft.default_ptax_state || 'MH'}
+                    onChange={(e) => setCtcPolicyDraft((p) => ({ ...p, default_ptax_state: e.target.value }))}
+                  >
+                    {(ctcPolicy?.ptax_states || []).map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.name}{s.levies_pt === false ? ' (No PT)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Default HRA %</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    value={ctcPolicyDraft.default_hra_pct ?? 40}
+                    onChange={(e) => setCtcPolicyDraft((p) => ({ ...p, default_hra_pct: Number(e.target.value) }))}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Conveyance cap (monthly)</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    value={ctcPolicyDraft.conveyance_cap_monthly ?? 1600}
+                    onChange={(e) => setCtcPolicyDraft((p) => ({ ...p, conveyance_cap_monthly: Number(e.target.value) }))}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Medical cap (monthly)</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    value={ctcPolicyDraft.medical_cap_monthly ?? 1250}
+                    onChange={(e) => setCtcPolicyDraft((p) => ({ ...p, medical_cap_monthly: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="ctc-form-grid ctc-form-grid--parts">
             <div className="ctc-form-half ctc-form-half--a">
               <h4 className="ctc-form-half-title">Part A</h4>
+              <div className="ctc-field-row-2">
                 <div className="input-group">
                   <label>Month (for P.Tax)</label>
                   <input className="custom-select" type="month" value={ctcMonth} onChange={(e) => setCtcMonth(e.target.value)} />
-                  <div className="ctc-field-hint">
-                    Maharashtra P.Tax on monthly gross by gender. February uses ₹300 when applicable.
-                  </div>
                 </div>
+                <div className="input-group">
+                  <label>P.Tax State</label>
+                  <select
+                    className="custom-select"
+                    value={ctcPtaxState}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcPtaxState(e.target.value);
+                    }}
+                  >
+                    {(ctcPolicy?.ptax_states || [{ code: 'MH', name: 'Maharashtra', levies_pt: true }]).map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.name} ({s.code}){s.levies_pt === false ? ' — No PT' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="ctc-inline-note">Professional tax uses state slabs; February may differ in some states.</p>
               <div className="input-group">
                 <label>Employee ID (Emp_ID)</label>
-                <input className="custom-select" value={selectedEmployee?.id || ''} readOnly />
+                <input className="custom-select ctc-readonly-field" value={selectedEmployee?.id || ''} readOnly />
               </div>
-              <div className="input-group">
-                <label>Annual CTC (₹ per annum)</label>
-                <input
-                  className="custom-select"
-                  type="number"
-                  step="1"
-                  min="0"
-                  placeholder="e.g. 500000"
-                  value={ctcAnnual}
-                  onWheel={blockCtcNumberWheel}
-                  onChange={(e) => {
-                    ctcWantsReverseRef.current = true;
-                    setCtcAnnual(e.target.value);
-                  }}
-                />
-                <div className="ctc-field-hint">
-                  Optional target — enter once to derive Basic + DA (40–50% of monthly CTC). You can
-                  then edit Basic or HRA %; Annual CTC (total) in the table below updates accordingly.
+              <div className="ctc-field-row-2">
+                <div className="input-group">
+                  <label>Annual Fixed CTC (₹ p.a.)</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="1"
+                    min="0"
+                    placeholder="e.g. 500000"
+                    value={ctcAnnual}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = true;
+                      setCtcAnnual(e.target.value);
+                    }}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Variable Pay (₹ p.a.)</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="1"
+                    min="0"
+                    placeholder="e.g. 100000"
+                    value={ctcVariableAnnual}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcVariableAnnual(e.target.value);
+                    }}
+                  />
                 </div>
               </div>
+              <p className="ctc-inline-note">Fixed CTC derives Basic (40–50% band). Total CTC = Fixed + Variable.</p>
               <div className="input-group">
                 <label>Mediclaim (₹ per annum)</label>
                 <input
@@ -3183,162 +4326,432 @@ export const Account = ()  => {
                   }}
                 />
                 <div className="ctc-field-hint">
-                  Added to Annual CTC (total) below. Does not change Basic, HRA, or other salary parts.
+                  Added to fixed annual CTC. Does not change Basic, HRA, or allowance heads.
                 </div>
               </div>
+              <div className="input-group ctc-employer-toggles">
+                <label>Employer statutory in CTC</label>
+                <label className="ctc-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={ctcIncludePfAdmin}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcIncludePfAdmin(e.target.checked);
+                    }}
+                  />
+                  Include PF Admin charges (0.5% of PF wages p.a.)
+                </label>
+                <label className="ctc-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={ctcIncludeEdli}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcIncludeEdli(e.target.checked);
+                    }}
+                  />
+                  Include EDLI (0.5% of PF wages p.a.)
+                </label>
+                <label className="ctc-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={ctcIncludeBonus}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcIncludeBonus(e.target.checked);
+                    }}
+                  />
+                  Include Statutory Bonus (8.33% on Basic + DA p.a.)
+                </label>
+                <label className="ctc-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={ctcIncludeLwf}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcIncludeLwf(e.target.checked);
+                    }}
+                  />
+                  Include LWF employer contribution in CTC
+                </label>
+                <label className="ctc-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={ctcIncludeNps}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcIncludeNps(e.target.checked);
+                    }}
+                  />
+                  Include employer NPS (80CCD(2)) in CTC
+                </label>
+              </div>
               <div className="input-group">
-                <label>Basic Salary + DA</label>
+                <label>VPF (₹ / month)</label>
                 <input
                   className="custom-select"
                   type="number"
                   step="0.01"
-                  value={ctcForm.basic_salary}
+                  min="0"
+                  placeholder="Voluntary PF above statutory EPF"
+                  value={ctcVpfMonthly}
                   onWheel={blockCtcNumberWheel}
                   onChange={(e) => {
-                    if (!ctcApplyingReverseRef.current) {
-                      ctcWantsReverseRef.current = false;
-                    }
-                    setCtcForm((p) => ({ ...p, basic_salary: e.target.value }));
+                    ctcWantsReverseRef.current = false;
+                    setCtcVpfMonthly(e.target.value);
                   }}
                 />
                 <div className="ctc-field-hint">
-                  Editable. Basic + DA is kept between 40% and 50% of monthly CTC (auto-adjusted on calculate).
+                  Added to employee EPF deduction (statutory + VPF). Does not change employer PF costing.
                 </div>
               </div>
-              <div className="input-group">
-                  <label>HRA (%)</label>
+              {ctcIncludeNps && (
+                <div className="input-group">
+                  <label>Employer NPS % of Basic+DA</label>
                   <input
                     className="custom-select"
                     type="number"
                     step="0.01"
-                    placeholder="HRA should be between 5% to 50%"
-                    value={ctcHraPct}
+                    min="0"
+                    max="10"
+                    value={ctcNpsPct}
                     onWheel={blockCtcNumberWheel}
-                    disabled={!Number(ctcAnnual || 0) && !Number(ctcForm.basic_salary || 0)}
                     onChange={(e) => {
                       ctcWantsReverseRef.current = false;
-                      setCtcHraPct(e.target.value);
+                      setCtcNpsPct(e.target.value);
                     }}
                   />
-                  <div className="ctc-field-hint">
-                    {Number(ctcAnnual || 0) > 0 || Number(ctcForm.basic_salary || 0) > 0 ? (
-                      <span>
-                        {ctcHraPct || 40}% — HRA ₹{Number(ctcComputed.hra_amount || 0).toFixed(2)}.
-                        Changing HRA (5–50%) updates Annual CTC (total) below.
-                      </span>
-                    ) : (
-                      <span>Enter Annual CTC or Basic Salary + DA to calculate HRA.</span>
-                    )}
-                  </div>
-              </div>
-            </div>
-            <div className="ctc-form-half ctc-form-half--b">
-              <h4 className="ctc-form-half-title">Part B</h4>
+                </div>
+              )}
               <div className="input-group">
-                <label>Other Allowance</label>
+                <label>HRA metro (TDS)</label>
+                <select
+                  className="custom-select"
+                  value={ctcMetroMode}
+                  onChange={(e) => {
+                    ctcWantsReverseRef.current = false;
+                    setCtcMetroMode(e.target.value);
+                  }}
+                >
+                  <option value="auto">Auto from work location</option>
+                  <option value="metro">Metro (50% HRA exemption)</option>
+                  <option value="nonmetro">Non-metro (40%)</option>
+                </select>
+                {ctcComputed.is_metro_hra != null && (
+                  <div className="ctc-field-hint">
+                    Resolved for TDS: {ctcComputed.is_metro_hra ? 'Metro' : 'Non-metro'}
+                  </div>
+                )}
+              </div>
+              <div className="input-group">
+                <label>FBP Reimbursement (₹ / month)</label>
                 <input
                   className="custom-select"
                   type="number"
                   step="0.01"
-                  value={ctcForm.other_allowance}
+                  min="0"
+                  placeholder="Flexible benefit payout in payroll"
+                  value={ctcReimbursementMonthly}
                   onWheel={blockCtcNumberWheel}
                   onChange={(e) => {
                     ctcWantsReverseRef.current = false;
-                    setCtcForm((p) => ({ ...p, other_allowance: e.target.value }));
+                    setCtcReimbursementMonthly(e.target.value);
+                  }}
+                />
+              </div>
+              <div className="ctc-field-row-2">
+                <div className="input-group">
+                  <label>Basic Salary</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="0.01"
+                    value={ctcForm.basic_salary}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      if (!ctcApplyingReverseRef.current) {
+                        ctcWantsReverseRef.current = false;
+                      }
+                      setCtcForm((p) => ({ ...p, basic_salary: e.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Dearness Allowance (DA)</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="0.01"
+                    value={ctcForm.dearness_allowance}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcForm((p) => ({ ...p, dearness_allowance: e.target.value }));
+                    }}
+                  />
+                </div>
+              </div>
+              <p className="ctc-inline-note">Basic + DA: 40–50% of monthly fixed CTC (PF &amp; gratuity wage).</p>
+              <div className="input-group">
+                <label>HRA (%)</label>
+                <input
+                  className="custom-select"
+                  type="number"
+                  step="0.01"
+                  placeholder="HRA should be between 5% to 50%"
+                  value={ctcHraPct}
+                  onWheel={blockCtcNumberWheel}
+                  disabled={!Number(ctcAnnual || 0) && ctcBasicWage(ctcForm) <= 0}
+                  onChange={(e) => {
+                    ctcWantsReverseRef.current = false;
+                    setCtcHraPct(e.target.value);
                   }}
                 />
                 <div className="ctc-field-hint">
-                  Enter manually. Not auto-calculated from annual CTC.
+                  {Number(ctcAnnual || 0) > 0 || ctcBasicWage(ctcForm) > 0 ? (
+                    <span>
+                      {ctcHraPct || 40}% — HRA ₹{Number(ctcComputed.hra_amount || 0).toFixed(2)}.
+                      Changing HRA (5–50%) updates Annual CTC (total) below.
+                    </span>
+                  ) : (
+                    <span>Enter Annual CTC or Basic Salary + DA to calculate HRA.</span>
+                  )}
                 </div>
               </div>
-              <div className="input-group">
-                  <label>EPF</label>
-                  <div className="ctc-epf-stack">
-                    <select className="custom-select" value={ctcEpfMode} onChange={(e) => setCtcEpfMode(e.target.value)} disabled={Number(ctcForm.basic_salary || 0) < 15000}>
-                      <option value="min">Minimum 1800 (basic ≥ 15000)</option>
-                      <option value="percent">Percentage (basic ≥ 15000)</option>
-                    </select>
-                    {ctcEpfMode === 'percent' && Number(ctcForm.basic_salary || 0) >= 15000 && (
-                      <input
-                        className="custom-select"
-                        type="number"
-                        step="0.01"
-                        placeholder="Enter EPF % (e.g. 8)"
-                        value={ctcEpfPct}
-                        onWheel={blockCtcNumberWheel}
-                        onChange={(e) => setCtcEpfPct(e.target.value)}
-                      />
-                    )}
-                    <input className="custom-select" type="text" readOnly value={`${Number(ctcComputed.epf_amount || 0).toFixed(2)}`} />
-                    {Number(ctcForm.basic_salary || 0) < 15000 && (
-                      <div className="ctc-field-hint">Basic below 15000: EPF 12% mandatory.</div>
-                    )}
-                  </div>
+            </div>
+            <div className="ctc-form-half ctc-form-half--b">
+              <h4 className="ctc-form-half-title">Part B — Allowances &amp; Deductions</h4>
+              <div className="ctc-field-row-2">
+                <div className="input-group">
+                  <label>Special Allowance</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="0.01"
+                    value={ctcForm.special_allowance}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcForm((p) => ({ ...p, special_allowance: e.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Conveyance</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="0.01"
+                    value={ctcForm.conveyance_allowance}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcForm((p) => ({ ...p, conveyance_allowance: e.target.value }));
+                    }}
+                  />
+                </div>
               </div>
+              <div className="ctc-field-row-2">
+                <div className="input-group">
+                  <label>Medical Allowance</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="0.01"
+                    value={ctcForm.medical_allowance}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcForm((p) => ({ ...p, medical_allowance: e.target.value }));
+                    }}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>LTA</label>
+                  <input
+                    className="custom-select"
+                    type="number"
+                    step="0.01"
+                    value={ctcForm.lta_allowance}
+                    onWheel={blockCtcNumberWheel}
+                    onChange={(e) => {
+                      ctcWantsReverseRef.current = false;
+                      setCtcForm((p) => ({ ...p, lta_allowance: e.target.value }));
+                    }}
+                  />
+                </div>
+              </div>
+              <p className="ctc-inline-note">Allowance heads stay fixed during reverse CTC solve; only Basic is derived.</p>
               <div className="input-group">
+                <label>EPF</label>
+                <div className="ctc-epf-stack">
+                  <select className="custom-select" value={ctcEpfMode} onChange={(e) => setCtcEpfMode(e.target.value)} disabled={ctcBasicWage(ctcForm) < 15000}>
+                    <option value="min">Minimum 1800 (Basic + DA ≥ 15000)</option>
+                    <option value="percent">Percentage (Basic + DA ≥ 15000)</option>
+                  </select>
+                  {ctcEpfMode === 'percent' && ctcBasicWage(ctcForm) >= 15000 && (
+                    <input
+                      className="custom-select"
+                      type="number"
+                      step="0.01"
+                      placeholder="Enter EPF % (e.g. 8)"
+                      value={ctcEpfPct}
+                      onWheel={blockCtcNumberWheel}
+                      onChange={(e) => setCtcEpfPct(e.target.value)}
+                    />
+                  )}
+                  <input className="custom-select ctc-readonly-field" type="text" readOnly value={`${Number(ctcComputed.epf_amount || 0).toFixed(2)}`} />
+                  {ctcBasicWage(ctcForm) < 15000 && (
+                    <div className="ctc-field-hint">Basic + DA below 15000: EPF 12% mandatory.</div>
+                  )}
+                </div>
+              </div>
+              <div className="input-group ctc-deductions-group">
                 <label>P.Tax</label>
-                  <input className="custom-select" type="text" readOnly value={Number(ctcComputed.ptax_amount || 0).toFixed(2)} />
-                </div>
-                <div className="input-group">
-                  <label>ESIC (Employee)</label>
-                  <input className="custom-select" type="text" readOnly value={Number(ctcComputed.esic_employee_amount || 0).toFixed(2)} />
-                </div>
-                <div className="input-group">
-                  <label>ESIC (Employer)</label>
-                  <input className="custom-select" type="text" readOnly value={Number(ctcComputed.esic_employer_amount || 0).toFixed(2)} />
+                <input className="custom-select ctc-readonly-field" type="text" readOnly value={Number(ctcComputed.ptax_amount || 0).toFixed(2)} />
+                {ctcComputed.ptax_gender_unknown && (
+                  <div className="ctc-field-hint">Gender not on file — using standard MH slabs. Add gender in employee profile for female exemption up to ₹25,000.</div>
+                )}
+              </div>
+              <div className="input-group ctc-deductions-group">
+                <label>ESIC (Employee)</label>
+                <input className="custom-select ctc-readonly-field" type="text" readOnly value={Number(ctcComputed.esic_employee_amount || 0).toFixed(2)} />
+                {!ctcComputed.esic_applicable && Number(ctcComputed.gross_salary || 0) > 0 && (
+                  <div className="ctc-field-hint">Not applicable — monthly gross ₹{Number(ctcComputed.gross_salary || 0).toLocaleString('en-IN')} exceeds ESIC wage ceiling (₹21,000).</div>
+                )}
+              </div>
+              <div className="input-group ctc-deductions-group">
+                <label>ESIC (Employer)</label>
+                <input className="custom-select ctc-readonly-field" type="text" readOnly value={Number(ctcComputed.esic_employer_amount || 0).toFixed(2)} />
               </div>
             </div>
           </div>
             <div className="ctc-summary-section">
               {ctcCalcError && <div className="q-error">{ctcCalcError}</div>}
-              <div className="ctc-summary-table-wrap">
-                <div className="table-responsive ctc-summary-wrap">
-                  <table className="results-table ctc-summary-table">
-                    <thead>
-                      <tr>
-                        <th>Gross Salary (monthly)</th>
-                        <th>Total Deductions</th>
-                        <th>Net Salary</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td data-label="Gross Salary (monthly)">{Number(ctcComputed.gross_salary || 0).toFixed(2)}</td>
-                        <td data-label="Total Deductions">{Number(ctcComputed.deductions_total || 0).toFixed(2)}</td>
-                        <td data-label="Net Salary">{Number(ctcComputed.net_salary || 0).toFixed(2)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+              <div className="ctc-monthly-summary">
+                <div className="ctc-stat-card">
+                  <span className="ctc-stat-card__label">Gross Salary (monthly)</span>
+                  <span className="ctc-stat-card__value">{Number(ctcComputed.gross_salary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="ctc-stat-card ctc-stat-card--deductions">
+                  <span className="ctc-stat-card__label">Total Deductions</span>
+                  <span className="ctc-stat-card__value">{Number(ctcComputed.deductions_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="ctc-stat-card ctc-stat-card--net">
+                  <span className="ctc-stat-card__label">Net Salary</span>
+                  <span className="ctc-stat-card__value">{Number(ctcComputed.net_salary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
-              <div className="ctc-summary-table-wrap ctc-summary-table-wrap--annual">
-                <div className="table-responsive ctc-summary-wrap">
-                  <table className="results-table ctc-summary-table ctc-summary-table--annual">
-                    <thead>
-                      <tr>
-                        <th>Gratuity (yr)</th>
-                        <th>Employer PF (yr)</th>
-                        <th>Employer ESIC (yr)</th>
-                        <th>Mediclaim (yr)</th>
-                        <th>Annual CTC (total)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td data-label="Gratuity (yr)">{Number(ctcComputed.gratuity_yearly || 0).toFixed(2)}</td>
-                        <td data-label="Employer PF (yr)">{Number(ctcComputed.employer_pf_yearly || 0).toFixed(2)}</td>
-                        <td data-label="Employer ESIC (yr)">{Number(ctcComputed.employer_esic_yearly || 0).toFixed(2)}</td>
-                        <td data-label="Mediclaim (yr)">
-                          {parseMediclaimYearly(ctcMediclaim).toFixed(2)}
-                        </td>
-                        <td data-label="Annual CTC (total)">{Number(ctcComputed.annual_ctc_total || 0).toFixed(2)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+              <div className="ctc-annual-panel">
+                <h4 className="ctc-annual-panel__title">Annual employer cost &amp; CTC</h4>
+                <div className="ctc-annual-stats">
+                  {[
+                    { label: 'Gratuity', value: ctcComputed.gratuity_yearly },
+                    { label: 'Employer PF', value: ctcComputed.employer_pf_yearly },
+                    { label: 'PF Admin', value: ctcComputed.pf_admin_yearly },
+                    { label: 'EDLI', value: ctcComputed.edli_yearly },
+                    { label: 'Bonus', value: ctcComputed.statutory_bonus_yearly },
+                    { label: 'LWF', value: ctcComputed.lwf_employer_yearly },
+                    { label: 'NPS', value: ctcComputed.nps_employer_yearly },
+                    { label: 'EPS', value: ctcComputed.eps_contribution_yearly },
+                    { label: 'EPF ER', value: ctcComputed.epf_er_contribution_yearly },
+                    { label: 'Employer ESIC', value: ctcComputed.employer_esic_yearly },
+                    { label: 'Mediclaim', value: parseMediclaimYearly(ctcMediclaim) },
+                    { label: 'Fixed CTC', value: ctcComputed.fixed_ctc_annual || ctcComputed.annual_ctc_total, highlight: 'blue' },
+                    { label: 'Variable', value: ctcComputed.variable_ctc_annual },
+                    { label: 'Total CTC', value: ctcComputed.total_ctc_annual, highlight: 'green' },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className={`ctc-annual-stat${item.highlight ? ` ctc-annual-stat--${item.highlight}` : ''}`}
+                    >
+                      <span className="ctc-annual-stat__label">{item.label}</span>
+                      <span className="ctc-annual-stat__value">
+                        {Number(item.value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           {ctcLoading && <p className="ctc-loading-text">Loading CTC breakup...</p>}
+          <div className="ctc-revision-fields">
+            <div className="input-group">
+              <label htmlFor="ctc-effective-from">Effective from</label>
+              <input
+                id="ctc-effective-from"
+                className="custom-select"
+                type="date"
+                value={ctcEffectiveFrom}
+                onChange={(e) => setCtcEffectiveFrom(e.target.value)}
+              />
+              <div className="ctc-field-hint">
+                Salary revision date — used for arrears from this month onward.
+              </div>
+            </div>
+            <div className="input-group">
+              <label htmlFor="ctc-revision-note">Revision note (optional)</label>
+              <input
+                id="ctc-revision-note"
+                className="custom-select"
+                type="text"
+                placeholder="e.g. Annual increment"
+                value={ctcRevisionNote}
+                onChange={(e) => setCtcRevisionNote(e.target.value)}
+              />
+            </div>
+          </div>
+          {ctcArrearsPreview && (
+            <div className="table-container-card" style={{ marginTop: 12, padding: 12 }}>
+              <h4 className="section-title" style={{ marginBottom: 8 }}>
+                Arrears preview — ₹{Number(ctcArrearsPreview.total_arrears_gross || 0).toFixed(2)} total
+              </h4>
+              {ctcArrearsPreview.months?.length > 0 ? (
+                <div className="table-responsive">
+                  <table className="results-table">
+                    <thead>
+                      <tr>
+                        <th>Year</th>
+                        <th>Month</th>
+                        <th>Arrears (gross)</th>
+                        <th>Payable days</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ctcArrearsPreview.months.map((m) => (
+                        <tr key={`${m.year}-${m.month_num}`}>
+                          <td>{m.year}</td>
+                          <td>{m.month_num}</td>
+                          <td>{Number(m.arrears_gross || 0).toFixed(2)}</td>
+                          <td>{m.payable_days != null ? m.payable_days : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p style={{ color: '#64748b', margin: 0 }}>No arrears due for this revision.</p>
+              )}
+              <div className="form-actions-row" style={{ marginTop: 12, gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn-outline-sm"
+                  onClick={handlePreviewArrears}
+                >
+                  Refresh preview
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleApplyArrears}
+                  disabled={ctcArrearsApplying || !ctcArrearsPreview.months?.length}
+                >
+                  {ctcArrearsApplying ? 'Applying...' : 'Apply arrears to payroll'}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="ctc-page-messages">
             {ctcError && <div className="q-error">{ctcError}</div>}
             {ctcSuccess && <div className="q-success">{ctcSuccess}</div>}
@@ -3356,55 +4769,94 @@ export const Account = ()  => {
           </div>
         </div>
 
-        <div className="table-container-card form16-history-card ctc-history-card">
-          <h4 className="section-title">CTC Breakup History</h4>
-          <div className="table-responsive ctc-history-wrap">
-            <table className="results-table ctc-history-table">
-              <thead>
-                <tr>
-                  <th>Updated At</th>
-                  <th>Basic Salary + DA</th>
-                  <th>HRA</th>
-                  <th>Other Allowance</th>
-                  <th>Gross Salary</th>
-                  <th>EPF</th>
-                  <th>ESIC (Employee)</th>
-                  <th>P.Tax</th>
-                  <th>Net Salary</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ctcHistoryLoading && (
-                  <tr>
-                    <td colSpan="9" className="ctc-empty">Loading history...</td>
-                  </tr>
-                )}
-                {!ctcHistoryLoading && ctcHistoryError && (
-                  <tr>
-                    <td colSpan="9" className="ctc-empty">{ctcHistoryError}</td>
-                  </tr>
-                )}
-                {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.length === 0 && (
-                  <tr>
-                    <td colSpan="9" className="ctc-empty">No CTC breakup records found.</td>
-                  </tr>
-                )}
-                {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.map((item) => (
-                  <tr key={item.id}>
-                    <td data-label="Updated At">{formatDateTime(item.updated_at || item.created_at)}</td>
-                    <td data-label="Basic Salary + DA">{Number(item.basic_salary || 0).toFixed(2)}</td>
-                    <td data-label="HRA">{Number(item.hra || 0).toFixed(2)}</td>
-                    <td data-label="Other Allowance">{Number(item.other_allowance || 0).toFixed(2)}</td>
-                    <td data-label="Gross Salary">{Number(item.gross_salary || 0).toFixed(2)}</td>
-                    <td data-label="EPF">{Number(item.epf || 0).toFixed(2)}</td>
-                    <td data-label="ESIC (Employee)">{Number(item.esic || 0).toFixed(2)}</td>
-                    <td data-label="P.Tax">{Number(item.ptax || 0).toFixed(2)}</td>
-                    <td data-label="Net Salary">{Number(item.net_salary || 0).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="ctc-history-card">
+          <button
+            type="button"
+            className="ctc-history-card__toggle"
+            onClick={() => setCtcHistoryExpanded((open) => !open)}
+            aria-expanded={ctcHistoryExpanded}
+          >
+            <div className="ctc-history-card__toggle-text">
+              <h4 className="ctc-history-card__title">CTC Revision History</h4>
+              <p className="ctc-history-card__subtitle">
+                Tracks each salary revision for arrears, payroll, and compliance.
+              </p>
+            </div>
+            <div className="ctc-history-card__toggle-meta">
+              {!ctcHistoryLoading && (
+                <span className="ctc-history-card__count">
+                  {ctcHistory.length} revision{ctcHistory.length === 1 ? '' : 's'}
+                </span>
+              )}
+              {ctcHistoryExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+            </div>
+          </button>
+
+          {ctcHistoryExpanded && (
+            <div className="ctc-history-card__body">
+              {ctcHistoryLoading && (
+                <p className="ctc-history-empty">Loading revision history…</p>
+              )}
+              {!ctcHistoryLoading && ctcHistoryError && (
+                <div className="q-error">{ctcHistoryError}</div>
+              )}
+              {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.length === 0 && (
+                <p className="ctc-history-empty">No revisions yet. Saving CTC breakup creates the first snapshot.</p>
+              )}
+              {!ctcHistoryLoading && !ctcHistoryError && ctcHistory.length > 0 && (
+                <div className="ctc-history-list">
+                  {ctcHistory.map((item, index) => {
+                    const row = ctcHistorySnapshot(item);
+                    const metrics = [
+                      { label: 'Basic', value: row.basic_salary },
+                      { label: 'DA', value: row.dearness_allowance },
+                      { label: 'HRA', value: row.hra },
+                      { label: 'Allowances', value: row.other_allowance },
+                      { label: 'Gross', value: row.gross_salary },
+                      { label: 'EPF', value: row.epf },
+                      { label: 'P.Tax', value: row.ptax },
+                      { label: 'ESIC', value: row.esic },
+                      { label: 'Net', value: row.net_salary, highlight: true },
+                    ];
+                    return (
+                      <article
+                        key={row.id || `${row.effective_from}-${row.updated_at}-${index}`}
+                        className="ctc-history-entry"
+                      >
+                        <header className="ctc-history-entry__head">
+                          <div>
+                            <span className="ctc-history-entry__badge">
+                              {index === 0 ? 'Latest' : `Revision ${ctcHistory.length - index}`}
+                            </span>
+                            <strong className="ctc-history-entry__date">
+                              Effective {row.effective_from || '—'}
+                            </strong>
+                          </div>
+                          <span className="ctc-history-entry__updated">
+                            Saved {formatDateTime(row.updated_at)}
+                          </span>
+                        </header>
+                        {row.note && (
+                          <p className="ctc-history-entry__note">{row.note}</p>
+                        )}
+                        <div className="ctc-history-entry__metrics">
+                          {metrics.map((m) => (
+                            <div
+                              key={m.label}
+                              className={`ctc-history-metric${m.highlight ? ' ctc-history-metric--net' : ''}`}
+                            >
+                              <span className="ctc-history-metric__label">{m.label}</span>
+                              <span className="ctc-history-metric__value">{ctcHistoryMetric(m.value)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -3783,16 +5235,18 @@ export const Account = ()  => {
       )}
 
       <div className="table-container-card bulk-payroll-card">
-        <div className="bulk-payroll-toolbar bulk-payroll-toolbar--mobile">
+        <div className="bulk-payroll-toolbar">
           <p className="bulk-payroll-toolbar-meta">
-            Circle: {selectedCircle || '-'} · Department: {selectedDept || '-'}
+            <strong>Circle:</strong> {selectedCircle || '-'}
+            <span className="bulk-payroll-toolbar-sep">·</span>
+            <strong>Dept:</strong> {selectedDept || '-'}
           </p>
           <div className="bulk-payroll-toolbar-fields">
             <div className="input-group">
-              <label htmlFor="bulk-payroll-month-mobile">Month</label>
+              <label htmlFor="bulk-payroll-month">Month</label>
               <select
-                id="bulk-payroll-month-mobile"
-                className="custom-select"
+                id="bulk-payroll-month"
+                className="custom-select bulk-payroll-toolbar-select"
                 value={bulkPayrollMonth}
                 onChange={(e) => setBulkPayrollMonth(e.target.value)}
               >
@@ -3802,12 +5256,12 @@ export const Account = ()  => {
               </select>
             </div>
             <div className="input-group">
-              <label htmlFor="bulk-payroll-year-mobile">Year</label>
+              <label htmlFor="bulk-payroll-year">Year</label>
               <input
-                id="bulk-payroll-year-mobile"
+                id="bulk-payroll-year"
                 type="text"
-                className="custom-input-file"
-                placeholder="e.g. 2026"
+                className="custom-input-file bulk-payroll-toolbar-input"
+                placeholder="2026"
                 value={bulkPayrollYear}
                 onChange={(e) => setBulkPayrollYear(e.target.value)}
               />
@@ -3821,88 +5275,70 @@ export const Account = ()  => {
             </button>
           </div>
         </div>
-        <div className="table-responsive accounts-mobile-wrap">
-          <table className="results-table accounts-mobile-table bulk-payroll-table">
-            <thead className="thead-teal">
-              <tr className="bulk-payroll-toolbar-row">
-                <th colSpan={8} style={{ background: '#06b6d4', color: 'white' }}>
-                  Employee | Circle: {selectedCircle || '-'} | Month:{' '}
-                  <select
-                    className="custom-select"
-                    style={{ width: 160, margin: '0 10px' }}
-                    value={bulkPayrollMonth}
-                    onChange={(e) => setBulkPayrollMonth(e.target.value)}
-                  >
-                    <option>January</option><option>February</option><option>March</option><option>April</option>
-                    <option>May</option><option>June</option><option>July</option><option>August</option>
-                    <option>September</option><option>October</option><option>November</option><option>December</option>
-                  </select>
-                  Year:{' '}
-                  <input
-                    type="text"
-                    className="custom-input-file"
-                    style={{ width: 110, marginLeft: 10 }}
-                    placeholder="e.g. 2026"
-                    value={bulkPayrollYear}
-                    onChange={(e) => setBulkPayrollYear(e.target.value)}
-                  />
-
-                  <button
-                    type="button"
-                    className="btn-outline-sm"
-                    style={{ float: 'right', marginTop: -4 }}
-                    onClick={handleOpenPayrollHistory}
-                  >
-                    History
-                  </button>
-                </th>
-              </tr>
+        <div className="bulk-payroll-scroll">
+          <table className="results-table bulk-payroll-table">
+            <thead>
               <tr>
-                <th>Name</th>
-                <th>EmpID</th>
-                <th>Gross Salary</th>
-                <th>EPF</th>
-                <th>P.Tax</th>
-                <th>ESIC</th>
-                <th>TDS</th>
-                <th>Actual Working Days</th>
-                <th>Net Salary</th>
+                <th className="bulk-payroll-col-sticky bulk-payroll-col-name">Name</th>
+                <th className="bulk-payroll-col-sticky bulk-payroll-col-empid">EmpID</th>
+                <th>Status</th>
+                <th className="bulk-payroll-col-num">Gross</th>
+                <th className="bulk-payroll-col-num">EPF</th>
+                <th className="bulk-payroll-col-num">P.Tax</th>
+                <th className="bulk-payroll-col-num">ESIC</th>
+                <th className="bulk-payroll-col-num">LWF</th>
+                <th className="bulk-payroll-col-num">Arrears</th>
+                <th className="bulk-payroll-col-num">Bonus</th>
+                <th className="bulk-payroll-col-num">TDS</th>
+                <th className="bulk-payroll-col-num">Days</th>
+                <th className="bulk-payroll-col-num">Net</th>
               </tr>
             </thead>
             <tbody>
               {payrollRows.length === 0 && !isBulkPayrollGenerating && (
                 <tr>
-                  <td colSpan="9" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="13" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
                     No employees in this filtered list for the selected month/year.
                   </td>
                 </tr>
               )}
               {payrollRows.map((row) => {
+                const editable = payrollRowEditable(row);
                 const payableDays = Math.max(0, Number(row.actual_working_days || 0));
                 const gross = Math.max(
                   0,
                   Number(row.one_day_salary || 0) * payableDays,
                 );
+                const arrears = Number(row.arrears_gross_final || 0);
+                const bonus = Number(row.statutory_bonus_final || 0);
                 const net = Math.max(
                   0,
                   Number(gross || 0)
+                    + arrears
+                    + bonus
                     - Number(row.epf_final || 0)
                     - Number(row.ptax_final || 0)
                     - Number(row.esic_final || 0)
+                    - Number(row.lwf_final || 0)
                     - Number(row.tds_final || 0),
                 );
+                const statusKey = (row.status || 'draft').toLowerCase();
+                const statusLabel = statusKey.toUpperCase();
                 return (
                   <tr key={row.adminId}>
-                    <td className="font-bold" data-label="Name">{row.name}</td>
-                    <td data-label="EmpID">{row.empId}</td>
-                    <td data-label="Gross Salary">{Number(gross || 0).toFixed(2)}</td>
-                    <td data-label="EPF">
+                    <td className="font-bold bulk-payroll-col-sticky bulk-payroll-col-name" data-label="Name">{row.name}</td>
+                    <td className="bulk-payroll-col-sticky bulk-payroll-col-empid" data-label="EmpID">{row.empId}</td>
+                    <td data-label="Status">
+                      <span className={`bulk-payroll-status bulk-payroll-status--${statusKey}`}>{statusLabel}</span>
+                    </td>
+                    <td className="bulk-payroll-col-num" data-label="Gross Salary">{Number(gross || 0).toFixed(2)}</td>
+                    <td className="bulk-payroll-col-num" data-label="EPF">
                       <input
-                        className="custom-input-file"
-                        style={{ width: 110 }}
+                        className="bulk-payroll-input"
                         type="number"
                         step="0.01"
                         value={row.epf_final}
+                        disabled={!editable}
                         onChange={(e) => {
                           const val = Math.max(0, parseFloat(e.target.value || '0'));
                           setPayrollRows((prev) =>
@@ -3915,13 +5351,13 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td data-label="P.Tax">
+                    <td className="bulk-payroll-col-num" data-label="P.Tax">
                       <input
-                        className="custom-input-file"
-                        style={{ width: 110 }}
+                        className="bulk-payroll-input"
                         type="number"
                         step="0.01"
                         value={row.ptax_final}
+                        disabled={!editable}
                         onChange={(e) => {
                           const val = Math.max(0, parseFloat(e.target.value || '0'));
                           setPayrollRows((prev) =>
@@ -3934,13 +5370,13 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td data-label="ESIC">
+                    <td className="bulk-payroll-col-num" data-label="ESIC">
                       <input
-                        className="custom-input-file"
-                        style={{ width: 110 }}
+                        className="bulk-payroll-input"
                         type="number"
                         step="0.01"
                         value={row.esic_final}
+                        disabled={!editable}
                         onChange={(e) => {
                           const val = Math.max(0, parseFloat(e.target.value || '0'));
                           setPayrollRows((prev) =>
@@ -3953,13 +5389,52 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td data-label="TDS">
+                    <td className="bulk-payroll-col-num" data-label="LWF">
                       <input
-                        className="custom-input-file"
-                        style={{ width: 110 }}
+                        className="bulk-payroll-input"
+                        type="number"
+                        step="0.01"
+                        value={row.lwf_final}
+                        disabled={!editable}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          setPayrollRows((prev) =>
+                            prev.map((r) =>
+                              r.adminId === row.adminId
+                                ? { ...r, lwf_final: val }
+                                : r
+                            )
+                          );
+                        }}
+                      />
+                    </td>
+                    <td className="bulk-payroll-col-num" data-label="Arrears">
+                      <input
+                        className="bulk-payroll-input"
+                        type="number"
+                        step="0.01"
+                        value={row.arrears_gross_final}
+                        disabled={!editable}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value || '0'));
+                          setPayrollRows((prev) =>
+                            prev.map((r) =>
+                              r.adminId === row.adminId
+                                ? { ...r, arrears_gross_final: val }
+                                : r
+                            )
+                          );
+                        }}
+                      />
+                    </td>
+                    <td className="bulk-payroll-col-num" data-label="Bonus">{bonus.toFixed(2)}</td>
+                    <td className="bulk-payroll-col-num" data-label="TDS">
+                      <input
+                        className="bulk-payroll-input"
                         type="number"
                         step="0.01"
                         value={row.tds_final}
+                        disabled={!editable}
                         onChange={(e) => {
                           const val = Math.max(0, parseFloat(e.target.value || '0'));
                           setPayrollRows((prev) =>
@@ -3972,13 +5447,13 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td data-label="Actual Working Days">
+                    <td className="bulk-payroll-col-num" data-label="Actual Working Days">
                       <input
-                        className="custom-input-file"
-                        style={{ width: 110 }}
+                        className="bulk-payroll-input bulk-payroll-input--days"
                         type="number"
                         step="0.1"
                         value={row.actual_working_days}
+                        disabled={!editable}
                         onChange={(e) => {
                           const raw = parseFloat(e.target.value || '0');
                           const val = Number.isFinite(raw) ? Math.max(0, raw) : 0;
@@ -3992,7 +5467,7 @@ export const Account = ()  => {
                         }}
                       />
                     </td>
-                    <td data-label="Net Salary">{net.toFixed(2)}</td>
+                    <td className="bulk-payroll-col-num bulk-payroll-net" data-label="Net Salary">{net.toFixed(2)}</td>
                   </tr>
                 );
               })}
@@ -4000,10 +5475,52 @@ export const Account = ()  => {
           </table>
         </div>
 
-        <div className="form-actions-row" style={{ marginTop: 18 }}>
+        <div className="bulk-payroll-actions">
+          <div className="bulk-payroll-actions__secondary">
+            <button
+              type="button"
+              className="btn-outline-sm"
+              onClick={() => handlePayrollStatusUpdate('reviewed')}
+              disabled={isPayrollStatusUpdating || payrollRows.length === 0}
+            >
+              Mark Reviewed
+            </button>
+            <button
+              type="button"
+              className="btn-outline-sm"
+              onClick={() => handlePayrollStatusUpdate('draft')}
+              disabled={isPayrollStatusUpdating || payrollRows.length === 0}
+            >
+              Reopen Draft
+            </button>
+            <button
+              type="button"
+              className="btn-outline-sm"
+              onClick={() => handlePayrollStatusUpdate('paid')}
+              disabled={isPayrollStatusUpdating || payrollRows.length === 0}
+            >
+              Mark Paid
+            </button>
+            <button
+              type="button"
+              className="btn-outline-sm"
+              onClick={() => handlePayrollStatusUpdate('locked')}
+              disabled={isPayrollStatusUpdating || payrollRows.length === 0}
+            >
+              Lock
+            </button>
+            <button
+              type="button"
+              className="btn-outline-sm"
+              onClick={() => handleStatutoryBonusRun('monthly')}
+              disabled={isBonusRunLoading || payrollRows.length === 0}
+            >
+              {isBonusRunLoading ? 'Running bonus…' : 'Run Statutory Bonus'}
+            </button>
+          </div>
           <button
             type="button"
-            className="btn-primary full-width"
+            className="btn-primary bulk-payroll-save-btn"
             onClick={handleSavePayrollDeductions}
             disabled={isPayrollSaving || payrollRows.length === 0}
           >
@@ -4055,6 +5572,23 @@ export const Account = ()  => {
   );
 
   useEffect(() => {
+    if (currentView === 'complianceExports') {
+      loadPtSummary();
+      loadPtCalendar();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, bulkPayrollMonth, bulkPayrollYear, selectedCircle, selectedDept]);
+
+  useEffect(() => {
+    if (currentView === 'payrollLifecycle' && lifecycleEmployeeId) {
+      const adminId = Number(lifecycleEmployeeId);
+      loadSalaryLoans(adminId);
+      loadFnfSettlements(adminId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, lifecycleEmployeeId]);
+
+  useEffect(() => {
     if (currentView === 'payrollHistory') {
       loadPayrollHistory();
     }
@@ -4070,6 +5604,12 @@ export const Account = ()  => {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, expenseClaimFilters.circle, expenseClaimFilters.emp_type, expenseClaimFilters.month_year, expenseClaimFilters.q]);
+
+  useRefreshOnNavigate(() => {
+    if (currentView === 'expenseClaims') {
+      loadExpenseClaims();
+    }
+  }, [currentView]);
 
   const renderExpenseClaims = () => (
     <div className="fade-in">
@@ -4325,6 +5865,464 @@ export const Account = ()  => {
     </div>
   );
 
+  const renderPayrollLifecycle = () => (
+    <div className="fade-in">
+      <button className="btn-back" onClick={() => setCurrentView(previousView || 'employees')}>
+        <ArrowLeft size={18} /> Back
+      </button>
+
+      <div className="table-container-card" style={{ marginTop: 16 }}>
+        <div className="card-header-row">
+          <h3 className="section-title">
+            Payroll Lifecycle | {selectedCircle} | {selectedDept}
+          </h3>
+        </div>
+
+        <div className="input-group" style={{ maxWidth: 420, marginBottom: 16 }}>
+          <label>Employee</label>
+          <select
+            className="custom-select"
+            value={lifecycleEmployeeId}
+            onChange={(e) => setLifecycleEmployeeId(e.target.value)}
+          >
+            <option value="">— Select —</option>
+            {(employeesList || []).map((emp) => (
+              <option key={emp.adminId} value={emp.adminId}>
+                {emp.name} ({emp.id})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {complianceError && <div className="q-error">{complianceError}</div>}
+        {complianceLoading && <p style={{ color: '#64748b' }}>Loading...</p>}
+
+        <div className="table-container-card" style={{ padding: 12, marginBottom: 16 }}>
+          <h4 className="section-title">Salary loan</h4>
+          <div className="accounts-upload-fields accounts-upload-fields--row">
+            <div className="input-group">
+              <label>Principal (₹)</label>
+              <input
+                className="custom-select"
+                type="number"
+                value={loanForm.principal_amount}
+                onChange={(e) => setLoanForm((p) => ({ ...p, principal_amount: e.target.value }))}
+              />
+            </div>
+            <div className="input-group">
+              <label>EMI / month (₹)</label>
+              <input
+                className="custom-select"
+                type="number"
+                value={loanForm.emi_monthly}
+                onChange={(e) => setLoanForm((p) => ({ ...p, emi_monthly: e.target.value }))}
+              />
+            </div>
+            <div className="input-group">
+              <label>Description</label>
+              <input
+                className="custom-select"
+                value={loanForm.description}
+                onChange={(e) => setLoanForm((p) => ({ ...p, description: e.target.value }))}
+              />
+            </div>
+          </div>
+          <button type="button" className="btn-primary" onClick={handleCreateLoan} disabled={complianceLoading || !lifecycleEmployeeId}>
+            Add loan
+          </button>
+          {salaryLoans.length > 0 && (
+            <div className="table-responsive" style={{ marginTop: 12 }}>
+              <table className="results-table">
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th>EMI</th>
+                    <th>Balance</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {salaryLoans.map((loan) => (
+                    <tr key={loan.id}>
+                      <td>{loan.description || '—'}</td>
+                      <td>{Number(loan.emi_monthly || 0).toFixed(2)}</td>
+                      <td>{Number(loan.balance_remaining || 0).toFixed(2)}</td>
+                      <td>{loan.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="table-container-card" style={{ padding: 12, marginBottom: 16 }}>
+          <h4 className="section-title">Leave encashment preview</h4>
+          <label className="ctc-checkbox-row">
+            <input type="checkbox" checked={fnfIncludeCl} onChange={(e) => setFnfIncludeCl(e.target.checked)} />
+            Include casual leave in encashment
+          </label>
+          <button type="button" className="btn-outline-sm" style={{ marginTop: 8 }} onClick={handlePreviewEncashment} disabled={!lifecycleEmployeeId}>
+            Preview encashment
+          </button>
+          {encashPreview && (
+            <p style={{ marginTop: 8 }}>
+              PL: {encashPreview.pl_days} days → ₹{Number(encashPreview.pl_encashment || 0).toFixed(2)}
+              {' '}| Total: ₹{Number(encashPreview.total_encashment || 0).toFixed(2)}
+            </p>
+          )}
+        </div>
+
+        <div className="table-container-card" style={{ padding: 12 }}>
+          <h4 className="section-title">Full &amp; Final settlement</h4>
+          <div className="accounts-upload-fields accounts-upload-fields--row">
+            <div className="input-group">
+              <label>Separation date</label>
+              <input className="custom-select" type="date" value={fnfSeparationDate} onChange={(e) => setFnfSeparationDate(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label>Last working day</label>
+              <input className="custom-select" type="date" value={fnfLastWorkingDay} onChange={(e) => setFnfLastWorkingDay(e.target.value)} />
+            </div>
+            <div className="input-group">
+              <label>Notice recovery (days)</label>
+              <input className="custom-select" type="number" min="0" value={fnfNoticeDays} onChange={(e) => setFnfNoticeDays(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-actions-row" style={{ marginTop: 8, gap: 8 }}>
+            <button type="button" className="btn-primary" onClick={handlePreviewFnf} disabled={!lifecycleEmployeeId}>
+              Preview FnF
+            </button>
+            <button type="button" className="btn-secondary" onClick={handleSaveFnf} disabled={!fnfPreview?.settlement}>
+              Save settlement
+            </button>
+          </div>
+          {fnfPreview?.settlement && (
+            <div style={{ marginTop: 12 }}>
+              <p><strong>Net payable:</strong> ₹{Number(fnfPreview.settlement.net_payable || 0).toFixed(2)}</p>
+              <p style={{ color: '#64748b' }}>
+                Earnings ₹{Number(fnfPreview.settlement.earnings?.total || 0).toFixed(2)}
+                {' '}| Deductions ₹{Number(fnfPreview.settlement.deductions?.total || 0).toFixed(2)}
+              </p>
+              {fnfPreview.settlement.earnings?.gratuity?.eligible && (
+                <p>Gratuity: ₹{Number(fnfPreview.settlement.earnings.gratuity.gratuity_amount || 0).toFixed(2)}</p>
+              )}
+            </div>
+          )}
+
+          {fnfSettlements.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <h5 className="section-title" style={{ fontSize: '0.95rem' }}>Saved F&amp;F settlements</h5>
+              <div className="table-container-card" style={{ padding: 0, overflowX: 'auto' }}>
+                <table className="data-table" style={{ width: '100%', minWidth: 520 }}>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>LWD</th>
+                      <th>Net payable</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fnfSettlements.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.id}</td>
+                        <td>{row.last_working_day || '—'}</td>
+                        <td>₹{Number(row.net_payable || 0).toFixed(2)}</td>
+                        <td><span className="status-pill">{row.status}</span></td>
+                        <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button type="button" className="btn-outline-sm" onClick={() => handleDownloadFnfPdf(row.id)}>
+                            PDF
+                          </button>
+                          {row.status === 'draft' && (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              disabled={fnfStatusUpdatingId === row.id}
+                              onClick={() => handleUpdateFnfStatus(row.id, 'finalized')}
+                            >
+                              Finalize
+                            </button>
+                          )}
+                          {(row.status === 'draft' || row.status === 'finalized') && (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              disabled={fnfStatusUpdatingId === row.id}
+                              onClick={() => handleUpdateFnfStatus(row.id, 'paid')}
+                            >
+                              Mark paid
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderComplianceExports = () => {
+    const monthLabel = bulkPayrollMonth;
+    const yearLabel = bulkPayrollYear;
+    const safeMonth = String(monthLabel || 'month').replace(/\s+/g, '-');
+    return (
+      <div className="fade-in compliance-page">
+        <button className="btn-back" onClick={() => setCurrentView(previousView || 'employees')}>
+          <ArrowLeft size={18} /> Back
+        </button>
+
+        <div className="table-container-card compliance-page-card">
+          <div className="compliance-page-header">
+            <div className="compliance-page-header__main">
+              <span className="compliance-page-header__icon" aria-hidden>
+                <FileCheck size={22} />
+              </span>
+              <div className="compliance-page-header__text">
+                <div className="emp-dept-header__crumbs">
+                  <span className="emp-dept-chip emp-dept-chip--circle">{selectedCircle}</span>
+                  <span className="emp-dept-chip__sep" aria-hidden>›</span>
+                  <span className="emp-dept-chip emp-dept-chip--dept">{selectedDept}</span>
+                </div>
+                <h3 className="compliance-page-header__title">Statutory compliance exports</h3>
+                <p className="compliance-page-header__sub">Download PF, ESIC, PT, bank and TDS files for filing</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="compliance-filters">
+            <div className="compliance-filters__label">Payroll period</div>
+            <div className="compliance-filters__fields">
+              <div className="input-group">
+                <label htmlFor="compliance-month">Month</label>
+                <select
+                  id="compliance-month"
+                  className="custom-select"
+                  value={bulkPayrollMonth}
+                  onChange={(e) => setBulkPayrollMonth(e.target.value)}
+                >
+                  {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="input-group">
+                <label htmlFor="compliance-year">Year</label>
+                <input
+                  id="compliance-year"
+                  className="custom-select"
+                  type="number"
+                  value={bulkPayrollYear}
+                  onChange={(e) => setBulkPayrollYear(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {complianceError ? <div className="q-error compliance-page-alert">{complianceError}</div> : null}
+          {complianceLoading ? <p className="compliance-page-loading">Preparing export…</p> : null}
+
+          <div className="compliance-section">
+            <h4 className="compliance-section__title">Monthly statutory files</h4>
+            <p className="compliance-section__hint">Based on {monthLabel} {yearLabel} payroll for this department</p>
+            <div className="compliance-export-grid">
+              <button
+                type="button"
+                className="compliance-export-card compliance-export-card--pf"
+                disabled={complianceLoading}
+                onClick={() => downloadComplianceCsv(
+                  '/compliance/pf-ecr',
+                  `pf-ecr-${safeMonth}-${yearLabel}.csv`,
+                )}
+              >
+                <span className="compliance-export-card__icon"><Landmark size={20} aria-hidden /></span>
+                <span className="compliance-export-card__body">
+                  <span className="compliance-export-card__label">PF ECR</span>
+                  <span className="compliance-export-card__meta">CSV for EPFO filing</span>
+                </span>
+                <Download size={18} className="compliance-export-card__dl" aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="compliance-export-card compliance-export-card--esic"
+                disabled={complianceLoading}
+                onClick={() => downloadComplianceCsv(
+                  '/compliance/esic-statement',
+                  `esic-${safeMonth}-${yearLabel}.csv`,
+                )}
+              >
+                <span className="compliance-export-card__icon"><Users size={20} aria-hidden /></span>
+                <span className="compliance-export-card__body">
+                  <span className="compliance-export-card__label">ESIC Statement</span>
+                  <span className="compliance-export-card__meta">Employee state insurance</span>
+                </span>
+                <Download size={18} className="compliance-export-card__dl" aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="compliance-export-card compliance-export-card--pt"
+                disabled={complianceLoading}
+                onClick={() => downloadComplianceCsv(
+                  '/compliance/pt-summary',
+                  `pt-summary-${safeMonth}-${yearLabel}.csv`,
+                )}
+              >
+                <span className="compliance-export-card__icon"><Receipt size={20} aria-hidden /></span>
+                <span className="compliance-export-card__body">
+                  <span className="compliance-export-card__label">PT Summary</span>
+                  <span className="compliance-export-card__meta">Professional tax deductions</span>
+                </span>
+                <Download size={18} className="compliance-export-card__dl" aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="compliance-export-card compliance-export-card--bank"
+                disabled={complianceLoading}
+                onClick={() => downloadComplianceCsv(
+                  '/compliance/bank-file',
+                  `bank-neft-${safeMonth}-${yearLabel}.csv`,
+                )}
+              >
+                <span className="compliance-export-card__icon"><Send size={20} aria-hidden /></span>
+                <span className="compliance-export-card__body">
+                  <span className="compliance-export-card__label">Bank NEFT File</span>
+                  <span className="compliance-export-card__meta">Salary disbursement upload</span>
+                </span>
+                <Download size={18} className="compliance-export-card__dl" aria-hidden />
+              </button>
+            </div>
+          </div>
+
+          <div className="compliance-form24q">
+            <div className="compliance-form24q__head">
+              <h4 className="compliance-section__title">Form 24Q (TDS return)</h4>
+              <p className="compliance-section__hint">Quarterly TDS statement for salary payments</p>
+            </div>
+            <div className="compliance-form24q__row">
+              <div className="input-group">
+                <label htmlFor="compliance-fy">Financial year</label>
+                <input
+                  id="compliance-fy"
+                  className="custom-select"
+                  value={complianceFy}
+                  onChange={(e) => setComplianceFy(formatFinancialYearInput(e.target.value))}
+                  placeholder="2025-26"
+                />
+              </div>
+              <div className="input-group">
+                <label htmlFor="compliance-quarter">Quarter</label>
+                <select
+                  id="compliance-quarter"
+                  className="custom-select"
+                  value={complianceQuarter}
+                  onChange={(e) => setComplianceQuarter(Number(e.target.value))}
+                >
+                  <option value={1}>Q1 (Apr–Jun)</option>
+                  <option value={2}>Q2 (Jul–Sep)</option>
+                  <option value={3}>Q3 (Oct–Dec)</option>
+                  <option value={4}>Q4 (Jan–Mar)</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="compliance-form24q__btn"
+                disabled={complianceLoading || !isValidFinancialYear(complianceFy)}
+                onClick={() => downloadComplianceCsv(
+                  '/compliance/form-24q',
+                  `form-24q-${complianceFy}-Q${complianceQuarter}.csv`,
+                  { financial_year: complianceFy, quarter: String(complianceQuarter) },
+                )}
+              >
+                <Download size={18} aria-hidden />
+                Download Form 24Q
+              </button>
+            </div>
+          </div>
+
+          {ptSummary ? (
+            <div className="compliance-pt-panel">
+              <h4 className="compliance-section__title">
+                Professional tax — {ptSummary.month_name} {ptSummary.year}
+              </h4>
+              <p className="compliance-pt-panel__summary">
+                Total PT deducted: <strong>₹{Number(ptSummary.total_pt_deducted || 0).toFixed(2)}</strong>
+                {ptSummary.states_with_remittance_due?.length > 0 ? (
+                  <> · Remittance due: {ptSummary.states_with_remittance_due.join(', ')}</>
+                ) : null}
+              </p>
+              <div className="table-responsive">
+                <table className="results-table">
+                  <thead className="thead-teal">
+                    <tr>
+                      <th>State</th>
+                      <th>Employees</th>
+                      <th>PT Deducted</th>
+                      <th>Remits this month</th>
+                      <th>Frequency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(ptSummary.lines || []).length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="accounts-empty">No PT deductions for this period.</td>
+                      </tr>
+                    )}
+                    {(ptSummary.lines || []).map((row) => (
+                      <tr key={row.state_code}>
+                        <td>{row.state_name} ({row.state_code})</td>
+                        <td>{row.employee_count}</td>
+                        <td>{Number(row.pt_deducted || 0).toFixed(2)}</td>
+                        <td>{row.remittance_due ? 'Yes' : 'No'}</td>
+                        <td>{row.frequency}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          {ptCalendar.length > 0 ? (
+            <div className="compliance-pt-panel">
+              <h4 className="compliance-section__title">PT remittance calendar ({yearLabel})</h4>
+              <div className="table-responsive">
+                <table className="results-table">
+                  <thead className="thead-teal">
+                    <tr>
+                      <th>State</th>
+                      <th>Frequency</th>
+                      <th>Due months</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ptCalendar.filter((s) => s.frequency !== 'none').map((row) => (
+                      <tr key={row.state_code}>
+                        <td>{row.state_name} ({row.state_code})</td>
+                        <td>{row.frequency}</td>
+                        <td>{(row.due_months || []).map((m) => calendarMonthName(m)).join(', ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const calendarMonthName = (m) => {
+    const names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return names[m] || m;
+  };
+
   const renderPayrollHistory = () => (
     <div className="fade-in">
       <button className="btn-back" onClick={() => setCurrentView(previousView || 'bulkPayroll')}>
@@ -4360,9 +6358,11 @@ export const Account = ()  => {
                 <th>Name</th>
                 <th>EmpID</th>
                 <th>Gross Salary</th>
+                <th>Arrears</th>
                 <th>EPF</th>
                 <th>P.Tax</th>
                 <th>ESIC</th>
+                <th>LWF</th>
                 <th>TDS</th>
                 <th>Actual Working Days</th>
                 <th>Net Salary</th>
@@ -4371,7 +6371,7 @@ export const Account = ()  => {
             <tbody>
               {!payrollHistoryLoading && payrollHistoryRows.length === 0 && (
                 <tr>
-                  <td colSpan="9" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
+                  <td colSpan="11" className="accounts-empty" style={{ padding: 18, color: '#64748b' }}>
                     No payroll history found for this month/year.
                   </td>
                 </tr>
@@ -4381,9 +6381,11 @@ export const Account = ()  => {
                   <td className="font-bold" data-label="Name">{r.name}</td>
                   <td data-label="EmpID">{r.emp_id}</td>
                   <td data-label="Gross Salary">{Number(r.gross_salary_for_month || 0).toFixed(2)}</td>
+                  <td data-label="Arrears">{Number(r.arrears_gross_final || 0).toFixed(2)}</td>
                   <td data-label="EPF">{Number(r.epf_final || 0).toFixed(2)}</td>
                   <td data-label="P.Tax">{Number(r.ptax_final || 0).toFixed(2)}</td>
                   <td data-label="ESIC">{Number(r.esic_final || 0).toFixed(2)}</td>
+                  <td data-label="LWF">{Number(r.lwf_final || 0).toFixed(2)}</td>
                   <td data-label="TDS">{Number(r.tds_final || 0).toFixed(2)}</td>
                   <td data-label="Actual Working Days">{Number(r.actual_working_days || 0).toFixed(1)}</td>
                   <td data-label="Net Salary">{Number(r.net_salary_final || 0).toFixed(2)}</td>
@@ -4405,6 +6407,8 @@ export const Account = ()  => {
     || (currentView === 'bulkForm16')
     || (currentView === 'bulkPayroll')
     || (currentView === 'payrollHistory')
+    || (currentView === 'complianceExports')
+    || (currentView === 'payrollLifecycle')
     || (currentView === 'expenseClaims')
     || (currentView === 'taxDeclarations')
     || (currentView === 'taxDeclarationDetail' && selectedTaxDeclId)
@@ -4434,6 +6438,8 @@ export const Account = ()  => {
       {currentView === 'bulkPayslip' && renderBulkPayslip()}
       {currentView === 'bulkForm16' && renderBulkForm16()}
       {currentView === 'bulkPayroll' && renderBulkPayroll()}
+      {currentView === 'complianceExports' && renderComplianceExports()}
+      {currentView === 'payrollLifecycle' && renderPayrollLifecycle()}
       {currentView === 'payrollHistory' && renderPayrollHistory()}
       {currentView === 'expenseClaims' && renderExpenseClaims()}
       {currentView === 'taxDeclarations' && (

@@ -60,6 +60,24 @@ def run_daily_hr_jobs():
             log.exception("scheduler: assessment-recording-purge failed: %s", e)
 
         try:
+            from .offboarding_service import run_lwd_deactivation_job
+
+            deactivated = run_lwd_deactivation_job(today)
+            if deactivated:
+                log.info("scheduler: LWD deactivation disabled login for %s employee(s)", deactivated)
+        except Exception as e:
+            log.exception("scheduler: offboarding-LWD failed: %s", e)
+
+        try:
+            from .commands.offboarding_reminders import run_offboarding_reminders
+
+            reminder_summary = run_offboarding_reminders(today)
+            if reminder_summary.get("lwd_reminders_sent") or reminder_summary.get("noc_sla_reminders_sent"):
+                log.info("scheduler: offboarding reminders %s", reminder_summary)
+        except Exception as e:
+            log.exception("scheduler: offboarding-reminders failed: %s", e)
+
+        try:
             db.session.commit()
         except Exception as e:
             log.exception("scheduler: commit failed: %s", e)

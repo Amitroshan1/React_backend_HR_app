@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { UserAvatar } from '../../components/UserAvatar';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './EmployeeDetails.css';
 import { formatDate } from '../../utils/dateFormat';
 
@@ -15,13 +16,15 @@ const EmployeeDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  useEffect(() => {
+  const loadEmployee = useCallback(() => {
     const token = localStorage.getItem('token');
     if (!id || !token) {
       setLoading(false);
       setError(true);
       return;
     }
+    setLoading(true);
+    setError(false);
     fetch(`${ADMIN_EMPLOYEE_DETAIL_API}/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -39,6 +42,8 @@ const EmployeeDetails = () => {
         setLoading(false);
       });
   }, [id]);
+
+  useRefreshOnNavigate(loadEmployee, [id]);
 
   if (loading) {
     return (

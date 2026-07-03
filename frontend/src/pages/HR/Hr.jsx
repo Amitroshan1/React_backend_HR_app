@@ -6,7 +6,7 @@ import {
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
   FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2,
-  Eye, EyeOff
+  Eye, EyeOff, TrendingDown
 } from 'lucide-react';
 import './Hr.css';
 import './SignUp.css'; 
@@ -16,6 +16,7 @@ import { UpdateLeave } from './UpdateLeave';
 import { UpdateManager } from './UpdateManager';
 import { AddLocation } from './AddLocation';
 import ExitEmployee from './ExitEmployee';
+import OffboardingDashboard from './OffboardingDashboard';
 import AddDeptCircle from './AddDeptCircle';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
@@ -46,6 +47,7 @@ const HR_PANEL_VIEWS = [
   'add_location',
   'noc_requests',
   'exit_employee',
+  'offboarding_dashboard',
   'ex_employee_doc_share',
   'add_dept_circle',
   'reset_password',
@@ -1103,6 +1105,7 @@ export const Hr = () => {
   const [circleTransferNotes, setCircleTransferNotes] = useState('');
   /** Last Update SignUp search (filters + rows) so returning from edit keeps results without re-searching. */
   const [updateSignupSearchSnapshot, setUpdateSignupSearchSnapshot] = useState(null);
+  const [updateSignupListRefreshKey, setUpdateSignupListRefreshKey] = useState(0);
 
   const [resetPasswordEmail, setResetPasswordEmail] = useState('');
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
@@ -1236,8 +1239,14 @@ export const Hr = () => {
           setSignupSuccess(true);
           setUpdateSignupSearchSnapshot((prev) => {
             if (!prev?.employees?.length || !signupEditEmail) return prev;
+            const norm = (v) => (v ?? '').toString().trim().toLowerCase();
+            const newCircle = norm(signupForm.circle);
+            const newEmpType = norm(signupForm.emp_type);
+            const filterCircle = norm(prev.filters?.circle);
+            const filterEmpType = norm(prev.filters?.emp_type);
+            const stillInSearchFilters = newCircle === filterCircle && newEmpType === filterEmpType;
             const emailLower = signupEditEmail.toLowerCase();
-            const nextEmployees = prev.employees.map((emp) =>
+            let nextEmployees = prev.employees.map((emp) =>
               (emp.email || '').toLowerCase() === emailLower
                 ? {
                     ...emp,
@@ -1246,8 +1255,14 @@ export const Hr = () => {
                   }
                 : emp
             );
+            if (!stillInSearchFilters) {
+              nextEmployees = nextEmployees.filter(
+                (emp) => (emp.email || '').toLowerCase() !== emailLower
+              );
+            }
             return { ...prev, employees: nextEmployees };
           });
+          setUpdateSignupListRefreshKey((k) => k + 1);
         } else {
           setSignupError(data.message || 'Failed to update employee.');
         }
@@ -1306,6 +1321,7 @@ export const Hr = () => {
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
+    { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, and attrition analytics' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
     { title: 'Ex-Employee Document Sharing', icon: Share2, description: 'Send time-limited document links to former staff' },
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
@@ -1635,6 +1651,9 @@ export const Hr = () => {
   else if (title === 'NOC Requests') {
     setView('noc_requests');
   }
+  else if (title === 'Offboarding Dashboard') {
+    setView('offboarding_dashboard');
+  }
   else if (title === 'Exit Employee') { //New Condition For Exit Employee
   setView('exit_employee');
 }
@@ -1684,6 +1703,7 @@ if (view === 'ex_employee_doc_share') {
         circleOptions={masterOptions.circles}
         persistedSearch={updateSignupSearchSnapshot}
         onPersistSearch={setUpdateSignupSearchSnapshot}
+        listRefreshKey={updateSignupListRefreshKey}
       />
     );
   }
@@ -1708,8 +1728,12 @@ if (view === 'update_manager') {
 if (view === 'add_location') {
   return <AddLocation onBack={() => setView('updates')} />;
 }
-if (view === 'exit_employee') {  //new condition for exit employee 
+if (view === 'exit_employee') {  //new condition for exit employee
   return <ExitEmployee onBack={() => setView('updates')} />;
+}
+
+if (view === 'offboarding_dashboard') {
+  return <OffboardingDashboard onBack={() => setView('updates')} />;
 }
 
 if (view === 'add_dept_circle') { //new condition for add department and cir.
@@ -1898,6 +1922,9 @@ if (view === 'noc_requests') {
               setSignupEditOriginal(null);
               setCircleTransferNotes('');
               setSignupError("");
+              if (backToUpdateSignUpSearch) {
+                setUpdateSignupListRefreshKey((k) => k + 1);
+              }
               setView(backToUpdateSignUpSearch ? "update_signup" : "updates");
             }}
           >

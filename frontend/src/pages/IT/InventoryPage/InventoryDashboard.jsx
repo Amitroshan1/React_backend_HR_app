@@ -3,6 +3,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Routes, Route, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import "./InventoryDashboard.css";
 
 import {
@@ -1361,7 +1362,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  useEffect(() => {
+  const syncInventoryCounts = useCallback(() => {
     const update = () => setCounts(readLiveCounts(category));
     syncITDataFromAPI().then(update).catch((err) => {
       console.error("[InventoryDashboard] API sync failed, using cached data:", err);
@@ -1373,11 +1374,17 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
       );
       update();
     });
+  }, [category]);
+
+  useRefreshOnNavigate(syncInventoryCounts, [category]);
+
+  useEffect(() => {
+    const update = () => setCounts(readLiveCounts(category));
     window.addEventListener("inventory-updated", update);
-    window.addEventListener("storage",           update);
+    window.addEventListener("storage", update);
     return () => {
       window.removeEventListener("inventory-updated", update);
-      window.removeEventListener("storage",           update);
+      window.removeEventListener("storage", update);
     };
   }, [category]);
 
@@ -1603,6 +1610,21 @@ function TotalAssetsPage({ category }) {
     handleQuantityConfirm,
   } = useAssetActions(refresh);
 
+  useRefreshOnNavigate(() => {
+    syncITDataFromAPI()
+      .then(() => refresh())
+      .catch((err) => {
+        console.error("[TotalAssetsPage] API sync failed, using cached data:", err);
+        toast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not sync inventory from the server. Showing cached assets.",
+          ),
+        );
+        refresh();
+      });
+  }, [category]);
+
   const filteredAssets = useMemo(() => {
     void refreshKey;
     const q = searchQuery.trim().toLowerCase();
@@ -1757,6 +1779,21 @@ function OverviewPage({ category }) {
     handleRemoveConfirm,
     handleQuantityConfirm,
   } = useAssetActions(refresh);
+
+  useRefreshOnNavigate(() => {
+    syncITDataFromAPI()
+      .then(() => refresh())
+      .catch((err) => {
+        console.error("[OverviewPage] API sync failed, using cached data:", err);
+        toast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not sync inventory from the server. Showing cached overview.",
+          ),
+        );
+        refresh();
+      });
+  }, [category]);
 
   const assets = useMemo(() => {
     void refreshKey;

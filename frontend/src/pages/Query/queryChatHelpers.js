@@ -43,3 +43,42 @@ export const queryAttachmentDisplayName = (storedName) => {
 
 export const buildQueryAttachmentUrl = (apiBase, queryId, storedName) =>
   `${apiBase}/queries/${queryId}/files/${encodeURIComponent(storedName)}`;
+
+/** Parse fetch responses safely (handles empty bodies and non-JSON). */
+export async function readApiResponse(response) {
+  const text = await response.text();
+  const trimmed = text.trim();
+
+  if (!trimmed) {
+    if (!response.ok) {
+      return {
+        ok: false,
+        data: {},
+        error: `Request failed (${response.status})`,
+      };
+    }
+    return {
+      ok: false,
+      data: {},
+      error: 'Server returned an empty response. Please refresh or try again.',
+    };
+  }
+
+  try {
+    const data = JSON.parse(trimmed);
+    if (!response.ok) {
+      return {
+        ok: false,
+        data,
+        error: data.message || `Request failed (${response.status})`,
+      };
+    }
+    return { ok: true, data, error: null };
+  } catch {
+    return {
+      ok: false,
+      data: {},
+      error: 'Invalid response from server',
+    };
+  }
+}

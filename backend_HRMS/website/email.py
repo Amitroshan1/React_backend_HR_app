@@ -2981,6 +2981,175 @@ def send_password_set_email(admin):
         return False
 
 
+def send_employee_exit_confirmation_email(
+    admin,
+    *,
+    exit_type,
+    last_working_day,
+    exit_reason,
+    login_deferred: bool = False,
+    doc_link: str | None = None,
+):
+    """Notify employee that HR has processed their exit (non-blocking). Returns (success, message)."""
+    cfg_err = zeptomail_config_error()
+    if cfg_err:
+        return False, cfg_err
+
+    to_addr = (getattr(admin, "email", None) or "").strip()
+    if not to_addr or "@" not in to_addr:
+        return False, "Employee email not available"
+
+    name = html.escape((getattr(admin, "first_name", None) or "Employee").strip())
+    emp_id = html.escape(str(getattr(admin, "emp_id", None) or "—"))
+    exit_type_esc = html.escape(str(exit_type or "Resigned"))
+    lwd = last_working_day.isoformat() if hasattr(last_working_day, "isoformat") else str(last_working_day)
+    reason_esc = html.escape((exit_reason or "").strip() or "—")
+
+    if login_deferred:
+        login_note = (
+            f"<p>Your HRMS login will remain active until <strong>{html.escape(lwd)}</strong> "
+            "(your last working day), after which access will be deactivated automatically.</p>"
+        )
+    else:
+        login_note = "<p>Your HRMS login has been deactivated.</p>"
+
+    doc_note = ""
+    if doc_link:
+        href = doc_link.replace("&", "&amp;")
+        doc_note = (
+            f"<p>A secure link to download your relieving letter has been sent to your email "
+            f"(valid for 48 hours). You may also use this link: "
+            f'<a href="{href}">{html.escape(doc_link)}</a></p>'
+        )
+    else:
+        doc_note = (
+            "<p>For relieving letter, F&amp;F settlement, or other documents, please contact HR "
+            "through your official channel.</p>"
+        )
+
+    subject = f"Employment exit processed – {getattr(admin, 'first_name', '') or emp_id}"
+    body = f"""
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e293b;line-height:1.55;max-width:560px;">
+<p>Dear {name},</p>
+<p>Human Resources has processed your exit from the organization.</p>
+<ul style="margin:12px 0;padding-left:18px;">
+<li><strong>Employee ID:</strong> {emp_id}</li>
+<li><strong>Exit type:</strong> {exit_type_esc}</li>
+<li><strong>Last working day:</strong> {html.escape(lwd)}</li>
+<li><strong>Reason recorded:</strong> {reason_esc}</li>
+</ul>
+{login_note}
+{doc_note}
+<p style="margin-top:18px;">Kind regards,<br /><strong>Human Resources</strong></p>
+</div>
+"""
+    try:
+        zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+        ok, msg = send_email_via_zeptomail(
+            sender_email=zepto_from,
+            subject=subject,
+            body=body,
+            recipient_email=to_addr,
+        )
+        return ok, msg
+    except Exception as e:
+        current_app.logger.warning("Exit confirmation email failed for %s: %s", to_addr, e)
+        return False, str(e)
+
+
+def send_lwd_approaching_reminder(
+    *,
+    employee_email: str | None,
+    employee_name: str | None,
+    emp_id: str | None,
+    last_working_day,
+    days_before: int,
+) -> bool:
+    """Notify employee and HR that last working day is approaching."""
+    cfg_err = zeptomail_config_error()
+    if cfg_err:
+        return False
+
+    to_addr = (employee_email or "").strip()
+    if not to_addr or "@" not in to_addr:
+        return False
+
+    lwd = (
+        last_working_day.isoformat()
+        if hasattr(last_working_day, "isoformat")
+        else str(last_working_day)
+    )
+    name = html.escape((employee_name or "Employee").strip())
+    emp_id_esc = html.escape(str(emp_id or "—"))
+    hr_cc = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
+    cc = _dedupe_cc_emails([hr_cc] if hr_cc else [], to_addr)
+
+    subject = f"Reminder: last working day in {days_before} day(s) – {employee_name or emp_id}"
+    body = f"""
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e293b;line-height:1.55;max-width:560px;">
+<p>Dear {name},</p>
+<p>This is a reminder that your <strong>last working day</strong> is scheduled on
+<strong>{html.escape(lwd)}</strong> ({days_before} day(s) from today).</p>
+<p>Please complete handover, return company assets, and clear any pending approvals before your exit date.</p>
+<p style="margin-top:18px;">Human Resources</p>
+</div>
+"""
+    zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    ok, _ = send_email_via_zeptomail(
+        sender_email=zepto_from,
+        subject=subject,
+        body=body,
+        recipient_email=to_addr,
+        cc_emails=cc or None,
+    )
+    return bool(ok)
+
+
+def send_noc_sla_reminder(
+    *,
+    department_key: str,
+    employee_name: str | None,
+    employee_email: str | None,
+    days_pending: int | None,
+) -> bool:
+    """Escalate overdue department NOC clearance to HR."""
+    cfg_err = zeptomail_config_error()
+    if cfg_err:
+        return False
+
+    hr_to = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
+    if not hr_to:
+        return False
+
+    dept = html.escape((department_key or "Department").strip())
+    emp = html.escape((employee_name or "Employee").strip())
+    email_esc = html.escape((employee_email or "—").strip())
+    days = int(days_pending or 0)
+
+    subject = f"NOC SLA overdue: {department_key} clearance pending ({days}+ days)"
+    body = f"""
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e293b;line-height:1.55;max-width:560px;">
+<p>Hello HR,</p>
+<p>Department NOC clearance is overdue for a separating employee:</p>
+<ul style="margin:12px 0;padding-left:18px;">
+<li><strong>Employee:</strong> {emp}</li>
+<li><strong>Email:</strong> {email_esc}</li>
+<li><strong>Department:</strong> {dept}</li>
+<li><strong>Pending for:</strong> {days} day(s)</li>
+</ul>
+<p>Please follow up with the concerned department to avoid exit delays.</p>
+</div>
+"""
+    zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    ok, _ = send_email_via_zeptomail(
+        sender_email=zepto_from,
+        subject=subject,
+        body=body,
+        recipient_email=hr_to,
+    )
+    return bool(ok)
+
+
 def send_ex_employee_documents_email(*, recipient_email, doc_link, document_names, valid_hours=48):
     """
     Notify ex-employee with document names + time-limited link (no HRMS login).

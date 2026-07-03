@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { UserAvatar } from '../../components/UserAvatar';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './Employee.css';
 
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -39,7 +40,7 @@ const Employee = () => {
     }
   }, [location.state]);
 
-  useEffect(() => {
+  const loadEmployees = useCallback(() => {
     const token = localStorage.getItem('token');
     if (!token) {
       setLoading(false);
@@ -62,6 +63,8 @@ const Employee = () => {
       })
       .catch(() => setLoading(false));
   }, [circle, employeeType]);
+
+  useRefreshOnNavigate(loadEmployees, [circle, employeeType]);
 
   const handleViewDetails = (empId) => {
     navigate(`/employee/${empId}`);

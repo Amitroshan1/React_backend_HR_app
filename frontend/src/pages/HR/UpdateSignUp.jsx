@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { ArrowLeft, Search } from 'lucide-react';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './UpdateSignUp.css';
 
 const API_BASE = '/api/HumanResource';
@@ -14,7 +15,9 @@ export const UpdateSignUp = ({
   circleOptions = CIRCLE_OPTIONS,
   persistedSearch = null,
   onPersistSearch,
+  listRefreshKey = 0,
 }) => {
+  const hasSearchedRef = useRef(Boolean(persistedSearch?.employees?.length));
   const [filters, setFilters] = useState(() => ({
     emp_type: persistedSearch?.filters?.emp_type ?? empTypeOptions[0] ?? EMP_TYPE_OPTIONS[0],
     circle: persistedSearch?.filters?.circle ?? circleOptions[0] ?? CIRCLE_OPTIONS[0],
@@ -49,6 +52,7 @@ export const UpdateSignUp = ({
       }
       const list = data.employees || [];
       setEmployees(list);
+      hasSearchedRef.current = true;
       if (onPersistSearch) {
         onPersistSearch({
           filters: { emp_type: filters.emp_type, circle: filters.circle },
@@ -62,6 +66,12 @@ export const UpdateSignUp = ({
       setSearchLoading(false);
     }
   }, [filters.emp_type, filters.circle, getAuthHeaders, onPersistSearch]);
+
+  useRefreshOnNavigate(() => {
+    if (hasSearchedRef.current || (persistedSearch?.employees?.length ?? 0) > 0) {
+      handleSearch();
+    }
+  }, [listRefreshKey]);
 
   React.useEffect(() => {
     setFilters((prev) => ({

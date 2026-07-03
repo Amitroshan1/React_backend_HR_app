@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { ArrowLeft, Search, UserPlus, Users } from 'lucide-react';
 import './UpdateManager.css';
 import { usePersistedView } from '../../hooks/usePersistedView';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 
 const UPDATE_MANAGER_VIEWS = ['landing', 'search', 'assign', 'details'];
 
@@ -49,6 +50,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const hasSearchedRef = useRef(false);
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
@@ -224,6 +226,7 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
         return;
       }
       setEmployees(data.employees || []);
+      hasSearchedRef.current = true;
     } catch {
       setSearchError('Network error. Please try again.');
       setEmployees([]);
@@ -231,6 +234,12 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
       setSearchLoading(false);
     }
   }, [filters.circle, filters.emp_type, filters.identifier, getAuthHeaders]);
+
+  useRefreshOnNavigate(() => {
+    if (view === 'search' && (hasSearchedRef.current || employees.length > 0)) {
+      handleSearch();
+    }
+  }, [view]);
 
   const handleEditManager = useCallback(async (emp) => {
     setSelectedEmployee(emp);
@@ -316,11 +325,12 @@ export const UpdateManager = ({ onBack, circleOptions: propCircleOptions, empTyp
   };
 
   const handleBackFromDetails = () => {
+    const returnToSearch = Boolean(selectedEmployee);
     setSelectedEmployee(null);
     setContactError('');
     setSubmitError('');
     setSubmitSuccess(false);
-    setView(selectedEmployee ? 'search' : 'assign');
+    setView(returnToSearch ? 'search' : 'assign');
   };
 
   // --- DETAILS VIEW: Manager form (centered) ---

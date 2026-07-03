@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import "./ITPanel.css";
 
 const OPEN_TICKETS_ROUTE = "/it/OpenTicket";
@@ -48,9 +49,7 @@ export const ITPanel = () => {
     }
   }, []);
 
-  useEffect(() => {
-    refreshUnreadTicketCount();
-  }, [refreshUnreadTicketCount]);
+  useRefreshOnNavigate(refreshUnreadTicketCount);
 
   useEffect(() => {
     const onFocus = () => refreshUnreadTicketCount();

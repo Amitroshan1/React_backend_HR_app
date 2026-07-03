@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowLeft, FileText } from "lucide-react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateTime as formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import {
     defaultFinancialYear,
@@ -42,9 +43,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
         }
     }, [apiBase]);
 
-    useEffect(() => {
-        loadFinancialYears();
-    }, [loadFinancialYears]);
+    useRefreshOnNavigate(loadFinancialYears);
 
     const loadList = useCallback(async () => {
         setLoading(true);
@@ -73,9 +72,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
         }
     }, [apiBase, financialYear, statusFilter]);
 
-    useEffect(() => {
-        loadList();
-    }, [loadList]);
+    useRefreshOnNavigate(loadList, [financialYear, statusFilter]);
 
     const loadDeadline = useCallback(async () => {
         setDeadlineLoading(true);
@@ -99,9 +96,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
         }
     }, [apiBase, financialYear]);
 
-    useEffect(() => {
-        loadDeadline();
-    }, [loadDeadline]);
+    useRefreshOnNavigate(loadDeadline, [financialYear]);
 
     const saveDeadline = async () => {
         if (!deadlineDate) {

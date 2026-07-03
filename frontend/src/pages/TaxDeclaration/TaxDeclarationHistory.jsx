@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Clock, FileText } from "lucide-react";
+import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateTime as formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import { notifyError } from "../../utils/notify";
 import {
@@ -35,9 +36,7 @@ export function TaxDeclarationHistory() {
         }
     }, []);
 
-    useEffect(() => {
-        loadHistory();
-    }, [loadHistory]);
+    useRefreshOnNavigate(loadHistory);
 
     const hasDeclarations = declarations.length > 0;
 

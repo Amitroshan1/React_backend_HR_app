@@ -39,11 +39,13 @@ export const AppLayout = () => {
     useEffect(() => {
         if (!hasToken) return;
         const path = location.pathname || "";
-        if (prevPathRef.current !== null && prevPathRef.current !== path) {
+        const search = location.search || "";
+        const routeKey = `${path}${search}`;
+        if (prevPathRef.current !== null && prevPathRef.current !== routeKey) {
             refreshUserData();
         }
-        prevPathRef.current = path;
-    }, [location.pathname, refreshUserData, hasToken]);
+        prevPathRef.current = routeKey;
+    }, [location.pathname, location.search, refreshUserData, hasToken]);
 
     useEffect(() => {
         const path = location.pathname || "";

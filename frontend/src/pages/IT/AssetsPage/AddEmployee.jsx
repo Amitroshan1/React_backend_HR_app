@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import {
   getEmployees,
   saveEmployees,
@@ -406,11 +407,27 @@ const AddEmployee = () => {
   const [selectedNonHw,        setSelectedNonHw]        = useState([]);
   const qtyHoldTimeoutRef = useRef(null);
   const qtyHoldIntervalRef = useRef(null);
+  const [unitsRefreshKey, setUnitsRefreshKey] = useState(0);
 
-  // Stable reference to asset units — re-read only when a storage event fires
-  // (the useMemo deps include nothing from state so it reads once per mount;
-  // child memos that need fresh data include allUnits.length as a dep signal)
-  const allUnits = useMemo(() => getAssetUnitsFromStorage(), []); // eslint-disable-line
+  const refreshAssignableUnits = useCallback(() => {
+    syncITDataFromAPI()
+      .then(() => setUnitsRefreshKey((k) => k + 1))
+      .catch((err) => {
+        console.error("[AddEmployee] API sync failed, using cached units:", err);
+        toast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not refresh assignable assets from the server. Showing cached inventory.",
+          ),
+        );
+        setUnitsRefreshKey((k) => k + 1);
+      });
+  }, []);
+
+  useRefreshOnNavigate(refreshAssignableUnits);
+
+  // Stable reference to asset units — re-read when sync completes or storage changes.
+  const allUnits = useMemo(() => getAssetUnitsFromStorage(), [unitsRefreshKey]); // eslint-disable-line
 
   // ── Derived data ──────────────────────────────────────────────────────────
 

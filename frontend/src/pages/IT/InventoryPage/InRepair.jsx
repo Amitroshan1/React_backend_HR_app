@@ -1,6 +1,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import {
   buildDeletedLogApiPayload,
   buildLocalDeletedEntry,
@@ -213,7 +214,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     setUnits(getAssetUnitsFromStorage() ?? []);
   }, []);
 
-  useEffect(() => {
+  useRefreshOnNavigate(() => {
     const load = async () => {
       try {
         await syncITDataFromAPI();
@@ -230,7 +231,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
       reload();
     };
     load();
-  }, [reload]);
+  }, [inventoryCategory, reload]);
 
   const showToast = useCallback((msg) => {
     setToast(msg);

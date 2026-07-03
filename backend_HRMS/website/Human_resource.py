@@ -62,6 +62,16 @@ from .models.attendance import (
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
 from .noc_department_service import download_noc_document, list_noc_requests, upload_noc_document
+from .offboarding_service import (
+    EXIT_TYPES,
+    build_offboarding_dashboard,
+    build_offboarding_payload_for_admin,
+    execute_employee_exit,
+    parse_exit_type,
+    parse_iso_date,
+)
+from .relieving_letter_service import generate_relieving_letter_pdf
+from .experience_letter_service import generate_experience_letter_pdf
 from .models.master_data import MasterData
 from .models.leave_accrual_log import LeaveAccrualLog
 from .models.holiday_calendar import HolidayCalendar
@@ -868,12 +878,20 @@ def delete_master_data(master_type, item_id):
 
     if parsed_type == MASTER_TYPE_DEPARTMENT:
         in_use = (
-            Admin.query.filter(db.func.lower(db.func.coalesce(Admin.emp_type, "")) == row.name.lower()).count()
+            Admin.query.filter(
+                *_enabled_non_exited_admin_filters(),
+                db.func.lower(db.func.coalesce(Admin.emp_type, "")) == row.name.lower(),
+            ).count()
             > 0
         )
     else:
+        # Only active employees block circle removal; exited staff keep circle on their
+        # Admin row so Archive search/filter still works after the master value is retired.
         in_use = (
-            Admin.query.filter(db.func.lower(db.func.coalesce(Admin.circle, "")) == row.name.lower()).count()
+            Admin.query.filter(
+                *_enabled_non_exited_admin_filters(),
+                db.func.lower(db.func.coalesce(Admin.circle, "")) == row.name.lower(),
+            ).count()
             > 0
         )
 
@@ -881,7 +899,7 @@ def delete_master_data(master_type, item_id):
         return jsonify(
             {
                 "success": False,
-                "message": "Cannot delete value because it is in use by existing employees",
+                "message": "Cannot delete value because it is in use by active employees",
             }
         ), 409
 
@@ -1351,6 +1369,7 @@ def list_active_employees():
 
     employees = []
     for admin_row, res in rows:
+        offboarding = build_offboarding_payload_for_admin(admin_row)
         employees.append(
             {
                 "id": admin_row.id,
@@ -1360,6 +1379,8 @@ def list_active_employees():
                 "circle": admin_row.circle,
                 "emp_type": admin_row.emp_type,
                 "resignation_date": res.resignation_date.isoformat() if res and res.resignation_date else None,
+                "resignation_status": res.status if res else None,
+                "offboarding": offboarding,
             }
         )
 
@@ -1372,6 +1393,192 @@ def list_active_employees():
     ), 200
 
 
+@hr.route("/employees/<int:admin_id>/exit-checklist", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_employee_exit_checklist(admin_id):
+    """Pre-exit checklist and offboarding status for HR exit modal."""
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if getattr(admin, "is_exited", False):
+        return jsonify({"success": False, "message": "Employee is already exited"}), 409
+
+    exit_type = parse_exit_type(request.args.get("exit_type"))
+    payload = build_offboarding_payload_for_admin(admin, exit_type=exit_type)
+    from .offboarding_service import get_leave_balance_snapshot
+    from .models.exit_interview import ExitInterview
+
+    ei_row = ExitInterview.query.filter_by(admin_id=admin_id).first()
+    return jsonify(
+        {
+            "success": True,
+            "admin_id": admin_id,
+            "exit_types": list(EXIT_TYPES),
+            "offboarding": payload,
+            "leave_balance": get_leave_balance_snapshot(admin_id),
+            "exit_interview": ei_row.to_dict() if ei_row else None,
+        }
+    ), 200
+
+
+@hr.route("/offboarding/dashboard", methods=["GET"])
+@jwt_required()
+@hr_required
+def offboarding_dashboard():
+    """HR offboarding pipeline, LWD this week, login grace, and attrition analytics."""
+    return jsonify({"success": True, **build_offboarding_dashboard()}    ), 200
+
+
+@hr.route("/offboarding/analytics/export", methods=["GET"])
+@jwt_required()
+@hr_required
+def export_offboarding_analytics():
+    """Export attrition analytics as CSV or PDF."""
+    fmt = (request.args.get("format") or "csv").strip().lower()
+    months = request.args.get("months", 12, type=int) or 12
+    months = max(1, min(months, 36))
+
+    from .offboarding_export_service import generate_analytics_csv, generate_analytics_pdf
+
+    if fmt == "pdf":
+        buf = generate_analytics_pdf(months=months)
+        return send_file(
+            buf,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=f"offboarding-analytics-{months}m.pdf",
+        )
+    buf = generate_analytics_csv(months=months)
+    return send_file(
+        buf,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=f"offboarding-analytics-{months}m.csv",
+    )
+
+
+@hr.route("/employees/<int:admin_id>/experience-letter/pdf", methods=["GET"])
+@jwt_required()
+@hr_required
+def download_experience_letter_pdf(admin_id):
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if not getattr(admin, "is_exited", False):
+        return jsonify({"success": False, "message": "Employee is not exited yet"}), 409
+    try:
+        pdf_buffer = generate_experience_letter_pdf(admin_id)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    filename = f"experience-letter-{admin.emp_id or admin_id}.pdf"
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@hr.route("/employees/<int:admin_id>/exit-interview", methods=["GET", "PATCH"])
+@jwt_required()
+@hr_required
+def hr_exit_interview(admin_id):
+    from .exit_interview_service import get_or_create_exit_interview, update_hr_exit_interview, serialize_rehire_policy
+    from .models.exit_interview import ExitInterview
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    if request.method == "GET":
+        row = ExitInterview.query.filter_by(admin_id=admin_id).first()
+        return jsonify(
+            {
+                "success": True,
+                "exit_interview": row.to_dict() if row else None,
+                "rehire_policy": serialize_rehire_policy(admin_id),
+            }
+        ), 200
+
+    data = request.get_json() or {}
+    hr_date = None
+    if data.get("hr_interview_date"):
+        hr_date, err = parse_iso_date(data.get("hr_interview_date"), "hr_interview_date")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+
+    try:
+        payload = update_hr_exit_interview(
+            admin_id,
+            hr_interview_completed=bool(data.get("hr_interview_completed")),
+            hr_interview_date=hr_date,
+            hr_notes=data.get("hr_notes"),
+            hr_email=get_jwt().get("email") or "",
+        )
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    return jsonify({"success": True, "exit_interview": payload}), 200
+
+
+@hr.route("/archive/employee/<int:admin_id>/rehire-policy", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def update_rehire_policy(admin_id):
+    from .exit_interview_service import get_latest_archive_row
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    row = get_latest_archive_row(admin_id)
+    if not row:
+        return jsonify({"success": False, "message": "No archive record found"}), 404
+
+    data = request.get_json() or {}
+    if "rehire_eligible" in data:
+        row.rehire_eligible = bool(data.get("rehire_eligible"))
+    if "rehire_notes" in data:
+        row.rehire_notes = (data.get("rehire_notes") or "").strip() or None
+    if data.get("rehire_cooldown_until"):
+        cd, err = parse_iso_date(data.get("rehire_cooldown_until"), "rehire_cooldown_until")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        row.rehire_cooldown_until = cd
+    elif "rehire_cooldown_until" in data and data.get("rehire_cooldown_until") is None:
+        row.rehire_cooldown_until = None
+
+    db.session.commit()
+    from .exit_interview_service import serialize_rehire_policy
+
+    return jsonify({"success": True, "rehire_policy": serialize_rehire_policy(admin_id)}), 200
+
+
+@hr.route("/employees/<int:admin_id>/relieving-letter/pdf", methods=["GET"])
+@jwt_required()
+@hr_required
+def download_relieving_letter_pdf(admin_id):
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if not getattr(admin, "is_exited", False):
+        return jsonify({"success": False, "message": "Employee is not exited yet"}), 409
+    try:
+        pdf_buffer = generate_relieving_letter_pdf(admin_id)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    filename = f"relieving-letter-{admin.emp_id or admin_id}.pdf"
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 @hr.route("/mark-exit", methods=["POST"])
 @jwt_required()
 @hr_required
@@ -1379,23 +1586,45 @@ def mark_employee_exit():
     data = request.get_json() or {}
 
     email = data.get("employee_email")
-    exit_type = data.get("exit_type")
-    exit_reason = data.get("exit_reason")
+    exit_type = parse_exit_type(data.get("exit_type"))
+    exit_reason = (data.get("exit_reason") or "").strip()
     exit_date_str = data.get("exit_date")
+    last_working_day_str = data.get("last_working_day") or exit_date_str
+    resignation_date_str = data.get("resignation_date")
+    notice_shortfall_days = data.get("notice_shortfall_days", 0)
+    force_override = bool(data.get("force_override"))
+    force_override_reason = (data.get("force_override_reason") or "").strip()
 
-    if not email or not exit_type or not exit_date_str:
+    if not email or not exit_date_str:
         return jsonify({
             "success": False,
-            "message": "employee_email, exit_type and exit_date are required"
+            "message": "employee_email and exit_date are required"
         }), 400
+
+    if not exit_reason:
+        return jsonify({
+            "success": False,
+            "message": "exit_reason is required"
+        }), 400
+
+    exit_date, exit_date_err = parse_iso_date(exit_date_str, "exit_date")
+    if exit_date_err:
+        return jsonify({"success": False, "message": exit_date_err}), 400
+
+    last_working_day, lwd_err = parse_iso_date(last_working_day_str, "last_working_day")
+    if lwd_err:
+        return jsonify({"success": False, "message": lwd_err}), 400
+
+    resignation_date = None
+    if resignation_date_str:
+        resignation_date, res_date_err = parse_iso_date(resignation_date_str, "resignation_date")
+        if res_date_err:
+            return jsonify({"success": False, "message": res_date_err}), 400
 
     try:
-        exit_date = datetime.fromisoformat(exit_date_str).date()
-    except ValueError:
-        return jsonify({
-            "success": False,
-            "message": "Invalid exit_date format (YYYY-MM-DD)"
-        }), 400
+        notice_shortfall_days = int(notice_shortfall_days or 0)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "notice_shortfall_days must be a number"}), 400
 
     admin = Admin.query.filter_by(email=email).first()
     if not admin:
@@ -1404,53 +1633,38 @@ def mark_employee_exit():
             "message": "Employee not found"
         }), 404
 
-    if admin.is_exited:
-        return jsonify({
-            "success": False,
-            "message": "Employee already marked as exited"
-        }), 409
+    if resignation_date is None:
+        from .offboarding_service import get_latest_resignation
+        res = get_latest_resignation(admin.id)
+        if res and res.resignation_date:
+            resignation_date = res.resignation_date
 
     try:
-        # --------------------------------------------------
-        # MARK EXIT (current state)
-        # --------------------------------------------------
-        admin.is_active = False
-        admin.is_exited = True
-
-        # --------------------------------------------------
-        # EXIT AUDIT/HISTORY (Option B)
-        # --------------------------------------------------
         hr_email = get_jwt().get("email")
-        exit_row = EmployeeExitHistory(
-            admin_id=admin.id,
+        ok, message, payload = execute_employee_exit(
+            admin,
+            exit_type=exit_type,
             exit_date=exit_date,
-            exit_type=str(exit_type)[:30] if exit_type else None,
+            last_working_day=last_working_day,
             exit_reason=exit_reason,
-            created_by=hr_email,
+            notice_shortfall_days=notice_shortfall_days,
+            resignation_date=resignation_date,
+            hr_email=hr_email,
+            force_override=force_override,
+            force_override_reason=force_override_reason,
         )
-        db.session.add(exit_row)
-
-        # Keep Admin fields as a "latest exit" cache (backward compatible)
-        admin.exit_date = exit_date
-        admin.exit_type = str(exit_type)[:30] if exit_type else None
-        admin.exit_reason = exit_reason
-
-        # --------------------------------------------------
-        # AUDIT LOG
-        # --------------------------------------------------
-        audit = AuditLog(
-            action="EMPLOYEE_EXITED",
-            performed_by=hr_email,
-            target_email=admin.email
-        )
-        db.session.add(audit)
+        if not ok:
+            status = 409 if payload else 400
+            body = {"success": False, "message": message}
+            if payload:
+                body["offboarding"] = payload
+            return jsonify(body), status
 
         db.session.commit()
-
         return jsonify({
             "success": True,
-            "message": "Employee marked as exited successfully",
-            "employee_id": admin.id
+            "message": message,
+            **(payload or {}),
         }), 200
 
     except Exception as e:
@@ -1482,6 +1696,18 @@ def rejoin_archived_employee(admin_id):
             }
         ), 409
 
+    from .exit_interview_service import serialize_rehire_policy
+
+    policy = serialize_rehire_policy(admin_id)
+    if not policy.get("can_rejoin_now"):
+        return jsonify(
+            {
+                "success": False,
+                "message": policy.get("rehire_block_reason") or "Employee is not eligible for rehire yet",
+                "rehire_policy": policy,
+            }
+        ), 409
+
     try:
         hr_email = get_jwt().get("email")
         admin.is_exited = False
@@ -1489,6 +1715,7 @@ def rejoin_archived_employee(admin_id):
         admin.exit_date = None
         admin.exit_type = None
         admin.exit_reason = None
+        admin.exit_login_until = None
 
         db.session.add(
             AuditLog(
@@ -1551,8 +1778,12 @@ def employee_archive_list():
         for (emp, exit_row) in exited_employees:
             effective_exit_date = (exit_row.exit_date if exit_row else emp.exit_date)
             effective_exit_type = (exit_row.exit_type if exit_row else emp.exit_type)
+            from .exit_interview_service import serialize_rehire_policy
+            from .offboarding_service import get_latest_fnf_status
+
             employees.append({
                 "admin_id": emp.id,
+                "id": emp.id,
                 "name": emp.first_name,
                 "email": emp.email,
                 "mobile": emp.mobile,
@@ -1560,7 +1791,9 @@ def employee_archive_list():
                 "circle": emp.circle,
                 "emp_type": emp.emp_type,
                 "exit_date": effective_exit_date.isoformat() if effective_exit_date else None,
-                "exit_type": effective_exit_type
+                "exit_type": effective_exit_type,
+                "fnf_status": get_latest_fnf_status(emp.id) or "none",
+                "rehire_policy": serialize_rehire_policy(emp.id),
             })
 
         return jsonify({
@@ -1599,8 +1832,13 @@ def get_employee_exit_history(admin_id):
                 {
                     "id": r.id,
                     "exit_date": r.exit_date.isoformat() if r.exit_date else None,
+                    "last_working_day": r.last_working_day.isoformat() if getattr(r, "last_working_day", None) else None,
+                    "resignation_date": r.resignation_date_snapshot.isoformat() if getattr(r, "resignation_date_snapshot", None) else None,
+                    "notice_shortfall_days": getattr(r, "notice_shortfall_days", None),
                     "exit_type": r.exit_type,
                     "exit_reason": r.exit_reason,
+                    "force_override": bool(getattr(r, "force_override", False)),
+                    "force_override_reason": getattr(r, "force_override_reason", None),
                     "created_by": r.created_by,
                     "created_at": isoformat_api(getattr(r, "created_at", None)),
                 }
@@ -1744,6 +1982,18 @@ def get_archived_employee_profile(employee_id):
         "created_at": isoformat_api(q.created_at)
     } for q in admin.queries]
 
+    from .exit_interview_service import serialize_rehire_policy
+    from .offboarding_service import get_latest_fnf_status
+    from .models.exit_interview import ExitInterview
+
+    ei_row = ExitInterview.query.filter_by(admin_id=admin.id).first()
+    exit_history_rows = (
+        EmployeeExitHistory.query.filter_by(admin_id=admin.id)
+        .order_by(EmployeeExitHistory.exit_date.desc(), EmployeeExitHistory.id.desc())
+        .limit(20)
+        .all()
+    )
+
     return jsonify({
         "success": True,
         "employee": {
@@ -1757,7 +2007,23 @@ def get_archived_employee_profile(employee_id):
             "leaves": leaves,
             "assets": assets,
             "performance": performance,
-            "queries": queries
+            "queries": queries,
+            "fnf_status": get_latest_fnf_status(admin.id) or "none",
+            "rehire_policy": serialize_rehire_policy(admin.id),
+            "exit_interview": ei_row.to_dict() if ei_row else None,
+            "exit_history": [
+                {
+                    "id": r.id,
+                    "exit_date": r.exit_date.isoformat() if r.exit_date else None,
+                    "last_working_day": r.last_working_day.isoformat() if getattr(r, "last_working_day", None) else None,
+                    "exit_type": r.exit_type,
+                    "exit_reason": r.exit_reason,
+                    "notice_shortfall_days": getattr(r, "notice_shortfall_days", None),
+                    "created_by": r.created_by,
+                    "created_at": isoformat_api(getattr(r, "created_at", None)),
+                }
+                for r in exit_history_rows
+            ],
         }
     }), 200
 
@@ -2962,7 +3228,7 @@ def update_leave_application_by_hr(leave_id):
         "leave_balance": {
             "privilege_leave_balance": _round_leave_value(leave_balance.privilege_leave_balance),
             "casual_leave_balance": _round_leave_value(leave_balance.casual_leave_balance),
-            "compensatory_leave_balance": _round_leave_value(leave_balance.compensatory_leave_balance),
+            "compensatory_leave_balance": _round_leave_value(get_effective_comp_balance(admin.id)),
         },
     }), 200
 

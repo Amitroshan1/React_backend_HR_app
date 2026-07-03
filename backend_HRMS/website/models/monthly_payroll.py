@@ -40,6 +40,26 @@ class MonthlyPayroll(db.Model):
     epf_final = db.Column(db.Float, nullable=True)
     esic_final = db.Column(db.Float, nullable=True)
     ptax_final = db.Column(db.Float, nullable=True)
+    lwf_computed = db.Column(db.Float, nullable=True)
+    lwf_final = db.Column(db.Float, nullable=True)
+
+    arrears_gross_computed = db.Column(db.Float, nullable=True)
+    arrears_gross_final = db.Column(db.Float, nullable=True)
+
+    leave_encashment_computed = db.Column(db.Float, nullable=True)
+    leave_encashment_final = db.Column(db.Float, nullable=True)
+    loan_recovery_computed = db.Column(db.Float, nullable=True)
+    loan_recovery_final = db.Column(db.Float, nullable=True)
+
+    reimbursement_computed = db.Column(db.Float, nullable=True)
+    reimbursement_final = db.Column(db.Float, nullable=True)
+
+    statutory_bonus_computed = db.Column(db.Float, nullable=True)
+    statutory_bonus_final = db.Column(db.Float, nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default="draft")
+    status_changed_at = db.Column(db.DateTime, nullable=True)
+    status_changed_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
 
     deductions_total_final = db.Column(db.Float, nullable=True)
     net_salary_final = db.Column(db.Float, nullable=True)
@@ -47,11 +67,29 @@ class MonthlyPayroll(db.Model):
     created_at = db.Column(db.DateTime, nullable=True, default=utc_now)
     updated_at = db.Column(db.DateTime, nullable=True, default=utc_now, onupdate=utc_now)
 
-    admin = db.relationship("Admin", back_populates="payroll_records")
+    admin = db.relationship(
+        "Admin",
+        foreign_keys=[admin_id],
+        back_populates="payroll_records",
+    )
+    status_changed_by = db.relationship(
+        "Admin",
+        foreign_keys=[status_changed_by_admin_id],
+    )
 
     __table_args__ = (
         db.UniqueConstraint("admin_id", "month_num", "year", name="uq_payroll_admin_month_year"),
     )
+
+    def total_gross_amount(self) -> float:
+        return round(
+            float(self.gross_salary_for_month or 0)
+            + float(self.arrears_gross_final or 0)
+            + float(self.leave_encashment_final or 0)
+            + float(self.reimbursement_final or 0)
+            + float(self.statutory_bonus_final or 0),
+            2,
+        )
 
     def to_dict(self):
         return {
@@ -73,6 +111,18 @@ class MonthlyPayroll(db.Model):
             "epf_final": self.epf_final,
             "esic_final": self.esic_final,
             "ptax_final": self.ptax_final,
+            "lwf_computed": self.lwf_computed,
+            "lwf_final": self.lwf_final,
+            "arrears_gross_computed": self.arrears_gross_computed,
+            "arrears_gross_final": self.arrears_gross_final,
+            "leave_encashment_final": self.leave_encashment_final,
+            "loan_recovery_final": self.loan_recovery_final,
+            "reimbursement_final": self.reimbursement_final,
+            "statutory_bonus_final": self.statutory_bonus_final,
+            "status": (self.status or "draft"),
+            "status_changed_at": isoformat_api(self.status_changed_at),
+            "status_changed_by_admin_id": self.status_changed_by_admin_id,
+            "total_gross_final": self.total_gross_amount(),
             "deductions_total_final": self.deductions_total_final,
             "net_salary_final": self.net_salary_final,
             "created_at": isoformat_api(self.created_at),

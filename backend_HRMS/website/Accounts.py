@@ -12,6 +12,7 @@ from datetime import datetime,date,timedelta
 from .datetime_utils import utc_now, isoformat_api
 from zoneinfo import ZoneInfo
 import calendar
+import re
 from .email import asset_email,update_asset_email
 from .expense_utils import generate_expense_claim_excel
 from .utility import (
@@ -42,6 +43,27 @@ from .expense_utils import claim_attach_storage_name
 from .models.employee_accounts import EmployeeAccounts
 from .models.ctc_breakup import CTCBreakup
 from .models.monthly_payroll import MonthlyPayroll
+from .compliance_export_service import (
+    build_esic_statement,
+    build_form_24q_export,
+    build_pf_ecr_export,
+    build_pt_summary,
+    get_pt_remittance_calendar,
+)
+from .payroll_lifecycle_service import (
+    active_loans_for_admin,
+    apply_loan_recovery_after_payroll,
+    build_bank_payment_file,
+    list_fnf_settlements,
+    preview_fnf_settlement,
+    preview_leave_encashment,
+    save_fnf_settlement,
+    total_loan_emi_for_month,
+    update_fnf_settlement_status,
+)
+from . import payroll_governance_service as payroll_gov
+from .models.employee_salary_loan import EmployeeSalaryLoan
+from .models.fnf_settlement import FnfSettlement
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
@@ -301,15 +323,79 @@ def _prorate_earnings_to_gross(basic, hra, other, target_gross):
     return b2, h2, o2
 
 
+def _prorate_earning_heads_to_gross(
+    *,
+    basic,
+    da,
+    hra,
+    special=0,
+    conveyance=0,
+    medical=0,
+    lta=0,
+    other_fallback=0,
+    target_gross,
+):
+    """Scale monthly earning heads so they sum to prorated payroll gross."""
+    heads = {
+        "basic": max(0.0, float(basic or 0)),
+        "da": max(0.0, float(da or 0)),
+        "hra": max(0.0, float(hra or 0)),
+        "special": max(0.0, float(special or 0)),
+        "conveyance": max(0.0, float(conveyance or 0)),
+        "medical": max(0.0, float(medical or 0)),
+        "lta": max(0.0, float(lta or 0)),
+    }
+    if sum(heads[k] for k in ("special", "conveyance", "medical", "lta")) <= 0:
+        heads["special"] = max(0.0, float(other_fallback or 0))
+    total = sum(heads.values())
+    tg = float(target_gross or 0)
+    if tg <= 0:
+        return {k: 0.0 for k in heads}
+    if total <= 0:
+        share = round(tg / 4.0, 2)
+        return {
+            "basic": share,
+            "da": share,
+            "hra": share,
+            "special": round(tg - 3 * share, 2),
+            "conveyance": 0.0,
+            "medical": 0.0,
+            "lta": 0.0,
+        }
+    ratio = tg / total
+    scaled = {k: round(v * ratio, 2) for k, v in heads.items()}
+    diff = round(tg - sum(scaled.values()), 2)
+    scaled["special"] = round(scaled["special"] + diff, 2)
+    return scaled
+
+
 from .commands.ctc_breakup_logic import (
     DEFAULT_HRA_PCT,
     annual_ctc_from_monthly,
+    apply_allowance_caps,
     basic_pct_of_monthly_ctc,
     employer_costs_summary,
-    maharashtra_professional_tax,
     monthly_components,
+    normalize_allowance_heads,
+    pf_wage_monthly,
     reverse_ctc_breakup,
+    total_ctc_annual,
 )
+from .commands.professional_tax import (
+    professional_tax,
+    resolve_ptax_state_for_employee,
+)
+from .ctc_settings import ctc_policy_payload, load_ctc_settings, save_ctc_settings
+from . import ctc_revision_service as ctc_rev
+from .commands.arrears_logic import compute_salary_arrears, _month_range
+from .commands.lwf import lwf_employee_monthly
+from .commands.ctc_advanced_logic import (
+    employer_pf_eps_split,
+    hra_exemption_hint_old_regime,
+    resolve_is_metro_hra,
+    vpf_monthly_amount,
+)
+from .commands.payroll_logic import sum_payroll_ytd
 from .commands.payroll_logic import payroll_earnings_factor
 from .commands.tds_logic import (
     financial_year_for_date,
@@ -351,48 +437,444 @@ _CTC_RULES = {
 }
 
 
+_CTC_ALLOWANCE_FIELDS = (
+    "special_allowance",
+    "conveyance_allowance",
+    "medical_allowance",
+    "lta_allowance",
+)
+
+
+def _parse_ctc_allowances(data):
+    """Parse allowance heads from API payload; supports legacy other_allowance."""
+    policy = load_ctc_settings()
+    heads, total = normalize_allowance_heads(
+        special_allowance=_parse_amount(data.get("special_allowance")) or 0,
+        conveyance_allowance=_parse_amount(data.get("conveyance_allowance")) or 0,
+        medical_allowance=_parse_amount(data.get("medical_allowance")) or 0,
+        lta_allowance=_parse_amount(data.get("lta_allowance")) or 0,
+        other_allowance=_parse_amount(data.get("other_allowance")),
+    )
+    heads, total = apply_allowance_caps(
+        special_allowance=heads["special_allowance"],
+        conveyance_allowance=heads["conveyance_allowance"],
+        medical_allowance=heads["medical_allowance"],
+        lta_allowance=heads["lta_allowance"],
+        conveyance_cap_monthly=policy.get("conveyance_cap_monthly"),
+        medical_cap_monthly=policy.get("medical_cap_monthly"),
+    )
+    return heads, total
+
+
+def _allowances_from_ctc_row(row):
+    heads, total = normalize_allowance_heads(
+        special_allowance=getattr(row, "special_allowance", 0),
+        conveyance_allowance=getattr(row, "conveyance_allowance", 0),
+        medical_allowance=getattr(row, "medical_allowance", 0),
+        lta_allowance=getattr(row, "lta_allowance", 0),
+        other_allowance=getattr(row, "other_allowance", 0),
+    )
+    return heads, total
+
+
+def _sync_ctc_allowance_heads(row):
+    """Keep legacy other_allowance in sync with standard heads."""
+    total = (
+        float(row.special_allowance or 0)
+        + float(row.conveyance_allowance or 0)
+        + float(row.medical_allowance or 0)
+        + float(row.lta_allowance or 0)
+    )
+    if total > 0:
+        row.other_allowance = _round2(total)
+    elif row.other_allowance and float(row.other_allowance or 0) > 0:
+        if not float(row.special_allowance or 0):
+            row.special_allowance = float(row.other_allowance or 0)
+
+
+def _parse_ctc_bool(val, default=True):
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    s = str(val).strip().lower()
+    if s in ("0", "false", "no", "off"):
+        return False
+    if s in ("1", "true", "yes", "on"):
+        return True
+    return default
+
+
+def _ctc_include_flags_from_data(data):
+    policy = load_ctc_settings()
+    return (
+        _parse_ctc_bool(
+            data.get("include_pf_admin_in_ctc"),
+            policy.get("include_pf_admin_in_ctc", True),
+        ),
+        _parse_ctc_bool(
+            data.get("include_edli_in_ctc"),
+            policy.get("include_edli_in_ctc", True),
+        ),
+    )
+
+
+def _ctc_bonus_lwf_from_data(data):
+    policy = load_ctc_settings()
+    include_bonus = _parse_ctc_bool(
+        data.get("include_statutory_bonus_in_ctc"),
+        policy.get("include_statutory_bonus_in_ctc", False),
+    )
+    include_lwf = _parse_ctc_bool(
+        data.get("include_lwf_in_ctc"),
+        policy.get("include_lwf_in_ctc", False),
+    )
+    bonus_pct = float(policy.get("statutory_bonus_pct", 8.33))
+    if data.get("statutory_bonus_pct") is not None:
+        try:
+            bonus_pct = float(data.get("statutory_bonus_pct"))
+        except (TypeError, ValueError):
+            pass
+    lwf_y = float(policy.get("lwf_employer_yearly", 12.0))
+    if data.get("lwf_employer_yearly") is not None:
+        try:
+            lwf_y = float(data.get("lwf_employer_yearly"))
+        except (TypeError, ValueError):
+            pass
+    return include_bonus, include_lwf, bonus_pct, lwf_y
+
+
+def _ctc_advanced_from_data(data):
+    policy = load_ctc_settings()
+    vpf = 0.0
+    if data.get("vpf_monthly") is not None:
+        try:
+            vpf = float(data.get("vpf_monthly") or 0)
+        except (TypeError, ValueError):
+            vpf = 0.0
+    include_nps = _parse_ctc_bool(
+        data.get("include_nps_in_ctc"),
+        policy.get("include_nps_in_ctc", False),
+    )
+    nps_pct = float(policy.get("nps_employer_pct", 10.0))
+    if data.get("nps_employer_pct") is not None:
+        try:
+            nps_pct = float(data.get("nps_employer_pct"))
+        except (TypeError, ValueError):
+            pass
+    reimbursement = 0.0
+    if data.get("reimbursement_monthly") is not None:
+        try:
+            reimbursement = float(data.get("reimbursement_monthly") or 0)
+        except (TypeError, ValueError):
+            reimbursement = 0.0
+    return vpf, include_nps, nps_pct, reimbursement
+
+
+def _ctc_advanced_from_row(row):
+    policy = load_ctc_settings()
+    vpf = float(getattr(row, "vpf_monthly", None) or 0)
+    include_nps = (
+        policy.get("include_nps_in_ctc", False)
+        if getattr(row, "include_nps_in_ctc", None) is None
+        else bool(row.include_nps_in_ctc)
+    )
+    nps_pct = float(
+        getattr(row, "nps_employer_pct", None)
+        if getattr(row, "nps_employer_pct", None) is not None
+        else policy.get("nps_employer_pct", 10.0)
+    )
+    reimbursement = float(getattr(row, "reimbursement_monthly", None) or 0)
+    return vpf, include_nps, nps_pct, reimbursement
+
+
+def _resolve_metro_hra(admin_id, data=None, row=None):
+    explicit = None
+    if data and "is_metro_hra" in data:
+        val = data.get("is_metro_hra")
+        if val is not None and str(val).strip() != "":
+            explicit = _parse_ctc_bool(val, False)
+    elif row is not None and getattr(row, "is_metro_hra", None) is not None:
+        explicit = bool(row.is_metro_hra)
+    profile = EmployeeAccounts.query.filter_by(admin_id=admin_id).first() if admin_id else None
+    location = getattr(profile, "location", None) if profile else None
+    return resolve_is_metro_hra(location=location, explicit=explicit)
+
+
+def _ctc_dict_with_advanced(row: CTCBreakup) -> dict:
+    data = row.to_dict()
+    basic = float(row.basic_salary or 0)
+    da = float(row.dearness_allowance or 0)
+    if basic > 0 or da > 0:
+        include_pf, include_edli = _ctc_include_flags_from_row(row)
+        include_bonus, include_lwf, bonus_pct, lwf_y = _ctc_bonus_lwf_from_row(row)
+        _vpf, include_nps, nps_pct, _reimb = _ctc_advanced_from_row(row)
+        _, allowance_total = _allowances_from_ctc_row(row)
+        hra_pct = float(row.hra_pct if row.hra_pct is not None else 40)
+        mediclaim = float(row.mediclaim_yearly or 0)
+        employer_kw = dict(
+            include_pf_admin_in_ctc=include_pf,
+            include_edli_in_ctc=include_edli,
+            include_statutory_bonus_in_ctc=include_bonus,
+            statutory_bonus_pct=bonus_pct,
+            include_lwf_in_ctc=include_lwf,
+            lwf_employer_yearly_amount=lwf_y,
+            include_nps_in_ctc=include_nps,
+            nps_employer_pct_of_basic=nps_pct,
+        )
+        _b, _da, _hra, _o, gross = monthly_components(
+            basic, da, hra_pct, allowance_total, apply_floor=True, mediclaim_yearly=mediclaim,
+            **{k: v for k, v in employer_kw.items() if not k.startswith("include_nps") and not k.startswith("nps_")},
+        )
+        costs = employer_costs_summary(basic, gross, mediclaim, da, **employer_kw)
+        data.update(
+            {
+                "nps_employer_yearly": costs.get("nps_employer_yearly"),
+                "nps_employer_monthly": costs.get("nps_employer_monthly"),
+                "eps_contribution_yearly": costs.get("eps_contribution_yearly"),
+                "eps_contribution_monthly": costs.get("eps_contribution_monthly"),
+                "epf_er_contribution_yearly": costs.get("epf_er_contribution_yearly"),
+                "epf_er_contribution_monthly": costs.get("epf_er_contribution_monthly"),
+            }
+        )
+    data["is_metro_hra_resolved"] = _resolve_metro_hra(row.admin_id, row=row)
+    return data
+
+
+def _ctc_include_flags_from_row(row):
+    policy = load_ctc_settings()
+    return (
+        True if getattr(row, "include_pf_admin_in_ctc", None) is None else bool(row.include_pf_admin_in_ctc),
+        True if getattr(row, "include_edli_in_ctc", None) is None else bool(row.include_edli_in_ctc),
+    )
+
+
+def _ctc_bonus_lwf_from_row(row):
+    policy = load_ctc_settings()
+    include_bonus = (
+        policy.get("include_statutory_bonus_in_ctc", False)
+        if getattr(row, "include_statutory_bonus_in_ctc", None) is None
+        else bool(row.include_statutory_bonus_in_ctc)
+    )
+    include_lwf = (
+        policy.get("include_lwf_in_ctc", False)
+        if getattr(row, "include_lwf_in_ctc", None) is None
+        else bool(row.include_lwf_in_ctc)
+    )
+    return include_bonus, include_lwf, float(policy.get("statutory_bonus_pct", 8.33)), float(
+        policy.get("lwf_employer_yearly", 12.0)
+    )
+
+
+def _resolve_ptax_state(admin_id, data=None, row=None):
+    policy = load_ctc_settings()
+    profile = EmployeeAccounts.query.filter_by(admin_id=admin_id).first()
+    explicit = None
+    if data and data.get("ptax_state"):
+        explicit = data.get("ptax_state")
+    elif row and getattr(row, "ptax_state", None):
+        explicit = row.ptax_state
+    return resolve_ptax_state_for_employee(
+        explicit_state=explicit,
+        saved_state=getattr(row, "ptax_state", None) if row else None,
+        location=getattr(profile, "location", None) if profile else None,
+        default_state=policy.get("default_ptax_state", "MH"),
+    )
+
+
+def _resolve_employee_gender(admin_id, data=None):
+    if data:
+        raw = data.get("gender")
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    emp = Employee.query.filter_by(admin_id=admin_id).first()
+    if emp and getattr(emp, "gender", None):
+        g = str(emp.gender).strip()
+        return g or None
+    return None
+
+
+def _hra_bounds():
+    policy = load_ctc_settings()
+    return (
+        float(policy.get("hra_min_pct", _CTC_RULES["hra"]["min_pct"])),
+        float(policy.get("hra_max_pct", _CTC_RULES["hra"]["max_pct"])),
+    )
+
+
+def _apply_employer_costs_to_row(row, costs):
+    row.gratuity_yearly = costs.get("gratuity_yearly")
+    row.gratuity_monthly = costs.get("gratuity_monthly")
+    row.employer_pf_yearly = costs.get("employer_pf_yearly")
+    row.employer_pf_monthly = costs.get("employer_pf_monthly")
+    row.pf_admin_yearly = costs.get("pf_admin_yearly")
+    row.pf_admin_monthly = costs.get("pf_admin_monthly")
+    row.edli_yearly = costs.get("edli_yearly")
+    row.edli_monthly = costs.get("edli_monthly")
+    row.statutory_bonus_yearly = costs.get("statutory_bonus_yearly")
+    row.statutory_bonus_monthly = costs.get("statutory_bonus_monthly")
+    row.lwf_employer_yearly = costs.get("lwf_employer_yearly")
+    row.employer_esic_yearly = costs.get("employer_esic_yearly")
+    row.employer_esic_monthly = costs.get("employer_esic_monthly")
+
+
+def _apply_payroll_computed_result(row, result, *, overwrite_finals=True):
+    row.ctc_gross_salary = result["ctc_gross_salary"]
+    row.calendar_days = result["calendar_days"]
+    row.one_day_salary = result["one_day_salary"]
+    row.actual_working_days = result["actual_working_days"]
+    row.gross_salary_for_month = result["gross_salary_for_month"]
+    row.epf_computed = result["epf_computed"]
+    row.esic_computed = result["esic_computed"]
+    row.ptax_computed = result["ptax_computed"]
+    row.lwf_computed = result.get("lwf_computed", 0)
+    loan_emi = total_loan_emi_for_month(row.admin_id)
+    row.loan_recovery_computed = loan_emi
+    reimb = float(result.get("reimbursement_computed") or 0)
+    row.reimbursement_computed = reimb
+    if overwrite_finals:
+        row.epf_final = result["epf_computed"]
+        row.esic_final = result["esic_computed"]
+        row.ptax_final = result["ptax_computed"]
+        row.lwf_final = result.get("lwf_computed", 0)
+        row.loan_recovery_final = loan_emi
+        row.reimbursement_final = reimb
+    if row.arrears_gross_final is None:
+        row.arrears_gross_final = 0.0
+    if row.arrears_gross_computed is None:
+        row.arrears_gross_computed = 0.0
+    if row.leave_encashment_final is None:
+        row.leave_encashment_final = 0.0
+    if row.leave_encashment_computed is None:
+        row.leave_encashment_computed = 0.0
+    if row.reimbursement_final is None:
+        row.reimbursement_final = 0.0
+    if row.reimbursement_computed is None:
+        row.reimbursement_computed = 0.0
+    if row.statutory_bonus_final is None:
+        row.statutory_bonus_final = 0.0
+    if row.statutory_bonus_computed is None:
+        row.statutory_bonus_computed = 0.0
+    if not getattr(row, "status", None):
+        row.status = "draft"
+
+
+def _payroll_ytd_for_employee(admin_id, year, month_num):
+    rows = MonthlyPayroll.query.filter_by(admin_id=admin_id).all()
+    return sum_payroll_ytd(rows, through_year=int(year), through_month=int(month_num))
+
+
+def _ctc_arrears_preview(admin_id, effective_from, through_year, through_month, new_gross=None):
+    old_snap = ctc_rev.previous_revision_before(admin_id, effective_from)
+    ctc_row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    old_gross = float((old_snap or {}).get("gross_salary") or 0)
+    if old_gross <= 0 and ctc_row:
+        old_gross = float(ctc_row.gross_salary or 0)
+    new_g = float(new_gross if new_gross is not None else (ctc_row.gross_salary if ctc_row else 0))
+
+    payroll_days = {}
+    cal_days = {}
+    for y, m in _month_range(
+        effective_from, through_year, through_month
+    ):
+        pr = MonthlyPayroll.query.filter_by(
+            admin_id=admin_id, year=str(y), month_num=m
+        ).first()
+        if pr:
+            payroll_days[(y, m)] = float(pr.actual_working_days or 0)
+            cal_days[(y, m)] = int(pr.calendar_days or calendar.monthrange(y, m)[1])
+
+    return compute_salary_arrears(
+        effective_from=effective_from,
+        through_year=through_year,
+        through_month=through_month,
+        old_gross_monthly=old_gross,
+        new_gross_monthly=new_g,
+        payroll_days_by_month=payroll_days,
+        calendar_days_by_month=cal_days,
+    )
+
+
 def _ctc_calculate(
     *,
     basic_salary,
-    other_allowance,
+    dearness_allowance=0,
+    other_allowance=0,
+    special_allowance=0,
+    conveyance_allowance=0,
+    medical_allowance=0,
+    lta_allowance=0,
     hra_pct,
     epf_mode,
     epf_pct,
     month,
     gender,
     mediclaim_yearly=0,
+    variable_ctc_annual=0,
+    include_pf_admin_in_ctc=True,
+    include_edli_in_ctc=True,
+    include_statutory_bonus_in_ctc=False,
+    statutory_bonus_pct=8.33,
+    include_lwf_in_ctc=False,
+    lwf_employer_yearly_amount=12.0,
+    include_nps_in_ctc=False,
+    nps_employer_pct=10.0,
+    vpf_monthly=0,
+    reimbursement_monthly=0,
+    is_metro_hra=False,
+    ptax_state="MH",
 ):
     """
-    Implements rules exactly as discussed:
-    - HRA: between 5% and 50% of (basic + DA)
-    - EPF: if basic < 15000 => 12% mandatory; else choose min 1800 OR percentage
-    - PTAX: Maharashtra slabs on monthly gross, gender, and February
-    - ESIC: if gross < 21001 => employee 0.75% and employer 3.25%; else 0
-    - Gross = basic + hra_amount + other_allowance
-    - Net = Gross - (EPF + PTAX + ESIC_employee)
+    Indian CTC breakup:
+    - HRA: 5–50% of (Basic + DA)
+    - EPF: on Basic + DA wage (+ optional VPF)
+    - Gross = Basic + DA + HRA + allowance heads
+    - Fixed annual CTC from monthly gross + employer costs
+    - Total annual CTC = fixed + variable pay
     """
-    other = float(other_allowance or 0)
-
-    # HRA
-    hra_pct_val = None if hra_pct is None or str(hra_pct).strip() == "" else float(hra_pct)
-    if hra_pct_val is None:
-        hra_pct_val = _CTC_RULES["hra"]["min_pct"]
-    if hra_pct_val < _CTC_RULES["hra"]["min_pct"] or hra_pct_val > _CTC_RULES["hra"]["max_pct"]:
-        raise ValueError(f"HRA percentage must be between {_CTC_RULES['hra']['min_pct']} and {_CTC_RULES['hra']['max_pct']}")
-
-    mediclaim = max(0.0, float(mediclaim_yearly or 0))
-    basic, hra_amount, other, gross = monthly_components(
-        float(basic_salary or 0),
-        hra_pct_val,
-        other,
-        apply_floor=True,
-        mediclaim_yearly=mediclaim,
+    heads, allowance_total = normalize_allowance_heads(
+        special_allowance=special_allowance,
+        conveyance_allowance=conveyance_allowance,
+        medical_allowance=medical_allowance,
+        lta_allowance=lta_allowance,
+        other_allowance=other_allowance,
     )
 
-    # EPF
+    hra_pct_val = None if hra_pct is None or str(hra_pct).strip() == "" else float(hra_pct)
+    hra_min, hra_max = _hra_bounds()
+    if hra_pct_val is None:
+        hra_pct_val = hra_min
+    if hra_pct_val < hra_min or hra_pct_val > hra_max:
+        raise ValueError(f"HRA percentage must be between {hra_min} and {hra_max}")
+
+    mediclaim = max(0.0, float(mediclaim_yearly or 0))
+    da = max(0.0, float(dearness_allowance or 0))
+    employer_kw = dict(
+        include_pf_admin_in_ctc=include_pf_admin_in_ctc,
+        include_edli_in_ctc=include_edli_in_ctc,
+        include_statutory_bonus_in_ctc=include_statutory_bonus_in_ctc,
+        statutory_bonus_pct=statutory_bonus_pct,
+        include_lwf_in_ctc=include_lwf_in_ctc,
+        lwf_employer_yearly_amount=lwf_employer_yearly_amount,
+        include_nps_in_ctc=include_nps_in_ctc,
+        nps_employer_pct_of_basic=nps_employer_pct,
+    )
+    component_kw = {k: v for k, v in employer_kw.items() if not k.startswith("include_nps") and not k.startswith("nps_")}
+    basic, da, hra_amount, allowance_total, gross = monthly_components(
+        float(basic_salary or 0),
+        da,
+        hra_pct_val,
+        allowance_total,
+        apply_floor=True,
+        mediclaim_yearly=mediclaim,
+        **component_kw,
+    )
+    pf_wage = pf_wage_monthly(basic, da)
+
+    # EPF on Basic + DA
     epf_amount = 0.0
-    if basic < _CTC_RULES["epf"]["basic_threshold"]:
-        epf_amount = basic * (_CTC_RULES["epf"]["mandatory_pct"] / 100.0)
+    if pf_wage < _CTC_RULES["epf"]["basic_threshold"]:
+        epf_amount = pf_wage * (_CTC_RULES["epf"]["mandatory_pct"] / 100.0)
         epf_mode_effective = "mandatory_12pct"
         epf_pct_effective = _CTC_RULES["epf"]["mandatory_pct"]
     else:
@@ -403,7 +885,7 @@ def _ctc_calculate(
             pct = None if epf_pct is None or str(epf_pct).strip() == "" else float(epf_pct)
             if pct is None or pct <= 0:
                 raise ValueError("EPF percentage is required when EPF mode is percentage")
-            epf_amount = basic * (pct / 100.0)
+            epf_amount = pf_wage * (pct / 100.0)
             epf_mode_effective = "percent"
             epf_pct_effective = pct
         else:
@@ -411,41 +893,94 @@ def _ctc_calculate(
             epf_mode_effective = "min"
             epf_pct_effective = None
 
-    # PTAX (Maharashtra — monthly gross salary)
-    ptax_amount = maharashtra_professional_tax(gross, gender, month)
+    epf_statutory = epf_amount
+    vpf_amount = vpf_monthly_amount(
+        basic_salary=basic,
+        dearness_allowance=da,
+        vpf_monthly=vpf_monthly,
+    )
+    epf_amount = epf_statutory + vpf_amount
+    eps_split = employer_pf_eps_split(basic_salary=basic, dearness_allowance=da)
+    hra_hint = hra_exemption_hint_old_regime(
+        is_metro=bool(is_metro_hra),
+        basic_monthly=basic,
+        hra_monthly=hra_amount,
+    )
 
-    # ESIC
+    ptax_amount = professional_tax(gross, gender, month, state_code=ptax_state)
+
     esic_employee_amount = 0.0
     esic_employer_amount = 0.0
-    if gross < _CTC_RULES["esic"]["gross_threshold"]:
+    esic_threshold = float(_CTC_RULES["esic"]["gross_threshold"])
+    esic_applicable = gross < esic_threshold
+    if esic_applicable:
         esic_employee_amount = gross * (_CTC_RULES["esic"]["employee_pct"] / 100.0)
         esic_employer_amount = gross * (_CTC_RULES["esic"]["employer_pct"] / 100.0)
 
     deductions = epf_amount + ptax_amount + esic_employee_amount
-    net = gross - deductions
-    employer_costs = employer_costs_summary(basic, gross, mediclaim)
-    annual_ctc_total = annual_ctc_from_monthly(
-        basic, hra_pct_val, other, mediclaim
+    policy = load_ctc_settings()
+    lwf_amount = lwf_employee_monthly(
+        ptax_state,
+        month,
+        policy_employee_yearly=float(policy.get("lwf_employee_yearly") or 0),
     )
+    deductions += lwf_amount
+    net = gross - deductions
+    employer_costs = employer_costs_summary(basic, gross, mediclaim, da, **employer_kw)
+    fixed_ctc = annual_ctc_from_monthly(
+        basic,
+        hra_pct_val,
+        allowance_total,
+        mediclaim,
+        dearness_allowance=da,
+        **employer_kw,
+    )
+    variable = max(0.0, float(variable_ctc_annual or 0))
 
     return {
         "inputs": {
             "basic_salary": _round2(basic),
+            "dearness_allowance": _round2(da),
+            "basic_wage": _round2(pf_wage),
             "hra_pct": _round2(hra_pct_val),
-            "other_allowance": _round2(other),
+            "special_allowance": _round2(heads["special_allowance"]),
+            "conveyance_allowance": _round2(heads["conveyance_allowance"]),
+            "medical_allowance": _round2(heads["medical_allowance"]),
+            "lta_allowance": _round2(heads["lta_allowance"]),
+            "other_allowance": _round2(allowance_total),
             "epf_mode": epf_mode_effective,
             "epf_pct": _round2(epf_pct_effective) if epf_pct_effective is not None else None,
             "month": month,
             "gender": gender,
             "mediclaim_yearly": _round2(mediclaim),
+            "variable_ctc_annual": _round2(variable),
+            "include_pf_admin_in_ctc": include_pf_admin_in_ctc,
+            "include_edli_in_ctc": include_edli_in_ctc,
+            "include_statutory_bonus_in_ctc": include_statutory_bonus_in_ctc,
+            "include_lwf_in_ctc": include_lwf_in_ctc,
+            "include_nps_in_ctc": include_nps_in_ctc,
+            "nps_employer_pct": nps_employer_pct,
+            "vpf_monthly": _round2(vpf_amount),
+            "reimbursement_monthly": _round2(reimbursement_monthly),
+            "is_metro_hra": bool(is_metro_hra),
+            "ptax_state": ptax_state,
         },
         "computed": {
             "basic_pct_of_monthly_ctc": _round2(
-                basic_pct_of_monthly_ctc(basic, hra_pct_val, other, mediclaim)
+                basic_pct_of_monthly_ctc(
+                    basic, da, hra_pct_val, allowance_total, mediclaim,
+                    **component_kw,
+                )
             ),
             "hra_amount": _round2(hra_amount),
             "epf_amount": _round2(epf_amount),
+            "epf_statutory_amount": _round2(epf_statutory),
+            "vpf_amount": _round2(vpf_amount),
             "ptax_amount": _round2(ptax_amount),
+            "lwf_amount": _round2(lwf_amount),
+            "esic_applicable": esic_applicable,
+            "esic_wage_ceiling": esic_threshold,
+            "ptax_gender_unknown": not bool(gender and str(gender).strip()),
             "esic_employee_amount": _round2(esic_employee_amount),
             "esic_employer_amount": _round2(esic_employer_amount),
             "gross_salary": _round2(gross),
@@ -457,8 +992,34 @@ def _ctc_calculate(
             "employer_pf_monthly": employer_costs["employer_pf_monthly"],
             "employer_esic_yearly": employer_costs["employer_esic_yearly"],
             "employer_esic_monthly": employer_costs["employer_esic_monthly"],
+            "pf_admin_yearly": employer_costs["pf_admin_yearly"],
+            "pf_admin_monthly": employer_costs["pf_admin_monthly"],
+            "edli_yearly": employer_costs["edli_yearly"],
+            "edli_monthly": employer_costs["edli_monthly"],
+            "statutory_bonus_yearly": employer_costs["statutory_bonus_yearly"],
+            "statutory_bonus_monthly": employer_costs["statutory_bonus_monthly"],
+            "lwf_employer_yearly": employer_costs["lwf_employer_yearly"],
+            "lwf_employer_monthly": employer_costs["lwf_employer_monthly"],
+            "nps_employer_yearly": employer_costs.get("nps_employer_yearly", 0),
+            "nps_employer_monthly": employer_costs.get("nps_employer_monthly", 0),
+            "eps_contribution_monthly": employer_costs.get("eps_contribution_monthly", 0),
+            "eps_contribution_yearly": employer_costs.get("eps_contribution_yearly", 0),
+            "epf_er_contribution_monthly": employer_costs.get("epf_er_contribution_monthly", 0),
+            "epf_er_contribution_yearly": employer_costs.get("epf_er_contribution_yearly", 0),
+            "reimbursement_monthly": _round2(reimbursement_monthly),
+            "hra_exemption_hint": hra_hint,
             "mediclaim_yearly": employer_costs["mediclaim_yearly"],
-            "annual_ctc_total": _round2(annual_ctc_total),
+            "include_pf_admin_in_ctc": include_pf_admin_in_ctc,
+            "include_edli_in_ctc": include_edli_in_ctc,
+            "include_statutory_bonus_in_ctc": include_statutory_bonus_in_ctc,
+            "include_lwf_in_ctc": include_lwf_in_ctc,
+            "include_nps_in_ctc": include_nps_in_ctc,
+            "is_metro_hra": bool(is_metro_hra),
+            "ptax_state": ptax_state,
+            "annual_ctc_total": _round2(fixed_ctc),
+            "fixed_ctc_annual": _round2(fixed_ctc),
+            "variable_ctc_annual": _round2(variable),
+            "total_ctc_annual": _round2(total_ctc_annual(fixed_ctc, variable)),
         },
         "rules": _CTC_RULES,
     }
@@ -467,27 +1028,72 @@ def _ctc_calculate(
 def _ctc_reverse_from_annual(
     *,
     annual_ctc,
-    other_allowance,
+    dearness_allowance=0,
+    other_allowance=0,
+    special_allowance=0,
+    conveyance_allowance=0,
+    medical_allowance=0,
+    lta_allowance=0,
     hra_pct,
     epf_mode,
     epf_pct,
     month,
     gender,
     mediclaim_yearly=0,
+    variable_ctc_annual=0,
+    include_pf_admin_in_ctc=True,
+    include_edli_in_ctc=True,
+    include_statutory_bonus_in_ctc=False,
+    statutory_bonus_pct=8.33,
+    include_lwf_in_ctc=False,
+    lwf_employer_yearly_amount=12.0,
+    include_nps_in_ctc=False,
+    nps_employer_pct=10.0,
+    vpf_monthly=0,
+    reimbursement_monthly=0,
+    is_metro_hra=False,
+    ptax_state="MH",
 ):
     """
-    Derive Basic + DA, HRA, and Other from full annual CTC including
-    employer PF, employer ESIC, mediclaim, and gratuity.
+    Derive Basic from fixed annual CTC including employer PF, ESIC, mediclaim, gratuity.
     """
-    other_for_solve = max(0.0, float(other_allowance or 0))
+    heads, allowance_total = normalize_allowance_heads(
+        special_allowance=special_allowance,
+        conveyance_allowance=conveyance_allowance,
+        medical_allowance=medical_allowance,
+        lta_allowance=lta_allowance,
+        other_allowance=other_allowance,
+    )
+    employer_kw = dict(
+        include_pf_admin_in_ctc=include_pf_admin_in_ctc,
+        include_edli_in_ctc=include_edli_in_ctc,
+        include_statutory_bonus_in_ctc=include_statutory_bonus_in_ctc,
+        statutory_bonus_pct=statutory_bonus_pct,
+        include_lwf_in_ctc=include_lwf_in_ctc,
+        lwf_employer_yearly_amount=lwf_employer_yearly_amount,
+        include_nps_in_ctc=include_nps_in_ctc,
+        nps_employer_pct_of_basic=nps_employer_pct,
+    )
     solved = reverse_ctc_breakup(
         annual_ctc,
         hra_pct,
-        other_allowance=other_for_solve,
+        allowance_total=allowance_total,
         mediclaim_yearly=mediclaim_yearly,
+        dearness_allowance=dearness_allowance,
+        variable_ctc_annual=variable_ctc_annual,
+        **employer_kw,
+        special_allowance=heads["special_allowance"],
+        conveyance_allowance=heads["conveyance_allowance"],
+        medical_allowance=heads["medical_allowance"],
+        lta_allowance=heads["lta_allowance"],
     )
     result = _ctc_calculate(
         basic_salary=solved["basic_salary"],
+        dearness_allowance=solved["dearness_allowance"],
+        special_allowance=solved["special_allowance"],
+        conveyance_allowance=solved["conveyance_allowance"],
+        medical_allowance=solved["medical_allowance"],
+        lta_allowance=solved["lta_allowance"],
         other_allowance=solved["other_allowance"],
         hra_pct=solved["hra_pct"],
         epf_mode=epf_mode,
@@ -495,15 +1101,40 @@ def _ctc_reverse_from_annual(
         month=month,
         gender=gender,
         mediclaim_yearly=mediclaim_yearly,
+        variable_ctc_annual=variable_ctc_annual,
+        ptax_state=ptax_state,
+        vpf_monthly=vpf_monthly,
+        reimbursement_monthly=reimbursement_monthly,
+        is_metro_hra=is_metro_hra,
+        include_pf_admin_in_ctc=include_pf_admin_in_ctc,
+        include_edli_in_ctc=include_edli_in_ctc,
+        include_statutory_bonus_in_ctc=include_statutory_bonus_in_ctc,
+        statutory_bonus_pct=statutory_bonus_pct,
+        include_lwf_in_ctc=include_lwf_in_ctc,
+        lwf_employer_yearly_amount=lwf_employer_yearly_amount,
+        include_nps_in_ctc=include_nps_in_ctc,
+        nps_employer_pct=nps_employer_pct,
     )
     result["computed"]["annual_ctc_total"] = _round2(solved.get("annual_ctc_computed") or 0)
+    result["computed"]["fixed_ctc_annual"] = _round2(solved.get("annual_ctc_computed") or 0)
+    result["computed"]["total_ctc_annual"] = _round2(
+        total_ctc_annual(solved.get("annual_ctc_computed"), variable_ctc_annual)
+    )
     result["computed"]["mediclaim_yearly"] = _round2(mediclaim_yearly or 0)
     result["derived"] = {
         "annual_ctc": solved["annual_ctc"],
         "annual_ctc_computed": solved.get("annual_ctc_computed"),
+        "fixed_ctc_annual": solved.get("fixed_ctc_annual"),
+        "variable_ctc_annual": solved.get("variable_ctc_annual"),
+        "total_ctc_annual": solved.get("total_ctc_annual"),
         "basic_salary": solved["basic_salary"],
+        "dearness_allowance": solved.get("dearness_allowance", 0),
         "hra_amount": solved["hra_amount"],
         "hra_pct": solved["hra_pct"],
+        "special_allowance": solved.get("special_allowance", 0),
+        "conveyance_allowance": solved.get("conveyance_allowance", 0),
+        "medical_allowance": solved.get("medical_allowance", 0),
+        "lta_allowance": solved.get("lta_allowance", 0),
         "other_allowance": solved["other_allowance"],
         "monthly_gross": solved["gross_salary"],
         "mediclaim_yearly": solved.get("mediclaim_yearly", 0),
@@ -513,18 +1144,51 @@ def _ctc_reverse_from_annual(
 
 
 def _sync_annual_ctc_computed(row):
-    """Recompute and persist final annual CTC from saved salary components."""
+    """Recompute fixed annual CTC from components (not rounded gross snapshot)."""
     basic = float(row.basic_salary or 0)
-    if basic <= 0:
+    if basic <= 0 and not float(row.dearness_allowance or 0):
         return
+    hra_pct = float(row.hra_pct if row.hra_pct is not None else 40)
+    da = float(row.dearness_allowance or 0)
+    _, allowance_total = _allowances_from_ctc_row(row)
+    mediclaim = float(row.mediclaim_yearly or 0)
+    include_pf, include_edli = _ctc_include_flags_from_row(row)
+    include_bonus, include_lwf, bonus_pct, lwf_y = _ctc_bonus_lwf_from_row(row)
+    _vpf, include_nps, nps_pct, _reimb = _ctc_advanced_from_row(row)
+    employer_kw = dict(
+        include_pf_admin_in_ctc=include_pf,
+        include_edli_in_ctc=include_edli,
+        include_statutory_bonus_in_ctc=include_bonus,
+        statutory_bonus_pct=bonus_pct,
+        include_lwf_in_ctc=include_lwf,
+        lwf_employer_yearly_amount=lwf_y,
+        include_nps_in_ctc=include_nps,
+        nps_employer_pct_of_basic=nps_pct,
+    )
+    component_kw = {
+        k: v
+        for k, v in employer_kw.items()
+        if not k.startswith("include_nps") and not k.startswith("nps_")
+    }
+    _b, _da, _hra, _o, gross = monthly_components(
+        basic,
+        da,
+        hra_pct,
+        allowance_total,
+        apply_floor=True,
+        mediclaim_yearly=mediclaim,
+        **component_kw,
+    )
     row.annual_ctc_computed = _round2(
         annual_ctc_from_monthly(
-            basic,
-            row.hra_pct if row.hra_pct is not None else 40,
-            row.other_allowance or 0,
-            row.mediclaim_yearly or 0,
+            basic, hra_pct, allowance_total, mediclaim, dearness_allowance=da,
+            **employer_kw,
         )
     )
+    row.gross_salary = _round2(gross)
+    costs = employer_costs_summary(basic, gross, mediclaim, da, **employer_kw)
+    _apply_employer_costs_to_row(row, costs)
+    _sync_ctc_allowance_heads(row)
 
 
 _EMP_ACC_STRING_FIELDS = (
@@ -1129,8 +1793,87 @@ def get_ctc_breakup(admin_id):
         db.session.commit()
     return jsonify({
         "success": True,
-        "ctc_breakup": row.to_dict() if row else None
+        "ctc_breakup": _ctc_dict_with_advanced(row) if row else None
     }), 200
+
+
+@Accounts.route("/ctc-breakup/<int:admin_id>/pdf", methods=["GET"])
+@jwt_required()
+def download_ctc_annexure_pdf(admin_id):
+    from . import ctc_annexure_service as ctc_pdf
+
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in (
+        "account", "accounts", "accountant", "hr", "human resource", "admin"
+    )
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You can only download your own CTC annexure",
+        }), 403
+
+    target_admin = Admin.query.get(admin_id)
+    if not target_admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    if not row:
+        return jsonify({"success": False, "message": "No CTC breakup on file"}), 404
+
+    try:
+        _sync_annual_ctc_computed(row)
+        db.session.commit()
+        pdf_buffer = ctc_pdf.generate_ctc_annexure_pdf(admin_id)
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    emp_no = (getattr(target_admin, "emp_id", None) or str(admin_id)).strip()
+    emp_name = (
+        getattr(target_admin, "first_name", None)
+        or getattr(target_admin, "user_name", None)
+        or "employee"
+    ).strip()
+    safe_name = re.sub(r"[^\w\-]+", "-", emp_name, flags=re.UNICODE).strip("-") or "employee"
+    filename = f"ctc-annexure-{emp_no}-{safe_name}.pdf".replace(" ", "-")
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@Accounts.route("/ctc-policy", methods=["GET", "PUT"])
+@jwt_required()
+def ctc_policy():
+    """Company-wide CTC structuring policy (Accounts / HR only for PUT)."""
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    if request.method == "GET":
+        return jsonify({"success": True, "policy": ctc_policy_payload()}), 200
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_edit = emp_type_lower in (
+        "account", "accounts", "accountant", "hr", "human resource", "admin"
+    )
+    if not can_edit:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    try:
+        saved = save_ctc_settings(data)
+        return jsonify({"success": True, "policy": {**saved, "ptax_states": ctc_policy_payload()["ptax_states"]}}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 400
 
 
 @Accounts.route("/ctc-breakup/calculate", methods=["POST"])
@@ -1172,19 +1915,42 @@ def calculate_ctc_breakup():
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
-    emp = Employee.query.filter_by(admin_id=admin_id).first()
-    gender = getattr(emp, "gender", None) if emp else None
+    gender = _resolve_employee_gender(admin_id, data=data)
 
     try:
+        heads, _allowance_total = _parse_ctc_allowances(data)
+        include_pf, include_edli = _ctc_include_flags_from_data(data)
+        include_bonus, include_lwf, bonus_pct, lwf_y = _ctc_bonus_lwf_from_data(data)
+        vpf_m, include_nps, nps_pct, reimb_m = _ctc_advanced_from_data(data)
+        is_metro = _resolve_metro_hra(admin_id, data=data)
+        ptax_state = _resolve_ptax_state(admin_id, data=data)
         result = _ctc_calculate(
             basic_salary=_parse_amount(data.get("basic_salary")) or 0,
+            dearness_allowance=_parse_amount(data.get("dearness_allowance")) or 0,
             other_allowance=_parse_amount(data.get("other_allowance")) or 0,
+            special_allowance=heads["special_allowance"],
+            conveyance_allowance=heads["conveyance_allowance"],
+            medical_allowance=heads["medical_allowance"],
+            lta_allowance=heads["lta_allowance"],
             hra_pct=data.get("hra_pct"),
             epf_mode=data.get("epf_mode"),
             epf_pct=data.get("epf_pct"),
             month=data.get("month"),
             gender=gender,
             mediclaim_yearly=_parse_amount(data.get("mediclaim_yearly")) or 0,
+            variable_ctc_annual=_parse_amount(data.get("variable_ctc_annual")) or 0,
+            include_pf_admin_in_ctc=include_pf,
+            include_edli_in_ctc=include_edli,
+            include_statutory_bonus_in_ctc=include_bonus,
+            statutory_bonus_pct=bonus_pct,
+            include_lwf_in_ctc=include_lwf,
+            lwf_employer_yearly_amount=lwf_y,
+            include_nps_in_ctc=include_nps,
+            nps_employer_pct=nps_pct,
+            vpf_monthly=vpf_m,
+            reimbursement_monthly=reimb_m,
+            is_metro_hra=is_metro,
+            ptax_state=ptax_state,
         )
         return jsonify({"success": True, "data": result}), 200
     except Exception as e:
@@ -1235,8 +2001,7 @@ def reverse_calculate_ctc_breakup():
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
-    emp = Employee.query.filter_by(admin_id=admin_id).first()
-    gender = getattr(emp, "gender", None) if emp else None
+    gender = _resolve_employee_gender(admin_id, data=data)
 
     annual_ctc = _parse_amount(data.get("annual_ctc"))
     if not annual_ctc or annual_ctc <= 0:
@@ -1246,15 +2011,39 @@ def reverse_calculate_ctc_breakup():
         }), 400
 
     try:
+        heads, _allowance_total = _parse_ctc_allowances(data)
+        include_pf, include_edli = _ctc_include_flags_from_data(data)
+        include_bonus, include_lwf, bonus_pct, lwf_y = _ctc_bonus_lwf_from_data(data)
+        vpf_m, include_nps, nps_pct, reimb_m = _ctc_advanced_from_data(data)
+        is_metro = _resolve_metro_hra(admin_id, data=data)
+        ptax_state = _resolve_ptax_state(admin_id, data=data)
         result = _ctc_reverse_from_annual(
             annual_ctc=annual_ctc,
-            other_allowance=data.get("other_allowance"),
+            dearness_allowance=_parse_amount(data.get("dearness_allowance")) or 0,
+            other_allowance=_parse_amount(data.get("other_allowance")) or 0,
+            special_allowance=heads["special_allowance"],
+            conveyance_allowance=heads["conveyance_allowance"],
+            medical_allowance=heads["medical_allowance"],
+            lta_allowance=heads["lta_allowance"],
             hra_pct=data.get("hra_pct"),
             epf_mode=data.get("epf_mode"),
             epf_pct=data.get("epf_pct"),
             month=data.get("month"),
             gender=gender,
             mediclaim_yearly=_parse_amount(data.get("mediclaim_yearly")) or 0,
+            variable_ctc_annual=_parse_amount(data.get("variable_ctc_annual")) or 0,
+            include_pf_admin_in_ctc=include_pf,
+            include_edli_in_ctc=include_edli,
+            include_statutory_bonus_in_ctc=include_bonus,
+            statutory_bonus_pct=bonus_pct,
+            include_lwf_in_ctc=include_lwf,
+            lwf_employer_yearly_amount=lwf_y,
+            include_nps_in_ctc=include_nps,
+            nps_employer_pct=nps_pct,
+            vpf_monthly=vpf_m,
+            reimbursement_monthly=reimb_m,
+            is_metro_hra=is_metro,
+            ptax_state=ptax_state,
         )
         return jsonify({"success": True, "data": result}), 200
     except Exception as e:
@@ -1308,10 +2097,16 @@ def upsert_ctc_breakup():
         db.session.add(row)
 
     try:
+        arrears_preview = None
         amount_fields = (
             "basic_salary",
+            "dearness_allowance",
             "hra",
             "hra_pct",
+            "special_allowance",
+            "conveyance_allowance",
+            "medical_allowance",
+            "lta_allowance",
             "other_allowance",
             "gross_salary",
             "net_salary",
@@ -1323,6 +2118,7 @@ def upsert_ctc_breakup():
             "deductions_total",
             "annual_ctc",
             "annual_ctc_computed",
+            "variable_ctc_annual",
             "mediclaim_yearly",
             "gratuity_yearly",
             "gratuity_monthly",
@@ -1330,6 +2126,17 @@ def upsert_ctc_breakup():
             "employer_pf_monthly",
             "employer_esic_yearly",
             "employer_esic_monthly",
+            "pf_admin_yearly",
+            "pf_admin_monthly",
+            "edli_yearly",
+            "edli_monthly",
+            "statutory_bonus_yearly",
+            "statutory_bonus_monthly",
+            "lwf_employer_yearly",
+            "lwf_employee_yearly",
+            "vpf_monthly",
+            "nps_employer_pct",
+            "reimbursement_monthly",
         )
         for field in amount_fields:
             if field in data:
@@ -1339,11 +2146,52 @@ def upsert_ctc_breakup():
             row.epf_mode = (data.get("epf_mode") or "").strip() or None
         if "ptax_month" in data:
             row.ptax_month = (data.get("ptax_month") or "").strip() or None
+        if "ptax_state" in data:
+            row.ptax_state = str(data.get("ptax_state") or "").strip().upper()[:2] or None
+        if "include_pf_admin_in_ctc" in data:
+            row.include_pf_admin_in_ctc = _parse_ctc_bool(data.get("include_pf_admin_in_ctc"), True)
+        if "include_edli_in_ctc" in data:
+            row.include_edli_in_ctc = _parse_ctc_bool(data.get("include_edli_in_ctc"), True)
+        if "include_statutory_bonus_in_ctc" in data:
+            row.include_statutory_bonus_in_ctc = _parse_ctc_bool(
+                data.get("include_statutory_bonus_in_ctc"), False
+            )
+        if "include_lwf_in_ctc" in data:
+            row.include_lwf_in_ctc = _parse_ctc_bool(data.get("include_lwf_in_ctc"), False)
+        if "include_nps_in_ctc" in data:
+            row.include_nps_in_ctc = _parse_ctc_bool(data.get("include_nps_in_ctc"), False)
+        if "is_metro_hra" in data:
+            val = data.get("is_metro_hra")
+            row.is_metro_hra = None if val is None or str(val).strip() == "" else _parse_ctc_bool(val, False)
 
+        effective_from = ctc_rev.parse_effective_from(data.get("effective_from"))
+        revision_note = (data.get("revision_note") or "").strip() or None
+
+        _sync_ctc_allowance_heads(row)
         _sync_annual_ctc_computed(row)
+
+        row.effective_from = effective_from
+        snapshot = ctc_rev.snapshot_from_row(row)
+        ctc_rev.save_ctc_revision(
+            admin_id=admin_id,
+            effective_from=effective_from,
+            snapshot=snapshot,
+            note=revision_note,
+            created_by_admin_id=admin.id,
+        )
 
         row.updated_at = datetime.now()
         db.session.commit()
+
+        arrears_preview = None
+        if data.get("include_arrears_preview"):
+            today = date.today()
+            arrears_preview = _ctc_arrears_preview(
+                admin_id,
+                effective_from,
+                today.year,
+                today.month,
+            )
     except Exception as e:
         db.session.rollback()
         return jsonify({
@@ -1351,11 +2199,100 @@ def upsert_ctc_breakup():
             "message": str(e)
         }), 500
 
-    return jsonify({
+    payload = {
         "success": True,
         "message": "CTC breakup saved",
-        "ctc_breakup": row.to_dict()
+        "ctc_breakup": row.to_dict(),
+    }
+    if arrears_preview is not None:
+        payload["arrears_preview"] = arrears_preview
+    return jsonify(payload), 200
+
+
+@Accounts.route("/ctc-breakup/revisions/<int:admin_id>", methods=["GET"])
+@jwt_required()
+def ctc_breakup_revisions(admin_id):
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    return jsonify({
+        "success": True,
+        "revisions": ctc_rev.list_ctc_revisions(admin_id),
     }), 200
+
+
+@Accounts.route("/ctc-breakup/arrears-preview", methods=["POST"])
+@jwt_required()
+def ctc_arrears_preview():
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    admin_id = data.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+        through_year = int(data.get("through_year") or date.today().year)
+        through_month = int(data.get("through_month") or date.today().month)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid parameters"}), 400
+
+    effective_from = ctc_rev.parse_effective_from(data.get("effective_from"))
+    new_gross = _parse_amount(data.get("new_gross_monthly"))
+
+    preview = _ctc_arrears_preview(
+        admin_id, effective_from, through_year, through_month, new_gross=new_gross
+    )
+    return jsonify({"success": True, "preview": preview}), 200
+
+
+@Accounts.route("/payroll/apply-arrears", methods=["POST"])
+@jwt_required()
+def payroll_apply_arrears():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    admin_id = int(data.get("admin_id"))
+    applications = data.get("applications") or []
+    if not applications:
+        return jsonify({"success": False, "message": "applications list is required"}), 400
+
+    updated = []
+    for item in applications:
+        y = int(item.get("year"))
+        m = int(item.get("month_num"))
+        amt = float(item.get("arrears_gross") or 0)
+        row = MonthlyPayroll.query.filter_by(
+            admin_id=admin_id, year=str(y), month_num=m
+        ).first()
+        if not row:
+            continue
+        row.arrears_gross_computed = amt
+        row.arrears_gross_final = amt
+        try:
+            payroll_gov.assert_payroll_editable(row)
+        except ValueError:
+            continue
+        payroll_tds.recompute_payroll_deduction_totals(row)
+        updated.append(row.to_dict())
+
+    db.session.commit()
+    return jsonify({"success": True, "updated": updated}), 200
 
 
 @Accounts.route("/ctc-breakup/history/<int:admin_id>", methods=["GET"])
@@ -1384,10 +2321,13 @@ def ctc_breakup_history(admin_id):
             "message": "Employee not found"
         }), 404
 
-    rows = CTCBreakup.query.filter_by(admin_id=admin_id).order_by(CTCBreakup.updated_at.desc(), CTCBreakup.id.desc()).all()
+    rows = ctc_rev.list_ctc_revisions(admin_id)
+    if not rows:
+        row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+        rows = [row.to_dict()] if row else []
     return jsonify({
         "success": True,
-        "history": [r.to_dict() for r in rows]
+        "history": rows
     }), 200
 
 
@@ -2565,25 +3505,25 @@ def payroll_generate():
             year=year_str,
         )
         db.session.add(row)
+    else:
+        try:
+            payroll_gov.assert_payroll_regeneratable(row)
+        except ValueError as e:
+            return jsonify({"success": False, "message": str(e)}), 409
 
     # Earnings
-    row.ctc_gross_salary = result["ctc_gross_salary"]
-    row.calendar_days = result["calendar_days"]
-    row.one_day_salary = result["one_day_salary"]
-    row.actual_working_days = result["actual_working_days"]
-    row.gross_salary_for_month = result["gross_salary_for_month"]
+    _apply_payroll_computed_result(row, result, overwrite_finals=True)
 
     # Deductions - computed fetched from CTC
-    row.epf_computed = result["epf_computed"]
-    row.esic_computed = result["esic_computed"]
-    row.ptax_computed = result["ptax_computed"]
-
-    # Defaults: finals start same as computed (Accounts can override later)
-    row.epf_final = result["epf_computed"]
-    row.esic_final = result["esic_computed"]
-    row.ptax_final = result["ptax_computed"]
-
     tds_meta = payroll_tds.apply_tds_to_payroll_row(row, overwrite_final=True)
+
+    db.session.flush()
+    payroll_gov.log_payroll_audit(
+        row,
+        "regenerate",
+        viewer.id,
+        comment="payroll/generate",
+    )
 
     db.session.commit()
     payload = row.to_dict()
@@ -2639,6 +3579,12 @@ def payroll_deductions_update():
     if not row:
         return jsonify({"success": False, "message": "Payroll row not found. Generate it first."}), 404
 
+    try:
+        payroll_gov.assert_payroll_editable(row)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 409
+
+    before = payroll_gov.snapshot_payroll_fields(row)
     prev_awd = float(row.actual_working_days or 0)
     working_days_changed = False
 
@@ -2649,6 +3595,20 @@ def payroll_deductions_update():
         row.esic_final = float(data.get("esic_final") or 0.0)
     if "ptax_final" in data:
         row.ptax_final = float(data.get("ptax_final") or 0.0)
+    if "lwf_final" in data:
+        row.lwf_final = float(data.get("lwf_final") or 0.0)
+    if "arrears_gross_final" in data:
+        row.arrears_gross_final = float(data.get("arrears_gross_final") or 0.0)
+        row.arrears_gross_computed = row.arrears_gross_final
+    if "leave_encashment_final" in data:
+        row.leave_encashment_final = float(data.get("leave_encashment_final") or 0.0)
+        row.leave_encashment_computed = row.leave_encashment_final
+    if "loan_recovery_final" in data:
+        row.loan_recovery_final = float(data.get("loan_recovery_final") or 0.0)
+        row.loan_recovery_computed = row.loan_recovery_final
+    if "reimbursement_final" in data:
+        row.reimbursement_final = float(data.get("reimbursement_final") or 0.0)
+        row.reimbursement_computed = row.reimbursement_final
     if "actual_working_days" in data:
         calendar_days = int(
             row.calendar_days or calendar.monthrange(year_int, month_num)[1]
@@ -2668,8 +3628,21 @@ def payroll_deductions_update():
         if ctc:
             row.epf_final = round(float(ctc.epf or 0.0) * factor, 2)
             row.esic_final = round(float(ctc.esic or 0.0) * factor, 2)
-        row.ptax_final = maharashtra_professional_tax(
-            float(row.gross_salary_for_month or 0.0), gender, month_num
+            row.reimbursement_final = round(
+                float(getattr(ctc, "reimbursement_monthly", 0) or 0) * factor, 2
+            )
+            row.reimbursement_computed = row.reimbursement_final
+        ptax_state = _resolve_ptax_state(admin_id, row=ctc)
+        row.ptax_final = professional_tax(
+            float(row.gross_salary_for_month or 0.0), gender, month_num, state_code=ptax_state
+        )
+        policy = load_ctc_settings()
+        row.lwf_final = lwf_employee_monthly(
+            ptax_state,
+            month_num,
+            policy_employee_yearly=float(
+                getattr(ctc, "lwf_employee_yearly", None) or policy.get("lwf_employee_yearly") or 0
+            ),
         )
 
     requested_tds = None
@@ -2682,8 +3655,155 @@ def payroll_deductions_update():
         requested_tds_final=requested_tds,
     )
 
+    if data.get("apply_loan_balance"):
+        apply_loan_recovery_after_payroll(admin_id, float(row.loan_recovery_final or 0))
+
+    after = payroll_gov.snapshot_payroll_fields(row)
+    changes = payroll_gov.diff_payroll_fields(before, after)
+    if changes:
+        payroll_gov.log_payroll_audit(
+            row,
+            "deductions_update",
+            viewer.id,
+            field_changes=changes,
+        )
+
     db.session.commit()
     return jsonify({"success": True, "payroll": row.to_dict()}), 200
+
+
+@Accounts.route("/payroll/status", methods=["POST"])
+@jwt_required()
+def payroll_status_update():
+    """Bulk transition payroll status: draft → reviewed → paid → locked."""
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    admin_ids = data.get("admin_ids") or []
+    month_val = data.get("month")
+    year_val = data.get("year")
+    to_status = (data.get("status") or "").strip().lower()
+    comment = (data.get("comment") or "").strip() or None
+
+    if not isinstance(admin_ids, list) or not admin_ids:
+        return jsonify({"success": False, "message": "admin_ids list is required"}), 400
+    if not to_status:
+        return jsonify({"success": False, "message": "status is required"}), 400
+
+    try:
+        admin_ids = [int(x) for x in admin_ids]
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e) or "Invalid input"}), 400
+
+    updated = []
+    errors = []
+    for admin_id in admin_ids:
+        row = MonthlyPayroll.query.filter_by(
+            admin_id=admin_id,
+            month_num=month_num,
+            year=str(year_int),
+        ).first()
+        if not row:
+            errors.append({"admin_id": admin_id, "message": "Payroll row not found"})
+            continue
+        try:
+            payroll_gov.transition_payroll_status(
+                row, to_status, viewer.id, comment=comment
+            )
+            updated.append(row.to_dict())
+        except ValueError as e:
+            errors.append({"admin_id": admin_id, "message": str(e)})
+
+    db.session.commit()
+    return jsonify({
+        "success": len(errors) == 0,
+        "updated": updated,
+        "errors": errors,
+    }), 200 if not errors else 207
+
+
+@Accounts.route("/payroll/statutory-bonus-run", methods=["POST"])
+@jwt_required()
+def payroll_statutory_bonus_run():
+    """Apply statutory bonus earning to draft payroll rows for a month."""
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    admin_ids = data.get("admin_ids") or []
+    month_val = data.get("month")
+    year_val = data.get("year")
+    payout_mode = (data.get("payout_mode") or "monthly").strip().lower()
+
+    if not isinstance(admin_ids, list) or not admin_ids:
+        return jsonify({"success": False, "message": "admin_ids list is required"}), 400
+
+    try:
+        admin_ids = [int(x) for x in admin_ids]
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e) or "Invalid input"}), 400
+
+    results = []
+    errors = []
+    for admin_id in admin_ids:
+        row = MonthlyPayroll.query.filter_by(
+            admin_id=admin_id,
+            month_num=month_num,
+            year=str(year_int),
+        ).first()
+        if not row:
+            errors.append({"admin_id": admin_id, "message": "Payroll row not found"})
+            continue
+        try:
+            amount = payroll_gov.apply_statutory_bonus_to_row(
+                row,
+                payout_mode=payout_mode,
+                actor_admin_id=viewer.id,
+            )
+            results.append({"admin_id": admin_id, "statutory_bonus_final": amount})
+        except ValueError as e:
+            errors.append({"admin_id": admin_id, "message": str(e)})
+
+    db.session.commit()
+    return jsonify({
+        "success": len(errors) == 0,
+        "results": results,
+        "errors": errors,
+    }), 200 if not errors else 207
+
+
+@Accounts.route("/payroll/audit/<int:payroll_id>", methods=["GET"])
+@jwt_required()
+def payroll_audit_trail(payroll_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    row = MonthlyPayroll.query.get(payroll_id)
+    if not row:
+        return jsonify({"success": False, "message": "Payroll not found"}), 404
+    if not _accounts_can_access_any_profile(viewer) and row.admin_id != viewer.id:
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    return jsonify({
+        "success": True,
+        "audit": payroll_gov.list_payroll_audit(payroll_id),
+        "payroll": row.to_dict(),
+    }), 200
 
 
 @Accounts.route("/payroll/list", methods=["POST"])
@@ -2746,20 +3866,16 @@ def payroll_list():
     for admin_id in admin_ids:
         row = existing_by_admin.get(admin_id)
         if row:
+            if payroll_gov.normalize_payroll_status(getattr(row, "status", None)) in payroll_gov.REGENERATE_BLOCKED_STATUSES:
+                payrolls.append(row)
+                continue
             if float(row.actual_working_days or 0) < 0 or float(row.gross_salary_for_month or 0) < 0:
                 computed = calculate_monthly_payroll_from_ctc_and_attendance(
                     admin_id=admin_id,
                     year=year_int,
                     month_num=month_num,
                 )
-                row.actual_working_days = computed["actual_working_days"]
-                row.gross_salary_for_month = computed["gross_salary_for_month"]
-                row.epf_computed = computed["epf_computed"]
-                row.esic_computed = computed["esic_computed"]
-                row.ptax_computed = computed["ptax_computed"]
-                row.epf_final = computed["epf_computed"]
-                row.esic_final = computed["esic_computed"]
-                row.ptax_final = computed["ptax_computed"]
+                _apply_payroll_computed_result(row, computed, overwrite_finals=True)
                 payroll_tds.apply_tds_to_payroll_row(row, overwrite_final=True)
             elif row.tds_final is None and row.tds_computed is None:
                 payroll_tds.apply_tds_to_payroll_row(row, overwrite_final=True)
@@ -2777,20 +3893,7 @@ def payroll_list():
             month_num=month_num,
             year=year_str,
         )
-        new_row.ctc_gross_salary = computed["ctc_gross_salary"]
-        new_row.calendar_days = computed["calendar_days"]
-        new_row.one_day_salary = computed["one_day_salary"]
-        new_row.actual_working_days = computed["actual_working_days"]
-        new_row.gross_salary_for_month = computed["gross_salary_for_month"]
-
-        new_row.epf_computed = computed["epf_computed"]
-        new_row.esic_computed = computed["esic_computed"]
-        new_row.ptax_computed = computed["ptax_computed"]
-
-        # Initial finals = computed; Accounts can later override via deductions-update
-        new_row.epf_final = computed["epf_computed"]
-        new_row.esic_final = computed["esic_computed"]
-        new_row.ptax_final = computed["ptax_computed"]
+        _apply_payroll_computed_result(new_row, computed, overwrite_finals=True)
         payroll_tds.apply_tds_to_payroll_row(new_row, overwrite_final=True)
 
         db.session.add(new_row)
@@ -2814,6 +3917,13 @@ def payroll_list():
                 "epf_final": p.epf_final,
                 "ptax_final": p.ptax_final,
                 "esic_final": p.esic_final,
+                "lwf_final": p.lwf_final,
+                "arrears_gross_final": p.arrears_gross_final,
+                "leave_encashment_final": p.leave_encashment_final,
+                "loan_recovery_final": p.loan_recovery_final,
+                "statutory_bonus_final": p.statutory_bonus_final,
+                "status": payroll_gov.normalize_payroll_status(getattr(p, "status", None)),
+                "payroll_id": p.id,
                 "tds_final": p.tds_final,
                 "tds_computed": p.tds_computed,
                 "net_salary_final": p.net_salary_final,
@@ -2892,6 +4002,10 @@ def payroll_history():
             "epf_final": float(payroll.epf_final or 0.0),
             "ptax_final": float(payroll.ptax_final or 0.0),
             "esic_final": float(payroll.esic_final or 0.0),
+            "lwf_final": float(payroll.lwf_final or 0.0),
+            "arrears_gross_final": float(payroll.arrears_gross_final or 0.0),
+            "leave_encashment_final": float(payroll.leave_encashment_final or 0.0),
+            "loan_recovery_final": float(payroll.loan_recovery_final or 0.0),
             "tds_final": float(payroll.tds_final or 0.0),
             "actual_working_days": float(payroll.actual_working_days or 0.0),
             "net_salary_final": float(payroll.net_salary_final or 0.0),
@@ -2930,12 +4044,24 @@ def download_payroll_slip(payroll_id):
     month_year = f"{payroll.month}-{payroll.year}"
 
     basic = float(getattr(ctc, "basic_salary", 0.0) or 0.0)
+    da = float(getattr(ctc, "dearness_allowance", 0.0) or 0.0)
     hra = float(getattr(ctc, "hra", 0.0) or 0.0)
-    other = float(getattr(ctc, "other_allowance", 0.0) or 0.0)
+    heads, allowance_total = _allowances_from_ctc_row(ctc) if ctc else (None, 0.0)
+    special = float((heads or {}).get("special_allowance", 0) or 0)
+    conveyance = float((heads or {}).get("conveyance_allowance", 0) or 0)
+    medical = float((heads or {}).get("medical_allowance", 0) or 0)
+    lta = float((heads or {}).get("lta_allowance", 0) or 0)
+    other = float(allowance_total or getattr(ctc, "other_allowance", 0.0) or 0.0)
     gross = float(getattr(payroll, "gross_salary_for_month", 0.0) or 0.0)
     epf = float(getattr(payroll, "epf_final", 0.0) or 0.0)
     ptax = float(getattr(payroll, "ptax_final", 0.0) or 0.0)
     esic = float(getattr(payroll, "esic_final", 0.0) or 0.0)
+    lwf = float(getattr(payroll, "lwf_final", 0.0) or 0.0)
+    arrears_gross = float(getattr(payroll, "arrears_gross_final", 0.0) or 0.0)
+    leave_encash = float(getattr(payroll, "leave_encashment_final", 0.0) or 0.0)
+    reimb = float(getattr(payroll, "reimbursement_final", 0.0) or 0.0)
+    bonus = float(getattr(payroll, "statutory_bonus_final", 0.0) or 0.0)
+    loan_rec = float(getattr(payroll, "loan_recovery_final", 0.0) or 0.0)
     _tds_final = getattr(payroll, "tds_final", None)
     tds = float(
         _tds_final if _tds_final is not None else getattr(payroll, "tds_computed", 0.0) or 0.0
@@ -2945,14 +4071,62 @@ def download_payroll_slip(payroll_id):
     work_days = float(getattr(payroll, "actual_working_days", 0.0) or 0.0)
     cal_days = int(getattr(payroll, "calendar_days", 0) or 0)
 
-    basic, hra, other = _prorate_earnings_to_gross(basic, hra, other, gross)
-    cum_earn1 = basic
-    cum_earn2 = basic + hra
-    cum_earn3 = gross
-    cum_ded1 = epf
-    cum_ded2 = epf + ptax
-    cum_ded3 = epf + ptax + esic
-    cum_ded4 = total_ded
+    prorated = _prorate_earning_heads_to_gross(
+        basic=basic,
+        da=da,
+        hra=hra,
+        special=special,
+        conveyance=conveyance,
+        medical=medical,
+        lta=lta,
+        other_fallback=other,
+        target_gross=gross,
+    )
+    earning_lines = []
+    if prorated["basic"] > 0:
+        earning_lines.append(("Basic Salary", prorated["basic"]))
+    if prorated["da"] > 0:
+        earning_lines.append(("Dearness Allowance", prorated["da"]))
+    if prorated["hra"] > 0:
+        earning_lines.append(("HRA", prorated["hra"]))
+    for label, key in (
+        ("Special Allowance", "special"),
+        ("Conveyance", "conveyance"),
+        ("Medical Allowance", "medical"),
+        ("LTA", "lta"),
+    ):
+        if prorated[key] > 0:
+            earning_lines.append((label, prorated[key]))
+    if not earning_lines:
+        earning_lines.append(("Gross Earnings", gross))
+
+    if arrears_gross > 0:
+        earning_lines.append(("Salary Arrears", arrears_gross))
+    if leave_encash > 0:
+        earning_lines.append(("Leave Encashment", leave_encash))
+    if reimb > 0:
+        earning_lines.append(("FBP Reimbursement", reimb))
+    if bonus > 0:
+        earning_lines.append(("Statutory Bonus", bonus))
+    total_gross_earn = round(gross + arrears_gross + leave_encash + reimb + bonus, 2)
+
+    deduction_lines = [
+        ("EPF", epf),
+        ("P.Tax", ptax),
+        ("ESIC", esic),
+    ]
+    if lwf > 0:
+        deduction_lines.append(("LWF", lwf))
+    if loan_rec > 0:
+        deduction_lines.append(("Loan Recovery", loan_rec))
+    deduction_lines.append(("Income Tax (TDS)", tds))
+    pair_rows = max(len(earning_lines), len(deduction_lines)) + 2
+
+    ytd = _payroll_ytd_for_employee(
+        payroll.admin_id,
+        int(payroll.year),
+        int(payroll.month_num),
+    )
 
     leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
     pl_balance = float((leave_balance.privilege_leave_balance if leave_balance else 0.0) or 0.0)
@@ -3160,7 +4334,7 @@ def download_payroll_slip(payroll_id):
     y = att_bottom - 18
     row_h = 22
     hdr_h = 22
-    body_rows = 6
+    body_rows = max(8, pair_rows)
 
     # Earnings / deductions table (aligned to six-column grid)
     table_top = y
@@ -3184,39 +4358,27 @@ def download_payroll_slip(payroll_id):
 
     r = table_top - hdr_h - 14
     c.setFont("Helvetica", 10)
-    c.drawString(x0 + 4, r, "Basic Salary + DA")
-    _amt_right(x2, r, _fmt_money(basic))
-    _amt_right(x3, r, _fmt_money(cum_earn1))
-    c.drawString(x3 + 4, r, "EPF")
-    _amt_right(x5, r, _fmt_money(epf))
-    _amt_right(x6, r, _fmt_money(cum_ded1))
+    cum_earn = 0.0
+    cum_ded = 0.0
+    for i in range(pair_rows - 2):
+        if i < len(earning_lines):
+            elabel, eamt = earning_lines[i]
+            cum_earn = round(cum_earn + float(eamt), 2)
+            c.drawString(x0 + 4, r, elabel)
+            _amt_right(x2, r, _fmt_money(eamt))
+            _amt_right(x3, r, _fmt_money(cum_earn))
+        if i < len(deduction_lines):
+            dlabel, damt = deduction_lines[i]
+            cum_ded = round(cum_ded + float(damt), 2)
+            c.drawString(x3 + 4, r, dlabel)
+            _amt_right(x5, r, _fmt_money(damt))
+            _amt_right(x6, r, _fmt_money(cum_ded))
+        r -= row_h
 
-    r -= row_h
-    c.drawString(x0 + 4, r, "HRA")
-    _amt_right(x2, r, _fmt_money(hra))
-    _amt_right(x3, r, _fmt_money(cum_earn2))
-    c.drawString(x3 + 4, r, "P.Tax")
-    _amt_right(x5, r, _fmt_money(ptax))
-    _amt_right(x6, r, _fmt_money(cum_ded2))
-
-    r -= row_h
-    c.drawString(x0 + 4, r, "Other Allowance")
-    _amt_right(x2, r, _fmt_money(other))
-    _amt_right(x3, r, _fmt_money(cum_earn3))
-    c.drawString(x3 + 4, r, "ESIC")
-    _amt_right(x5, r, _fmt_money(esic))
-    _amt_right(x6, r, _fmt_money(cum_ded3))
-
-    r -= row_h
-    c.drawString(x3 + 4, r, "Income Tax (TDS)")
-    _amt_right(x5, r, _fmt_money(tds))
-    _amt_right(x6, r, _fmt_money(cum_ded4))
-
-    r -= row_h
     c.setFont("Helvetica-Bold", 10)
     c.drawString(x0 + 4, r, "Total Earnings")
-    _amt_right(x2, r, _fmt_money(gross))
-    _amt_right(x3, r, _fmt_money(gross))
+    _amt_right(x2, r, _fmt_money(total_gross_earn))
+    _amt_right(x3, r, _fmt_money(total_gross_earn))
     c.drawString(x3 + 4, r, "Total Deductions")
     _amt_right(x5, r, _fmt_money(total_ded))
     _amt_right(x6, r, _fmt_money(total_ded))
@@ -3224,10 +4386,38 @@ def download_payroll_slip(payroll_id):
     r -= row_h
     c.setFont("Helvetica-Bold", 10.5)
     c.drawString(x3 + 4, r, "Net Amount")
-    # Single net figure in last column only (avoids Rs. on border / duplicate)
     _amt_right(x6, r, f"Rs. {_fmt_money(net)}")
 
-    y = table_bottom - 20
+    y = table_bottom - 12
+    c.setFont("Helvetica-Bold", 9.5)
+    fy_lbl = ytd.get("fy_label") or ""
+    c.drawString(
+        left_margin,
+        y,
+        f"Year to Date (FY {fy_lbl}, through {payroll.month} {payroll.year})",
+    )
+    y -= 14
+    c.setFont("Helvetica", 9)
+    ytd_pairs = (
+        ("Gross", ytd.get("gross_salary_for_month", 0)),
+        ("Arrears", ytd.get("arrears_gross_final", 0)),
+        ("Total gross", ytd.get("total_gross", 0)),
+        ("EPF", ytd.get("epf_final", 0)),
+        ("P.Tax", ytd.get("ptax_final", 0)),
+        ("ESIC", ytd.get("esic_final", 0)),
+        ("LWF", ytd.get("lwf_final", 0)),
+        ("TDS", ytd.get("tds_final", 0)),
+        ("Net pay", ytd.get("net_salary_final", 0)),
+    )
+    ytd_cols = 3
+    for i, (lbl, val) in enumerate(ytd_pairs):
+        col = i % ytd_cols
+        row_i = i // ytd_cols
+        xx = left_margin + col * (usable_w / ytd_cols)
+        yy = y - row_i * 11
+        c.drawString(xx, yy, f"{lbl}: {_fmt_money(val)}")
+    y -= ((len(ytd_pairs) + ytd_cols - 1) // ytd_cols) * 11 + 8
+
     words = _rupees_in_words(net)
     c.setFont("Helvetica", 10)
     c.drawString(left_margin, y, "Amount (in words):")
@@ -3490,4 +4680,433 @@ def accounts_download_noc_department_document(req_id):
         as_attachment=True,
         download_name=out["download_name"],
         mimetype="application/octet-stream",
+    )
+
+
+def _compliance_csv_response(csv_text: str, filename: str):
+    buffer = BytesIO()
+    buffer.write("\ufeff".encode("utf-8"))
+    buffer.write((csv_text or "").encode("utf-8"))
+    buffer.seek(0)
+    return send_file(buffer, mimetype="text/csv", as_attachment=True, download_name=filename)
+
+
+def _compliance_month_year_args():
+    year_val = request.args.get("year")
+    month_val = request.args.get("month")
+    if not year_val or month_val is None:
+        return None, None, jsonify({"success": False, "message": "year and month are required"}), 400
+    try:
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception:
+        return None, None, jsonify({"success": False, "message": "Invalid month/year"}), 400
+    return year_int, month_num, None, None
+
+
+@Accounts.route("/compliance/pf-ecr", methods=["GET"])
+@jwt_required()
+def compliance_pf_ecr():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    year_int, month_num, err_resp, err_code = _compliance_month_year_args()
+    if err_resp is not None:
+        return err_resp, err_code
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    fmt = (request.args.get("format") or "csv").strip().lower()
+
+    payload = build_pf_ecr_export(
+        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+    )
+    if fmt == "json":
+        return jsonify({"success": True, **payload}), 200
+    fname = f"pf-ecr-{calendar.month_name[month_num]}-{year_int}.csv".replace(" ", "-")
+    return _compliance_csv_response(payload["csv"], fname)
+
+
+@Accounts.route("/compliance/esic-statement", methods=["GET"])
+@jwt_required()
+def compliance_esic_statement():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    year_int, month_num, err_resp, err_code = _compliance_month_year_args()
+    if err_resp is not None:
+        return err_resp, err_code
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    fmt = (request.args.get("format") or "csv").strip().lower()
+
+    payload = build_esic_statement(
+        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+    )
+    if fmt == "json":
+        return jsonify({"success": True, **payload}), 200
+    fname = f"esic-statement-{calendar.month_name[month_num]}-{year_int}.csv".replace(" ", "-")
+    return _compliance_csv_response(payload["csv"], fname)
+
+
+@Accounts.route("/compliance/pt-summary", methods=["GET"])
+@jwt_required()
+def compliance_pt_summary():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    year_int, month_num, err_resp, err_code = _compliance_month_year_args()
+    if err_resp is not None:
+        return err_resp, err_code
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    fmt = (request.args.get("format") or "json").strip().lower()
+
+    payload = build_pt_summary(
+        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+    )
+    if fmt == "csv":
+        fname = f"pt-summary-{calendar.month_name[month_num]}-{year_int}.csv".replace(" ", "-")
+        return _compliance_csv_response(payload["csv"], fname)
+    return jsonify({"success": True, **payload}), 200
+
+
+@Accounts.route("/compliance/pt-remittance-calendar", methods=["GET"])
+@jwt_required()
+def compliance_pt_remittance_calendar():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    try:
+        year_int = int(request.args.get("year") or date.today().year)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid year"}), 400
+
+    return jsonify({"success": True, **get_pt_remittance_calendar(year_int)}), 200
+
+
+@Accounts.route("/compliance/form-24q", methods=["GET"])
+@jwt_required()
+def compliance_form_24q():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    fy = (request.args.get("financial_year") or "").strip()
+    if not fy:
+        return jsonify({"success": False, "message": "financial_year is required (e.g. 2025-26)"}), 400
+    try:
+        quarter = int(request.args.get("quarter") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid quarter"}), 400
+    if quarter not in (1, 2, 3, 4):
+        return jsonify({"success": False, "message": "quarter must be 1..4"}), 400
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    fmt = (request.args.get("format") or "csv").strip().lower()
+
+    try:
+        payload = build_form_24q_export(
+            financial_year=fy,
+            quarter=quarter,
+            circle=circle,
+            emp_type=emp_type,
+        )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    if fmt == "json":
+        return jsonify({"success": True, **payload}), 200
+    fname = f"form-24q-{fy}-Q{quarter}.csv".replace(" ", "-")
+    return _compliance_csv_response(payload["csv"], fname)
+
+
+@Accounts.route("/compliance/bank-file", methods=["GET"])
+@jwt_required()
+def compliance_bank_file():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    year_int, month_num, err_resp, err_code = _compliance_month_year_args()
+    if err_resp is not None:
+        return err_resp, err_code
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    fmt = (request.args.get("format") or "csv").strip().lower()
+
+    payload = build_bank_payment_file(
+        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+    )
+    if fmt == "json":
+        return jsonify({"success": True, **payload}), 200
+    fname = f"bank-neft-{calendar.month_name[month_num]}-{year_int}.csv".replace(" ", "-")
+    return _compliance_csv_response(payload["csv"], fname)
+
+
+@Accounts.route("/payroll/loans", methods=["GET", "POST"])
+@jwt_required()
+def payroll_loans():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    if request.method == "GET":
+        admin_id = request.args.get("admin_id", type=int)
+        q = EmployeeSalaryLoan.query
+        if admin_id:
+            q = q.filter_by(admin_id=admin_id)
+        rows = q.order_by(EmployeeSalaryLoan.id.desc()).limit(200).all()
+        return jsonify({"success": True, "loans": [r.to_dict() for r in rows]}), 200
+
+    data = request.get_json(silent=True) or {}
+    try:
+        admin_id = int(data.get("admin_id"))
+        principal = float(data.get("principal_amount") or 0)
+        emi = float(data.get("emi_monthly") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid loan parameters"}), 400
+    if principal <= 0 or emi <= 0:
+        return jsonify({"success": False, "message": "principal_amount and emi_monthly must be > 0"}), 400
+
+    start_date = _parse_iso_date(data.get("start_date")) or date.today()
+    row = EmployeeSalaryLoan(
+        admin_id=admin_id,
+        description=(data.get("description") or "").strip() or None,
+        principal_amount=principal,
+        emi_monthly=emi,
+        balance_remaining=float(data.get("balance_remaining") if data.get("balance_remaining") is not None else principal),
+        start_date=start_date,
+        status="active",
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({"success": True, "loan": row.to_dict()}), 201
+
+
+@Accounts.route("/payroll/loans/<int:loan_id>", methods=["PUT"])
+@jwt_required()
+def payroll_loan_update(loan_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    row = EmployeeSalaryLoan.query.get(loan_id)
+    if not row:
+        return jsonify({"success": False, "message": "Loan not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    if "emi_monthly" in data:
+        row.emi_monthly = float(data.get("emi_monthly") or 0)
+    if "balance_remaining" in data:
+        row.balance_remaining = float(data.get("balance_remaining") or 0)
+    if "status" in data:
+        row.status = (data.get("status") or "active").strip().lower()
+    if "description" in data:
+        row.description = (data.get("description") or "").strip() or None
+    row.updated_at = datetime.now()
+    db.session.commit()
+    return jsonify({"success": True, "loan": row.to_dict()}), 200
+
+
+@Accounts.route("/payroll/leave-encashment-preview", methods=["POST"])
+@jwt_required()
+def payroll_leave_encashment_preview():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    try:
+        admin_id = int(data.get("admin_id"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+
+    preview = preview_leave_encashment(
+        admin_id, include_cl=bool(data.get("include_cl"))
+    )
+    return jsonify({"success": True, "preview": preview}), 200
+
+
+@Accounts.route("/payroll/fnf-preview", methods=["POST"])
+@jwt_required()
+def payroll_fnf_preview():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    try:
+        admin_id = int(data.get("admin_id"))
+        separation_date = _parse_iso_date(data.get("separation_date"))
+        last_working_day = _parse_iso_date(data.get("last_working_day"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid parameters"}), 400
+    if not separation_date or not last_working_day:
+        return jsonify({"success": False, "message": "separation_date and last_working_day are required"}), 400
+
+    pending_days = data.get("pending_salary_days")
+    preview = preview_fnf_settlement(
+        admin_id,
+        separation_date=separation_date,
+        last_working_day=last_working_day,
+        pending_salary_days=float(pending_days) if pending_days is not None else None,
+        include_cl_encashment=bool(data.get("include_cl_encashment")),
+        notice_recovery_days=float(data.get("notice_recovery_days") or 0),
+        other_deductions=float(data.get("other_deductions") or 0),
+        other_earnings=float(data.get("other_earnings") or 0),
+    )
+    return jsonify({"success": True, "preview": preview}), 200
+
+
+@Accounts.route("/payroll/fnf-settlements", methods=["GET", "POST"])
+@jwt_required()
+def payroll_fnf_settlements():
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    if request.method == "GET":
+        admin_id = request.args.get("admin_id", type=int)
+        if not admin_id:
+            return jsonify({"success": False, "message": "admin_id is required"}), 400
+        return jsonify({
+            "success": True,
+            "settlements": list_fnf_settlements(admin_id),
+        }), 200
+
+    data = request.get_json(silent=True) or {}
+    try:
+        admin_id = int(data.get("admin_id"))
+        separation_date = _parse_iso_date(data.get("separation_date"))
+        last_working_day = _parse_iso_date(data.get("last_working_day"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid parameters"}), 400
+    if not separation_date or not last_working_day:
+        return jsonify({"success": False, "message": "separation_date and last_working_day are required"}), 400
+
+    snapshot = data.get("settlement") or data.get("snapshot")
+    if not snapshot:
+        preview = preview_fnf_settlement(
+            admin_id,
+            separation_date=separation_date,
+            last_working_day=last_working_day,
+            include_cl_encashment=bool(data.get("include_cl_encashment")),
+            notice_recovery_days=float(data.get("notice_recovery_days") or 0),
+        )
+        snapshot = preview.get("settlement") or preview
+
+    row = save_fnf_settlement(
+        admin_id,
+        separation_date=separation_date,
+        last_working_day=last_working_day,
+        snapshot=snapshot,
+        note=data.get("note"),
+        created_by_admin_id=viewer.id,
+    )
+    db.session.commit()
+    return jsonify({"success": True, "settlement": row.to_dict()}), 201
+
+
+@Accounts.route("/payroll/fnf-settlements/<int:settlement_id>", methods=["PATCH"])
+@jwt_required()
+def payroll_fnf_settlement_update(settlement_id):
+    """Update F&F settlement status (draft → finalized → paid)."""
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json() or {}
+    status = (data.get("status") or "").strip()
+    if not status:
+        return jsonify({"success": False, "message": "status is required"}), 400
+
+    try:
+        row = FnfSettlement.query.get(settlement_id)
+        if not row:
+            return jsonify({"success": False, "message": "Settlement not found"}), 404
+        prev_status = (row.status or "").strip().lower()
+        row = update_fnf_settlement_status(settlement_id, status)
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+
+    new_status = (status or "").strip().lower()
+    if new_status in ("paid", "settled", "completed") and prev_status not in ("paid", "settled", "completed"):
+        try:
+            from .exit_interview_service import send_fnf_paid_documents_to_employee
+
+            send_fnf_paid_documents_to_employee(settlement_id, created_by_admin_id=viewer.id)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    return jsonify({"success": True, "settlement": row.to_dict()}), 200
+
+
+@Accounts.route("/payroll/fnf-settlements/<int:settlement_id>/pdf", methods=["GET"])
+@jwt_required()
+def payroll_fnf_settlement_pdf(settlement_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    try:
+        from .fnf_settlement_pdf_service import generate_fnf_settlement_pdf
+
+        pdf_buffer = generate_fnf_settlement_pdf(settlement_id)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 404
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"fnf-settlement-{settlement_id}.pdf",
     )

@@ -21,7 +21,7 @@ from .models.Admin_models import Admin
 from . import db
 from .models.emp_detail_models import Employee
 from .models.attendance import Punch, PunchSession, Location, LeaveBalance, LeaveApplication
-from .compoff_utils import get_effective_comp_balance
+from .compoff_utils import get_effective_comp_balance, sync_comp_balance_for_admin
 from .leave_balance_utils import leave_balance_payload, sync_leave_balance_totals
 from .models.news_feed import NewsFeed, PaySlip
 from .models.monthly_payroll import MonthlyPayroll
@@ -285,13 +285,14 @@ def validate_user():
         }), 400
 
     # Block exited or inactive users from logging in
-    if getattr(admin, "is_exited", False):
-        return jsonify({
-            "success": False,
-            "message": "Your account has been exited. Please contact HR."
-        }), 403
+    from .offboarding_service import admin_login_allowed
 
-    if getattr(admin, "is_active", True) is False:
+    if not admin_login_allowed(admin):
+        if getattr(admin, "is_exited", False):
+            return jsonify({
+                "success": False,
+                "message": "Your account has been exited. Please contact HR."
+            }), 403
         return jsonify({
             "success": False,
             "message": "Your account is inactive. Please contact HR."
@@ -468,8 +469,12 @@ def _employee_homepage_impl():
     # 4. LEAVE BALANCE + USAGE (from LeaveBalance table)
     # ------------------------
     leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
+    if admin:
+        sync_comp_balance_for_admin(admin.id)
     comp_balance = get_effective_comp_balance(admin.id) if admin else 0.0
     if leave_balance and sync_leave_balance_totals(leave_balance):
+        pass
+    if admin:
         try:
             db.session.commit()
         except Exception:

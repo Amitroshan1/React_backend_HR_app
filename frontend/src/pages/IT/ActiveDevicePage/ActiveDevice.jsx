@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import { toast } from "react-toastify";
 import {
   getEmployees,
@@ -155,20 +156,26 @@ export default function ActiveDevice({ onBack }) {
   const [activeTab, setActiveTab] = useState("All");
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-    syncITDataFromAPI().catch((err) => {
-      console.error("[ActiveDevice] API sync failed, using cached data:", err);
-      toast.error(
-        getITApiErrorMessage(
-          err,
-          "Could not refresh devices from the server. Showing cached assignments.",
-        ),
-      );
-    });
+  const syncDevices = useCallback(() => {
+    syncITDataFromAPI()
+      .then(() => setRefreshKey((k) => k + 1))
+      .catch((err) => {
+        console.error("[ActiveDevice] API sync failed, using cached data:", err);
+        toast.error(
+          getITApiErrorMessage(
+            err,
+            "Could not refresh devices from the server. Showing cached assignments.",
+          ),
+        );
+        setRefreshKey((k) => k + 1);
+      });
   }, []);
 
-  const allDevices = getMergedActiveDevices();
+  useRefreshOnNavigate(syncDevices);
+
+  const allDevices = useMemo(() => getMergedActiveDevices(), [refreshKey]);
 
   const filtered = useMemo(() => {
     let r =
