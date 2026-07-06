@@ -176,7 +176,7 @@
   color: #b91c1c;
 }
 
-.signup-form .form-group input,
+.signup-form .form-group input:not(.searchable-designation__input),
 .signup-form .form-group select {
   padding: 12px 14px;
   border: 1px solid var(--su-border);
@@ -189,19 +189,19 @@
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.signup-form .form-group input:focus,
+.signup-form .form-group input:not(.searchable-designation__input):focus,
 .signup-form .form-group select:focus {
   outline: none;
   border-color: #4f46e5;
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 
-.signup-form .form-group input::placeholder {
+.signup-form .form-group input:not(.searchable-designation__input)::placeholder {
   color: var(--su-text-muted);
 }
 
-.signup-form .form-group input:disabled,
-.signup-form .form-group input[readOnly] {
+.signup-form .form-group input:not(.searchable-designation__input):disabled,
+.signup-form .form-group input:not(.searchable-designation__input)[readOnly] {
   background: #f8fafc;
   cursor: not-allowed;
   opacity: 0.9;
@@ -367,7 +367,7 @@
     padding: 16px;
   }
 
-  .signup-form .form-group input,
+  .signup-form .form-group input:not(.searchable-designation__input),
   .signup-form .form-group select {
     padding: 10px 14px;
     font-size: 16px; /* prevent zoom on iOS */
@@ -453,7 +453,7 @@
     font-size: 0.8rem;
   }
 
-  .signup-form .form-group input,
+  .signup-form .form-group input:not(.searchable-designation__input),
   .signup-form .form-group select {
     padding: 10px 12px;
   }

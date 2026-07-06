@@ -15,6 +15,7 @@ import json
 import base64
 import mimetypes
 import uuid
+import re
 from flask import Blueprint, request, current_app, jsonify, send_file, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .email import (
@@ -255,7 +256,7 @@ MASTER_TYPE_DEPARTMENT = "department"
 MASTER_TYPE_CIRCLE = "circle"
 MASTER_TYPES = {MASTER_TYPE_DEPARTMENT, MASTER_TYPE_CIRCLE}
 
-# Job titles assignable at HR signup (must match frontend profileUtils.designationOptions)
+# Default job titles (seed list); HR may also assign custom titles that pass validation.
 ALLOWED_PROFILE_DESIGNATIONS = frozenset({
     'Test Engineer', 'Senior Test Engineer', 'QA Engineer', 'DT Engineer',
     'Technical Service Engineer', 'Associate Software Engineer', 'Software Engineer',
@@ -268,9 +269,47 @@ ALLOWED_PROFILE_DESIGNATIONS = frozenset({
     'Tender Executive',
 })
 
+DESIGNATION_MIN_LEN = 2
+DESIGNATION_MAX_LEN = 100
+_DESIGNATION_PATTERN = re.compile(r"^[\w\s.\-&/'(),]+$", re.UNICODE)
+_INVALID_DESIGNATION_VALUES = frozenset({"not specified", "-", "n/a", "na", "none"})
+
+
+def _normalize_profile_designation(value):
+    return (value or "").strip()
+
+
+def _is_valid_profile_designation(value):
+    designation = _normalize_profile_designation(value)
+    if len(designation) < DESIGNATION_MIN_LEN or len(designation) > DESIGNATION_MAX_LEN:
+        return False
+    if designation.lower() in _INVALID_DESIGNATION_VALUES:
+        return False
+    return bool(_DESIGNATION_PATTERN.match(designation))
+
 
 def _is_allowed_profile_designation(value):
-    return (value or "").strip() in ALLOWED_PROFILE_DESIGNATIONS
+    return _is_valid_profile_designation(value)
+
+
+@hr.route("/designations", methods=["GET"])
+@jwt_required()
+def list_profile_designations():
+    """Distinct designations in use, merged with the default seed list."""
+    defaults = sorted(ALLOWED_PROFILE_DESIGNATIONS)
+    rows = (
+        db.session.query(Employee.designation)
+        .filter(Employee.designation.isnot(None))
+        .distinct()
+        .all()
+    )
+    in_use = sorted({
+        (row[0] or "").strip()
+        for row in rows
+        if (row[0] or "").strip() and _is_valid_profile_designation(row[0])
+    })
+    merged = sorted(set(defaults) | set(in_use))
+    return jsonify({"success": True, "designations": merged}), 200
 
 
 def _upsert_employee_designation_for_admin(admin, designation):
@@ -966,10 +1005,10 @@ def signup_api():
         }), 400
 
     designation = str(data.get("designation") or "").strip()
-    if not _is_allowed_profile_designation(designation):
+    if not _is_valid_profile_designation(designation):
         return jsonify({
             "success": False,
-            "message": "Invalid designation. Please select a valid job title."
+            "message": "Invalid designation. Use 2–100 characters (letters, numbers, spaces, and common punctuation)."
         }), 400
 
     hr_email = get_jwt().get("email")
@@ -5379,10 +5418,10 @@ def update_employee_api(email_path):
 
     if "designation" in data:
         proposed_desig = str(data.get("designation") or "").strip()
-        if proposed_desig and not _is_allowed_profile_designation(proposed_desig):
+        if proposed_desig and not _is_valid_profile_designation(proposed_desig):
             return jsonify({
                 "success": False,
-                "message": "Invalid designation. Please select a valid job title."
+                "message": "Invalid designation. Use 2–100 characters (letters, numbers, spaces, and common punctuation)."
             }), 400
         if proposed_desig:
             _upsert_employee_designation_for_admin(admin, proposed_desig)

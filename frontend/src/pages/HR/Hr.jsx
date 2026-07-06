@@ -29,7 +29,7 @@ import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
-import { designationOptions } from '../Profile/utils/profileUtils';
+import { SearchableDesignationSelect } from '../../components/SearchableDesignationSelect';
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 
@@ -2044,13 +2044,16 @@ if (view === 'noc_requests') {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Designation {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
-                  <select name="designation" value={signupForm.designation} onChange={handleSignupChange}>
-                    <option value="">Select Designation</option>
-                    {designationOptions.map((item) => (
-                      <option key={item} value={item}>{item}</option>
-                    ))}
-                  </select>
+                  <label htmlFor="signup-designation">Designation {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
+                  <SearchableDesignationSelect
+                    id="signup-designation"
+                    value={signupForm.designation}
+                    onChange={(designation) => {
+                      setSignupForm((prev) => ({ ...prev, designation }));
+                      setSignupError('');
+                    }}
+                    required={!isEditMode}
+                  />
                 </div>
                 <div className="form-group">
                   <label>Password (optional)</label>

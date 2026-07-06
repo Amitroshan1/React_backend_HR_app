@@ -6,7 +6,9 @@ from .datetime_utils import isoformat_api
 
 REMINDER_DAYS_BEFORE = 15
 FOLLOWUP_DAYS_BEFORE = 7
-RECENT_CONFIRMATION_DAYS = 60
+# Dashboard celebration after HR confirms: same calendar day only (hidden from the next day).
+# Permanent record remains on the employee profile.
+CONFIRMATION_DASHBOARD_SAME_DAY_ONLY = True
 # After probation end, keep manager/HR queue visible only this many days (overdue grace).
 OVERDUE_GRACE_DAYS = 30
 # HR can still decide after manager submit for this long past probation end.
@@ -52,6 +54,27 @@ def _serialize_date(value):
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
+
+
+def _hr_decision_date(value):
+    """Normalize hr_decided_at to a date for visibility rules."""
+    if not value:
+        return None
+    if hasattr(value, "date") and callable(value.date):
+        return value.date()
+    return value
+
+
+def confirmation_show_on_dashboard(decided_date, run_date):
+    """
+    Whether the employee dashboard should show the probation confirmation banner.
+    Market practice: short-lived celebration on decision day; profile keeps history.
+    """
+    if not decided_date or not run_date:
+        return False
+    if CONFIRMATION_DASHBOARD_SAME_DAY_ONLY:
+        return decided_date == run_date
+    return decided_date >= run_date - timedelta(days=7)
 
 
 def compute_probation_end_date(doj):
@@ -248,17 +271,11 @@ def build_employee_probation_status(admin, run_date=None):
     )
     if confirmed_row:
         confirmed_at = confirmed_row.hr_decided_at
-        recent = False
-        if confirmed_at:
-            decided_date = (
-                confirmed_at.date()
-                if hasattr(confirmed_at, "date") and callable(confirmed_at.date)
-                else confirmed_at
-            )
-            recent = decided_date >= run_date - timedelta(days=RECENT_CONFIRMATION_DAYS)
+        decided_date = _hr_decision_date(confirmed_at)
+        show_dashboard = confirmation_show_on_dashboard(decided_date, run_date)
         return {
             "applicable": True,
-            "show_on_dashboard": recent,
+            "show_on_dashboard": show_dashboard,
             "on_probation": False,
             "status": "confirmed",
             "status_label": EMPLOYEE_STATUS_LABELS["confirmed"],
