@@ -9,6 +9,7 @@ import {
   buildQueryAttachmentUrl,
   queryAttachmentDisplayName,
   QUERY_INBOX_POLL_MS,
+  QUERY_INBOX_BULK_LIMIT,
 } from "../../Query/queryChatHelpers";
 import "./OpenTicket.css";
 import { formatDate as fmt, formatDateTimeDDMMYYYY } from "../../../utils/dateFormat";
@@ -106,7 +107,11 @@ export default function OpenTicket() {
   const [replyText, setReplyText] = useState("");
 
   const loadTickets = useCallback(async () => {
-    const response = await fetch(`${QUERY_API_BASE}/queries`, {
+    const params = new URLSearchParams({
+      page: "1",
+      limit: String(QUERY_INBOX_BULK_LIMIT),
+    });
+    const response = await fetch(`${QUERY_API_BASE}/queries?${params.toString()}`, {
       method: "GET",
       headers: authHeaders(),
     });

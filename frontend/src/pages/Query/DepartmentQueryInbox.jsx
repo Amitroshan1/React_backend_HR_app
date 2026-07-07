@@ -10,12 +10,14 @@ import {
   QUERY_CHAT_PARAM,
   QUERY_CHAT_POLL_MS,
   QUERY_INBOX_POLL_MS,
+  QUERY_LIST_PAGE_SIZE,
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
   buildQueryAttachmentUrl,
   readApiResponse,
 } from "./queryChatHelpers";
+import { QueryListPagination } from "./QueryListPagination";
 
 const API_BASE_URL = "/api/query";
 
@@ -33,6 +35,9 @@ export const DepartmentQueryInbox = () => {
   const [filterMonth, setFilterMonth] = useState("");
   const [filterCircle, setFilterCircle] = useState("");
   const [circleOptions, setCircleOptions] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const chatEndRef = useRef(null);
   const openChatRef = useRef(null);
   const restoreAttemptedRef = useRef(null);
@@ -125,6 +130,10 @@ export const DepartmentQueryInbox = () => {
       overrides && Object.prototype.hasOwnProperty.call(overrides, "circle")
         ? overrides.circle
         : filterCircle;
+    const pageNum =
+      overrides && Object.prototype.hasOwnProperty.call(overrides, "page")
+        ? overrides.page
+        : page;
 
     if (!silent) {
       setIsLoading(true);
@@ -132,11 +141,12 @@ export const DepartmentQueryInbox = () => {
     }
     try {
       const params = new URLSearchParams();
+      params.set("page", String(pageNum));
+      params.set("limit", String(QUERY_LIST_PAGE_SIZE));
       if (month) params.set("month", month);
       if (circle) params.set("circle", circle);
-      const qs = params.toString();
       const response = await fetch(
-        qs ? `${API_BASE_URL}/queries?${qs}` : `${API_BASE_URL}/queries`,
+        `${API_BASE_URL}/queries?${params.toString()}`,
         {
           method: "GET",
           headers: { ...getAuthHeaders() },
@@ -151,7 +161,21 @@ export const DepartmentQueryInbox = () => {
         throw new Error(parseError || result.message || "Failed to load department queries");
       }
 
+      const total = Number(result.total) || 0;
+      const pages = total === 0 ? 1 : Math.max(1, Number(result.pages) || 1);
+      if (total > 0 && pageNum > pages) {
+        setPage(pages);
+        return;
+      }
+      setPage(pageNum);
+      setTotalCount(total);
+      setTotalPages(pages);
+
       const mapped = sortInboxRows((result.queries || []).map(mapInboxRow));
+      if (mapped.length === 0 && pageNum > 1 && total > 0) {
+        setPage(pageNum - 1);
+        return;
+      }
       setQueries(mapped);
     } catch (e) {
       if (!silent) {
@@ -309,7 +333,7 @@ export const DepartmentQueryInbox = () => {
 
   useRefreshOnNavigate(() => {
     fetchInbox();
-  });
+  }, [page, filterMonth, filterCircle]);
 
   useEffect(() => {
     if (!parseChatIdFromSearch(location.search)) {
@@ -346,7 +370,7 @@ export const DepartmentQueryInbox = () => {
       fetchInbox(undefined, { silent: true });
     }, QUERY_INBOX_POLL_MS);
     return () => window.clearInterval(intervalId);
-  }, [activeChat?.id, filterMonth, filterCircle]);
+  }, [activeChat?.id, filterMonth, filterCircle, page]);
 
   useEffect(() => {
     const chatId = parseChatIdFromSearch(location.search);
@@ -378,13 +402,22 @@ export const DepartmentQueryInbox = () => {
   }, []);
 
   const applyFilters = () => {
-    fetchInbox();
+    if (page !== 1) {
+      setPage(1);
+    } else {
+      fetchInbox({ page: 1 });
+    }
   };
 
   const resetFilters = () => {
     setFilterMonth("");
     setFilterCircle("");
-    fetchInbox({ month: "", circle: "" });
+    fetchInbox({ month: "", circle: "", page: 1 });
+  };
+
+  const handlePageChange = (nextPage) => {
+    setPage(nextPage);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const hasActiveFilters = Boolean(filterMonth || filterCircle);
@@ -523,6 +556,15 @@ export const DepartmentQueryInbox = () => {
             </tbody>
           </table>
         </div>
+
+        <QueryListPagination
+          page={page}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={QUERY_LIST_PAGE_SIZE}
+          onPageChange={handlePageChange}
+          disabled={isLoading}
+        />
       </div>
 
       <QueryChatModal

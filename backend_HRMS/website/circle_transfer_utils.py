@@ -39,6 +39,102 @@ def preload_circle_history(admin_ids):
     return out
 
 
+def _current_open_segment_for_circle(history_rows, circle):
+    """Active history segment where the employee is assigned to `circle`."""
+    circle_n = _norm_circle(circle)
+    if not circle_n:
+        return None
+    for row in reversed(history_rows or []):
+        if row.effective_to is not None:
+            continue
+        if _norm_circle(row.to_circle) == circle_n:
+            return row
+    return None
+
+
+def is_transferred_into_circle(admin, circle, history_rows=None):
+    """True when the employee joined this circle via transfer (not initial onboarding)."""
+    rows = history_rows
+    if rows is None:
+        rows = (
+            EmployeeCircleHistory.query.filter_by(admin_id=admin.id)
+            .order_by(EmployeeCircleHistory.effective_from.asc())
+            .all()
+        )
+    segment = _current_open_segment_for_circle(rows, circle)
+    if segment is None:
+        return False
+    return bool((segment.from_circle or "").strip())
+
+
+def _segment_in_circle_for_month(history_rows, circle, year, month):
+    """History segment for this circle overlapping the export month (incl. closed stints)."""
+    circle_n = _norm_circle(circle)
+    if not circle_n:
+        return None
+    num_days = calendar.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, num_days)
+    for row in reversed(history_rows or []):
+        if _norm_circle(row.to_circle) != circle_n or not row.effective_from:
+            continue
+        if row.effective_from > month_end:
+            continue
+        seg_end = row.effective_to or month_end
+        if row.effective_to and row.effective_to < month_start:
+            continue
+        return row
+    return None
+
+
+def circle_stint_start_date(admin, circle, history_rows=None, year=None, month=None):
+    """
+    When the employee's assignment to this circle began (for list/export ordering).
+    Uses open history segment effective_from; for month exports, falls back to the
+    stint that overlapped that month; else DOJ for legacy rows without history.
+    """
+    rows = history_rows
+    if rows is None and getattr(admin, "id", None):
+        rows = (
+            EmployeeCircleHistory.query.filter_by(admin_id=admin.id)
+            .order_by(EmployeeCircleHistory.effective_from.asc())
+            .all()
+        )
+    segment = _current_open_segment_for_circle(rows or [], circle)
+    if segment and segment.effective_from:
+        return segment.effective_from
+    if year is not None and month is not None:
+        month_segment = _segment_in_circle_for_month(rows or [], circle, year, month)
+        if month_segment and month_segment.effective_from:
+            return month_segment.effective_from
+    return getattr(admin, "doj", None)
+
+
+def sort_admins_for_hr_circle_search(admins, circle, history_by_admin=None, year=None, month=None):
+    """
+    HR search / export order for a circle — single timeline by tenure *in this circle*:
+    earliest circle start first, newest circle start last.
+
+    - Native hire: circle start = DOJ (or initial history effective_from).
+    - Transfer in: circle start = transfer effective date.
+    - New hire after a transfer: DOJ is after the transfer, so they appear last.
+    """
+    history_by_admin = history_by_admin or preload_circle_history([a.id for a in admins])
+
+    def _sort_key(admin):
+        rows = history_by_admin.get(admin.id, [])
+        stint_start = circle_stint_start_date(
+            admin, circle, rows, year=year, month=month
+        )
+        name = (getattr(admin, "first_name", None) or "").lower()
+        admin_id = getattr(admin, "id", None) or 0
+        if stint_start is None:
+            return (1, date.max, name, admin_id)
+        return (0, stint_start, name, admin_id)
+
+    return sorted(admins, key=_sort_key)
+
+
 def circle_on_date(admin, on_date: date, history_rows=None) -> str:
     """Circle the employee belonged to on a given calendar day."""
     rows = history_rows
@@ -175,11 +271,8 @@ def fetch_admins_for_attendance_export(circle: str, emp_type: str, year: int, mo
     if not all_ids:
         return []
 
-    return (
-        Admin.query.filter(Admin.id.in_(all_ids))
-        .order_by(Admin.first_name.asc(), Admin.emp_id.asc())
-        .all()
-    )
+    admins = Admin.query.filter(Admin.id.in_(all_ids)).all()
+    return sort_admins_for_hr_circle_search(admins, circle, year=year, month=month)
 
 
 def _fmt_dt(dt) -> str:

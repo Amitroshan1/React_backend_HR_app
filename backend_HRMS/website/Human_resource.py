@@ -47,7 +47,7 @@ from .email import (
     send_assessment_hr_report_email,
 )
 from .utility import generate_attendance_excel,send_excel_file,calculate_month_summary
-from .circle_transfer_utils import fetch_admins_for_attendance_export
+from .circle_transfer_utils import fetch_admins_for_attendance_export, sort_admins_for_hr_circle_search
 from .models.emp_detail_models import Employee,Asset
 from .models.family_models import FamilyDetails
 from .models.prev_com import PreviousCompany
@@ -2086,6 +2086,7 @@ def search_employees():
         .filter(db.func.coalesce(Admin.is_active, True) == True)
         .all()
     )
+    admins = sort_admins_for_hr_circle_search(admins, circle)
 
     if not admins:
         return jsonify({
@@ -5245,6 +5246,7 @@ def search_employee_api():
             or_(Admin.is_exited == False, Admin.is_exited.is_(None))
         ).all()
     )
+    employees = sort_admins_for_hr_circle_search(employees, circle)
 
     admin_ids = [e.id for e in employees]
     desig_by_admin = {}

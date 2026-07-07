@@ -1,6 +1,9 @@
 export const QUERY_CHAT_POLL_MS = 4000;
 export const QUERY_INBOX_POLL_MS = 30000;
 export const QUERY_CHAT_PARAM = 'chat';
+export const QUERY_LIST_PAGE_SIZE = 10;
+/** IT Open Ticket loads more rows for client-side search/filter across tickets. */
+export const QUERY_INBOX_BULK_LIMIT = 500;
 
 export const parseChatIdFromSearch = (search) => {
   const raw = new URLSearchParams(search || '').get(QUERY_CHAT_PARAM);

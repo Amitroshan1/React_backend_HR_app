@@ -9,7 +9,7 @@
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import extract, func, or_
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import selectinload
 from . import db
 from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
@@ -31,6 +31,20 @@ import uuid
 query = Blueprint('query', __name__)
 
 MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024
+
+
+def _parse_query_list_pagination(default_limit=10, max_limit=100):
+    try:
+        page = int(request.args.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+    page = max(1, page)
+    try:
+        limit = int(request.args.get("limit", default_limit))
+    except (TypeError, ValueError):
+        limit = default_limit
+    limit = min(max(1, limit), max_limit)
+    return page, limit
 
 
 def _query_list_effective_created_at(q):
@@ -454,8 +468,7 @@ def my_queries():
         return jsonify({"success": False, "message": "User not found"}), 404
     _repair_query_created_at_from_history()
 
-    page = int(request.args.get("page", 1))
-    limit = int(request.args.get("limit", 10))
+    page, limit = _parse_query_list_pagination(default_limit=10, max_limit=50)
 
     pagination = (
         Query.query.options(selectinload(Query.replies))
@@ -487,6 +500,9 @@ def my_queries():
         {
             "success": True,
             "total": pagination.total,
+            "page": page,
+            "limit": limit,
+            "pages": pagination.pages,
             "queries": queries_out,
         }
     ), 200
@@ -515,7 +531,7 @@ def department_queries():
         _repair_query_created_at_from_history()
 
         dept_variants = _department_variants(department)
-        q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
+        q = Query.query.options(selectinload(Query.admin), selectinload(Query.replies)).filter(
             or_(
                 *[
                     func.lower(func.coalesce(Query.department, "")) == v
@@ -556,7 +572,11 @@ def department_queries():
                 )
             )
 
-        queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
+        page, limit = _parse_query_list_pagination(default_limit=10, max_limit=100)
+        pagination = q.order_by(effective_created_at.desc(), Query.id.desc()).paginate(
+            page=page, per_page=limit, error_out=False
+        )
+        queries = pagination.items
         unread_map = _unread_counts_by_query_id(admin.id, [row.id for row in queries])
 
         def _serialize_query(q):
@@ -585,6 +605,10 @@ def department_queries():
 
         return jsonify({
             "success": True,
+            "total": pagination.total,
+            "page": page,
+            "limit": limit,
+            "pages": pagination.pages,
             "queries": [_serialize_query(q) for q in queries]
         }), 200
     except Exception:

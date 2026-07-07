@@ -500,12 +500,14 @@ import {
   QUERY_CHAT_PARAM,
   QUERY_CHAT_POLL_MS,
   QUERY_INBOX_POLL_MS,
+  QUERY_LIST_PAGE_SIZE,
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
   queryAttachmentDisplayName,
   buildQueryAttachmentUrl,
 } from './queryChatHelpers';
+import { QueryListPagination } from './QueryListPagination';
 
 const API_BASE_URL = '/api/query';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -589,6 +591,9 @@ export const Queries = () => {
   const [, setSearchParams] = useSearchParams();
   const [departments, setDepartments] = useState(FALLBACK_DEPARTMENTS);
   const [queries, setQueries] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [formData, setFormData] = useState({ department: '', title: '', text: '' });
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
@@ -726,22 +731,35 @@ export const Queries = () => {
   };
 
   const fetchMyQueries = async (options = {}) => {
-    const { silent = false } = options;
+    const { silent = false, page: pageOverride } = options;
+    const pageNum = pageOverride ?? page;
     if (!silent) {
       setIsLoading(true);
       setActionError('');
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/queries/my?page=1&limit=50`, {
+      const response = await fetch(
+        `${API_BASE_URL}/queries/my?page=${pageNum}&limit=${QUERY_LIST_PAGE_SIZE}`,
+        {
         method: 'GET',
         headers: {
           ...getAuthHeaders(),
         }
-      });
+      }
+      );
       const result = await response.json();
       if (!response.ok || !result.success) {
         throw new Error(result.message || 'Failed to load queries');
       }
+      const total = Number(result.total) || 0;
+      const pages = total === 0 ? 1 : Math.max(1, Number(result.pages) || 1);
+      if (total > 0 && pageNum > pages) {
+        setPage(pages);
+        return;
+      }
+      setPage(pageNum);
+      setTotalCount(total);
+      setTotalPages(pages);
       const mapped = (result.queries || []).map(q => ({
         id: q.id,
         title: q.title,
@@ -755,6 +773,10 @@ export const Queries = () => {
         unreadReplyCount: Number(q.unread_reply_count || 0),
         messages: []
       }));
+      if (mapped.length === 0 && pageNum > 1 && total > 0) {
+        setPage(pageNum - 1);
+        return;
+      }
       setQueries(sortMyQueries(mapped));
     } catch (error) {
       console.error('Load queries error:', error);
@@ -768,9 +790,14 @@ export const Queries = () => {
     }
   };
 
+  const handlePageChange = (nextPage) => {
+    setPage(nextPage);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   useRefreshOnNavigate(() => {
     fetchMyQueries();
-  });
+  }, [page]);
 
   useEffect(() => {
     if (!parseChatIdFromSearch(location.search)) {
@@ -799,7 +826,7 @@ export const Queries = () => {
     };
     const intervalId = window.setInterval(poll, QUERY_CHAT_POLL_MS);
     return () => window.clearInterval(intervalId);
-  }, [activeChat?.id]);
+  }, [activeChat?.id, page]);
 
   useEffect(() => {
     if (activeChat?.id) return undefined;
@@ -807,7 +834,7 @@ export const Queries = () => {
       fetchMyQueries({ silent: true });
     }, QUERY_INBOX_POLL_MS);
     return () => window.clearInterval(intervalId);
-  }, [activeChat?.id]);
+  }, [activeChat?.id, page]);
 
   useEffect(() => {
     const chatId = parseChatIdFromSearch(location.search);
@@ -923,7 +950,8 @@ export const Queries = () => {
       } catch {
         /* no-op */
       }
-      await fetchMyQueries();
+      setPage(1);
+      await fetchMyQueries({ page: 1 });
       setFormData({ department: '', title: '', text: '' });
       setSelectedFiles([]);
       if (fileInputRef.current) {
@@ -1310,6 +1338,14 @@ export const Queries = () => {
               </tbody>
             </table>
           </div>
+          <QueryListPagination
+            page={page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            pageSize={QUERY_LIST_PAGE_SIZE}
+            onPageChange={handlePageChange}
+            disabled={isLoading}
+          />
         </div>
       </div>
     </div>
