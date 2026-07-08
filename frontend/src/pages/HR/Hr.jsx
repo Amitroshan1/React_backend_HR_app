@@ -1372,13 +1372,13 @@ export const Hr = () => {
   const [leaveUpdationContext, setLeaveUpdationContext] = useState(null);
 
   const stats = [
-    { title: 'Total Employees', value: String(counts.enabled_employees ?? counts.total_employees), subtitle: 'Enabled employees', icon: Users, color: 'blue' },
+    { title: 'Employees', value: String(counts.enabled_employees ?? counts.total_employees), subtitle: 'Enabled', icon: Users, color: 'blue' },
     { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green' },
-    { title: 'Active Today', value: String(counts.today_punch_in_count), subtitle: 'Punched in today', icon: UserCheck, color: 'teal' },
+    { title: 'Active', value: String(counts.today_punch_in_count), subtitle: 'Punched in', icon: UserCheck, color: 'teal' },
     { title: 'Exits', value: String(counts.exits_this_month ?? 0), subtitle: 'This month', icon: TrendingDown, color: 'red' },
     { title: 'Probation', value: String(counts.probations_ending_30_days ?? 0), subtitle: '≤30 days', icon: AlertTriangle, color: 'amber' },
     { title: 'Profiles', value: `${counts.profile_completion_pct ?? 0}%`, subtitle: 'Org average', icon: BarChart3, color: 'purple' },
-    { title: 'Pending NOC', value: String(counts.pending_noc_count ?? 0), subtitle: 'HR clearance', icon: FileCheck, color: 'pink' },
+    { title: 'NOC', value: String(counts.pending_noc_count ?? 0), subtitle: 'Pending', icon: FileCheck, color: 'pink' },
   ];
 
   const updateOptions = [
@@ -2578,32 +2578,32 @@ if (view === 'noc_requests') {
       )}
 
       <div className="hr-dash-layout">
-        <div className="hr-dash-main">
-          <section className="hr-dash-panel" aria-label="Workforce overview">
-            <div className="hr-dash-panel__head">
-              <div>
-                <h2 className="hr-dash-panel__title">Workforce overview</h2>
-                <p className="hr-dash-panel__sub">Core people metrics updated from live HR data</p>
-              </div>
+        <section className="hr-dash-panel hr-dash-panel--overview" aria-label="Workforce overview">
+          <div className="hr-dash-panel__head">
+            <div>
+              <h2 className="hr-dash-panel__title">Workforce overview</h2>
+              <p className="hr-dash-panel__sub">Core people metrics updated from live HR data</p>
             </div>
-            <div className="hr-dash-panel__body">
-              <div className="hr-stats-grid">
-                {stats.map((stat) => (
-                  <article key={stat.title} className={`hr-metric-card hr-metric-card--${stat.color}`}>
-                    <div className="hr-metric-card__top">
-                      <p className="hr-metric-card__label">{stat.title}</p>
-                      <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
-                        <stat.icon size={15} strokeWidth={2.25} />
-                      </div>
+          </div>
+          <div className="hr-dash-panel__body">
+            <div className="hr-stats-grid">
+              {stats.map((stat) => (
+                <article key={stat.title} className={`hr-metric-card hr-metric-card--${stat.color}`}>
+                  <div className="hr-metric-card__top">
+                    <p className="hr-metric-card__label">{stat.title}</p>
+                    <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
+                      <stat.icon size={15} strokeWidth={2.25} />
                     </div>
-                    <p className="hr-metric-card__value">{stat.value}</p>
-                    <p className="hr-metric-card__sub">{stat.subtitle}</p>
-                  </article>
-                ))}
-              </div>
+                  </div>
+                  <p className="hr-metric-card__value">{stat.value}</p>
+                  <p className="hr-metric-card__sub">{stat.subtitle}</p>
+                </article>
+              ))}
             </div>
-          </section>
+          </div>
+        </section>
 
+        <div className="hr-dash-main">
           <section className="hr-dash-panel hr-dash-panel--search" aria-label="Employee search">
             {!showSearchResults ? (
               <div className="search-section-inner">

@@ -2,7 +2,7 @@
 
 const STORAGE_KEY = 'hr_recent_modules';
 const MAX_RECENT = 5;
-const DASHBOARD_RECENT_LIMIT = 3;
+const DASHBOARD_RECENT_LIMIT = 2;
 
 export function recordRecentModule(title) {
   if (!title || typeof localStorage === 'undefined') return;

@@ -215,19 +215,25 @@
   --hr-dash-accent-soft: #eef2ff;
   --hr-dash-radius: 16px;
   --hr-dash-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 6px 16px rgba(15, 23, 42, 0.04);
-  --hr-metric-h: 112px;
+  --hr-metric-h: 118px;
 
-  max-width: 1280px;
+  max-width: 1480px;
+  width: 100%;
   margin: 0 auto;
   padding: 4px 0 40px;
+  box-sizing: border-box;
 }
 
-/* Bento layout: main + shortcuts sidebar */
+/* Bento: overview full-width, then search + shortcuts */
 .hr-dash-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 296px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 20px;
   align-items: start;
+}
+
+.hr-dash-panel--overview {
+  grid-column: 1 / -1;
 }
 
 .hr-dash-main {
@@ -298,22 +304,24 @@
   padding: 0 14px 16px;
 }
 
-/* Metric grid — 4 + 3 on desktop, equal fixed-height cards */
-.hr-stats-grid {
+/* Metric grid — all 7 cards in one row on desktop */
+.hr-dashboard .hr-stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
+  width: 100%;
 }
 
-.hr-metric-card {
+.hr-dashboard .hr-metric-card {
   position: relative;
   display: flex;
   flex-direction: column;
   height: var(--hr-metric-h);
   min-height: var(--hr-metric-h);
-  max-height: var(--hr-metric-h);
-  padding: 16px 14px 14px;
+  max-height: none;
+  min-width: 0;
+  padding: 14px 12px 12px;
   background: #ffffff;
   border: 1px solid var(--hr-dash-border);
   border-radius: 12px;
@@ -377,16 +385,17 @@
 .hr-metric-card__icon--purple { background: #ede9fe; color: #7c3aed; }
 .hr-metric-card__icon--pink { background: #fce7f3; color: #db2777; }
 
-.hr-metric-card__label {
+.hr-dashboard .hr-metric-card__label {
   margin: 0;
   padding: 0;
-  height: 28px;
+  min-height: 0;
+  height: auto;
   font-size: 0.6875rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--hr-dash-muted);
-  line-height: 28px;
+  line-height: 1.3;
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -394,9 +403,9 @@
   text-overflow: ellipsis;
 }
 
-.hr-metric-card__value {
-  margin: 12px 0 0;
-  font-size: 1.625rem;
+.hr-dashboard .hr-metric-card__value {
+  margin: 10px 0 0;
+  font-size: 1.5rem;
   font-weight: 800;
   color: var(--hr-dash-text);
   letter-spacing: -0.03em;
@@ -405,7 +414,7 @@
   flex-shrink: 0;
 }
 
-.hr-metric-card__sub {
+.hr-dashboard .hr-metric-card__sub {
   margin: auto 0 0;
   padding-top: 6px;
   font-size: 0.75rem;
@@ -2487,8 +2496,24 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .hr-stats-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .hr-dashboard .hr-stats-grid {
+    grid-template-columns: repeat(7, minmax(108px, 1fr));
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .hr-dashboard .hr-stats-grid::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .hr-dashboard .hr-stats-grid::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+  }
+
+  .hr-dash-panel--overview {
+    grid-column: 1 / -1;
   }
 
   .hr-shortcuts {
@@ -2563,23 +2588,20 @@
     padding-right: 16px;
   }
 
-  .hr-stats-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .hr-dashboard .hr-stats-grid {
+    grid-template-columns: repeat(7, minmax(100px, 1fr));
+    gap: 10px;
   }
 
-  .hr-shortcuts {
-    grid-template-columns: 1fr;
+  .hr-dashboard .hr-metric-card {
+    height: auto;
+    min-height: 104px;
+    max-height: none;
+    padding: 12px 10px 10px;
   }
 
-  .hr-metric-card {
-    height: var(--hr-metric-h);
-    min-height: var(--hr-metric-h);
-    max-height: var(--hr-metric-h);
-    padding: 16px 14px 14px;
-  }
-
-  .hr-metric-card__value {
-    font-size: 1.5rem;
+  .hr-dashboard .hr-metric-card__value {
+    font-size: 1.35rem;
   }
 
   .hr-dash-panel__body {
@@ -2776,6 +2798,8 @@
   }
 
   .hr-metric-card {
+    height: auto;
+    min-height: 108px;
     padding: 14px;
   }
 
@@ -2784,7 +2808,7 @@
   }
 
   .hr-metric-card__label {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .birthday-anniversary-card {
