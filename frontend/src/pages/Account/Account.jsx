@@ -22,7 +22,17 @@ import {
   isValidFinancialYear,
 } from '../../utils/financialYear';
 
-const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
+const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax Regime'];
+
+/** Map spelling variants (e.g. "Old Tax regime") to the canonical dropdown labels. */
+function normalizeTaxRegimeLabel(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower.includes('new')) return 'New Tax Regime';
+  if (lower.includes('old')) return 'Old Tax Regime';
+  return raw;
+}
 
 const ctcAllowanceFieldsFromRecord = (c = {}) => {
   const hasHeads =
@@ -1113,7 +1123,7 @@ export const Account = ()  => {
         location: p.location || '',
         bank_details: p.bank_details || '',
         date_of_joining: p.date_of_joining || '',
-        tax_regime: p.tax_regime || '',
+        tax_regime: normalizeTaxRegimeLabel(p.tax_regime),
         pan: p.pan || '',
         uan: p.uan || '',
         pf_account_number: p.pf_account_number || '',
@@ -1121,7 +1131,7 @@ export const Account = ()  => {
         pran: p.pran || '',
       });
       setRegimeOverrideForm({
-        tax_regime: p.tax_regime_override || p.tax_regime || '',
+        tax_regime: normalizeTaxRegimeLabel(p.tax_regime_override || p.tax_regime),
         reason: p.tax_regime_override_reason || '',
       });
       if (!profileJson.profile) {
@@ -6719,7 +6729,7 @@ export const Account = ()  => {
                           </option>
                         ))}
                         {accountsProfileForm.tax_regime &&
-                        !TAX_REGIME_OPTIONS.includes(accountsProfileForm.tax_regime) ? (
+                        !TAX_REGIME_OPTIONS.includes(normalizeTaxRegimeLabel(accountsProfileForm.tax_regime)) ? (
                           <option value={accountsProfileForm.tax_regime}>
                             {accountsProfileForm.tax_regime}
                           </option>

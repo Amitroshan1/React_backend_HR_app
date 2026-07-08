@@ -1294,30 +1294,48 @@ def reset_password():
     }), 200
 
 
+def _profile_field_filled(x) -> bool:
+    """True when value has real data (not empty / N/A placeholders from sign-up)."""
+    if x is None:
+        return False
+    s = str(x).strip()
+    if not s:
+        return False
+    placeholders = {
+        "n/a", "na", "n.a.", "n.a", "none", "null", "undefined",
+        "-", "—", "--", "not provided", "not available", "tbd", "nil",
+    }
+    return s.lower() not in placeholders
+
+
 def _profile_completeness_score(admin) -> int:
-    """Mirror frontend hrProfileCompleteness — 5 sections × 20%."""
+    """Mirror frontend hrProfileCompleteness — 6 equal sections."""
     employee = Employee.query.filter_by(admin_id=admin.id).first()
     education = Education.query.filter_by(admin_id=admin.id).all()
+    prev_companies = PreviousCompany.query.filter_by(admin_id=admin.id).all()
     upload_doc = UploadDoc.query.filter_by(admin_id=admin.id).first()
     emp = employee or type("E", (), {})()
     docs = upload_doc or type("D", (), {})()
 
-    def v(x):
-        return x is not None and str(x).strip() != ""
+    v = _profile_field_filled
+    completed = 0
+    total = 6
 
-    score = 0
     personal = [
         emp.name if hasattr(emp, "name") else admin.first_name,
         getattr(emp, "father_name", None),
+        getattr(emp, "mother_name", None),
         getattr(emp, "marital_status", None),
-        getattr(emp, "email", None) or admin.email,
-        getattr(emp, "mobile", None) or admin.mobile,
-        getattr(emp, "nationality", None),
         getattr(emp, "dob", None),
         getattr(emp, "gender", None),
+        getattr(emp, "blood_group", None),
+        getattr(emp, "nationality", None),
+        getattr(emp, "email", None) or admin.email,
+        getattr(emp, "mobile", None) or admin.mobile,
+        getattr(emp, "emergency_mobile", None),
     ]
     if all(v(x) for x in personal):
-        score += 20
+        completed += 1
 
     addr = [
         getattr(emp, "present_address_line1", None),
@@ -1330,7 +1348,7 @@ def _profile_completeness_score(admin) -> int:
         getattr(emp, "permanent_state", None),
     ]
     if all(v(x) for x in addr):
-        score += 20
+        completed += 1
 
     employment = [
         getattr(emp, "designation", None),
@@ -1340,18 +1358,26 @@ def _profile_completeness_score(admin) -> int:
         admin.emp_type,
     ]
     if all(v(x) for x in employment):
-        score += 20
+        completed += 1
+
+    prev_ok = any(
+        v(getattr(pc, "com_name", None)) and v(getattr(pc, "designation", None))
+        for pc in (prev_companies or [])
+    )
+    if prev_ok:
+        completed += 1
 
     edu_ok = education and any(
         v(e.qualification) and v(e.institution) and v(e.start) and v(e.end) for e in education
     )
     if edu_ok:
-        score += 20
+        completed += 1
 
     doc_keys = ["aadhaar_front", "aadhaar_back", "pan_front", "pan_back", "passbook_front", "appointment_letter"]
     if all(v(getattr(docs, k, None)) for k in doc_keys):
-        score += 20
-    return score
+        completed += 1
+
+    return int(round((completed / total) * 100))
 
 
 @hr.route("/dashboard", methods=["GET"])

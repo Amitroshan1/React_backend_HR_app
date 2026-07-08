@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, User } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import { hasFeature } from '../../utils/planFeatures';
 import './HREmployee360.css';
@@ -11,7 +11,6 @@ const TABS = [
   { id: 'profile', label: 'Profile' },
   { id: 'attendance', label: 'Attendance' },
   { id: 'leave', label: 'Leave' },
-  { id: 'payroll', label: 'Payroll' },
   { id: 'offboarding', label: 'Offboarding' },
   { id: 'accounts', label: 'Accounts', feature: 'hr_employee_accounts' },
 ];
@@ -21,25 +20,59 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function leaveStatusClass(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'approved') return 'e360-leave-status--approved';
+  if (s === 'rejected') return 'e360-leave-status--rejected';
+  if (s === 'pending') return 'e360-leave-status--pending';
+  return '';
+}
+
 function LeaveTab({ employee }) {
   const [data, setData] = useState(null);
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState('');
+  const [historyError, setHistoryError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoading(true);
+      setHistoryLoading(true);
+      setError('');
+      setHistoryError('');
       try {
-        const res = await fetch(`${HR_API_BASE}/leave-balance/${employee.id}`, { headers: getAuthHeaders() });
-        const json = await res.json();
-        if (!cancelled) {
-          if (res.ok && json.success) setData(json);
-          else setError(json.message || 'Failed to load leave balance');
+        const [balRes, histRes] = await Promise.all([
+          fetch(`${HR_API_BASE}/leave-balance/${employee.id}`, { headers: getAuthHeaders() }),
+          fetch(
+            `${HR_API_BASE}/leave-updation/requests?admin_id=${employee.id}&request_type=all&status=all`,
+            { headers: getAuthHeaders() }
+          ),
+        ]);
+        const balJson = await balRes.json().catch(() => ({}));
+        const histJson = await histRes.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (balRes.ok && balJson.success) setData(balJson);
+        else setError(balJson.message || 'Failed to load leave balance');
+
+        if (histRes.ok && histJson.success) setHistory(histJson.requests || []);
+        else {
+          setHistory([]);
+          setHistoryError(histJson.message || 'Failed to load leave history');
         }
       } catch {
-        if (!cancelled) setError('Network error');
+        if (!cancelled) {
+          setError('Network error');
+          setHistoryError('Network error');
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setHistoryLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -49,10 +82,70 @@ function LeaveTab({ employee }) {
   if (error) return <p className="e360-error">{error}</p>;
   const bal = data?.leave_balance || {};
   return (
-    <div className="e360-leave-grid">
-      <div className="e360-stat"><span>Privilege Leave</span><strong>{bal.privilege_leave_balance ?? '—'}</strong></div>
-      <div className="e360-stat"><span>Casual Leave</span><strong>{bal.casual_leave_balance ?? '—'}</strong></div>
-      <div className="e360-stat"><span>Comp Off</span><strong>{bal.compensatory_leave_balance ?? '—'}</strong></div>
+    <div className="e360-leave">
+      <div className="e360-leave-grid">
+        <div className="e360-stat"><span>Privilege Leave</span><strong>{bal.privilege_leave_balance ?? '—'}</strong></div>
+        <div className="e360-stat"><span>Casual Leave</span><strong>{bal.casual_leave_balance ?? '—'}</strong></div>
+        <div className="e360-stat"><span>Comp Off</span><strong>{bal.compensatory_leave_balance ?? '—'}</strong></div>
+      </div>
+
+      <section className="e360-leave-history" aria-label="Leave history">
+        <div className="e360-leave-history__head">
+          <h3>Leave history</h3>
+          {!historyLoading && history.length > 0 ? (
+            <span className="e360-leave-history__count">{history.length} request{history.length === 1 ? '' : 's'}</span>
+          ) : null}
+        </div>
+
+        {historyLoading ? (
+          <p className="e360-loading">Loading leave history…</p>
+        ) : historyError ? (
+          <p className="e360-error">{historyError}</p>
+        ) : history.length === 0 ? (
+          <p className="e360-muted">No leave or WFH requests found for this employee.</p>
+        ) : (
+          <div className="e360-leave-table-wrap">
+            <table className="e360-leave-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>From</th>
+                  <th>To</th>
+                  <th>Days</th>
+                  <th>Status</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((row) => (
+                  <tr key={row.row_key || `${row.request_type}-${row.id}`}>
+                    <td>
+                      <span className="e360-leave-type">
+                        {row.leave_type || (row.request_type === 'wfh' ? 'Work From Home' : 'Leave')}
+                      </span>
+                    </td>
+                    <td>{formatDateDDMMYYYY(row.start_date, '—')}</td>
+                    <td>{formatDateDDMMYYYY(row.end_date, '—')}</td>
+                    <td>
+                      {row.deducted_days != null && row.deducted_days !== ''
+                        ? row.deducted_days
+                        : '—'}
+                    </td>
+                    <td>
+                      <span className={`e360-leave-status ${leaveStatusClass(row.status)}`}>
+                        {row.status || '—'}
+                      </span>
+                    </td>
+                    <td className="e360-leave-reason" title={row.reason || ''}>
+                      {row.reason?.trim() ? row.reason : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -101,80 +194,6 @@ function OffboardingTab({ employee }) {
           <p>NOC: {ob.noc_summary.approved ?? 0} approved / {ob.noc_summary.total ?? 0} total</p>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function PayrollTab({ employee }) {
-  const [ctc, setCtc] = useState(null);
-  const [revisions, setRevisions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [ctcRes, revRes] = await Promise.all([
-          fetch(`${ACCOUNTS_API_BASE}/ctc-breakup/${employee.id}`, { headers: getAuthHeaders() }),
-          fetch(`${HR_API_BASE}/compensation/proposals?status=all&admin_id=${employee.id}`, { headers: getAuthHeaders() }),
-        ]);
-        const ctcJson = await ctcRes.json();
-        const revJson = await revRes.json();
-        if (!cancelled) {
-          if (ctcRes.ok && ctcJson.success) setCtc(ctcJson.ctc_breakup);
-          else setError(ctcJson.message || 'No CTC on file');
-          if (revRes.ok && revJson.success) setRevisions(revJson.proposals || []);
-        }
-      } catch {
-        if (!cancelled) setError('Network error');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [employee.id]);
-
-  if (loading) return <p className="e360-loading">Loading payroll summary…</p>;
-
-  const annual = ctc?.annual_ctc_computed ?? ctc?.annual_ctc;
-  const monthly = ctc?.monthly_gross_computed ?? ctc?.monthly_gross;
-
-  return (
-    <div className="e360-payroll">
-      {error && !ctc ? <p className="e360-muted">{error}</p> : null}
-      <div className="e360-leave-grid">
-        <div className="e360-stat"><span>Annual CTC</span><strong>{annual != null ? `₹${Number(annual).toLocaleString('en-IN')}` : '—'}</strong></div>
-        <div className="e360-stat"><span>Monthly gross</span><strong>{monthly != null ? `₹${Number(monthly).toLocaleString('en-IN')}` : '—'}</strong></div>
-        <div className="e360-stat"><span>Basic</span><strong>{ctc?.basic != null ? `₹${Number(ctc.basic).toLocaleString('en-IN')}` : '—'}</strong></div>
-        <div className="e360-stat"><span>HRA</span><strong>{ctc?.hra != null ? `₹${Number(ctc.hra).toLocaleString('en-IN')}` : '—'}</strong></div>
-      </div>
-
-      {revisions.length > 0 ? (
-        <div className="e360-revisions">
-          <h4>Salary revisions</h4>
-          <ul>
-            {revisions.map((r) => (
-              <li key={r.id}>
-                <span>{r.revision_type || 'revision'}</span>
-                <span>{r.status}</span>
-                {r.proposed_annual_ctc != null ? <span>₹{Number(r.proposed_annual_ctc).toLocaleString('en-IN')}</span> : null}
-                {r.effective_from ? <span>from {formatDateDDMMYYYY(r.effective_from)}</span> : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        <p className="e360-muted">No salary revision requests on record.</p>
-      )}
-
-      <button
-        type="button"
-        className="e360-accounts-link"
-        onClick={() => window.open(`/account?admin_id=${employee.id}&section=ctc`, '_blank', 'noopener')}
-      >
-        Open full CTC in Accounts
-      </button>
     </div>
   );
 }
@@ -239,33 +258,45 @@ export const HREmployee360 = ({
   AttendanceView,
   AccountsView,
 }) => {
-  const visibleTabs = TABS.filter((t) => !t.feature || hasFeature(t.feature));
-  const [activeTab, setActiveTab] = useState(
+  const visibleTabs = useMemo(
+    () => TABS.filter((t) => !t.feature || hasFeature(t.feature)),
+    []
+  );
+  const [activeTab, setActiveTab] = useState(() =>
     visibleTabs.some((t) => t.id === initialTab) ? initialTab : 'profile'
   );
 
+  // Only sync when employee or requested initial tab changes — not on every render
   useEffect(() => {
-    if (visibleTabs.some((t) => t.id === initialTab)) {
-      setActiveTab(initialTab);
-    }
+    const next = visibleTabs.some((t) => t.id === initialTab) ? initialTab : 'profile';
+    setActiveTab(next);
   }, [initialTab, employee?.id, visibleTabs]);
 
   const noopBack = () => {};
 
   return (
     <div className="e360-page">
-      <button type="button" className="btn-back-updates" onClick={onBack}>
-        <ArrowLeft size={16} /> Back to Search
+      <button type="button" className="e360-back" onClick={onBack}>
+        <ArrowLeft size={16} strokeWidth={2.25} aria-hidden />
+        <span>Back to Search</span>
       </button>
 
-      <div className="e360-header">
-        <div>
-          <h2>{employee.name}</h2>
-          <p>{employee.emp_id ? `${employee.emp_id} • ` : ''}{employee.email} • {employee.circle} ({employee.type})</p>
+      <header className="e360-hero">
+        <div className="e360-hero__avatar" aria-hidden>
+          <User size={28} strokeWidth={2} />
         </div>
-      </div>
+        <div className="e360-hero__main">
+          <h1>{employee.name}</h1>
+          <p>
+            {employee.emp_id ? <span className="e360-hero__id">{employee.emp_id}</span> : null}
+            {employee.email}
+            <span className="e360-hero__sep">•</span>
+            {employee.circle} ({employee.type})
+          </p>
+        </div>
+      </header>
 
-      <div className="e360-tabs" role="tablist">
+      <div className="e360-tabs" role="tablist" aria-label="Employee sections">
         {visibleTabs.map((tab) => (
           <button
             key={tab.id}
@@ -288,7 +319,6 @@ export const HREmployee360 = ({
           <AttendanceView employee={employee} onBack={noopBack} embedded />
         ) : null}
         {activeTab === 'leave' ? <LeaveTab employee={employee} /> : null}
-        {activeTab === 'payroll' ? <PayrollTab employee={employee} /> : null}
         {activeTab === 'offboarding' ? <OffboardingTab employee={employee} /> : null}
         {activeTab === 'accounts' && AccountsView ? (
           <AccountsView employee={employee} onBack={noopBack} embedded />

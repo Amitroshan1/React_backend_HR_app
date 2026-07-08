@@ -98,79 +98,115 @@ function getAuthHeaders() {
 }
 
 // ----- HR Profile completeness (same logic as employee Profile) -----
-function hrProfileCompleteness(admin, employee, documents, education) {
-  const missing = [];
-  let score = 0;
-  const sectionWeight = 20;
+function isProfileFieldFilled(val) {
+  if (val == null) return false;
+  const s = String(val).trim();
+  if (!s) return false;
+  // Sign-up / imports often store placeholder text; treat as empty
+  const lower = s.toLowerCase();
+  const placeholders = new Set([
+    'n/a', 'na', 'n.a.', 'n.a', 'none', 'null', 'undefined',
+    '-', '—', '--', 'not provided', 'not available', 'tbd', 'nil',
+  ]);
+  return !placeholders.has(lower);
+}
 
-  const v = (x) => (x != null && String(x).trim() !== '');
+function hrProfileCompleteness(admin, employee, documents, education, previousEmployment) {
+  const missing = [];
+  let completedSections = 0;
+  const totalSections = 6;
+  const v = isProfileFieldFilled;
   const emp = employee || {};
   const doc = documents || {};
+  const prev = Array.isArray(previousEmployment) ? previousEmployment : [];
+  const edu = Array.isArray(education) ? education : [];
   const docKeys = ['aadhaar_front', 'aadhaar_back', 'pan_front', 'pan_back', 'passbook_front', 'appointment_letter'];
-  const docLabels = { aadhaar_front: 'Aadhaar (Front)', aadhaar_back: 'Aadhaar (Back)', pan_front: 'PAN (Front)', pan_back: 'PAN (Back)', passbook_front: 'Passbook (Front)', appointment_letter: 'Appointment Letter' };
+  const docLabels = {
+    aadhaar_front: 'Aadhaar (Front)',
+    aadhaar_back: 'Aadhaar (Back)',
+    pan_front: 'PAN (Front)',
+    pan_back: 'PAN (Back)',
+    passbook_front: 'Passbook (Front)',
+    appointment_letter: 'Appointment Letter',
+  };
 
-  // 1. Personal (name, father, marital, email, mobile, nationality, dob, gender)
+  // 1. Personal Information
   const personalFields = [
-    { key: 'name', label: 'Full name', val: emp.name || admin?.first_name },
-    { key: 'father_name', label: "Father's name", val: emp.father_name },
-    { key: 'marital_status', label: 'Marital status', val: emp.marital_status },
-    { key: 'email', label: 'Personal email', val: emp.email || admin?.email },
-    { key: 'mobile', label: 'Mobile', val: emp.mobile || admin?.mobile },
-    { key: 'nationality', label: 'Nationality', val: emp.nationality },
-    { key: 'dob', label: 'Date of birth', val: emp.dob },
-    { key: 'gender', label: 'Gender', val: emp.gender },
+    { label: 'Full name', val: emp.name || admin?.first_name },
+    { label: "Father's name", val: emp.father_name },
+    { label: "Mother's name", val: emp.mother_name },
+    { label: 'Marital status', val: emp.marital_status },
+    { label: 'Date of birth', val: emp.dob },
+    { label: 'Gender', val: emp.gender },
+    { label: 'Blood group', val: emp.blood_group },
+    { label: 'Nationality', val: emp.nationality },
+    { label: 'Personal email', val: emp.email || admin?.email },
+    { label: 'Mobile', val: emp.mobile || admin?.mobile },
+    { label: 'Emergency contact', val: emp.emergency_mobile },
   ];
-  const personalMissing = personalFields.filter(f => !v(f.val));
-  if (personalMissing.length === 0) score += sectionWeight;
-  else personalMissing.forEach(f => missing.push(`Personal: ${f.label}`));
+  const personalMissing = personalFields.filter((f) => !v(f.val));
+  if (personalMissing.length === 0) completedSections += 1;
+  else personalMissing.forEach((f) => missing.push(`Personal: ${f.label}`));
 
-  // 2. Address (present + permanent: line1, pincode, district, state)
+  // 2. Address
   const addrFields = [
-    { key: 'present', label: 'Current address (street)', val: emp.present_address_line1 },
-    { key: 'present_pincode', label: 'Current pincode', val: emp.present_pincode },
-    { key: 'present_district', label: 'Current district', val: emp.present_district },
-    { key: 'present_state', label: 'Current state', val: emp.present_state },
-    { key: 'permanent', label: 'Permanent address (street)', val: emp.permanent_address_line1 },
-    { key: 'permanent_pincode', label: 'Permanent pincode', val: emp.permanent_pincode },
-    { key: 'permanent_district', label: 'Permanent district', val: emp.permanent_district },
-    { key: 'permanent_state', label: 'Permanent state', val: emp.permanent_state },
+    { label: 'Current address (street)', val: emp.present_address_line1 },
+    { label: 'Current pincode', val: emp.present_pincode },
+    { label: 'Current district', val: emp.present_district },
+    { label: 'Current state', val: emp.present_state },
+    { label: 'Permanent address (street)', val: emp.permanent_address_line1 },
+    { label: 'Permanent pincode', val: emp.permanent_pincode },
+    { label: 'Permanent district', val: emp.permanent_district },
+    { label: 'Permanent state', val: emp.permanent_state },
   ];
-  const addrMissing = addrFields.filter(f => !v(f.val));
-  if (addrMissing.length === 0) score += sectionWeight;
-  else addrMissing.forEach(f => missing.push(`Address: ${f.label}`));
+  const addrMissing = addrFields.filter((f) => !v(f.val));
+  if (addrMissing.length === 0) completedSections += 1;
+  else addrMissing.forEach((f) => missing.push(`Address: ${f.label}`));
 
-  // 3. Current employment (designation, emp_id, circle, doj, emp_type)
+  // 3. Current Employment
   const empFields = [
-    { key: 'designation', label: 'Designation', val: emp.designation },
-    { key: 'emp_id', label: 'Employee ID', val: emp.emp_id || admin?.emp_id },
-    { key: 'circle', label: 'Department', val: admin?.circle },
-    { key: 'doj', label: 'Date of joining', val: admin?.doj },
-    { key: 'emp_type', label: 'Employment type', val: admin?.emp_type },
+    { label: 'Designation', val: emp.designation },
+    { label: 'Employee ID', val: emp.emp_id || admin?.emp_id },
+    { label: 'Department', val: admin?.circle },
+    { label: 'Date of joining', val: admin?.doj },
+    { label: 'Employment type', val: admin?.emp_type },
   ];
-  const empMissing = empFields.filter(f => !v(f.val));
-  if (empMissing.length === 0) score += sectionWeight;
-  else empMissing.forEach(f => missing.push(`Employment: ${f.label}`));
+  const empMissing = empFields.filter((f) => !v(f.val));
+  if (empMissing.length === 0) completedSections += 1;
+  else empMissing.forEach((f) => missing.push(`Employment: ${f.label}`));
 
-  // 4. Education (at least one with qualification, institution, start, end)
-  const eduFilled = education && education.length > 0 && education.some(e => v(e.qualification) && v(e.institution) && v(e.start) && v(e.end));
-  if (eduFilled) score += sectionWeight;
+  // 4. Previous Employment — at least one company with name + designation
+  const prevFilled = prev.some(
+    (pe) =>
+      v(pe.companyName || pe.com_name) &&
+      v(pe.designation)
+  );
+  if (prevFilled) completedSections += 1;
+  else missing.push('Previous employment: at least one company (name and designation)');
+
+  // 5. Education — at least one complete entry
+  const eduFilled = edu.some(
+    (e) => v(e.qualification) && v(e.institution) && v(e.start) && v(e.end)
+  );
+  if (eduFilled) completedSections += 1;
   else missing.push('Education: at least one complete entry (qualification, institution, dates)');
 
-  // 5. Documents (all 6)
-  const docMissing = docKeys.filter(k => !v(doc[k]));
-  if (docMissing.length === 0) score += sectionWeight;
-  else docMissing.forEach(k => missing.push(`Document: ${docLabels[k]}`));
+  // 6. Documents (all 6)
+  const docMissing = docKeys.filter((k) => !v(doc[k]));
+  if (docMissing.length === 0) completedSections += 1;
+  else docMissing.forEach((k) => missing.push(`Document: ${docLabels[k]}`));
 
-  return { score, missing };
+  const score = Math.round((completedSections / totalSections) * 100);
+  return { score, missing, completedSections, totalSections };
 }
 
 function hrProfileVal(val) {
-  if (val == null || String(val).trim() === '') return null;
+  if (!isProfileFieldFilled(val)) return null;
   return String(val).trim();
 }
 
 // ----- HR Employee Profile view (from Search Employee → Profile) -----
-function HrEmployeeProfileView({ employee, onBack }) {
+function HrEmployeeProfileView({ employee, onBack, embedded = false }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -200,7 +236,13 @@ function HrEmployeeProfileView({ employee, onBack }) {
   const docBase = (typeof window !== 'undefined' && window.__BACKEND_STATIC__) ? window.__BACKEND_STATIC__ : '';
   const docUrl = (path) => (path ? `${docBase}/static/uploads/${path}` : null);
 
-  const { score, missing } = hrProfileCompleteness(admin, emp, docs, education);
+  const { score, missing, completedSections, totalSections } = hrProfileCompleteness(
+    admin,
+    emp,
+    docs,
+    education,
+    previousEmployment
+  );
   const notProvided = '— Not provided';
   const notUploaded = 'Not uploaded';
 
@@ -218,10 +260,14 @@ function HrEmployeeProfileView({ employee, onBack }) {
   };
 
   return (
-    <div className="hr-sub-page">
-      <button type="button" className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
-      <div className="hr-card">
-        <h2>Profile – {employee.name}</h2>
+    <div className={`hr-sub-page${embedded ? ' hr-sub-page--embedded' : ''}`}>
+      {!embedded ? (
+        <button type="button" className="btn-back-updates" onClick={onBack}>
+          <ArrowLeft size={16} /> Back to Search
+        </button>
+      ) : null}
+      <div className={`hr-card${embedded ? ' hr-card--embedded' : ''}`}>
+        {!embedded ? <h2>Profile – {employee.name}</h2> : null}
         {loading && <p className="hr-loading">Loading...</p>}
         {error && <p className="hr-error">{error}</p>}
         {profile && (
@@ -235,8 +281,13 @@ function HrEmployeeProfileView({ employee, onBack }) {
               <div className="hr-profile-progress-wrap">
                 <div className="hr-profile-progress-bar" style={{ width: `${score}%` }} />
               </div>
+              <p className="hr-profile-completeness-meta">
+                {completedSections} of {totalSections} sections complete
+              </p>
               <div className="hr-profile-missing-box">
-                <span className="hr-profile-missing-title">Request from employee</span>
+                <span className="hr-profile-missing-title">
+                  {missing.length === 0 ? 'Status' : `Missing (${missing.length})`}
+                </span>
                 {missing.length === 0 ? (
                   <p className="hr-profile-missing-all-ok">All required fields and documents are provided.</p>
                 ) : (
@@ -467,7 +518,17 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
 }
 
 // ----- HR Employee Accounts profile (from Search Employee -> Employee Accounts) -----
-const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax regime'];
+const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax Regime'];
+
+/** Map spelling variants (e.g. "Old Tax regime") to the canonical dropdown labels. */
+function normalizeTaxRegimeLabel(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower.includes('new')) return 'New Tax Regime';
+  if (lower.includes('old')) return 'Old Tax Regime';
+  return raw;
+}
 
 function HrEmployeeAccountsView({ employee, onBack }) {
   const [loading, setLoading] = useState(true);
@@ -562,7 +623,7 @@ function HrEmployeeAccountsView({ employee, onBack }) {
             location: p.location || '',
             bank_details: p.bank_details || '',
             date_of_joining: p.date_of_joining || '',
-            tax_regime: p.tax_regime || '',
+            tax_regime: normalizeTaxRegimeLabel(p.tax_regime),
             pan: p.pan || '',
             uan: p.uan || '',
             pf_account_number: p.pf_account_number || '',
@@ -663,7 +724,7 @@ function HrEmployeeAccountsView({ employee, onBack }) {
                       {opt}
                     </option>
                   ))}
-                  {form.tax_regime && !TAX_REGIME_OPTIONS.includes(form.tax_regime) ? (
+                  {form.tax_regime && !TAX_REGIME_OPTIONS.includes(normalizeTaxRegimeLabel(form.tax_regime)) ? (
                     <option value={form.tax_regime}>{form.tax_regime}</option>
                   ) : null}
                 </select>
