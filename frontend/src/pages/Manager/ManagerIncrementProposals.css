@@ -1,0 +1,107 @@
+.manager-increment-panel {
+  padding: 0 4px 24px;
+}
+
+.manager-increment-header h3 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+}
+
+.manager-increment-header p {
+  margin: 0 0 16px;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.manager-increment-error {
+  color: #b91c1c;
+}
+
+.manager-increment-success {
+  color: #047857;
+}
+
+.manager-increment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.manager-increment-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.manager-increment-card__main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.manager-increment-meta {
+  display: block;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.manager-increment-card__main button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #3730a3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.manager-increment-form {
+  padding: 0 16px 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.manager-increment-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.manager-increment-form input,
+.manager-increment-form textarea {
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.manager-increment-band {
+  margin: 0;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+.manager-increment-band--muted {
+  color: #94a3b8;
+}
+
+.manager-increment-form__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.manager-increment-form__actions .primary {
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+}

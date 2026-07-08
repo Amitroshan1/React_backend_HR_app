@@ -1,0 +1,169 @@
+.e360-page {
+  padding: 16px 20px 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.e360-header h2 {
+  margin: 0 0 4px;
+  font-size: 1.35rem;
+  color: #0f172a;
+}
+
+.e360-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.e360-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 18px 0 0;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0;
+}
+
+.e360-tab {
+  padding: 10px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #64748b;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.e360-tab.is-active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.e360-panel {
+  margin-top: 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 200px;
+}
+
+.e360-panel .hr-sub-page {
+  padding: 0;
+}
+
+.e360-panel .btn-back-updates {
+  display: none;
+}
+
+.e360-panel .hr-card {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.e360-loading,
+.e360-error,
+.e360-muted {
+  color: #64748b;
+  margin: 8px 0;
+}
+
+.e360-error {
+  color: #b91c1c;
+}
+
+.e360-leave-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.e360-stat {
+  padding: 14px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.e360-stat span {
+  display: block;
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.e360-stat strong {
+  font-size: 1.25rem;
+  color: #0f172a;
+}
+
+.e360-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.92rem;
+}
+
+.e360-row span {
+  color: #64748b;
+}
+
+.e360-row strong {
+  color: #0f172a;
+  text-align: right;
+}
+
+.e360-hint {
+  margin-top: 12px;
+  font-size: 0.82rem;
+}
+
+.e360-leave-snapshot,
+.e360-noc-summary {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: #475569;
+}
+
+.e360-revisions {
+  margin-top: 16px;
+}
+
+.e360-revisions h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.e360-revisions ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.e360-revisions li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.88rem;
+}
+
+.e360-accounts-link {
+  margin-top: 14px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-weight: 500;
+}

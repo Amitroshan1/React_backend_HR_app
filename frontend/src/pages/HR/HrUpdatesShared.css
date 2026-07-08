@@ -1,0 +1,202 @@
+/* Shared HR Updates sub-page layout tokens (align with Offboarding Dashboard) */
+.hr-updates-shell .btn-back-updates {
+  margin: 0;
+}
+
+.hr-probation-wrapper,
+.hr-inbox-page,
+.conf-request-wrapper,
+.bulk-import-page {
+  --hr-surface: #ffffff;
+  --hr-primary: #4f46e5;
+  --hr-border: #e2e8f0;
+  --hr-text-muted: #64748b;
+}
+
+.hr-probation-card,
+.conf-request-card,
+.hr-inbox-table-wrap,
+.bulk-import-card {
+  border-color: var(--hr-border);
+}
+
+.hr-probation-decide-btn,
+.hr-inbox-open-btn,
+.hr-updates-primary {
+  background: var(--hr-primary);
+}
+
+.hr-updates-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.hr-updates-header__title h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.hr-updates-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.hr-updates-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--hr-border);
+  border-radius: 10px;
+}
+
+.hr-updates-secondary {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--hr-border);
+  background: #fff;
+  cursor: pointer;
+}
+
+.hr-updates-error {
+  color: #b91c1c;
+  margin: 0 0 12px;
+}
+
+.hr-updates-muted,
+.hr-ats-meta {
+  color: var(--hr-text-muted);
+  font-size: 0.85rem;
+}
+
+.hr-ats-filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.hr-ats-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .hr-ats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hr-ats-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.hr-ats-list li {
+  padding: 10px 12px;
+  border: 1px solid var(--hr-border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hr-ats-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hr-ats-actions button {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--hr-border);
+  background: #fff;
+  cursor: pointer;
+}
+
+.hr-ats-offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.hr-hire-pipeline {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--hr-border);
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.hr-hire-pipeline h4 {
+  margin: 0 0 0.75rem;
+}
+
+.hr-hire-pipeline-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hr-hire-pipeline-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.hr-hire-pipeline-steps li.is-done {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.hr-wf-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.hr-wf-stat {
+  padding: 12px;
+  border: 1px solid var(--hr-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.hr-wf-stat span {
+  display: block;
+  color: var(--hr-text-muted);
+  font-size: 0.8rem;
+}
+
+.hr-wf-fy-input {
+  padding: 8px 10px;
+  border: 1px solid var(--hr-border);
+  border-radius: 8px;
+}
+
+.hr-wf-variance--over {
+  color: #b45309;
+}
+
+.hr-wf-variance--under {
+  color: #047857;
+}
