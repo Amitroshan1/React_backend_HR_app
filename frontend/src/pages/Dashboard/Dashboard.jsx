@@ -25,6 +25,7 @@ import "./Dashboard.css";
 import { hasFeature } from "../../utils/planFeatures";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateDDMMYYYY, parseAppDate } from "../../utils/dateFormat";
+import { PolicyAckModal } from "../../components/PolicyAckModal";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 
 const NEWS_FEED_VISIBLE_DAYS = 6;
@@ -1005,6 +1006,7 @@ export const Dashboard = () => {
     );
     return (
         <>
+        <PolicyAckModal />
         <div className="main-layout">
             <div className="content-area">
                 <div className="dashboard-content" style={{ paddingTop: "24px" }}>

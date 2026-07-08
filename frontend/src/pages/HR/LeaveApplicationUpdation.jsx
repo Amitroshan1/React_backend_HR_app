@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { ArrowLeft, Edit3, Search } from "lucide-react";
 import "./LeaveApplicationUpdation.css";
@@ -85,13 +85,20 @@ const parseAuditAction = (actionText) => {
   return details;
 };
 
-export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOptions = [] }) => {
+export const LeaveApplicationUpdation = ({
+  onBack,
+  empTypeOptions = [],
+  circleOptions = [],
+  initialContext = null,
+}) => {
   const [filters, setFilters] = useState({
-    request_type: "all",
+    request_type: initialContext?.request_type || "all",
     emp_type: "",
     circle: "",
   });
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState(
+    initialContext?.status ? initialContext.status.charAt(0).toUpperCase() + initialContext.status.slice(1) : "All"
+  );
   const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -116,6 +123,9 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
       if (filters.request_type) params.set("request_type", filters.request_type);
       if (filters.emp_type) params.set("emp_type", filters.emp_type);
       if (filters.circle) params.set("circle", filters.circle);
+      if (initialContext?.admin_id) params.set("admin_id", String(initialContext.admin_id));
+      const statusParam = statusFilter === "All" ? "all" : statusFilter.toLowerCase();
+      if (statusParam !== "all") params.set("status", statusParam);
       const res = await fetch(`${API_BASE}/leave-updation/requests?${params.toString()}`, {
         headers: getAuthHeaders(),
       });
@@ -130,7 +140,7 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
     } finally {
       setLoading(false);
     }
-  }, [filters.request_type, filters.emp_type, filters.circle]);
+  }, [filters.request_type, filters.emp_type, filters.circle, statusFilter, initialContext?.admin_id]);
 
   useRefreshOnNavigate(() => {
     fetchRows();
@@ -161,6 +171,12 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
       })
       .finally(() => setAuditLoading(false));
   };
+
+  useEffect(() => {
+    if (!initialContext?.ref_id || allRows.length === 0) return;
+    const match = allRows.find((r) => rowKey(r) === initialContext.ref_id);
+    if (match) openEditor(match);
+  }, [allRows, initialContext?.ref_id]);
 
   const closeEditor = () => {
     setEditRow(null);
@@ -258,6 +274,9 @@ export const LeaveApplicationUpdation = ({ onBack, empTypeOptions = [], circleOp
         <div className="lau-header-card">
           <h2>Leave/WFH Application Updation</h2>
           <p>HR can update Leave/WFH dates, reason, and status (leave balances auto-adjust including reversals).</p>
+          {initialContext?.status === 'pending' ? (
+            <p className="lau-inbox-hint">Showing pending queue from HR Inbox{initialContext.ref_id ? ` — opened ${initialContext.ref_id}` : ''}.</p>
+          ) : null}
         </div>
 
         <div className="lau-filters">

@@ -8,6 +8,7 @@ import { TeamOffboarding } from "./comps/TeamOffboarding/TeamOffboarding";
 import { NocRequests } from "./comps/LeaveRequests/NocRequests";
 import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
 import { ManagerProbationReviews } from "./ManagerProbationReviews";
+import { ManagerIncrementProposals } from "./ManagerIncrementProposals";
 import { ManagerTeamAttendance } from "./ManagerTeamAttendance";
 import { ManagerProfileCard } from "./comps/ManagerProfileCard/ManagerProfileCard";
 import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount, fetchProbationReviewsDue } from "./api";
@@ -25,6 +26,7 @@ const MANAGER_TABS = [
   "noc",
   "performance",
   "probation",
+  "increment",
   "attendance",
 ];
 
@@ -38,6 +40,7 @@ const APPROVAL_TABS = [
 ];
 const PERFORMANCE_TAB = { key: "performance", label: "Performance", countKey: "performance" };
 const PROBATION_TAB = { key: "probation", label: "Probation", countKey: "probation" };
+const INCREMENT_TAB = { key: "increment", label: "Increment", countKey: "increment" };
 const ATTENDANCE_TAB = { key: "attendance", label: "Attendance", countKey: "attendance" };
 
 export const Manager = () => {
@@ -221,6 +224,8 @@ export const Manager = () => {
         return <ManagerPerformanceReviews />;
       case "probation":
         return <ManagerProbationReviews />;
+      case "increment":
+        return <ManagerIncrementProposals />;
       case "attendance":
         return <ManagerTeamAttendance scope={managerProfile?.scope} />;
       default:
@@ -283,6 +288,16 @@ export const Manager = () => {
           >
             {getCount(PROBATION_TAB.countKey)}
           </span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === INCREMENT_TAB.key}
+          className={`manager-tab ${activeTab === INCREMENT_TAB.key ? "active" : ""}`}
+          onClick={() => setActiveTab(INCREMENT_TAB.key)}
+        >
+          {INCREMENT_TAB.label}
+          <span className="manager-tab-badge" aria-label="Increment proposals">0</span>
         </button>
         {showTeamAttendance && (
           <button

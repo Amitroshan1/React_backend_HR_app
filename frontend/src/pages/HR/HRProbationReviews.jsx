@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw, Download } from "lucide-react";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDate } from "../../utils/dateFormat";
 import "./HRProbationReviews.css";
+import "./HrUpdatesShared.css";
 
 const API_BASE = "/api/HumanResource";
 
@@ -132,12 +133,38 @@ export const HRProbationReviews = ({ onBack }) => {
         throw new Error(data.message || "Failed to record decision");
       }
       setSuccess(data.message || "Decision recorded.");
+      if (data.salary_revision_request) {
+        setSuccess((prev) => `${prev} Salary revision flagged for Accounts.`);
+      }
       closeDecision();
       await load(statusFilter);
     } catch (err) {
       setError(err.message || "Failed to record decision");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const downloadConfirmationLetter = async (adminId) => {
+    try {
+      const res = await fetch(`${API_BASE}/employees/${adminId}/confirmation-letter/pdf`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        const data = await parseApiJson(res);
+        throw new Error(data.message || "Download failed");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `confirmation-letter-${adminId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "Failed to download confirmation letter");
     }
   };
 
@@ -214,6 +241,15 @@ export const HRProbationReviews = ({ onBack }) => {
                     HR decision: {r.hr_decision}
                     {r.extended_until ? ` · Extended until ${formatDate(r.extended_until)}` : ""}
                   </div>
+                )}
+                {r.hr_decision === "confirmed" && (
+                  <button
+                    type="button"
+                    className="hr-probation-letter-btn"
+                    onClick={() => downloadConfirmationLetter(r.admin_id)}
+                  >
+                    <Download size={14} /> Confirmation letter
+                  </button>
                 )}
 
                 {r.awaiting_hr_decision && activeId === r.id ? (

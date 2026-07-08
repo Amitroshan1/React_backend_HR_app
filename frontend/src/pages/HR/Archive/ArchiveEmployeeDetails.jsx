@@ -155,6 +155,20 @@ const ArchiveEmployeeDetails = () => {
             <div className="archive-detail-card archive-detail-card--offboarding">
               <h3>Offboarding</h3>
               <p><strong>F&amp;F status:</strong> {employee?.fnf_status || 'none'}</p>
+              {employee?.fnf?.net_payable != null && (
+                <p><strong>Net payable:</strong> ₹{Number(employee.fnf.net_payable).toLocaleString('en-IN')}</p>
+              )}
+              {employee?.fnf?.settlement_id && (
+                <p><strong>Settlement ID:</strong> {employee.fnf.settlement_id}</p>
+              )}
+              <button
+                type="button"
+                className="archive-letter-btn"
+                style={{ marginTop: 8 }}
+                onClick={() => navigate(`/account?admin_id=${adminId}&section=fnf`)}
+              >
+                Open F&F in Accounts
+              </button>
               {rehirePolicy && (
                 <>
                   <p>

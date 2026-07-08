@@ -2227,4 +2227,37 @@ def save_upload_docs():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@auth.route("/policies/pending", methods=["GET"])
+@jwt_required()
+def employee_pending_policies():
+    try:
+        admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+    from .policy_service import pending_policies_for_admin
+
+    policies = pending_policies_for_admin(admin)
+    return jsonify({"success": True, "policies": policies, "count": len(policies)}), 200
+
+
+@auth.route("/policies/<int:policy_id>/acknowledge", methods=["POST"])
+@jwt_required()
+def employee_acknowledge_policy(policy_id):
+    try:
+        admin_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid token"}), 401
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "User not found"}), 404
+    from .policy_service import acknowledge_policy
+
+    try:
+        ack = acknowledge_policy(admin, policy_id)
+        return jsonify({"success": True, "acknowledgment": ack.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
 

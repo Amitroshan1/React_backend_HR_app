@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { 
   Users, FileText, TrendingUp, Download, 
@@ -158,6 +159,7 @@ function resolveStoredAccountView() {
 
 export const Account = ()  => {
   const { userData } = useUser();
+  const [searchParams] = useSearchParams();
 
   const isHr =
     ((userData?.user?.emp_type || '') + '')
@@ -250,6 +252,7 @@ export const Account = ()  => {
   const [fnfPreview, setFnfPreview] = useState(null);
   const [fnfSettlements, setFnfSettlements] = useState([]);
   const [fnfStatusUpdatingId, setFnfStatusUpdatingId] = useState(null);
+  const [pendingSalaryRevisions, setPendingSalaryRevisions] = useState([]);
   const [encashPreview, setEncashPreview] = useState(null);
   const [salaryLoans, setSalaryLoans] = useState([]);
   const [loanForm, setLoanForm] = useState({ principal_amount: '', emi_monthly: '', description: '' });
@@ -2151,6 +2154,54 @@ export const Account = ()  => {
       setFnfSettlements([]);
     }
   };
+
+  const loadPendingSalaryRevisions = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/pending-salary-revisions?status=pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setPendingSalaryRevisions(result.requests || []);
+      } else {
+        setPendingSalaryRevisions([]);
+      }
+    } catch {
+      setPendingSalaryRevisions([]);
+    }
+  };
+
+  const completeSalaryRevision = async (reqId) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE_URL}/pending-salary-revisions/${reqId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status: 'completed' }),
+      });
+      await loadPendingSalaryRevisions();
+    } catch {
+      setComplianceError('Failed to update salary revision request');
+    }
+  };
+
+  useEffect(() => {
+    const adminId = searchParams.get('admin_id');
+    const section = (searchParams.get('section') || '').toLowerCase();
+    if (!adminId) return;
+    if (section === 'fnf') {
+      setCurrentView('payrollLifecycle');
+      setLifecycleEmployeeId(String(adminId));
+      if (selectedDept && selectedCircle) {
+        setPreviousView('employees');
+      } else {
+        setPreviousView('main');
+      }
+    }
+  }, [searchParams, selectedDept, selectedCircle]);
 
   const handlePreviewEncashment = async () => {
     const adminId = Number(lifecycleEmployeeId);
@@ -5584,6 +5635,7 @@ export const Account = ()  => {
       const adminId = Number(lifecycleEmployeeId);
       loadSalaryLoans(adminId);
       loadFnfSettlements(adminId);
+      loadPendingSalaryRevisions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, lifecycleEmployeeId]);
@@ -5896,6 +5948,45 @@ export const Account = ()  => {
 
         {complianceError && <div className="q-error">{complianceError}</div>}
         {complianceLoading && <p style={{ color: '#64748b' }}>Loading...</p>}
+
+        {pendingSalaryRevisions.length > 0 && (
+          <div className="table-container-card" style={{ padding: 12, marginBottom: 16, background: '#fffbeb', borderColor: '#fcd34d' }}>
+            <h4 className="section-title">Pending salary revisions (post-probation)</h4>
+            <div className="table-responsive">
+              <table className="results-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Effective from</th>
+                    <th>Notes</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingSalaryRevisions.map((req) => (
+                    <tr key={req.id}>
+                      <td>{req.employee_name} ({req.emp_id || req.admin_id})</td>
+                      <td>{req.effective_from || '—'}</td>
+                      <td>{req.notes || '—'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-outline-sm"
+                          onClick={() => {
+                            setLifecycleEmployeeId(String(req.admin_id));
+                            completeSalaryRevision(req.id);
+                          }}
+                        >
+                          Select &amp; mark done
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="table-container-card" style={{ padding: 12, marginBottom: 16 }}>
           <h4 className="section-title">Salary loan</h4>

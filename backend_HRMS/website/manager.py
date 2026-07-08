@@ -1238,3 +1238,62 @@ def submit_probation_review():
         "message": "Review submitted; HR has been notified.",
         "probation_review_id": pr.id,
     }), 200
+
+
+@manager.route("/increment-proposals", methods=["POST"])
+@jwt_required()
+def manager_propose_increment():
+    """Manager proposes annual increment for a direct report."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    from datetime import date as date_cls
+    from .compensation_service import manager_propose_increment
+
+    data = request.get_json(silent=True) or {}
+    target_admin_id = data.get("admin_id") or data.get("target_admin_id")
+    proposed_ctc = data.get("proposed_annual_ctc")
+    if not target_admin_id or proposed_ctc is None:
+        return jsonify({"success": False, "message": "admin_id and proposed_annual_ctc are required"}), 400
+
+    eff_from = None
+    if data.get("effective_from"):
+        eff_from = date_cls.fromisoformat(str(data["effective_from"])[:10])
+
+    try:
+        row = manager_propose_increment(
+            admin,
+            target_admin_id=int(target_admin_id),
+            proposed_annual_ctc=float(proposed_ctc),
+            effective_from=eff_from,
+            manager_notes=data.get("manager_notes"),
+            increment_cycle_id=data.get("increment_cycle_id"),
+        )
+        return jsonify({"success": True, "proposal": row.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@manager.route("/compensation-band-hint", methods=["GET"])
+@jwt_required()
+def manager_compensation_band_hint():
+    """Band min/mid/max for a direct report (increment proposal guardrails)."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    target_id = request.args.get("admin_id", type=int)
+    if not target_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    target = Admin.query.get(target_id)
+    if not target:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if not _is_manager_for_target(admin, target):
+        return jsonify({"success": False, "message": "You are not the manager for this employee"}), 403
+
+    from .compensation_band_service import band_hint_for_admin_id
+
+    hint = band_hint_for_admin_id(target_id)
+    return jsonify({"success": True, **(hint or {})}), 200
+

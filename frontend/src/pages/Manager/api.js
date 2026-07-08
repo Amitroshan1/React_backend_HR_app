@@ -372,3 +372,34 @@ export async function submitProbationReview(probationReviewId, payload) {
   }
   return result;
 }
+
+export async function submitIncrementProposal(payload) {
+  const response = await fetch(`${API_BASE}/increment-proposals`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to submit increment proposal");
+  }
+  return result;
+}
+
+export async function fetchCompensationBandHint(adminId) {
+  const response = await fetch(`${API_BASE}/compensation-band-hint?admin_id=${encodeURIComponent(adminId)}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      ...authHeaders(),
+    },
+  });
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Failed to load band hint");
+  }
+  return result;
+}

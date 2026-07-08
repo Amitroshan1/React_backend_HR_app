@@ -2936,6 +2936,159 @@ def send_probation_review_submitted_email(admin_employee, manager_name, feedback
         return False
 
 
+def send_salary_revision_pending_accounts_email(revision_request):
+    """Notify Accounts when a new salary revision is queued (e.g. post-probation)."""
+    try:
+        accounts_email = current_app.config.get("EMAIL_ACCOUNTS") or current_app.config.get("EMAIL_HR")
+        if not accounts_email:
+            return False
+        admin = revision_request.admin
+        emp_name = (admin.first_name if admin else None) or "Employee"
+        rev_type = (revision_request.revision_type or "revision").replace("_", " ").title()
+        subject = f"New Salary Revision: {emp_name}"
+        body = f"""
+        <p>Hello Accounts,</p>
+        <p>A new salary revision has been queued in HRMS.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Emp ID</strong></td><td>{admin.emp_id if admin else '—'}</td></tr>
+            <tr><td><strong>Type</strong></td><td>{rev_type}</td></tr>
+            <tr><td><strong>Status</strong></td><td>Pending</td></tr>
+        </table>
+        <p>Please review pending salary revisions in Accounts.</p>
+        <p>— HRMS</p>
+        """
+        send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=accounts_email,
+        )
+        return True
+    except Exception as e:
+        current_app.logger.warning(f"Pending salary revision email failed: {e}")
+        return False
+
+
+def send_manager_increment_proposed_email(manager_admin, target_employee, revision_request):
+    """Notify HR when a manager proposes an annual increment."""
+    try:
+        hr_email = current_app.config.get("EMAIL_HR")
+        if not hr_email:
+            current_app.logger.warning("EMAIL_HR not set; cannot send increment proposal email")
+            return False
+        mgr_name = (getattr(manager_admin, "first_name", None) or "").strip() or manager_admin.email or "Manager"
+        emp_name = (getattr(target_employee, "first_name", None) or "").strip() or target_employee.email or "Employee"
+        ctc = getattr(revision_request, "proposed_annual_ctc", None)
+        eff = revision_request.effective_from.isoformat() if revision_request.effective_from else "—"
+        subject = f"Increment Proposal: {emp_name}"
+        body = f"""
+        <p>Hello HR,</p>
+        <p>Manager <strong>{mgr_name}</strong> has submitted an increment proposal.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Email</strong></td><td>{target_employee.email or 'N/A'}</td></tr>
+            <tr><td><strong>Proposed annual CTC</strong></td><td>{f'₹ {float(ctc):,.0f}' if ctc is not None else '—'}</td></tr>
+            <tr><td><strong>Effective from</strong></td><td>{eff}</td></tr>
+        </table>
+        {f'<p><strong>Manager notes:</strong> {(revision_request.manager_notes or "")[:300]}</p>' if revision_request.manager_notes else ''}
+        <p>Please review in HR → Compensation.</p>
+        <p>— HRMS</p>
+        """
+        send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=hr_email,
+        )
+        return True
+    except Exception as e:
+        current_app.logger.warning(f"Increment proposal email failed: {e}")
+        return False
+
+
+def send_salary_revision_accounts_email(revision_request):
+    """Notify Accounts team when HR approves a salary revision for processing."""
+    try:
+        accounts_email = current_app.config.get("EMAIL_ACCOUNTS") or current_app.config.get("EMAIL_HR")
+        if not accounts_email:
+            current_app.logger.warning("EMAIL_ACCOUNTS not set; cannot send salary revision email")
+            return False
+        admin = revision_request.admin
+        emp_name = (admin.first_name if admin else None) or "Employee"
+        ctc = revision_request.proposed_annual_ctc
+        rev_type = (revision_request.revision_type or "revision").replace("_", " ").title()
+        subject = f"Salary Revision Ready: {emp_name}"
+        body = f"""
+        <p>Hello Accounts,</p>
+        <p>HR has approved a salary revision that requires CTC update in Accounts.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            <tr><td><strong>Employee</strong></td><td>{emp_name}</td></tr>
+            <tr><td><strong>Emp ID</strong></td><td>{admin.emp_id if admin else '—'}</td></tr>
+            <tr><td><strong>Type</strong></td><td>{rev_type}</td></tr>
+            <tr><td><strong>Proposed annual CTC</strong></td><td>{f'₹ {float(ctc):,.0f}' if ctc is not None else 'Review in HRMS'}</td></tr>
+        </table>
+        <p>Please update CTC breakup and mark the revision complete in Accounts.</p>
+        <p>— HRMS</p>
+        """
+        send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=accounts_email,
+        )
+        return True
+    except Exception as e:
+        current_app.logger.warning(f"Salary revision accounts email failed: {e}")
+        return False
+
+
+def send_offer_letter_email(
+    *,
+    to_email,
+    candidate_name,
+    role_title,
+    annual_ctc=None,
+    joining_date=None,
+    accept_url=None,
+    cc_emails=None,
+    attachments=None,
+):
+    """Send offer letter to candidate with PDF attachment and optional acceptance link."""
+    try:
+        ctc_line = f"<tr><td><strong>Annual CTC</strong></td><td>₹ {float(annual_ctc):,.0f}</td></tr>" if annual_ctc is not None else ""
+        join_line = f"<tr><td><strong>Joining date</strong></td><td>{joining_date}</td></tr>" if joining_date else ""
+        accept_line = (
+            f'<p><a href="{accept_url}" style="display:inline-block;padding:10px 18px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;">Review &amp; Accept Offer</a></p>'
+            if accept_url
+            else ""
+        )
+        subject = f"Offer of Employment — {role_title}"
+        body = f"""
+        <p>Dear {candidate_name or 'Candidate'},</p>
+        <p>Please find attached your offer letter for the position of <strong>{role_title}</strong>.</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+            {ctc_line}
+            {join_line}
+        </table>
+        {accept_line}
+        <p>We look forward to welcoming you to the team.</p>
+        <p>— HRMS</p>
+        """
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject=subject,
+            body=body,
+            recipient_email=to_email,
+            cc_emails=cc_emails,
+            attachments=attachments,
+        )
+        return bool(ok)
+    except Exception as e:
+        current_app.logger.warning(f"Offer letter email failed: {e}")
+        return False
+
+
 def send_password_set_email(admin):
     """Send initial password-set link using secure token (1 hour expiry)."""
     try:

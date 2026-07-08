@@ -203,6 +203,26 @@
   color: #c2410c;
 }
 
+.archive-fnf-net {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.archive-accounts-link {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #4f46e5;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .archive-action-cell {
   display: flex;
   flex-direction: column;

@@ -5110,3 +5110,59 @@ def payroll_fnf_settlement_pdf(settlement_id):
         as_attachment=True,
         download_name=f"fnf-settlement-{settlement_id}.pdf",
     )
+
+
+@Accounts.route("/pending-salary-revisions", methods=["GET"])
+@jwt_required()
+def list_pending_salary_revisions():
+    """Queue of post-probation CTC reviews for Accounts."""
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    from .models.salary_revision_request import SalaryRevisionRequest
+
+    status = (request.args.get("status") or "pending").strip().lower()
+    q = SalaryRevisionRequest.query.order_by(SalaryRevisionRequest.created_at.desc())
+    if status != "all":
+        q = q.filter(SalaryRevisionRequest.status == status)
+    rows = q.limit(200).all()
+    return jsonify({
+        "success": True,
+        "requests": [r.to_dict() for r in rows],
+        "count": len(rows),
+    }), 200
+
+
+@Accounts.route("/pending-salary-revisions/<int:req_id>", methods=["PATCH"])
+@jwt_required()
+def update_salary_revision_request(req_id):
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    from .models.salary_revision_request import SalaryRevisionRequest
+    from .datetime_utils import utc_now
+
+    row = SalaryRevisionRequest.query.get(req_id)
+    if not row:
+        return jsonify({"success": False, "message": "Request not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    new_status = (data.get("status") or "").strip().lower()
+    if new_status not in ("pending", "completed", "dismissed"):
+        return jsonify({"success": False, "message": "status must be pending, completed, or dismissed"}), 400
+    row.status = new_status
+    if new_status in ("completed", "dismissed"):
+        row.completed_at = utc_now()
+        row.completed_by_admin_id = viewer.id
+    if "notes" in data:
+        row.notes = (data.get("notes") or "").strip() or row.notes
+    db.session.commit()
+    return jsonify({"success": True, "request": row.to_dict()}), 200

@@ -242,6 +242,37 @@ def apply_hr_probation_decision(hr_admin, data):
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
+    salary_revision_request = None
+    if decision == HR_DECISION_CONFIRMED:
+        from .models.salary_revision_request import SalaryRevisionRequest
+
+        existing_req = SalaryRevisionRequest.query.filter_by(
+            admin_id=target.id,
+            probation_review_id=row.id,
+            status="pending",
+        ).first()
+        if not existing_req:
+            eff_from = row.probation_end_date or date.today()
+            salary_revision_request = SalaryRevisionRequest(
+                admin_id=target.id,
+                probation_review_id=row.id,
+                revision_type="probation",
+                status="pending",
+                effective_from=eff_from,
+                notes=notes or "Post-probation confirmation — review CTC in Accounts",
+            )
+            db.session.add(salary_revision_request)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            else:
+                try:
+                    from .email import send_salary_revision_pending_accounts_email
+                    send_salary_revision_pending_accounts_email(salary_revision_request)
+                except Exception:
+                    pass
+
     hr_name = (getattr(hr_admin, "first_name", None) or "").strip() or hr_admin.email or "HR"
     send_probation_hr_decision_email(
         target,
@@ -264,6 +295,7 @@ def apply_hr_probation_decision(hr_admin, data):
             "success": True,
             "message": f"Probation decision recorded: {decision}",
             "review": _serialize_probation_review(row),
+            "salary_revision_request": salary_revision_request.to_dict() if salary_revision_request else None,
         }
     ), 200
 

@@ -1005,11 +1005,95 @@ def create_app():
         try:
             from .models.employee_salary_loan import EmployeeSalaryLoan
             from .models.fnf_settlement import FnfSettlement
+            from .models.salary_revision_request import SalaryRevisionRequest
+            from .models.hr_policy import HRPolicyDocument, PolicyAcknowledgment
 
             EmployeeSalaryLoan.__table__.create(bind=db.engine, checkfirst=True)
             FnfSettlement.__table__.create(bind=db.engine, checkfirst=True)
+            SalaryRevisionRequest.__table__.create(bind=db.engine, checkfirst=True)
+            HRPolicyDocument.__table__.create(bind=db.engine, checkfirst=True)
+            PolicyAcknowledgment.__table__.create(bind=db.engine, checkfirst=True)
         except Exception as e:
             app.logger.warning("payroll lifecycle tables ensure skipped: %s", e)
+
+    def _ensure_phase3_hr_tables():
+        """Phase 3 — ATS, increment cycles, headcount budgets, salary revision columns."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.recruitment import JobRequisition, Candidate, Offer
+            from .models.increment_cycle import IncrementCycle
+            from .models.headcount_budget import HeadcountBudget
+            from .models.salary_revision_request import SalaryRevisionRequest
+
+            JobRequisition.__table__.create(bind=db.engine, checkfirst=True)
+            Candidate.__table__.create(bind=db.engine, checkfirst=True)
+            Offer.__table__.create(bind=db.engine, checkfirst=True)
+            IncrementCycle.__table__.create(bind=db.engine, checkfirst=True)
+            HeadcountBudget.__table__.create(bind=db.engine, checkfirst=True)
+
+            from .models.compensation_band import CompensationBand
+            CompensationBand.__table__.create(bind=db.engine, checkfirst=True)
+            from .models.merit_matrix import MeritMatrixEntry
+            MeritMatrixEntry.__table__.create(bind=db.engine, checkfirst=True)
+
+            table = SalaryRevisionRequest.__tablename__
+            insp = inspect(db.engine)
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            new_cols = {
+                "increment_cycle_id": "INTEGER NULL",
+                "revision_type": "VARCHAR(20) NOT NULL DEFAULT 'probation'",
+                "proposed_annual_ctc": "DOUBLE PRECISION NULL" if dialect == "postgresql" else "FLOAT NULL",
+                "manager_notes": "TEXT NULL",
+                "manager_proposed_at": "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL",
+                "manager_proposed_by_admin_id": "INTEGER NULL",
+                "hr_approved_at": "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL",
+                "hr_approved_by_admin_id": "INTEGER NULL",
+            }
+            for col, col_type in new_cols.items():
+                if col in existing:
+                    continue
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                if dialect != "postgresql":
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("phase3 HR tables ensure skipped: %s", e)
+
+    def _ensure_phase6_hr_columns():
+        """Phase 6 — offer acceptance columns on candidate_offers."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.recruitment import Offer
+
+            Offer.__table__.create(bind=db.engine, checkfirst=True)
+            insp = inspect(db.engine)
+            table = Offer.__tablename__
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            new_cols = {
+                "acceptance_token_hash": "VARCHAR(64) NULL",
+                "acceptance_expires_at": "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL",
+                "accepted_at": "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL",
+                "accepted_by_name": "VARCHAR(150) NULL",
+            }
+            for col, col_type in new_cols.items():
+                if col in existing:
+                    continue
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                if dialect != "postgresql":
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("phase6 HR columns ensure skipped: %s", e)
 
     def _ensure_payroll_governance_columns():
         """Phase 8 — payroll status, statutory bonus, audit log."""
@@ -1334,6 +1418,8 @@ def create_app():
             _ensure_monthly_payroll_tds_columns()
             _ensure_ctc_revision_table()
             _ensure_payroll_lifecycle_tables()
+            _ensure_phase3_hr_tables()
+            _ensure_phase6_hr_columns()
             _ensure_payroll_governance_columns()
             _ensure_employee_exit_history_columns()
             _ensure_admin_exit_login_until_column()

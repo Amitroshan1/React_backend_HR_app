@@ -63,6 +63,7 @@ import AdminCustomers from "./pages/Admin/AdminCustomers";
 import SetPassword from "./pages/SetPassword";
 import { ExEmployeeDocumentsPublic } from "./pages/HR/ExEmployeeDocumentsPublic";
 import AssessmentTestPublic from "./pages/Assessment/AssessmentTestPublic";
+import OfferAcceptPublic from "./pages/HR/OfferAcceptPublic";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -107,6 +108,10 @@ export const App = () => {
     {
       path: "assessment",
       element: <AssessmentTestPublic />,
+    },
+    {
+      path: "offer-accept",
+      element: <OfferAcceptPublic />,
     },
     {
       element: <AppLayout />,

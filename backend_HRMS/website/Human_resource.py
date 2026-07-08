@@ -112,6 +112,8 @@ def _hr_plan_guard():
     path = request.path or ""
     if "/assessment/public" in path:
         return None
+    if "/ats/public/offer" in path:
+        return None
     if "/assessment/" in path and not has_feature("hr_assessment_invite"):
         return plan_forbidden_response("hr_assessment_invite")
     if "/ex-employee-documents/" in path and not has_feature("hr_ex_employee_docs"):
@@ -1011,6 +1013,22 @@ def signup_api():
             "message": "Invalid designation. Use 2–100 characters (letters, numbers, spaces, and common punctuation)."
         }), 400
 
+    offer_ctc_raw = data.get("offer_annual_ctc") or data.get("annual_ctc")
+    hire_meta = {}
+    if offer_ctc_raw not in (None, ""):
+        try:
+            from .compensation_band_service import validate_ctc_for_position
+            band_err = validate_ctc_for_position(
+                circle=circle,
+                emp_type=emp_type,
+                grade=designation,
+                proposed_annual_ctc=float(offer_ctc_raw),
+            )
+            if band_err:
+                return jsonify({"success": False, "message": band_err}), 400
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "message": "Invalid offer annual CTC value"}), 400
+
     hr_email = get_jwt().get("email")
 
     try:
@@ -1139,6 +1157,22 @@ def signup_api():
 
         _sync_probation_after_doj_change(admin)
 
+        candidate_id_raw = data.get("candidate_id")
+        if candidate_id_raw not in (None, ""):
+            try:
+                from .hire_service import complete_hire_from_signup
+                offer_ctc = None
+                if offer_ctc_raw not in (None, ""):
+                    offer_ctc = float(offer_ctc_raw)
+                hire_meta = complete_hire_from_signup(
+                    admin,
+                    candidate_id=int(candidate_id_raw),
+                    offer_annual_ctc=offer_ctc,
+                )
+            except (TypeError, ValueError) as hire_err:
+                db.session.rollback()
+                return jsonify({"success": False, "message": f"Invalid candidate_id: {hire_err}"}), 400
+
         db.session.commit()
 
         try:
@@ -1150,7 +1184,8 @@ def signup_api():
             "success": True,
             "message": "Employee onboarded successfully",
             "employee_id": admin.id,
-            "action": action
+            "action": action,
+            "hire": hire_meta or None,
         }), 201
 
     except IntegrityError:
@@ -1259,6 +1294,66 @@ def reset_password():
     }), 200
 
 
+def _profile_completeness_score(admin) -> int:
+    """Mirror frontend hrProfileCompleteness — 5 sections × 20%."""
+    employee = Employee.query.filter_by(admin_id=admin.id).first()
+    education = Education.query.filter_by(admin_id=admin.id).all()
+    upload_doc = UploadDoc.query.filter_by(admin_id=admin.id).first()
+    emp = employee or type("E", (), {})()
+    docs = upload_doc or type("D", (), {})()
+
+    def v(x):
+        return x is not None and str(x).strip() != ""
+
+    score = 0
+    personal = [
+        emp.name if hasattr(emp, "name") else admin.first_name,
+        getattr(emp, "father_name", None),
+        getattr(emp, "marital_status", None),
+        getattr(emp, "email", None) or admin.email,
+        getattr(emp, "mobile", None) or admin.mobile,
+        getattr(emp, "nationality", None),
+        getattr(emp, "dob", None),
+        getattr(emp, "gender", None),
+    ]
+    if all(v(x) for x in personal):
+        score += 20
+
+    addr = [
+        getattr(emp, "present_address_line1", None),
+        getattr(emp, "present_pincode", None),
+        getattr(emp, "present_district", None),
+        getattr(emp, "present_state", None),
+        getattr(emp, "permanent_address_line1", None),
+        getattr(emp, "permanent_pincode", None),
+        getattr(emp, "permanent_district", None),
+        getattr(emp, "permanent_state", None),
+    ]
+    if all(v(x) for x in addr):
+        score += 20
+
+    employment = [
+        getattr(emp, "designation", None),
+        admin.emp_id,
+        admin.circle,
+        admin.doj,
+        admin.emp_type,
+    ]
+    if all(v(x) for x in employment):
+        score += 20
+
+    edu_ok = education and any(
+        v(e.qualification) and v(e.institution) and v(e.start) and v(e.end) for e in education
+    )
+    if edu_ok:
+        score += 20
+
+    doc_keys = ["aadhaar_front", "aadhaar_back", "pan_front", "pan_back", "passbook_front", "appointment_letter"]
+    if all(v(getattr(docs, k, None)) for k in doc_keys):
+        score += 20
+    return score
+
+
 @hr.route("/dashboard", methods=["GET"])
 @jwt_required()
 def hr_dashboard_api():
@@ -1350,6 +1445,43 @@ def hr_dashboard_api():
         for e in employees_with_birthdays
     ]
 
+    # Phase 1 dashboard KPIs
+    month_start = today.replace(day=1)
+    exits_this_month = EmployeeExitHistory.query.filter(
+        EmployeeExitHistory.exit_date >= month_start,
+        EmployeeExitHistory.exit_date <= today,
+    ).count()
+
+    probation_cutoff = today + timedelta(days=30)
+    from .models.probation import ProbationReview
+
+    probations_ending_30_days = (
+        ProbationReview.query.join(Admin, ProbationReview.admin_id == Admin.id)
+        .filter(
+            ProbationReview.probation_end_date >= today,
+            ProbationReview.probation_end_date <= probation_cutoff,
+            *enabled_filters,
+        )
+        .count()
+    )
+
+    enabled_admins = Admin.query.filter(*enabled_filters).all()
+    if enabled_admins:
+        avg_profile = round(
+            sum(_profile_completeness_score(a) for a in enabled_admins) / len(enabled_admins)
+        )
+    else:
+        avg_profile = 0
+
+    from .models.seperation import NocDepartmentRequest
+
+    pending_noc_count = (
+        NocDepartmentRequest.query.filter(
+            db.func.lower(db.func.coalesce(NocDepartmentRequest.department_key, "")) == "hr",
+            db.func.lower(db.func.coalesce(NocDepartmentRequest.status, "")) == "pending",
+        ).count()
+    )
+
     return jsonify({
         "success": True,
         "date": today.isoformat(),
@@ -1358,11 +1490,89 @@ def hr_dashboard_api():
             "enabled_employees": total_employees,
             "new_joinees_last_30_days": new_joinees_count,
             "today_punch_in_count": today_punch_count,
+            "exits_this_month": exits_this_month,
+            "probations_ending_30_days": probations_ending_30_days,
+            "profile_completion_pct": avg_profile,
+            "pending_noc_count": pending_noc_count,
         },
         "anniversaries": anniversaries_list,
         "birthdays": birthdays_list,
         "joinings_today": joinings_today_list
     }), 200
+
+
+@hr.route("/inbox", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_inbox_api():
+    """Unified HR work queue — probation, NOC, exits, leave."""
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    from .hr_inbox_service import build_hr_inbox
+
+    payload = build_hr_inbox(hr_admin=admin)
+    return jsonify({"success": True, **payload}), 200
+
+
+@hr.route("/employees/import/template", methods=["GET"])
+@jwt_required()
+@hr_required
+def employee_import_template():
+    from .employee_import_service import employee_import_template_csv
+
+    csv_text = employee_import_template_csv()
+    from io import BytesIO
+
+    buf = BytesIO(csv_text.encode("utf-8-sig"))
+    return send_file(
+        buf,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="employee-import-template.csv",
+    )
+
+
+@hr.route("/employees/import/preview", methods=["POST"])
+@jwt_required()
+@hr_required
+def employee_import_preview():
+    from .employee_import_service import parse_employee_csv, preview_employee_import
+
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"success": False, "message": "CSV file is required"}), 400
+    try:
+        rows, _ = parse_employee_csv(file.read())
+        result = preview_employee_import(rows)
+        return jsonify({"success": True, **result}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/employees/import/commit", methods=["POST"])
+@jwt_required()
+@hr_required
+def employee_import_commit():
+    from .employee_import_service import parse_employee_csv, commit_employee_import, preview_employee_import
+
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"success": False, "message": "CSV file is required"}), 400
+    hr_email = get_jwt().get("email") or ""
+    try:
+        rows, _ = parse_employee_csv(file.read())
+        preview = preview_employee_import(rows)
+        if preview.get("error_count"):
+            return jsonify({
+                "success": False,
+                "message": "Fix validation errors before import",
+                "preview": preview,
+            }), 400
+        result = commit_employee_import(rows, hr_email=hr_email)
+        return jsonify({"success": True, **result}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
 
 
 
@@ -1618,6 +1828,493 @@ def download_relieving_letter_pdf(admin_id):
     )
 
 
+@hr.route("/employees/<int:admin_id>/confirmation-letter/pdf", methods=["GET"])
+@jwt_required()
+@hr_required
+def download_confirmation_letter_pdf(admin_id):
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    try:
+        from .confirmation_letter_service import generate_confirmation_letter_pdf
+
+        pdf_buffer = generate_confirmation_letter_pdf(admin_id)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    filename = f"confirmation-letter-{admin.emp_id or admin_id}.pdf"
+    return send_file(
+        pdf_buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@hr.route("/org-chart", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_org_chart_api():
+    from .org_chart_service import build_org_chart
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    payload = build_org_chart(circle=circle, emp_type=emp_type)
+    return jsonify({"success": True, **payload}), 200
+
+
+@hr.route("/org-chart/export", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_org_chart_export():
+    from .org_chart_service import build_org_chart, org_chart_to_csv
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    payload = build_org_chart(circle=circle, emp_type=emp_type)
+    csv_text = org_chart_to_csv(payload.get("employees") or [])
+    from flask import Response
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=org-chart.csv"},
+    )
+
+
+@hr.route("/ats/public/offer", methods=["GET"])
+def hr_ats_public_offer_get():
+    from .offer_acceptance_service import get_public_offer_context
+
+    token = (request.args.get("t") or request.args.get("token") or "").strip()
+    try:
+        ctx = get_public_offer_context(token)
+        return jsonify({"success": True, **ctx}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/public/offer/accept", methods=["POST"])
+def hr_ats_public_offer_accept():
+    from .offer_acceptance_service import accept_offer
+
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or request.args.get("t") or "").strip()
+    signer_name = (data.get("signer_name") or data.get("name") or "").strip()
+    try:
+        ctx = accept_offer(token, signer_name=signer_name)
+        return jsonify({"success": True, **ctx}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates/<int:candidate_id>/hire-progress", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_ats_hire_progress(candidate_id):
+    from .hire_service import hire_progress_for_candidate
+
+    try:
+        payload = hire_progress_for_candidate(candidate_id)
+        return jsonify({"success": True, **payload}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/policies", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_list_policies():
+    from .policy_service import list_policies_for_hr
+
+    return jsonify({"success": True, "policies": list_policies_for_hr()}), 200
+
+
+@hr.route("/policies", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_create_policy():
+    from .policy_service import create_policy, policy_ack_stats
+
+    data = request.get_json(silent=True) or {}
+    try:
+        row = create_policy(data, created_by=get_jwt().get("email") or "")
+        stats = policy_ack_stats(row.id)
+        return jsonify({"success": True, "policy": {**row.to_dict(), **stats}}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/policies/<int:policy_id>", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def hr_update_policy(policy_id):
+    from .policy_service import policy_ack_stats, update_policy
+
+    try:
+        row = update_policy(policy_id, request.get_json(silent=True) or {})
+        stats = policy_ack_stats(row.id)
+        return jsonify({"success": True, "policy": {**row.to_dict(), **stats}}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/policies/<int:policy_id>/stats", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_policy_stats(policy_id):
+    from .policy_service import policy_ack_stats
+
+    try:
+        return jsonify({"success": True, **policy_ack_stats(policy_id)}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
+
+
+# --------------------------------------------------
+# Phase 3 — ATS
+# --------------------------------------------------
+@hr.route("/ats/requisitions", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_ats_list_requisitions():
+    from .ats_service import list_requisitions
+
+    status = (request.args.get("status") or "all").strip()
+    return jsonify({"success": True, "requisitions": list_requisitions(status=status)}), 200
+
+
+@hr.route("/ats/requisitions", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_ats_create_requisition():
+    from .ats_service import create_requisition
+
+    try:
+        row = create_requisition(request.get_json(silent=True) or {}, created_by=get_jwt().get("email") or "")
+        return jsonify({"success": True, "requisition": row.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/requisitions/<int:req_id>", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def hr_ats_update_requisition(req_id):
+    from .ats_service import update_requisition
+
+    try:
+        row = update_requisition(req_id, request.get_json(silent=True) or {})
+        return jsonify({"success": True, "requisition": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_ats_list_candidates():
+    from .ats_service import list_candidates
+
+    requisition_id = request.args.get("requisition_id", type=int)
+    stage = (request.args.get("stage") or "all").strip()
+    return jsonify({
+        "success": True,
+        "candidates": list_candidates(requisition_id=requisition_id, stage=stage),
+    }), 200
+
+
+@hr.route("/ats/candidates", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_ats_create_candidate():
+    from .ats_service import create_candidate
+
+    try:
+        row = create_candidate(request.get_json(silent=True) or {})
+        return jsonify({"success": True, "candidate": row.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates/<int:candidate_id>/stage", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def hr_ats_update_candidate_stage(candidate_id):
+    from .ats_service import update_candidate_stage
+
+    data = request.get_json(silent=True) or {}
+    try:
+        row = update_candidate_stage(candidate_id, data.get("stage") or "", notes=data.get("notes"))
+        return jsonify({"success": True, "candidate": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates/<int:candidate_id>/assessment", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_ats_send_assessment(candidate_id):
+    from .ats_service import send_candidate_assessment
+
+    data = request.get_json(silent=True) or {}
+    try:
+        payload = send_candidate_assessment(candidate_id, department=data.get("department"))
+        return jsonify({"success": True, **payload}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates/<int:candidate_id>/offer", methods=["PUT"])
+@jwt_required()
+@hr_required
+def hr_ats_upsert_offer(candidate_id):
+    from .ats_service import create_or_update_offer
+
+    try:
+        offer = create_or_update_offer(candidate_id, request.get_json(silent=True) or {})
+        return jsonify({"success": True, "offer": offer.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates/<int:candidate_id>/signup-payload", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_ats_signup_payload(candidate_id):
+    from .ats_service import candidate_signup_payload
+
+    try:
+        return jsonify({"success": True, **candidate_signup_payload(candidate_id)}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+# --------------------------------------------------
+# Phase 3 — Compensation / increment cycles
+# --------------------------------------------------
+@hr.route("/compensation/cycles", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_compensation_list_cycles():
+    from .compensation_service import list_cycles
+
+    return jsonify({"success": True, "cycles": list_cycles()}), 200
+
+
+@hr.route("/compensation/cycles", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_compensation_create_cycle():
+    from .compensation_service import create_cycle
+
+    try:
+        row = create_cycle(request.get_json(silent=True) or {}, created_by=get_jwt().get("email") or "")
+        return jsonify({"success": True, "cycle": row.to_dict()}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/compensation/proposals", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_compensation_list_proposals():
+    from .compensation_service import list_proposals
+
+    status = (request.args.get("status") or "pending").strip()
+    revision_type = (request.args.get("revision_type") or "all").strip()
+    admin_id = request.args.get("admin_id", type=int)
+    proposals = list_proposals(status=status, revision_type=revision_type)
+    if admin_id:
+        proposals = [p for p in proposals if p.get("admin_id") == admin_id]
+    return jsonify({"success": True, "proposals": proposals}), 200
+
+
+@hr.route("/compensation/proposals/<int:proposal_id>/approve", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_compensation_approve_proposal(proposal_id):
+    from .compensation_service import hr_approve_proposal
+
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        row = hr_approve_proposal(admin, proposal_id, notes=data.get("notes"))
+        return jsonify({"success": True, "proposal": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/compensation/proposals/<int:proposal_id>/reject", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_compensation_reject_proposal(proposal_id):
+    from .compensation_service import hr_reject_proposal
+
+    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        row = hr_reject_proposal(admin, proposal_id, notes=data.get("notes"))
+        return jsonify({"success": True, "proposal": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+# --------------------------------------------------
+# Phase 3 — Workforce planning
+# --------------------------------------------------
+@hr.route("/workforce-plan", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_workforce_plan():
+    from .workforce_planning_service import build_workforce_plan
+
+    fiscal_year = (request.args.get("fiscal_year") or "").strip()
+    if not fiscal_year:
+        today = date.today()
+        fy_start = today.year if today.month >= 4 else today.year - 1
+        fiscal_year = f"{fy_start}-{str(fy_start + 1)[-2:]}"
+    payload = build_workforce_plan(fiscal_year=fiscal_year)
+    return jsonify({"success": True, **payload}), 200
+
+
+@hr.route("/workforce-plan/budgets", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_workforce_list_budgets():
+    from .workforce_planning_service import list_budgets
+
+    fiscal_year = (request.args.get("fiscal_year") or "").strip()
+    if not fiscal_year:
+        return jsonify({"success": False, "message": "fiscal_year is required"}), 400
+    return jsonify({"success": True, "budgets": list_budgets(fiscal_year=fiscal_year)}), 200
+
+
+@hr.route("/workforce-plan/budgets", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_workforce_upsert_budget():
+    from .workforce_planning_service import upsert_budget
+
+    try:
+        row = upsert_budget(request.get_json(silent=True) or {}, created_by=get_jwt().get("email") or "")
+        return jsonify({"success": True, "budget": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+# --------------------------------------------------
+# Phase 4 — Compensation bands
+# --------------------------------------------------
+@hr.route("/compensation/bands", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_compensation_list_bands():
+    from .compensation_band_service import list_bands
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    return jsonify({"success": True, "bands": list_bands(circle=circle, emp_type=emp_type)}), 200
+
+
+@hr.route("/compensation/bands", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_compensation_upsert_band():
+    from .compensation_band_service import upsert_band
+
+    try:
+        row = upsert_band(request.get_json(silent=True) or {}, created_by=get_jwt().get("email") or "")
+        return jsonify({"success": True, "band": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/policies/<int:policy_id>/upload", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_upload_policy_file(policy_id):
+    from .policy_service import save_policy_file
+
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"success": False, "message": "PDF file is required"}), 400
+    if not (file.filename or "").lower().endswith(".pdf"):
+        return jsonify({"success": False, "message": "Only PDF files are supported"}), 400
+
+    upload_dir = os.path.join(current_app.root_path, "static", "uploads", "policies")
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = secure_filename(f"policy_{policy_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}")
+    abs_path = os.path.join(upload_dir, filename)
+    file.save(abs_path)
+    rel_path = f"policies/{filename}"
+    try:
+        row = save_policy_file(policy_id, rel_path=rel_path)
+        return jsonify({"success": True, "policy": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates/<int:candidate_id>/offer-letter/pdf", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_ats_offer_letter_pdf(candidate_id):
+    from .offer_letter_service import generate_offer_letter_pdf, build_offer_letter_payload
+
+    try:
+        payload = build_offer_letter_payload(candidate_id)
+        pdf_buffer = generate_offer_letter_pdf(candidate_id)
+        name = (payload.get("candidate") or {}).get("full_name") or f"candidate-{candidate_id}"
+        safe = secure_filename(name.replace(" ", "_")) or f"candidate_{candidate_id}"
+        return send_file(
+            pdf_buffer,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=f"offer-letter-{safe}.pdf",
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/ats/candidates/<int:candidate_id>/offer/send", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_ats_send_offer_email(candidate_id):
+    from .ats_service import send_candidate_offer_email
+
+    try:
+        payload = send_candidate_offer_email(candidate_id)
+        return jsonify({"success": True, **payload}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
+@hr.route("/compensation/merit-matrix", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_compensation_list_merit_matrix():
+    from .merit_matrix_service import list_entries
+
+    circle = (request.args.get("circle") or "").strip() or None
+    emp_type = (request.args.get("emp_type") or "").strip() or None
+    return jsonify({"success": True, "entries": list_entries(circle=circle, emp_type=emp_type)}), 200
+
+
+@hr.route("/compensation/merit-matrix", methods=["POST"])
+@jwt_required()
+@hr_required
+def hr_compensation_upsert_merit_matrix():
+    from .merit_matrix_service import upsert_entry
+
+    try:
+        row = upsert_entry(request.get_json(silent=True) or {}, created_by=get_jwt().get("email") or "")
+        return jsonify({"success": True, "entry": row.to_dict()}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
+
 @hr.route("/mark-exit", methods=["POST"])
 @jwt_required()
 @hr_required
@@ -1818,8 +2515,9 @@ def employee_archive_list():
             effective_exit_date = (exit_row.exit_date if exit_row else emp.exit_date)
             effective_exit_type = (exit_row.exit_type if exit_row else emp.exit_type)
             from .exit_interview_service import serialize_rehire_policy
-            from .offboarding_service import get_latest_fnf_status
+            from .offboarding_service import get_latest_fnf_status, get_latest_fnf_summary
 
+            fnf = get_latest_fnf_summary(emp.id)
             employees.append({
                 "admin_id": emp.id,
                 "id": emp.id,
@@ -1831,7 +2529,8 @@ def employee_archive_list():
                 "emp_type": emp.emp_type,
                 "exit_date": effective_exit_date.isoformat() if effective_exit_date else None,
                 "exit_type": effective_exit_type,
-                "fnf_status": get_latest_fnf_status(emp.id) or "none",
+                "fnf_status": fnf.get("status") or "none",
+                "fnf": fnf,
                 "rehire_policy": serialize_rehire_policy(emp.id),
             })
 
@@ -2022,8 +2721,10 @@ def get_archived_employee_profile(employee_id):
     } for q in admin.queries]
 
     from .exit_interview_service import serialize_rehire_policy
-    from .offboarding_service import get_latest_fnf_status
+    from .offboarding_service import get_latest_fnf_status, get_latest_fnf_summary
     from .models.exit_interview import ExitInterview
+
+    fnf = get_latest_fnf_summary(admin.id)
 
     ei_row = ExitInterview.query.filter_by(admin_id=admin.id).first()
     exit_history_rows = (
@@ -2047,7 +2748,8 @@ def get_archived_employee_profile(employee_id):
             "assets": assets,
             "performance": performance,
             "queries": queries,
-            "fnf_status": get_latest_fnf_status(admin.id) or "none",
+            "fnf_status": fnf.get("status") or "none",
+            "fnf": fnf,
             "rehire_policy": serialize_rehire_policy(admin.id),
             "exit_interview": ei_row.to_dict() if ei_row else None,
             "exit_history": [
@@ -3099,6 +3801,7 @@ def list_leave_updation_requests():
     circle = (request.args.get("circle") or "").strip()
     emp_type = (request.args.get("emp_type") or "").strip()
     request_type = (request.args.get("request_type") or "all").strip().lower()
+    admin_id = request.args.get("admin_id", type=int)
 
     rows_out = []
 
@@ -3110,6 +3813,8 @@ def list_leave_updation_requests():
             q = q.filter(Admin.circle == circle)
         if emp_type:
             q = q.filter(Admin.emp_type == emp_type)
+        if admin_id:
+            q = q.filter(LeaveApplication.admin_id == admin_id)
         leave_rows = q.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).limit(500).all()
         rows_out.extend(_serialize_leave_updation_row(r) for r in leave_rows)
 
@@ -3121,6 +3826,8 @@ def list_leave_updation_requests():
             q_wfh = q_wfh.filter(Admin.circle == circle)
         if emp_type:
             q_wfh = q_wfh.filter(Admin.emp_type == emp_type)
+        if admin_id:
+            q_wfh = q_wfh.filter(WorkFromHomeApplication.admin_id == admin_id)
         wfh_rows = (
             q_wfh.order_by(WorkFromHomeApplication.created_at.desc(), WorkFromHomeApplication.id.desc())
             .limit(500)

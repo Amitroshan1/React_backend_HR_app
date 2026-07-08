@@ -645,6 +645,11 @@ def get_noc_stats_for_resignation(resignation_id: Optional[int], resignation_sta
 
 
 def get_latest_fnf_status(admin_id: int) -> Optional[str]:
+    summary = get_latest_fnf_summary(admin_id)
+    return summary.get("status") if summary else None
+
+
+def get_latest_fnf_summary(admin_id: int) -> dict:
     from .models.fnf_settlement import FnfSettlement
 
     row = (
@@ -652,7 +657,21 @@ def get_latest_fnf_status(admin_id: int) -> Optional[str]:
         .order_by(FnfSettlement.id.desc())
         .first()
     )
-    return row.status if row else None
+    if not row:
+        return {
+            "status": "none",
+            "settlement_id": None,
+            "net_payable": None,
+            "last_working_day": None,
+            "separation_date": None,
+        }
+    return {
+        "status": row.status,
+        "settlement_id": row.id,
+        "net_payable": float(row.net_payable or 0),
+        "last_working_day": row.last_working_day.isoformat() if row.last_working_day else None,
+        "separation_date": row.separation_date.isoformat() if row.separation_date else None,
+    }
 
 
 def count_unreturned_assets(admin_id: int) -> int:

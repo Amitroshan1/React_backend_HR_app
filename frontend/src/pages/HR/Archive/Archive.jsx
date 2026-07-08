@@ -63,6 +63,10 @@ const ArchiveEmployees = () => {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 
+  const openFnfInAccounts = (emp) => {
+    navigate(`/account?admin_id=${emp.id}&section=fnf`);
+  };
+
   const loadArchivedEmployees = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -86,6 +90,7 @@ const ArchiveEmployees = () => {
         exitDate: emp.exit_date || null,
         exitType: emp.exit_type || null,
         fnfStatus: emp.fnf_status || 'none',
+        fnf: emp.fnf || null,
         rehirePolicy: emp.rehire_policy || null,
       }));
       setArchivedEmployees(mapped);
@@ -553,6 +558,16 @@ const ArchiveEmployees = () => {
                       <span className={`archive-fnf-badge archive-fnf-badge--${(emp.fnfStatus || 'none').replace(/\s+/g, '-')}`}>
                         {emp.fnfStatus || 'none'}
                       </span>
+                      {emp.fnf?.net_payable != null && emp.fnf.net_payable > 0 ? (
+                        <small className="archive-fnf-net">₹{Number(emp.fnf.net_payable).toLocaleString('en-IN')}</small>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="archive-accounts-link"
+                        onClick={() => openFnfInAccounts(emp)}
+                      >
+                        Open in Accounts
+                      </button>
                     </td>
                     <td>
                       {emp.rehirePolicy ? (

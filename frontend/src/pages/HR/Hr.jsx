@@ -6,7 +6,7 @@ import {
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
   FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2,
-  Eye, EyeOff, TrendingDown
+  Eye, EyeOff, TrendingDown, Inbox, Package, Upload, AlertTriangle, BarChart3, ChevronRight, CheckCircle2, User
 } from 'lucide-react';
 import './Hr.css';
 import './SignUp.css'; 
@@ -25,6 +25,17 @@ import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
 import { CircleTransferHistory } from './CircleTransferHistory';
 import { HRProbationReviews } from './HRProbationReviews';
+import { ConfirmationRequest } from './ConfirmationRequest';
+import { AddAssets } from './AddAssets';
+import { HRInbox } from './HRInbox';
+import { HREmployee360 } from './HREmployee360';
+import { BulkEmployeeImport } from './BulkEmployeeImport';
+import { OrgChart } from './OrgChart';
+import { HRPolicyCenter } from './HRPolicyCenter';
+import { HRATS } from './HRATS';
+import { HRCompensation } from './HRCompensation';
+import { HRWorkforcePlan } from './HRWorkforcePlan';
+import './HrUpdatesShared.css';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
@@ -36,6 +47,7 @@ import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 const HR_PANEL_VIEWS = [
   'main',
   'updates',
+  'hr_inbox',
   'signup',
   'update_signup',
   'circle_transfer_history',
@@ -45,6 +57,7 @@ const HR_PANEL_VIEWS = [
   'assessment_invite',
   'update_manager',
   'add_location',
+  'add_assets',
   'noc_requests',
   'exit_employee',
   'offboarding_dashboard',
@@ -54,6 +67,18 @@ const HR_PANEL_VIEWS = [
   'leave_accrual_monitor',
   'holiday_calendar',
   'probation_reviews',
+  'confirmation_requests',
+  'bulk_employee_import',
+  'org_chart',
+  'policy_center',
+  'ats',
+  'compensation',
+  'workforce_plan',
+  'employee_360',
+  'employee_profile',
+  'employee_attendance',
+  'punch_form',
+  'employee_accounts',
   'add_circle_type',
 ];
 
@@ -176,11 +201,12 @@ function HrEmployeeProfileView({ employee, onBack }) {
   const notProvided = '— Not provided';
   const notUploaded = 'Not uploaded';
 
-  const row = (label, value) => {
+  const row = (label, value, keySuffix = '') => {
     const display = value != null && String(value).trim() !== '' ? String(value).trim() : notProvided;
     const isMissing = display === notProvided;
+    const fieldKey = `${label}${keySuffix}`;
     return (
-      <div key={label} className="hr-profile-row">
+      <div key={fieldKey} className="hr-profile-field">
         <span className="hr-profile-label">{label}</span>
         <span className={isMissing ? 'hr-profile-value hr-profile-value--missing' : 'hr-profile-value'}>
           {display}
@@ -190,16 +216,26 @@ function HrEmployeeProfileView({ employee, onBack }) {
   };
 
   return (
-    <div className="hr-sub-page">
+    <div className="hr-sub-page hr-profile-page">
       <button type="button" className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
-      <div className="hr-card">
-        <h2>Profile – {employee.name}</h2>
-        {loading && <p className="hr-loading">Loading...</p>}
+      <div className="hr-card hr-profile-card">
+        <header className="hr-profile-page-header">
+          <div className="hr-profile-page-header__icon" aria-hidden>
+            <User size={22} strokeWidth={2.25} />
+          </div>
+          <div>
+            <p className="hr-profile-page-header__eyebrow">Employee profile</p>
+            <h2>{employee.name}</h2>
+            <p className="hr-profile-page-header__meta">
+              {hrProfileVal(emp.emp_id || admin.emp_id) || '—'} · {hrProfileVal(emp.designation) || 'No designation'}
+            </p>
+          </div>
+        </header>
+        {loading && <p className="hr-loading">Loading profile…</p>}
         {error && <p className="hr-error">{error}</p>}
         {profile && (
           <>
-            {/* Profile completeness block */}
-            <div className="hr-profile-completeness">
+            <div className={`hr-profile-completeness${score >= 100 ? ' hr-profile-completeness--complete' : ''}`}>
               <div className="hr-profile-completeness-header">
                 <span className="hr-profile-completeness-title">Profile completion</span>
                 <span className="hr-profile-completeness-pct">{score}%</span>
@@ -210,7 +246,9 @@ function HrEmployeeProfileView({ employee, onBack }) {
               <div className="hr-profile-missing-box">
                 <span className="hr-profile-missing-title">Request from employee</span>
                 {missing.length === 0 ? (
-                  <p className="hr-profile-missing-all-ok">All required fields and documents are provided.</p>
+                  <p className="hr-profile-missing-all-ok">
+                    <CheckCircle2 size={16} aria-hidden /> All required fields and documents are provided.
+                  </p>
                 ) : (
                   <ul className="hr-profile-missing-list">
                     {missing.map((m, i) => <li key={i}>{m}</li>)}
@@ -219,7 +257,6 @@ function HrEmployeeProfileView({ employee, onBack }) {
               </div>
             </div>
 
-            {/* 1. Personal Information */}
             <div className="profile-section">
               <h4>Personal Information</h4>
               <div className="hr-profile-grid">
@@ -243,17 +280,17 @@ function HrEmployeeProfileView({ employee, onBack }) {
               <div className="hr-profile-address-block">
                 <div className="hr-profile-address-sub">
                   <h5>Current address</h5>
-                  {row('Street', hrProfileVal(emp.present_address_line1))}
-                  {row('Pincode', hrProfileVal(emp.present_pincode))}
-                  {row('District', hrProfileVal(emp.present_district))}
-                  {row('State', hrProfileVal(emp.present_state))}
+                  {row('Street', hrProfileVal(emp.present_address_line1), '-present')}
+                  {row('Pincode', hrProfileVal(emp.present_pincode), '-present')}
+                  {row('District', hrProfileVal(emp.present_district), '-present')}
+                  {row('State', hrProfileVal(emp.present_state), '-present')}
                 </div>
                 <div className="hr-profile-address-sub">
                   <h5>Permanent address</h5>
-                  {row('Street', hrProfileVal(emp.permanent_address_line1))}
-                  {row('Pincode', hrProfileVal(emp.permanent_pincode))}
-                  {row('District', hrProfileVal(emp.permanent_district))}
-                  {row('State', hrProfileVal(emp.permanent_state))}
+                  {row('Street', hrProfileVal(emp.permanent_address_line1), '-permanent')}
+                  {row('Pincode', hrProfileVal(emp.permanent_pincode), '-permanent')}
+                  {row('District', hrProfileVal(emp.permanent_district), '-permanent')}
+                  {row('State', hrProfileVal(emp.permanent_state), '-permanent')}
                 </div>
               </div>
             </div>
@@ -308,7 +345,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
             {/* 6. Documents */}
             <div className="profile-section">
               <h4>Documents (uploaded by employee)</h4>
-              <div className="documents-grid">
+              <div className="documents-grid hr-profile-docs-grid">
                 {[
                   { key: 'aadhaar_front', label: 'Aadhaar (Front)' },
                   { key: 'aadhaar_back', label: 'Aadhaar (Back)' },
@@ -1066,7 +1103,16 @@ export const Hr = () => {
 
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState(null);
-  const [counts, setCounts] = useState({ total_employees: 0, new_joinees_last_30_days: 0, today_punch_in_count: 0 });
+  const [counts, setCounts] = useState({
+    total_employees: 0,
+    new_joinees_last_30_days: 0,
+    today_punch_in_count: 0,
+    exits_this_month: 0,
+    probations_ending_30_days: 0,
+    profile_completion_pct: 0,
+    pending_noc_count: 0,
+    inbox_total: 0,
+  });
   const [birthdays, setBirthdays] = useState([]);
   const [anniversaries, setAnniversaries] = useState([]);
 
@@ -1097,6 +1143,8 @@ export const Hr = () => {
   const [signupSubmitting, setSignupSubmitting] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [signupOfferCtc, setSignupOfferCtc] = useState(null);
+  const [signupCandidateId, setSignupCandidateId] = useState(null);
   const [signupEditEmail, setSignupEditEmail] = useState(null); // when set, signup form is in "update" mode
   /** Snapshot when opening edit — used to send only changed fields on update. */
   const [signupEditOriginal, setSignupEditOriginal] = useState(null);
@@ -1133,6 +1181,29 @@ export const Hr = () => {
     });
     setShowSignupPassword(false);
     setSignupEditEmail(employeeData.email || null);
+    setSignupSuccess(false);
+    setSignupError('');
+    setView('signup');
+  };
+
+  const openSignupFromCandidate = (signupData, offerAnnualCtc = null, candidateId = null) => {
+    const snapshot = {
+      user_name: signupData.user_name || '',
+      first_name: signupData.first_name || '',
+      email: signupData.email || '',
+      emp_id: signupData.emp_id || '',
+      mobile: signupData.mobile || '',
+      doj: (signupData.doj || '').slice(0, 10),
+      emp_type: signupData.emp_type || '',
+      circle: signupData.circle || '',
+      designation: signupData.designation || '',
+    };
+    setSignupEditOriginal(null);
+    setSignupEditEmail(null);
+    setSignupForm({ ...snapshot, password: '' });
+    setSignupOfferCtc(offerAnnualCtc != null ? String(offerAnnualCtc) : null);
+    setSignupCandidateId(candidateId != null ? Number(candidateId) : null);
+    setShowSignupPassword(false);
     setSignupSuccess(false);
     setSignupError('');
     setView('signup');
@@ -1281,13 +1352,17 @@ export const Hr = () => {
             emp_type,
             circle,
             designation: (signupForm.designation || '').trim(),
-            ...(password?.trim() ? { password: password.trim() } : {})
+            ...(password?.trim() ? { password: password.trim() } : {}),
+            ...(signupOfferCtc ? { offer_annual_ctc: Number(signupOfferCtc) } : {}),
+            ...(signupCandidateId ? { candidate_id: signupCandidateId } : {}),
           })
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setSignupSuccess(true);
           setSignupForm({ user_name: '', first_name: '', email: '', emp_id: '', mobile: '', doj: '', emp_type: '', circle: '', designation: '', password: '' });
+          setSignupOfferCtc(null);
+          setSignupCandidateId(null);
           setShowSignupPassword(false);
         } else {
           setSignupError(data.message || 'Failed to create account.');
@@ -1302,15 +1377,22 @@ export const Hr = () => {
   };
 
   const [selectedEmployeeForAction, setSelectedEmployeeForAction] = useState(null);
+  const [employee360InitialTab, setEmployee360InitialTab] = useState('profile');
+  const [leaveUpdationContext, setLeaveUpdationContext] = useState(null);
 
   const stats = [
     { title: 'Total Employees', value: String(counts.enabled_employees ?? counts.total_employees), subtitle: 'Enabled employees', icon: Users, color: 'blue' },
     { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green' },
     { title: 'Active Today', value: String(counts.today_punch_in_count), subtitle: 'Punched in today', icon: UserCheck, color: 'teal' },
+    { title: 'Exits This Month', value: String(counts.exits_this_month ?? 0), subtitle: 'Separations', icon: TrendingDown, color: 'red' },
+    { title: 'Probation ≤30d', value: String(counts.probations_ending_30_days ?? 0), subtitle: 'Ending soon', icon: AlertTriangle, color: 'amber' },
+    { title: 'Profile Complete', value: `${counts.profile_completion_pct ?? 0}%`, subtitle: 'Org average', icon: BarChart3, color: 'purple' },
+    { title: 'Pending NOC', value: String(counts.pending_noc_count ?? 0), subtitle: 'HR clearance', icon: FileCheck, color: 'pink' },
   ];
 
   const updateOptions = [
     { title: 'Sign Up', icon: UserPlus, description: 'New employee registration' },
+    { title: 'Bulk Employee Import', icon: Upload, description: 'Import employees from CSV template' },
     { title: 'Reset Employee Password', icon: Key, description: 'Send password reset link (1 hour)' },
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
     { title: 'Circle Transfer History', icon: ArrowRightLeft, description: 'View circle changes with effective dates' },
@@ -1319,7 +1401,13 @@ export const Hr = () => {
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
     { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 15-minute assessment links and evaluate submissions' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
+    { title: 'Organization Chart', icon: Users, description: 'View L1/L2/L3 reporting hierarchy' },
+    { title: 'Policy Center', icon: FileText, description: 'HR policies and employee acknowledgments' },
+    { title: 'Recruitment (ATS)', icon: UserPlus, description: 'Job requisitions, candidates, assessments, and offers' },
+    { title: 'Compensation', icon: BarChart3, description: 'Increment cycles and salary revision approvals' },
+    { title: 'Workforce Planning', icon: Users, description: 'Headcount budget vs actual by circle and department' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
+    { title: 'Add Assets', icon: Package, description: 'Assign assets to employees' },
     { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
     { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, and attrition analytics' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
@@ -1327,6 +1415,7 @@ export const Hr = () => {
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
     { title: 'Probation Reviews', icon: UserCheck, description: 'Review manager feedback and record probation decisions' },
+    { title: 'Confirmation Queue', icon: UserCheck, description: 'Probation decisions awaiting HR confirmation' },
     { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
   ];
 
@@ -1340,10 +1429,8 @@ export const Hr = () => {
   const visibleUpdateOptions = updateOptions.filter((o) => isUpdateOptionAllowed(o.title));
 
   const employeeDetailsOptions = [
-    'Profile',
-    'Attendance',
+    'Employee 360',
     'Punch In/Out',
-    ...(hasFeature('hr_employee_accounts') ? ['Employee Accounts'] : []),
   ];
 
   const handleSearch = async () => {
@@ -1495,11 +1582,26 @@ export const Hr = () => {
           enabled_employees: 0,
           new_joinees_last_30_days: 0,
           today_punch_in_count: 0,
+          exits_this_month: 0,
+          probations_ending_30_days: 0,
+          profile_completion_pct: 0,
+          pending_noc_count: 0,
+          inbox_total: 0,
           ...(data.counts || {}),
         });
         setBirthdays(data.birthdays || []);
         setAnniversaries(data.anniversaries || []);
         setDashboardError(null);
+        // Fetch inbox total for dashboard card
+        try {
+          const inboxRes = await fetch(`${HR_API_BASE}/inbox`, { headers: { Authorization: `Bearer ${token}` } });
+          const inboxData = await inboxRes.json();
+          if (!cancelled && inboxRes.ok && inboxData.success) {
+            setCounts((prev) => ({ ...prev, inbox_total: inboxData.summary?.total ?? 0 }));
+          }
+        } catch {
+          /* optional */
+        }
       } catch (err) {
         if (!cancelled) setDashboardError('Failed to load dashboard');
       } finally {
@@ -1606,7 +1708,11 @@ export const Hr = () => {
     dropdownEmployeeRef.current = null;
     if (!employee) return;
     setSelectedEmployeeForAction(employee);
-    if (option === 'Profile') setView('employee_profile');
+    if (option === 'Employee 360') {
+      setEmployee360InitialTab('profile');
+      setView('employee_360');
+    }
+    else if (option === 'Profile') setView('employee_profile');
     else if (option === 'Attendance') setView('employee_attendance');
     else if (option === 'Punch In/Out') setView('punch_form');
     else if (option === 'Employee Accounts') {
@@ -1628,7 +1734,10 @@ export const Hr = () => {
       setSignupError('');
       setSignupEditEmail(null);
       setView('signup');
-    } 
+    }
+    else if (title === 'Bulk Employee Import') {
+      setView('bulk_employee_import');
+    }
     else if (title === 'Update_SignUp') {
       setUpdateSignupSearchSnapshot(null);
       setView('update_signup');
@@ -1645,8 +1754,27 @@ export const Hr = () => {
     } else if (title === 'Assessment Invite') {
       setView('assessment_invite');
     } else if (title === 'Update Manager') {setView('update_manager');
-  }   else if (title === 'Add Locations') {
+  }
+  else if (title === 'Organization Chart') {
+    setView('org_chart');
+  }
+  else if (title === 'Policy Center') {
+    setView('policy_center');
+  }
+  else if (title === 'Recruitment (ATS)') {
+    setView('ats');
+  }
+  else if (title === 'Compensation') {
+    setView('compensation');
+  }
+  else if (title === 'Workforce Planning') {
+    setView('workforce_plan');
+  }
+   else if (title === 'Add Locations') {
     setView('add_location');
+  }
+  else if (title === 'Add Assets') {
+    setView('add_assets');
   }
   else if (title === 'NOC Requests') {
     setView('noc_requests');
@@ -1674,6 +1802,9 @@ else if (title === 'Leave Accrual Monitor') {
 else if (title === 'Probation Reviews') {
   setView('probation_reviews');
 }
+else if (title === 'Confirmation Queue') {
+  setView('confirmation_requests');
+}
 else if (title === 'Holiday Calendar') {
   setView('holiday_calendar');
 }
@@ -1683,6 +1814,85 @@ else if (title === 'Holiday Calendar') {
   };
 if (view === 'ex_employee_doc_share') {
     return <ExEmployeeDocumentSharing onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'hr_inbox') {
+    return (
+      <HRInbox
+        onBack={() => setView('main')}
+        onNavigate={(targetView, ctx) => {
+          if (targetView === 'employee_360' && ctx?.employee) {
+            setSelectedEmployeeForAction(ctx.employee);
+            setEmployee360InitialTab(ctx.tab || 'profile');
+            setView('employee_360');
+            return;
+          }
+          if (targetView === 'leave_updation' && ctx?.leaveContext) {
+            setLeaveUpdationContext(ctx.leaveContext);
+            setView('leave_updation');
+            return;
+          }
+          setView(targetView);
+        }}
+      />
+    );
+  }
+
+  if (view === 'bulk_employee_import') {
+    return <BulkEmployeeImport onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'org_chart') {
+    return (
+      <OrgChart
+        onBack={() => setView('updates')}
+        circleOptions={masterOptions.circles}
+        empTypeOptions={masterOptions.departments}
+      />
+    );
+  }
+
+  if (view === 'policy_center') {
+    return (
+      <HRPolicyCenter
+        onBack={() => setView('updates')}
+        circleOptions={masterOptions.circles}
+        empTypeOptions={masterOptions.departments}
+      />
+    );
+  }
+
+  if (view === 'ats') {
+    return (
+      <HRATS
+        onBack={() => setView('updates')}
+        onConvertToSignup={openSignupFromCandidate}
+        circleOptions={masterOptions.circles}
+        empTypeOptions={masterOptions.departments}
+      />
+    );
+  }
+
+  if (view === 'compensation') {
+    return <HRCompensation onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'workforce_plan') {
+    return (
+      <HRWorkforcePlan
+        onBack={() => setView('updates')}
+        circleOptions={masterOptions.circles}
+        empTypeOptions={masterOptions.departments}
+      />
+    );
+  }
+
+  if (view === 'add_assets') {
+    return <AddAssets onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'confirmation_requests') {
+    return <ConfirmationRequest onBack={() => setView('updates')} onNavigate={(v) => setView(v)} />;
   }
 
   if (view === 'circle_transfer_history') {
@@ -1715,7 +1925,14 @@ if (view === 'update_leave'){
   return <UpdateLeave onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />
 }
 if (view === 'leave_updation'){
-  return <LeaveApplicationUpdation onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />
+  return (
+    <LeaveApplicationUpdation
+      onBack={() => { setView('updates'); setLeaveUpdationContext(null); }}
+      empTypeOptions={masterOptions.departments}
+      circleOptions={masterOptions.circles}
+      initialContext={leaveUpdationContext}
+    />
+  );
 }
 if (view === 'assessment_invite'){
   return <HRAssessmentInvite onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} />
@@ -1791,7 +2008,19 @@ if (view === 'noc_requests') {
   );
 }
 
-  // ----- Search Employee actions: Profile, Attendance, Punch In/Out -----
+  // ----- Search Employee actions: Employee 360, Profile, Attendance, Punch In/Out -----
+  if (view === 'employee_360' && selectedEmployeeForAction) {
+    return (
+      <HREmployee360
+        employee={selectedEmployeeForAction}
+        initialTab={employee360InitialTab}
+        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); setEmployee360InitialTab('profile'); }}
+        ProfileView={HrEmployeeProfileView}
+        AttendanceView={HrEmployeeAttendanceView}
+        AccountsView={hasFeature('hr_employee_accounts') ? HrEmployeeAccountsView : null}
+      />
+    );
+  }
   if (view === 'employee_profile' && selectedEmployeeForAction) {
     return (
       <HrEmployeeProfileView
@@ -1946,6 +2175,14 @@ if (view === 'noc_requests') {
                 {signupError}
               </div>
             )}
+            {signupOfferCtc && !isEditMode ? (
+              <div style={{ padding: '10px 12px', marginBottom: '12px', background: '#eff6ff', borderRadius: '8px', fontSize: '0.9rem' }}>
+                Offer annual CTC from ATS: <strong>₹{Number(signupOfferCtc).toLocaleString('en-IN')}</strong> (validated against compensation band on submit)
+                {signupCandidateId ? (
+                  <span> · Candidate #{signupCandidateId} will be marked hired on success.</span>
+                ) : null}
+              </div>
+            ) : null}
             <form className="signup-form" onSubmit={handleSignupSubmit}>
               <div className="form-row">
                 <div className="form-group">
@@ -2117,7 +2354,7 @@ if (view === 'noc_requests') {
 
   // VIEW 3: MAIN HR PANEL
   return (
-    <div className="hr-main-container">
+    <div className="hr-main-container hr-dashboard">
       {dashboardLoading && <p className="hr-loading">Loading dashboard...</p>}
       {dashboardError && <p className="hr-error">{dashboardError}</p>}
 
@@ -2176,61 +2413,101 @@ if (view === 'noc_requests') {
         </div>
       )}
 
-      <div className="hr-stats-grid">
-        {stats.map((stat) => (
-          <div key={stat.title} className={`stat-card stat-card-${stat.color}`}>
-            <div className="stat-content">
-              <p className="stat-label">{stat.title}</p>
-              <h3 className="stat-value">{stat.value}</h3>
-              <p className="stat-sub">{stat.subtitle}</p>
-            </div>
-            <div className={`stat-icon-bg stat-icon-${stat.color}`}>
-              <stat.icon size={24} />
+      <header className="hr-dash-hero">
+        <div className="hr-dash-hero__main">
+          <p className="hr-dash-hero__eyebrow">HR Management</p>
+          <h1 className="hr-dash-hero__title">People dashboard</h1>
+          <p className="hr-dash-hero__desc">
+            Track workforce health, attendance, and pending HR actions in one place.
+          </p>
+        </div>
+        <div className="hr-dash-hero__highlights">
+          <div className="hr-dash-hero__chip">
+            <Users size={18} aria-hidden />
+            <div>
+              <strong>{counts.enabled_employees ?? counts.total_employees ?? 0}</strong>
+              <span>Active employees</span>
             </div>
           </div>
-        ))}
-
-        <div className="stat-card stat-card-updates clickable" onClick={() => setView('updates')}>
-          <div className="stat-content">
-            <p className="stat-label">Updates</p>
-            <h3 className="stat-value">{visibleUpdateOptions.length}</h3>
-            <p className="stat-sub">Click to manage</p>
-          </div>
-          <div className="stat-icon-bg stat-icon-updates">
-            <RefreshCw size={24} />
+          <div className="hr-dash-hero__chip hr-dash-hero__chip--accent">
+            <Inbox size={18} aria-hidden />
+            <div>
+              <strong>{counts.inbox_total ?? 0}</strong>
+              <span>Inbox pending</span>
+            </div>
           </div>
         </div>
-      </div>
+      </header>
 
+      <div className="hr-dash-layout">
+        <div className="hr-dash-main">
+          <section className="hr-dash-panel" aria-label="Workforce overview">
+            <div className="hr-dash-panel__head">
+              <div>
+                <h2 className="hr-dash-panel__title">Workforce overview</h2>
+                <p className="hr-dash-panel__sub">Core people metrics updated from live HR data</p>
+              </div>
+            </div>
+            <div className="hr-dash-panel__body">
+              <div className="hr-stats-grid hr-stats-grid--primary">
+                {stats.slice(0, 4).map((stat) => (
+                  <article key={stat.title} className={`hr-metric-card hr-metric-card--${stat.color}`}>
+                    <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
+                      <stat.icon size={18} strokeWidth={2.25} />
+                    </div>
+                    <p className="hr-metric-card__label">{stat.title}</p>
+                    <p className="hr-metric-card__value">{stat.value}</p>
+                    <p className="hr-metric-card__sub">{stat.subtitle}</p>
+                  </article>
+                ))}
+              </div>
+              <div className="hr-stats-grid hr-stats-grid--secondary">
+                {stats.slice(4).map((stat) => (
+                  <article key={stat.title} className={`hr-metric-card hr-metric-card--${stat.color}`}>
+                    <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
+                      <stat.icon size={18} strokeWidth={2.25} />
+                    </div>
+                    <p className="hr-metric-card__label">{stat.title}</p>
+                    <p className="hr-metric-card__value">{stat.value}</p>
+                    <p className="hr-metric-card__sub">{stat.subtitle}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </section>
 
-
-
-<div className={`hr-search-card ${showSearchResults ? 'hr-search-card--results' : ''}`}>
+          <section className="hr-dash-panel hr-dash-panel--search" aria-label="Employee search">
+      <div className={`hr-search-card ${showSearchResults ? 'hr-search-card--results' : ''}`}>
         {!showSearchResults ? (
           <div className="search-section-inner">
-            <h3 className="section-title">Search Employees</h3>
-            <div className="search-controls">
+            <div className="hr-dash-panel__head hr-dash-panel__head--compact">
+              <div>
+                <h3 className="hr-dash-panel__title">Search employees</h3>
+                <p className="hr-dash-panel__sub">Filter by circle and department to update records or export attendance</p>
+              </div>
+            </div>
+            <div className="hr-search-filters">
               <div className="input-group">
-                <label>Circle</label>
-                <select value={selectedCircle} onChange={(e) => setSelectedCircle(e.target.value)}>
-                  <option value="">Choose Your Circle</option>
+                <label htmlFor="hr-dash-circle">Circle</label>
+                <select id="hr-dash-circle" value={selectedCircle} onChange={(e) => setSelectedCircle(e.target.value)}>
+                  <option value="">Choose circle</option>
                   {masterOptions.circles.map((item) => (
                     <option key={item} value={item}>{item}</option>
                   ))}
                 </select>
               </div>
               <div className="input-group">
-                <label>Employee Type</label>
-                <select value={selectedEmployeeType} onChange={(e) => setSelectedEmployeeType(e.target.value)}>
-                  <option value="">Select Employee Type</option>
+                <label htmlFor="hr-dash-dept">Employee type</label>
+                <select id="hr-dash-dept" value={selectedEmployeeType} onChange={(e) => setSelectedEmployeeType(e.target.value)}>
+                  <option value="">Select type</option>
                   {masterOptions.departments.map((item) => (
                     <option key={item} value={item}>{item}</option>
                   ))}
                 </select>
               </div>
               <div className="search-btn-wrapper">
-                <button className="btn-search" onClick={handleSearch} disabled={searchLoading || masterLoading}>
-                  <i className="search-icon"></i> {searchLoading || masterLoading ? 'Searching...' : 'Search'}
+                <button type="button" className="btn-search" onClick={handleSearch} disabled={searchLoading || masterLoading}>
+                  <Search size={16} /> {searchLoading || masterLoading ? 'Searching…' : 'Search employees'}
                 </button>
               </div>
             </div>
@@ -2291,6 +2568,53 @@ if (view === 'noc_requests') {
             </div>
           </div>
         )}
+      </div>
+          </section>
+        </div>
+
+        <aside className="hr-dash-aside" aria-label="Quick actions">
+          <section className="hr-dash-panel hr-dash-panel--shortcuts">
+            <div className="hr-dash-panel__head">
+              <div>
+                <h2 className="hr-dash-panel__title">Shortcuts</h2>
+                <p className="hr-dash-panel__sub">Frequently used HR workflows</p>
+              </div>
+            </div>
+            <div className="hr-shortcuts">
+              <button
+                type="button"
+                className="hr-shortcut hr-shortcut--inbox"
+                onClick={() => setView('hr_inbox')}
+              >
+                <div className="hr-shortcut__icon">
+                  <Inbox size={20} strokeWidth={2.25} />
+                </div>
+                <div className="hr-shortcut__text">
+                  <span className="hr-shortcut__title">HR Inbox</span>
+                  <span className="hr-shortcut__desc">Pending approvals &amp; tasks</span>
+                </div>
+                <span className="hr-shortcut__badge">{counts.inbox_total ?? 0}</span>
+                <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
+              </button>
+
+              <button
+                type="button"
+                className="hr-shortcut hr-shortcut--updates"
+                onClick={() => setView('updates')}
+              >
+                <div className="hr-shortcut__icon">
+                  <RefreshCw size={20} strokeWidth={2.25} />
+                </div>
+                <div className="hr-shortcut__text">
+                  <span className="hr-shortcut__title">HR modules</span>
+                  <span className="hr-shortcut__desc">Sign up, ATS, payroll &amp; more</span>
+                </div>
+                <span className="hr-shortcut__badge">{visibleUpdateOptions.length}</span>
+                <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
+              </button>
+            </div>
+          </section>
+        </aside>
       </div>
       {showSearchResults && openDropdownKey !== null && dropdownPosition && createPortal(
         <div
