@@ -1,14 +1,15 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
   FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2,
-  Eye, EyeOff, TrendingDown, Inbox, Package, Upload, AlertTriangle, BarChart3, ChevronRight, CheckCircle2, User
+  Eye, EyeOff, TrendingDown, Inbox, Package, Upload, AlertTriangle, BarChart3, ChevronRight, Briefcase
 } from 'lucide-react';
 import './Hr.css';
+import './HRNocRequests.css';
 import './SignUp.css'; 
 import { UpdateSignUp } from './UpdateSignUp';
 import { AddNewsFeed } from './AddNewsFeed';
@@ -35,6 +36,8 @@ import { HRPolicyCenter } from './HRPolicyCenter';
 import { HRATS } from './HRATS';
 import { HRCompensation } from './HRCompensation';
 import { HRWorkforcePlan } from './HRWorkforcePlan';
+import { HR_MODULE_TABS, buildGroupedModules, resolvePinnedModules, enrichModuleOption, groupIdForTitle } from './hrModuleGroups';
+import { recordRecentModule, getRecentModuleTitles, resolveRecentModules, DASHBOARD_RECENT_LIMIT } from './hrModuleRecent';
 import './HrUpdatesShared.css';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
@@ -201,12 +204,11 @@ function HrEmployeeProfileView({ employee, onBack }) {
   const notProvided = '— Not provided';
   const notUploaded = 'Not uploaded';
 
-  const row = (label, value, keySuffix = '') => {
+  const row = (label, value) => {
     const display = value != null && String(value).trim() !== '' ? String(value).trim() : notProvided;
     const isMissing = display === notProvided;
-    const fieldKey = `${label}${keySuffix}`;
     return (
-      <div key={fieldKey} className="hr-profile-field">
+      <div key={label} className="hr-profile-row">
         <span className="hr-profile-label">{label}</span>
         <span className={isMissing ? 'hr-profile-value hr-profile-value--missing' : 'hr-profile-value'}>
           {display}
@@ -216,26 +218,16 @@ function HrEmployeeProfileView({ employee, onBack }) {
   };
 
   return (
-    <div className="hr-sub-page hr-profile-page">
+    <div className="hr-sub-page">
       <button type="button" className="btn-back-updates" onClick={onBack}><ArrowLeft size={16} /> Back to Search</button>
-      <div className="hr-card hr-profile-card">
-        <header className="hr-profile-page-header">
-          <div className="hr-profile-page-header__icon" aria-hidden>
-            <User size={22} strokeWidth={2.25} />
-          </div>
-          <div>
-            <p className="hr-profile-page-header__eyebrow">Employee profile</p>
-            <h2>{employee.name}</h2>
-            <p className="hr-profile-page-header__meta">
-              {hrProfileVal(emp.emp_id || admin.emp_id) || '—'} · {hrProfileVal(emp.designation) || 'No designation'}
-            </p>
-          </div>
-        </header>
-        {loading && <p className="hr-loading">Loading profile…</p>}
+      <div className="hr-card">
+        <h2>Profile – {employee.name}</h2>
+        {loading && <p className="hr-loading">Loading...</p>}
         {error && <p className="hr-error">{error}</p>}
         {profile && (
           <>
-            <div className={`hr-profile-completeness${score >= 100 ? ' hr-profile-completeness--complete' : ''}`}>
+            {/* Profile completeness block */}
+            <div className="hr-profile-completeness">
               <div className="hr-profile-completeness-header">
                 <span className="hr-profile-completeness-title">Profile completion</span>
                 <span className="hr-profile-completeness-pct">{score}%</span>
@@ -246,9 +238,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
               <div className="hr-profile-missing-box">
                 <span className="hr-profile-missing-title">Request from employee</span>
                 {missing.length === 0 ? (
-                  <p className="hr-profile-missing-all-ok">
-                    <CheckCircle2 size={16} aria-hidden /> All required fields and documents are provided.
-                  </p>
+                  <p className="hr-profile-missing-all-ok">All required fields and documents are provided.</p>
                 ) : (
                   <ul className="hr-profile-missing-list">
                     {missing.map((m, i) => <li key={i}>{m}</li>)}
@@ -257,6 +247,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
               </div>
             </div>
 
+            {/* 1. Personal Information */}
             <div className="profile-section">
               <h4>Personal Information</h4>
               <div className="hr-profile-grid">
@@ -280,17 +271,17 @@ function HrEmployeeProfileView({ employee, onBack }) {
               <div className="hr-profile-address-block">
                 <div className="hr-profile-address-sub">
                   <h5>Current address</h5>
-                  {row('Street', hrProfileVal(emp.present_address_line1), '-present')}
-                  {row('Pincode', hrProfileVal(emp.present_pincode), '-present')}
-                  {row('District', hrProfileVal(emp.present_district), '-present')}
-                  {row('State', hrProfileVal(emp.present_state), '-present')}
+                  {row('Street', hrProfileVal(emp.present_address_line1))}
+                  {row('Pincode', hrProfileVal(emp.present_pincode))}
+                  {row('District', hrProfileVal(emp.present_district))}
+                  {row('State', hrProfileVal(emp.present_state))}
                 </div>
                 <div className="hr-profile-address-sub">
                   <h5>Permanent address</h5>
-                  {row('Street', hrProfileVal(emp.permanent_address_line1), '-permanent')}
-                  {row('Pincode', hrProfileVal(emp.permanent_pincode), '-permanent')}
-                  {row('District', hrProfileVal(emp.permanent_district), '-permanent')}
-                  {row('State', hrProfileVal(emp.permanent_state), '-permanent')}
+                  {row('Street', hrProfileVal(emp.permanent_address_line1))}
+                  {row('Pincode', hrProfileVal(emp.permanent_pincode))}
+                  {row('District', hrProfileVal(emp.permanent_district))}
+                  {row('State', hrProfileVal(emp.permanent_state))}
                 </div>
               </div>
             </div>
@@ -345,7 +336,7 @@ function HrEmployeeProfileView({ employee, onBack }) {
             {/* 6. Documents */}
             <div className="profile-section">
               <h4>Documents (uploaded by employee)</h4>
-              <div className="documents-grid hr-profile-docs-grid">
+              <div className="documents-grid">
                 {[
                   { key: 'aadhaar_front', label: 'Aadhaar (Front)' },
                   { key: 'aadhaar_back', label: 'Aadhaar (Back)' },
@@ -1384,14 +1375,14 @@ export const Hr = () => {
     { title: 'Total Employees', value: String(counts.enabled_employees ?? counts.total_employees), subtitle: 'Enabled employees', icon: Users, color: 'blue' },
     { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green' },
     { title: 'Active Today', value: String(counts.today_punch_in_count), subtitle: 'Punched in today', icon: UserCheck, color: 'teal' },
-    { title: 'Exits This Month', value: String(counts.exits_this_month ?? 0), subtitle: 'Separations', icon: TrendingDown, color: 'red' },
-    { title: 'Probation ≤30d', value: String(counts.probations_ending_30_days ?? 0), subtitle: 'Ending soon', icon: AlertTriangle, color: 'amber' },
-    { title: 'Profile Complete', value: `${counts.profile_completion_pct ?? 0}%`, subtitle: 'Org average', icon: BarChart3, color: 'purple' },
+    { title: 'Exits', value: String(counts.exits_this_month ?? 0), subtitle: 'This month', icon: TrendingDown, color: 'red' },
+    { title: 'Probation', value: String(counts.probations_ending_30_days ?? 0), subtitle: '≤30 days', icon: AlertTriangle, color: 'amber' },
+    { title: 'Profiles', value: `${counts.profile_completion_pct ?? 0}%`, subtitle: 'Org average', icon: BarChart3, color: 'purple' },
     { title: 'Pending NOC', value: String(counts.pending_noc_count ?? 0), subtitle: 'HR clearance', icon: FileCheck, color: 'pink' },
   ];
 
   const updateOptions = [
-    { title: 'Sign Up', icon: UserPlus, description: 'New employee registration' },
+    { title: 'Sign Up', icon: UserPlus, description: 'Register a new employee in HRMS' },
     { title: 'Bulk Employee Import', icon: Upload, description: 'Import employees from CSV template' },
     { title: 'Reset Employee Password', icon: Key, description: 'Send password reset link (1 hour)' },
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
@@ -1403,7 +1394,7 @@ export const Hr = () => {
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Organization Chart', icon: Users, description: 'View L1/L2/L3 reporting hierarchy' },
     { title: 'Policy Center', icon: FileText, description: 'HR policies and employee acknowledgments' },
-    { title: 'Recruitment (ATS)', icon: UserPlus, description: 'Job requisitions, candidates, assessments, and offers' },
+    { title: 'Recruitment (ATS)', icon: Briefcase, description: 'Job requisitions, candidates, offers — includes Sign Up for hires' },
     { title: 'Compensation', icon: BarChart3, description: 'Increment cycles and salary revision approvals' },
     { title: 'Workforce Planning', icon: Users, description: 'Headcount budget vs actual by circle and department' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
@@ -1426,7 +1417,77 @@ export const Hr = () => {
     return true;
   };
 
-  const visibleUpdateOptions = updateOptions.filter((o) => isUpdateOptionAllowed(o.title));
+  const visibleUpdateOptions = updateOptions
+    .filter((o) => isUpdateOptionAllowed(o.title))
+    .map(enrichModuleOption);
+
+  const [moduleSearch, setModuleSearch] = useState('');
+  const [moduleCategory, setModuleCategory] = useState('all');
+  const [recentModuleTitles, setRecentModuleTitles] = useState(() => getRecentModuleTitles());
+
+  const refreshRecentModules = useCallback(() => {
+    setRecentModuleTitles(getRecentModuleTitles());
+  }, []);
+
+  useEffect(() => {
+    if (view === 'updates' || view === 'main') {
+      refreshRecentModules();
+    }
+  }, [view, refreshRecentModules]);
+
+  useEffect(() => {
+    const contentArea = document.querySelector('.app-layout > .content-area');
+    if (!contentArea) return undefined;
+
+    if (view === 'updates') {
+      contentArea.classList.add('content-area--hr-modules');
+      contentArea.scrollTop = 0;
+    } else {
+      contentArea.classList.remove('content-area--hr-modules');
+    }
+
+    return () => {
+      contentArea.classList.remove('content-area--hr-modules');
+    };
+  }, [view]);
+
+  const groupedModules = useMemo(
+    () => buildGroupedModules(visibleUpdateOptions, {
+      search: moduleSearch,
+      category: moduleCategory,
+      isAllowed: isUpdateOptionAllowed,
+    }),
+    [visibleUpdateOptions, moduleSearch, moduleCategory],
+  );
+
+  const groupedModuleCount = useMemo(
+    () => groupedModules.reduce((n, g) => n + g.modules.length, 0),
+    [groupedModules],
+  );
+
+  const pinnedModules = useMemo(
+    () => resolvePinnedModules(visibleUpdateOptions, { isAllowed: isUpdateOptionAllowed }),
+    [visibleUpdateOptions],
+  );
+
+  const recentModulesHub = useMemo(() => {
+    if (moduleSearch.trim() || moduleCategory !== 'all') return [];
+    return resolveRecentModules(visibleUpdateOptions).map((option) => ({
+      ...option,
+      groupId: groupIdForTitle(option.title),
+    }));
+  }, [visibleUpdateOptions, recentModuleTitles, moduleSearch, moduleCategory]);
+
+  const dashboardRecentModules = useMemo(() => {
+    const pinnedSet = new Set(pinnedModules.map((o) => o.title));
+    return resolveRecentModules(visibleUpdateOptions, { limit: DASHBOARD_RECENT_LIMIT + 3 })
+      .filter((o) => !pinnedSet.has(o.title))
+      .slice(0, DASHBOARD_RECENT_LIMIT)
+      .map((option) => ({
+        ...option,
+        groupId: groupIdForTitle(option.title),
+      }));
+  }, [visibleUpdateOptions, pinnedModules, recentModuleTitles]);
 
   const employeeDetailsOptions = [
     'Employee 360',
@@ -1729,6 +1790,8 @@ export const Hr = () => {
       alert('This feature is not included in your subscription plan.');
       return;
     }
+    recordRecentModule(title);
+    refreshRecentModules();
     if (title === 'Sign Up') {
       setSignupSuccess(false);
       setSignupError('');
@@ -1985,24 +2048,36 @@ if (view === 'add_circle_type') {
 }
 if (view === 'noc_requests') {
   return (
-    <div className="hr-main-container fade-in">
-      <div className="rr-page" style={{ minHeight: 'auto', padding: '20px' }}>
-        <div className="rr-topbar" style={{ marginBottom: 8 }}>
-          <button type="button" className="rr-back-btn" onClick={() => setView('updates')}>
-            <ArrowLeft size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-            Back to Updates
-          </button>
-          <h1 style={{ margin: 0, fontSize: 22, color: '#0f172a' }}>NOC Requests (Human Resource)</h1>
+    <div className="hr-main-container fade-in hr-noc-page">
+      <div className="hr-noc-shell">
+        <button type="button" className="hr-noc-back" onClick={() => setView('updates')}>
+          <ArrowLeft size={16} strokeWidth={2.25} aria-hidden />
+          <span>Back to Updates</span>
+        </button>
+
+        <header className="hr-noc-hero">
+          <div className="hr-noc-hero__main">
+            <h1>
+              <FileCheck size={22} strokeWidth={2.25} aria-hidden />
+              NOC Requests
+            </h1>
+            <p>
+              Separation NOC requests routed to HR. Upload clearance documents when status is Pending.
+            </p>
+          </div>
+          <span className="hr-noc-hero__badge">Human Resource</span>
+        </header>
+
+        <div className="hr-noc-body">
+          <div className="hr-noc-panel">
+            <DepartmentNocPanel
+              apiBase="/api/HumanResource"
+              statusFilter="All"
+              variant="table"
+              requireResignationApprovedToDownload
+            />
+          </div>
         </div>
-        <p style={{ color: '#64748b', marginBottom: 16, maxWidth: 720 }}>
-          Separation NOC requests routed to HR. Upload clearance documents when status is Pending.
-        </p>
-        <DepartmentNocPanel
-          apiBase="/api/HumanResource"
-          statusFilter="All"
-          variant="table"
-          requireResignationApprovedToDownload
-        />
       </div>
     </div>
   );
@@ -2331,23 +2406,112 @@ if (view === 'noc_requests') {
 
   if (view === 'updates') {
     return (
-      <div className="hr-main-container">
-        <button type="button" className="btn-back" onClick={() => setView('main')}>
-          <ArrowLeft size={18} /> Back to HR Management
-        </button>
-        <div className="updates-grid">
-          {visibleUpdateOptions.map((option) => (
-            <div key={option.title} className="update-card" onClick={() => handleUpdateCardClick(option.title)}>
-              <div className="update-icon-box">
-                <option.icon size={24} />
-              </div>
-              <div className="update-text">
-                <h4>{option.title}</h4>
-                <p>{option.description}</p>
-              </div>
+      <div className="hr-main-container hr-modules-page">
+        <header className="hr-modules-sticky-head">
+          <div className="hr-modules-topbar">
+            <button type="button" className="btn-back hr-modules-back" onClick={() => setView('main')}>
+              <ArrowLeft size={18} /> Back to HR Management
+            </button>
+            <label className="hr-modules-search">
+              <Search size={17} strokeWidth={2.25} aria-hidden />
+              <input
+                type="search"
+                placeholder="Search modules (e.g. recruitment, leave, offboarding)…"
+                value={moduleSearch}
+                onChange={(e) => setModuleSearch(e.target.value)}
+                aria-label="Search HR modules"
+              />
+            </label>
+          </div>
+          <div className="hr-modules-tabs" role="tablist" aria-label="Module categories">
+            {HR_MODULE_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={moduleCategory === tab.id}
+                className={`hr-modules-tab${moduleCategory === tab.id ? ' is-active' : ''}`}
+                onClick={() => setModuleCategory(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </header>
+
+        {recentModulesHub.length > 0 ? (
+          <section className="hr-modules-recent" aria-label="Recently used modules">
+            <header className="hr-modules-recent__head">
+              <Clock size={18} aria-hidden />
+              <h2>Recently used</h2>
+            </header>
+            <div className="hr-modules-recent__list">
+              {recentModulesHub.map((option) => (
+                <button
+                  key={option.title}
+                  type="button"
+                  className={`hr-modules-recent__chip hr-modules-recent__chip--${option.groupId}`}
+                  onClick={() => handleUpdateCardClick(option.title)}
+                >
+                  <option.icon size={16} strokeWidth={2.25} aria-hidden />
+                  <span>{option.label}</span>
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
+          </section>
+        ) : null}
+
+        {groupedModuleCount === 0 ? (
+          <div className="hr-modules-empty">
+            <Search size={32} strokeWidth={1.5} />
+            <h3>No modules match</h3>
+            <p>Try a different search term or category tab.</p>
+            <button
+              type="button"
+              className="hr-modules-empty__reset"
+              onClick={() => { setModuleSearch(''); setModuleCategory('all'); }}
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : (
+          groupedModules.map((group) => (
+            <section key={group.id} className={`hr-modules-section hr-modules-section--${group.id}`}>
+              <header className="hr-modules-section__head">
+                <div>
+                  <h2 className="hr-modules-section__title">{group.fullLabel}</h2>
+                  <p className="hr-modules-section__desc">{group.description}</p>
+                </div>
+                <span className="hr-modules-section__count">{group.modules.length}</span>
+              </header>
+              <div className="updates-grid">
+                {group.modules.map((option) => (
+                  <div
+                    key={option.title}
+                    className={`update-card update-card--${group.id}`}
+                    onClick={() => handleUpdateCardClick(option.title)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleUpdateCardClick(option.title);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="update-icon-box">
+                      <option.icon size={22} />
+                    </div>
+                    <div className="update-text">
+                      <h4>{option.label}</h4>
+                      <p>{option.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))
+        )}
       </div>
     );
   }
@@ -2413,32 +2577,6 @@ if (view === 'noc_requests') {
         </div>
       )}
 
-      <header className="hr-dash-hero">
-        <div className="hr-dash-hero__main">
-          <p className="hr-dash-hero__eyebrow">HR Management</p>
-          <h1 className="hr-dash-hero__title">People dashboard</h1>
-          <p className="hr-dash-hero__desc">
-            Track workforce health, attendance, and pending HR actions in one place.
-          </p>
-        </div>
-        <div className="hr-dash-hero__highlights">
-          <div className="hr-dash-hero__chip">
-            <Users size={18} aria-hidden />
-            <div>
-              <strong>{counts.enabled_employees ?? counts.total_employees ?? 0}</strong>
-              <span>Active employees</span>
-            </div>
-          </div>
-          <div className="hr-dash-hero__chip hr-dash-hero__chip--accent">
-            <Inbox size={18} aria-hidden />
-            <div>
-              <strong>{counts.inbox_total ?? 0}</strong>
-              <span>Inbox pending</span>
-            </div>
-          </div>
-        </div>
-      </header>
-
       <div className="hr-dash-layout">
         <div className="hr-dash-main">
           <section className="hr-dash-panel" aria-label="Workforce overview">
@@ -2449,25 +2587,15 @@ if (view === 'noc_requests') {
               </div>
             </div>
             <div className="hr-dash-panel__body">
-              <div className="hr-stats-grid hr-stats-grid--primary">
-                {stats.slice(0, 4).map((stat) => (
+              <div className="hr-stats-grid">
+                {stats.map((stat) => (
                   <article key={stat.title} className={`hr-metric-card hr-metric-card--${stat.color}`}>
-                    <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
-                      <stat.icon size={18} strokeWidth={2.25} />
+                    <div className="hr-metric-card__top">
+                      <p className="hr-metric-card__label">{stat.title}</p>
+                      <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
+                        <stat.icon size={15} strokeWidth={2.25} />
+                      </div>
                     </div>
-                    <p className="hr-metric-card__label">{stat.title}</p>
-                    <p className="hr-metric-card__value">{stat.value}</p>
-                    <p className="hr-metric-card__sub">{stat.subtitle}</p>
-                  </article>
-                ))}
-              </div>
-              <div className="hr-stats-grid hr-stats-grid--secondary">
-                {stats.slice(4).map((stat) => (
-                  <article key={stat.title} className={`hr-metric-card hr-metric-card--${stat.color}`}>
-                    <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
-                      <stat.icon size={18} strokeWidth={2.25} />
-                    </div>
-                    <p className="hr-metric-card__label">{stat.title}</p>
                     <p className="hr-metric-card__value">{stat.value}</p>
                     <p className="hr-metric-card__sub">{stat.subtitle}</p>
                   </article>
@@ -2477,98 +2605,101 @@ if (view === 'noc_requests') {
           </section>
 
           <section className="hr-dash-panel hr-dash-panel--search" aria-label="Employee search">
-      <div className={`hr-search-card ${showSearchResults ? 'hr-search-card--results' : ''}`}>
-        {!showSearchResults ? (
-          <div className="search-section-inner">
-            <div className="hr-dash-panel__head hr-dash-panel__head--compact">
-              <div>
-                <h3 className="hr-dash-panel__title">Search employees</h3>
-                <p className="hr-dash-panel__sub">Filter by circle and department to update records or export attendance</p>
+            {!showSearchResults ? (
+              <div className="search-section-inner">
+                <div className="hr-dash-panel__head">
+                  <div>
+                    <h3 className="hr-dash-panel__title">Search employees</h3>
+                    <p className="hr-dash-panel__sub">Filter by circle and department to update records or export attendance</p>
+                  </div>
+                </div>
+                <div className="hr-dash-panel__body">
+                  <div className="hr-search-filters">
+                    <div className="input-group">
+                      <label htmlFor="hr-dash-circle">Circle</label>
+                      <select id="hr-dash-circle" value={selectedCircle} onChange={(e) => setSelectedCircle(e.target.value)}>
+                        <option value="">Choose circle</option>
+                        {masterOptions.circles.map((item) => (
+                          <option key={item} value={item}>{item}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label htmlFor="hr-dash-dept">Employee type</label>
+                      <select id="hr-dash-dept" value={selectedEmployeeType} onChange={(e) => setSelectedEmployeeType(e.target.value)}>
+                        <option value="">Select type</option>
+                        {masterOptions.departments.map((item) => (
+                          <option key={item} value={item}>{item}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="search-btn-wrapper">
+                      <button type="button" className="btn-search" onClick={handleSearch} disabled={searchLoading || masterLoading}>
+                        <Search size={16} /> {searchLoading || masterLoading ? 'Searching…' : 'Search'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="hr-search-filters">
-              <div className="input-group">
-                <label htmlFor="hr-dash-circle">Circle</label>
-                <select id="hr-dash-circle" value={selectedCircle} onChange={(e) => setSelectedCircle(e.target.value)}>
-                  <option value="">Choose circle</option>
-                  {masterOptions.circles.map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </select>
+            ) : (
+              <div className={`hr-search-card hr-search-card--results`}>
+                <div className="results-container">
+                  <div className="results-header">
+                    <h3>Results for {selectedCircle} ({selectedEmployeeType})</h3>
+                  </div>
+                  <div className="table-outer-wrapper">
+                    <div className="table-responsive">
+                      <table className="results-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Circle</th>
+                            <th>Type</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {searchResults.map((emp) => {
+                            const employeeKey = emp.id ?? emp.email;
+                            return (
+                              <tr key={employeeKey}>
+                                <td>{emp.name}</td>
+                                <td>{emp.email}</td>
+                                <td>{emp.circle}</td>
+                                <td>{emp.type}</td>
+                                <td>
+                                  <div className="dropdown-container" ref={openDropdownKey === employeeKey ? dropdownRef : null}>
+                                    <button className={`btn-update-toggle ${openDropdownKey === employeeKey ? 'active' : ''}`} onClick={() => toggleDropdown(employeeKey)}>
+                                      Update <ChevronDown size={14} className={openDropdownKey === employeeKey ? 'rotate-180' : ''} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="results-actions">
+                    <button type="button" className="btn-outline" onClick={(e) => { e.stopPropagation(); handleBackToSearch(); }}>Back to Search</button>
+                    <input type="month" value={searchDownloadMonth} onChange={(e) => setSearchDownloadMonth(e.target.value)} style={{ marginRight: 8 }} />
+                    <button type="button" className="btn-success" onClick={(e) => { e.stopPropagation(); handleDownloadAllFromSearch(); }} disabled={searchDownloading}>
+                      <Download size={16}/> {searchDownloading ? 'Downloading...' : 'Download Attendance'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-success"
+                      onClick={(e) => { e.stopPropagation(); handleDownloadClientAllFromSearch(); }}
+                      disabled={searchClientDownloading}
+                    >
+                      <Download size={16}/> {searchClientDownloading ? 'Downloading...' : 'For Client'}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="input-group">
-                <label htmlFor="hr-dash-dept">Employee type</label>
-                <select id="hr-dash-dept" value={selectedEmployeeType} onChange={(e) => setSelectedEmployeeType(e.target.value)}>
-                  <option value="">Select type</option>
-                  {masterOptions.departments.map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="search-btn-wrapper">
-                <button type="button" className="btn-search" onClick={handleSearch} disabled={searchLoading || masterLoading}>
-                  <Search size={16} /> {searchLoading || masterLoading ? 'Searching…' : 'Search employees'}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="results-container">
-            <div className="results-header">
-               <h3>Results for {selectedCircle} ({selectedEmployeeType})</h3>
-            </div>
-            <div className="table-outer-wrapper">
-              <div className="table-responsive">
-                <table className="results-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Circle</th>
-                      <th>Type</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {searchResults.map((emp) => {
-                      const employeeKey = emp.id ?? emp.email;
-                      return (
-                      <tr key={employeeKey}>
-                        <td>{emp.name}</td>
-                        <td>{emp.email}</td>
-                        <td>{emp.circle}</td>
-                        <td>{emp.type}</td>
-                        <td>
-                          <div className="dropdown-container" ref={openDropdownKey === employeeKey ? dropdownRef : null}>
-                            <button className={`btn-update-toggle ${openDropdownKey === employeeKey ? 'active' : ''}`} onClick={() => toggleDropdown(employeeKey)}>
-                              Update <ChevronDown size={14} className={openDropdownKey === employeeKey ? 'rotate-180' : ''} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )})}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div className="results-actions">
-              <button type="button" className="btn-outline" onClick={(e) => { e.stopPropagation(); handleBackToSearch(); }}>Back to Search</button>
-              <input type="month" value={searchDownloadMonth} onChange={(e) => setSearchDownloadMonth(e.target.value)} style={{ marginRight: 8 }} />
-              <button type="button" className="btn-success" onClick={(e) => { e.stopPropagation(); handleDownloadAllFromSearch(); }} disabled={searchDownloading}>
-                <Download size={16}/> {searchDownloading ? 'Downloading...' : 'Download Attendance'}
-              </button>
-              <button
-                type="button"
-                className="btn-success"
-                onClick={(e) => { e.stopPropagation(); handleDownloadClientAllFromSearch(); }}
-                disabled={searchClientDownloading}
-              >
-                <Download size={16}/> {searchClientDownloading ? 'Downloading...' : 'For Client'}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+            )}
           </section>
         </div>
 
@@ -2577,10 +2708,26 @@ if (view === 'noc_requests') {
             <div className="hr-dash-panel__head">
               <div>
                 <h2 className="hr-dash-panel__title">Shortcuts</h2>
-                <p className="hr-dash-panel__sub">Frequently used HR workflows</p>
+                <p className="hr-dash-panel__sub">Inbox, recent tools, and all HR modules</p>
               </div>
             </div>
             <div className="hr-shortcuts">
+              <button
+                type="button"
+                className="hr-shortcut hr-shortcut--all-modules"
+                onClick={() => setView('updates')}
+              >
+                <div className="hr-shortcut__icon">
+                  <RefreshCw size={20} strokeWidth={2.25} />
+                </div>
+                <div className="hr-shortcut__text">
+                  <span className="hr-shortcut__title">All HR modules</span>
+                  <span className="hr-shortcut__desc">Browse by category</span>
+                </div>
+                <span className="hr-shortcut__badge">{visibleUpdateOptions.length}</span>
+                <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
+              </button>
+
               <button
                 type="button"
                 className="hr-shortcut hr-shortcut--inbox"
@@ -2591,27 +2738,55 @@ if (view === 'noc_requests') {
                 </div>
                 <div className="hr-shortcut__text">
                   <span className="hr-shortcut__title">HR Inbox</span>
-                  <span className="hr-shortcut__desc">Pending approvals &amp; tasks</span>
+                  <span className="hr-shortcut__desc">Approvals &amp; tasks</span>
                 </div>
                 <span className="hr-shortcut__badge">{counts.inbox_total ?? 0}</span>
                 <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
               </button>
 
-              <button
-                type="button"
-                className="hr-shortcut hr-shortcut--updates"
-                onClick={() => setView('updates')}
-              >
-                <div className="hr-shortcut__icon">
-                  <RefreshCw size={20} strokeWidth={2.25} />
-                </div>
-                <div className="hr-shortcut__text">
-                  <span className="hr-shortcut__title">HR modules</span>
-                  <span className="hr-shortcut__desc">Sign up, ATS, payroll &amp; more</span>
-                </div>
-                <span className="hr-shortcut__badge">{visibleUpdateOptions.length}</span>
-                <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
-              </button>
+              {dashboardRecentModules.length > 0 ? (
+                <p className="hr-shortcuts__label">Recent</p>
+              ) : null}
+
+              {dashboardRecentModules.map((option) => (
+                <button
+                  key={`recent-${option.title}`}
+                  type="button"
+                  className={`hr-shortcut hr-shortcut--${option.groupId} hr-shortcut--compact`}
+                  onClick={() => handleUpdateCardClick(option.title)}
+                >
+                  <div className="hr-shortcut__icon">
+                    <option.icon size={18} strokeWidth={2.25} />
+                  </div>
+                  <div className="hr-shortcut__text">
+                    <span className="hr-shortcut__title">{option.label}</span>
+                  </div>
+                  <ChevronRight size={16} className="hr-shortcut__arrow" aria-hidden />
+                </button>
+              ))}
+
+              {pinnedModules.length > 0 ? (
+                <p className="hr-shortcuts__label">Pinned</p>
+              ) : null}
+
+              {pinnedModules.map((option) => (
+                <button
+                  key={option.title}
+                  type="button"
+                  className={`hr-shortcut hr-shortcut--${option.groupId}`}
+                  onClick={() => handleUpdateCardClick(option.title)}
+                >
+                  <div className="hr-shortcut__icon">
+                    <option.icon size={20} strokeWidth={2.25} />
+                  </div>
+                  <div className="hr-shortcut__text">
+                    <span className="hr-shortcut__title">{option.label}</span>
+                    <span className="hr-shortcut__desc">{option.description}</span>
+                  </div>
+                  <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
+                </button>
+              ))}
+
             </div>
           </section>
         </aside>

@@ -4,6 +4,7 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './OffboardingDashboard.css';
 import './HrUpdatesShared.css';
+import './HRATS.css';
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -23,6 +24,11 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
   const [candForm, setCandForm] = useState({ full_name: '', email: '', mobile: '', requisition_id: '', notes: '' });
   const [offerForm, setOfferForm] = useState({ candidate_id: '', annual_ctc: '', joining_date: '', notes: '' });
   const [hireProgress, setHireProgress] = useState(null);
+
+  const getAuthHeaders = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, []);
 
   const loadHireProgress = useCallback(async (candidateId) => {
     if (!candidateId) {
@@ -48,11 +54,6 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
       setHireProgress(null);
     }
   }, [offerForm.candidate_id, loadHireProgress, candidates]);
-
-  const getAuthHeaders = useCallback(() => {
-    const token = localStorage.getItem('token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -251,30 +252,32 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
   ];
 
   return (
-    <div className="ob-dash-container">
-      <div className="ob-dash-wrapper hr-updates-shell">
-        <div className="hr-updates-header">
-          <button type="button" className="btn-back-updates" onClick={onBack}>
-            <ArrowLeft size={16} /> Back to Updates
-          </button>
-          <div className="hr-updates-header__title">
+    <div className="ob-dash-container hr-ats-page">
+      <div className="ob-dash-wrapper hr-updates-shell hr-ats-shell">
+        <button type="button" className="btn-back-updates hr-ats-back" onClick={onBack}>
+          <ArrowLeft size={16} /> Back to Updates
+        </button>
+
+        <header className="hr-ats-hero">
+          <div className="hr-ats-hero__main">
             <h2><Briefcase size={22} /> Recruitment (ATS)</h2>
             <p>Job requisitions, candidate pipeline, assessments, and offers.</p>
           </div>
-          <div className="hr-updates-header__actions">
-            <button type="button" className="hr-updates-refresh" onClick={load} disabled={loading}>
+          <div className="hr-ats-hero__actions">
+            <button type="button" className="hr-ats-btn hr-ats-btn--ghost" onClick={load} disabled={loading}>
               <RefreshCw size={16} /> Refresh
             </button>
-            <button type="button" className="hr-updates-primary" onClick={() => setShowReqForm((v) => !v)}>
+            <button type="button" className="hr-ats-btn hr-ats-btn--primary" onClick={() => setShowReqForm((v) => !v)}>
               <Plus size={16} /> Requisition
             </button>
-            <button type="button" className="hr-updates-secondary" onClick={() => setShowCandForm((v) => !v)}>
+            <button type="button" className="hr-ats-btn hr-ats-btn--secondary" onClick={() => setShowCandForm((v) => !v)}>
               <Plus size={16} /> Candidate
             </button>
           </div>
-        </div>
+        </header>
 
-        {error ? <p className="hr-updates-error">{error}</p> : null}
+        <div className="hr-ats-body">
+        {error ? <p className="hr-updates-error hr-ats-error">{error}</p> : null}
 
         {showReqForm ? (
           <form className="hr-updates-form" onSubmit={createRequisition}>
@@ -307,18 +310,24 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
         ) : null}
 
         <div className="hr-ats-filters">
-          <select value={selectedReqId} onChange={(e) => setSelectedReqId(e.target.value)}>
-            <option value="">All requisitions</option>
-            {requisitions.map((r) => <option key={r.id} value={r.id}>{r.title} ({r.status})</option>)}
-          </select>
-          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
-            <option value="all">All stages</option>
-            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <label className="hr-ats-filter">
+            <span>Requisition</span>
+            <select value={selectedReqId} onChange={(e) => setSelectedReqId(e.target.value)}>
+              <option value="">All requisitions</option>
+              {requisitions.map((r) => <option key={r.id} value={r.id}>{r.title} ({r.status})</option>)}
+            </select>
+          </label>
+          <label className="hr-ats-filter">
+            <span>Stage</span>
+            <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
+              <option value="all">All stages</option>
+              {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
         </div>
 
         <div className="hr-ats-grid">
-          <section>
+          <section className="hr-ats-panel">
             <h3>Open requisitions ({requisitions.filter((r) => r.status === 'open').length})</h3>
             {loading ? <p>Loading…</p> : (
               <ul className="hr-ats-list">
@@ -333,7 +342,7 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
             )}
           </section>
 
-          <section>
+          <section className="hr-ats-panel hr-ats-panel--pipeline">
             <h3>Candidate pipeline</h3>
             {loading ? <p>Loading…</p> : candidates.length === 0 ? <p className="hr-updates-muted">No candidates yet.</p> : (
               <div className="hr-inbox-table-wrap">
@@ -368,7 +377,9 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
                               <button type="button" onClick={() => sendOfferEmail(c.id)} title="Email offer letter"><Mail size={14} /></button>
                             </>
                           ) : null}
-                          <button type="button" onClick={() => convertToSignup(c.id)} title="Convert to Sign Up"><UserPlus size={14} /></button>
+                          <button type="button" className="hr-ats-action-btn hr-ats-action-btn--signup" onClick={() => convertToSignup(c.id)} title="Sign Up">
+                            <UserPlus size={14} /> Sign Up
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -389,7 +400,7 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
               <button type="submit" className="hr-updates-primary" disabled={saving}>Save offer</button>
               <button type="button" className="hr-updates-secondary" onClick={() => sendOfferEmail(Number(offerForm.candidate_id))}>Email offer</button>
               <button type="button" className="hr-updates-secondary" onClick={() => convertToSignup(Number(offerForm.candidate_id))}>
-                <UserPlus size={14} /> Onboard
+                <UserPlus size={14} /> Sign Up
               </button>
             </div>
           </form>
@@ -420,6 +431,7 @@ export const HRATS = ({ onBack, onConvertToSignup, circleOptions = [], empTypeOp
             ) : null}
           </section>
         ) : null}
+        </div>
       </div>
     </div>
   );

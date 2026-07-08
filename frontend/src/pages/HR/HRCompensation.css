@@ -1,0 +1,335 @@
+/* Compensation & Increments — aligned with ATS / modules hub */
+
+.hr-comp-page {
+  --comp-accent: #4f46e5;
+  --comp-accent-soft: #eef2ff;
+  --comp-border: #e2e8f0;
+  --comp-surface: #ffffff;
+  --comp-muted: #64748b;
+  --comp-text: #0f172a;
+}
+
+.hr-comp-shell {
+  padding-bottom: 28px;
+}
+
+/* Compact pill back control (not a full-width strip) */
+.hr-comp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 20px 24px 0;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.hr-comp-back svg {
+  flex-shrink: 0;
+  color: #6366f1;
+  transition: transform 0.15s ease;
+}
+
+.hr-comp-back:hover {
+  background: var(--comp-accent-soft);
+  border-color: #c7d2fe;
+  color: #3730a3;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.12);
+  transform: translateX(-2px);
+}
+
+.hr-comp-back:hover svg {
+  transform: translateX(-2px);
+  color: #4f46e5;
+}
+
+.hr-comp-back:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
+
+.hr-comp-back:active {
+  transform: translateX(0);
+}
+
+.hr-comp-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 20px;
+  margin: 14px 24px 20px;
+  padding: 22px 24px;
+  border-radius: 16px;
+  border: 1px solid var(--comp-border);
+  background:
+    radial-gradient(ellipse 70% 100% at 100% 0%, rgba(245, 158, 11, 0.12) 0%, transparent 55%),
+    linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.hr-comp-hero__main {
+  flex: 1;
+  min-width: min(100%, 260px);
+}
+
+.hr-comp-hero__main h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-size: clamp(1.2rem, 2vw, 1.45rem);
+  font-weight: 800;
+  color: var(--comp-text);
+  letter-spacing: -0.02em;
+}
+
+.hr-comp-hero__main h2 svg {
+  color: #d97706;
+  flex-shrink: 0;
+}
+
+.hr-comp-hero__main p {
+  margin: 0;
+  max-width: 520px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--comp-muted);
+}
+
+.hr-comp-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.hr-comp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--comp-border);
+  background: var(--comp-surface);
+  color: #334155;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.hr-comp-btn:hover:not(:disabled) {
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+  transform: translateY(-1px);
+}
+
+.hr-comp-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.hr-comp-btn--primary {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  border-color: #4f46e5;
+  color: #fff;
+}
+
+.hr-comp-btn--primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
+  border-color: #4338ca;
+}
+
+.hr-comp-btn--secondary {
+  background: #f8fafc;
+}
+
+.hr-comp-btn--secondary:hover:not(:disabled) {
+  background: #ffffff;
+}
+
+.hr-comp-body {
+  padding: 0 24px;
+}
+
+.hr-comp-body .hr-updates-form {
+  margin-bottom: 18px;
+}
+
+.hr-comp-body .hr-updates-error {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.hr-comp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.hr-comp-panel {
+  padding: 18px 20px;
+  border: 1px solid var(--comp-border);
+  border-radius: 14px;
+  background: var(--comp-surface);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  min-width: 0;
+}
+
+.hr-comp-panel--full {
+  grid-column: 1 / -1;
+}
+
+.hr-comp-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.hr-comp-panel__head h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--comp-text);
+}
+
+.hr-comp-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.hr-comp-filter span {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--comp-muted);
+}
+
+.hr-comp-filter select {
+  padding: 8px 12px;
+  border: 1px solid var(--comp-border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--comp-text);
+  outline: none;
+}
+
+.hr-comp-filter select:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.hr-comp-page .hr-updates-muted {
+  margin: 0;
+  padding: 20px 8px;
+  text-align: center;
+  color: var(--comp-muted);
+  font-size: 0.9rem;
+}
+
+.hr-comp-page .hr-inbox-table-wrap {
+  margin: 0;
+  border-radius: 10px;
+  overflow: auto;
+}
+
+.hr-comp-page .hr-inbox-table th,
+.hr-comp-page .hr-inbox-table td {
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+}
+
+.hr-comp-page .hr-ats-list li {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.hr-comp-page .hr-ats-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+@media (max-width: 1024px) {
+  .hr-comp-hero__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .hr-comp-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .hr-comp-back {
+    margin: 16px 16px 0;
+  }
+
+  .hr-comp-hero {
+    margin: 12px 16px 16px;
+    padding: 18px 16px;
+  }
+
+  .hr-comp-body {
+    padding: 0 16px 8px;
+  }
+
+  .hr-comp-hero__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .hr-comp-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .hr-comp-panel__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hr-comp-filter {
+    width: 100%;
+  }
+}

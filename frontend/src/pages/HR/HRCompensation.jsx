@@ -4,6 +4,7 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './OffboardingDashboard.css';
 import './HrUpdatesShared.css';
+import './HRCompensation.css';
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -172,32 +173,35 @@ export const HRCompensation = ({ onBack }) => {
   };
 
   return (
-    <div className="ob-dash-container">
-      <div className="ob-dash-wrapper hr-updates-shell">
-        <div className="hr-updates-header">
-          <button type="button" className="btn-back-updates" onClick={onBack}>
-            <ArrowLeft size={16} /> Back to Updates
-          </button>
-          <div className="hr-updates-header__title">
+    <div className="ob-dash-container hr-comp-page">
+      <div className="ob-dash-wrapper hr-updates-shell hr-comp-shell">
+        <button type="button" className="hr-comp-back" onClick={onBack}>
+          <ArrowLeft size={16} strokeWidth={2.25} aria-hidden />
+          <span>Back to Updates</span>
+        </button>
+
+        <header className="hr-comp-hero">
+          <div className="hr-comp-hero__main">
             <h2><IndianRupee size={22} /> Compensation &amp; Increments</h2>
             <p>Increment cycles, manager proposals, and HR approval queue.</p>
           </div>
-          <div className="hr-updates-header__actions">
-            <button type="button" className="hr-updates-refresh" onClick={load} disabled={loading}>
+          <div className="hr-comp-hero__actions">
+            <button type="button" className="hr-comp-btn hr-comp-btn--secondary" onClick={load} disabled={loading}>
               <RefreshCw size={16} /> Refresh
             </button>
-            <button type="button" className="hr-updates-primary" onClick={() => setShowCycleForm((v) => !v)}>
+            <button type="button" className="hr-comp-btn hr-comp-btn--primary" onClick={() => setShowCycleForm((v) => !v)}>
               <Plus size={16} /> Increment cycle
             </button>
-            <button type="button" className="hr-updates-secondary" onClick={() => setShowBandForm((v) => !v)}>
+            <button type="button" className="hr-comp-btn hr-comp-btn--secondary" onClick={() => setShowBandForm((v) => !v)}>
               <Plus size={16} /> CTC band
             </button>
-            <button type="button" className="hr-updates-secondary" onClick={() => setShowMeritForm((v) => !v)}>
+            <button type="button" className="hr-comp-btn hr-comp-btn--secondary" onClick={() => setShowMeritForm((v) => !v)}>
               <Plus size={16} /> Merit %
             </button>
           </div>
-        </div>
+        </header>
 
+        <div className="hr-comp-body">
         {error ? <p className="hr-updates-error">{error}</p> : null}
 
         {showCycleForm ? (
@@ -235,8 +239,11 @@ export const HRCompensation = ({ onBack }) => {
           </form>
         ) : null}
 
-        <section className="hr-comp-cycles">
-          <h3>Merit matrix ({meritEntries.length})</h3>
+        <div className="hr-comp-grid">
+        <section className="hr-comp-panel">
+          <div className="hr-comp-panel__head">
+            <h3>Merit matrix ({meritEntries.length})</h3>
+          </div>
           {meritEntries.length === 0 ? <p className="hr-updates-muted">No merit rules configured.</p> : (
             <div className="hr-inbox-table-wrap">
               <table className="hr-inbox-table">
@@ -265,8 +272,10 @@ export const HRCompensation = ({ onBack }) => {
           )}
         </section>
 
-        <section className="hr-comp-cycles">
-          <h3>CTC bands ({bands.length})</h3>
+        <section className="hr-comp-panel">
+          <div className="hr-comp-panel__head">
+            <h3>CTC bands ({bands.length})</h3>
+          </div>
           {bands.length === 0 ? <p className="hr-updates-muted">No bands configured.</p> : (
             <div className="hr-inbox-table-wrap">
               <table className="hr-inbox-table">
@@ -297,8 +306,10 @@ export const HRCompensation = ({ onBack }) => {
           )}
         </section>
 
-        <section className="hr-comp-cycles">
-          <h3>Increment cycles</h3>
+        <section className="hr-comp-panel hr-comp-panel--full">
+          <div className="hr-comp-panel__head">
+            <h3>Increment cycles</h3>
+          </div>
           {cycles.length === 0 ? <p className="hr-updates-muted">No cycles yet.</p> : (
             <ul className="hr-ats-list">
               {cycles.map((c) => (
@@ -313,19 +324,22 @@ export const HRCompensation = ({ onBack }) => {
             </ul>
           )}
         </section>
-
-        <div className="hr-ats-filters">
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="pending">Pending</option>
-            <option value="all">All</option>
-            <option value="completed">Completed</option>
-            <option value="dismissed">Dismissed</option>
-          </select>
         </div>
 
-        <section>
-          <h3>Salary revision proposals ({proposals.length})</h3>
-          {loading ? <p>Loading…</p> : proposals.length === 0 ? (
+        <section className="hr-comp-panel hr-comp-panel--full">
+          <div className="hr-comp-panel__head">
+            <h3>Salary revision proposals ({proposals.length})</h3>
+            <label className="hr-comp-filter">
+              <span>Queue</span>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="pending">Pending</option>
+                <option value="all">All</option>
+                <option value="completed">Completed</option>
+                <option value="dismissed">Dismissed</option>
+              </select>
+            </label>
+          </div>
+          {loading ? <p className="hr-updates-muted">Loading…</p> : proposals.length === 0 ? (
             <p className="hr-updates-muted">No proposals in this queue.</p>
           ) : (
             <div className="hr-inbox-table-wrap">
@@ -367,6 +381,7 @@ export const HRCompensation = ({ onBack }) => {
             </div>
           )}
         </section>
+        </div>
       </div>
     </div>
   );

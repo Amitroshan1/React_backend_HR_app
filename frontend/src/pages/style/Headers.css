@@ -450,6 +450,11 @@
     padding-top: 0;
 }
 
+/* HR modules hub: flush under global header */
+.app-layout > .content-area.content-area--hr-modules {
+    padding-top: 0;
+}
+
 @media (max-width: 768px) {
     :root {
         --header-height: 84px;
