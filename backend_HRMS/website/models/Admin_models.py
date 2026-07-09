@@ -8,7 +8,7 @@ from website.models.family_models import FamilyDetails
 from website.models.emp_detail_models import Employee,Asset
 from website.models.prev_com import PreviousCompany
 from website.models.education import Education, UploadDoc
-from website.models.attendance import LeaveApplication, Punch,WorkFromHomeApplication,Punch,LeaveBalance,Location
+from website.models.attendance import LeaveApplication, Punch,WorkFromHomeApplication,Punch,LeaveBalance,Location,AttendanceRegularization
 from website.models.news_feed import PaySlip, Form16
 from website.models.query import Query, QueryReply  
 from website.models.seperation import Resignation,Noc,Noc_Upload,NocDepartmentRequest
@@ -68,7 +68,26 @@ class Admin(db.Model, UserMixin):
     previous_companies = db.relationship('PreviousCompany', back_populates='admin', lazy=True, cascade="all, delete-orphan")
     education_details = db.relationship('Education', back_populates='admin', lazy='dynamic', cascade="all, delete-orphan")
     document_details = db.relationship('UploadDoc', back_populates='admin', lazy='dynamic', cascade="all, delete-orphan")
-    leave_applications = db.relationship('LeaveApplication', back_populates='admin', lazy='dynamic', cascade="all, delete-orphan")
+    leave_applications = db.relationship(
+        'LeaveApplication',
+        foreign_keys='LeaveApplication.admin_id',
+        back_populates='admin',
+        lazy='dynamic',
+        cascade="all, delete-orphan",
+    )
+    leaves_applied_on_behalf = db.relationship(
+        'LeaveApplication',
+        foreign_keys='LeaveApplication.applied_by_admin_id',
+        back_populates='applied_by',
+        lazy='dynamic',
+    )
+    attendance_regularizations = db.relationship(
+        'AttendanceRegularization',
+        foreign_keys='AttendanceRegularization.admin_id',
+        back_populates='admin',
+        lazy='dynamic',
+        cascade="all, delete-orphan",
+    )
     punch_records = db.relationship('Punch', back_populates='admin', lazy='dynamic', cascade="all, delete-orphan")
     assets = db.relationship('Asset', back_populates='admin', cascade="all, delete-orphan")
     payslips = db.relationship('PaySlip', back_populates='admin', cascade="all, delete-orphan")

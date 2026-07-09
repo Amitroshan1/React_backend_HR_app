@@ -1,0 +1,13 @@
+.mgr-team-leave { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+.mgr-team-leave h3 { margin: 0 0 6px; }
+.mgr-team-leave__hint { margin: 0 0 12px; color: #64748b; font-size: 0.875rem; }
+.mgr-team-leave__form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mgr-team-leave__form label { display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
+.mgr-team-leave__form select, .mgr-team-leave__form input, .mgr-team-leave__form textarea {
+  text-transform: none; font-weight: 500; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px;
+}
+.mgr-team-leave__reason { grid-column: 1 / -1; }
+.mgr-team-leave__form button { grid-column: 1 / -1; justify-self: end; border: none; background: #2563eb; color: #fff; border-radius: 8px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
+.mgr-team-leave__error { color: #b91c1c; grid-column: 1 / -1; margin: 0; }
+.mgr-team-leave__success { color: #047857; grid-column: 1 / -1; margin: 0; font-weight: 600; }
+@media (max-width: 720px) { .mgr-team-leave__form { grid-template-columns: 1fr; } }

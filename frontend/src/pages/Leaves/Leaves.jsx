@@ -62,6 +62,72 @@ export const Leaves= () => {
     const [filterYear, setFilterYear] = useState("");
     const [filterMonth, setFilterMonth] = useState("");
     const [cancellingId, setCancellingId] = useState(null);
+    const [regRows, setRegRows] = useState([]);
+    const [regLoading, setRegLoading] = useState(false);
+    const [regSubmitting, setRegSubmitting] = useState(false);
+    const [regError, setRegError] = useState('');
+    const [regSuccess, setRegSuccess] = useState('');
+    const [showRegForm, setShowRegForm] = useState(false);
+    const [regForm, setRegForm] = useState({
+        leave_type: 'Casual Leave',
+        start_date: '',
+        end_date: '',
+        reason: '',
+    });
+
+    const REG_LEAVE_TYPES = ['Privilege Leave', 'Casual Leave', 'Half Day Leave', 'Compensatory Leave'];
+
+    const fetchRegularizations = useCallback(async () => {
+        setRegLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_BASE_URL}/regularization`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) setRegRows(data.requests || []);
+        } catch {
+            setRegRows([]);
+        } finally {
+            setRegLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchRegularizations();
+    }, [fetchRegularizations]);
+
+    const handleRegularizationSubmit = async (e) => {
+        e.preventDefault();
+        setRegError('');
+        setRegSuccess('');
+        if (regForm.reason.trim().length < 20) {
+            setRegError('Reason must be at least 20 characters.');
+            return;
+        }
+        setRegSubmitting(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_BASE_URL}/regularization`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify(regForm),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) throw new Error(data.message || 'Failed to submit');
+            setRegSuccess(data.message || 'Request submitted to HR.');
+            setRegForm({ leave_type: 'Casual Leave', start_date: '', end_date: '', reason: '' });
+            setShowRegForm(false);
+            await fetchRegularizations();
+        } catch (err) {
+            setRegError(err.message || 'Network error');
+        } finally {
+            setRegSubmitting(false);
+        }
+    };
 
     const isFilterActive = Boolean(filterYear);
 
@@ -477,6 +543,69 @@ export const Leaves= () => {
                         </table>
                     )}
                 </div>
+            </div>
+
+            <div className="leave-requests-card leave-regularization-card">
+                <div className="requests-header-row">
+                    <h2 className="section-title-leave">Attendance Regularization</h2>
+                    <button type="button" className="apply-leave-button" onClick={() => setShowRegForm((v) => !v)}>
+                        <FiRefreshCw /> {showRegForm ? 'Hide' : 'Request regularization'}
+                    </button>
+                </div>
+                <p className="leave-history-summary">
+                    For past absences you could not apply leave in time. HR will review and convert to approved leave.
+                </p>
+                {regSuccess ? <p className="leave-reg-success">{regSuccess}</p> : null}
+                {showRegForm ? (
+                    <form className="leave-reg-form" onSubmit={handleRegularizationSubmit}>
+                        <label>
+                            Leave type
+                            <select value={regForm.leave_type} onChange={(e) => setRegForm((p) => ({ ...p, leave_type: e.target.value }))}>
+                                {REG_LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </label>
+                        <label>
+                            From
+                            <input type="date" value={regForm.start_date} onChange={(e) => setRegForm((p) => ({ ...p, start_date: e.target.value, end_date: p.leave_type === 'Half Day Leave' ? e.target.value : p.end_date }))} required />
+                        </label>
+                        <label>
+                            To
+                            <input type="date" value={regForm.end_date} min={regForm.start_date} disabled={regForm.leave_type === 'Half Day Leave'} onChange={(e) => setRegForm((p) => ({ ...p, end_date: e.target.value }))} required />
+                        </label>
+                        <label className="leave-reg-reason">
+                            Reason (min 20 chars)
+                            <textarea value={regForm.reason} onChange={(e) => setRegForm((p) => ({ ...p, reason: e.target.value }))} rows={3} minLength={20} required />
+                        </label>
+                        {regError ? <p className="leave-reg-error">{regError}</p> : null}
+                        <button type="submit" className="apply-leave-button" disabled={regSubmitting}>
+                            {regSubmitting ? 'Submitting…' : 'Submit to HR'}
+                        </button>
+                    </form>
+                ) : null}
+                {regLoading ? <p>Loading regularization history…</p> : regRows.length > 0 ? (
+                    <table className="leave-requests-table">
+                        <thead>
+                            <tr>
+                                <th>TYPE</th>
+                                <th>FROM</th>
+                                <th>TO</th>
+                                <th>STATUS</th>
+                                <th>HR COMMENT</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {regRows.map((row) => (
+                                <tr key={row.id}>
+                                    <td>{row.leave_type}</td>
+                                    <td>{formatDate(row.start_date)}</td>
+                                    <td>{formatDate(row.end_date)}</td>
+                                    <td><span className={`status-badge status-${String(row.status).toLowerCase()}`}>{row.status}</span></td>
+                                    <td>{row.hr_comment || '—'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                ) : null}
             </div>
             
             <ApplyLeaveModal

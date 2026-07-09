@@ -1,0 +1,17 @@
+.hr-proxy-page { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.hr-proxy-back { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.hr-proxy-header { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+.hr-proxy-header h2 { margin: 0 0 6px; color: #1d4ed8; }
+.hr-proxy-header p { margin: 0; color: #64748b; }
+.hr-proxy-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; align-items: end; }
+.hr-proxy-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; font-weight: 700; color: #64748b; }
+.hr-proxy-filters input, .hr-proxy-filters select { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+.hr-proxy-stats { display: flex; gap: 12px; margin-bottom: 12px; }
+.hr-proxy-stats span { background: #eef2ff; color: #4338ca; border-radius: 999px; padding: 6px 12px; font-size: 0.8125rem; font-weight: 700; }
+.hr-proxy-table-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+.hr-proxy-table { width: 100%; border-collapse: collapse; min-width: 960px; font-size: 0.875rem; }
+.hr-proxy-table th, .hr-proxy-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: left; }
+.hr-proxy-table th { background: #f8fafc; font-size: 0.7rem; text-transform: uppercase; color: #64748b; }
+.hr-proxy-error { color: #b91c1c; }
+.hr-proxy-muted { color: #64748b; }
+@media (max-width: 900px) { .hr-proxy-filters { grid-template-columns: 1fr 1fr; } }

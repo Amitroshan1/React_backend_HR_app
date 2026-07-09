@@ -114,6 +114,7 @@ export function usePersistedView({
 export function clearPersistedPanelViews() {
   const keys = [
     "hr_panel_view",
+    "hr_employee_360_tab",
     "manager_active_tab",
     "update_manager_view",
     "account_current_view",
@@ -125,4 +126,9 @@ export function clearPersistedPanelViews() {
       /* ignore */
     }
   });
+  try {
+    sessionStorage.removeItem("hr_selected_employee");
+  } catch {
+    /* ignore */
+  }
 }

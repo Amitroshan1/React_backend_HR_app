@@ -59,6 +59,7 @@ from .models.attendance import (
     LeaveBalance,
     Location,
     WorkFromHomeApplication,
+    AttendanceRegularization,
 )
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
@@ -86,7 +87,15 @@ from .punch_aggregate import (
     serialize_punch_sessions,
 )
 from werkzeug.utils import secure_filename
-from .leave_attendence import _compute_working_and_sandwich_days
+from .leave_attendence import (
+    _compute_working_and_sandwich_days,
+    _has_optional_leave_for_year,
+    _optional_holiday_on_date,
+)
+from . import leave_settings as leave_cfg
+from .models.monthly_payroll import MonthlyPayroll
+from .commands.payroll_governance_logic import normalize_payroll_status
+from .leave_proxy_service import create_proxy_leave_application, LeaveProxyError
 from .compoff_utils import (
     deduct_comp_leave,
     get_effective_comp_balance,
@@ -3627,6 +3636,8 @@ def _serialize_leave_updation_row(row):
         "extra_days": _round_leave_value(row.extra_days),
         "requested_deducted_days": _round_leave_value(getattr(row, "requested_deducted_days", 0.0)),
         "sandwich_pl_days": _round_leave_value(getattr(row, "sandwich_pl_days", 0.0)),
+        "applied_on_behalf": bool(getattr(row, "applied_on_behalf", False)),
+        "applied_by_admin_id": getattr(row, "applied_by_admin_id", None),
         "created_at": isoformat_api(row.created_at),
         "request_type": "leave",
     }
@@ -3818,6 +3829,214 @@ def _apply_approved_leave_effect(leave_obj, leave_balance):
     return None
 
 
+def _check_leave_application_conflicts(admin_id, start_date, end_date, *, leave_type=None):
+    """Return an error message when dates overlap pending/approved leave or WFH."""
+    if leave_type != "Optional Leave":
+        overlapping_leave = LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin_id,
+            LeaveApplication.status.in_(["Pending", "Approved"]),
+            LeaveApplication.start_date <= end_date,
+            LeaveApplication.end_date >= start_date,
+        ).first()
+        if overlapping_leave:
+            return (
+                f"Leave already applied from {overlapping_leave.start_date} to "
+                f"{overlapping_leave.end_date} (Status: {overlapping_leave.status})"
+            )
+
+    overlapping_wfh = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin_id,
+        WorkFromHomeApplication.status.in_(["Pending", "Approved"]),
+        WorkFromHomeApplication.start_date <= end_date,
+        WorkFromHomeApplication.end_date >= start_date,
+    ).first()
+    if overlapping_wfh:
+        return (
+            f"WFH already applied from {overlapping_wfh.start_date} to "
+            f"{overlapping_wfh.end_date} (Status: {overlapping_wfh.status})"
+        )
+    return None
+
+
+def _validate_optional_leave_on_behalf(admin_id, start_date, end_date):
+    if _has_optional_leave_for_year(admin_id, start_date.year):
+        return (
+            f"Optional Leave can only be used once per year. "
+            f"Employee already has Optional Leave in {start_date.year}."
+        )
+    if start_date != end_date:
+        return "Optional Leave can only be applied for one day"
+    if not _optional_holiday_on_date(start_date):
+        return "Selected date is not an optional holiday in the company calendar"
+    return None
+
+
+_PAYROLL_LEAVE_BLOCK_STATUSES = frozenset({"paid", "locked"})
+
+
+def _months_spanned_by_leave(start_date, end_date):
+    months = []
+    cursor = date(start_date.year, start_date.month, 1)
+    end_month = date(end_date.year, end_date.month, 1)
+    while cursor <= end_month:
+        months.append((cursor.year, cursor.month))
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
+    return months
+
+
+def _hr_backdate_limit_error(start_date, *, today_ist=None):
+    today_ist = today_ist or datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    if start_date >= today_ist:
+        return None
+    max_days = leave_cfg.max_hr_backdate_days()
+    if max_days <= 0:
+        return None
+    earliest = today_ist - timedelta(days=max_days)
+    if start_date < earliest:
+        return (
+            f"HR can only apply backdated leave up to {max_days} days in the past "
+            f"(earliest allowed: {earliest.isoformat()})."
+        )
+    return None
+
+
+def _payroll_lock_error_for_leave_range(admin_id, start_date, end_date):
+    if not leave_cfg.block_on_payroll_locked():
+        return None
+    for year, month_num in _months_spanned_by_leave(start_date, end_date):
+        row = MonthlyPayroll.query.filter_by(
+            admin_id=admin_id,
+            year=str(year),
+            month_num=month_num,
+        ).first()
+        if not row:
+            continue
+        status = normalize_payroll_status(getattr(row, "status", None))
+        if status in _PAYROLL_LEAVE_BLOCK_STATUSES:
+            month_label = row.month or f"Month {month_num}"
+            return (
+                f"Payroll for {month_label} {year} is {status}. "
+                "Cannot apply or change leave for this period."
+            )
+    return None
+
+
+def _resolve_hr_on_behalf_status(raw_status, start_date, today_ist):
+    if raw_status:
+        status = raw_status.strip().title()
+        if status not in {"Pending", "Approved", "Rejected"}:
+            return None, "status must be Pending, Approved or Rejected"
+        return status, None
+    return ("Approved" if start_date < today_ist else "Pending"), None
+
+
+def _validate_hr_on_behalf_dates(admin_id, start_date, end_date, *, today_ist=None):
+    today_ist = today_ist or datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    backdate_err = _hr_backdate_limit_error(start_date, today_ist=today_ist)
+    if backdate_err:
+        return backdate_err
+    payroll_err = _payroll_lock_error_for_leave_range(admin_id, start_date, end_date)
+    if payroll_err:
+        return payroll_err
+    return None
+
+
+@hr.route("/leave-updation/policy", methods=["GET"])
+@jwt_required()
+@hr_required
+def get_leave_updation_policy():
+    settings = leave_cfg.load_leave_settings()
+    return jsonify({
+        "success": True,
+        "policy": {
+            "max_hr_backdate_days": leave_cfg.max_hr_backdate_days(),
+            "block_on_payroll_locked": leave_cfg.block_on_payroll_locked(),
+            "max_regularization_backdate_days": leave_cfg.max_regularization_backdate_days(),
+            "manager_on_behalf_allowed": leave_cfg.manager_on_behalf_allowed(),
+            "auto_approve_backdated": True,
+        },
+        "settings": settings,
+    }), 200
+
+
+@hr.route("/leave-updation/requests/preview", methods=["POST"])
+@jwt_required()
+@hr_required
+def preview_leave_on_behalf_by_hr():
+    payload = request.get_json(silent=True) or {}
+    admin_id = payload.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+
+    leave_type = (payload.get("leave_type") or "").strip()
+    if not leave_type:
+        return jsonify({"success": False, "message": "leave_type is required"}), 400
+
+    start_date, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
+    if err:
+        return jsonify({"success": False, "message": err}), 400
+    end_date, err = _parse_leave_date_or_400(payload.get("end_date"), "end_date")
+    if err:
+        return jsonify({"success": False, "message": err}), 400
+    if end_date < start_date:
+        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
+
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    policy_err = _validate_hr_on_behalf_dates(admin_id, start_date, end_date, today_ist=today_ist)
+    if policy_err:
+        return jsonify({"success": False, "message": policy_err}), 400
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    leave_balance = LeaveBalance.query.filter_by(admin_id=admin_id).first()
+    if not leave_balance:
+        return jsonify({"success": False, "message": "Leave balance not configured for employee"}), 400
+
+    if leave_type == "Optional Leave":
+        opt_err = _validate_optional_leave_on_behalf(admin_id, start_date, end_date)
+        if opt_err:
+            return jsonify({"success": False, "message": opt_err}), 400
+
+    conflict = _check_leave_application_conflicts(
+        admin_id, start_date, end_date, leave_type=leave_type
+    )
+    if conflict:
+        return jsonify({"success": False, "message": conflict}), 409
+
+    projection, proj_err = _compute_leave_projection(
+        admin=admin,
+        leave_balance=leave_balance,
+        leave_type=leave_type,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if proj_err:
+        return jsonify({"success": False, "message": proj_err}), 400
+
+    suggested_status, _ = _resolve_hr_on_behalf_status("", start_date, today_ist)
+    return jsonify({
+        "success": True,
+        "preview": {
+            **projection,
+            "suggested_status": suggested_status,
+            "is_backdated": start_date < today_ist,
+        },
+        "leave_balance": {
+            "privilege_leave_balance": _round_leave_value(leave_balance.privilege_leave_balance),
+            "casual_leave_balance": _round_leave_value(leave_balance.casual_leave_balance),
+            "compensatory_leave_balance": _round_leave_value(get_effective_comp_balance(admin_id)),
+        },
+    }), 200
+
+
 @hr.route("/leave-updation/requests", methods=["GET"])
 @jwt_required()
 @hr_required
@@ -3867,6 +4086,389 @@ def list_leave_updation_requests():
     return jsonify({"success": True, "requests": rows_out[:500]}), 200
 
 
+@hr.route("/leave-updation/requests", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_leave_on_behalf_by_hr():
+    """HR applies leave for an employee (backdated dates allowed)."""
+    payload = request.get_json(silent=True) or {}
+    admin_id = payload.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+
+    leave_type = (payload.get("leave_type") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if not leave_type:
+        return jsonify({"success": False, "message": "leave_type is required"}), 400
+    if not reason:
+        return jsonify({"success": False, "message": "reason is required"}), 400
+    if len(reason) < 10:
+        return jsonify({"success": False, "message": "Reason must be at least 10 characters long"}), 400
+
+    start_date, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
+    if err:
+        return jsonify({"success": False, "message": err}), 400
+    end_date, err = _parse_leave_date_or_400(payload.get("end_date"), "end_date")
+    if err:
+        return jsonify({"success": False, "message": err}), 400
+    if end_date < start_date:
+        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
+
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    policy_err = _validate_hr_on_behalf_dates(admin_id, start_date, end_date, today_ist=today_ist)
+    if policy_err:
+        return jsonify({"success": False, "message": policy_err}), 400
+
+    status, status_err = _resolve_hr_on_behalf_status(
+        (payload.get("status") or "").strip().title() if payload.get("status") else "",
+        start_date,
+        today_ist,
+    )
+    if status_err:
+        return jsonify({"success": False, "message": status_err}), 400
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    leave_balance = LeaveBalance.query.filter_by(admin_id=admin_id).first()
+    if not leave_balance:
+        return jsonify({"success": False, "message": "Leave balance not configured for employee"}), 400
+
+    hr_email = (get_jwt() or {}).get("email")
+    hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+
+    if leave_type == "Optional Leave":
+        opt_err = _validate_optional_leave_on_behalf(admin_id, start_date, end_date)
+        if opt_err:
+            return jsonify({"success": False, "message": opt_err}), 400
+
+    conflict = _check_leave_application_conflicts(
+        admin_id, start_date, end_date, leave_type=leave_type
+    )
+    if conflict:
+        return jsonify({"success": False, "message": conflict}), 409
+
+    projection, proj_err = _compute_leave_projection(
+        admin=admin,
+        leave_balance=leave_balance,
+        leave_type=leave_type,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if proj_err:
+        return jsonify({"success": False, "message": proj_err}), 400
+
+    leave_obj = LeaveApplication(
+        admin_id=admin_id,
+        leave_type=leave_type,
+        reason=reason,
+        start_date=start_date,
+        end_date=end_date,
+        status=status,
+        deducted_days=projection["deducted_days"],
+        extra_days=projection["extra_days"],
+        requested_deducted_days=projection["requested_deducted_days"],
+        sandwich_pl_days=projection["sandwich_pl_days"],
+        applied_by_admin_id=hr_admin.id if hr_admin else None,
+        applied_on_behalf=True,
+    )
+
+    if status == "Approved":
+        apply_err = _apply_approved_leave_effect(leave_obj, leave_balance)
+        if apply_err:
+            return jsonify({"success": False, "message": apply_err}), 400
+
+    try:
+        db.session.add(leave_obj)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("HR leave on behalf failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "message": str(exc) or "Failed to create leave request"}), 500
+
+    try:
+        send_hr_leave_updation_email(
+            leave_obj=leave_obj,
+            hr_admin=hr_admin,
+            old_data={
+                "status": "—",
+                "leave_type": "—",
+                "start_date": "—",
+                "end_date": "—",
+                "deducted_days": 0,
+                "extra_days": 0,
+                "reason": "—",
+            },
+            adjustment_data={
+                "paid_adjustment": projection["deducted_days"],
+                "lwp_adjustment": projection["extra_days"],
+                "reversal_applied": False,
+            },
+            balance_after={
+                "pl": _round_leave_value(leave_balance.privilege_leave_balance),
+                "cl": _round_leave_value(leave_balance.casual_leave_balance),
+                "comp": _round_leave_value(get_effective_comp_balance(admin_id)),
+            },
+            created_on_behalf=True,
+        )
+    except Exception:
+        current_app.logger.warning("send_hr_leave_updation_email failed for leave_id=%s", leave_obj.id)
+
+    try:
+        compact_reason = reason.replace("|", "/").replace("\n", " ").strip()
+        if len(compact_reason) > 120:
+            compact_reason = compact_reason[:117] + "..."
+        audit_action = (
+            f"LEAVE_UPDATION|leave_id={leave_obj.id}|action=create_on_behalf|"
+            f"status:->{leave_obj.status}|"
+            f"dates:->{leave_obj.start_date.isoformat()},{leave_obj.end_date.isoformat()}|"
+            f"paid:0->{_round_leave_value(leave_obj.deducted_days)}|"
+            f"lwp:0->{_round_leave_value(leave_obj.extra_days)}|"
+            f"reason:{compact_reason}"
+        )
+        db.session.add(
+            AuditLog(
+                action=audit_action,
+                performed_by=hr_email or "unknown",
+                target_email=admin.email,
+            )
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning("Failed to insert leave on-behalf audit log for leave_id=%s", leave_obj.id)
+
+    return jsonify({
+        "success": True,
+        "message": "Leave applied on behalf of employee successfully.",
+        "request": _serialize_leave_updation_row(leave_obj),
+        "leave_balance": {
+            "privilege_leave_balance": _round_leave_value(leave_balance.privilege_leave_balance),
+            "casual_leave_balance": _round_leave_value(leave_balance.casual_leave_balance),
+            "compensatory_leave_balance": _round_leave_value(get_effective_comp_balance(admin_id)),
+        },
+    }), 201
+
+
+def _serialize_regularization_row(row):
+    admin = row.admin
+    reviewer = row.reviewed_by
+    return {
+        "id": row.id,
+        "admin_id": row.admin_id,
+        "employee_name": admin.first_name if admin else None,
+        "employee_email": admin.email if admin else None,
+        "emp_id": admin.emp_id if admin else None,
+        "circle": admin.circle if admin else None,
+        "emp_type": admin.emp_type if admin else None,
+        "leave_type": row.leave_type,
+        "start_date": row.start_date.isoformat() if row.start_date else None,
+        "end_date": row.end_date.isoformat() if row.end_date else None,
+        "reason": row.reason,
+        "status": row.status,
+        "hr_comment": row.hr_comment,
+        "leave_application_id": row.leave_application_id,
+        "reviewed_by_name": reviewer.first_name if reviewer else None,
+        "created_at": isoformat_api(row.created_at),
+        "reviewed_at": isoformat_api(row.reviewed_at) if row.reviewed_at else None,
+    }
+
+
+@hr.route("/leave-updation/regularizations", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_attendance_regularizations():
+    status = (request.args.get("status") or "all").strip().lower()
+    circle = (request.args.get("circle") or "").strip()
+    emp_type = (request.args.get("emp_type") or "").strip()
+
+    q = AttendanceRegularization.query.join(Admin, AttendanceRegularization.admin_id == Admin.id)
+    if status != "all":
+        q = q.filter(db.func.lower(AttendanceRegularization.status) == status)
+    if circle:
+        q = q.filter(Admin.circle == circle)
+    if emp_type:
+        q = q.filter(Admin.emp_type == emp_type)
+
+    rows = (
+        q.order_by(AttendanceRegularization.created_at.desc(), AttendanceRegularization.id.desc())
+        .limit(500)
+        .all()
+    )
+    return jsonify({
+        "success": True,
+        "requests": [_serialize_regularization_row(r) for r in rows],
+    }), 200
+
+
+@hr.route("/leave-updation/regularizations/<int:reg_id>", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def review_attendance_regularization(reg_id):
+    row = AttendanceRegularization.query.get(reg_id)
+    if not row:
+        return jsonify({"success": False, "message": "Regularization request not found"}), 404
+    if (row.status or "") != "Pending":
+        return jsonify({"success": False, "message": "Only pending requests can be reviewed"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or payload.get("status") or "").strip().lower()
+    if action in ("approve", "approved"):
+        next_status = "Approved"
+    elif action in ("reject", "rejected"):
+        next_status = "Rejected"
+    else:
+        return jsonify({"success": False, "message": "action must be approve or reject"}), 400
+
+    hr_comment = (payload.get("hr_comment") or payload.get("comment") or "").strip()
+    hr_email = (get_jwt() or {}).get("email")
+    hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+
+    if next_status == "Rejected":
+        row.status = "Rejected"
+        row.hr_comment = hr_comment or None
+        row.reviewed_by_admin_id = hr_admin.id if hr_admin else None
+        row.reviewed_at = utc_now()
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            return jsonify({"success": False, "message": str(exc)}), 500
+        return jsonify({
+            "success": True,
+            "message": "Regularization request rejected.",
+            "request": _serialize_regularization_row(row),
+        }), 200
+
+    policy_err = _validate_hr_on_behalf_dates(row.admin_id, row.start_date, row.end_date)
+    if policy_err:
+        return jsonify({"success": False, "message": policy_err}), 400
+
+    reason = f"[Regularization] {row.reason}"
+    if hr_comment:
+        reason = f"{reason} | HR: {hr_comment}"
+
+    try:
+        leave_obj, leave_balance, projection = create_proxy_leave_application(
+            admin_id=row.admin_id,
+            leave_type=row.leave_type,
+            start_date=row.start_date,
+            end_date=row.end_date,
+            reason=reason[:255],
+            status="Approved",
+            applied_by_admin_id=hr_admin.id if hr_admin else None,
+            applied_on_behalf=False,
+        )
+        row.status = "Approved"
+        row.hr_comment = hr_comment or None
+        row.leave_application_id = leave_obj.id
+        row.reviewed_by_admin_id = hr_admin.id if hr_admin else None
+        row.reviewed_at = utc_now()
+        db.session.commit()
+    except LeaveProxyError as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": exc.message}), exc.status_code
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("regularization approve failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "message": str(exc) or "Failed to approve regularization"}), 500
+
+    try:
+        send_hr_leave_updation_email(
+            leave_obj=leave_obj,
+            hr_admin=hr_admin,
+            old_data={
+                "status": "—",
+                "leave_type": "—",
+                "start_date": "—",
+                "end_date": "—",
+                "deducted_days": 0,
+                "extra_days": 0,
+                "reason": "—",
+            },
+            adjustment_data={
+                "paid_adjustment": projection["deducted_days"],
+                "lwp_adjustment": projection["extra_days"],
+                "reversal_applied": False,
+            },
+            balance_after={
+                "pl": _round_leave_value(leave_balance.privilege_leave_balance),
+                "cl": _round_leave_value(leave_balance.casual_leave_balance),
+                "comp": _round_leave_value(get_effective_comp_balance(row.admin_id)),
+            },
+            created_on_behalf=True,
+        )
+    except Exception:
+        current_app.logger.warning("regularization approval email failed reg_id=%s", row.id)
+
+    return jsonify({
+        "success": True,
+        "message": "Regularization approved and leave recorded.",
+        "request": _serialize_regularization_row(row),
+        "leave_id": leave_obj.id,
+    }), 200
+
+
+@hr.route("/leave-updation/proxy-report", methods=["GET"])
+@jwt_required()
+@hr_required
+def leave_proxy_report():
+    circle = (request.args.get("circle") or "").strip()
+    emp_type = (request.args.get("emp_type") or "").strip()
+    from_date_raw = (request.args.get("from_date") or "").strip()
+    to_date_raw = (request.args.get("to_date") or "").strip()
+
+    q = (
+        LeaveApplication.query.filter(LeaveApplication.applied_on_behalf.is_(True))
+        .join(Admin, LeaveApplication.admin_id == Admin.id)
+    )
+    if circle:
+        q = q.filter(Admin.circle == circle)
+    if emp_type:
+        q = q.filter(Admin.emp_type == emp_type)
+    if from_date_raw:
+        parsed, err = _parse_leave_date_or_400(from_date_raw, "from_date")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        q = q.filter(LeaveApplication.end_date >= parsed)
+    if to_date_raw:
+        parsed, err = _parse_leave_date_or_400(to_date_raw, "to_date")
+        if err:
+            return jsonify({"success": False, "message": err}), 400
+        q = q.filter(LeaveApplication.start_date <= parsed)
+
+    rows = (
+        q.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc())
+        .limit(1000)
+        .all()
+    )
+
+    items = []
+    for row in rows:
+        actor = row.applied_by
+        emp = row.admin
+        items.append({
+            **_serialize_leave_updation_row(row),
+            "applied_by_name": actor.first_name if actor else None,
+            "applied_by_email": actor.email if actor else None,
+        })
+
+    return jsonify({
+        "success": True,
+        "summary": {
+            "total": len(items),
+            "approved": sum(1 for i in items if (i.get("status") or "").lower() == "approved"),
+            "pending": sum(1 for i in items if (i.get("status") or "").lower() == "pending"),
+        },
+        "rows": items,
+    }), 200
+
+
 @hr.route("/leave-updation/requests/<int:leave_id>", methods=["PATCH"])
 @jwt_required()
 @hr_required
@@ -3893,6 +4495,16 @@ def update_leave_application_by_hr(leave_id):
         if err:
             return jsonify({"success": False, "message": err}), 400
         next_end_date = parsed
+
+    if next_end_date < next_start_date:
+        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
+
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    policy_err = _validate_hr_on_behalf_dates(
+        leave_obj.admin_id, next_start_date, next_end_date, today_ist=today_ist
+    )
+    if policy_err:
+        return jsonify({"success": False, "message": policy_err}), 400
 
     admin = leave_obj.admin
     if not admin:

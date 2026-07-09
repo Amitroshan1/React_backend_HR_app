@@ -645,3 +645,12 @@ input[type="date"] {
   appearance: none;
   background: white;
 }
+
+.leave-regularization-card { margin-top: 20px; }
+.leave-reg-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.leave-reg-form label { display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; font-weight: 600; color: #475569; }
+.leave-reg-form select, .leave-reg-form input, .leave-reg-form textarea { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; }
+.leave-reg-reason { grid-column: 1 / -1; }
+.leave-reg-error { color: #b91c1c; margin: 0; }
+.leave-reg-success { color: #047857; font-weight: 600; margin: 8px 0 0; }
+@media (max-width: 720px) { .leave-reg-form { grid-template-columns: 1fr; } }

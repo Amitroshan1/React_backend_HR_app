@@ -2415,7 +2415,15 @@ def _hr_change_row(label, old_val, new_val):
     )
 
 
-def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustment_data=None, balance_after=None):
+def send_hr_leave_updation_email(
+    *,
+    leave_obj,
+    hr_admin,
+    old_data=None,
+    adjustment_data=None,
+    balance_after=None,
+    created_on_behalf=False,
+):
     """
     Notify employee about HR leave edits.
     TO: employee | CC: HR mailbox, acting HR user, mapped manager(s)
@@ -2455,10 +2463,21 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
             </table>
             """
 
-        subject = f"Leave Updated by HR – {admin.first_name or admin.email}"
+        if created_on_behalf:
+            subject = f"Leave Applied on Your Behalf – {admin.first_name or admin.email}"
+            intro_html = (
+                f"<p>Leave has been applied on your behalf by <strong>{actor_name}</strong> from HR.</p>"
+            )
+            timestamp_label = "Applied At"
+        else:
+            subject = f"Leave Updated by HR – {admin.first_name or admin.email}"
+            intro_html = (
+                f"<p>Your leave application has been updated by <strong>{actor_name}</strong> from HR.</p>"
+            )
+            timestamp_label = "Updated At"
         body = f"""
         <p>Hello {emp_name},</p>
-        <p>Your leave application has been updated by <strong>{actor_name}</strong> from HR.</p>
+        {intro_html}
         {reversal_note}
         <table border="1" cellpadding="6" cellspacing="0">
             <tr><td><strong>Application ID</strong></td><td>{leave_obj.id}</td></tr>
@@ -2474,7 +2493,7 @@ def send_hr_leave_updation_email(*, leave_obj, hr_admin, old_data=None, adjustme
             {_hr_change_row("Reason", old_data.get("reason"), leave_obj.reason)}
             <tr><td><strong>Paid Days Adjustment</strong></td><td>{adjustment_data.get('paid_adjustment', 0)}</td></tr>
             <tr><td><strong>LWP Adjustment</strong></td><td>{adjustment_data.get('lwp_adjustment', 0)}</td></tr>
-            <tr><td><strong>Updated At</strong></td><td>{format_ist_display()} IST</td></tr>
+            <tr><td><strong>{timestamp_label}</strong></td><td>{format_ist_display()} IST</td></tr>
         </table>
         {balance_html}
         <p>If this update is unexpected, contact HR immediately.</p>

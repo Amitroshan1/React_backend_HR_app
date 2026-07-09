@@ -1150,6 +1150,47 @@ def create_app():
         except Exception as e:
             app.logger.warning("payroll governance columns ensure skipped: %s", e)
 
+    def _ensure_leave_application_columns():
+        """HR on-behalf leave tracking on leave_applications."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.attendance import LeaveApplication
+
+            insp = inspect(db.engine)
+            table = LeaveApplication.__tablename__
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            additions = {
+                "applied_by_admin_id": "INTEGER NULL",
+                "applied_on_behalf": (
+                    "BOOLEAN NOT NULL DEFAULT FALSE"
+                    if dialect == "postgresql"
+                    else "BOOLEAN NOT NULL DEFAULT 0"
+                ),
+            }
+            for col, col_type in additions.items():
+                if col in existing:
+                    continue
+                stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                if dialect != "postgresql":
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("leave_applications column migration skipped: %s", e)
+
+    def _ensure_attendance_regularization_table():
+        try:
+            from .models.attendance import AttendanceRegularization
+
+            AttendanceRegularization.__table__.create(bind=db.engine, checkfirst=True)
+            app.logger.info("Ensured table attendance_regularizations")
+        except Exception as e:
+            app.logger.warning("attendance_regularizations table ensure skipped: %s", e)
+
     def _ensure_employee_tax_declarations_table():
         try:
             from sqlalchemy import inspect, text
@@ -1421,6 +1462,8 @@ def create_app():
             _ensure_phase3_hr_tables()
             _ensure_phase6_hr_columns()
             _ensure_payroll_governance_columns()
+            _ensure_leave_application_columns()
+            _ensure_attendance_regularization_table()
             _ensure_employee_exit_history_columns()
             _ensure_admin_exit_login_until_column()
             _ensure_offboarding_reminder_table()

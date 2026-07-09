@@ -3,6 +3,7 @@ import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { ArrowLeft, Edit3, Search } from "lucide-react";
 import "./LeaveApplicationUpdation.css";
 import { formatDate, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import { HRApplyLeaveOnBehalf } from "./HRApplyLeaveOnBehalf";
 
 const API_BASE = "/api/HumanResource";
 
@@ -107,6 +108,14 @@ export const LeaveApplicationUpdation = ({
   const [successMessage, setSuccessMessage] = useState("");
   const [auditRows, setAuditRows] = useState([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [onBehalfEmployee, setOnBehalfEmployee] = useState(null);
+  const [onBehalfCandidates, setOnBehalfCandidates] = useState([]);
+  const [onBehalfSearchLoading, setOnBehalfSearchLoading] = useState(false);
+  const [onBehalfSearchError, setOnBehalfSearchError] = useState("");
+  const [onBehalfFilters, setOnBehalfFilters] = useState({
+    emp_type: empTypeOptions[0] || "",
+    circle: circleOptions[0] || "",
+  });
   const [form, setForm] = useState({
     leave_type: "",
     start_date: "",
@@ -142,9 +151,47 @@ export const LeaveApplicationUpdation = ({
     }
   }, [filters.request_type, filters.emp_type, filters.circle, statusFilter, initialContext?.admin_id]);
 
+  useEffect(() => {
+    setOnBehalfFilters((prev) => ({
+      emp_type: prev.emp_type || empTypeOptions[0] || "",
+      circle: prev.circle || circleOptions[0] || "",
+    }));
+  }, [empTypeOptions, circleOptions]);
+
   useRefreshOnNavigate(() => {
     fetchRows();
   });
+
+  const searchEmployeesForOnBehalf = useCallback(async () => {
+    if (!onBehalfFilters.emp_type || !onBehalfFilters.circle) {
+      setOnBehalfSearchError("Select employee type and circle.");
+      return;
+    }
+    setOnBehalfSearchLoading(true);
+    setOnBehalfSearchError("");
+    try {
+      const params = new URLSearchParams({
+        emp_type: onBehalfFilters.emp_type,
+        circle: onBehalfFilters.circle,
+      });
+      const res = await fetch(`${API_BASE}/employee/search?${params.toString()}`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Employee search failed");
+      }
+      setOnBehalfCandidates(data.employees || []);
+      if ((data.employees || []).length === 0) {
+        setOnBehalfSearchError("No employees found for the selected filters.");
+      }
+    } catch (err) {
+      setOnBehalfCandidates([]);
+      setOnBehalfSearchError(err.message || "Network error");
+    } finally {
+      setOnBehalfSearchLoading(false);
+    }
+  }, [onBehalfFilters.emp_type, onBehalfFilters.circle]);
 
   const openEditor = (row) => {
     setSuccessMessage("");
@@ -277,6 +324,78 @@ export const LeaveApplicationUpdation = ({
           {initialContext?.status === 'pending' ? (
             <p className="lau-inbox-hint">Showing pending queue from HR Inbox{initialContext.ref_id ? ` — opened ${initialContext.ref_id}` : ''}.</p>
           ) : null}
+        </div>
+
+        <div className="lau-on-behalf-panel">
+          <h3>Apply leave on behalf</h3>
+          <p className="lau-on-behalf-panel__hint">
+            Search an employee, then apply backdated or future leave with preview and policy checks.
+          </p>
+          <div className="lau-on-behalf-panel__search">
+            <label>
+              Employee Type
+              <select
+                value={onBehalfFilters.emp_type}
+                onChange={(e) => setOnBehalfFilters((p) => ({ ...p, emp_type: e.target.value }))}
+              >
+                {empTypeOptions.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Circle
+              <select
+                value={onBehalfFilters.circle}
+                onChange={(e) => setOnBehalfFilters((p) => ({ ...p, circle: e.target.value }))}
+              >
+                {circleOptions.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="lau-search-btn"
+              onClick={searchEmployeesForOnBehalf}
+              disabled={onBehalfSearchLoading}
+            >
+              <Search size={16} /> {onBehalfSearchLoading ? "Searching…" : "Find employees"}
+            </button>
+          </div>
+          {onBehalfSearchError ? <div className="lau-error">{onBehalfSearchError}</div> : null}
+          {onBehalfCandidates.length > 0 ? (
+            <label className="lau-on-behalf-panel__employee">
+              Employee
+              <select
+                value={onBehalfEmployee?.id || ""}
+                onChange={(e) => {
+                  const picked = onBehalfCandidates.find((emp) => String(emp.id) === e.target.value);
+                  setOnBehalfEmployee(picked || null);
+                }}
+              >
+                <option value="">Select employee</option>
+                {onBehalfCandidates.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.first_name || emp.email} ({emp.emp_id || emp.id})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <HRApplyLeaveOnBehalf
+            embedded
+            adminId={onBehalfEmployee?.id || null}
+            employeeLabel={
+              onBehalfEmployee
+                ? `${onBehalfEmployee.first_name || onBehalfEmployee.email || "Employee"} (${onBehalfEmployee.emp_id || onBehalfEmployee.id})`
+                : ""
+            }
+            onSuccess={async () => {
+              setSuccessMessage("Leave applied on behalf successfully.");
+              await fetchRows();
+            }}
+          />
         </div>
 
         <div className="lau-filters">

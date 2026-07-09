@@ -1297,3 +1297,89 @@ def manager_compensation_band_hint():
     hint = band_hint_for_admin_id(target_id)
     return jsonify({"success": True, **(hint or {})}), 200
 
+
+@manager.route("/leave-requests/on-behalf", methods=["POST"])
+@jwt_required()
+def manager_apply_leave_on_behalf():
+    """Manager applies future leave for a direct report (status Pending)."""
+    from zoneinfo import ZoneInfo
+    from . import leave_settings as leave_cfg
+    from .leave_proxy_service import create_proxy_leave_application, LeaveProxyError
+    from .email import send_leave_applied_email
+
+    manager_admin, err = _ensure_manager_user()
+    if err:
+        return err
+    if not leave_cfg.manager_on_behalf_allowed():
+        return jsonify({"success": False, "message": "Manager on-behalf leave is disabled by policy"}), 403
+
+    payload = request.get_json(silent=True) or {}
+    admin_id = payload.get("admin_id")
+    if not admin_id:
+        return jsonify({"success": False, "message": "admin_id is required"}), 400
+    try:
+        admin_id = int(admin_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+
+    leave_type = (payload.get("leave_type") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if not leave_type or not reason:
+        return jsonify({"success": False, "message": "leave_type and reason are required"}), 400
+    if len(reason) < 10:
+        return jsonify({"success": False, "message": "Reason must be at least 10 characters long"}), 400
+
+    try:
+        start_date = datetime.strptime(payload.get("start_date"), "%Y-%m-%d").date()
+        end_date = datetime.strptime(payload.get("end_date"), "%Y-%m-%d").date()
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+    if end_date < start_date:
+        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
+
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    if start_date < today_ist or end_date < today_ist:
+        return jsonify({
+            "success": False,
+            "message": "Managers can apply leave only for today or future dates. Contact HR for backdated leave.",
+        }), 400
+
+    target = Admin.query.get(admin_id)
+    if not target:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    if not _is_manager_for_target(manager_admin, target):
+        return jsonify({"success": False, "message": "You are not the manager for this employee"}), 403
+
+    try:
+        leave_obj, _, _ = create_proxy_leave_application(
+            admin_id=admin_id,
+            leave_type=leave_type,
+            start_date=start_date,
+            end_date=end_date,
+            reason=reason[:255],
+            status="Pending",
+            applied_by_admin_id=manager_admin.id,
+            applied_on_behalf=True,
+        )
+        db.session.commit()
+    except LeaveProxyError as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": exc.message}), exc.status_code
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("manager on-behalf leave failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "message": str(exc) or "Failed to apply leave"}), 500
+
+    try:
+        send_leave_applied_email(target, leave_obj)
+    except Exception:
+        current_app.logger.warning("send_leave_applied_email failed for manager on-behalf leave_id=%s", leave_obj.id)
+
+    return jsonify({
+        "success": True,
+        "message": "Leave applied on behalf of team member. Pending approval.",
+        "leave_id": leave_obj.id,
+        "status": leave_obj.status,
+    }), 201
+

@@ -149,8 +149,11 @@ class LeaveApplication(db.Model):
     requested_deducted_days = db.Column(db.Float, default=0.0)
     sandwich_pl_days = db.Column(db.Float, default=0.0)
     pending_reminder_sent_at = db.Column(db.DateTime, nullable=True)
+    applied_by_admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=True)
+    applied_on_behalf = db.Column(db.Boolean, nullable=False, default=False)
 
-    admin = db.relationship('Admin', back_populates='leave_applications')
+    admin = db.relationship('Admin', foreign_keys=[admin_id], back_populates='leave_applications')
+    applied_by = db.relationship('Admin', foreign_keys=[applied_by_admin_id], back_populates='leaves_applied_on_behalf')
 
 
     def to_dict(self):
@@ -173,4 +176,26 @@ class WorkFromHomeApplication(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 
     admin = db.relationship('Admin', back_populates='work_from_home_applications')
+
+
+class AttendanceRegularization(db.Model):
+    """Employee requests HR to regularize past absence into approved leave."""
+    __tablename__ = 'attendance_regularizations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
+    leave_type = db.Column(db.String(50), nullable=False)
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+    reason = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='Pending')
+    hr_comment = db.Column(db.String(500), nullable=True)
+    leave_application_id = db.Column(db.Integer, db.ForeignKey('leave_applications.id'), nullable=True)
+    reviewed_by_admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+
+    admin = db.relationship('Admin', foreign_keys=[admin_id], back_populates='attendance_regularizations')
+    reviewed_by = db.relationship('Admin', foreign_keys=[reviewed_by_admin_id])
+    leave_application = db.relationship('LeaveApplication', foreign_keys=[leave_application_id])
    

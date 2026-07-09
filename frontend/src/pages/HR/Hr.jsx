@@ -22,6 +22,8 @@ import AddDeptCircle from './AddDeptCircle';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
+import { HRAttendanceRegularization } from './HRAttendanceRegularization';
+import { HRProxyLeaveReport } from './HRProxyLeaveReport';
 import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
 import { CircleTransferHistory } from './CircleTransferHistory';
@@ -57,6 +59,8 @@ const HR_PANEL_VIEWS = [
   'newsfeed',
   'update_leave',
   'leave_updation',
+  'attendance_regularization',
+  'proxy_leave_report',
   'assessment_invite',
   'update_manager',
   'add_location',
@@ -87,6 +91,60 @@ const HR_PANEL_VIEWS = [
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
+const HR_SELECTED_EMPLOYEE_KEY = 'hr_selected_employee';
+const HR_EMPLOYEE_360_TAB_KEY = 'hr_employee_360_tab';
+const HR_EMPLOYEE_CONTEXT_VIEWS = new Set([
+  'employee_360',
+  'employee_profile',
+  'employee_attendance',
+  'punch_form',
+  'employee_accounts',
+]);
+
+function readStoredSelectedEmployee() {
+  try {
+    const raw = sessionStorage.getItem(HR_SELECTED_EMPLOYEE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.id == null && !parsed.email) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistSelectedEmployee(employee) {
+  try {
+    if (!employee) {
+      sessionStorage.removeItem(HR_SELECTED_EMPLOYEE_KEY);
+      return;
+    }
+    sessionStorage.setItem(HR_SELECTED_EMPLOYEE_KEY, JSON.stringify(employee));
+  } catch {
+    /* ignore */
+  }
+}
+
+function persistEmployee360Tab(tab) {
+  const next = tab || 'profile';
+  try {
+    localStorage.setItem(HR_EMPLOYEE_360_TAB_KEY, next);
+  } catch {
+    /* ignore */
+  }
+  if (typeof window === 'undefined') return;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (next === 'profile') params.delete('tab');
+    else params.set('tab', next);
+    const search = params.toString();
+    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash || ""}`;
+    window.history.replaceState({ ...(window.history.state || {}), view: 'employee_360', tab: next }, '', nextUrl);
+  } catch {
+    /* ignore */
+  }
+}
 
 function formatDateShort(isoDate) {
   return formatDateDDMMYYYY(isoDate, '');
@@ -1428,9 +1486,65 @@ export const Hr = () => {
     }
   };
 
-  const [selectedEmployeeForAction, setSelectedEmployeeForAction] = useState(null);
-  const [employee360InitialTab, setEmployee360InitialTab] = useState('profile');
+  const [selectedEmployeeForAction, setSelectedEmployeeForAction] = useState(() => readStoredSelectedEmployee());
+  const [employee360InitialTab, setEmployee360InitialTab] = useState(() => {
+    try {
+      return localStorage.getItem(HR_EMPLOYEE_360_TAB_KEY) || 'profile';
+    } catch {
+      return 'profile';
+    }
+  });
   const [leaveUpdationContext, setLeaveUpdationContext] = useState(null);
+
+  const openEmployeeView = useCallback((nextView, employee, tab = 'profile') => {
+    if (!employee) return;
+    setSelectedEmployeeForAction(employee);
+    persistSelectedEmployee(employee);
+    if (nextView === 'employee_360') {
+      setEmployee360InitialTab(tab);
+      persistEmployee360Tab(tab);
+    }
+    setView(nextView);
+  }, [setView]);
+
+  const clearEmployeeContext = useCallback((fallbackView = 'main') => {
+    setSelectedEmployeeForAction(null);
+    persistSelectedEmployee(null);
+    setEmployee360InitialTab('profile');
+    try {
+      localStorage.removeItem(HR_EMPLOYEE_360_TAB_KEY);
+      const params = new URLSearchParams(window.location.search);
+      params.delete('tab');
+      const search = params.toString();
+      const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash || ""}`;
+      window.history.replaceState({ ...(window.history.state || {}), view: fallbackView }, '', nextUrl);
+    } catch {
+      /* ignore */
+    }
+    setView(fallbackView);
+  }, [setView]);
+
+  // If an employee-context view is restored without employee data, fall back to dashboard
+  useEffect(() => {
+    if (HR_EMPLOYEE_CONTEXT_VIEWS.has(view) && !selectedEmployeeForAction) {
+      const restored = readStoredSelectedEmployee();
+      if (restored) {
+        setSelectedEmployeeForAction(restored);
+        return;
+      }
+      setView('main');
+    }
+  }, [view, selectedEmployeeForAction, setView]);
+
+  // Keep selected employee in sync while browsing employee_* pages
+  useEffect(() => {
+    if (HR_EMPLOYEE_CONTEXT_VIEWS.has(view) && selectedEmployeeForAction) {
+      persistSelectedEmployee(selectedEmployeeForAction);
+    }
+    if (!HR_EMPLOYEE_CONTEXT_VIEWS.has(view) && view !== 'leave_updation') {
+      // Leave employee sticky only while on employee pages
+    }
+  }, [view, selectedEmployeeForAction]);
 
   const stats = [
     { title: 'Employees', value: String(counts.enabled_employees ?? counts.total_employees), subtitle: 'Enabled', icon: Users, color: 'blue' },
@@ -1451,6 +1565,8 @@ export const Hr = () => {
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
+    { title: 'Attendance Regularization', icon: FileText, description: 'Approve employee requests for past absence' },
+    { title: 'Proxy Leave Report', icon: BarChart3, description: 'HR/manager leaves applied on behalf of employees' },
     { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 15-minute assessment links and evaluate submissions' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Organization Chart', icon: Users, description: 'View L1/L2/L3 reporting hierarchy' },
@@ -1829,20 +1945,20 @@ export const Hr = () => {
     setOpenDropdownKey(null);
     dropdownEmployeeRef.current = null;
     if (!employee) return;
-    setSelectedEmployeeForAction(employee);
     if (option === 'Employee 360') {
-      setEmployee360InitialTab('profile');
-      setView('employee_360');
-    }
-    else if (option === 'Profile') setView('employee_profile');
-    else if (option === 'Attendance') setView('employee_attendance');
-    else if (option === 'Punch In/Out') setView('punch_form');
-    else if (option === 'Employee Accounts') {
+      openEmployeeView('employee_360', employee, 'profile');
+    } else if (option === 'Profile') {
+      openEmployeeView('employee_profile', employee);
+    } else if (option === 'Attendance') {
+      openEmployeeView('employee_attendance', employee);
+    } else if (option === 'Punch In/Out') {
+      openEmployeeView('punch_form', employee);
+    } else if (option === 'Employee Accounts') {
       if (!hasFeature('hr_employee_accounts')) {
         alert('Employee Accounts is not included in your subscription plan.');
         return;
       }
-      setView('employee_accounts');
+      openEmployeeView('employee_accounts', employee);
     }
   };
 
@@ -1875,6 +1991,10 @@ export const Hr = () => {
       setView('update_leave');
     } else if (title === 'Leave Application Updation') {
       setView('leave_updation');
+    } else if (title === 'Attendance Regularization') {
+      setView('attendance_regularization');
+    } else if (title === 'Proxy Leave Report') {
+      setView('proxy_leave_report');
     } else if (title === 'Assessment Invite') {
       setView('assessment_invite');
     } else if (title === 'Update Manager') {setView('update_manager');
@@ -1946,9 +2066,7 @@ if (view === 'ex_employee_doc_share') {
         onBack={() => setView('main')}
         onNavigate={(targetView, ctx) => {
           if (targetView === 'employee_360' && ctx?.employee) {
-            setSelectedEmployeeForAction(ctx.employee);
-            setEmployee360InitialTab(ctx.tab || 'profile');
-            setView('employee_360');
+            openEmployeeView('employee_360', ctx.employee, ctx.tab || 'profile');
             return;
           }
           if (targetView === 'leave_updation' && ctx?.leaveContext) {
@@ -2058,6 +2176,24 @@ if (view === 'leave_updation'){
     />
   );
 }
+if (view === 'attendance_regularization') {
+  return (
+    <HRAttendanceRegularization
+      onBack={() => setView('updates')}
+      empTypeOptions={masterOptions.departments}
+      circleOptions={masterOptions.circles}
+    />
+  );
+}
+if (view === 'proxy_leave_report') {
+  return (
+    <HRProxyLeaveReport
+      onBack={() => setView('updates')}
+      empTypeOptions={masterOptions.departments}
+      circleOptions={masterOptions.circles}
+    />
+  );
+}
 if (view === 'assessment_invite'){
   return <HRAssessmentInvite onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} />
 }
@@ -2150,7 +2286,15 @@ if (view === 'noc_requests') {
       <HREmployee360
         employee={selectedEmployeeForAction}
         initialTab={employee360InitialTab}
-        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); setEmployee360InitialTab('profile'); }}
+        onBack={() => clearEmployeeContext('main')}
+        onTabChange={(tab) => {
+          setEmployee360InitialTab(tab);
+          try {
+            localStorage.setItem(HR_EMPLOYEE_360_TAB_KEY, tab);
+          } catch {
+            /* ignore */
+          }
+        }}
         ProfileView={HrEmployeeProfileView}
         AttendanceView={HrEmployeeAttendanceView}
         AccountsView={hasFeature('hr_employee_accounts') ? HrEmployeeAccountsView : null}
@@ -2161,7 +2305,7 @@ if (view === 'noc_requests') {
     return (
       <HrEmployeeProfileView
         employee={selectedEmployeeForAction}
-        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+        onBack={() => clearEmployeeContext('main')}
       />
     );
   }
@@ -2169,7 +2313,7 @@ if (view === 'noc_requests') {
     return (
       <HrEmployeeAttendanceView
         employee={selectedEmployeeForAction}
-        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+        onBack={() => clearEmployeeContext('main')}
       />
     );
   }
@@ -2177,7 +2321,7 @@ if (view === 'noc_requests') {
     return (
       <HrPunchFormView
         employee={selectedEmployeeForAction}
-        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+        onBack={() => clearEmployeeContext('main')}
       />
     );
   }
@@ -2185,7 +2329,7 @@ if (view === 'noc_requests') {
     return (
       <HrEmployeeAccountsView
         employee={selectedEmployeeForAction}
-        onBack={() => { setView('main'); setSelectedEmployeeForAction(null); }}
+        onBack={() => clearEmployeeContext('main')}
       />
     );
   }

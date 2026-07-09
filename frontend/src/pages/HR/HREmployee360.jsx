@@ -1,11 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, User } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import { hasFeature } from '../../utils/planFeatures';
+import { usePersistedView } from '../../hooks/usePersistedView';
+import { HRApplyLeaveOnBehalf } from './HRApplyLeaveOnBehalf';
 import './HREmployee360.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
+const E360_TAB_STORAGE_KEY = 'hr_employee_360_tab';
+const E360_TABS = ['profile', 'attendance', 'leave', 'offboarding', 'accounts'];
 
 const TABS = [
   { id: 'profile', label: 'Profile' },
@@ -36,51 +40,47 @@ function LeaveTab({ employee }) {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setHistoryLoading(true);
-      setError('');
-      setHistoryError('');
-      try {
-        const [balRes, histRes] = await Promise.all([
-          fetch(`${HR_API_BASE}/leave-balance/${employee.id}`, { headers: getAuthHeaders() }),
-          fetch(
-            `${HR_API_BASE}/leave-updation/requests?admin_id=${employee.id}&request_type=all&status=all`,
-            { headers: getAuthHeaders() }
-          ),
-        ]);
-        const balJson = await balRes.json().catch(() => ({}));
-        const histJson = await histRes.json().catch(() => ({}));
-        if (cancelled) return;
+  const loadLeaveData = useCallback(async () => {
+    setLoading(true);
+    setHistoryLoading(true);
+    setError('');
+    setHistoryError('');
+    try {
+      const [balRes, histRes] = await Promise.all([
+        fetch(`${HR_API_BASE}/leave-balance/${employee.id}`, { headers: getAuthHeaders() }),
+        fetch(
+          `${HR_API_BASE}/leave-updation/requests?admin_id=${employee.id}&request_type=all&status=all`,
+          { headers: getAuthHeaders() }
+        ),
+      ]);
+      const balJson = await balRes.json().catch(() => ({}));
+      const histJson = await histRes.json().catch(() => ({}));
 
-        if (balRes.ok && balJson.success) setData(balJson);
-        else setError(balJson.message || 'Failed to load leave balance');
+      if (balRes.ok && balJson.success) setData(balJson);
+      else setError(balJson.message || 'Failed to load leave balance');
 
-        if (histRes.ok && histJson.success) setHistory(histJson.requests || []);
-        else {
-          setHistory([]);
-          setHistoryError(histJson.message || 'Failed to load leave history');
-        }
-      } catch {
-        if (!cancelled) {
-          setError('Network error');
-          setHistoryError('Network error');
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setHistoryLoading(false);
-        }
+      if (histRes.ok && histJson.success) setHistory(histJson.requests || []);
+      else {
+        setHistory([]);
+        setHistoryError(histJson.message || 'Failed to load leave history');
       }
-    })();
-    return () => { cancelled = true; };
+    } catch {
+      setError('Network error');
+      setHistoryError('Network error');
+    } finally {
+      setLoading(false);
+      setHistoryLoading(false);
+    }
   }, [employee.id]);
+
+  useEffect(() => {
+    loadLeaveData();
+  }, [loadLeaveData]);
 
   if (loading) return <p className="e360-loading">Loading leave balance…</p>;
   if (error) return <p className="e360-error">{error}</p>;
   const bal = data?.leave_balance || {};
+  const employeeLabel = employee.first_name || employee.emp_id || `ID ${employee.id}`;
   return (
     <div className="e360-leave">
       <div className="e360-leave-grid">
@@ -88,6 +88,12 @@ function LeaveTab({ employee }) {
         <div className="e360-stat"><span>Casual Leave</span><strong>{bal.casual_leave_balance ?? '—'}</strong></div>
         <div className="e360-stat"><span>Comp Off</span><strong>{bal.compensatory_leave_balance ?? '—'}</strong></div>
       </div>
+
+      <HRApplyLeaveOnBehalf
+        adminId={employee.id}
+        employeeLabel={employeeLabel}
+        onSuccess={loadLeaveData}
+      />
 
       <section className="e360-leave-history" aria-label="Leave history">
         <div className="e360-leave-history__head">
@@ -254,6 +260,7 @@ export const HREmployee360 = ({
   employee,
   initialTab = 'profile',
   onBack,
+  onTabChange,
   ProfileView,
   AttendanceView,
   AccountsView,
@@ -262,15 +269,39 @@ export const HREmployee360 = ({
     () => TABS.filter((t) => !t.feature || hasFeature(t.feature)),
     []
   );
-  const [activeTab, setActiveTab] = useState(() =>
-    visibleTabs.some((t) => t.id === initialTab) ? initialTab : 'profile'
-  );
+  const visibleIds = useMemo(() => visibleTabs.map((t) => t.id), [visibleTabs]);
+  const defaultTab = visibleIds.includes(initialTab) ? initialTab : 'profile';
 
-  // Only sync when employee or requested initial tab changes — not on every render
+  const [activeTab, setActiveTab] = usePersistedView({
+    storageKey: E360_TAB_STORAGE_KEY,
+    defaultView: defaultTab,
+    validViews: E360_TABS,
+    searchParamName: 'tab',
+  });
+
+  const prevEmployeeIdRef = useRef(null);
+
+  // When switching to a different employee, open the requested tab; otherwise keep URL/storage tab on refresh
   useEffect(() => {
-    const next = visibleTabs.some((t) => t.id === initialTab) ? initialTab : 'profile';
-    setActiveTab(next);
-  }, [initialTab, employee?.id, visibleTabs]);
+    if (!employee?.id) return;
+    const prevId = prevEmployeeIdRef.current;
+    const switchedEmployee = prevId != null && prevId !== employee.id;
+    prevEmployeeIdRef.current = employee.id;
+
+    if (switchedEmployee && visibleIds.includes(initialTab)) {
+      setActiveTab(initialTab);
+      return;
+    }
+    if (!visibleIds.includes(activeTab)) {
+      setActiveTab(visibleIds[0] || 'profile');
+    }
+  }, [employee?.id, initialTab, visibleIds, activeTab, setActiveTab]);
+
+  useEffect(() => {
+    if (typeof onTabChange === 'function' && activeTab) {
+      onTabChange(activeTab);
+    }
+  }, [activeTab, onTabChange]);
 
   const noopBack = () => {};
 

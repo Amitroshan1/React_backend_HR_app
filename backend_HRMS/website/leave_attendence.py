@@ -5,7 +5,7 @@
 #https://solviotec.com/api/leave
 
 from flask import Blueprint, request, current_app, jsonify, json, send_file
-from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance
+from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance, AttendanceRegularization
 from flask_jwt_extended import jwt_required, get_jwt
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
@@ -1881,4 +1881,117 @@ def download_my_experience_letter():
     except Exception as e:
         current_app.logger.exception("experience-letter download error")
         return jsonify({"success": False, "message": "Failed to generate experience letter"}), 500
+
+
+@leave.route("/regularization", methods=["GET"])
+@jwt_required()
+def list_my_attendance_regularizations():
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    rows = (
+        AttendanceRegularization.query.filter_by(admin_id=admin.id)
+        .order_by(AttendanceRegularization.created_at.desc(), AttendanceRegularization.id.desc())
+        .limit(100)
+        .all()
+    )
+    return jsonify({
+        "success": True,
+        "requests": [
+            {
+                "id": r.id,
+                "leave_type": r.leave_type,
+                "start_date": r.start_date.isoformat() if r.start_date else None,
+                "end_date": r.end_date.isoformat() if r.end_date else None,
+                "reason": r.reason,
+                "status": r.status,
+                "hr_comment": r.hr_comment,
+                "leave_application_id": r.leave_application_id,
+                "created_at": isoformat_api(r.created_at),
+                "reviewed_at": isoformat_api(r.reviewed_at) if r.reviewed_at else None,
+            }
+            for r in rows
+        ],
+    }), 200
+
+
+@leave.route("/regularization", methods=["POST"])
+@jwt_required()
+def submit_attendance_regularization():
+    """Employee requests HR to regularize a past absence period."""
+    from . import leave_settings as leave_cfg
+
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    leave_type = (data.get("leave_type") or "").strip()
+    reason = (data.get("reason") or "").strip()
+    if not leave_type or not reason:
+        return jsonify({"success": False, "message": "leave_type and reason are required"}), 400
+    if len(reason) < 20:
+        return jsonify({"success": False, "message": "Reason must be at least 20 characters long"}), 400
+
+    try:
+        start_date = datetime.strptime(data.get("start_date"), "%Y-%m-%d").date()
+        end_date = datetime.strptime(data.get("end_date"), "%Y-%m-%d").date()
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+    if end_date < start_date:
+        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
+
+    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    if start_date >= today_ist:
+        return jsonify({
+            "success": False,
+            "message": "Regularization is only for past dates. Use Apply Leave for current/future dates.",
+        }), 400
+
+    max_days = leave_cfg.max_regularization_backdate_days()
+    if max_days > 0:
+        earliest = today_ist - timedelta(days=max_days)
+        if start_date < earliest:
+            return jsonify({
+                "success": False,
+                "message": f"Regularization is limited to the last {max_days} days.",
+            }), 400
+
+    pending = AttendanceRegularization.query.filter(
+        AttendanceRegularization.admin_id == admin.id,
+        AttendanceRegularization.status == "Pending",
+        AttendanceRegularization.start_date <= end_date,
+        AttendanceRegularization.end_date >= start_date,
+    ).first()
+    if pending:
+        return jsonify({
+            "success": False,
+            "message": "A pending regularization request already exists for overlapping dates.",
+        }), 409
+
+    row = AttendanceRegularization(
+        admin_id=admin.id,
+        leave_type=leave_type,
+        start_date=start_date,
+        end_date=end_date,
+        reason=reason,
+        status="Pending",
+    )
+    try:
+        db.session.add(row)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error("regularization submit failed: %s", e, exc_info=True)
+        return jsonify({"success": False, "message": "Failed to submit regularization request"}), 500
+
+    return jsonify({
+        "success": True,
+        "message": "Regularization request submitted to HR for review.",
+        "request": {"id": row.id, "status": row.status},
+    }), 201
 
