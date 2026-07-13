@@ -304,7 +304,6 @@ export const CompOffLedger = ({
             <tr>
               <th>Earned on</th>
               <th>Expired on</th>
-              <th>Used before expiry</th>
               <th>Lost (unused)</th>
               <th>Status</th>
             </tr>
@@ -316,7 +315,6 @@ export const CompOffLedger = ({
                 <tr key={c.id}>
                   <td>{formatDate(c.gain_date)}</td>
                   <td>{formatDate(c.expiry_date)}</td>
-                  <td>{formatDays(c.used)}</td>
                   <td>{formatDays(lost)}</td>
                   <td>
                     <span className="compoff-badge compoff-badge--expired">Expired</span>
