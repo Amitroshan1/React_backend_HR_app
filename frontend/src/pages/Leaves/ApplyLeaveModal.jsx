@@ -543,6 +543,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
     const [reason, setReason] = useState('');
+    const [compOffHint, setCompOffHint] = useState('');
 
     // --- Limit Logic ---
     const currentMonth = dayjs().format('YYYY-MM');
@@ -629,6 +630,47 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
             setToDate(fromDate);
         }
     }, [isOpen, isSingleDayLeave, fromDate]);
+
+    useEffect(() => {
+        if (!isOpen || leaveType !== 'Compensatory Leave') {
+            setCompOffHint('');
+            return undefined;
+        }
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setCompOffHint('Comp Off balance is deducted only after approval (oldest credit first).');
+            return undefined;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`${LEAVE_API_BASE}/compoff/ledger`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                const data = await res.json().catch(() => ({}));
+                if (cancelled) return;
+                const next = data?.ledger?.next_credit_to_use;
+                if (res.ok && data.success && next) {
+                    setCompOffHint(
+                        `Will use credit earned on ${formatDate(next.gain_date)} (expires ${formatDate(next.expiry_date)}) first. Balance drops only after approval.`
+                    );
+                } else {
+                    setCompOffHint(
+                        'Comp Off is deducted only after manager approval, using the oldest-expiring credit first.'
+                    );
+                }
+            } catch {
+                if (!cancelled) {
+                    setCompOffHint(
+                        'Comp Off is deducted only after manager approval, using the oldest-expiring credit first.'
+                    );
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, leaveType]);
 
     useEffect(() => {
         if (!isOpen || leaveType !== 'Optional Leave') return;
@@ -818,6 +860,9 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                             onChange={handleLeaveTypeChange}
                             label="Select leave type"
                         />
+                        {leaveType === 'Compensatory Leave' && compOffHint ? (
+                            <p className="optional-holiday-hint">{compOffHint}</p>
+                        ) : null}
                     </div>
 
                     {leaveType === 'Casual Leave' && (

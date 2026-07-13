@@ -14,6 +14,7 @@ import { TaxDeclarationFinalProof } from "./pages/TaxDeclaration/TaxDeclarationF
 import { TaxDeclarationHistory } from "./pages/TaxDeclaration/TaxDeclarationHistory";
 import { TaxDeclarationHistoryDetail } from "./pages/TaxDeclaration/TaxDeclarationHistoryDetail";
 import { Leaves } from "./pages/Leaves/Leaves";
+import { CompOffLedger } from "./pages/Leaves/CompOffLedger";
 import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
 import { AppLayout } from "./components/layout/AppLayout";
@@ -128,6 +129,7 @@ export const App = () => {
         { path: "tax-declaration/form16",          element: <SensitiveDataGate><EmployeeForm16 /></SensitiveDataGate> },
         { path: "tax-declaration/tax-projection",  element: <SensitiveDataGate><EmployeeTaxProjection /></SensitiveDataGate> },
         { path: "leaves",                          element: <Leaves /> },
+        { path: "leaves/comp-off",                 element: <CompOffLedger /> },
         { path: "profile",                         element: <Profile /> },
         { path: "change-password",                 element: <ChangePassword /> },
         { path: "queries",                         element: <Queries /> },

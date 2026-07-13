@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FiSun, FiStar, FiRefreshCw, FiPlus } from 'react-icons/fi';
 import { ApplyLeaveModal } from './ApplyLeaveModal';
 import './Leaves.css';
@@ -55,6 +56,7 @@ const leaveMatchesFilter = (request, filterYear, filterMonth) => {
 };
 
 export const Leaves= () => {
+    const navigate = useNavigate();
     const { userData, refreshUserData } = useUser();
     const [requests, setRequests] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -234,12 +236,14 @@ export const Leaves= () => {
             {
                 type: 'Compensatory Leave',
                 value: remainingComp,
-                subtext: compSubtext,
+                subtext: `${compSubtext} · tap for details`,
                 icon: <FiRefreshCw size={22} />,
-                colorClass: 'orange-card'
+                colorClass: 'orange-card',
+                clickable: true,
+                onClick: () => navigate('/leaves/comp-off'),
             }
         ];
-    }, [userData.leave_balance]);
+    }, [userData.leave_balance, navigate]);
 
     // Fetch leave requests from backend
     const fetchLeaveRequests = async () => {
@@ -425,7 +429,20 @@ export const Leaves= () => {
 
             <div className="summary-cards-grid-leave">
                 {stats.map((item, index) => (
-                    <div key={index} className={`summary-card-leave ${item.colorClass}`}>
+                    <div
+                        key={index}
+                        className={`summary-card-leave ${item.colorClass}${item.clickable ? ' summary-card-leave--clickable' : ''}`}
+                        role={item.clickable ? 'button' : undefined}
+                        tabIndex={item.clickable ? 0 : undefined}
+                        onClick={item.clickable ? item.onClick : undefined}
+                        onKeyDown={item.clickable ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                item.onClick?.();
+                            }
+                        } : undefined}
+                        aria-label={item.clickable ? `${item.type} details` : undefined}
+                    >
                         <div className="summary-content-leave">
                             <p className="summary-value-leave">{item.value}</p> 
                             <p className="summary-label-leave">{item.type}</p>

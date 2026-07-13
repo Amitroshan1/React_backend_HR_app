@@ -689,6 +689,21 @@ def leave_page_summary():
     }), 200
 
 
+@leave.route("/compoff/ledger", methods=["GET"])
+@jwt_required()
+def compoff_ledger():
+    """Employee Comp Off ledger: credits, expiry, pending applications, usage history."""
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    from .compoff_utils import build_compoff_ledger
+
+    ledger = build_compoff_ledger(admin.id)
+    return jsonify({"success": True, "ledger": ledger}), 200
+
+
 @leave.route("/optional-holidays", methods=["GET"])
 @jwt_required()
 def list_optional_holidays_for_leave():

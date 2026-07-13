@@ -1,0 +1,224 @@
+.compoff-ledger-page {
+  padding: 12px 24px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: #f4f7f6;
+  color: #111827;
+}
+
+.compoff-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.compoff-back-btn:hover {
+  background: #f8fafc;
+}
+
+.compoff-ledger-header h1 {
+  margin: 0 0 8px;
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.compoff-ledger-header p {
+  margin: 0 0 20px;
+  color: #64748b;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  max-width: 52rem;
+}
+
+.compoff-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.compoff-summary-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  border-left: 4px solid #f59e0b;
+}
+
+.compoff-summary-card--warn {
+  border-left-color: #ef4444;
+}
+
+.compoff-summary-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.compoff-summary-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.compoff-next-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  color: #9a3412;
+  font-size: 0.9rem;
+}
+
+.compoff-rules {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 22px;
+}
+
+.compoff-rules h2,
+.compoff-section h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.compoff-rules ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.compoff-section {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.compoff-muted {
+  color: #64748b;
+  font-size: 0.92rem;
+  margin: 4px 0 0;
+}
+
+.compoff-error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.compoff-note {
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.compoff-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.compoff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.compoff-table th,
+.compoff-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+.compoff-table th {
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.compoff-cell-wrap {
+  max-width: 280px;
+  word-break: break-word;
+}
+
+.compoff-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.compoff-badge--available {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.compoff-badge--expiring_soon {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.compoff-badge--partially_used {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.compoff-badge--used {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.compoff-badge--expired {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.compoff-badge--applied {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.compoff-badge--approved {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+@media (max-width: 768px) {
+  .compoff-ledger-page {
+    padding: 12px 14px 32px;
+  }
+
+  .compoff-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

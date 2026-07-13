@@ -132,3 +132,207 @@ def sync_comp_balance_for_admin(admin_id):
                 used_comp_leave=0.0,
             )
             db.session.add(lb)
+
+
+def _round_days(value):
+    return round(float(value or 0), 2)
+
+
+def _credit_status(gain, today):
+    available = _round_days(1.0 - float(gain.used or 0))
+    # Past expiry always surfaces as expired so employees can see lapsed credits.
+    if gain.expiry_date < today:
+        return "expired"
+    if available <= 0:
+        return "used"
+    if float(gain.used or 0) > 0:
+        return "partially_used"
+    if (gain.expiry_date - today).days <= 7:
+        return "expiring_soon"
+    return "available"
+
+
+def _preview_fifo_allocation(admin_id, days, as_of_date=None):
+    """Which active credits would be used for `days` (does not mutate DB)."""
+    if days <= 0:
+        return []
+    today = as_of_date or date.today()
+    gains = (
+        CompOffGain.query.filter(
+            CompOffGain.admin_id == admin_id,
+            CompOffGain.expiry_date >= today,
+            CompOffGain.used < 1.0,
+        )
+        .order_by(CompOffGain.expiry_date.asc(), CompOffGain.id.asc())
+        .all()
+    )
+    remaining_need = float(days)
+    slices = []
+    for g in gains:
+        if remaining_need <= 1e-9:
+            break
+        available = 1.0 - float(g.used or 0)
+        if available <= 1e-9:
+            continue
+        take = min(remaining_need, available)
+        slices.append(
+            {
+                "gain_id": g.id,
+                "gain_date": g.gain_date.isoformat(),
+                "expiry_date": g.expiry_date.isoformat(),
+                "days": _round_days(take),
+            }
+        )
+        remaining_need -= take
+    return slices
+
+
+def _simulate_approved_usage(admin_id):
+    """
+    Replay approved Compensatory Leave against gains (oldest expiry first).
+    Returns list of {leave, consumed_from: [...]}.
+    """
+    from .models.attendance import LeaveApplication
+
+    gains = (
+        CompOffGain.query.filter_by(admin_id=admin_id)
+        .order_by(CompOffGain.expiry_date.asc(), CompOffGain.id.asc())
+        .all()
+    )
+    remaining = {g.id: 1.0 for g in gains}
+    leaves = (
+        LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin_id,
+            LeaveApplication.leave_type == "Compensatory Leave",
+            LeaveApplication.status == "Approved",
+        )
+        .order_by(LeaveApplication.start_date.asc(), LeaveApplication.id.asc())
+        .all()
+    )
+    out = []
+    for lv in leaves:
+        need = float(lv.deducted_days or 0)
+        if need <= 1e-9:
+            continue
+        consumed = []
+        for g in gains:
+            if need <= 1e-9:
+                break
+            if remaining[g.id] <= 1e-9:
+                continue
+            if g.expiry_date < lv.start_date:
+                continue
+            take = min(need, remaining[g.id])
+            remaining[g.id] -= take
+            need -= take
+            consumed.append(
+                {
+                    "gain_id": g.id,
+                    "gain_date": g.gain_date.isoformat(),
+                    "expiry_date": g.expiry_date.isoformat(),
+                    "days": _round_days(take),
+                }
+            )
+        if consumed:
+            out.append({"leave": lv, "consumed_from": consumed})
+    return out
+
+
+def build_compoff_ledger(admin_id):
+    """
+    Employee-facing Comp Off ledger: active credits, pending applications, usage history.
+    """
+    from .models.attendance import LeaveApplication
+
+    today = date.today()
+    gains = (
+        CompOffGain.query.filter_by(admin_id=admin_id)
+        .order_by(CompOffGain.gain_date.desc(), CompOffGain.id.desc())
+        .all()
+    )
+
+    credits = []
+    available_total = 0.0
+    expiring_soon_total = 0.0
+    for g in gains:
+        available = _round_days(1.0 - float(g.used or 0))
+        status = _credit_status(g, today)
+        days_remaining = (g.expiry_date - today).days
+        if status in ("available", "partially_used", "expiring_soon") and available > 0:
+            available_total += available
+            if status == "expiring_soon":
+                expiring_soon_total += available
+        credits.append(
+            {
+                "id": g.id,
+                "gain_date": g.gain_date.isoformat(),
+                "expiry_date": g.expiry_date.isoformat(),
+                "days_remaining": days_remaining,
+                "available": max(0.0, available) if g.expiry_date >= today else 0.0,
+                "used": _round_days(g.used),
+                "status": status,
+            }
+        )
+
+    pending_apps = (
+        LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin_id,
+            LeaveApplication.leave_type == "Compensatory Leave",
+            LeaveApplication.status == "Pending",
+        )
+        .order_by(LeaveApplication.created_at.desc())
+        .all()
+    )
+    pending_applications = []
+    for lv in pending_apps:
+        days = float(lv.deducted_days or 0) or max(
+            0.0,
+            (lv.end_date - lv.start_date).days + 1.0,
+        )
+        pending_applications.append(
+            {
+                "leave_id": lv.id,
+                "start_date": lv.start_date.isoformat(),
+                "end_date": lv.end_date.isoformat(),
+                "days": _round_days(days),
+                "status": "Applied",
+                "reason": lv.reason or "",
+                "will_use": _preview_fifo_allocation(admin_id, days, as_of_date=today),
+                "note": "Balance is deducted only after manager approval (oldest credit first).",
+            }
+        )
+
+    usage_history = []
+    for row in _simulate_approved_usage(admin_id):
+        lv = row["leave"]
+        usage_history.append(
+            {
+                "leave_id": lv.id,
+                "start_date": lv.start_date.isoformat(),
+                "end_date": lv.end_date.isoformat(),
+                "days": _round_days(lv.deducted_days),
+                "status": "Approved",
+                "reason": lv.reason or "",
+                "consumed_from": row["consumed_from"],
+            }
+        )
+    usage_history.sort(key=lambda r: r["start_date"], reverse=True)
+
+    next_to_use = _preview_fifo_allocation(admin_id, 1.0, as_of_date=today)
+
+    return {
+        "available": _round_days(available_total),
+        "expiring_soon": _round_days(expiring_soon_total),
+        "pending_count": len(pending_applications),
+        "next_credit_to_use": next_to_use[0] if next_to_use else None,
+        "rules": {
+            "earned_on": "Sundays worked (subject to monthly cap)",
+            "validity_days": 30,
+            "deduction_order": "Oldest expiry first",
+            "deduct_when": "On approval (not when applied)",
+            "max_per_application": 2,
+        },
+        "credits": credits,
+        "pending_applications": pending_applications,
+        "usage_history": usage_history,
+    }

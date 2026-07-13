@@ -160,6 +160,7 @@ const getPageInfo = (pathname, firstName) => {
         '/dashboard': { title: `Welcome, ${firstName}!`, subtitle: "Overview", isDashboard: true },
         '/attendance': { title: 'Attendance', subtitle: 'Manage records' },
         '/leaves': { title: 'Leaves', subtitle: 'Apply/Check balance' },
+        '/leaves/comp-off': { title: 'Comp Off Details', subtitle: 'Credits, expiry and usage history' },
         '/queries': { title: 'Raise a Query', subtitle: 'Track and manage your support requests' },
         '/queries/inbox': { title: 'Department Query Inbox', subtitle: 'Reply to queries assigned to your department' },
         '/claims': { title: 'Expense Claims', subtitle: 'Submit and track your claims' },
