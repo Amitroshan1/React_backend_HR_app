@@ -952,7 +952,12 @@ def apply_leave_api():
 
     # Compensatory Leave (balance from CompOffGain: non-expired, unused; max 2 per application)
     elif leave_type == "Compensatory Leave":
-        from .compoff_utils import get_effective_comp_balance
+        from .compoff_utils import (
+            get_effective_comp_balance,
+            count_compoff_applications_in_month,
+            MAX_COMPOFF_APPLICATIONS_PER_MONTH,
+            MAX_COMPOFF_DAYS_PER_APPLICATION,
+        )
         available = get_effective_comp_balance(admin.id)
 
         if available <= 0:
@@ -961,8 +966,21 @@ def apply_leave_api():
                 "message": "No Compensatory Leave balance available"
             }), 400
 
+        month_count = count_compoff_applications_in_month(
+            admin.id, start_date.year, start_date.month
+        )
+        if month_count >= MAX_COMPOFF_APPLICATIONS_PER_MONTH:
+            return jsonify({
+                "success": False,
+                "message": (
+                    f"Maximum {MAX_COMPOFF_APPLICATIONS_PER_MONTH} Compensatory Leave "
+                    f"applications allowed per month. You already have {month_count} "
+                    f"in {start_date.strftime('%B %Y')}."
+                ),
+            }), 400
+
         # Max 2 CompOff working days; sandwich days handled separately from PL/LWP.
-        if working_days > 2:
+        if working_days > MAX_COMPOFF_DAYS_PER_APPLICATION:
             return jsonify({
                 "success": False,
                 "message": "Maximum 2 Compensatory Leave days allowed"

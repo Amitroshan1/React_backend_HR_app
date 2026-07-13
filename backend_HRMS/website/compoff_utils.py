@@ -8,6 +8,31 @@ from .models.attendance import CompOffGain, LeaveBalance
 from .models.Admin_models import Admin
 from .leave_balance_utils import credit_comp_entitlement, sync_leave_balance_totals
 
+MAX_COMPOFF_APPLICATIONS_PER_MONTH = 2
+MAX_COMPOFF_DAYS_PER_APPLICATION = 2
+
+
+def count_compoff_applications_in_month(admin_id, year, month, exclude_leave_id=None):
+    """
+    Count Comp Off applications that start in the given calendar month.
+    Pending and Approved count toward the limit; Cancelled/Rejected do not.
+    """
+    from .models.attendance import LeaveApplication
+    import calendar
+
+    first = date(year, month, 1)
+    last = date(year, month, calendar.monthrange(year, month)[1])
+    q = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin_id,
+        LeaveApplication.leave_type == "Compensatory Leave",
+        LeaveApplication.start_date >= first,
+        LeaveApplication.start_date <= last,
+        LeaveApplication.status.in_(("Pending", "Approved")),
+    )
+    if exclude_leave_id:
+        q = q.filter(LeaveApplication.id != exclude_leave_id)
+    return q.count()
+
 
 def get_effective_comp_balance(admin_id):
     """Sum of unused, non-expired comp-off. Each gain valid 30 days from gain_date."""
@@ -330,7 +355,8 @@ def build_compoff_ledger(admin_id):
             "validity_days": 30,
             "deduction_order": "Oldest expiry first",
             "deduct_when": "On approval (not when applied)",
-            "max_per_application": 2,
+            "max_per_application": MAX_COMPOFF_DAYS_PER_APPLICATION,
+            "max_applications_per_month": MAX_COMPOFF_APPLICATIONS_PER_MONTH,
         },
         "credits": credits,
         "pending_applications": pending_applications,

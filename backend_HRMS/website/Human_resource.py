@@ -101,6 +101,9 @@ from .compoff_utils import (
     get_effective_comp_balance,
     restore_comp_leave,
     set_comp_balance_to_target,
+    count_compoff_applications_in_month,
+    MAX_COMPOFF_APPLICATIONS_PER_MONTH,
+    MAX_COMPOFF_DAYS_PER_APPLICATION,
 )
 from .models.ex_employee_documents import ExEmployeeDocFile, ExEmployeeDocShare
 from .models.assessment import AssessmentInvite
@@ -3547,6 +3550,30 @@ def get_leave_balance(employee_id):
     }), 200
 
 
+@hr.route("/employees/<int:employee_id>/compoff/ledger", methods=["GET"])
+@jwt_required()
+@hr_required
+def hr_employee_compoff_ledger(employee_id):
+    """HR view of an employee's Comp Off ledger (same payload as employee self-service)."""
+    admin = Admin.query.get(employee_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    from .compoff_utils import build_compoff_ledger
+
+    ledger = build_compoff_ledger(admin.id)
+    return jsonify({
+        "success": True,
+        "employee": {
+            "id": admin.id,
+            "name": (admin.first_name or admin.user_name or admin.email or "").strip(),
+            "email": admin.email,
+            "emp_id": admin.emp_id,
+        },
+        "ledger": ledger,
+    }), 200
+
+
 @hr.route("/leave-balance/<int:employee_id>", methods=["PUT"])
 @jwt_required()
 @hr_required
@@ -3759,7 +3786,16 @@ def _compute_leave_projection(*, admin, leave_balance, leave_type, start_date, e
         available = float(get_effective_comp_balance(admin.id))
         if available <= 0:
             return None, "No Compensatory Leave balance available."
-        if working_days > 2:
+        month_count = count_compoff_applications_in_month(
+            admin.id, start_date.year, start_date.month
+        )
+        if month_count >= MAX_COMPOFF_APPLICATIONS_PER_MONTH:
+            return None, (
+                f"Maximum {MAX_COMPOFF_APPLICATIONS_PER_MONTH} Compensatory Leave "
+                f"applications allowed per month. Already have {month_count} "
+                f"in {start_date.strftime('%B %Y')}."
+            )
+        if working_days > MAX_COMPOFF_DAYS_PER_APPLICATION:
             return None, "Maximum 2 Compensatory Leave working days allowed."
         if leave_days > available:
             return None, "Insufficient Compensatory Leave balance."

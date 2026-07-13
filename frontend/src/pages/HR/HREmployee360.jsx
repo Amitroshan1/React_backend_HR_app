@@ -5,7 +5,9 @@ import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
 import { scrollAppToTop } from '../../utils/scrollToTop';
 import { HRApplyLeaveOnBehalf } from './HRApplyLeaveOnBehalf';
+import { CompOffLedger } from '../Leaves/CompOffLedger';
 import './HREmployee360.css';
+import '../Leaves/CompOffLedger.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
@@ -40,6 +42,7 @@ function LeaveTab({ employee }) {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
+  const [showCompOffLedger, setShowCompOffLedger] = useState(false);
 
   const loadLeaveData = useCallback(async () => {
     setLoading(true);
@@ -78,6 +81,23 @@ function LeaveTab({ employee }) {
     loadLeaveData();
   }, [loadLeaveData]);
 
+  useEffect(() => {
+    setShowCompOffLedger(false);
+  }, [employee?.id]);
+
+  if (showCompOffLedger) {
+    const employeeLabel =
+      employee.name || employee.first_name || employee.emp_id || employee.email || `ID ${employee.id}`;
+    return (
+      <CompOffLedger
+        employeeId={employee.id}
+        employeeLabel={employeeLabel}
+        embedded
+        onBack={() => setShowCompOffLedger(false)}
+      />
+    );
+  }
+
   if (loading) return <p className="e360-loading">Loading leave balance…</p>;
   if (error) return <p className="e360-error">{error}</p>;
   const bal = data?.leave_balance || {};
@@ -87,7 +107,16 @@ function LeaveTab({ employee }) {
       <div className="e360-leave-grid">
         <div className="e360-stat"><span>Privilege Leave</span><strong>{bal.privilege_leave_balance ?? '—'}</strong></div>
         <div className="e360-stat"><span>Casual Leave</span><strong>{bal.casual_leave_balance ?? '—'}</strong></div>
-        <div className="e360-stat"><span>Comp Off</span><strong>{bal.compensatory_leave_balance ?? '—'}</strong></div>
+        <button
+          type="button"
+          className="e360-stat e360-stat--clickable"
+          onClick={() => setShowCompOffLedger(true)}
+          aria-label="Open Comp Off details"
+        >
+          <span>Comp Off</span>
+          <strong>{bal.compensatory_leave_balance ?? '—'}</strong>
+          <em className="e360-stat__hint">Tap for details</em>
+        </button>
       </div>
 
       <HRApplyLeaveOnBehalf

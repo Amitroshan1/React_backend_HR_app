@@ -551,6 +551,14 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
     // Check Casual Leave Count (Max 2 per month)
     const casualCount = initialRequests.filter(req => 
         req.type === 'Casual Leave' && dayjs(req.from).format('YYYY-MM') === currentMonth
+        && !['Cancelled', 'Rejected'].includes(req.status)
+    ).length;
+
+    // Comp Off applications this month (Pending + Approved count toward limit)
+    const compOffCount = initialRequests.filter(req =>
+        req.type === 'Compensatory Leave'
+        && dayjs(req.from).format('YYYY-MM') === currentMonth
+        && !['Cancelled', 'Rejected'].includes(req.status)
     ).length;
 
     const currentYear = dayjs().year();
@@ -559,11 +567,12 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
     const leaveOptions = [
         { label: 'Casual Leave', value: 'Casual Leave', disabled: casualCount >= 2 },
         { label: 'Privilege Leave', value: 'Privilege Leave', disabled: false },
-        { label: 'Compensatory Leave', value: 'Compensatory Leave', disabled: false },
+        { label: 'Compensatory Leave', value: 'Compensatory Leave', disabled: compOffCount >= 2 },
         { label: 'Optional Leave', value: 'Optional Leave', disabled: hasUsedOptional }
     ].map(opt => {
         if (opt.value === 'Optional Leave' && opt.disabled) return "Optional Leave (Already Used)";
         if (opt.value === 'Casual Leave' && opt.disabled) return "Casual Leave (Monthly Limit Reached)";
+        if (opt.value === 'Compensatory Leave' && opt.disabled) return "Compensatory Leave (Monthly Limit Reached)";
         return opt.label;
     });
 

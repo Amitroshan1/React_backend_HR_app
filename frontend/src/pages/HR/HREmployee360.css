@@ -593,6 +593,35 @@
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.06);
 }
 
+.e360-stat--clickable {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: #f8fafc;
+}
+
+.e360-stat--clickable:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.12);
+}
+
+.e360-stat--clickable:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+.e360-stat__hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 600;
+  color: #b45309;
+}
+
 .e360-stat span {
   display: block;
   font-size: 0.75rem;
