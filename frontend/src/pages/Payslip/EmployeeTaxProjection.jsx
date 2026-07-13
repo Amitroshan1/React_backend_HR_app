@@ -7,6 +7,8 @@ import {
     defaultFinancialYear,
     financialYearOptions,
 } from "../../utils/financialYear";
+import { authHeaders } from "../../utils/sensitiveDataAuth";
+import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 import "./EmployeeTaxProjection.css";
 
 const API_BASE_URL = "/api/auth";
@@ -54,11 +56,6 @@ export const EmployeeTaxProjection = () => {
     const [tdsError, setTdsError] = useState("");
     const [fyOptions] = useState(() => financialYearOptions());
     const [financialYear, setFinancialYear] = useState(defaultFinancialYear);
-
-    const authHeaders = () => {
-        const token = localStorage.getItem("token");
-        return token ? { Authorization: `Bearer ${token}` } : {};
-    };
 
     const fetchTdsProjection = useCallback(
         async (fy) => {
@@ -168,6 +165,10 @@ export const EmployeeTaxProjection = () => {
                 <ArrowLeft size={18} aria-hidden />
                 Back to Tax Declaration
             </button>
+
+            <div className="sensitive-lock-row">
+                <LockSensitiveDataButton />
+            </div>
 
             <div className="employee-tax-card">
                 <div className="employee-tax-header">

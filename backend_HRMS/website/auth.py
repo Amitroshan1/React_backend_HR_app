@@ -67,6 +67,11 @@ from .punch_auto_close import (
     validate_manual_punch_out_extended_reason,
 )
 from . import tax_declaration_service as tax_decl
+from .sensitive_data_auth import (
+    is_privileged_salary_viewer,
+    require_sensitive_for_employee,
+    sensitive_session_payload,
+)
 
 auth = Blueprint('auth', __name__)
 
@@ -175,6 +180,9 @@ def form16_reconciliation_self():
     admin = Admin.query.filter_by(email=email).first()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    blocked = require_sensitive_for_employee(admin, admin.id)
+    if blocked:
+        return blocked
     return form16_reconciliation(admin.id)
 
 
@@ -182,6 +190,13 @@ def form16_reconciliation_self():
 @jwt_required()
 def tds_projection_auth():
     from .Accounts import tds_projection
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    blocked = require_sensitive_for_employee(admin, admin.id)
+    if blocked:
+        return blocked
     return tds_projection()
 
 
@@ -189,6 +204,13 @@ def tds_projection_auth():
 @jwt_required()
 def tds_variance_auth():
     from .Accounts import tds_variance
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    blocked = require_sensitive_for_employee(admin, admin.id)
+    if blocked:
+        return blocked
     return tds_variance()
 
 
@@ -200,6 +222,9 @@ def form16_summary_self():
     admin = Admin.query.filter_by(email=email).first()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    blocked = require_sensitive_for_employee(admin, admin.id)
+    if blocked:
+        return blocked
     return form16_summary(admin.id)
 
 
@@ -211,6 +236,9 @@ def form16_summary_download_self():
     admin = Admin.query.filter_by(email=email).first()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    blocked = require_sensitive_for_employee(admin, admin.id)
+    if blocked:
+        return blocked
     return form16_summary_download(admin.id)
 
 
@@ -248,6 +276,44 @@ def set_password_by_token():
     db.session.commit()
 
     return jsonify({"success": True, "message": "Password updated successfully. You can now log in."}), 200
+
+
+@auth.route("/sensitive/verify", methods=["POST"])
+@jwt_required()
+def verify_sensitive_access():
+    """Re-enter login password to unlock payslip / tax data for a short session."""
+    data = request.get_json(silent=True) or {}
+    password = data.get("password")
+    if not password:
+        return jsonify({"success": False, "message": "Password is required"}), 400
+
+    email = get_jwt().get("email")
+    admin = Admin.query.filter_by(email=email).first()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    if is_privileged_salary_viewer(admin):
+        return jsonify({
+            "success": True,
+            "privileged": True,
+            **sensitive_session_payload(admin.id),
+        }), 200
+
+    if not admin.check_password(password):
+        return jsonify({"success": False, "message": "Incorrect password"}), 401
+
+    return jsonify({
+        "success": True,
+        "privileged": False,
+        **sensitive_session_payload(admin.id),
+    }), 200
+
+
+@auth.route("/sensitive/revoke", methods=["POST"])
+@jwt_required()
+def revoke_sensitive_access():
+    """Client clears sensitive token; endpoint exists for symmetry and future server-side revoke."""
+    return jsonify({"success": True, "message": "Sensitive session cleared"}), 200
 
 
 # ===================================================

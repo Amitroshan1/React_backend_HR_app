@@ -3,6 +3,7 @@ import { ArrowLeft, User } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
+import { scrollAppToTop } from '../../utils/scrollToTop';
 import { HRApplyLeaveOnBehalf } from './HRApplyLeaveOnBehalf';
 import './HREmployee360.css';
 
@@ -302,6 +303,16 @@ export const HREmployee360 = ({
       onTabChange(activeTab);
     }
   }, [activeTab, onTabChange]);
+
+  useEffect(() => {
+    scrollAppToTop();
+    const raf = requestAnimationFrame(() => scrollAppToTop());
+    const t = window.setTimeout(() => scrollAppToTop(), 50);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [employee?.id]);
 
   const noopBack = () => {};
 

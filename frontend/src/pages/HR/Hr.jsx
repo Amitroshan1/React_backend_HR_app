@@ -48,6 +48,7 @@ import { usePersistedView } from '../../hooks/usePersistedView';
 import { SearchableDesignationSelect } from '../../components/SearchableDesignationSelect';
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
+import { scrollAppToTop } from '../../utils/scrollToTop';
 
 const HR_PANEL_VIEWS = [
   'main',
@@ -93,6 +94,61 @@ const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
 const HR_SELECTED_EMPLOYEE_KEY = 'hr_selected_employee';
 const HR_EMPLOYEE_360_TAB_KEY = 'hr_employee_360_tab';
+const HR_SEARCH_RESULTS_PARAM = 'hr_search';
+
+function readHrSearchFromUrl() {
+  if (typeof window === 'undefined') {
+    return { showResults: false, circle: '', empType: '' };
+  }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      showResults: params.get(HR_SEARCH_RESULTS_PARAM) === '1',
+      circle: params.get('circle') || '',
+      empType: params.get('emp_type') || '',
+    };
+  } catch {
+    return { showResults: false, circle: '', empType: '' };
+  }
+}
+
+function applyHrSearchToUrl(showResults, circle, empType, mode = 'replace') {
+  if (typeof window === 'undefined') return;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (showResults && circle && empType) {
+      params.set(HR_SEARCH_RESULTS_PARAM, '1');
+      params.set('circle', circle);
+      params.set('emp_type', empType);
+    } else {
+      params.delete(HR_SEARCH_RESULTS_PARAM);
+      params.delete('circle');
+      params.delete('emp_type');
+    }
+    const search = params.toString();
+    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash || ''}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash || ''}`;
+    if (nextUrl === current) return;
+    if (mode === 'push') {
+      window.history.pushState(window.history.state, '', nextUrl);
+    } else {
+      window.history.replaceState(window.history.state, '', nextUrl);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Strip all HR panel query params and land on the search form (/hr). */
+function replaceHrUrlToSearchForm() {
+  if (typeof window === 'undefined') return;
+  try {
+    const nextUrl = `${window.location.pathname}${window.location.hash || ''}`;
+    window.history.replaceState({ view: 'main' }, '', nextUrl);
+  } catch {
+    /* ignore */
+  }
+}
 const HR_EMPLOYEE_CONTEXT_VIEWS = new Set([
   'employee_360',
   'employee_profile',
@@ -130,17 +186,6 @@ function persistEmployee360Tab(tab) {
   const next = tab || 'profile';
   try {
     localStorage.setItem(HR_EMPLOYEE_360_TAB_KEY, next);
-  } catch {
-    /* ignore */
-  }
-  if (typeof window === 'undefined') return;
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (next === 'profile') params.delete('tab');
-    else params.set('tab', next);
-    const search = params.toString();
-    const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash || ""}`;
-    window.history.replaceState({ ...(window.history.state || {}), view: 'employee_360', tab: next }, '', nextUrl);
   } catch {
     /* ignore */
   }
@@ -1203,13 +1248,24 @@ export const Hr = () => {
     defaultView: 'main',
     validViews: HR_PANEL_VIEWS,
   });
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  const [selectedCircle, setSelectedCircle] = useState('');
-  const [selectedEmployeeType, setSelectedEmployeeType] = useState('');
+  const initialHrSearch = readHrSearchFromUrl();
+  const [showSearchResults, setShowSearchResults] = useState(initialHrSearch.showResults);
+  const [selectedCircle, setSelectedCircle] = useState(initialHrSearch.circle || '');
+  const [selectedEmployeeType, setSelectedEmployeeType] = useState(initialHrSearch.empType || '');
   const [openDropdownKey, setOpenDropdownKey] = useState(null);
   const [dropdownPosition, setDropdownPosition] = useState(null);
   const dropdownRef = useRef(null);
   const dropdownEmployeeRef = useRef(null);
+  /** Bumped when leaving results / Employee 360 so stale search fetches cannot re-open results. */
+  const searchFetchGenerationRef = useRef(0);
+
+  const resetHrSearchFormNavigation = useCallback(() => {
+    searchFetchGenerationRef.current += 1;
+    setOpenDropdownKey(null);
+    setShowSearchResults(false);
+    setSearchResults([]);
+    replaceHrUrlToSearchForm();
+  }, []);
 
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState(null);
@@ -1507,22 +1563,53 @@ export const Hr = () => {
     setView(nextView);
   }, [setView]);
 
-  const clearEmployeeContext = useCallback((fallbackView = 'main') => {
+  const clearEmployeeContext = useCallback((fallbackView = 'main', { resetSearch = true } = {}) => {
     setSelectedEmployeeForAction(null);
     persistSelectedEmployee(null);
     setEmployee360InitialTab('profile');
+    setOpenDropdownKey(null);
     try {
       localStorage.removeItem(HR_EMPLOYEE_360_TAB_KEY);
-      const params = new URLSearchParams(window.location.search);
-      params.delete('tab');
-      const search = params.toString();
-      const nextUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash || ""}`;
-      window.history.replaceState({ ...(window.history.state || {}), view: fallbackView }, '', nextUrl);
     } catch {
       /* ignore */
     }
+    if (resetSearch) {
+      resetHrSearchFormNavigation();
+    }
     setView(fallbackView);
-  }, [setView]);
+    if (resetSearch) {
+      scrollAppToTop();
+    }
+  }, [setView, resetHrSearchFormNavigation]);
+
+  const goBackToHrSearchForm = useCallback(() => {
+    clearEmployeeContext('main', { resetSearch: true });
+  }, [clearEmployeeContext]);
+
+  const syncHrSearchFromUrl = useCallback(() => {
+    const { showResults, circle, empType } = readHrSearchFromUrl();
+    setShowSearchResults(showResults);
+    if (circle) setSelectedCircle(circle);
+    if (empType) setSelectedEmployeeType(empType);
+    if (!showResults) {
+      setOpenDropdownKey(null);
+    }
+  }, []);
+
+  // Browser back/forward only — do not re-sync from URL on every render (fights in-app Back to Search).
+  useEffect(() => {
+    const onPopState = () => syncHrSearchFromUrl();
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [syncHrSearchFromUrl]);
+
+  // If UI is on the search form but URL still has ?hr_search=, strip it (e.g. after usePersistedView push).
+  useEffect(() => {
+    if (view !== 'main' || showSearchResults) return;
+    const { showResults } = readHrSearchFromUrl();
+    if (!showResults) return;
+    replaceHrUrlToSearchForm();
+  }, [view, showSearchResults]);
 
   // If an employee-context view is restored without employee data, fall back to dashboard
   useEffect(() => {
@@ -1540,9 +1627,26 @@ export const Hr = () => {
   useEffect(() => {
     if (HR_EMPLOYEE_CONTEXT_VIEWS.has(view) && selectedEmployeeForAction) {
       persistSelectedEmployee(selectedEmployeeForAction);
+      return;
     }
-    if (!HR_EMPLOYEE_CONTEXT_VIEWS.has(view) && view !== 'leave_updation') {
-      // Leave employee sticky only while on employee pages
+    if (!HR_EMPLOYEE_CONTEXT_VIEWS.has(view) && selectedEmployeeForAction) {
+      setSelectedEmployeeForAction(null);
+      persistSelectedEmployee(null);
+    }
+    if (view !== 'employee_360' && typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.has('tab')) return;
+        params.delete('tab');
+        const search = params.toString();
+        const nextUrl = `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash || ''}`;
+        const current = `${window.location.pathname}${window.location.search}${window.location.hash || ''}`;
+        if (nextUrl !== current) {
+          window.history.replaceState(window.history.state, '', nextUrl);
+        }
+      } catch {
+        /* ignore */
+      }
     }
   }, [view, selectedEmployeeForAction]);
 
@@ -1613,6 +1717,21 @@ export const Hr = () => {
   }, [view, refreshRecentModules]);
 
   useEffect(() => {
+    if (!HR_EMPLOYEE_CONTEXT_VIEWS.has(view)) return undefined;
+
+    scrollAppToTop();
+    const raf = requestAnimationFrame(() => scrollAppToTop());
+    const t1 = window.setTimeout(() => scrollAppToTop(), 50);
+    const t2 = window.setTimeout(() => scrollAppToTop(), 200);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [view, selectedEmployeeForAction?.id]);
+
+  useEffect(() => {
     const contentArea = document.querySelector('.app-layout > .content-area');
     if (!contentArea) return undefined;
 
@@ -1671,51 +1790,80 @@ export const Hr = () => {
     'Punch In/Out',
   ];
 
-  const handleSearch = async () => {
-    if (!selectedCircle || !selectedEmployeeType) {
-      alert("Please select both Circle and Employee Type");
-      return;
+  const fetchSearchResults = useCallback(async (circle, empType, { pushHistory = false } = {}) => {
+    if (!circle || !empType) {
+      alert('Please select both Circle and Employee Type');
+      return false;
     }
     const token = localStorage.getItem('token');
     if (!token) {
-      alert("Please log in to search employees.");
-      return;
+      alert('Please log in to search employees.');
+      return false;
     }
+    const generation = searchFetchGenerationRef.current;
     setSearchLoading(true);
     try {
       const res = await fetch(
-        `${HR_API_BASE}/search?circle=${encodeURIComponent(selectedCircle)}&emp_type=${encodeURIComponent(selectedEmployeeType)}`,
+        `${HR_API_BASE}/search?circle=${encodeURIComponent(circle)}&emp_type=${encodeURIComponent(empType)}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await res.json();
+      if (generation !== searchFetchGenerationRef.current) return false;
       if (res.ok && data.success && data.employees) {
         setSearchResults(data.employees.map((e) => ({
           name: e.name,
           email: e.email,
           emp_id: e.emp_id || '',
-          circle: selectedCircle,
-          type: selectedEmployeeType,
-          id: e.id
+          circle,
+          type: empType,
+          id: e.id,
         })));
-        setShowSearchResults(true);
       } else {
         setSearchResults([]);
-        setShowSearchResults(true);
         if (!data.success && data.message) alert(data.message);
       }
+      if (generation !== searchFetchGenerationRef.current) return false;
+      setShowSearchResults(true);
+      if (pushHistory) {
+        applyHrSearchToUrl(true, circle, empType, 'push');
+      } else {
+        applyHrSearchToUrl(true, circle, empType, 'replace');
+      }
+      return true;
     } catch (err) {
       console.error(err);
+      if (generation !== searchFetchGenerationRef.current) return false;
       setSearchResults([]);
       setShowSearchResults(true);
+      if (pushHistory) {
+        applyHrSearchToUrl(true, circle, empType, 'push');
+      } else {
+        applyHrSearchToUrl(true, circle, empType, 'replace');
+      }
+      return false;
     } finally {
-      setSearchLoading(false);
+      if (generation === searchFetchGenerationRef.current) {
+        setSearchLoading(false);
+      }
     }
+  }, []);
+
+  const handleSearch = () => {
+    fetchSearchResults(selectedCircle, selectedEmployeeType, { pushHistory: true });
   };
 
   const handleBackToSearch = () => {
-    setShowSearchResults(false);
-    setOpenDropdownKey(null);
+    resetHrSearchFormNavigation();
+    setView('main');
+    scrollAppToTop();
   };
+
+  useEffect(() => {
+    if (view !== 'main' || !showSearchResults) return;
+    const { circle, empType } = readHrSearchFromUrl();
+    if (!circle || !empType || searchResults.length > 0) return;
+    fetchSearchResults(circle, empType, { pushHistory: false });
+  }, [view, showSearchResults, searchResults.length, fetchSearchResults]);
 
   const handleDownloadAllFromSearch = async () => {
     if (!selectedCircle || !selectedEmployeeType) {
@@ -2286,7 +2434,7 @@ if (view === 'noc_requests') {
       <HREmployee360
         employee={selectedEmployeeForAction}
         initialTab={employee360InitialTab}
-        onBack={() => clearEmployeeContext('main')}
+        onBack={goBackToHrSearchForm}
         onTabChange={(tab) => {
           setEmployee360InitialTab(tab);
           try {
@@ -2305,7 +2453,7 @@ if (view === 'noc_requests') {
     return (
       <HrEmployeeProfileView
         employee={selectedEmployeeForAction}
-        onBack={() => clearEmployeeContext('main')}
+        onBack={goBackToHrSearchForm}
       />
     );
   }
@@ -2313,7 +2461,7 @@ if (view === 'noc_requests') {
     return (
       <HrEmployeeAttendanceView
         employee={selectedEmployeeForAction}
-        onBack={() => clearEmployeeContext('main')}
+        onBack={goBackToHrSearchForm}
       />
     );
   }
@@ -2321,7 +2469,7 @@ if (view === 'noc_requests') {
     return (
       <HrPunchFormView
         employee={selectedEmployeeForAction}
-        onBack={() => clearEmployeeContext('main')}
+        onBack={goBackToHrSearchForm}
       />
     );
   }
@@ -2329,7 +2477,7 @@ if (view === 'noc_requests') {
     return (
       <HrEmployeeAccountsView
         employee={selectedEmployeeForAction}
-        onBack={() => clearEmployeeContext('main')}
+        onBack={goBackToHrSearchForm}
       />
     );
   }

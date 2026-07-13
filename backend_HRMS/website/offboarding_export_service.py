@@ -8,6 +8,8 @@ from io import BytesIO, StringIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
+from .pdf_watermark import install_page_watermark
+
 from .offboarding_service import build_exit_analytics
 
 
@@ -74,6 +76,7 @@ def generate_analytics_pdf(*, months: int = 12) -> BytesIO:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
+    install_page_watermark(c, A4)
     left = 42
     y = height - 42
 

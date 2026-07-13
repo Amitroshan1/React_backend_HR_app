@@ -6,6 +6,7 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
+from .pdf_watermark import install_page_watermark
 from .relieving_letter_service import build_relieving_letter_payload
 
 
@@ -14,6 +15,7 @@ def generate_experience_letter_pdf(admin_id: int) -> BytesIO:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
+    install_page_watermark(c, A4)
     left = 48
     right = width - 48
     y = height - 56

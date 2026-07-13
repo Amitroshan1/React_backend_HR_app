@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useContext, useCallback } from 'react'
 import { setPlanContext, clearPlanContext } from '../../utils/planFeatures';
+import { clearSensitiveToken } from '../../utils/sensitiveDataAuth';
 const API_BASE_URL = "/api/auth";
 const UserContext = createContext();
 export const useUser = () => useContext(UserContext);
@@ -28,6 +29,7 @@ export const UserProvider = ({ children }) => {
                 // Token missing/expired/invalid: clear it so app can re-login cleanly.
                 localStorage.removeItem('token');
                 localStorage.removeItem('lastActivityAt');
+                clearSensitiveToken();
                 clearPlanContext();
                 throw new Error("Unauthorized (token invalid or expired).");
             }

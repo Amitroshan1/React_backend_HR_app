@@ -17,6 +17,7 @@ import { Leaves } from "./pages/Leaves/Leaves";
 import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
 import { AppLayout } from "./components/layout/AppLayout";
+import { SensitiveDataGate } from "./components/security/SensitiveDataGate";
 import { UserProvider } from "./components/layout/UserContext";
 import { Queries } from "./pages/Query/Queries";
 import { DepartmentQueryInbox } from "./pages/Query/DepartmentQueryInbox";
@@ -119,13 +120,13 @@ export const App = () => {
         { path: "dashboard",                       element: <Dashboard /> },
         { path: "attendance",                      element: <Attendance /> },
         { path: "salary",                          element: <Salary /> },
-        { path: "payslip",                         element: <Payslip /> },
-        { path: "tax-declaration",                 element: <TaxDeclaration /> },
-        { path: "tax-declaration/final-proof",     element: <TaxDeclarationFinalProof /> },
-        { path: "tax-declaration/history",         element: <TaxDeclarationHistory /> },
-        { path: "tax-declaration/history/:declId", element: <TaxDeclarationHistoryDetail /> },
-        { path: "tax-declaration/form16",          element: <EmployeeForm16 /> },
-        { path: "tax-declaration/tax-projection",  element: <EmployeeTaxProjection /> },
+        { path: "payslip",                         element: <SensitiveDataGate><Payslip /></SensitiveDataGate> },
+        { path: "tax-declaration",                 element: <SensitiveDataGate><TaxDeclaration /></SensitiveDataGate> },
+        { path: "tax-declaration/final-proof",     element: <SensitiveDataGate><TaxDeclarationFinalProof /></SensitiveDataGate> },
+        { path: "tax-declaration/history",         element: <SensitiveDataGate><TaxDeclarationHistory /></SensitiveDataGate> },
+        { path: "tax-declaration/history/:declId", element: <SensitiveDataGate><TaxDeclarationHistoryDetail /></SensitiveDataGate> },
+        { path: "tax-declaration/form16",          element: <SensitiveDataGate><EmployeeForm16 /></SensitiveDataGate> },
+        { path: "tax-declaration/tax-projection",  element: <SensitiveDataGate><EmployeeTaxProjection /></SensitiveDataGate> },
         { path: "leaves",                          element: <Leaves /> },
         { path: "profile",                         element: <Profile /> },
         { path: "change-password",                 element: <ChangePassword /> },

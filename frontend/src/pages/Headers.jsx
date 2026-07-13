@@ -124,6 +124,7 @@ import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, 
 import "./style/Headers.css";
 import { hasFeature, clearPlanContext, canAccessItPanel } from "../utils/planFeatures";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
+import { clearSensitiveToken } from "../utils/sensitiveDataAuth";
 import { DEPARTMENT_TITLES, getPanelLinkLabel } from "../utils/departmentLabels";
 
 const getPageInfo = (pathname, firstName) => {
@@ -487,6 +488,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         clearLoginNotificationsFlag();
         localStorage.removeItem('token');
         localStorage.removeItem('lastActivityAt');
+        clearSensitiveToken();
         clearPlanContext();
         clearPersistedPanelViews();
         navigate('/');

@@ -1,3 +1,5 @@
+import { authHeaders } from "../../utils/sensitiveDataAuth";
+
 export async function parseApiResponse(res) {
     const text = await res.text();
     if (!text) return { ok: res.ok, data: {} };
@@ -12,13 +14,7 @@ export async function parseApiResponse(res) {
     }
 }
 
-export function authHeaders() {
-    const token = localStorage.getItem("token");
-    return {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-    };
-}
+export { authHeaders };
 
 export function formatAmount(val) {
     const n = Number(val);
@@ -78,13 +74,10 @@ export async function downloadDeclarationDocument(
     const path = docFilePath(doc);
     if (!path) throw new Error("File not available");
 
-    const token = localStorage.getItem("token");
-    if (!token) throw new Error("Session expired. Please login again.");
-
     const normalized = path.replace(/^\/+/, "").replace(/\\/g, "/");
     const res = await fetch(`${apiBase}/file/${normalized}`, {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
     });
     if (!res.ok) {
         let msg = "Unable to download file";

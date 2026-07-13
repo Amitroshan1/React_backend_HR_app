@@ -286,6 +286,10 @@ def list_tax_declaration_financial_years():
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
+
     years_back = max(1, min(int(request.args.get("years_back", 10) or 10), 30))
     years_forward = max(0, min(int(request.args.get("years_forward", 0) or 0), 2))
 
@@ -505,6 +509,13 @@ def _payslip_feature_required():
 def _accounts_reviewer(admin) -> bool:
     emp = (getattr(admin, "emp_type", None) or "").strip().lower()
     return emp in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+
+
+def _require_employee_sensitive(viewer):
+    if _accounts_reviewer(viewer):
+        return None
+    from .sensitive_data_auth import require_sensitive_for_employee
+    return require_sensitive_for_employee(viewer, viewer.id)
 
 
 def _employee_info(admin: Admin) -> dict:
@@ -839,6 +850,13 @@ def get_tax_declaration_form_schema():
     blocked = _payslip_feature_required()
     if blocked:
         return blocked
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
     fy = normalize_financial_year(request.args.get("financial_year"))
     schema = enrich_schema_with_caps(load_form_schema(fy), load_tax_rules(fy, "old"))
     return jsonify({
@@ -862,6 +880,10 @@ def get_tax_declaration_self():
     viewer = Admin.query.filter_by(email=email).first()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
 
     financial_year = normalize_financial_year(request.args.get("financial_year"))
     row = tax_declaration_for_admin(viewer.id, financial_year)
@@ -898,6 +920,10 @@ def save_tax_declaration_self():
     viewer = Admin.query.filter_by(email=email).first()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
 
     data = request.get_json(silent=True) or {}
     financial_year = normalize_financial_year(data.get("financial_year"))
@@ -1039,6 +1065,10 @@ def upload_tax_declaration_document():
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
+
     financial_year = normalize_financial_year(request.form.get("financial_year"))
     doc_type = (request.form.get("doc_type") or "").strip().lower()
     section_code = (request.form.get("section_code") or "").strip().upper() or None
@@ -1117,6 +1147,10 @@ def delete_tax_declaration_document(doc_id: int):
     viewer = Admin.query.filter_by(email=email).first()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
 
     doc = TaxDeclarationDocument.query.get_or_404(doc_id)
     row = EmployeeTaxDeclaration.query.get_or_404(doc.declaration_id)
@@ -1315,38 +1349,9 @@ def list_tax_declaration_self_history():
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
-    rows = (
-        EmployeeTaxDeclaration.query.filter_by(admin_id=viewer.id)
-        .order_by(
-            EmployeeTaxDeclaration.financial_year.desc(),
-            EmployeeTaxDeclaration.updated_at.desc(),
-        )
-        .all()
-    )
-
-    out = []
-    for row in rows:
-        items = row.items.all()
-        total_amount = sum(float(i.amount or 0) for i in items if i.amount is not None)
-        payload = row.to_dict()
-        payload["item_count"] = len(items)
-        payload["document_count"] = row.documents.count()
-        payload["total_declared_amount"] = round(total_amount, 2)
-        out.append(payload)
-
-    return jsonify({"success": True, "declarations": out}), 200
-
-
-@jwt_required()
-def list_tax_declaration_self_history():
-    blocked = _payslip_feature_required()
+    blocked = _require_employee_sensitive(viewer)
     if blocked:
         return blocked
-
-    email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
-    if not viewer:
-        return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
     rows = (
         EmployeeTaxDeclaration.query.filter_by(admin_id=viewer.id)
@@ -1380,6 +1385,11 @@ def get_tax_declaration_detail(decl_id: int):
     row = EmployeeTaxDeclaration.query.get_or_404(decl_id)
     if row.admin_id != viewer.id and not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
+
+    if row.admin_id == viewer.id and not _accounts_reviewer(viewer):
+        blocked = _require_employee_sensitive(viewer)
+        if blocked:
+            return blocked
 
     admin = Admin.query.get(row.admin_id)
     rules_old = load_tax_rules(row.financial_year, "old")
@@ -1538,6 +1548,10 @@ def get_final_proof_self():
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
+
     financial_year = normalize_financial_year(request.args.get("financial_year"))
     row = tax_declaration_for_admin(viewer.id, financial_year)
     if not row or (row.status or "").lower() != "approved":
@@ -1570,6 +1584,10 @@ def save_final_proof_self():
     viewer = Admin.query.filter_by(email=email).first()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    blocked = _require_employee_sensitive(viewer)
+    if blocked:
+        return blocked
 
     data = request.get_json(silent=True) or {}
     financial_year = normalize_financial_year(data.get("financial_year"))
@@ -1736,6 +1754,13 @@ def get_declaration_deadline_route():
     blocked = _payslip_feature_required()
     if blocked:
         return blocked
+
+    email = get_jwt().get("email")
+    viewer = Admin.query.filter_by(email=email).first()
+    if viewer:
+        blocked = _require_employee_sensitive(viewer)
+        if blocked:
+            return blocked
 
     financial_year = normalize_financial_year(request.args.get("financial_year"))
     return jsonify({

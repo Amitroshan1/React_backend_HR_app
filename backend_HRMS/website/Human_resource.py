@@ -5010,7 +5010,7 @@ def _assessment_save_selfie(invite_id, selfie_data_url):
 
 ASSESSMENT_RECORDING_MAX_BYTES = 800 * 1024 * 1024  # 800 MB — long tests; tune server/proxy if needed
 # Days after first HR view of the recording before the file is removed (disk + DB path).
-ASSESSMENT_RECORDING_HR_RETENTION_DAYS = 3
+ASSESSMENT_RECORDING_HR_RETENTION_DAYS = 15
 
 
 def _assessment_uploads_root():
@@ -6560,11 +6560,11 @@ def hr_download_noc_department_document(req_id):
     out = download_noc_document("hr", admin, req_id)
     if not out.get("success"):
         return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
-    return send_file(
-        out["path"],
-        as_attachment=True,
+    from .pdf_watermark import send_download_file
+    return send_download_file(
+        path=out["path"],
         download_name=out["download_name"],
-        mimetype="application/octet-stream",
+        as_attachment=True,
     )
 
 
@@ -7055,11 +7055,12 @@ def ex_employee_documents_public_download(token, file_id):
     mime, _ = mimetypes.guess_type(abs_path)
     if not mime:
         mime, _ = mimetypes.guess_type(download_name)
-    return send_file(
-        abs_path,
+    from .pdf_watermark import send_download_file
+    return send_download_file(
+        path=abs_path,
+        download_name=download_name,
         mimetype=mime or "application/octet-stream",
         as_attachment=True,
-        download_name=download_name,
     )
 
 

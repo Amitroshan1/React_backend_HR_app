@@ -80,11 +80,11 @@ export function usePersistedView({
     const current = `${window.location.pathname}${window.location.search}${window.location.hash || ""}`;
 
     if (nextUrl !== current) {
-      if (fromPopStateRef.current) {
-        // Came from browser back/fwd — just update the URL in-place, don't push
+      if (fromPopStateRef.current || view === defaultView) {
+        // Back/forward, or returning to the panel home — update in place (no extra stack entry).
         window.history.replaceState({ view }, "", nextUrl);
       } else {
-        // User clicked an in-page button — push a new history entry so browser back works
+        // User opened a sub-view — push so browser back returns to the previous screen.
         window.history.pushState({ view }, "", nextUrl);
       }
     }
@@ -95,18 +95,18 @@ export function usePersistedView({
   useEffect(() => {
     if (!syncUrl || typeof window === "undefined") return;
 
-    const handlePopState = (event) => {
-      // Try the state object first, fall back to reading the URL
-      const stateView = event.state && event.state.view ? normalize(event.state.view) : null;
-      const urlView = normalize(new URLSearchParams(window.location.search).get(searchParamName));
-      const target = stateView || urlView || defaultView;
+    const handlePopState = () => {
+      // URL query param is authoritative — history.state can be stale if other
+      // code called replaceState on an older entry (e.g. Employee 360 tab sync).
+      const urlView = readFromUrl();
+      const target = urlView ?? defaultView;
       fromPopStateRef.current = true;
       setView(target);
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [syncUrl, searchParamName, defaultView, normalize, setView]);
+  }, [syncUrl, defaultView, readFromUrl, setView]);
 
   return [view, setView, readStored];
 }

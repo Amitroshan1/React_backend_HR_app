@@ -23,6 +23,8 @@ import {
     mergeFinancialYears,
 } from "../../utils/financialYear";
 import "./TaxDeclaration.css";
+import { authHeaders } from "../../utils/sensitiveDataAuth";
+import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 
 const AUTH_API = "/api/auth";
 
@@ -228,11 +230,6 @@ export const TaxDeclaration = () => {
     const [finalProofStatus, setFinalProofStatus] = useState("");
     const [persistedDeclItems, setPersistedDeclItems] = useState([]);
     const [submissionDeadline, setSubmissionDeadline] = useState(null);
-
-    const authHeaders = () => {
-        const token = localStorage.getItem("token");
-        return token ? { Authorization: `Bearer ${token}` } : {};
-    };
 
     const regime = normalizeRegime(taxRegime);
     const isLocked = status === "submitted" || status === "approved";
@@ -722,6 +719,10 @@ export const TaxDeclaration = () => {
                 <ArrowLeft size={18} aria-hidden />
                 Back to Dashboard
             </button>
+
+            <div className="sensitive-lock-row">
+                <LockSensitiveDataButton />
+            </div>
 
             <div className="tax-decl-card">
                 <div className="tax-decl-header">

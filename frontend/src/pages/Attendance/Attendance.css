@@ -424,7 +424,7 @@
   background-color: transparent !important;
   background: none !important;
 }
-.key-item.status-wfm::before { background-color: #3b82f6; }
+.key-item.status-wfh::before { background-color: #3b82f6; }
 .key-item.status-weekend::before { background-color: #9ca3af; }
 .key-item.status-public-holiday::before { background-color: #f59e0b; }
 .key-item.status-optional-holiday::before { background-color: #8b5cf6; }
@@ -581,8 +581,8 @@
 .calendar-day-cell.status-pending { background-color: #fff7ed; border-color: #fed7aa; }
 .calendar-day-cell.status-pending .day-status-label { color: #c2410c; }
 
-.calendar-day-cell.status-wfm { background-color: #eff6ff; border-color: #93c5fd; }
-.calendar-day-cell.status-wfm .day-status-label { color: #1e40af; }
+.calendar-day-cell.status-wfh { background-color: #eff6ff; border-color: #93c5fd; }
+.calendar-day-cell.status-wfh .day-status-label { color: #1e40af; }
 
 .calendar-day-cell.status-weekend {
   background-color: #f8fafc;

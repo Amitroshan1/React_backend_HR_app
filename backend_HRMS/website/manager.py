@@ -650,6 +650,9 @@ def serve_claim_line_file(claim_id, line_item_id):
 
     directory = os.path.dirname(full_path)
     filename = os.path.basename(full_path)
+    from .pdf_watermark import is_pdf_filename, send_download_file
+    if is_pdf_filename(filename):
+        return send_download_file(path=full_path, download_name=filename, as_attachment=False)
     return send_from_directory(directory, filename, as_attachment=False)
 
 
@@ -797,11 +800,11 @@ def download_noc_department_document(req_id):
     if not out.get("success"):
         return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
 
-    return send_file(
-        out["path"],
-        as_attachment=True,
+    from .pdf_watermark import send_download_file
+    return send_download_file(
+        path=out["path"],
         download_name=out["download_name"],
-        mimetype="application/octet-stream",
+        as_attachment=True,
     )
 
 

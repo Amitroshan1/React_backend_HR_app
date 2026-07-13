@@ -327,9 +327,9 @@ const backendStatusToFrontend = (backendStatus, details = {}) => {
     if (backendStatus === 'ABSENT') return 'Abs';
     if (backendStatus === 'PENDING_PUNCH_OUT') return 'Pend';
     if (backendStatus === 'HALF_DAY') return 'Half';
-    if (backendStatus === 'WFH_APPROVED') return 'WFM';
-    if (backendStatus === 'WFH_PENDING') return 'WFM'; // Show as WFM but pending approval
-    if (backendStatus === 'PRESENT') return details?.wfh ? 'WFM' : 'Pres';
+    if (backendStatus === 'WFH_APPROVED') return 'WFH';
+    if (backendStatus === 'WFH_PENDING') return 'WFH'; // Show as WFH but pending approval
+    if (backendStatus === 'PRESENT') return details?.wfh ? 'WFH' : 'Pres';
     return 'Pres';
 };
 
@@ -426,7 +426,7 @@ const CalendarDayCell = ({ day, status, isFuture, details = {} }) => {
         'HolOpt': 'status-optional-holiday',
         'Week': 'status-weekend',
         'Pend': 'status-pending',
-        'WFM': 'status-wfm',
+        'WFH': 'status-wfh',
     };
 
     const finalClassName = statusClassMap[status] || 'status-default';
@@ -435,7 +435,7 @@ const CalendarDayCell = ({ day, status, isFuture, details = {} }) => {
     if (status === 'Pres') displayStatus = 'Present';
     else if (status === 'Pend') displayStatus = 'Pending Punch Out';
     else if (status === 'Half') displayStatus = 'Half Day';
-    else if (status === 'WFM') displayStatus = 'WFM';
+    else if (status === 'WFH') displayStatus = 'WFH';
     else if (status === 'On Leave') displayStatus = 'On Leave';
     else if (status === 'Abs') displayStatus = 'Absent';
     else if (status === 'Hol') displayStatus = 'Public Holiday';
@@ -694,7 +694,7 @@ export const Attendance = () => {
                     <span className="key-item status-on-leave">On Leave</span>
                     <span className="key-item status-half-day">Half Day</span>
                     <span className="key-item status-pending">Pending Punch Out</span>
-                    <span className="key-item status-wfm">Work From Home</span>
+                    <span className="key-item status-wfh">Work From Home</span>
                     <span className="key-item status-weekend">Weekend</span>
                     <span className="key-item status-public-holiday">Public Holiday</span>
                     <span className="key-item status-optional-holiday">Optional Holiday</span>

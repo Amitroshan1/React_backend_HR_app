@@ -48,6 +48,7 @@ export default function AssessmentTestPublic() {
   const autosaveRef = useRef(null);
   const [remainingSec, setRemainingSec] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [submitProgress, setSubmitProgress] = useState("");
   const submittingRef = useRef(false);
   const answersRef = useRef({});
   const tabLeaveStrikesRef = useRef(0);
@@ -256,6 +257,7 @@ export default function AssessmentTestPublic() {
       };
     }
 
+    setSubmitProgress("Submitting answers…");
     const res = await fetch(`${API_BASE}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -265,51 +267,51 @@ export default function AssessmentTestPublic() {
     if (!res.ok || !data.success) {
       setError(data.message || "Submit failed");
       setSubmitting(false);
+      setSubmitProgress("");
       submittingRef.current = false;
       return;
     }
 
     setInvite(data.invite);
     setSubmitOutcome(data.invite?.disqualified ? "disqualified" : "ok");
-    setStage("submitted");
-    setSubmitting(false);
-    submittingRef.current = false;
     setPostSubmitWarning("");
-    setPostSubmitInfo("Finalizing verification recording upload...");
+    setPostSubmitInfo("");
     setError("");
 
-    (async () => {
-      let recordingWarning = "";
-      try {
-        const recBox = recorderBoxRef.current;
-        if (recBox?.mr && typeof recBox.mr.requestData === "function") {
-          try {
-            recBox.mr.requestData();
-          } catch {
-            /* ignore */
-          }
+    let recordingWarning = "";
+    setSubmitProgress("Uploading verification recording…");
+    try {
+      const recBox = recorderBoxRef.current;
+      if (recBox?.mr && typeof recBox.mr.requestData === "function") {
+        try {
+          recBox.mr.requestData();
+        } catch {
+          /* ignore */
         }
-        const blob = await finalizeSessionRecording();
-        if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-        if (blob && blob.size > 0) {
-          const up = await uploadSessionRecording(blob);
-          if (!up.ok) recordingWarning = up.message || "Recording upload failed";
-        } else {
-          recordingWarning = "Recording file is empty.";
-        }
-      } catch {
-        if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-        recordingWarning = "Recording could not be processed.";
       }
-
-      if (recordingWarning) {
-        setPostSubmitWarning(recordingWarning);
-        setPostSubmitInfo("");
+      const blob = await finalizeSessionRecording();
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (blob && blob.size > 0) {
+        const up = await uploadSessionRecording(blob);
+        if (!up.ok) recordingWarning = up.message || "Recording upload failed";
       } else {
-        setPostSubmitWarning("");
-        setPostSubmitInfo("Verification recording uploaded successfully.");
+        recordingWarning = "Recording file is empty.";
       }
-    })();
+    } catch {
+      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      recordingWarning = "Recording could not be processed.";
+    }
+
+    if (recordingWarning) {
+      setPostSubmitWarning(recordingWarning);
+    } else {
+      setPostSubmitInfo("Verification recording uploaded successfully.");
+    }
+
+    setStage("submitted");
+    setSubmitting(false);
+    setSubmitProgress("");
+    submittingRef.current = false;
   };
 
   useEffect(() => {
@@ -714,8 +716,11 @@ export default function AssessmentTestPublic() {
       ))}
 
       {error ? <div className="assessment-error">{error}</div> : null}
+      {submitting && submitProgress ? (
+        <p className="assessment-ok" style={{ marginBottom: 12 }}>{submitProgress}</p>
+      ) : null}
       <button className="assessment-btn assessment-btn-primary assessment-submit" onClick={() => handleSubmit({})} disabled={submitting}>
-        {submitting ? "Submitting..." : "Submit Test"}
+        {submitting ? (submitProgress || "Submitting…") : "Submit Test"}
       </button>
       </div>
       <AppFooter />

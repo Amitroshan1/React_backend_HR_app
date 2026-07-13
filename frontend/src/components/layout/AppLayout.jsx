@@ -9,6 +9,7 @@ import {
     canAccessHrPanel,
 } from "../../utils/planFeatures";
 import { clearPersistedPanelViews } from "../../hooks/usePersistedView";
+import { clearSensitiveToken } from "../../utils/sensitiveDataAuth";
 import { AdminReturnBar } from "./AdminReturnBar";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
@@ -102,6 +103,7 @@ export const AppLayout = () => {
             localStorage.setItem("sessionExpired", "1");
             localStorage.removeItem("token");
             localStorage.removeItem(ACTIVITY_KEY);
+            clearSensitiveToken();
             clearPlanContext();
             clearPersistedPanelViews();
             navigate("/");

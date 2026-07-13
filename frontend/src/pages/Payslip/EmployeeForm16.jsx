@@ -5,6 +5,8 @@ import { useUser } from "../../components/layout/UserContext";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import { defaultFinancialYear, financialYearOptions } from "../../utils/financialYear";
+import { authHeaders } from "../../utils/sensitiveDataAuth";
+import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 import "./EmployeeForm16.css";
 
 const ACCOUNTS_API_URL = "/api/accounts";
@@ -52,11 +54,6 @@ export const EmployeeForm16 = () => {
     const [summaryError, setSummaryError] = useState("");
     const [downloadingPath, setDownloadingPath] = useState(null);
     const [downloadingSummary, setDownloadingSummary] = useState(false);
-
-    const authHeaders = () => {
-        const token = localStorage.getItem("token");
-        return token ? { Authorization: `Bearer ${token}` } : {};
-    };
 
     const loadSummary = async (fy) => {
         if (!userId) return;
@@ -123,7 +120,7 @@ export const EmployeeForm16 = () => {
         try {
             const res = await fetch(`${ACCOUNTS_API_URL}/file/${encodeURIComponent(filePath)}`, {
                 method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
+                headers: authHeaders(),
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
@@ -155,7 +152,7 @@ export const EmployeeForm16 = () => {
         try {
             const res = await fetch(
                 `${AUTH_API_URL}/form16/summary/download?financial_year=${encodeURIComponent(financialYear)}`,
-                { headers: { Authorization: `Bearer ${token}` } }
+                { headers: authHeaders() }
             );
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
@@ -188,6 +185,10 @@ export const EmployeeForm16 = () => {
                 <ArrowLeft size={18} aria-hidden />
                 Back to Tax Declaration
             </button>
+
+            <div className="sensitive-lock-row">
+                <LockSensitiveDataButton />
+            </div>
 
             <div className="employee-form16-card">
                 <div className="employee-form16-header">

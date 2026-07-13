@@ -7,6 +7,8 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
+from .pdf_watermark import install_page_watermark
+
 from . import payroll_tds_service as payroll_tds
 from . import tax_declaration_service as tax_decl
 from . import tds_settings as tds_cfg
@@ -330,6 +332,7 @@ def generate_form16_summary_pdf(admin_id: int, financial_year: str | None = None
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
+    install_page_watermark(c, A4)
     left = 40
     y = height - 40
 

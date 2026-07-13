@@ -4,6 +4,7 @@ import { ArrowLeft, FileText } from "lucide-react";
 import { TaxDeclarationDetailBody } from "./TaxDeclarationDetailBody";
 import { notifyError } from "../../utils/notify";
 import { authHeaders, parseApiResponse } from "./taxDeclarationReviewUtils";
+import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 import "./TaxDeclaration.css";
 
 const AUTH_API = "/api/auth";
@@ -50,6 +51,10 @@ export function TaxDeclarationHistoryDetail() {
                 <ArrowLeft size={18} aria-hidden />
                 Back to History
             </button>
+
+            <div className="sensitive-lock-row">
+                <LockSensitiveDataButton />
+            </div>
 
             <div className="tax-decl-card">
                 <div className="tax-decl-header">

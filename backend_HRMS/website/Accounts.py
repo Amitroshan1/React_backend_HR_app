@@ -64,6 +64,8 @@ from .payroll_lifecycle_service import (
 from . import payroll_governance_service as payroll_gov
 from .models.employee_salary_loan import EmployeeSalaryLoan
 from .models.fnf_settlement import FnfSettlement
+from .sensitive_data_auth import require_sensitive_for_employee
+from .pdf_watermark import install_page_watermark
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
@@ -1453,6 +1455,18 @@ def form16_history(admin_id):
             "message": "Unauthorized user"
         }), 401
 
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    if not can_view_any and admin_id != admin.id:
+        return jsonify({
+            "success": False,
+            "message": "You can only view your own Form 16 history"
+        }), 403
+
+    blocked = require_sensitive_for_employee(admin, admin_id)
+    if blocked:
+        return blocked
+
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
         return jsonify({
@@ -1738,6 +1752,10 @@ def payslip_history(admin_id):
             "message": "You can only view your own payslip history"
         }), 403
 
+    blocked = require_sensitive_for_employee(admin, admin_id)
+    if blocked:
+        return blocked
+
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
         return jsonify({
@@ -1780,6 +1798,10 @@ def get_ctc_breakup(admin_id):
             "message": "You can only view your own CTC breakup"
         }), 403
 
+    blocked = require_sensitive_for_employee(admin, admin_id)
+    if blocked:
+        return blocked
+
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
         return jsonify({
@@ -1816,6 +1838,10 @@ def download_ctc_annexure_pdf(admin_id):
             "success": False,
             "message": "You can only download your own CTC annexure",
         }), 403
+
+    blocked = require_sensitive_for_employee(admin, admin_id)
+    if blocked:
+        return blocked
 
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
@@ -2314,6 +2340,10 @@ def ctc_breakup_history(admin_id):
             "message": "You can only view your own CTC breakup history"
         }), 403
 
+    blocked = require_sensitive_for_employee(admin, admin_id)
+    if blocked:
+        return blocked
+
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
         return jsonify({
@@ -2409,6 +2439,10 @@ def tds_projection():
     can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
     if not can_view_any and admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
+
+    blocked = require_sensitive_for_employee(viewer, admin_id)
+    if blocked:
+        return blocked
 
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
@@ -2583,6 +2617,10 @@ def tds_variance():
     if not can_view_any and admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
 
+    blocked = require_sensitive_for_employee(viewer, admin_id)
+    if blocked:
+        return blocked
+
     proj_resp = tds_projection()
     if isinstance(proj_resp, tuple):
         body, status = proj_resp
@@ -2615,6 +2653,10 @@ def form16_summary(admin_id):
     if not can_view_any and admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
 
+    blocked = require_sensitive_for_employee(viewer, admin_id)
+    if blocked:
+        return blocked
+
     financial_year = (request.args.get("financial_year") or "").strip() or financial_year_for_date()
     try:
         summary = form16_svc.build_form16_summary(admin_id, financial_year)
@@ -2636,6 +2678,10 @@ def form16_summary_download(admin_id):
     can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
     if not can_view_any and admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
+
+    blocked = require_sensitive_for_employee(viewer, admin_id)
+    if blocked:
+        return blocked
 
     financial_year = (request.args.get("financial_year") or "").strip() or financial_year_for_date()
     try:
@@ -2868,14 +2914,59 @@ def serve_uploaded_file(relative_path):
                 "success": False,
                 "message": "Access denied"
             }), 403
+        blocked = require_sensitive_for_employee(admin, payslip.admin_id)
+        if blocked:
+            return blocked
+
+    if normalized.startswith("form16/"):
+        form16_row = Form16.query.filter_by(file_path=normalized).first()
+        if form16_row:
+            emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+            can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+            if not can_view_any and form16_row.admin_id != admin.id:
+                return jsonify({
+                    "success": False,
+                    "message": "Access denied"
+                }), 403
+            blocked = require_sensitive_for_employee(admin, form16_row.admin_id)
+            if blocked:
+                return blocked
+
+    if normalized.startswith("tax_declarations/"):
+        parts = normalized.split("/")
+        if len(parts) >= 2 and parts[1].isdigit():
+            from .models.employee_tax_declaration import EmployeeTaxDeclaration
+            decl = EmployeeTaxDeclaration.query.get(int(parts[1]))
+            if decl:
+                emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+                can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+                if not can_view_any and decl.admin_id != admin.id:
+                    return jsonify({
+                        "success": False,
+                        "message": "Access denied"
+                    }), 403
+                blocked = require_sensitive_for_employee(admin, decl.admin_id)
+                if blocked:
+                    return blocked
 
     uploads_root = _get_uploads_root()
+
+    def _serve_stored_file(directory: str, relative_name: str):
+        from .pdf_watermark import is_pdf_filename, send_download_file
+
+        if is_pdf_filename(relative_name):
+            return send_download_file(
+                path=os.path.join(directory, relative_name),
+                download_name=os.path.basename(relative_name),
+                as_attachment=False,
+            )
+        return send_from_directory(directory, relative_name, as_attachment=False)
 
     # Try primary path first (e.g. payslips/foo.pdf or flat foo.pdf).
     full_path = os.path.join(uploads_root, normalized)
     if os.path.isfile(full_path):
         try:
-            return send_from_directory(uploads_root, normalized, as_attachment=False)
+            return _serve_stored_file(uploads_root, normalized)
         except Exception:
             pass
 
@@ -2886,7 +2977,7 @@ def serve_uploaded_file(relative_path):
             candidate_path = os.path.join(candidate_dir, normalized)
             if os.path.isfile(candidate_path):
                 try:
-                    return send_from_directory(candidate_dir, normalized, as_attachment=False)
+                    return _serve_stored_file(candidate_dir, normalized)
                 except Exception:
                     continue
 
@@ -2896,7 +2987,7 @@ def serve_uploaded_file(relative_path):
     static_full_path = os.path.join(static_uploads_root, normalized)
     if os.path.isfile(static_full_path):
         try:
-            return send_from_directory(static_uploads_root, normalized, as_attachment=False)
+            return _serve_stored_file(static_uploads_root, normalized)
         except Exception:
             pass
 
@@ -2906,7 +2997,7 @@ def serve_uploaded_file(relative_path):
         expense_full = os.path.join(static_uploads_root, expense_rel)
         if os.path.isfile(expense_full):
             try:
-                return send_from_directory(static_uploads_root, expense_rel, as_attachment=False)
+                return _serve_stored_file(static_uploads_root, expense_rel)
             except Exception:
                 pass
 
@@ -4031,6 +4122,10 @@ def download_payroll_slip(payroll_id):
     if not _accounts_can_access_any_profile(viewer) and payroll.admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
 
+    blocked = require_sensitive_for_employee(viewer, payroll.admin_id)
+    if blocked:
+        return blocked
+
     admin = Admin.query.get(payroll.admin_id)
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
@@ -4168,6 +4263,7 @@ def download_payroll_slip(payroll_id):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
+    install_page_watermark(c, A4)
     left_margin = 36
     right_margin = width - 36
     usable_w = right_margin - left_margin
@@ -4675,11 +4771,11 @@ def accounts_download_noc_department_document(req_id):
     out = download_noc_document("accounts", admin, req_id)
     if not out.get("success"):
         return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
-    return send_file(
-        out["path"],
-        as_attachment=True,
+    from .pdf_watermark import send_download_file
+    return send_download_file(
+        path=out["path"],
         download_name=out["download_name"],
-        mimetype="application/octet-stream",
+        as_attachment=True,
     )
 
 

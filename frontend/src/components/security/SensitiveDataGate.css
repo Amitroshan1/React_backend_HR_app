@@ -1,0 +1,128 @@
+.sensitive-gate-page {
+    min-height: calc(100vh - 120px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+}
+
+.sensitive-gate-card {
+    width: 100%;
+    max-width: 420px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 28px 24px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.sensitive-gate-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #eff6ff;
+    color: #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+.sensitive-gate-card h2 {
+    margin: 0 0 8px;
+    font-size: 1.25rem;
+    color: #111827;
+}
+
+.sensitive-gate-desc {
+    margin: 0 0 20px;
+    color: #6b7280;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.sensitive-gate-form label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.sensitive-gate-password-row {
+    display: flex;
+    gap: 8px;
+}
+
+.sensitive-gate-password-row input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 1rem;
+}
+
+.sensitive-gate-toggle {
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 0 12px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.sensitive-gate-error {
+    margin: 10px 0 0;
+    color: #dc2626;
+    font-size: 0.875rem;
+}
+
+.sensitive-gate-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    justify-content: flex-end;
+}
+
+.sensitive-gate-btn {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.sensitive-gate-btn.primary {
+    background: #2563eb;
+    color: #fff;
+}
+
+.sensitive-gate-btn.primary:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.sensitive-gate-btn.secondary {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.sensitive-lock-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.sensitive-lock-btn {
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #374151;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.sensitive-lock-btn:hover {
+    background: #f9fafb;
+}

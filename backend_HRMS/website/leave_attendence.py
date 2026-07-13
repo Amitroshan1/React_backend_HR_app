@@ -1760,11 +1760,12 @@ def get_my_noc_document():
         if not os.path.isfile(full_path):
             return jsonify({"success": False, "message": "File not found"}), 404
 
-        return send_file(
-            full_path,
-            as_attachment=True,
+        from .pdf_watermark import send_download_file
+
+        return send_download_file(
+            path=full_path,
             download_name=os.path.basename(noc_upload.file_path),
-            mimetype="application/octet-stream"
+            as_attachment=True,
         )
     except Exception as e:
         current_app.logger.exception("noc-document download error")

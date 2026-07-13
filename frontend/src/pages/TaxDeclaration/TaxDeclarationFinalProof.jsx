@@ -9,6 +9,8 @@ import {
     mergeFinancialYears,
 } from "../../utils/financialYear";
 import { notifyError, notifySuccess } from "../../utils/notify";
+import { authHeaders } from "../../utils/sensitiveDataAuth";
+import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 import { docsForItem, FINAL_PROOF_DOC_TYPE, itemKey } from "./taxDeclarationCaps";
 import "./TaxDeclaration.css";
 
@@ -60,11 +62,6 @@ export function TaxDeclarationFinalProof() {
     const [regime, setRegime] = useState("new");
     const [finalAmounts, setFinalAmounts] = useState({});
     const [uploadingKey, setUploadingKey] = useState(null);
-
-    const authHeaders = () => {
-        const token = localStorage.getItem("token");
-        return token ? { Authorization: `Bearer ${token}` } : {};
-    };
 
     const hydrateFinalAmounts = useCallback((decl, sch, reg) => {
         const map = {};
@@ -303,6 +300,10 @@ export function TaxDeclarationFinalProof() {
                 <ArrowLeft size={18} aria-hidden />
                 Back to Tax Declaration
             </button>
+
+            <div className="sensitive-lock-row">
+                <LockSensitiveDataButton />
+            </div>
 
             <div className="tax-decl-card">
                 <div className="tax-decl-header">

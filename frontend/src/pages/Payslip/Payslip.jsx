@@ -5,6 +5,8 @@ import { hasFeature } from "../../utils/planFeatures";
 import "./Payslip.css";
 import { formatDateTimeDDMMYYYY, formatMonthYear } from "../../utils/dateFormat";
 import { formatCtcRupee, resolveAnnualCtcTotal, resolveTotalCtcAnnual, buildCtcEarningsRows } from "../../utils/ctcBreakupDisplay";
+import { authHeaders, clearSensitiveToken, isSensitiveAuthError } from "../../utils/sensitiveDataAuth";
+import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 
 const API_BASE_URL = "/api/accounts";
 const AUTH_API_BASE_URL = "/api/auth";
@@ -72,18 +74,18 @@ export const Payslip = () => {
         const requests = [
             fetch(`${API_BASE_URL}/payslip/history/${userId}`, {
                 method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
+                headers: authHeaders(),
             }).then((res) => res.json()),
             fetch(`${API_BASE_URL}/ctc-breakup/${userId}`, {
                 method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
+                headers: authHeaders(),
             }).then((res) => res.json()).catch(() => ({ success: false })),
         ];
         if (showPayrollHistory) {
             requests.push(
                 fetch(`${AUTH_API_BASE_URL}/employee/homepage`, {
                     method: "GET",
-                    headers: { Authorization: `Bearer ${token}` },
+                    headers: authHeaders(),
                 }).then((res) => res.json()).catch(() => ({}))
             );
         }
@@ -94,6 +96,10 @@ export const Payslip = () => {
                 const dashboardResult = showPayrollHistory ? results[2] : {};
                 if (result.success && Array.isArray(result.history)) {
                     setHistory(result.history);
+                } else if (isSensitiveAuthError(result)) {
+                    clearSensitiveToken();
+                    setError("Session expired. Please unlock salary data again.");
+                    setHistory([]);
                 } else {
                     setError(result.message || "Failed to load payslips");
                     setHistory([]);
@@ -139,7 +145,7 @@ export const Payslip = () => {
         try {
             const res = await fetch(`${API_BASE_URL}/file/${encodeURIComponent(row.file_path)}`, {
                 method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
+                headers: authHeaders(),
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
@@ -172,7 +178,7 @@ export const Payslip = () => {
         try {
             const res = await fetch(`${API_BASE_URL}/payroll/${row.id}/download`, {
                 method: "GET",
-                headers: { Authorization: `Bearer ${token}` },
+                headers: authHeaders(),
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
@@ -218,6 +224,9 @@ export const Payslip = () => {
 
     return (
         <div className="payslip-page">
+            <div className="sensitive-lock-row">
+                <LockSensitiveDataButton />
+            </div>
             <div className="payslip-ctc-card">
                 <div className="payslip-ctc-header">
                     <h2 className="payslip-ctc-title">{displayName}'s CTC Breakup</h2>

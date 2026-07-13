@@ -10,6 +10,7 @@ import {
     parseApiResponse,
     statusBadgeClass,
 } from "./taxDeclarationReviewUtils";
+import { LockSensitiveDataButton } from "../../components/security/SensitiveDataGate";
 import "./TaxDeclaration.css";
 
 const AUTH_API = "/api/auth";
@@ -50,6 +51,10 @@ export function TaxDeclarationHistory() {
                 <ArrowLeft size={18} aria-hidden />
                 Back to Tax Declaration
             </button>
+
+            <div className="sensitive-lock-row">
+                <LockSensitiveDataButton />
+            </div>
 
             <div className="tax-decl-card">
                 <div className="tax-decl-header">

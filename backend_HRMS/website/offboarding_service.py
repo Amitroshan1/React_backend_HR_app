@@ -870,7 +870,8 @@ def send_relieving_letter_doc_share_on_exit(
 def build_manager_team_offboarding(manager_admin) -> list[dict]:
     """Direct reports currently in separation / offboarding pipeline."""
     from . import db
-    from .manager import _is_manager_for_target
+    from .models.Admin_models import Admin
+    from .manager_utils import is_manager_in_contact, resolve_manager_contact_for_employee
 
     if not manager_admin:
         return []
@@ -884,7 +885,8 @@ def build_manager_team_offboarding(manager_admin) -> list[dict]:
     for admin in rows:
         if admin.id == manager_admin.id:
             continue
-        if not _is_manager_for_target(manager_admin, admin):
+        contact = resolve_manager_contact_for_employee(admin)
+        if not is_manager_in_contact(contact, manager_admin):
             continue
         payload = build_offboarding_payload_for_admin(admin)
         if not payload.get("status"):

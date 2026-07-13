@@ -2101,10 +2101,10 @@ def it_download_noc_department_document(req_id):
     out = download_noc_document("it", admin, req_id)
     if not out.get("success"):
         return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
-    return send_file(
-        out["path"],
-        as_attachment=True,
+    from .pdf_watermark import send_download_file
+    return send_download_file(
+        path=out["path"],
         download_name=out["download_name"],
-        mimetype="application/octet-stream",
+        as_attachment=True,
     )
 
