@@ -6,14 +6,19 @@ from datetime import date, datetime, timedelta
 from ..datetime_utils import utc_now
 
 import click
+from sqlalchemy.exc import IntegrityError
 
 from .. import db
 from ..models.Admin_models import Admin
-from ..models.attendance import Punch, CompOffGain, LeaveBalance
-from ..compoff_utils import get_effective_comp_balance, sync_comp_balance_for_admin
+from ..models.attendance import Punch, CompOffGain
+from ..compoff_utils import (
+    COMP_OFF_VALID_DAYS,
+    dedupe_duplicate_sunday_compoff_gains,
+    sunday_dedupe_key,
+    sync_comp_balance_for_admin,
+)
 from ..email import send_compoff_expiry_reminder
 
-COMP_OFF_VALID_DAYS = 30
 REMINDER_DAYS_BEFORE = 7
 MAX_GAINS_PER_MONTH = 2
 LOOKBACK_DAYS = 62  # look back for Sunday punches
@@ -65,9 +70,13 @@ def run_compoff_process(run_date):
     summary = {
         "run_date": today.isoformat(),
         "gains_created": 0,
+        "duplicates_removed": 0,
         "balances_synced": 0,
         "reminders_sent": 0,
     }
+
+    # 0) Remove triplicate Sunday rows from multi-worker races (production cleanup)
+    summary["duplicates_removed"] = dedupe_duplicate_sunday_compoff_gains()
 
     # 1) Create gains from Sunday punches (look back LOOKBACK_DAYS)
     start = today - timedelta(days=LOOKBACK_DAYS)
@@ -86,15 +95,23 @@ def run_compoff_process(run_date):
             if _gains_count_in_month(admin_id, year, month) >= MAX_GAINS_PER_MONTH:
                 continue
             expiry = sunday + timedelta(days=COMP_OFF_VALID_DAYS)
-            db.session.add(
-                CompOffGain(
-                    admin_id=admin_id,
-                    gain_date=sunday,
-                    expiry_date=expiry,
-                    used=0.0,
-                )
-            )
-            summary["gains_created"] += 1
+            key = sunday_dedupe_key(admin_id, sunday)
+            try:
+                with db.session.begin_nested():
+                    db.session.add(
+                        CompOffGain(
+                            admin_id=admin_id,
+                            gain_date=sunday,
+                            expiry_date=expiry,
+                            used=0.0,
+                            dedupe_key=key,
+                        )
+                    )
+                    db.session.flush()
+                summary["gains_created"] += 1
+            except IntegrityError:
+                # Another worker already created this Sunday gain.
+                continue
 
     # 2) Sync LeaveBalance.compensatory_leave_balance for all admins with comp_off_gains or leave_balance
     for admin in admins:
@@ -145,6 +162,20 @@ def register_compoff_command(app):
             click.echo(
                 f"compoff-process: date={summary['run_date']}, "
                 f"gains_created={summary['gains_created']}, "
+                f"duplicates_removed={summary['duplicates_removed']}, "
                 f"balances_synced={summary['balances_synced']}, "
                 f"reminders_sent={summary['reminders_sent']}"
             )
+
+    @app.cli.command("compoff-dedupe")
+    @click.option("--dry-run", is_flag=True, help="Do not commit changes.")
+    def compoff_dedupe_command(dry_run):
+        """Remove duplicate Sunday Comp Off gains (keeps one per employee/date)."""
+        with app.app_context():
+            removed = dedupe_duplicate_sunday_compoff_gains()
+            if dry_run:
+                db.session.rollback()
+                click.echo(f"Dry run. Would remove {removed} duplicate Comp Off gain(s).")
+            else:
+                db.session.commit()
+                click.echo(f"Removed {removed} duplicate Comp Off gain(s).")

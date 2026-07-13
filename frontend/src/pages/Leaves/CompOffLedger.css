@@ -246,8 +246,25 @@
 }
 
 .compoff-cell-wrap {
-  max-width: 280px;
+  max-width: 360px;
   word-break: break-word;
+}
+
+.compoff-will-use {
+  display: block;
+  color: #334155;
+}
+
+.compoff-will-use--warn {
+  color: #9a3412;
+}
+
+.compoff-will-use-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: #b45309;
+  line-height: 1.35;
 }
 
 .compoff-badge {

@@ -45,6 +45,16 @@ function formatConsumed(slices) {
     .join('; ');
 }
 
+function formatWillUse(row) {
+  const text = formatConsumed(row?.will_use);
+  if (text !== '—') return text;
+  if (row?.warning) return row.warning;
+  if (Number(row?.shortfall) > 0) {
+    return `No matching Comp Off credit (short by ${formatDays(row.shortfall)} day(s))`;
+  }
+  return 'No matching Comp Off credit found';
+}
+
 export const CompOffLedger = ({
   employeeId = null,
   employeeLabel = '',
@@ -174,21 +184,33 @@ export const CompOffLedger = ({
               </tr>
             </thead>
             <tbody>
-              {pendingApps.map((row) => (
-                <tr key={row.leave_id}>
-                  <td>
-                    {formatDate(row.start_date)}
-                    {row.end_date !== row.start_date ? ` – ${formatDate(row.end_date)}` : ''}
-                  </td>
-                  <td>{formatDays(row.days)}</td>
-                  <td>
-                    <span className="compoff-badge compoff-badge--applied">Applied</span>
-                  </td>
-                  <td className="compoff-cell-wrap" title={formatConsumed(row.will_use)}>
-                    {formatConsumed(row.will_use)}
-                  </td>
-                </tr>
-              ))}
+              {pendingApps.map((row) => {
+                const willUseText = formatWillUse(row);
+                const hasWarning = Boolean(row.warning) || row.approval_ok === false;
+                return (
+                  <tr key={row.leave_id}>
+                    <td>
+                      {formatDate(row.start_date)}
+                      {row.end_date !== row.start_date ? ` – ${formatDate(row.end_date)}` : ''}
+                    </td>
+                    <td>{formatDays(row.days)}</td>
+                    <td>
+                      <span className="compoff-badge compoff-badge--applied">Applied</span>
+                    </td>
+                    <td className="compoff-cell-wrap">
+                      <span
+                        className={hasWarning ? 'compoff-will-use compoff-will-use--warn' : 'compoff-will-use'}
+                        title={willUseText}
+                      >
+                        {willUseText}
+                      </span>
+                      {row.warning && formatConsumed(row.will_use) !== '—' ? (
+                        <span className="compoff-will-use-note">{row.warning}</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -1432,6 +1432,61 @@ def create_app():
         except Exception as e:
             app.logger.warning("exit_interviews table ensure skipped: %s", e)
 
+    def _ensure_comp_off_gain_dedupe_key():
+        """Unique Sunday punch key + one-time collapse of triplicate Comp Off rows."""
+        try:
+            from sqlalchemy import inspect, text
+            from .compoff_utils import dedupe_duplicate_sunday_compoff_gains
+
+            insp = inspect(db.engine)
+            table = "comp_off_gains"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            if "dedupe_key" not in existing:
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN dedupe_key VARCHAR(64) NULL')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN dedupe_key VARCHAR(64) NULL")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.dedupe_key", table)
+
+            # Unique index (MySQL/Postgres: multiple NULLs allowed)
+            index_name = "uq_comp_off_gains_dedupe_key"
+            try:
+                indexes = {ix["name"] for ix in insp.get_indexes(table)}
+            except Exception:
+                indexes = set()
+            if index_name not in indexes:
+                if dialect == "postgresql":
+                    idx_stmt = text(
+                        f'CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON "{table}" (dedupe_key)'
+                    )
+                else:
+                    idx_stmt = text(
+                        f"CREATE UNIQUE INDEX {index_name} ON {table} (dedupe_key)"
+                    )
+                try:
+                    with db.engine.begin() as conn:
+                        conn.execute(idx_stmt)
+                    app.logger.info("Created unique index %s", index_name)
+                except Exception as idx_err:
+                    app.logger.warning("comp_off_gains unique index skipped: %s", idx_err)
+
+            removed = dedupe_duplicate_sunday_compoff_gains()
+            if removed:
+                db.session.commit()
+                app.logger.info(
+                    "Removed %s duplicate Sunday Comp Off gain(s) on startup", removed
+                )
+            else:
+                db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning("comp_off_gains dedupe_key ensure skipped: %s", e)
+
     with app.app_context():
         try:
             _ensure_upload_doc_identity_columns()
@@ -1469,6 +1524,7 @@ def create_app():
             _ensure_offboarding_reminder_table()
             _ensure_employee_archive_rehire_columns()
             _ensure_exit_interview_table()
+            _ensure_comp_off_gain_dedupe_key()
             _cleanup_zero_qty_inventory_rows()
         except Exception as e:
             app.logger.error(

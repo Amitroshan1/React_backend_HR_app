@@ -2,6 +2,9 @@
 Comp-off (compensatory off) logic: balance from CompOffGain, deduct oldest-first, sync to LeaveBalance.
 """
 from datetime import date, timedelta
+from collections import defaultdict
+
+from sqlalchemy.exc import IntegrityError
 
 from . import db
 from .models.attendance import CompOffGain, LeaveBalance
@@ -10,6 +13,64 @@ from .leave_balance_utils import credit_comp_entitlement, sync_leave_balance_tot
 
 MAX_COMPOFF_APPLICATIONS_PER_MONTH = 2
 MAX_COMPOFF_DAYS_PER_APPLICATION = 2
+COMP_OFF_VALID_DAYS = 30
+
+
+def sunday_dedupe_key(admin_id, gain_date):
+    """Stable unique key so Sunday punch job creates at most one gain per employee/date."""
+    return f"{int(admin_id)}:{gain_date.isoformat()}:sunday"
+
+
+def dedupe_duplicate_sunday_compoff_gains():
+    """
+    Collapse triplicate/duplicate Sunday CompOffGain rows (multi-worker scheduler race).
+    Keeps one row per (admin_id, Sunday gain_date); merges used (capped at 1.0).
+    Returns number of rows deleted.
+    """
+    gains = CompOffGain.query.order_by(CompOffGain.id.asc()).all()
+    groups = defaultdict(list)
+    for g in gains:
+        if g.gain_date is None or g.gain_date.weekday() != 6:
+            continue
+        groups[(g.admin_id, g.gain_date)].append(g)
+
+    deleted = 0
+    touched_admins = set()
+    for (admin_id, gain_date), rows in groups.items():
+        key = sunday_dedupe_key(admin_id, gain_date)
+        expected_expiry = gain_date + timedelta(days=COMP_OFF_VALID_DAYS)
+
+        if len(rows) == 1:
+            survivor = rows[0]
+            if not survivor.dedupe_key:
+                try:
+                    with db.session.begin_nested():
+                        survivor.dedupe_key = key
+                        db.session.flush()
+                except IntegrityError:
+                    pass
+            continue
+
+        rows_sorted = sorted(rows, key=lambda r: (-float(r.used or 0), r.id))
+        survivor = rows_sorted[0]
+        extras = [r for r in rows if r.id != survivor.id]
+        try:
+            with db.session.begin_nested():
+                survivor.used = min(1.0, sum(float(r.used or 0) for r in rows))
+                survivor.dedupe_key = key
+                survivor.expiry_date = expected_expiry
+                for r in extras:
+                    db.session.delete(r)
+                db.session.flush()
+            deleted += len(extras)
+            touched_admins.add(admin_id)
+        except IntegrityError:
+            continue
+
+    for admin_id in touched_admins:
+        sync_comp_balance_for_admin(admin_id)
+
+    return deleted
 
 
 def count_compoff_applications_in_month(admin_id, year, month, exclude_leave_id=None):
@@ -177,29 +238,47 @@ def _credit_status(gain, today):
     return "available"
 
 
-def _preview_fifo_allocation(admin_id, days, as_of_date=None):
-    """Which active credits would be used for `days` (does not mutate DB)."""
+def _preview_fifo_allocation(admin_id, days, as_of_date=None, remaining=None, gains=None):
+    """
+    Which credits would be used for `days` (does not mutate DB).
+    If `remaining` / `gains` are provided, allocation mutates `remaining` so callers can
+    reserve credits across multiple pending applications.
+    """
     if days <= 0:
         return []
-    today = as_of_date or date.today()
-    gains = (
-        CompOffGain.query.filter(
-            CompOffGain.admin_id == admin_id,
-            CompOffGain.expiry_date >= today,
-            CompOffGain.used < 1.0,
+    as_of = as_of_date or date.today()
+    if gains is None:
+        gains = (
+            CompOffGain.query.filter(
+                CompOffGain.admin_id == admin_id,
+                CompOffGain.expiry_date >= as_of,
+                CompOffGain.used < 1.0,
+            )
+            .order_by(CompOffGain.expiry_date.asc(), CompOffGain.id.asc())
+            .all()
         )
-        .order_by(CompOffGain.expiry_date.asc(), CompOffGain.id.asc())
-        .all()
-    )
+        remaining = {
+            g.id: 1.0 - float(g.used or 0)
+            for g in gains
+        }
+    elif remaining is None:
+        remaining = {
+            g.id: 1.0 - float(g.used or 0)
+            for g in gains
+        }
+
     remaining_need = float(days)
     slices = []
     for g in gains:
         if remaining_need <= 1e-9:
             break
-        available = 1.0 - float(g.used or 0)
+        if g.expiry_date < as_of:
+            continue
+        available = float(remaining.get(g.id, 0.0))
         if available <= 1e-9:
             continue
         take = min(remaining_need, available)
+        remaining[g.id] = available - take
         slices.append(
             {
                 "gain_id": g.id,
@@ -210,6 +289,82 @@ def _preview_fifo_allocation(admin_id, days, as_of_date=None):
         )
         remaining_need -= take
     return slices
+
+
+def _compoff_days_for_leave(leave_obj):
+    """Working Comp Off days to deduct (exclude sandwich PL from preview)."""
+    requested = float(getattr(leave_obj, "requested_deducted_days", 0.0) or 0.0)
+    if requested > 0:
+        return requested
+    deducted = float(leave_obj.deducted_days or 0.0)
+    if deducted > 0:
+        return deducted
+    if leave_obj.start_date and leave_obj.end_date:
+        return max(0.0, (leave_obj.end_date - leave_obj.start_date).days + 1.0)
+    return 0.0
+
+
+def _build_pending_will_use(admin_id, pending_leaves, today=None):
+    """
+    For each pending Comp Off leave, show which earned credit dates FIFO will consume.
+    Reserves credits across apps (oldest application first) so rows don't all claim the same days.
+    Includes credits that are still unused even if already past expiry, so Applied still
+    shows the earned dates; flags approval risk when those credits are already expired.
+    """
+    today = today or date.today()
+    gains = (
+        CompOffGain.query.filter_by(admin_id=admin_id)
+        .order_by(CompOffGain.expiry_date.asc(), CompOffGain.id.asc())
+        .all()
+    )
+    remaining = {g.id: max(0.0, 1.0 - float(g.used or 0)) for g in gains}
+
+    # Allocate in apply order so first application gets oldest-expiring credits.
+    ordered = sorted(
+        pending_leaves,
+        key=lambda lv: (
+            lv.created_at.timestamp() if lv.created_at else 0.0,
+            lv.id or 0,
+        ),
+    )
+    by_id = {}
+    for lv in ordered:
+        days = _compoff_days_for_leave(lv)
+        # Plan against credits that were valid for the leave start date.
+        as_of = lv.start_date or today
+        slices = _preview_fifo_allocation(
+            admin_id,
+            days,
+            as_of_date=as_of,
+            remaining=remaining,
+            gains=gains,
+        )
+        allocated = sum(float(s["days"]) for s in slices)
+        shortfall = _round_days(max(0.0, days - allocated))
+        expired_slices = [
+            s for s in slices
+            if date.fromisoformat(s["expiry_date"]) < today
+        ]
+        # What approval can still take today (non-expired only) — informational.
+        approval_ok = shortfall <= 1e-9 and not expired_slices
+        warning = None
+        if expired_slices and slices:
+            warning = (
+                "One or more planned credits have already expired. "
+                "Approval will fail unless newer Comp Off is available."
+            )
+        elif shortfall > 1e-9:
+            warning = (
+                f"Short by {shortfall:g} day(s) of Comp Off credit for this request."
+            )
+        by_id[lv.id] = {
+            "will_use": slices,
+            "days": _round_days(days),
+            "shortfall": shortfall,
+            "approval_ok": approval_ok,
+            "warning": warning,
+        }
+    return by_id
 
 
 def _simulate_approved_usage(admin_id):
@@ -236,7 +391,7 @@ def _simulate_approved_usage(admin_id):
     )
     out = []
     for lv in leaves:
-        need = float(lv.deducted_days or 0)
+        need = _compoff_days_for_leave(lv)
         if need <= 1e-9:
             continue
         consumed = []
@@ -308,21 +463,22 @@ def build_compoff_ledger(admin_id):
         .order_by(LeaveApplication.created_at.desc())
         .all()
     )
+    will_use_by_id = _build_pending_will_use(admin_id, pending_apps, today=today)
     pending_applications = []
     for lv in pending_apps:
-        days = float(lv.deducted_days or 0) or max(
-            0.0,
-            (lv.end_date - lv.start_date).days + 1.0,
-        )
+        preview = will_use_by_id.get(lv.id) or {}
         pending_applications.append(
             {
                 "leave_id": lv.id,
                 "start_date": lv.start_date.isoformat(),
                 "end_date": lv.end_date.isoformat(),
-                "days": _round_days(days),
+                "days": preview.get("days", _round_days(_compoff_days_for_leave(lv))),
                 "status": "Applied",
                 "reason": lv.reason or "",
-                "will_use": _preview_fifo_allocation(admin_id, days, as_of_date=today),
+                "will_use": preview.get("will_use") or [],
+                "shortfall": preview.get("shortfall", 0),
+                "approval_ok": preview.get("approval_ok", False),
+                "warning": preview.get("warning"),
                 "note": "Balance is deducted only after manager approval (oldest credit first).",
             }
         )
@@ -335,7 +491,7 @@ def build_compoff_ledger(admin_id):
                 "leave_id": lv.id,
                 "start_date": lv.start_date.isoformat(),
                 "end_date": lv.end_date.isoformat(),
-                "days": _round_days(lv.deducted_days),
+                "days": _round_days(_compoff_days_for_leave(lv)),
                 "status": "Approved",
                 "reason": lv.reason or "",
                 "consumed_from": row["consumed_from"],
