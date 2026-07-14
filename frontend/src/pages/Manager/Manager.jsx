@@ -10,7 +10,6 @@ import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
 import { ManagerProbationReviews } from "./ManagerProbationReviews";
 import { ManagerIncrementProposals } from "./ManagerIncrementProposals";
 import { ManagerTeamAttendance } from "./ManagerTeamAttendance";
-import { ManagerTeamLeaveApply } from "./ManagerTeamLeaveApply";
 import { ManagerProfileCard } from "./comps/ManagerProfileCard/ManagerProfileCard";
 import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount, fetchProbationReviewsDue } from "./api";
 import { managerCanViewNhqEngineeringTeamAttendance } from "./managerTeamAttendanceEligibility";
@@ -231,12 +230,7 @@ export const Manager = () => {
         return <ManagerTeamAttendance scope={managerProfile?.scope} />;
       case "leave":
       default:
-        return (
-          <>
-            <ManagerTeamLeaveApply />
-            <LeaveRequests {...panelProps} />
-          </>
-        );
+        return <LeaveRequests {...panelProps} />;
     }
   };
 

@@ -10,7 +10,7 @@ _DEFAULTS = {
     "max_hr_backdate_days": 60,
     "block_on_payroll_locked": True,
     "max_regularization_backdate_days": 30,
-    "manager_on_behalf_allowed": True,
+    "manager_on_behalf_allowed": False,
 }
 
 
@@ -45,4 +45,4 @@ def max_regularization_backdate_days() -> int:
 
 
 def manager_on_behalf_allowed() -> bool:
-    return bool(load_leave_settings().get("manager_on_behalf_allowed", True))
+    return bool(load_leave_settings().get("manager_on_behalf_allowed", False))
