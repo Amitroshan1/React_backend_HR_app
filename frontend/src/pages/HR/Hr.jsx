@@ -6,14 +6,13 @@ import {
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
   FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2,
-  Eye, EyeOff, TrendingDown, Inbox, Package, Upload, AlertTriangle, BarChart3, ChevronRight, Briefcase
+  Eye, EyeOff, TrendingDown, Inbox, Upload, AlertTriangle, BarChart3, ChevronRight, Briefcase
 } from 'lucide-react';
 import './Hr.css';
 import './HRNocRequests.css';
 import './SignUp.css'; 
 import { UpdateSignUp } from './UpdateSignUp';
 import { AddNewsFeed } from './AddNewsFeed';
-import { UpdateLeave } from './UpdateLeave';
 import { UpdateManager } from './UpdateManager';
 import { AddLocation } from './AddLocation';
 import ExitEmployee from './ExitEmployee';
@@ -28,7 +27,6 @@ import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
 import { CircleTransferHistory } from './CircleTransferHistory';
 import { HRProbationReviews } from './HRProbationReviews';
-import { ConfirmationRequest } from './ConfirmationRequest';
 import { AddAssets } from './AddAssets';
 import { HRInbox } from './HRInbox';
 import { HREmployee360 } from './HREmployee360';
@@ -38,7 +36,7 @@ import { HRPolicyCenter } from './HRPolicyCenter';
 import { HRATS } from './HRATS';
 import { HRCompensation } from './HRCompensation';
 import { HRWorkforcePlan } from './HRWorkforcePlan';
-import { HR_MODULE_TABS, buildGroupedModules, resolvePinnedModules, enrichModuleOption, groupIdForTitle } from './hrModuleGroups';
+import { HR_MODULE_TABS, HR_SHOW_PAY_MODULES, isPayModuleTitle, isPayView, buildGroupedModules, resolvePinnedModules, enrichModuleOption, groupIdForTitle } from './hrModuleGroups';
 import { recordRecentModule, getRecentModuleTitles, resolveRecentModules, DASHBOARD_RECENT_LIMIT } from './hrModuleRecent';
 import './HrUpdatesShared.css';
 import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
@@ -58,7 +56,6 @@ const HR_PANEL_VIEWS = [
   'update_signup',
   'circle_transfer_history',
   'newsfeed',
-  'update_leave',
   'leave_updation',
   'attendance_regularization',
   'proxy_leave_report',
@@ -75,7 +72,6 @@ const HR_PANEL_VIEWS = [
   'leave_accrual_monitor',
   'holiday_calendar',
   'probation_reviews',
-  'confirmation_requests',
   'bulk_employee_import',
   'org_chart',
   'policy_center',
@@ -1656,7 +1652,6 @@ export const Hr = () => {
     { title: 'Active', value: String(counts.today_punch_in_count), subtitle: 'Punched in', icon: UserCheck, color: 'teal' },
     { title: 'Exits', value: String(counts.exits_this_month ?? 0), subtitle: 'This month', icon: TrendingDown, color: 'red' },
     { title: 'Probation', value: String(counts.probations_ending_30_days ?? 0), subtitle: '≤30 days', icon: AlertTriangle, color: 'amber' },
-    { title: 'Profiles', value: `${counts.profile_completion_pct ?? 0}%`, subtitle: 'Org average', icon: BarChart3, color: 'purple' },
     { title: 'NOC', value: String(counts.pending_noc_count ?? 0), subtitle: 'Pending', icon: FileCheck, color: 'pink' },
   ];
 
@@ -1667,7 +1662,6 @@ export const Hr = () => {
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
     { title: 'Circle Transfer History', icon: ArrowRightLeft, description: 'View circle changes with effective dates' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
-    { title: 'Update Leave', icon: FileText, description: 'Modify leave records' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
     { title: 'Attendance Regularization', icon: FileText, description: 'Approve employee requests for past absence' },
     { title: 'Proxy Leave Report', icon: BarChart3, description: 'HR/manager leaves applied on behalf of employees' },
@@ -1679,7 +1673,6 @@ export const Hr = () => {
     { title: 'Compensation', icon: BarChart3, description: 'Increment cycles and salary revision approvals' },
     { title: 'Workforce Planning', icon: Users, description: 'Headcount budget vs actual by circle and department' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
-    { title: 'Add Assets', icon: Package, description: 'Assign assets to employees' },
     { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
     { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, and attrition analytics' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
@@ -1687,7 +1680,6 @@ export const Hr = () => {
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
     { title: 'Probation Reviews', icon: UserCheck, description: 'Review manager feedback and record probation decisions' },
-    { title: 'Confirmation Queue', icon: UserCheck, description: 'Probation decisions awaiting HR confirmation' },
     { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
   ];
 
@@ -1700,6 +1692,7 @@ export const Hr = () => {
 
   const visibleUpdateOptions = updateOptions
     .filter((o) => isUpdateOptionAllowed(o.title))
+    .filter((o) => HR_SHOW_PAY_MODULES || !isPayModuleTitle(o.title))
     .map(enrichModuleOption);
 
   const [moduleSearch, setModuleSearch] = useState('');
@@ -1715,6 +1708,18 @@ export const Hr = () => {
       refreshRecentModules();
     }
   }, [view, refreshRecentModules]);
+
+  useEffect(() => {
+    if (!HR_SHOW_PAY_MODULES && moduleCategory === 'pay') {
+      setModuleCategory('all');
+    }
+  }, [moduleCategory]);
+
+  useEffect(() => {
+    if (!HR_SHOW_PAY_MODULES && isPayView(view)) {
+      setView('updates');
+    }
+  }, [view, setView]);
 
   useEffect(() => {
     if (!HR_EMPLOYEE_CONTEXT_VIEWS.has(view)) return undefined;
@@ -2135,8 +2140,6 @@ export const Hr = () => {
     }
     else if (title === 'News Feed') {
       setView('newsfeed');
-    } else if (title === 'Update Leave') {
-      setView('update_leave');
     } else if (title === 'Leave Application Updation') {
       setView('leave_updation');
     } else if (title === 'Attendance Regularization') {
@@ -2193,9 +2196,6 @@ else if (title === 'Leave Accrual Monitor') {
 }
 else if (title === 'Probation Reviews') {
   setView('probation_reviews');
-}
-else if (title === 'Confirmation Queue') {
-  setView('confirmation_requests');
 }
 else if (title === 'Holiday Calendar') {
   setView('holiday_calendar');
@@ -2281,10 +2281,6 @@ if (view === 'ex_employee_doc_share') {
     return <AddAssets onBack={() => setView('updates')} />;
   }
 
-  if (view === 'confirmation_requests') {
-    return <ConfirmationRequest onBack={() => setView('updates')} onNavigate={(v) => setView(v)} />;
-  }
-
   if (view === 'circle_transfer_history') {
     return (
       <CircleTransferHistory
@@ -2310,9 +2306,6 @@ if (view === 'ex_employee_doc_share') {
 
   if (view === 'newsfeed') {
   return <AddNewsFeed onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />;
-}
-if (view === 'update_leave'){
-  return <UpdateLeave onBack={() => setView('updates')} empTypeOptions={masterOptions.departments} circleOptions={masterOptions.circles} />
 }
 if (view === 'leave_updation'){
   return (

@@ -142,12 +142,24 @@ def deduct_comp_leave(admin_id, days):
     return True
 
 
-def restore_comp_leave(admin_id, days):
-    """Add back comp leave (e.g. on leave reversal) by creating a new gain valid 30 days."""
+def restore_comp_leave(admin_id, days, expiry_date=None):
+    """Add back comp leave (e.g. on leave reversal) by creating new gain(s).
+
+    Default expiry is today + 30 days. Pass expiry_date to set a custom expiry
+    (used when HR credits Comp Off from Employee 360).
+    """
     if days <= 0:
         return
     today = date.today()
-    expiry = today + timedelta(days=30)
+    if expiry_date is not None:
+        if isinstance(expiry_date, str):
+            expiry = date.fromisoformat(expiry_date[:10])
+        else:
+            expiry = expiry_date
+        if expiry < today:
+            raise ValueError("Comp Off expiry date cannot be in the past")
+    else:
+        expiry = today + timedelta(days=COMP_OFF_VALID_DAYS)
     for _ in range(int(days)):
         db.session.add(
             CompOffGain(
@@ -173,10 +185,10 @@ def restore_comp_leave(admin_id, days):
         credit_comp_entitlement(lb, days)
 
 
-def set_comp_balance_to_target(admin_id, target_balance):
+def set_comp_balance_to_target(admin_id, target_balance, expiry_date=None):
     """
     Adjust CompOffGain rows so effective balance matches target.
-    Increases create gains with 30-day expiry (same as restore_comp_leave);
+    Increases create gains (30-day expiry by default, or custom expiry_date);
     decreases consume oldest gains first (same as deduct_comp_leave).
     """
     target = max(0.0, round(float(target_balance or 0), 2))
@@ -184,7 +196,7 @@ def set_comp_balance_to_target(admin_id, target_balance):
     delta = round(target - current, 2)
 
     if delta > 0:
-        restore_comp_leave(admin_id, delta)
+        restore_comp_leave(admin_id, delta, expiry_date=expiry_date)
         return
     if delta < 0:
         if not deduct_comp_leave(admin_id, abs(delta)):

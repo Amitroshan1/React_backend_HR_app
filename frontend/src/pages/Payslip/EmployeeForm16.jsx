@@ -118,7 +118,13 @@ export const EmployeeForm16 = () => {
         }
         setDownloadingPath(filePath);
         try {
-            const res = await fetch(`${ACCOUNTS_API_URL}/file/${encodeURIComponent(filePath)}`, {
+            const fileUrlPath = String(filePath)
+                .replace(/\\/g, "/")
+                .split("/")
+                .filter(Boolean)
+                .map(encodeURIComponent)
+                .join("/");
+            const res = await fetch(`${ACCOUNTS_API_URL}/file/${fileUrlPath}`, {
                 method: "GET",
                 headers: authHeaders(),
             });

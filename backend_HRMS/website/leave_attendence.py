@@ -437,7 +437,303 @@ def _attendance_summary_impl():
         return any(wfh.start_date <= d <= wfh.end_date for wfh in wfh_apps if wfh.status == "Pending")
 
     # ---------------- SUMMARY DATA ----------------
-    total_present_days = 0
+    # Working days so far (credited days):
+    # - calendar working days up to today (or full past month)
+    # - count: present / half-day punch / approved WFH / approved paid leave
+    # - do NOT count: bare absents (no punch, no leave, no WFH)
+    # - unpaid leave / sandwich LWP does not count
+    # - sandwich: weekends/holidays between two leave-or-absent working days
+    #   (same leave request OR Fri+Mon leave/absent bridge) — unpaid sandwich
+    #   reduces the card only when that day is still a calendar working day
+    #   (e.g. optional holiday); weekends never enter the card base
+    emp_type = (admin.emp_type or "").strip()
+    if selected_year == today.year and selected_month == today.month:
+        working_days_end = today
+    elif (selected_year, selected_month) < (today.year, today.month):
+        working_days_end = last_day
+    else:
+        working_days_end = first_day - timedelta(days=1)
+
+    FULL_DAY_WORK_SECONDS = 8 * 3600
+
+    def _is_weekend_non_working(d):
+        weekday = d.weekday()  # Mon=0 ... Sun=6
+        return weekday == 6 or (
+            weekday == 5 and emp_type not in ("Human Resource", "Accounts")
+        )
+
+    def _is_calendar_working_day(d):
+        """Card base: exclude weekends + mandatory holidays (optional holidays remain working)."""
+        holiday = holiday_map.get(d)
+        is_mandatory_holiday = bool(holiday) and not bool(getattr(holiday, "is_optional", False))
+        return (not _is_weekend_non_working(d)) and (not is_mandatory_holiday)
+
+    def _is_sandwich_non_working(d):
+        """Match leave sandwich policy: weekends + mandatory + optional holidays."""
+        holiday = holiday_map.get(d)
+        if holiday:
+            return True
+        return _is_weekend_non_working(d)
+
+    def _leave_working_and_sandwich_days(start_d, end_d):
+        if not start_d or not end_d or end_d < start_d:
+            return [], []
+        all_days = []
+        cur = start_d
+        while cur <= end_d:
+            all_days.append(cur)
+            cur += timedelta(days=1)
+        working = [d for d in all_days if not _is_sandwich_non_working(d)]
+        if not working:
+            return [], []
+        sandwich = []
+        for d in all_days:
+            if not _is_sandwich_non_working(d):
+                continue
+            if any(w < d for w in working) and any(w > d for w in working):
+                sandwich.append(d)
+        return working, sandwich
+
+    def _punch_work_seconds(p):
+        if getattr(p, "today_work", None) and str(p.today_work).strip():
+            try:
+                parts = str(p.today_work).strip().split(":")
+                h = int(parts[0]) if len(parts) > 0 else 0
+                m = int(parts[1]) if len(parts) > 1 else 0
+                sec = int(parts[2]) if len(parts) > 2 else 0
+                return h * 3600 + m * 60 + sec
+            except (ValueError, IndexError):
+                pass
+        if p.punch_in and p.punch_out:
+            return max(0, int((p.punch_out - p.punch_in).total_seconds()))
+        return 0
+
+    paid_leave_units = {}   # date -> 0.5 / 1.0
+    unpaid_leave_units = {}  # date -> 0.5 / 1.0
+    optional_leave_taken = set()
+    unpaid_leave_days = 0.0
+
+    def _add_unit(store, day, unit):
+        store[day] = min(1.0, float(store.get(day, 0.0) or 0.0) + float(unit))
+
+    approved_leaves = [lv for lv in leaves if str(lv.status or "").strip().lower() == "approved"]
+    for lv in approved_leaves:
+        if not lv.start_date or not lv.end_date:
+            continue
+        if lv.end_date < first_day or lv.start_date > working_days_end:
+            continue
+
+        leave_type = str(lv.leave_type or "").strip()
+        is_half_day = leave_type.lower() == "half day leave"
+        leave_working, leave_sandwich = _leave_working_and_sandwich_days(lv.start_date, lv.end_date)
+
+        requested_paid = float(getattr(lv, "requested_deducted_days", None) or 0.0)
+        deducted_total = float(lv.deducted_days or 0.0)
+        sandwich_pl = float(getattr(lv, "sandwich_pl_days", None) or 0.0)
+        extra = float(lv.extra_days or 0.0)
+
+        def _consume_days(days, paid_quota, unpaid_quota, unit_default=1.0):
+            """Split leave days into paid vs unpaid using quotas (working then sandwich)."""
+            nonlocal unpaid_leave_days
+            paid_left = float(paid_quota)
+            unpaid_left = float(unpaid_quota)
+            for day in days:
+                unit = 0.5 if is_half_day else unit_default
+                in_window = first_day <= day <= working_days_end
+                affects_card = _is_calendar_working_day(day)
+                use_paid = 0.0
+                use_unpaid = 0.0
+
+                if paid_left + 1e-9 >= unit:
+                    use_paid = unit
+                    paid_left -= unit
+                elif unpaid_left + 1e-9 >= unit:
+                    use_unpaid = unit
+                    unpaid_left -= unit
+                else:
+                    use_paid = max(0.0, paid_left)
+                    use_unpaid = max(0.0, min(unpaid_left, unit - use_paid))
+                    paid_left = 0.0
+                    unpaid_left = max(0.0, unpaid_left - use_unpaid)
+
+                if use_paid > 0:
+                    _add_unit(paid_leave_units, day, use_paid)
+                if use_unpaid > 0:
+                    _add_unit(unpaid_leave_units, day, use_unpaid)
+                    if in_window and affects_card:
+                        unpaid_leave_days += use_unpaid
+
+                if is_half_day:
+                    break
+            return paid_left, unpaid_left
+
+        if leave_type == "Optional Leave":
+            # Optional holiday taken → not a credited working day for this employee.
+            d = max(lv.start_date, first_day)
+            d_end = min(lv.end_date, working_days_end)
+            while d <= d_end:
+                holiday = holiday_map.get(d)
+                if holiday and bool(getattr(holiday, "is_optional", False)):
+                    optional_leave_taken.add(d)
+                d += timedelta(days=1)
+            continue
+
+        if is_half_day:
+            paid = 0.0 if extra >= 0.5 else 0.5
+            unpaid = 0.5 if extra >= 0.5 else 0.0
+            days = [lv.start_date] if lv.start_date else []
+            _consume_days(days, paid, unpaid, unit_default=0.5)
+            continue
+
+        if leave_type == "Privilege Leave":
+            paid = deducted_total if deducted_total > 0 else requested_paid
+            unpaid = extra
+            ordered = sorted(set(leave_working + leave_sandwich))
+            if paid <= 0 and unpaid <= 0 and ordered:
+                paid = float(len(ordered))
+            _consume_days(ordered, paid, unpaid)
+            continue
+
+        # Casual / Comp Off / others:
+        # working days paid from leave type; sandwich paid from PL (sandwich_pl_days);
+        # remaining sandwich / overflow is unpaid (extra_days).
+        working_paid = requested_paid if requested_paid > 0 else max(0.0, deducted_total - sandwich_pl)
+        if working_paid <= 0 and leave_working and extra <= 0 and sandwich_pl <= 0:
+            working_paid = float(len(leave_working))
+
+        _, unpaid_after_working = _consume_days(leave_working, working_paid, extra)
+        _consume_days(leave_sandwich, sandwich_pl, unpaid_after_working)
+
+    # Present / half-day punch maps (complete punch in + out only).
+    worked_full_dates = set()
+    worked_half_dates = set()
+    for p in punches:
+        if not p.punch_in or not p.punch_out:
+            continue
+        if p.punch_date < first_day or p.punch_date > working_days_end:
+            continue
+        secs = _punch_work_seconds(p)
+        if secs >= FULL_DAY_WORK_SECONDS:
+            worked_full_dates.add(p.punch_date)
+        else:
+            worked_half_dates.add(p.punch_date)
+
+    approved_wfh_dates = set()
+    for wfh in wfh_apps:
+        if str(wfh.status or "").strip().lower() != "approved":
+            continue
+        d = max(wfh.start_date, first_day)
+        d_end = min(wfh.end_date, working_days_end)
+        while d <= d_end:
+            approved_wfh_dates.add(d)
+            d += timedelta(days=1)
+
+    def _is_leave_or_absent_bridge(d):
+        """Working day used for sandwich bridges: leave (paid/unpaid) or bare absent."""
+        if not _is_calendar_working_day(d) or d in optional_leave_taken:
+            return False
+        if d in worked_full_dates or d in worked_half_dates or d in approved_wfh_dates:
+            return False
+        # On leave (paid or unpaid) or absent without coverage.
+        return True
+
+    # Attendance sandwich (leave OR absent on both sides): unpaid sandwich days
+    # that fall on the card base (optional holidays) reduce credited working days.
+    sandwich_bridge_unpaid = 0.0
+    abs_bridge_marked = set()
+    current = first_day
+    while current <= working_days_end and current <= last_day:
+        if (
+            _is_sandwich_non_working(current)
+            and current not in abs_bridge_marked
+            and current not in paid_leave_units
+            and current not in unpaid_leave_units
+        ):
+            # Find nearest calendar working days before/after inside month window.
+            before = current - timedelta(days=1)
+            after = current + timedelta(days=1)
+            while before >= first_day and _is_sandwich_non_working(before):
+                before -= timedelta(days=1)
+            while after <= working_days_end and _is_sandwich_non_working(after):
+                after += timedelta(days=1)
+            if (
+                first_day <= before <= working_days_end
+                and first_day <= after <= working_days_end
+                and _is_leave_or_absent_bridge(before)
+                and _is_leave_or_absent_bridge(after)
+            ):
+                # Mark contiguous sandwich block between before and after.
+                mid = before + timedelta(days=1)
+                while mid < after:
+                    if _is_sandwich_non_working(mid):
+                        abs_bridge_marked.add(mid)
+                        if (
+                            _is_calendar_working_day(mid)
+                            and mid not in optional_leave_taken
+                            and mid not in paid_leave_units
+                        ):
+                            # Optional holiday sandwiched by leave/absent → not credited.
+                            sandwich_bridge_unpaid += 1.0
+                            _add_unit(unpaid_leave_units, mid, 1.0)
+                    mid += timedelta(days=1)
+        current += timedelta(days=1)
+
+    unpaid_leave_days = round(unpaid_leave_days + sandwich_bridge_unpaid, 1)
+
+    total_working_days = 0.0
+    current = first_day
+    while current <= working_days_end and current <= last_day:
+        if not _is_calendar_working_day(current):
+            current += timedelta(days=1)
+            continue
+        if current in optional_leave_taken:
+            current += timedelta(days=1)
+            continue
+
+        unpaid_u = float(unpaid_leave_units.get(current, 0.0) or 0.0)
+        paid_u = float(paid_leave_units.get(current, 0.0) or 0.0)
+
+        # Fully unpaid leave / unpaid sandwich → not credited.
+        if unpaid_u >= 1.0 - 1e-9:
+            current += timedelta(days=1)
+            continue
+
+        # Full paid leave → credited working day.
+        if paid_u >= 1.0 - 1e-9:
+            total_working_days += 1.0
+            current += timedelta(days=1)
+            continue
+
+        # Half unpaid leave: remaining half needs punch/WFH to credit 0.5.
+        if unpaid_u >= 0.5 - 1e-9 and paid_u < 1e-9:
+            if current in worked_full_dates or current in worked_half_dates or current in approved_wfh_dates:
+                total_working_days += 0.5
+            current += timedelta(days=1)
+            continue
+
+        # Half paid leave: credit 0.5 + another 0.5 if punched/WFH.
+        if paid_u >= 0.5 - 1e-9:
+            credit = 0.5
+            if current in worked_full_dates or current in worked_half_dates or current in approved_wfh_dates:
+                credit += 0.5
+            total_working_days += credit
+            current += timedelta(days=1)
+            continue
+
+        # No leave: present / WFH count; bare absent does not.
+        if current in approved_wfh_dates or current in worked_full_dates:
+            total_working_days += 1.0
+        elif current in worked_half_dates:
+            total_working_days += 0.5
+        # else absent → 0
+
+        current += timedelta(days=1)
+
+    total_working_days = max(0.0, round(total_working_days, 1))
+
+    # Keep total_present_days as the card value for API compatibility.
+    total_present_days = total_working_days
+
     total_work_seconds = 0
     punch_in_seconds = []
     punch_out_seconds = []
@@ -447,13 +743,11 @@ def _attendance_summary_impl():
             continue
 
         if p.punch_in and p.punch_out:
-            total_present_days += 1
-
             if p.today_work:
                 try:
                     h, m, s = map(int, str(p.today_work).split(":"))
                     total_work_seconds += h * 3600 + m * 60 + s
-                except:
+                except Exception:
                     pass
 
             def _to_seconds(dt):
@@ -584,8 +878,10 @@ def _attendance_summary_impl():
         "success": True,
         "month": f"{calendar.month_name[selected_month]} {selected_year}",
 
-        # 🔹 Existing summary (unchanged)
-        "total_present_days": total_present_days,
+        # Summary cards
+        "total_present_days": total_present_days,  # credited working days (present/WFH/paid leave; absents & unpaid excluded)
+        "total_working_days": total_working_days,
+        "unpaid_leave_days": round(unpaid_leave_days, 1),
         "average_punch_in": avg_punch_in,
         "average_punch_out": avg_punch_out,
         "actual_work_hours": str(timedelta(seconds=total_work_seconds)),

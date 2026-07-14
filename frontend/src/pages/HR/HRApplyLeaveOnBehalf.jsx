@@ -191,8 +191,15 @@ export function HRApplyLeaveOnBehalf({
       aria-label="Apply leave on behalf"
     >
       <div className="hr-leave-on-behalf__head">
-        <div>
-          <h3>Apply leave on behalf{employeeLabel ? ` — ${employeeLabel}` : ''}</h3>
+        <div className="hr-leave-on-behalf__head-copy">
+          {embedded && employeeLabel ? (
+            <p className="hr-leave-on-behalf__selected">
+              <span className="hr-leave-on-behalf__selected-label">Selected employee</span>
+              <strong>{employeeLabel}</strong>
+            </p>
+          ) : (
+            <h3>Apply leave on behalf{employeeLabel ? ` — ${employeeLabel}` : ''}</h3>
+          )}
           <p className="hr-leave-on-behalf__hint">
             HR can apply backdated leave. Backdated requests default to Approved.
             {policyHint ? ` ${policyHint}.` : ''}
@@ -213,7 +220,7 @@ export function HRApplyLeaveOnBehalf({
       </div>
 
       {!adminId ? (
-        <p className="hr-leave-on-behalf__muted">Select an employee to apply leave on their behalf.</p>
+        <p className="hr-leave-on-behalf__empty">Select an employee above to apply leave on their behalf.</p>
       ) : null}
 
       {formSuccess && !showForm ? (

@@ -161,14 +161,6 @@ const ArchiveEmployeeDetails = () => {
               {employee?.fnf?.settlement_id && (
                 <p><strong>Settlement ID:</strong> {employee.fnf.settlement_id}</p>
               )}
-              <button
-                type="button"
-                className="archive-letter-btn"
-                style={{ marginTop: 8 }}
-                onClick={() => navigate(`/account?admin_id=${adminId}&section=fnf`)}
-              >
-                Open F&F in Accounts
-              </button>
               {rehirePolicy && (
                 <>
                   <p>

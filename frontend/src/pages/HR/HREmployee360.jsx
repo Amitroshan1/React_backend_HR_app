@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, User } from 'lucide-react';
+import { ArrowLeft, User, Package } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
@@ -12,13 +12,14 @@ import '../Leaves/CompOffLedger.css';
 const HR_API_BASE = '/api/HumanResource';
 const ACCOUNTS_API_BASE = '/api/accounts';
 const E360_TAB_STORAGE_KEY = 'hr_employee_360_tab';
-const E360_TABS = ['profile', 'attendance', 'leave', 'offboarding', 'accounts'];
+const E360_TABS = ['profile', 'attendance', 'leave', 'offboarding', 'assets', 'accounts'];
 
 const TABS = [
   { id: 'profile', label: 'Profile' },
   { id: 'attendance', label: 'Attendance' },
   { id: 'leave', label: 'Leave' },
   { id: 'offboarding', label: 'Offboarding' },
+  { id: 'assets', label: 'Assets' },
   { id: 'accounts', label: 'Accounts', feature: 'hr_employee_accounts' },
 ];
 
@@ -35,6 +36,21 @@ function leaveStatusClass(status) {
   return '';
 }
 
+function defaultCompOffExpiryIso() {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+const BALANCE_LEAVE_TYPES = [
+  { value: 'privilege', label: 'Privilege Leave (PL)', key: 'privilege_leave_balance' },
+  { value: 'casual', label: 'Casual Leave (CL)', key: 'casual_leave_balance' },
+  { value: 'compensatory', label: 'Compensatory Leave (Comp Off)', key: 'compensatory_leave_balance' },
+];
+
 function LeaveTab({ employee }) {
   const [data, setData] = useState(null);
   const [history, setHistory] = useState([]);
@@ -43,6 +59,19 @@ function LeaveTab({ employee }) {
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
   const [showCompOffLedger, setShowCompOffLedger] = useState(false);
+  const [showBalanceEdit, setShowBalanceEdit] = useState(false);
+  const [balanceLeaveType, setBalanceLeaveType] = useState('privilege');
+  const [balanceNewValue, setBalanceNewValue] = useState('');
+  const [compOffExpiry, setCompOffExpiry] = useState(defaultCompOffExpiryIso());
+  const [balanceSaving, setBalanceSaving] = useState(false);
+  const [balanceError, setBalanceError] = useState('');
+  const [balanceSuccess, setBalanceSuccess] = useState('');
+
+  const syncBalanceEditorFromData = useCallback((leaveBalance) => {
+    const lb = leaveBalance || {};
+    const typeMeta = BALANCE_LEAVE_TYPES.find((t) => t.value === balanceLeaveType) || BALANCE_LEAVE_TYPES[0];
+    setBalanceNewValue(String(lb[typeMeta.key] ?? '0'));
+  }, [balanceLeaveType]);
 
   const loadLeaveData = useCallback(async () => {
     setLoading(true);
@@ -60,8 +89,12 @@ function LeaveTab({ employee }) {
       const balJson = await balRes.json().catch(() => ({}));
       const histJson = await histRes.json().catch(() => ({}));
 
-      if (balRes.ok && balJson.success) setData(balJson);
-      else setError(balJson.message || 'Failed to load leave balance');
+      if (balRes.ok && balJson.success) {
+        setData(balJson);
+        const lb = balJson.leave_balance || {};
+        const typeMeta = BALANCE_LEAVE_TYPES.find((t) => t.value === 'privilege');
+        setBalanceNewValue(String(lb[typeMeta.key] ?? '0'));
+      } else setError(balJson.message || 'Failed to load leave balance');
 
       if (histRes.ok && histJson.success) setHistory(histJson.requests || []);
       else {
@@ -83,7 +116,70 @@ function LeaveTab({ employee }) {
 
   useEffect(() => {
     setShowCompOffLedger(false);
+    setShowBalanceEdit(false);
+    setBalanceLeaveType('privilege');
+    setCompOffExpiry(defaultCompOffExpiryIso());
+    setBalanceError('');
+    setBalanceSuccess('');
   }, [employee?.id]);
+
+  useEffect(() => {
+    if (data?.leave_balance) syncBalanceEditorFromData(data.leave_balance);
+  }, [balanceLeaveType, data?.leave_balance, syncBalanceEditorFromData]);
+
+  const handleBalanceUpdate = async (e) => {
+    e.preventDefault();
+    setBalanceError('');
+    setBalanceSuccess('');
+    const typeMeta = BALANCE_LEAVE_TYPES.find((t) => t.value === balanceLeaveType);
+    if (!typeMeta) return;
+
+    const newVal = parseFloat(balanceNewValue);
+    if (!Number.isFinite(newVal) || newVal < 0) {
+      setBalanceError('Enter a valid balance (0 or more).');
+      return;
+    }
+
+    const current = parseFloat(data?.leave_balance?.[typeMeta.key] ?? 0) || 0;
+    const body = {};
+    body[typeMeta.key] = newVal;
+
+    if (balanceLeaveType === 'compensatory' && newVal > current + 1e-9) {
+      if (!compOffExpiry) {
+        setBalanceError('Select an expiry date for Comp Off credits being added.');
+        return;
+      }
+      body.compensatory_leave_expiry = compOffExpiry;
+    }
+
+    setBalanceSaving(true);
+    try {
+      const res = await fetch(`${HR_API_BASE}/leave-balance/${employee.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) {
+        setBalanceError(json.message || 'Update failed');
+        return;
+      }
+      const updated = json.leave_balance || {};
+      setData((prev) => ({
+        ...(prev || {}),
+        leave_balance: { ...(prev?.leave_balance || {}), ...updated },
+      }));
+      setBalanceNewValue(String(updated[typeMeta.key] ?? newVal));
+      setBalanceSuccess(`${typeMeta.label} updated successfully.`);
+      if (balanceLeaveType === 'compensatory') {
+        setCompOffExpiry(defaultCompOffExpiryIso());
+      }
+    } catch {
+      setBalanceError('Network error. Please try again.');
+    } finally {
+      setBalanceSaving(false);
+    }
+  };
 
   if (showCompOffLedger) {
     const employeeLabel =
@@ -101,7 +197,16 @@ function LeaveTab({ employee }) {
   if (loading) return <p className="e360-loading">Loading leave balance…</p>;
   if (error) return <p className="e360-error">{error}</p>;
   const bal = data?.leave_balance || {};
-  const employeeLabel = employee.first_name || employee.emp_id || `ID ${employee.id}`;
+  const employeeLabel =
+    employee.name || employee.first_name || employee.emp_id || `ID ${employee.id}`;
+  const selectedTypeMeta = BALANCE_LEAVE_TYPES.find((t) => t.value === balanceLeaveType);
+  const currentSelected = parseFloat(bal[selectedTypeMeta?.key] ?? 0) || 0;
+  const newValNum = parseFloat(balanceNewValue);
+  const isAddingCompOff =
+    balanceLeaveType === 'compensatory' &&
+    Number.isFinite(newValNum) &&
+    newValNum > currentSelected + 1e-9;
+
   return (
     <div className="e360-leave">
       <div className="e360-leave-grid">
@@ -118,6 +223,116 @@ function LeaveTab({ employee }) {
           <em className="e360-stat__hint">Tap for details</em>
         </button>
       </div>
+
+      <section className="e360-leave-balance-edit" aria-label="Update leave balance">
+        <div className="e360-leave-balance-edit__head">
+          <div>
+            <h3>Leave Balance for: {employeeLabel}</h3>
+            <p className="e360-muted">Select a leave type below to update its balance</p>
+          </div>
+          <button
+            type="button"
+            className="e360-leave-balance-edit__toggle"
+            onClick={() => {
+              setShowBalanceEdit((v) => !v);
+              setBalanceError('');
+              setBalanceSuccess('');
+              if (!showBalanceEdit) {
+                syncBalanceEditorFromData(bal);
+                setCompOffExpiry(defaultCompOffExpiryIso());
+              }
+            }}
+          >
+            {showBalanceEdit ? 'Hide' : 'Update balance'}
+          </button>
+        </div>
+
+        {showBalanceEdit ? (
+          <form className="e360-leave-balance-edit__form" onSubmit={handleBalanceUpdate}>
+            {balanceSuccess ? <p className="e360-leave-balance-edit__success">{balanceSuccess}</p> : null}
+            {balanceError ? <p className="e360-error">{balanceError}</p> : null}
+
+            <div className="e360-leave-balance-edit__fields">
+              <label>
+                Leave type
+                <select
+                  value={balanceLeaveType}
+                  onChange={(e) => {
+                    setBalanceLeaveType(e.target.value);
+                    setBalanceError('');
+                    setBalanceSuccess('');
+                  }}
+                >
+                  {BALANCE_LEAVE_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                New balance
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={balanceNewValue}
+                  onChange={(e) => {
+                    setBalanceNewValue(e.target.value);
+                    setBalanceError('');
+                    setBalanceSuccess('');
+                  }}
+                  required
+                />
+              </label>
+
+              {balanceLeaveType === 'compensatory' ? (
+                <label>
+                  Comp Off expiry date
+                  <input
+                    type="date"
+                    value={compOffExpiry}
+                    min={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => {
+                      setCompOffExpiry(e.target.value);
+                      setBalanceError('');
+                      setBalanceSuccess('');
+                    }}
+                    required={isAddingCompOff}
+                  />
+                  <span className="e360-leave-balance-edit__hint">
+                    {isAddingCompOff
+                      ? 'Required when adding Comp Off — applies to newly credited day(s).'
+                      : 'Used only when increasing Comp Off balance.'}
+                  </span>
+                </label>
+              ) : null}
+            </div>
+
+            <p className="e360-leave-balance-edit__current">
+              Current {selectedTypeMeta?.label}: <strong>{bal[selectedTypeMeta?.key] ?? '—'}</strong>
+            </p>
+
+            <div className="e360-leave-balance-edit__actions">
+              <button type="submit" className="e360-leave-balance-edit__submit" disabled={balanceSaving}>
+                {balanceSaving ? 'Updating…' : 'Update'}
+              </button>
+              <button
+                type="button"
+                className="e360-leave-balance-edit__cancel"
+                onClick={() => {
+                  setShowBalanceEdit(false);
+                  setBalanceError('');
+                  setBalanceSuccess('');
+                  syncBalanceEditorFromData(bal);
+                  setCompOffExpiry(defaultCompOffExpiryIso());
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </section>
 
       <HRApplyLeaveOnBehalf
         adminId={employee.id}
@@ -182,6 +397,136 @@ function LeaveTab({ employee }) {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function assetImageUrl(path) {
+  if (!path) return null;
+  const clean = String(path).replace(/^\/+/, '');
+  return `/static/uploads/${clean}`;
+}
+
+function AssetsTab({ employee }) {
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await fetch(`${HR_API_BASE}/employee/${employee.id}/assets`, {
+          headers: getAuthHeaders(),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok && json.success) {
+          setAssets(json.assets || []);
+        } else {
+          setAssets([]);
+          setError(json.message || 'Failed to load assigned assets');
+        }
+      } catch {
+        if (!cancelled) {
+          setAssets([]);
+          setError('Network error');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [employee.id]);
+
+  if (loading) return <p className="e360-loading">Loading assigned assets…</p>;
+  if (error) return <p className="e360-muted">{error}</p>;
+
+  const activeCount = assets.filter((a) => !a.return_date).length;
+
+  return (
+    <div className="e360-assets">
+      <div className="e360-assets__head">
+        <div>
+          <h3>Assigned assets</h3>
+          <p className="e360-muted">
+            {assets.length === 0
+              ? 'No company assets are recorded for this employee.'
+              : `${activeCount} active • ${assets.length} total assigned`}
+          </p>
+        </div>
+      </div>
+
+      {assets.length === 0 ? (
+        <div className="e360-assets__empty">
+          <Package size={28} aria-hidden />
+          <p>No assets assigned yet.</p>
+        </div>
+      ) : (
+        <div className="e360-assets__grid">
+          {assets.map((asset) => {
+            const isReturned = Boolean(asset.return_date);
+            const images = Array.isArray(asset.images) ? asset.images.filter(Boolean) : [];
+            return (
+              <article key={asset.id} className="e360-asset-card">
+                <div className="e360-asset-card__head">
+                  <div className="e360-asset-card__icon" aria-hidden>
+                    <Package size={18} />
+                  </div>
+                  <div className="e360-asset-card__title-wrap">
+                    <h4>{asset.name || 'Asset'}</h4>
+                    {asset.description ? <p>{asset.description}</p> : null}
+                  </div>
+                  <span className={`e360-asset-status${isReturned ? ' e360-asset-status--returned' : ''}`}>
+                    {isReturned ? 'Returned' : 'Active'}
+                  </span>
+                </div>
+
+                <div className="e360-asset-card__meta">
+                  <div className="e360-row">
+                    <span>Issued</span>
+                    <strong>{formatDateDDMMYYYY(asset.issue_date, '—')}</strong>
+                  </div>
+                  <div className="e360-row">
+                    <span>Return date</span>
+                    <strong>{formatDateDDMMYYYY(asset.return_date, '—')}</strong>
+                  </div>
+                  {asset.remark ? (
+                    <div className="e360-asset-card__remark">
+                      <span>Remark</span>
+                      <p>{asset.remark}</p>
+                    </div>
+                  ) : null}
+                </div>
+
+                {images.length > 0 ? (
+                  <div className="e360-asset-card__images">
+                    {images.map((img, idx) => {
+                      const src = assetImageUrl(img);
+                      if (!src) return null;
+                      return (
+                        <a
+                          key={`${asset.id}-${idx}`}
+                          href={src}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="e360-asset-card__thumb"
+                        >
+                          <img src={src} alt={`${asset.name || 'Asset'} ${idx + 1}`} />
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="e360-muted e360-hint">Read-only view of assets assigned to this employee.</p>
     </div>
   );
 }
@@ -281,7 +626,7 @@ function AccountsSummaryTab({ employee }) {
           <strong>{val || '—'}</strong>
         </div>
       ))}
-      <p className="e360-muted e360-hint">Read-only summary. Use Accounts module for full payroll edits.</p>
+      <p className="e360-muted e360-hint">Read-only summary for HR. Payroll edits are handled in Accounts.</p>
     </div>
   );
 }
@@ -391,6 +736,7 @@ export const HREmployee360 = ({
         ) : null}
         {activeTab === 'leave' ? <LeaveTab employee={employee} /> : null}
         {activeTab === 'offboarding' ? <OffboardingTab employee={employee} /> : null}
+        {activeTab === 'assets' ? <AssetsTab employee={employee} /> : null}
         {activeTab === 'accounts' && AccountsView ? (
           <AccountsView employee={employee} onBack={noopBack} embedded />
         ) : null}

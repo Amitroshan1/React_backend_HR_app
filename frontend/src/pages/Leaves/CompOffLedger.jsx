@@ -55,6 +55,51 @@ function formatWillUse(row) {
   return 'No matching Comp Off credit found';
 }
 
+const STATUS_PRIORITY = {
+  expiring_soon: 4,
+  partially_used: 3,
+  available: 2,
+  expired: 1,
+  used: 0,
+};
+
+/** Merge credits with the same earned + expiry dates into one display row. */
+function groupCreditsByDate(credits) {
+  const map = new Map();
+  for (const c of credits || []) {
+    const key = `${c.gain_date}|${c.expiry_date}`;
+    const available = Number(c.available) || 0;
+    const used = Number(c.used) || 0;
+    const lost = Math.max(0, 1 - used);
+    if (!map.has(key)) {
+      map.set(key, {
+        id: `group-${key}`,
+        gain_date: c.gain_date,
+        expiry_date: c.expiry_date,
+        days_remaining: c.days_remaining,
+        available,
+        used,
+        lost,
+        status: c.status,
+        count: 1,
+      });
+      continue;
+    }
+    const g = map.get(key);
+    g.available += available;
+    g.used += used;
+    g.lost += lost;
+    g.count += 1;
+    if (c.days_remaining != null && (g.days_remaining == null || c.days_remaining < g.days_remaining)) {
+      g.days_remaining = c.days_remaining;
+    }
+    if ((STATUS_PRIORITY[c.status] || 0) > (STATUS_PRIORITY[g.status] || 0)) {
+      g.status = c.status;
+    }
+  }
+  return Array.from(map.values());
+}
+
 export const CompOffLedger = ({
   employeeId = null,
   employeeLabel = '',
@@ -108,31 +153,37 @@ export const CompOffLedger = ({
     return rows.filter((c) => ['available', 'expiring_soon', 'partially_used'].includes(c.status));
   }, [ledger]);
 
+  const groupedActiveCredits = useMemo(() => groupCreditsByDate(activeCredits), [activeCredits]);
+
   const usedCredits = useMemo(() => {
     const rows = ledger?.credits || [];
     return rows.filter((c) => c.status === 'used');
   }, [ledger]);
+
+  const groupedUsedCredits = useMemo(() => groupCreditsByDate(usedCredits), [usedCredits]);
 
   const expiredCredits = useMemo(() => {
     const rows = ledger?.credits || [];
     return rows.filter((c) => c.status === 'expired');
   }, [ledger]);
 
+  const groupedExpiredCredits = useMemo(() => groupCreditsByDate(expiredCredits), [expiredCredits]);
+
   const pendingApps = ledger?.pending_applications || [];
   const usageHistory = ledger?.usage_history || [];
 
   const tabCounts = useMemo(
     () => ({
-      active: activeCredits.length,
+      active: groupedActiveCredits.length,
       applied: pendingApps.length,
       history: usageHistory.length,
-      expired: expiredCredits.length,
+      expired: groupedExpiredCredits.length,
     }),
-    [activeCredits.length, pendingApps.length, usageHistory.length, expiredCredits.length]
+    [groupedActiveCredits.length, pendingApps.length, usageHistory.length, groupedExpiredCredits.length]
   );
 
   const renderActivePanel = () => {
-    if (activeCredits.length === 0) {
+    if (groupedActiveCredits.length === 0) {
       return <p className="compoff-muted">No active Comp Off credits right now.</p>;
     }
     return (
@@ -148,7 +199,7 @@ export const CompOffLedger = ({
             </tr>
           </thead>
           <tbody>
-            {activeCredits.map((c) => (
+            {groupedActiveCredits.map((c) => (
               <tr key={c.id}>
                 <td>{formatDate(c.gain_date)}</td>
                 <td>{formatDate(c.expiry_date)}</td>
@@ -222,7 +273,7 @@ export const CompOffLedger = ({
   };
 
   const renderHistoryPanel = () => {
-    if (usageHistory.length === 0 && usedCredits.length === 0) {
+    if (usageHistory.length === 0 && groupedUsedCredits.length === 0) {
       return <p className="compoff-muted">No approved Comp Off usage yet.</p>;
     }
     return (
@@ -260,7 +311,7 @@ export const CompOffLedger = ({
         ) : (
           <p className="compoff-muted">No approved leave usage recorded yet.</p>
         )}
-        {usedCredits.length > 0 ? (
+        {groupedUsedCredits.length > 0 ? (
           <>
             <h3 className="compoff-panel-subtitle">Fully used credits</h3>
             <div className="compoff-table-wrap">
@@ -274,7 +325,7 @@ export const CompOffLedger = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {usedCredits.map((c) => (
+                  {groupedUsedCredits.map((c) => (
                     <tr key={c.id}>
                       <td>{formatDate(c.gain_date)}</td>
                       <td>{formatDate(c.expiry_date)}</td>
@@ -294,7 +345,7 @@ export const CompOffLedger = ({
   };
 
   const renderExpiredPanel = () => {
-    if (expiredCredits.length === 0) {
+    if (groupedExpiredCredits.length === 0) {
       return <p className="compoff-muted">No expired Comp Off credits.</p>;
     }
     return (
@@ -309,19 +360,16 @@ export const CompOffLedger = ({
             </tr>
           </thead>
           <tbody>
-            {expiredCredits.map((c) => {
-              const lost = Math.max(0, 1 - Number(c.used || 0));
-              return (
-                <tr key={c.id}>
-                  <td>{formatDate(c.gain_date)}</td>
-                  <td>{formatDate(c.expiry_date)}</td>
-                  <td>{formatDays(lost)}</td>
-                  <td>
-                    <span className="compoff-badge compoff-badge--expired">Expired</span>
-                  </td>
-                </tr>
-              );
-            })}
+            {groupedExpiredCredits.map((c) => (
+              <tr key={c.id}>
+                <td>{formatDate(c.gain_date)}</td>
+                <td>{formatDate(c.expiry_date)}</td>
+                <td>{formatDays(c.lost)}</td>
+                <td>
+                  <span className="compoff-badge compoff-badge--expired">Expired</span>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -381,7 +429,7 @@ export const CompOffLedger = ({
             </article>
             <article className="compoff-summary-card">
               <span className="compoff-summary-label">Expired credits</span>
-              <strong className="compoff-summary-value">{expiredCredits.length}</strong>
+              <strong className="compoff-summary-value">{groupedExpiredCredits.length}</strong>
             </article>
           </section>
 

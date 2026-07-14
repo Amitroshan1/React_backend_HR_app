@@ -304,10 +304,10 @@
   padding: 0 14px 16px;
 }
 
-/* Metric grid — all 7 cards in one row on desktop */
+/* Metric grid — fill the overview row evenly */
 .hr-dashboard .hr-stats-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
   width: 100%;
@@ -2556,7 +2556,7 @@
   }
 
   .hr-dashboard .hr-stats-grid {
-    grid-template-columns: repeat(7, minmax(108px, 1fr));
+    grid-template-columns: repeat(6, minmax(108px, 1fr));
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
@@ -2648,7 +2648,7 @@
   }
 
   .hr-dashboard .hr-stats-grid {
-    grid-template-columns: repeat(7, minmax(100px, 1fr));
+    grid-template-columns: repeat(6, minmax(100px, 1fr));
     gap: 10px;
   }
 

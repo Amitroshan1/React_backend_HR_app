@@ -1560,6 +1560,18 @@ def _client_is_pending_leave(leave_app):
     return _client_norm_leave_status(getattr(leave_app, "status", None)) in _CLIENT_PENDING_LEAVE_STATUSES
 
 
+def _client_is_compoff_leave(leave_app):
+    return (getattr(leave_app, "leave_type", "") or "").strip() == "Compensatory Leave"
+
+
+def _client_compoff_cell_label(status_label, on_date):
+    """e.g. CompOff(Approved) 02/07/2026"""
+    date_txt = on_date.strftime("%d/%m/%Y") if on_date else ""
+    if date_txt:
+        return f"CompOff({status_label}) {date_txt}"
+    return f"CompOff({status_label})"
+
+
 def _client_punch_work_seconds(punch):
     if not punch:
         return 0
@@ -1871,8 +1883,18 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             elif leaves_for_day:
                 approved_leaves = [la for la in leaves_for_day if _client_is_approved_leave(la)]
                 pending_leaves = [la for la in leaves_for_day if _client_is_pending_leave(la)]
+                approved_compoff = [la for la in approved_leaves if _client_is_compoff_leave(la)]
+                approved_other = [la for la in approved_leaves if not _client_is_compoff_leave(la)]
+                pending_compoff = [la for la in pending_leaves if _client_is_compoff_leave(la)]
+                pending_other = [la for la in pending_leaves if not _client_is_compoff_leave(la)]
+                has_punch = bool(punch and (punch.punch_in or punch.punch_out))
 
-                if approved_leaves:
+                # Approved Comp Off day → CompOff(Approved) + date (client highlight)
+                if approved_compoff and not approved_other:
+                    cell_text = _client_compoff_cell_label("Approved", current)
+                    worksheet.write(row, base_col, cell_text, legend_comp_off_fmt)
+                    worksheet.write(row, base_col + 1, "", legend_comp_off_fmt)
+                elif approved_leaves:
                     approved_label = _client_leave_types_label(approved_leaves)
                     only_half_day = all(
                         (getattr(la, "leave_type", "") or "").strip() == "Half Day Leave"
@@ -1898,6 +1920,21 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                         fmt = legend_leave_fmt
                         worksheet.write(row, base_col, cell_text, fmt)
                         worksheet.write(row, base_col + 1, "", fmt)
+                # Pending Comp Off only, and no punch → CompOff(Pending) + date
+                elif pending_compoff and not pending_other and not has_punch:
+                    cell_text = _client_compoff_cell_label("Pending", current)
+                    worksheet.write(row, base_col, cell_text, legend_leave_pending_fmt)
+                    worksheet.write(row, base_col + 1, "", legend_leave_pending_fmt)
+                # Pending Comp Off but employee punched → show punch times
+                elif pending_compoff and not pending_other and has_punch:
+                    if is_weekend:
+                        _client_write_punch_row_cells(
+                            worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
+                        )
+                    else:
+                        _client_write_punch_row_cells(
+                            worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
+                        )
                 elif pending_leaves:
                     pending_label = _client_leave_types_label(pending_leaves)
                     cell_text = f"Leave not approved ({pending_label})"
@@ -1907,7 +1944,6 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                 else:
                     # Rejected (or other non-approved): employee expected to work — show attendance
                     if is_weekend:
-                        has_punch = punch and (punch.punch_in or punch.punch_out)
                         if has_punch:
                             _client_write_punch_row_cells(
                                 worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt

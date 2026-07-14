@@ -1,5 +1,23 @@
 /** HR module hub — lifecycle categories (Phase 1). */
 
+/**
+ * Temporary: hide Pay tab + Compensation / Workforce Planning.
+ * Set to `true` when ready to show again.
+ */
+export const HR_SHOW_PAY_MODULES = false;
+
+export const HR_PAY_MODULE_TITLES = ['Compensation', 'Workforce Planning'];
+
+export function isPayModuleTitle(title) {
+  return HR_PAY_MODULE_TITLES.includes(title);
+}
+
+export const HR_PAY_VIEWS = ['compensation', 'workforce_plan'];
+
+export function isPayView(view) {
+  return HR_PAY_VIEWS.includes(view);
+}
+
 export const HR_MODULE_DISPLAY_NAMES = {
   'Update_SignUp': 'Edit employee profile',
   'Add Department And Circle': 'Departments & circles',
@@ -13,17 +31,14 @@ export const HR_MODULE_DISPLAY_NAMES = {
   'Offboarding Dashboard': 'Offboarding',
   'Workforce Planning': 'Workforce planning',
   'Assessment Invite': 'Assessment invite',
-  'Confirmation Queue': 'Confirmation queue',
   'Probation Reviews': 'Probation reviews',
   'NOC Requests': 'NOC requests',
   'Exit Employee': 'Exit employee',
   'Add Locations': 'Office locations',
-  'Add Assets': 'Employee assets',
   'News Feed': 'News feed',
   'Policy Center': 'Policy center',
   'Organization Chart': 'Org chart',
   'Update Manager': 'Update manager',
-  'Update Leave': 'Update leave',
   'Holiday Calendar': 'Holiday calendar',
 };
 
@@ -51,7 +66,7 @@ export const HR_MODULE_TABS = [
   { id: 'hire', label: 'Hire' },
   { id: 'people', label: 'People' },
   { id: 'leave', label: 'Leave' },
-  { id: 'pay', label: 'Pay' },
+  ...(HR_SHOW_PAY_MODULES ? [{ id: 'pay', label: 'Pay' }] : []),
   { id: 'exit', label: 'Exit' },
   { id: 'admin', label: 'Admin' },
 ];
@@ -67,7 +82,6 @@ export const HR_MODULE_GROUPS = [
       'Recruitment (ATS)',
       'Assessment Invite',
       'Probation Reviews',
-      'Confirmation Queue',
     ],
   },
   {
@@ -88,7 +102,6 @@ export const HR_MODULE_GROUPS = [
     fullLabel: 'Time & leave',
     description: 'Leave balances, applications, accrual jobs, and holidays',
     titles: [
-      'Update Leave',
       'Leave Application Updation',
       'Leave Accrual Monitor',
       'Holiday Calendar',
@@ -117,11 +130,10 @@ export const HR_MODULE_GROUPS = [
   {
     id: 'admin',
     fullLabel: 'Admin & setup',
-    description: 'Master data, locations, assets, and company announcements',
+    description: 'Master data, locations, and company announcements',
     titles: [
       'Add Department And Circle',
       'Add Locations',
-      'Add Assets',
       'News Feed',
     ],
   },
@@ -162,6 +174,7 @@ export function buildGroupedModules(updateOptions, { search = '', category = 'al
   };
 
   return HR_MODULE_GROUPS
+    .filter((group) => HR_SHOW_PAY_MODULES || group.id !== 'pay')
     .filter((group) => category === 'all' || group.id === category)
     .map((group) => ({
       ...group,

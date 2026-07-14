@@ -344,64 +344,167 @@
 .lau-save { background: #2563eb; color: #fff; }
 
 .lau-on-behalf-panel {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 16px;
+  --lau-accent: #4f46e5;
+  --lau-accent-soft: #eef2ff;
+  --lau-border: #e2e8f0;
+  --lau-muted: #64748b;
+  --lau-surface: #ffffff;
+  background: var(--lau-surface);
+  border: 1px solid var(--lau-border);
+  border-left: 4px solid var(--lau-accent);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.lau-on-behalf-panel__header {
   margin-bottom: 14px;
 }
 
 .lau-on-behalf-panel h3 {
-  margin: 0 0 6px;
-  color: #1d4ed8;
-  font-size: 1rem;
+  margin: 0 0 4px;
+  color: #1e293b;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .lau-on-behalf-panel__hint {
-  margin: 0 0 12px;
-  color: #64748b;
+  margin: 0;
+  color: var(--lau-muted);
   font-size: 0.875rem;
+  line-height: 1.45;
+  max-width: 62ch;
+}
+
+.lau-on-behalf-panel__toolbar {
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid var(--lau-border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
 }
 
 .lau-on-behalf-panel__search {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: end;
-  margin-bottom: 12px;
 }
 
-.lau-on-behalf-panel__search label,
-.lau-on-behalf-panel__employee {
+.lau-on-behalf-panel__search--with-employee {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr) auto;
+}
+
+.lau-on-behalf-panel__field {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  min-width: 0;
 }
 
-.lau-on-behalf-panel__search select,
-.lau-on-behalf-panel__employee select {
+.lau-on-behalf-panel__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lau-on-behalf-panel__field select {
+  width: 100%;
+  min-height: 40px;
   font-size: 0.875rem;
   font-weight: 500;
   color: #0f172a;
-  text-transform: none;
-  letter-spacing: normal;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 9px 12px;
   background: #fff;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.lau-on-behalf-panel__employee {
-  margin-bottom: 12px;
+.lau-on-behalf-panel__field select:hover {
+  border-color: #94a3b8;
+}
+
+.lau-on-behalf-panel__field select:focus {
+  outline: none;
+  border-color: var(--lau-accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+}
+
+.lau-on-behalf-panel__find-btn {
+  border: none;
+  border-radius: 10px;
+  min-height: 40px;
+  padding: 0 16px;
+  background: var(--lau-accent);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(79, 70, 229, 0.25);
+  transition: background-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.lau-on-behalf-panel__find-btn:hover:not(:disabled) {
+  background: #4338ca;
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.22);
+}
+
+.lau-on-behalf-panel__find-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.lau-on-behalf-panel__find-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.lau-on-behalf-panel__inline-error {
+  margin-top: 10px;
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+@media (max-width: 960px) {
+  .lau-on-behalf-panel__search {
+    grid-template-columns: 1fr 1fr;
+  }
+
+.lau-on-behalf-panel__field--employee,
+  .lau-on-behalf-panel__search--with-employee .lau-on-behalf-panel__find-btn {
+    grid-column: auto;
+  }
+
+  .lau-on-behalf-panel__search--with-employee .lau-on-behalf-panel__field--employee {
+    grid-column: 1 / -1;
+  }
+
+  .lau-on-behalf-panel__find-btn {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
 }
 
 @media (max-width: 820px) {
   .lau-filters { grid-template-columns: 1fr; }
   .lau-grid { grid-template-columns: 1fr; }
-  .lau-on-behalf-panel__search { grid-template-columns: 1fr; }
+
+  .lau-on-behalf-panel__search {
+    grid-template-columns: 1fr;
+  }
 }

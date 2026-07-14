@@ -143,7 +143,14 @@ export const Payslip = () => {
         }
         setDownloadingId(row.id);
         try {
-            const res = await fetch(`${API_BASE_URL}/file/${encodeURIComponent(row.file_path)}`, {
+            // Encode each path segment so "payslips/file.pdf" keeps its slash (avoid %2F 404s).
+            const fileUrlPath = String(row.file_path)
+                .replace(/\\/g, "/")
+                .split("/")
+                .filter(Boolean)
+                .map(encodeURIComponent)
+                .join("/");
+            const res = await fetch(`${API_BASE_URL}/file/${fileUrlPath}`, {
                 method: "GET",
                 headers: authHeaders(),
             });

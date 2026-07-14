@@ -1,5 +1,5 @@
 {
-  "max_hr_backdate_days": 90,
+  "max_hr_backdate_days": 60,
   "block_on_payroll_locked": true,
   "max_regularization_backdate_days": 30,
   "manager_on_behalf_allowed": true

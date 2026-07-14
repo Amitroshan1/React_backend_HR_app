@@ -521,7 +521,7 @@ export const Attendance = () => {
         });
         setData({
           summary: {
-            presentDays: json.total_present_days ?? 0,
+            presentDays: json.total_working_days ?? json.total_present_days ?? 0,
             avgPunchIn: formatTimeFromTimedelta(json.average_punch_in),
             avgPunchOut: formatTimeFromTimedelta(json.average_punch_out),
             totalHours: formatHours(json.actual_work_hours),
@@ -619,7 +619,7 @@ export const Attendance = () => {
             <div className="attendance-summary-content">
                 <p className="attendance-summary-value">{value}</p>
                 <p className="attendance-summary-label">{label}</p>
-                <p className="attendance-summary-subtext">{subtext}</p>
+                {subtext ? <p className="attendance-summary-subtext">{subtext}</p> : null}
             </div>
             <div className="attendance-summary-icon">{icon}</div>
         </div>
@@ -646,7 +646,7 @@ export const Attendance = () => {
 
             {/* 1. TOP SUMMARY CARDS */}
             <div className="attendance-summary-grid">
-                {renderSummaryCard(<FiCalendar className="attendance-card-icon" />, `${data.summary.presentDays}`, 'Present Days', 'this month', 'attendance-card-blue')}
+                {renderSummaryCard(<FiCalendar className="attendance-card-icon" />, `${data.summary.presentDays}`, 'Working Days', '', 'attendance-card-blue')}
                 {renderSummaryCard(<FiArrowRight className="attendance-card-icon" />, `${data.summary.avgPunchIn}`, 'Average Punch In', data.summary.onTimeStatus, 'attendance-card-green')}
                 {renderSummaryCard(<FiArrowRight className="attendance-card-icon attendance-icon-flipped" />, `${data.summary.avgPunchOut}`, 'Average Punch Out', data.summary.overtimeStatus, 'attendance-card-orange')}
                 {renderSummaryCard(<MdOutlineWatchLater className="attendance-card-icon" />, `${data.summary.totalHours}`, 'Total Hours', `Target ${data.summary.targetHours}`, 'attendance-card-yellow')}

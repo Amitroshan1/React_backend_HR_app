@@ -1,4 +1,5 @@
 import "./RequestCard.css";
+import { formatDate } from "../../../../utils/dateFormat";
 
 export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
   const getBadgeClass = (type) => {
@@ -19,7 +20,7 @@ export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
             {request.type || "Claim"}
           </span>
 
-          <span className={`status-pill status-${request.status?.toLowerCase() || 'pending'}`}>
+          <span className={`status-pill status-${request.status?.toLowerCase() || "pending"}`}>
             {request.status || "Pending"}
           </span>
         </div>
@@ -28,6 +29,27 @@ export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
       <div className="request-content">
         <h4>{request.employeeName}</h4>
         <p className="request-reason">{request.reason || "-"}</p>
+        {request.isCompOff ? (
+          <div className="request-compoff-meta">
+            {request.compOffExpiry ? (
+              <p className="request-compoff-expiry">
+                Comp Off credit expires: <strong>{formatDate(request.compOffExpiry)}</strong>
+              </p>
+            ) : null}
+            {request.compOffWillUse ? (
+              <p className="request-compoff-will-use" title={request.compOffWillUse}>
+                Uses: {request.compOffWillUse}
+              </p>
+            ) : (
+              <p className="request-compoff-will-use request-compoff-will-use--warn">
+                No matching Comp Off credit mapped for this request
+              </p>
+            )}
+            {request.compOffWarning ? (
+              <p className="request-compoff-warning">{request.compOffWarning}</p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {isPending && onAction ? (

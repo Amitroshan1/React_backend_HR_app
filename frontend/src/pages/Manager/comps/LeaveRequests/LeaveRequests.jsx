@@ -4,6 +4,18 @@ import { RequestCard } from "../Requests/RequestCard";
 import { actOnManagerRequest, fetchManagerRequests } from "../../api";
 import { formatDate } from "../../../../utils/dateFormat";
 
+function formatCompOffWillUse(slices) {
+  if (!Array.isArray(slices) || !slices.length) return "";
+  return slices
+    .map((s) => {
+      const days = s.days != null ? s.days : 1;
+      const earned = formatDate(s.gain_date);
+      const exp = formatDate(s.expiry_date);
+      return `${days} from ${earned} (exp. ${exp})`;
+    })
+    .join("; ");
+}
+
 export const LeaveRequests = ({ statusFilter = "Pending", onRequestUpdated }) => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -16,13 +28,23 @@ export const LeaveRequests = ({ statusFilter = "Pending", onRequestUpdated }) =>
         setLoading(true);
         setError("");
         const rows = await fetchManagerRequests("leave", statusFilter);
-        const mapped = rows.map((r) => ({
-          id: r.id,
-          type: "Leave",
-          status: r.status,
-          employeeName: r.employee_name || "N/A",
-          reason: `${r.leave_type || "Leave"} (${formatDate(r.start_date)} to ${formatDate(r.end_date)})`,
-        }));
+        const mapped = rows.map((r) => {
+          const isCompOff = (r.leave_type || "") === "Compensatory Leave";
+          const willUseText = isCompOff ? formatCompOffWillUse(r.compoff_will_use) : "";
+          return {
+            id: r.id,
+            type: "Leave",
+            status: r.status,
+            employeeName: r.employee_name || "N/A",
+            leaveType: r.leave_type || "Leave",
+            reason: `${r.leave_type || "Leave"} (${formatDate(r.start_date)} to ${formatDate(r.end_date)})`,
+            isCompOff,
+            compOffExpiry: isCompOff ? r.compoff_earliest_expiry || null : null,
+            compOffWillUse: willUseText || null,
+            compOffWarning: isCompOff ? r.compoff_warning || null : null,
+            compOffApprovalOk: isCompOff ? r.compoff_approval_ok : null,
+          };
+        });
         setRequests(mapped.sort((a, b) => (b.id - a.id)));
       } catch (e) {
         setError(e.message || "Unable to load leave requests");

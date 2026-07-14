@@ -168,10 +168,6 @@ export const HRCompensation = ({ onBack }) => {
     }
   };
 
-  const openInAccounts = (adminId) => {
-    window.open(`/account?admin_id=${adminId}&section=ctc`, '_blank', 'noopener');
-  };
-
   return (
     <div className="ob-dash-container hr-comp-page">
       <div className="ob-dash-wrapper hr-updates-shell hr-comp-shell">
@@ -372,7 +368,6 @@ export const HRCompensation = ({ onBack }) => {
                             <button type="button" onClick={() => reject(p.id)} title="Reject"><X size={14} /></button>
                           </>
                         ) : null}
-                        <button type="button" onClick={() => openInAccounts(p.admin_id)} title="Open in Accounts">Accounts</button>
                       </td>
                     </tr>
                   ))}

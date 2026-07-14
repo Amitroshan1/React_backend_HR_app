@@ -327,62 +327,73 @@ export const LeaveApplicationUpdation = ({
         </div>
 
         <div className="lau-on-behalf-panel">
-          <h3>Apply leave on behalf</h3>
-          <p className="lau-on-behalf-panel__hint">
-            Search an employee, then apply backdated or future leave with preview and policy checks.
-          </p>
-          <div className="lau-on-behalf-panel__search">
-            <label>
-              Employee Type
-              <select
-                value={onBehalfFilters.emp_type}
-                onChange={(e) => setOnBehalfFilters((p) => ({ ...p, emp_type: e.target.value }))}
-              >
-                {empTypeOptions.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Circle
-              <select
-                value={onBehalfFilters.circle}
-                onChange={(e) => setOnBehalfFilters((p) => ({ ...p, circle: e.target.value }))}
-              >
-                {circleOptions.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="lau-search-btn"
-              onClick={searchEmployeesForOnBehalf}
-              disabled={onBehalfSearchLoading}
-            >
-              <Search size={16} /> {onBehalfSearchLoading ? "Searching…" : "Find employees"}
-            </button>
+          <div className="lau-on-behalf-panel__header">
+            <h3>Apply leave on behalf</h3>
+            <p className="lau-on-behalf-panel__hint">
+              Search an employee, then apply backdated or future leave with preview and policy checks.
+            </p>
           </div>
-          {onBehalfSearchError ? <div className="lau-error">{onBehalfSearchError}</div> : null}
-          {onBehalfCandidates.length > 0 ? (
-            <label className="lau-on-behalf-panel__employee">
-              Employee
-              <select
-                value={onBehalfEmployee?.id || ""}
-                onChange={(e) => {
-                  const picked = onBehalfCandidates.find((emp) => String(emp.id) === e.target.value);
-                  setOnBehalfEmployee(picked || null);
-                }}
+
+          <div className="lau-on-behalf-panel__toolbar">
+            <div
+              className={`lau-on-behalf-panel__search${
+                onBehalfCandidates.length > 0 ? ' lau-on-behalf-panel__search--with-employee' : ''
+              }`}
+            >
+              <label className="lau-on-behalf-panel__field">
+                <span className="lau-on-behalf-panel__label">Employee type</span>
+                <select
+                  value={onBehalfFilters.emp_type}
+                  onChange={(e) => setOnBehalfFilters((p) => ({ ...p, emp_type: e.target.value }))}
+                >
+                  {empTypeOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="lau-on-behalf-panel__field">
+                <span className="lau-on-behalf-panel__label">Circle</span>
+                <select
+                  value={onBehalfFilters.circle}
+                  onChange={(e) => setOnBehalfFilters((p) => ({ ...p, circle: e.target.value }))}
+                >
+                  {circleOptions.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </label>
+              {onBehalfCandidates.length > 0 ? (
+                <label className="lau-on-behalf-panel__field lau-on-behalf-panel__field--employee">
+                  <span className="lau-on-behalf-panel__label">Employee</span>
+                  <select
+                    value={onBehalfEmployee?.id || ""}
+                    onChange={(e) => {
+                      const picked = onBehalfCandidates.find((emp) => String(emp.id) === e.target.value);
+                      setOnBehalfEmployee(picked || null);
+                    }}
+                  >
+                    <option value="">Select employee</option>
+                    {onBehalfCandidates.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.first_name || emp.email} ({emp.emp_id || emp.id})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <button
+                type="button"
+                className="lau-on-behalf-panel__find-btn"
+                onClick={searchEmployeesForOnBehalf}
+                disabled={onBehalfSearchLoading}
               >
-                <option value="">Select employee</option>
-                {onBehalfCandidates.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.first_name || emp.email} ({emp.emp_id || emp.id})
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+                <Search size={16} aria-hidden />
+                {onBehalfSearchLoading ? "Searching…" : "Find employees"}
+              </button>
+            </div>
+            {onBehalfSearchError ? <div className="lau-on-behalf-panel__inline-error">{onBehalfSearchError}</div> : null}
+          </div>
+
           <HRApplyLeaveOnBehalf
             embedded
             adminId={onBehalfEmployee?.id || null}

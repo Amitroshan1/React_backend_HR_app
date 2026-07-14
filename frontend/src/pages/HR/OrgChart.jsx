@@ -5,18 +5,34 @@ import './OffboardingDashboard.css';
 
 const HR_API_BASE = '/api/HumanResource';
 
+function isUnassignedName(name) {
+  return !name || String(name).trim().toLowerCase() === 'unassigned';
+}
+
 function OrgTreeL1({ node }) {
+  const name = node.manager?.name || 'L1';
+  const unassigned = isUnassignedName(name);
   return (
-    <div className="org-tree-l1">
+    <div className={`org-tree-l1${unassigned ? ' org-tree-l1--unassigned' : ''}`}>
       <div className="org-tree-l1-head">
-        <strong>{node.manager?.name || 'L1'}</strong>
-        <span>{node.report_count} report{node.report_count === 1 ? '' : 's'}</span>
+        <div className="org-tree-level-title">
+          <span className="org-tree-level-badge org-tree-level-badge--l1">L1</span>
+          <strong>{name}</strong>
+        </div>
+        <span className="org-tree-count-pill">
+          {node.report_count} report{node.report_count === 1 ? '' : 's'}
+        </span>
       </div>
       <ul className="org-tree-reports">
         {(node.reports || []).map((rep) => (
           <li key={rep.admin_id}>
-            <span className="org-tree-emp">{rep.name}</span>
-            <span className="org-tree-meta">{rep.emp_id || '—'} · {rep.designation || '—'}</span>
+            <span className="org-tree-avatar" aria-hidden>
+              {(rep.name || '?').trim().charAt(0).toUpperCase()}
+            </span>
+            <div className="org-tree-person">
+              <span className="org-tree-emp">{rep.name}</span>
+              <span className="org-tree-meta">{rep.emp_id || '—'} · {rep.designation || '—'}</span>
+            </div>
           </li>
         ))}
       </ul>
@@ -25,12 +41,19 @@ function OrgTreeL1({ node }) {
 }
 
 function OrgTreeL2({ node }) {
+  const name = node.manager?.name || 'L2';
+  const unassigned = isUnassignedName(name);
   return (
-    <div className="org-tree-l2">
-      <div className="org-tree-l2-head">{node.manager?.name || 'L2'}</div>
+    <div className={`org-tree-l2${unassigned ? ' org-tree-l2--unassigned' : ''}`}>
+      <div className="org-tree-l2-head">
+        <div className="org-tree-level-title">
+          <span className="org-tree-level-badge org-tree-level-badge--l2">L2</span>
+          <strong>{name}</strong>
+        </div>
+      </div>
       <div className="org-tree-l2-children">
         {(node.children || []).map((child) => (
-          <OrgTreeL1 key={child.manager?.admin_id ?? Math.random()} node={child} />
+          <OrgTreeL1 key={child.manager?.admin_id ?? `l1-${child.report_count}`} node={child} />
         ))}
       </div>
     </div>
@@ -38,15 +61,22 @@ function OrgTreeL2({ node }) {
 }
 
 function OrgTreeL3({ node }) {
+  const name = node.manager?.name || 'L3';
+  const unassigned = isUnassignedName(name);
   return (
-    <div className="org-tree-l3">
+    <div className={`org-tree-l3${unassigned ? ' org-tree-l3--unassigned' : ''}`}>
       <div className="org-tree-l3-head">
-        <strong>{node.manager?.name || 'L3'}</strong>
-        <span>{node.report_count} in hierarchy</span>
+        <div className="org-tree-level-title">
+          <span className="org-tree-level-badge org-tree-level-badge--l3">L3</span>
+          <strong>{name}</strong>
+        </div>
+        <span className="org-tree-count-pill org-tree-count-pill--on-dark">
+          {node.report_count} in hierarchy
+        </span>
       </div>
       <div className="org-tree-l3-children">
         {(node.children || []).map((child) => (
-          <OrgTreeL2 key={child.manager?.admin_id ?? Math.random()} node={child} />
+          <OrgTreeL2 key={child.manager?.admin_id ?? `l2-${child.report_count}`} node={child} />
         ))}
       </div>
     </div>

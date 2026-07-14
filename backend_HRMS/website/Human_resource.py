@@ -3578,7 +3578,12 @@ def hr_employee_compoff_ledger(employee_id):
 @jwt_required()
 @hr_required
 def update_leave_balance(employee_id):
-    """employee_id = Admin.id (admin_id)."""
+    """employee_id = Admin.id (admin_id).
+
+    Optional body fields:
+      - privilege_leave_balance, casual_leave_balance, compensatory_leave_balance
+      - compensatory_leave_expiry (YYYY-MM-DD): used when increasing Comp Off balance
+    """
     leave_balance = LeaveBalance.query.filter_by(admin_id=employee_id).first()
 
     if not leave_balance:
@@ -3594,8 +3599,34 @@ def update_leave_balance(employee_id):
     if "casual_leave_balance" in data:
         leave_balance.casual_leave_balance = float(data["casual_leave_balance"])
     if "compensatory_leave_balance" in data:
+        expiry_raw = data.get("compensatory_leave_expiry") or data.get("comp_off_expiry")
+        expiry_date = None
+        if expiry_raw:
+            try:
+                from datetime import date as date_cls
+                if isinstance(expiry_raw, str):
+                    expiry_date = date_cls.fromisoformat(str(expiry_raw).strip()[:10])
+                else:
+                    expiry_date = expiry_raw
+            except ValueError:
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid Comp Off expiry date. Use YYYY-MM-DD.",
+                }), 400
         try:
-            set_comp_balance_to_target(employee_id, data["compensatory_leave_balance"])
+            current_comp = get_effective_comp_balance(employee_id)
+            target_comp = float(data["compensatory_leave_balance"])
+            # Expiry only applies when adding Comp Off credits
+            if target_comp > current_comp + 1e-9 and expiry_date is None:
+                return jsonify({
+                    "success": False,
+                    "message": "Expiry date is required when adding Comp Off balance.",
+                }), 400
+            set_comp_balance_to_target(
+                employee_id,
+                target_comp,
+                expiry_date=expiry_date if target_comp > current_comp + 1e-9 else None,
+            )
         except ValueError as e:
             db.session.rollback()
             return jsonify({

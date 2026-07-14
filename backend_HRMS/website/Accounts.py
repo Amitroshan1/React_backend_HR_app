@@ -2951,55 +2951,94 @@ def serve_uploaded_file(relative_path):
 
     uploads_root = _get_uploads_root()
 
+    def _serve_raw_file(abs_path: str, download_name: str):
+        """Serve file as-is (no watermark) — last-resort so downloads never 404 on serve errors."""
+        mime = "application/pdf" if (download_name or "").lower().endswith(".pdf") else None
+        return send_file(
+            abs_path,
+            mimetype=mime,
+            as_attachment=False,
+            download_name=download_name,
+        )
+
     def _serve_stored_file(directory: str, relative_name: str):
         from .pdf_watermark import is_pdf_filename, send_download_file
 
+        abs_path = os.path.join(directory, relative_name)
+        download_name = os.path.basename(relative_name)
         if is_pdf_filename(relative_name):
-            return send_download_file(
-                path=os.path.join(directory, relative_name),
-                download_name=os.path.basename(relative_name),
-                as_attachment=False,
-            )
+            try:
+                return send_download_file(
+                    path=abs_path,
+                    download_name=download_name,
+                    as_attachment=False,
+                )
+            except Exception:
+                current_app.logger.exception(
+                    "Watermarked PDF serve failed for %s; falling back to raw file",
+                    abs_path,
+                )
+                return _serve_raw_file(abs_path, download_name)
         return send_from_directory(directory, relative_name, as_attachment=False)
 
-    # Try primary path first (e.g. payslips/foo.pdf or flat foo.pdf).
-    full_path = os.path.join(uploads_root, normalized)
-    if os.path.isfile(full_path):
+    def _try_serve(directory: str, relative_name: str):
+        abs_path = os.path.join(directory, relative_name)
+        if not os.path.isfile(abs_path):
+            return None
         try:
-            return _serve_stored_file(uploads_root, normalized)
+            return _serve_stored_file(directory, relative_name)
         except Exception:
-            pass
+            current_app.logger.exception(
+                "Failed to serve uploaded file %s; attempting raw send",
+                abs_path,
+            )
+            try:
+                return _serve_raw_file(abs_path, os.path.basename(relative_name))
+            except Exception:
+                current_app.logger.exception("Raw serve also failed for %s", abs_path)
+                return None
+
+    # Try primary path first (e.g. payslips/foo.pdf or flat foo.pdf).
+    served = _try_serve(uploads_root, normalized)
+    if served is not None:
+        return served
 
     # Fallback for legacy DB: flat filename (no folder) stored in payslips/form16 subfolders.
     if "/" not in normalized:
         for subdir in ("payslips", "form16"):
             candidate_dir = os.path.join(uploads_root, subdir)
-            candidate_path = os.path.join(candidate_dir, normalized)
-            if os.path.isfile(candidate_path):
-                try:
-                    return _serve_stored_file(candidate_dir, normalized)
-                except Exception:
-                    continue
+            served = _try_serve(candidate_dir, normalized)
+            if served is not None:
+                return served
 
     # Profile docs and other static uploads live under Flask static/uploads/
     # Example: upload_profile_file stores "profile/<filename>" under static/uploads/profile/.
     static_uploads_root = os.path.join(current_app.static_folder, "uploads")
-    static_full_path = os.path.join(static_uploads_root, normalized)
-    if os.path.isfile(static_full_path):
-        try:
-            return _serve_stored_file(static_uploads_root, normalized)
-        except Exception:
-            pass
+    served = _try_serve(static_uploads_root, normalized)
+    if served is not None:
+        return served
 
     # Claim receipts: stored under uploads/expenses/; DB may hold basename or expenses/name
     if "/" not in normalized:
-        expense_rel = os.path.join("expenses", normalized)
-        expense_full = os.path.join(static_uploads_root, expense_rel)
-        if os.path.isfile(expense_full):
+        expense_rel = os.path.join("expenses", normalized).replace("\\", "/")
+        served = _try_serve(static_uploads_root, expense_rel)
+        if served is not None:
+            return served
+
+    # Case-insensitive basename match under payslips/ (legacy / mistyped DB paths).
+    if normalized.startswith("payslips/"):
+        payslips_dir = os.path.join(uploads_root, "payslips")
+        want = os.path.basename(normalized).lower()
+        if os.path.isdir(payslips_dir) and want:
             try:
-                return _serve_stored_file(static_uploads_root, expense_rel)
-            except Exception:
-                pass
+                for name in os.listdir(payslips_dir):
+                    if name.lower() == want:
+                        served = _try_serve(payslips_dir, name)
+                        if served is not None:
+                            return served
+                        break
+            except OSError:
+                current_app.logger.exception("Unable to list payslips dir %s", payslips_dir)
 
     return jsonify({
         "success": False,

@@ -318,10 +318,50 @@ def list_leave_requests():
         query = query.filter(LeaveApplication.status == status)
 
     rows = query.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).all()
-    items = []
-    for row in rows:
-        if not _is_manager_for_target(admin, row.admin):
+    managed = [row for row in rows if _is_manager_for_target(admin, row.admin)]
+
+    # Comp Off: FIFO credit preview so manager sees expiry / earned dates per request
+    from collections import defaultdict
+    from .compoff_utils import _build_pending_will_use, _simulate_approved_usage
+
+    pending_compoff_by_admin = defaultdict(list)
+    approved_compoff_admins = set()
+    for row in managed:
+        if row.leave_type != "Compensatory Leave":
             continue
+        if row.status == "Pending":
+            pending_compoff_by_admin[row.admin_id].append(row)
+        elif row.status == "Approved":
+            approved_compoff_admins.add(row.admin_id)
+
+    compoff_preview_by_id = {}
+    for admin_id, leaves in pending_compoff_by_admin.items():
+        preview = _build_pending_will_use(admin_id, leaves)
+        for leave_id, data in preview.items():
+            slices = data.get("will_use") or []
+            expiries = [s.get("expiry_date") for s in slices if s.get("expiry_date")]
+            compoff_preview_by_id[leave_id] = {
+                "will_use": slices,
+                "earliest_expiry": min(expiries) if expiries else None,
+                "warning": data.get("warning"),
+                "approval_ok": data.get("approval_ok", False),
+            }
+
+    for admin_id in approved_compoff_admins:
+        for sim in _simulate_approved_usage(admin_id):
+            lv = sim["leave"]
+            slices = sim.get("consumed_from") or []
+            expiries = [s.get("expiry_date") for s in slices if s.get("expiry_date")]
+            compoff_preview_by_id[lv.id] = {
+                "will_use": slices,
+                "earliest_expiry": min(expiries) if expiries else None,
+                "warning": None,
+                "approval_ok": True,
+            }
+
+    items = []
+    for row in managed:
+        preview = compoff_preview_by_id.get(row.id) if row.leave_type == "Compensatory Leave" else None
         items.append({
             "id": row.id,
             "employee_name": row.admin.first_name,
@@ -339,6 +379,10 @@ def list_leave_requests():
             "requested_deducted_days": getattr(row, "requested_deducted_days", 0.0),
             "sandwich_pl_days": getattr(row, "sandwich_pl_days", 0.0),
             "created_at": _serialize_date(row.created_at),
+            "compoff_will_use": (preview or {}).get("will_use"),
+            "compoff_earliest_expiry": (preview or {}).get("earliest_expiry"),
+            "compoff_warning": (preview or {}).get("warning"),
+            "compoff_approval_ok": (preview or {}).get("approval_ok"),
         })
 
     return jsonify({"success": True, "requests": items}), 200

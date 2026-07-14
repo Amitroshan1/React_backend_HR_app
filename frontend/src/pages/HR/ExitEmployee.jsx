@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Archive, Search, AlertCircle, SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Archive, AlertCircle, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
@@ -43,7 +43,6 @@ const ExitEmployee = ({onBack}) => {
 
   const [employeeType, setEmployeeType] = useState('');
   const [circle, setCircle] = useState('');
-  const [email, setEmail] = useState('');
 
   // Searchable dropdown states
   const [typeSearch, setTypeSearch] = useState('');
@@ -100,12 +99,6 @@ const ExitEmployee = ({onBack}) => {
   const [forceOverride, setForceOverride] = useState(false);
   const [forceOverrideReason, setForceOverrideReason] = useState('');
   const [exitReason, setExitReason] = useState('');
-
-  // Check if email filter is active
-  const isEmailFilterActive = email.trim() !== '';
-  
-  // Check if employeeType or circle filter is active
-  const isTypeOrCircleFilterActive = employeeType !== '' || circle !== '';
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
@@ -177,15 +170,10 @@ const ExitEmployee = ({onBack}) => {
 
   const filteredEmployees = useMemo(() => {
     let filtered = [...employees];
-    const emailNorm = norm(email);
     const typeNorm = norm(employeeType);
     const circleNorm = norm(circle);
 
-    if (emailNorm) {
-      filtered = filtered.filter(emp =>
-        norm(emp.email) === emailNorm
-      );
-    } else if (typeNorm && circleNorm) {
+    if (typeNorm && circleNorm) {
       filtered = filtered.filter(emp =>
         norm(emp.employeeType).includes(typeNorm) && norm(emp.circle).includes(circleNorm)
       );
@@ -196,7 +184,7 @@ const ExitEmployee = ({onBack}) => {
     }
 
     return filtered;
-  }, [employees, email, employeeType, circle]);
+  }, [employees, employeeType, circle]);
 
   const employeeTypes = useMemo(() => {
     if (masterOptions.departments.length) return masterOptions.departments;
@@ -396,7 +384,6 @@ const ExitEmployee = ({onBack}) => {
   const resetFilters = () => {
     setEmployeeType('');
     setCircle('');
-    setEmail('');
     setTypeSearch('');
     setCircleSearch('');
     closeFilterDropdowns();
@@ -462,170 +449,133 @@ const ExitEmployee = ({onBack}) => {
             </div>
 
             <div className="filter-row">
-
-            {/* Employee Type */}
-            <div className="filter-group">
-              <label>Employee Type</label>
-
-              <div className="custom-select" ref={typeSelectRef}>
-                <input
-                  type="text"
-                  placeholder="Select or type"
-                  value={typeSearch !== '' ? typeSearch : (employeeType || ALL_TYPES_LABEL)}
-                  onFocus={(e) => {
-                    if (!isEmailFilterActive) {
+              <div className="filter-group">
+                <label htmlFor="exit-emp-type">Employee type</label>
+                <div className="custom-select" ref={typeSelectRef}>
+                  <input
+                    id="exit-emp-type"
+                    type="text"
+                    placeholder="Select or type"
+                    value={typeSearch !== '' ? typeSearch : (employeeType || ALL_TYPES_LABEL)}
+                    onFocus={(e) => {
                       setShowCircleList(false);
                       setShowTypeList(true);
                       if (!employeeType && typeSearch === '') {
                         requestAnimationFrame(() => e.target.select());
                       }
-                    }
-                  }}
-                  onChange={(e) => {
-                    if (!isEmailFilterActive) {
+                    }}
+                    onChange={(e) => {
                       const val = e.target.value;
                       setTypeSearch(val);
                       if (val === '' || val === ALL_TYPES_LABEL) {
                         setEmployeeType('');
                       }
                       setShowTypeList(true);
-                    }
-                  }}
-                  disabled={isEmailFilterActive}
-                  className={`filter-input${isEmailFilterActive ? ' is-disabled' : ''}`}
-                />
+                    }}
+                    className="filter-input"
+                  />
 
-                {showTypeList && !isEmailFilterActive && (
-                  <div className="dropdown-list">
+                  {showTypeList && (
+                    <div className="dropdown-list">
+                      <div
+                        className={`dropdown-item${!employeeType ? ' dropdown-item-selected' : ''}`}
+                        onClick={() => {
+                          setEmployeeType('');
+                          setTypeSearch('');
+                          setShowTypeList(false);
+                        }}
+                      >
+                        {ALL_TYPES_LABEL}
+                      </div>
 
-                    <div
-                      className={`dropdown-item${!employeeType ? ' dropdown-item-selected' : ''}`}
-                      onClick={() => {
-                        setEmployeeType('');
-                        setTypeSearch('');
-                        setShowTypeList(false);
-                      }}
-                    >
-                      {ALL_TYPES_LABEL}
+                      {employeeTypes
+                        .filter(type =>
+                          type.toLowerCase().includes(typeSearch.toLowerCase())
+                        )
+                        .map(type => (
+                          <div
+                            key={type}
+                            className="dropdown-item"
+                            onClick={() => {
+                              setEmployeeType(type);
+                              setTypeSearch('');
+                              setShowTypeList(false);
+                            }}
+                          >
+                            {type}
+                          </div>
+                        ))}
                     </div>
-
-                    {employeeTypes
-                      .filter(type =>
-                        type.toLowerCase().includes(typeSearch.toLowerCase())
-                      )
-                      .map(type => (
-                        <div
-                          key={type}
-                          className="dropdown-item"
-                          onClick={() => {
-                            setEmployeeType(type);
-                            setTypeSearch('');
-                            setShowTypeList(false);
-                          }}
-                        >
-                          {type}
-                        </div>
-                      ))}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* Circle */} 
-
-            <div className="filter-group">
-              <label>Circle</label>
-
-              <div className="custom-select" ref={circleSelectRef}>
-                <input
-                  type="text"
-                  placeholder="Select or type"
-                  value={circleSearch !== '' ? circleSearch : (circle || ALL_CIRCLES_LABEL)}
-                  onFocus={(e) => {
-                    if (!isEmailFilterActive) {
+              <div className="filter-group">
+                <label htmlFor="exit-circle">Circle</label>
+                <div className="custom-select" ref={circleSelectRef}>
+                  <input
+                    id="exit-circle"
+                    type="text"
+                    placeholder="Select or type"
+                    value={circleSearch !== '' ? circleSearch : (circle || ALL_CIRCLES_LABEL)}
+                    onFocus={(e) => {
                       setShowTypeList(false);
                       setShowCircleList(true);
                       if (!circle && circleSearch === '') {
                         requestAnimationFrame(() => e.target.select());
                       }
-                    }
-                  }}
-                  onChange={(e) => {
-                    if (!isEmailFilterActive) {
+                    }}
+                    onChange={(e) => {
                       const val = e.target.value;
                       setCircleSearch(val);
                       if (val === '' || val === ALL_CIRCLES_LABEL) {
                         setCircle('');
                       }
                       setShowCircleList(true);
-                    }
-                  }}
-                  disabled={isEmailFilterActive}
-                  className={`filter-input${isEmailFilterActive ? ' is-disabled' : ''}`}
-                />
+                    }}
+                    className="filter-input"
+                  />
 
-                {showCircleList && !isEmailFilterActive && (
-                  <div className="dropdown-list">
+                  {showCircleList && (
+                    <div className="dropdown-list">
+                      <div
+                        className={`dropdown-item${!circle ? ' dropdown-item-selected' : ''}`}
+                        onClick={() => {
+                          setCircle('');
+                          setCircleSearch('');
+                          setShowCircleList(false);
+                        }}
+                      >
+                        {ALL_CIRCLES_LABEL}
+                      </div>
 
-                    <div
-                      className={`dropdown-item${!circle ? ' dropdown-item-selected' : ''}`}
-                      onClick={() => {
-                        setCircle('');
-                        setCircleSearch('');
-                        setShowCircleList(false);
-                      }}
-                    >
-                      {ALL_CIRCLES_LABEL}
+                      {circles
+                        .filter(cir =>
+                          cir.toLowerCase().includes(circleSearch.toLowerCase())
+                        )
+                        .map(cir => (
+                          <div
+                            key={cir}
+                            className="dropdown-item"
+                            onClick={() => {
+                              setCircle(cir);
+                              setCircleSearch('');
+                              setShowCircleList(false);
+                            }}
+                          >
+                            {cir}
+                          </div>
+                        ))}
                     </div>
-
-                    {circles
-                      .filter(cir =>
-                        cir.toLowerCase().includes(circleSearch.toLowerCase())
-                      )
-                      .map(cir => (
-                        <div
-                          key={cir}
-                          className="dropdown-item"
-                          onClick={() => {
-                            setCircle(cir);
-                            setCircleSearch('');
-                            setShowCircleList(false);
-                          }}
-                        >
-                          {cir}
-                        </div>
-                      ))}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
+
+              <button type="button" className="reset-button" onClick={resetFilters}>
+                <RotateCcw size={16} aria-hidden />
+                <span>Reset</span>
+              </button>
             </div>
-
-            <span className="filter-or-divider" aria-hidden="true">Or</span>
-
-            {/* Email */}
-
-            <div className="filter-group email-filter">
-              <label>Search by Email</label>
-
-              <div className="email-input-wrapper">
-                <Search className="email-icon" size={18} />
-
-                <input
-                  type="email"
-                  placeholder="Enter email address"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={isTypeOrCircleFilterActive}
-                  className={`email-input${isTypeOrCircleFilterActive ? ' is-disabled' : ''}`}
-                />
-              </div>
-            </div>
-
-            <button type="button" className="reset-button" onClick={resetFilters}>
-              <RotateCcw size={16} />
-              <span>Reset</span>
-            </button>
-          </div>
           </div>
         </div>
       

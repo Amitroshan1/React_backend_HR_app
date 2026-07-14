@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, ArrowLeft, UserRoundPlus, History, X } from 'lucide-react';
+import { ArrowLeft, UserRoundPlus, History, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
 import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
@@ -27,7 +27,6 @@ const ArchiveEmployees = () => {
   // Filter states
   const [employeeType, setEmployeeType] = useState('');
   const [circle, setCircle] = useState('');
-  const [email, setEmail] = useState('');
   
   // Searchable dropdown states
   const [typeSearch, setTypeSearch] = useState('');
@@ -51,21 +50,11 @@ const ArchiveEmployees = () => {
     rehire_notes: '',
   });
   const [rehireSaving, setRehireSaving] = useState(false);
-  
-  // Check if email filter is active
-  const isEmailFilterActive = email.trim() !== '';
-  
-  // Check if employeeType or circle filter is active
-  const isTypeOrCircleFilterActive = employeeType !== '' || circle !== '';
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
-
-  const openFnfInAccounts = (emp) => {
-    navigate(`/account?admin_id=${emp.id}&section=fnf`);
-  };
 
   const loadArchivedEmployees = useCallback(async () => {
     setLoading(true);
@@ -137,11 +126,7 @@ const ArchiveEmployees = () => {
   const filteredEmployees = useMemo(() => {
     let filtered = [...archivedEmployees];
 
-    if (email.trim()) {
-      filtered = filtered.filter(emp =>
-        emp.email.toLowerCase() === email.toLowerCase().trim()
-      );
-    } else if (employeeType && circle) {
+    if (employeeType && circle) {
       filtered = filtered.filter(emp =>
         emp.employeeType === employeeType && emp.circle === circle
       );
@@ -152,7 +137,7 @@ const ArchiveEmployees = () => {
     }
 
     return filtered;
-  }, [archivedEmployees, employeeType, circle, email]);
+  }, [archivedEmployees, employeeType, circle]);
 
   const employeeTypes = useMemo(() => {
     return mergeFilterOptions(
@@ -294,9 +279,10 @@ const ArchiveEmployees = () => {
   const resetFilters = () => {
     setEmployeeType('');
     setCircle('');
-    setEmail('');
     setTypeSearch('');
     setCircleSearch('');
+    setShowTypeList(false);
+    setShowCircleList(false);
   };
 
   return (
@@ -312,188 +298,150 @@ const ArchiveEmployees = () => {
 
         {/* Title */}
         <div className="title-section">
-          <h1 className="page-title">Archive Employees</h1>
-          <p className="page-subtitle">View exited employees archive</p>
+          <div className="title-section__copy">
+            <h1 className="page-title">Archive Employees</h1>
+            <p className="page-subtitle">View exited employees and manage rehire or rejoin actions.</p>
+          </div>
+          <div className="title-section__meta">
+            <span className="results-count">
+              Showing <strong>{filteredEmployees.length}</strong> of {archivedEmployees.length} archived
+            </span>
+          </div>
         </div>
         {error && (
-          <p className="archive-error">{error}</p>
+          <p className="archive-error" role="alert">{error}</p>
         )}
 
         {/* Filters */}
-        <div className="filters-section">
-          <div className="filter-row">
-            {/* Employee Type */}
-            <div className="filter-group">
-              <label>Employee Type</label>
-              <div className="custom-select">
-                <input
-                  type="text"
-                  placeholder="Select or type"
-                  className="filter-input"
-                  value={typeSearch !== '' ? typeSearch : (employeeType || ALL_TYPES_LABEL)}
-                  onFocus={(e) => {
-                    if (!isEmailFilterActive) {
+        <div className="archive-filters-panel">
+          <div className="archive-filters-panel__toolbar">
+            <div className="archive-filters-panel__search">
+              <div className="archive-filters-panel__field">
+                <span className="archive-filters-panel__label" id="archive-emp-type-label">Employee type</span>
+                <div className="custom-select">
+                  <input
+                    id="archive-emp-type"
+                    type="text"
+                    placeholder="Select or type"
+                    className="filter-input"
+                    aria-labelledby="archive-emp-type-label"
+                    value={typeSearch !== '' ? typeSearch : (employeeType || ALL_TYPES_LABEL)}
+                    onFocus={(e) => {
                       setShowTypeList(true);
                       if (!employeeType && typeSearch === '') {
                         requestAnimationFrame(() => e.target.select());
                       }
-                    }
-                  }}
-                  onChange={(e) => {
-                    if (!isEmailFilterActive) {
+                    }}
+                    onChange={(e) => {
                       const val = e.target.value;
                       setTypeSearch(val);
                       if (val === '' || val === ALL_TYPES_LABEL) {
                         setEmployeeType('');
                       }
                       setShowTypeList(true);
-                    }
-                  }}
-                  disabled={isEmailFilterActive}
-                  style={{
-                    cursor: isEmailFilterActive ? 'not-allowed' : 'text',
-                    backgroundColor: isEmailFilterActive ? '#f5f5f5' : 'white',
-                    opacity: isEmailFilterActive ? 0.6 : 1
-                  }}
-                />
+                    }}
+                  />
 
-                {showTypeList && !isEmailFilterActive && (
-                  <div className="dropdown-list">
-                    <div
-                      className={`dropdown-item${!employeeType ? ' dropdown-item-selected' : ''}`}
-                      onClick={() => {
-                        setEmployeeType('');
-                        setTypeSearch('');
-                        setShowTypeList(false);
-                      }}
-                    >
-                      {ALL_TYPES_LABEL}
+                  {showTypeList && (
+                    <div className="dropdown-list">
+                      <div
+                        className={`dropdown-item${!employeeType ? ' dropdown-item-selected' : ''}`}
+                        onClick={() => {
+                          setEmployeeType('');
+                          setTypeSearch('');
+                          setShowTypeList(false);
+                        }}
+                      >
+                        {ALL_TYPES_LABEL}
+                      </div>
+
+                      {employeeTypes
+                        .filter(type =>
+                          type.toLowerCase().includes(typeSearch.toLowerCase())
+                        )
+                        .map(type => (
+                          <div
+                            key={type}
+                            className="dropdown-item"
+                            onClick={() => {
+                              setEmployeeType(type);
+                              setTypeSearch('');
+                              setShowTypeList(false);
+                            }}
+                          >
+                            {type}
+                          </div>
+                        ))}
                     </div>
-
-                    {employeeTypes
-                      .filter(type =>
-                        type.toLowerCase().includes(typeSearch.toLowerCase())
-                      )
-                      .map(type => (
-                        <div
-                          key={type}
-                          className="dropdown-item"
-                          onClick={() => {
-                            setEmployeeType(type);
-                            setTypeSearch('');
-                            setShowTypeList(false);
-                          }}
-                        >
-                          {type}
-                        </div>
-                      ))}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* Circle */}
-            <div className="filter-group">
-              <label>Circle</label>
-              <div className="custom-select">
-                <input
-                  type="text"
-                  placeholder="Select or type"
-                  className="filter-input"
-                  value={circleSearch !== '' ? circleSearch : (circle || ALL_CIRCLES_LABEL)}
-                  onFocus={(e) => {
-                    if (!isEmailFilterActive) {
+              <div className="archive-filters-panel__field">
+                <span className="archive-filters-panel__label" id="archive-circle-label">Circle</span>
+                <div className="custom-select">
+                  <input
+                    id="archive-circle"
+                    type="text"
+                    placeholder="Select or type"
+                    className="filter-input"
+                    aria-labelledby="archive-circle-label"
+                    value={circleSearch !== '' ? circleSearch : (circle || ALL_CIRCLES_LABEL)}
+                    onFocus={(e) => {
                       setShowCircleList(true);
                       if (!circle && circleSearch === '') {
                         requestAnimationFrame(() => e.target.select());
                       }
-                    }
-                  }}
-                  onChange={(e) => {
-                    if (!isEmailFilterActive) {
+                    }}
+                    onChange={(e) => {
                       const val = e.target.value;
                       setCircleSearch(val);
                       if (val === '' || val === ALL_CIRCLES_LABEL) {
                         setCircle('');
                       }
                       setShowCircleList(true);
-                    }
-                  }}
-                  disabled={isEmailFilterActive}
-                  style={{
-                    cursor: isEmailFilterActive ? 'not-allowed' : 'text',
-                    backgroundColor: isEmailFilterActive ? '#f5f5f5' : 'white',
-                    opacity: isEmailFilterActive ? 0.6 : 1
-                  }}
-                />
+                    }}
+                  />
 
-                {showCircleList && !isEmailFilterActive && (
-                  <div className="dropdown-list">
-                    <div
-                      className={`dropdown-item${!circle ? ' dropdown-item-selected' : ''}`}
-                      onClick={() => {
-                        setCircle('');
-                        setCircleSearch('');
-                        setShowCircleList(false);
-                      }}
-                    >
-                      {ALL_CIRCLES_LABEL}
+                  {showCircleList && (
+                    <div className="dropdown-list">
+                      <div
+                        className={`dropdown-item${!circle ? ' dropdown-item-selected' : ''}`}
+                        onClick={() => {
+                          setCircle('');
+                          setCircleSearch('');
+                          setShowCircleList(false);
+                        }}
+                      >
+                        {ALL_CIRCLES_LABEL}
+                      </div>
+
+                      {circles
+                        .filter(cir =>
+                          cir.toLowerCase().includes(circleSearch.toLowerCase())
+                        )
+                        .map(cir => (
+                          <div
+                            key={cir}
+                            className="dropdown-item"
+                            onClick={() => {
+                              setCircle(cir);
+                              setCircleSearch('');
+                              setShowCircleList(false);
+                            }}
+                          >
+                            {cir}
+                          </div>
+                        ))}
                     </div>
-
-                    {circles
-                      .filter(cir =>
-                        cir.toLowerCase().includes(circleSearch.toLowerCase())
-                      )
-                      .map(cir => (
-                        <div
-                          key={cir}
-                          className="dropdown-item"
-                          onClick={() => {
-                            setCircle(cir);
-                            setCircleSearch('');
-                            setShowCircleList(false);
-                          }}
-                        >
-                          {cir}
-                        </div>
-                      ))}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
+
+              <button type="button" className="archive-filters-panel__reset-btn" onClick={resetFilters}>
+                Reset
+              </button>
             </div>
-
-            <span className="or-text">
-              <p className="or">Or</p>
-            </span>
-
-            {/* Email */}
-            <div className="filter-group email-filter">
-              <label>Search by Email</label>
-              <div className="email-input-wrapper">
-                <Search className="email-icon" size={18} />
-                <input
-                  type="email"
-                  placeholder="Enter email address"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="email-input"
-                  disabled={isTypeOrCircleFilterActive}
-                  style={{
-                    cursor: isTypeOrCircleFilterActive ? 'not-allowed' : 'text',
-                    backgroundColor: isTypeOrCircleFilterActive ? '#f5f5f5' : 'white',
-                    opacity: isTypeOrCircleFilterActive ? 0.6 : 1,
-                  }}
-                />
-              </div>
-            </div>
-
-            <button className="reset-button" onClick={resetFilters}>
-              Reset
-            </button>
-          </div>
-
-          <div className="results-count">
-            Showing {filteredEmployees.length} of {archivedEmployees.length} archived employees
           </div>
         </div>
 
@@ -533,43 +481,36 @@ const ArchiveEmployees = () => {
                     key={emp.id}
                     className="employee-row"
                   >
-                    <td>
-                      {emp.employeeId}
+                    <td className="archive-cell archive-cell--id">
+                      <span className="archive-emp-id">{emp.employeeId}</span>
                     </td>
                     
-                    <td className="employee-name">
-                      {emp.name}
+                    <td className="archive-cell archive-cell--name">
+                      <span className="employee-name">{emp.name}</span>
                     </td>
 
-                    <td>
-                      <span className="circle-badge">{emp.circle}</span>
+                    <td className="archive-cell">
+                      <span className="circle-badge">{emp.circle || '—'}</span>
                     </td>
 
-                    <td>
-                      <span className="type-badge">
-                        {emp.employeeType}
-                      </span>
+                    <td className="archive-cell">
+                      <span className="type-badge">{emp.employeeType || '—'}</span>
                     </td>
 
-                    <td className="employee-email">
-                      {emp.email}
+                    <td className="archive-cell archive-cell--email">
+                      <span className="employee-email">{emp.email}</span>
                     </td>
-                    <td>
-                      <span className={`archive-fnf-badge archive-fnf-badge--${(emp.fnfStatus || 'none').replace(/\s+/g, '-')}`}>
-                        {emp.fnfStatus || 'none'}
-                      </span>
-                      {emp.fnf?.net_payable != null && emp.fnf.net_payable > 0 ? (
-                        <small className="archive-fnf-net">₹{Number(emp.fnf.net_payable).toLocaleString('en-IN')}</small>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="archive-accounts-link"
-                        onClick={() => openFnfInAccounts(emp)}
-                      >
-                        Open in Accounts
-                      </button>
+                    <td className="archive-cell">
+                      <div className="archive-fnf-cell">
+                        <span className={`archive-fnf-badge archive-fnf-badge--${(emp.fnfStatus || 'none').replace(/\s+/g, '-')}`}>
+                          {emp.fnfStatus || 'none'}
+                        </span>
+                        {emp.fnf?.net_payable != null && emp.fnf.net_payable > 0 ? (
+                          <small className="archive-fnf-net">₹{Number(emp.fnf.net_payable).toLocaleString('en-IN')}</small>
+                        ) : null}
+                      </div>
                     </td>
-                    <td>
+                    <td className="archive-cell">
                       {emp.rehirePolicy ? (
                         <div className="archive-rehire-cell">
                           <span className={`archive-rehire-badge ${emp.rehirePolicy.can_rejoin_now ? 'archive-rehire-badge--ok' : 'archive-rehire-badge--blocked'}`}>
@@ -583,14 +524,14 @@ const ArchiveEmployees = () => {
                             className="archive-rehire-edit"
                             onClick={() => openRehirePolicyModal(emp)}
                           >
-                            Edit
+                            Edit policy
                           </button>
                         </div>
                       ) : (
-                        '—'
+                        <span className="archive-cell-empty">—</span>
                       )}
                     </td>
-                    <td>
+                    <td className="archive-cell archive-cell--rejoin">
                       <button
                         type="button"
                         className="archive-rejoin-btn"
@@ -602,11 +543,11 @@ const ArchiveEmployees = () => {
                             : 'Restore as active employee (same profile data)'
                         }
                       >
-                        <UserRoundPlus size={16} aria-hidden />
+                        <UserRoundPlus size={15} aria-hidden />
                         {rejoiningId === emp.id ? 'Restoring…' : 'Rejoin'}
                       </button>
                     </td>
-                    <td>
+                    <td className="archive-cell archive-cell--actions">
                       <div className="archive-action-cell">
                         <button
                           type="button"
@@ -618,7 +559,7 @@ const ArchiveEmployees = () => {
                         </button>
                         <button
                           type="button"
-                          className="action-button"
+                          className="action-button archive-details-btn"
                           onClick={() => handleViewDetails(emp)}
                         >
                           View details

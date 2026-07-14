@@ -93,7 +93,11 @@ def _watermark_page_pdf_bytes(width: float, height: float) -> bytes:
 
 
 def apply_watermark_to_pdf_bytes(pdf_bytes: bytes) -> bytes:
-    """Overlay SAFFO watermark under each page of an existing PDF."""
+    """Overlay SAFFO watermark under each page of an existing PDF.
+
+    On any failure (encrypted/corrupt PDF, missing pypdf, etc.) returns the
+    original bytes so downloads never break solely because of watermarking.
+    """
     if not is_pdf_bytes(pdf_bytes):
         return pdf_bytes
 
@@ -102,20 +106,28 @@ def apply_watermark_to_pdf_bytes(pdf_bytes: bytes) -> bytes:
     except ImportError:
         return pdf_bytes
 
-    reader = PdfReader(BytesIO(pdf_bytes))
-    writer = PdfWriter()
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        if getattr(reader, "is_encrypted", False):
+            try:
+                reader.decrypt("")
+            except Exception:
+                return pdf_bytes
 
-    for page in reader.pages:
-        w = float(page.mediabox.width)
-        h = float(page.mediabox.height)
-        wm_reader = PdfReader(BytesIO(_watermark_page_pdf_bytes(w, h)))
-        wm_page = wm_reader.pages[0]
-        wm_page.merge_page(page)
-        writer.add_page(wm_page)
+        writer = PdfWriter()
+        for page in reader.pages:
+            w = float(page.mediabox.width)
+            h = float(page.mediabox.height)
+            wm_reader = PdfReader(BytesIO(_watermark_page_pdf_bytes(w, h)))
+            wm_page = wm_reader.pages[0]
+            wm_page.merge_page(page)
+            writer.add_page(wm_page)
 
-    out = BytesIO()
-    writer.write(out)
-    return out.getvalue()
+        out = BytesIO()
+        writer.write(out)
+        return out.getvalue()
+    except Exception:
+        return pdf_bytes
 
 
 def prepare_download_bytes(
