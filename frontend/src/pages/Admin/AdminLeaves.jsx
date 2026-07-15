@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import './AdminList.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
@@ -7,7 +6,6 @@ import { formatDate } from '../../utils/dateFormat';
 const API = '/api/admin/leaves';
 
 const AdminLeaves = () => {
-  const navigate = useNavigate();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('All');
@@ -32,10 +30,7 @@ const AdminLeaves = () => {
   return (
     <div className="admin-list-container">
       <div className="admin-list-header">
-        <button type="button" className="back-button" onClick={() => navigate('/admin')}>
-          ← Command Center
-        </button>
-        <h1>All Leave Applications</h1>
+        <h1>Leave applications</h1>
       </div>
       <div className="admin-list-filters">
         <div className="status-buttons">

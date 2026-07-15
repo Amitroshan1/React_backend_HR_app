@@ -55,6 +55,7 @@ import ITNocRequests from "./pages/IT/ITNocRequests";
 // Admin Employee Management
 import Employee from "./pages/Admin/Employee";
 import AdminEmployeeDetails from "./pages/Admin/EmployeeDetails";
+import AdminEmployeePunches from "./pages/Admin/EmployeePunches";
 import AdminLeaves from "./pages/Admin/AdminLeaves";
 import AdminQueries from "./pages/Admin/AdminQueries";
 import AdminClaims from "./pages/Admin/AdminClaims";
@@ -177,6 +178,7 @@ export const App = () => {
         // Admin Employee Management
         { path: "employees",                       element: <Employee /> },
         { path: "employee/:id",                    element: <AdminEmployeeDetails /> },
+        { path: "employee/:id/punches",            element: <AdminEmployeePunches /> },
       ],
     },
       ],

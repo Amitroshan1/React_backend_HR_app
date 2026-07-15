@@ -1,9 +1,13 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { Plus, Trash2, X, ArrowLeft } from 'lucide-react';
+import { scrollAppToTop } from '../../utils/scrollToTop';
 import './AddDeptCircle.css';
 
 const API_BASE = '/api/HumanResource/master';
+
+/** Reserved — matches Admin panel emp_type values; HR must not create these as departments. */
+const RESERVED_DEPARTMENTS = new Set(['admin', 'administrator', 'administration']);
 
 const AddDeptCircle = ({ onBack }) => {
   const [departments, setDepartments] = useState([]);
@@ -18,6 +22,16 @@ const AddDeptCircle = ({ onBack }) => {
   const [savingType, setSavingType] = useState('');
   const [deletingKey, setDeletingKey] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
+
+  useEffect(() => {
+    scrollAppToTop();
+    const raf = requestAnimationFrame(() => scrollAppToTop());
+    const t = window.setTimeout(() => scrollAppToTop(), 80);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, []);
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
@@ -73,8 +87,16 @@ const AddDeptCircle = ({ onBack }) => {
   const handleDeptSubmit = async (e) => {
     e.preventDefault();
     
-    if (deptName.trim() === '') {
-      alert('Please enter a department name');
+    const name = deptName.trim();
+    if (name === '') {
+      setMessage({ type: 'error', text: 'Please enter a department name' });
+      return;
+    }
+    if (RESERVED_DEPARTMENTS.has(name.toLowerCase())) {
+      setMessage({
+        type: 'error',
+        text: 'Admin cannot be added as a department. This value is reserved for system administrators.',
+      });
       return;
     }
 
@@ -84,7 +106,7 @@ const AddDeptCircle = ({ onBack }) => {
       const res = await fetch(`${API_BASE}/department`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ name: deptName.trim() }),
+        body: JSON.stringify({ name }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

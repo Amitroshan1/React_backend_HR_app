@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import './AdminList.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
@@ -7,7 +6,6 @@ import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
 const API = '/api/admin/queries';
 
 const AdminQueries = () => {
-  const navigate = useNavigate();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('All');
@@ -57,10 +55,7 @@ const AdminQueries = () => {
   return (
     <div className="admin-list-container">
       <div className="admin-list-header">
-        <button type="button" className="back-button" onClick={() => navigate('/admin')}>
-          ← Command Center
-        </button>
-        <h1>All Queries</h1>
+        <h1>Queries</h1>
       </div>
       <div className="admin-list-filters">
         <div className="status-buttons">

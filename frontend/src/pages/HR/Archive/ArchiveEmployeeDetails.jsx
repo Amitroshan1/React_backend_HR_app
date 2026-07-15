@@ -134,7 +134,11 @@ const ArchiveEmployeeDetails = () => {
     <div className="archive-container">
       <div className="archive-wrapper">
         <div className="archive-header">
-          <button className="btn-back-updates" onClick={() => navigate('/archive-employees')}>
+          <button
+            type="button"
+            className="btn-back-updates"
+            onClick={() => navigate('/archive-employees')}
+          >
             <ArrowLeft size={20} />
             <span>Back to Archive</span>
           </button>

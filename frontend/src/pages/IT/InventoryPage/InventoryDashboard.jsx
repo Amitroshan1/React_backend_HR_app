@@ -4,6 +4,7 @@ import { Routes, Route, useNavigate, useLocation, useSearchParams } from "react-
 import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
+import { isAdminVisitActive } from "../../../hooks/useAdminVisitNav";
 import "./InventoryDashboard.css";
 
 import {
@@ -1347,6 +1348,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
   const navigate  = useNavigate();
   const headerRef = useRef(null);
   const navRef    = useRef(null);
+  const fromAdmin = isAdminVisitActive();
 
   const [stickyTop, setStickyTop] = useState(0);
   const [counts,    setCounts]    = useState(() => readLiveCounts(category));
@@ -1396,36 +1398,42 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
   );
 
   return (
-    <div className="inv-root">
-      <nav className="inv-tab-bar" ref={navRef}>
-        {INV_CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            className={category === cat ? "inv-tab--active" : "inv-tab"}
-            onClick={() => {
-              setCategory(cat);
-              navigate(`${BASE}?cat=${encodeURIComponent(cat)}`);
-            }}
-          >
-            {cat}
-          </button>
-        ))}
-      </nav>
+    <div className={`inv-root${fromAdmin ? ' inv-root--admin-visit' : ''}`}>
+      {!fromAdmin ? (
+        <nav className="inv-tab-bar" ref={navRef}>
+          {INV_CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              className={category === cat ? 'inv-tab--active' : 'inv-tab'}
+              onClick={() => {
+                setCategory(cat);
+                navigate(`${BASE}?cat=${encodeURIComponent(cat)}`);
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </nav>
+      ) : null}
 
-      <header className="inv-header" ref={headerRef}>
-        <div className="inv-header-left">
-          <button className="inv-back-btn" onClick={() => navigate("/it/")}>← Back</button>
-          <div className="inv-logo-group">
-            <div className="inv-logo">
-              <span className="inv-logo-dot" />
-              <span className="inv-logo-text">INVENTORY</span>
+      <header className={`inv-header${fromAdmin ? ' inv-header--admin-visit' : ''}`} ref={headerRef}>
+        {!fromAdmin ? (
+          <div className="inv-header-left">
+            <button type="button" className="inv-back-btn" onClick={() => navigate('/it/')}>← Back</button>
+            <div className="inv-logo-group">
+              <div className="inv-logo">
+                <span className="inv-logo-dot" />
+                <span className="inv-logo-text">INVENTORY</span>
+              </div>
+              <span className="inv-header-sub">Asset Management System</span>
             </div>
-            <span className="inv-header-sub">Asset Management System</span>
           </div>
-        </div>
+        ) : null}
         <div className="inv-header-right">
-          <button className="inv-btn-outline" onClick={() => navigate(`${BASE}/parcels`)}>📦 Parcels</button>
+          <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/parcels`)}>📦 Parcels</button>
           <button
+            type="button"
             className="inv-btn-primary"
             onClick={() => navigate(`${BASE}/add-assets?inv=${encodeURIComponent(category)}`)}
           >
@@ -1433,6 +1441,24 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
           </button>
         </div>
       </header>
+
+      {fromAdmin ? (
+        <nav className="inv-tab-bar inv-tab-bar--page" ref={navRef}>
+          {INV_CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              className={category === cat ? 'inv-tab--active' : 'inv-tab'}
+              onClick={() => {
+                setCategory(cat);
+                navigate(`${BASE}?cat=${encodeURIComponent(cat)}`);
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </nav>
+      ) : null}
 
       <section className="inv-cards-grid inv-cards-grid--sticky" style={{ top: stickyTop }}>
         {visibleCards.map((card) => {

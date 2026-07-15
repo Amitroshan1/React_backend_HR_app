@@ -450,6 +450,16 @@
     padding-top: 0;
 }
 
+/* Inventory opened from Admin: keep breadcrumb in page chrome, tabs below it */
+.app-layout > .content-area.content-area--inventory-admin {
+    padding-top: 8px;
+}
+
+.content-area--inventory-admin .admin-crumb {
+    margin: 0 20px 0;
+    padding: 2px 0 10px;
+}
+
 /* HR modules hub: flush under global header */
 .app-layout > .content-area.content-area--hr-modules {
     padding-top: 0;

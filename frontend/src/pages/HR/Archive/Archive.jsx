@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, UserRoundPlus, History, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
+import { useAdminVisitNav } from '../../../hooks/useAdminVisitNav';
 import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
 import './Archive.css';
 
@@ -20,6 +21,10 @@ const mergeFilterOptions = (masterList, records, pickValue) => {
 
 const ArchiveEmployees = () => {
   const navigate = useNavigate();
+  const { backLabel, goBack } = useAdminVisitNav({
+    fallbackTo: '/exit-employees',
+    fallbackLabel: 'Back to Exit Employees',
+  });
   const [archivedEmployees, setArchivedEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -290,9 +295,9 @@ const ArchiveEmployees = () => {
       <div className="archive-wrapper">
         {/* Header with Back Button */}
         <div className="archive-header">
-          <button className="btn-back-updates" onClick={() => navigate('/exit-employees')}>
+          <button type="button" className="btn-back-updates" onClick={() => goBack()}>
             <ArrowLeft size={20} />
-            <span>Back to Exit Employees</span>
+            <span>{backLabel}</span>
           </button>
         </div>
 

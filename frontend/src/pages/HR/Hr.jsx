@@ -1722,8 +1722,6 @@ export const Hr = () => {
   }, [view, setView]);
 
   useEffect(() => {
-    if (!HR_EMPLOYEE_CONTEXT_VIEWS.has(view)) return undefined;
-
     scrollAppToTop();
     const raf = requestAnimationFrame(() => scrollAppToTop());
     const t1 = window.setTimeout(() => scrollAppToTop(), 50);

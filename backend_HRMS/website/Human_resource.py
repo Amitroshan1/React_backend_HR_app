@@ -885,6 +885,15 @@ def create_master_data(master_type):
     if not name:
         return jsonify({"success": False, "message": "name is required"}), 400
 
+    # Reserved emp_type values used for system Admin panel access — HR cannot add these as departments.
+    if parsed_type == MASTER_TYPE_DEPARTMENT:
+        reserved = {"admin", "administrator", "administration"}
+        if name.lower() in reserved:
+            return jsonify({
+                "success": False,
+                "message": "Admin cannot be added as a department. This value is reserved for system administrators.",
+            }), 400
+
     existing = MasterData.query.filter(
         MasterData.master_type == parsed_type,
         db.func.lower(MasterData.name) == name.lower(),

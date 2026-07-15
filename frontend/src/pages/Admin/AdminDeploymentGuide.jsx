@@ -110,9 +110,6 @@ export default function AdminDeploymentGuide() {
     return (
       <div className="deploy-guide-page">
         <p className="deploy-guide-error">{error || 'Guide unavailable'}</p>
-        <button type="button" className="deploy-guide-back" onClick={() => navigate('/admin/customers')}>
-          ← Customers
-        </button>
       </div>
     );
   }
@@ -122,9 +119,6 @@ export default function AdminDeploymentGuide() {
   return (
     <div className="deploy-guide-page">
       <div className="deploy-guide-header">
-        <button type="button" className="deploy-guide-back" onClick={() => navigate('/admin/customers')}>
-          ← Customers
-        </button>
         <h1>{guide.title}</h1>
         <p className="deploy-guide-sub">{guide.subtitle}</p>
         <div className="deploy-guide-progress-bar">

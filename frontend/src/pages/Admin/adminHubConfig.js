@@ -2,6 +2,37 @@
 
 export const ADMIN_HUB_SECTIONS = [
   {
+    id: "departments",
+    title: "Department workspaces",
+    subtitle: "Open each team's full workspace",
+    modules: [
+      {
+        id: "hr-workspace",
+        title: "HR Management",
+        description: "Payroll, holidays, org updates",
+        icon: "🏢",
+        route: "/hr",
+        accent: "rose",
+      },
+      {
+        id: "accounts-workspace",
+        title: "Accounts Management",
+        description: "CTC, payroll, finance",
+        icon: "📊",
+        route: "/account",
+        accent: "teal",
+      },
+      {
+        id: "it-workspace",
+        title: "Inventory Management",
+        description: "Assets, tickets, returns",
+        icon: "💻",
+        route: "/it/inventory",
+        accent: "indigo",
+      },
+    ],
+  },
+  {
     id: "people",
     title: "People & HR",
     subtitle: "Workforce directory, HR operations, and separations",
@@ -127,68 +158,6 @@ export const ADMIN_HUB_SECTIONS = [
       },
     ],
   },
-  {
-    id: "support",
-    title: "Support & Communication",
-    subtitle: "Employee queries across departments",
-    modules: [
-      {
-        id: "queries",
-        title: "All Queries",
-        description: "Inbox for every department query",
-        icon: "💬",
-        route: "/admin/queries",
-        statKey: "total_queries",
-        badgeKey: "pending_queries",
-        accent: "gold",
-      },
-    ],
-  },
-];
-
-/** Sidebar: open full department workspaces from Admin Management. */
-export const ADMIN_DEPARTMENTS = [
-  {
-    id: "hr",
-    label: "HR Management",
-    description: "Payroll, holidays, org updates",
-    icon: "🏢",
-    route: "/hr",
-  },
-  {
-    id: "account",
-    label: "Accounts Management",
-    description: "CTC, payroll, finance",
-    icon: "📊",
-    route: "/account",
-  },
-  {
-    id: "it",
-    label: "Inventory Management",
-    description: "Assets, tickets, returns",
-    icon: "💻",
-    route: "/it/inventory",
-  },
-  {
-    id: "manager",
-    label: "Manager",
-    description: "Teams & performance",
-    icon: "👔",
-    route: "/manager",
-  },
-];
-
-export const ADMIN_SIDEBAR_ORG = [
-  { label: "Employees", route: "/employees", icon: "👥", external: true },
-  { label: "All Leaves", route: "/admin/leaves", icon: "📅" },
-  { label: "All Queries", route: "/admin/queries", icon: "💬" },
-  { label: "Expense Claims", route: "/admin/claims", icon: "💰" },
-  { label: "Resignations", route: "/admin/resignations", icon: "📝" },
-];
-
-export const ADMIN_PLATFORM_LINKS = [
-  { label: "Customers", route: "/admin/customers", icon: "🏗️" },
-  { label: "Deployment Guide", route: "/admin/deployment-guide", icon: "🚀" },
 ];
 
 export const ADMIN_PLATFORM_SECTION = {
@@ -214,3 +183,26 @@ export const ADMIN_PLATFORM_SECTION = {
     },
   ],
 };
+
+/** Featured hub cards shown at the top of Command Center. */
+export const ADMIN_FEATURED_WORKFORCE = {
+  id: "workforce",
+  title: "Employees",
+  description: "Company workforce overview",
+  icon: "👥",
+  route: "/employees",
+  accent: "amber",
+};
+
+export const ADMIN_FEATURED_QUERIES = {
+  id: "queries",
+  title: "All Queries",
+  description: "Inbox for every department query",
+  icon: "💬",
+  route: "/admin/queries",
+  statKey: "total_queries",
+  badgeKey: "pending_queries",
+  accent: "gold",
+};
+
+export const ADMIN_FEATURED_PLATFORM = ADMIN_PLATFORM_SECTION.modules;

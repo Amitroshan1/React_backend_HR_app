@@ -1468,6 +1468,8 @@ def _simulate_comp_off_fifo(admin_id):
     deducted slice to CompOffGain rows ordered by expiry_date (same as deduct_comp_leave).
     Returns list of (leave_application, gain_date, amount).
     """
+    from .compoff_utils import _compoff_days_for_leave
+
     gains = (
         CompOffGain.query.filter_by(admin_id=admin_id)
         .order_by(CompOffGain.expiry_date.asc(), CompOffGain.id.asc())
@@ -1485,7 +1487,7 @@ def _simulate_comp_off_fifo(admin_id):
     )
     rows = []
     for lv in leaves:
-        need = float(lv.deducted_days or 0)
+        need = float(_compoff_days_for_leave(lv) or 0)
         if need <= 1e-9:
             continue
         for g in gains:
@@ -1500,6 +1502,73 @@ def _simulate_comp_off_fifo(admin_id):
             need -= take
             rows.append((lv, g.gain_date, take))
     return rows
+
+
+def _apply_compoff_slices_to_leave_days(day_to_gain, leave_obj, slices):
+    """
+    Walk leave calendar days and assign FIFO gain dates from slices
+    of {"gain_date": date|iso, "days": float}.
+    """
+    if not leave_obj or not leave_obj.start_date or not leave_obj.end_date:
+        return
+    dates_full = _calendar_dates_inclusive(leave_obj.start_date, leave_obj.end_date)
+    di = 0
+    for s in slices or []:
+        if not isinstance(s, dict):
+            continue
+        raw = s.get("gain_date")
+        if hasattr(raw, "year"):
+            gain_date = raw
+        elif isinstance(raw, str) and raw:
+            try:
+                gain_date = date.fromisoformat(raw[:10])
+            except ValueError:
+                continue
+        else:
+            continue
+        need = float(s.get("days") or 0)
+        while need > 1e-9 and di < len(dates_full):
+            step = min(1.0, need)
+            day_to_gain[dates_full[di]] = gain_date
+            need -= step
+            di += 1
+
+
+def _build_compoff_day_to_gain_map(admin_id):
+    """
+    Map Comp Off leave calendar day → earned CompOff gain_date (Sunday worked).
+    Approved leaves use FIFO replay; pending uses planned will_use credits.
+    """
+    from .compoff_utils import _build_pending_will_use
+
+    day_to_gain = {}
+
+    alloc_rows = _simulate_comp_off_fifo(admin_id)
+    grouped = defaultdict(list)
+    for lv, gain_date, take in alloc_rows:
+        grouped[lv.id].append({"gain_date": gain_date, "days": float(take), "leave": lv})
+
+    for _lv_id, chunk_list in grouped.items():
+        lv = chunk_list[0]["leave"]
+        slices = [{"gain_date": c["gain_date"], "days": c["days"]} for c in chunk_list]
+        _apply_compoff_slices_to_leave_days(day_to_gain, lv, slices)
+
+    pending = (
+        LeaveApplication.query.filter(
+            LeaveApplication.admin_id == admin_id,
+            LeaveApplication.leave_type == "Compensatory Leave",
+            LeaveApplication.status.in_(["Pending", "pending"]),
+        ).all()
+    )
+    if pending:
+        will_use_by_id = _build_pending_will_use(admin_id, pending)
+        for lv in pending:
+            preview = will_use_by_id.get(lv.id) or {}
+            slices = preview.get("will_use") or []
+            if slices:
+                _apply_compoff_slices_to_leave_days(day_to_gain, lv, slices)
+
+    return day_to_gain
 
 
 def _fmt_take_days(t):
@@ -1564,9 +1633,9 @@ def _client_is_compoff_leave(leave_app):
     return (getattr(leave_app, "leave_type", "") or "").strip() == "Compensatory Leave"
 
 
-def _client_compoff_cell_label(status_label, on_date):
-    """e.g. CompOff(Approved) 02/07/2026"""
-    date_txt = on_date.strftime("%d/%m/%Y") if on_date else ""
+def _client_compoff_cell_label(status_label, gain_date):
+    """e.g. CompOff(Approved) 28/06/2026 — date is when Comp Off was earned (gain), not applied."""
+    date_txt = gain_date.strftime("%d/%m/%Y") if gain_date else ""
     if date_txt:
         return f"CompOff({status_label}) {date_txt}"
     return f"CompOff({status_label})"
@@ -1789,6 +1858,11 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     for p in punches:
         punch_map.setdefault(p.admin_id, {})[p.punch_date] = p
 
+    # Comp Off leave day → earned gain_date (not the applied leave day)
+    compoff_gain_by_admin = {
+        aid: _build_compoff_day_to_gain_map(aid) for aid in admin_ids
+    }
+
     # Build a leave map for all employees: {admin_id: {date: [LeaveApplication,...]}}
     leave_map = {}
     leave_qs = LeaveApplication.query.filter(
@@ -1889,9 +1963,10 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                 pending_other = [la for la in pending_leaves if not _client_is_compoff_leave(la)]
                 has_punch = bool(punch and (punch.punch_in or punch.punch_out))
 
-                # Approved Comp Off day → CompOff(Approved) + date (client highlight)
+                # Approved Comp Off day → CompOff(Approved) + earned (gain) date
                 if approved_compoff and not approved_other:
-                    cell_text = _client_compoff_cell_label("Approved", current)
+                    gain_d = compoff_gain_by_admin.get(admin.id, {}).get(current)
+                    cell_text = _client_compoff_cell_label("Approved", gain_d)
                     worksheet.write(row, base_col, cell_text, legend_comp_off_fmt)
                     worksheet.write(row, base_col + 1, "", legend_comp_off_fmt)
                 elif approved_leaves:
@@ -1920,9 +1995,10 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                         fmt = legend_leave_fmt
                         worksheet.write(row, base_col, cell_text, fmt)
                         worksheet.write(row, base_col + 1, "", fmt)
-                # Pending Comp Off only, and no punch → CompOff(Pending) + date
+                # Pending Comp Off only, and no punch → CompOff(Pending) + earned (planned) gain date
                 elif pending_compoff and not pending_other and not has_punch:
-                    cell_text = _client_compoff_cell_label("Pending", current)
+                    gain_d = compoff_gain_by_admin.get(admin.id, {}).get(current)
+                    cell_text = _client_compoff_cell_label("Pending", gain_d)
                     worksheet.write(row, base_col, cell_text, legend_leave_pending_fmt)
                     worksheet.write(row, base_col + 1, "", legend_leave_pending_fmt)
                 # Pending Comp Off but employee punched → show punch times

@@ -215,13 +215,34 @@ body {
   background: transparent;
   border: none;
   border-bottom: 2px solid #06b6d4;
-  color: #06b6d4;
+  color: #0891b2;
   font-size: 13px;
   cursor: pointer;
   letter-spacing: 0.3px;
   font-family: inherit;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* Admin visit: category tabs live in page body, not under global navbar */
+.inv-root--admin-visit {
+  padding-top: 0;
+}
+
+.inv-header--admin-visit {
+  position: static;
+  box-shadow: none;
+  border-bottom: none;
+  padding: 0 24px 12px;
+  justify-content: flex-end;
+}
+
+.inv-tab-bar--page {
+  margin: 0 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 /* ══════════════════════════════════════════

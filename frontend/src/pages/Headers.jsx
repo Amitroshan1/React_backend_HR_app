@@ -126,6 +126,7 @@ import { hasFeature, clearPlanContext, canAccessItPanel } from "../utils/planFea
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
 import { clearSensitiveToken } from "../utils/sensitiveDataAuth";
 import { DEPARTMENT_TITLES, getPanelLinkLabel } from "../utils/departmentLabels";
+import { isAdminDepartmentPath } from "./Admin/AdminLayout";
 
 const getPageInfo = (pathname, firstName) => {
     const normalizedPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";
@@ -207,6 +208,22 @@ const getPageInfo = (pathname, firstName) => {
         return { title: DEPARTMENT_TITLES.admin, subtitle: "Organization Control" };
     }
 
+    if (normalizedPath === "/employees" || normalizedPath.startsWith("/employees/")) {
+        return { title: DEPARTMENT_TITLES.admin, subtitle: "Employee directory" };
+    }
+
+    if (normalizedPath.startsWith("/employee/")) {
+        return { title: DEPARTMENT_TITLES.admin, subtitle: "Employee details" };
+    }
+
+    if (normalizedPath.startsWith("/archive-employees")) {
+        return { title: DEPARTMENT_TITLES.admin, subtitle: "Employee archive" };
+    }
+
+    if (normalizedPath.startsWith("/exit-employees")) {
+        return { title: DEPARTMENT_TITLES.admin, subtitle: "Exit employees" };
+    }
+
     return { title: "Portal", subtitle: "" };
 };
 
@@ -228,7 +245,27 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     const rawRole = role || "Employee";
     const roleKey = rawRole.toLowerCase().trim();
 
-    const { title, subtitle, isDashboard } = getPageInfo(location.pathname, firstName);
+    const pageInfo = getPageInfo(location.pathname, firstName);
+    const pathLower = (location.pathname || "").toLowerCase();
+    let adminDeptVisit = false;
+    try {
+        adminDeptVisit = sessionStorage.getItem("adminDeptVisit") === "1";
+    } catch {
+        adminDeptVisit = false;
+    }
+    // Any page opened via Admin / Command Center uses Admin Management (not "Portal")
+    const forceAdminManagementTitle =
+        pathLower.startsWith("/admin")
+        || pathLower.startsWith("/employees")
+        || pathLower.startsWith("/employee/")
+        || pathLower.startsWith("/archive-employees")
+        || pathLower.startsWith("/exit-employees")
+        || (adminDeptVisit && isAdminDepartmentPath(location.pathname));
+
+    const title = forceAdminManagementTitle
+        ? DEPARTMENT_TITLES.admin
+        : pageInfo.title;
+    const { subtitle, isDashboard } = pageInfo;
 
     // Map role variations to standardized format and route. Uses emp_type, designation, department, etc.
     const getRoleInfo = (role, user) => {

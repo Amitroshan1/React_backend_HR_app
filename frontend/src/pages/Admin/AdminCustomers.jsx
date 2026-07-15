@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { useNavigate } from 'react-router-dom';
 import './AdminCustomers.css';
@@ -70,6 +70,16 @@ export default function AdminCustomers() {
   useRefreshOnNavigate(() => {
     loadCustomers();
   });
+
+  const stats = useMemo(() => {
+    const active = customers.filter((c) => (c.status || '').toLowerCase() === 'active').length;
+    const enterprise = customers.filter((c) => (c.plan || '').toLowerCase() === 'enterprise').length;
+    return {
+      total: customers.length,
+      active,
+      enterprise,
+    };
+  }, [customers]);
 
   const openAdd = () => {
     setAddForm({
@@ -161,115 +171,135 @@ export default function AdminCustomers() {
 
   return (
     <div className="cust-page">
-      <header className="cust-header">
-        <div>
-          <button
-            type="button"
-            className="cust-back"
-            onClick={() => navigate('/admin')}
-          >
-            ← Admin Management
-          </button>
-          <h1>Customer deployments</h1>
-          <p className="cust-sub">
-            Companies on separate server &amp; database — plan and upgrades
+      <div className="cust-shell">
+        <header className="cust-hero">
+          <div className="cust-hero__main">
+            <h1>Customer deployments</h1>
+            <p>
+              Companies on separate server &amp; database — plan and upgrades
+            </p>
+            <div className="cust-hero__meta">
+              <button
+                type="button"
+                className="cust-link-btn"
+                onClick={() => navigate('/admin/deployment-guide')}
+              >
+                Deployment checklist →
+              </button>
+            </div>
+          </div>
+          <div className="cust-hero__aside">
+            <span className="cust-hero__badge">Platform</span>
+            <button type="button" className="cust-add-btn" onClick={openAdd}>
+              + Add new customer
+            </button>
+          </div>
+        </header>
+
+        {!loading && customers.length > 0 && (
+          <div className="cust-stats">
+            <div className="cust-stat">
+              <span className="cust-stat__label">Customers</span>
+              <strong>{stats.total}</strong>
+            </div>
+            <div className="cust-stat">
+              <span className="cust-stat__label">Active</span>
+              <strong>{stats.active}</strong>
+            </div>
+            <div className="cust-stat">
+              <span className="cust-stat__label">Enterprise</span>
+              <strong>{stats.enterprise}</strong>
+            </div>
+          </div>
+        )}
+
+        {message && <p className="cust-message">{message}</p>}
+        {error && !showAdd && !showUpgrade && (
+          <p className="cust-error" role="alert">
+            {error}
           </p>
-        </div>
-        <button type="button" className="cust-add-btn" onClick={openAdd}>
-          + Add new customer
-        </button>
-      </header>
+        )}
 
-      {message && <p className="cust-message">{message}</p>}
-      {error && !showAdd && !showUpgrade && (
-        <p className="cust-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <div className="cust-toolbar">
-        <button
-          type="button"
-          className="cust-link-btn"
-          onClick={() => navigate('/admin/deployment-guide')}
-        >
-          Deployment checklist
-        </button>
+        {loading ? (
+          <div className="cust-panel">
+            <p className="cust-panel__empty">Loading customers…</p>
+          </div>
+        ) : customers.length === 0 ? (
+          <div className="cust-empty">
+            <span className="cust-empty__icon" aria-hidden>🏗️</span>
+            <h2>No customers yet</h2>
+            <p>Add a company instance to track plan, URL, and go-live.</p>
+            <button
+              type="button"
+              className="cust-add-btn cust-add-btn--inline"
+              onClick={openAdd}
+            >
+              Add your first customer
+            </button>
+          </div>
+        ) : (
+          <div className="cust-panel">
+            <div className="cust-table-wrap">
+              <table className="cust-table">
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Plan</th>
+                    <th>URL</th>
+                    <th>Database</th>
+                    <th>Go-live</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customers.map((c) => (
+                    <tr key={c.id}>
+                      <td className="cust-table__name">{c.company_name}</td>
+                      <td>
+                        <span
+                          className={`cust-plan ${PLAN_BADGE_CLASS[c.plan] || ''}`}
+                        >
+                          {c.plan_label}
+                        </span>
+                      </td>
+                      <td>
+                        {c.app_url ? (
+                          <a href={c.app_url} target="_blank" rel="noreferrer">
+                            {c.app_url.replace(/^https?:\/\//, '')}
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="cust-mono">{c.database_name || '—'}</td>
+                      <td>{formatDate(c.go_live_date)}</td>
+                      <td>
+                        <span className={`cust-status cust-status--${c.status}`}>
+                          {c.status}
+                        </span>
+                      </td>
+                      <td className="cust-table__actions">
+                        {c.can_upgrade_to?.length > 0 ? (
+                          <button
+                            type="button"
+                            className="cust-upgrade-btn"
+                            onClick={() => openUpgrade(c)}
+                          >
+                            Upgrade
+                          </button>
+                        ) : (
+                          <span className="cust-muted">Max plan</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
-
-      {loading ? (
-        <p className="cust-muted">Loading customers…</p>
-      ) : customers.length === 0 ? (
-        <div className="cust-empty">
-          <p>No customers yet.</p>
-          <button
-            type="button"
-            className="cust-add-btn cust-add-btn--inline"
-            onClick={openAdd}
-          >
-            Add your first customer
-          </button>
-        </div>
-      ) : (
-        <div className="cust-table-wrap">
-          <table className="cust-table">
-            <thead>
-              <tr>
-                <th>Company</th>
-                <th>Plan</th>
-                <th>URL</th>
-                <th>Database</th>
-                <th>Go-live</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map((c) => (
-                <tr key={c.id}>
-                  <td className="cust-table__name">{c.company_name}</td>
-                  <td>
-                    <span
-                      className={`cust-plan ${PLAN_BADGE_CLASS[c.plan] || ''}`}
-                    >
-                      {c.plan_label}
-                    </span>
-                  </td>
-                  <td>
-                    {c.app_url ? (
-                      <a href={c.app_url} target="_blank" rel="noreferrer">
-                        {c.app_url.replace(/^https?:\/\//, '')}
-                      </a>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>{c.database_name || '—'}</td>
-                  <td>{formatDate(c.go_live_date)}</td>
-                  <td>
-                    <span className={`cust-status cust-status--${c.status}`}>
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="cust-table__actions">
-                    {c.can_upgrade_to?.length > 0 ? (
-                      <button
-                        type="button"
-                        className="cust-upgrade-btn"
-                        onClick={() => openUpgrade(c)}
-                      >
-                        Upgrade
-                      </button>
-                    ) : (
-                      <span className="cust-muted">Max plan</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {showAdd && (
         <div className="cust-modal-backdrop" role="presentation">
@@ -378,7 +408,7 @@ export default function AdminCustomers() {
 
       {showUpgrade && (
         <div className="cust-modal-backdrop" role="presentation">
-          <div className="cust-modal" role="dialog" aria-labelledby="cust-upgrade-title">
+          <div className="cust-modal cust-modal--compact" role="dialog" aria-labelledby="cust-upgrade-title">
             <h2 id="cust-upgrade-title">Upgrade plan</h2>
             <p className="cust-upgrade-lead">
               <strong>{showUpgrade.company_name}</strong> is on{' '}
@@ -388,7 +418,7 @@ export default function AdminCustomers() {
                 {showUpgrade.plan_label}
               </span>
             </p>
-            <form onSubmit={submitUpgrade} className="cust-form">
+            <form onSubmit={submitUpgrade} className="cust-form cust-form--single">
               <label>
                 New plan
                 <select

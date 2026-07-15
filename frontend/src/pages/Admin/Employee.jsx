@@ -70,91 +70,106 @@ const Employee = () => {
     navigate(`/employee/${empId}`);
   };
 
-  const handleBackToDashboard = () => {
-    navigate('/admin');
-  };
+  const typeActive = employeeType !== 'All';
+  const circleActive = circle !== 'All';
 
   return (
     <div className="employee-container">
-      <div className="employee-header">
-        <button className="back-button" onClick={handleBackToDashboard}>
-          ← Command Center
-        </button>
-        <h1>Employee List</h1>
-      </div>
+      <div className="employee-toolbar" role="search" aria-label="Filter employees">
+        <div className="employee-toolbar__filters">
+          <label className={`employee-chip${typeActive ? ' employee-chip--active' : ''}`}>
+            <span className="employee-chip__key">Type</span>
+            <select
+              id="employee-type-filter"
+              value={employeeType}
+              onChange={(e) => setEmployeeType(e.target.value)}
+              className="employee-chip__select"
+              aria-label="Filter by employee type"
+            >
+              {employeeTypeOptions.map((t) => (
+                <option key={t} value={t}>{t === 'All' ? 'All types' : t}</option>
+              ))}
+            </select>
+          </label>
 
-      {/* Filters Section */}
-      <div className="filters-section">
-        <div className="filter-group">
-          <label>Employee Type:</label>
-          <select 
-            value={employeeType} 
-            onChange={(e) => setEmployeeType(e.target.value)}
-            className="filterr-select"
-          >
-            {employeeTypeOptions.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <label className={`employee-chip${circleActive ? ' employee-chip--active' : ''}`}>
+            <span className="employee-chip__key">Circle</span>
+            <select
+              id="employee-circle-filter"
+              value={circle}
+              onChange={(e) => setCircle(e.target.value)}
+              className="employee-chip__select"
+              aria-label="Filter by circle"
+            >
+              {circleOptions.map((c) => (
+                <option key={c} value={c}>{c === 'All' ? 'All circles' : c}</option>
+              ))}
+            </select>
+          </label>
+
+          {(typeActive || circleActive) ? (
+            <button
+              type="button"
+              className="employee-toolbar__clear"
+              onClick={() => {
+                setEmployeeType('All');
+                setCircle('All');
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
 
-        <div className="filter-group">
-          <label>Circle:</label>
-          <select 
-            value={circle} 
-            onChange={(e) => setCircle(e.target.value)}
-            className="filterr-select"
-          >
-            {circleOptions.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
+        {!loading ? (
+          <p className="employee-toolbar__count">
+            {employees.length} employee{employees.length === 1 ? '' : 's'}
+          </p>
+        ) : null}
       </div>
 
-      {/* Employee Cards */}
       <div className="employee-grid">
         {loading ? (
           <div className="no-employees">
-            <p>Loading employees...</p>
+            <p>Loading employees…</p>
           </div>
         ) : (
           employees.map((employee) => (
-            <div key={employee.id} className="employee-card">
-              <div className="employee-photo">
-                <UserAvatar user={employee} name={employee.name} alt={employee.name} />
-              </div>
-              <div className="employee-info">
-                <h3>{employee.name}</h3>
-                <p className="employee-id">
-                  <span className="info-icon">🆔</span>
-                  {employee.emp_id || employee.id}
+            <article key={employee.id} className="employee-card">
+              <UserAvatar
+                user={employee}
+                name={employee.name}
+                alt={employee.name}
+                className="employee-card__avatar"
+              />
+              <div className="employee-card__body">
+                <h3 className="employee-card__name" title={employee.name}>
+                  {employee.name}
+                </h3>
+                <p className="employee-card__id">{employee.emp_id || employee.id}</p>
+                <p className="employee-card__meta">
+                  <span>{employee.designation || employee.emp_type || '—'}</span>
+                  <span className="employee-card__dot" aria-hidden="true">·</span>
+                  <span>{employee.circle || '—'}</span>
                 </p>
-                <p className="employee-designation">
-                  <span className="info-icon">💼</span>
-                  {employee.designation || employee.emp_type || '—'}
-                </p>
-                <p className="employee-circle">
-                  <span className="info-icon">📍</span>
-                  {employee.circle || '—'}
-                </p>
-                <button 
-                  className="view-details-btn"
+                <button
+                  type="button"
+                  className="employee-card__btn"
                   onClick={() => handleViewDetails(employee.id)}
                 >
-                  View Details
+                  View
                 </button>
               </div>
-            </div>
+            </article>
           ))
         )}
       </div>
 
-      {!loading && employees.length === 0 && (
+      {!loading && employees.length === 0 ? (
         <div className="no-employees">
           <p>No employees found matching the selected filters.</p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

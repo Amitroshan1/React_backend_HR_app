@@ -11,6 +11,8 @@ import {
 import { clearPersistedPanelViews } from "../../hooks/usePersistedView";
 import { clearSensitiveToken } from "../../utils/sensitiveDataAuth";
 import { AdminReturnBar } from "./AdminReturnBar";
+import { crumbsForAdminPath } from "./AdminBreadcrumb";
+import { isAdminDepartmentPath } from "../../pages/Admin/AdminLayout";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 import { AppFooter } from "./AppFooter";
@@ -183,22 +185,29 @@ export const AppLayout = () => {
         username: username,
         empType: empType
     });
-    const isInventoryPage = (location.pathname || "")
-        .toLowerCase()
-        .startsWith("/it/inventory");
-    const isAdminShell = (location.pathname || "").startsWith("/admin");
+    const pathLower = (location.pathname || "").toLowerCase();
+    const isInventoryPage = pathLower.startsWith("/it/inventory");
+    const isAdminShell = pathLower.startsWith("/admin");
+    const isAdminHubHome = pathLower === "/admin" || pathLower === "/admin/";
     const adminDeptVisit =
         typeof sessionStorage !== "undefined"
         && sessionStorage.getItem("adminDeptVisit") === "1";
+    const hasCrumb = Boolean(crumbsForAdminPath(location.pathname));
+    // Department workspaces (when entered from Admin) + Admin Management subpages
     const showAdminReturnBar =
-        isAdminUser(headerUser) && adminDeptVisit && !isAdminShell;
+        isAdminUser(headerUser)
+        && hasCrumb
+        && (
+            (adminDeptVisit && !isAdminShell && isAdminDepartmentPath(location.pathname))
+            || (isAdminShell && !isAdminHubHome)
+        );
 
     return (
         <div className="main-layout app-layout">
             {/* The Header now gets the username and full user object from the centralized context */}
             <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
-            <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}`}>
+            <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}${isInventoryPage && showAdminReturnBar ? " content-area--inventory-admin" : ""}`}>
                 <AdminReturnBar visible={showAdminReturnBar} />
                 {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
                 <Outlet />

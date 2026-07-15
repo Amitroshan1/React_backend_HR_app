@@ -3,7 +3,7 @@ Admin panel API: dashboard stats, employee list, and employee detail.
 Access restricted to users with emp_type Admin / Administrator / Administration.
 """
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from calendar import monthrange
 
 from flask import Blueprint, current_app, jsonify, request
@@ -12,7 +12,7 @@ from sqlalchemy import func
 
 from . import db
 from .models.Admin_models import Admin
-from .models.attendance import LeaveApplication, Punch
+from .models.attendance import LeaveApplication, Punch, WorkFromHomeApplication
 from .models.query import Query
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
@@ -96,6 +96,126 @@ def _date_iso(d):
     return d.isoformat() if d and hasattr(d, "isoformat") else (str(d) if d else None)
 
 
+def _as_date(value):
+    """Normalize DB date/datetime/string to date."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_punch_time(dt):
+    if not dt:
+        return ""
+    try:
+        return dt.strftime("%H:%M")
+    except Exception:
+        return ""
+
+
+def _punch_in_out_times(punch):
+    """Resolve punch in/out from Punch aggregate or sessions."""
+    if not punch:
+        return "", ""
+    pin = _fmt_punch_time(getattr(punch, "punch_in", None))
+    pout = _fmt_punch_time(getattr(punch, "punch_out", None))
+    if pin or pout:
+        return pin, pout
+    sessions = getattr(punch, "sessions", None) or []
+    if not sessions:
+        return "", ""
+    clocks_in = [s.clock_in for s in sessions if getattr(s, "clock_in", None)]
+    clocks_out = [s.clock_out for s in sessions if getattr(s, "clock_out", None)]
+    pin = _fmt_punch_time(min(clocks_in)) if clocks_in else ""
+    pout = _fmt_punch_time(max(clocks_out)) if clocks_out else ""
+    return pin, pout
+
+
+def _build_admin_punch_days(admin_id, range_start, range_end):
+    """
+    Build day rows (newest first) for punch in/out + approved leave/WFH.
+    Includes every calendar day in [range_start, range_end].
+    """
+    from sqlalchemy.orm import joinedload
+
+    if range_start > range_end:
+        range_start, range_end = range_end, range_start
+
+    punch_rows = (
+        Punch.query.options(joinedload(Punch.sessions))
+        .filter(
+            Punch.admin_id == admin_id,
+            Punch.punch_date >= range_start,
+            Punch.punch_date <= range_end,
+        )
+        .all()
+    )
+    punch_map = {}
+    for p in punch_rows:
+        d = _as_date(p.punch_date)
+        if d:
+            punch_map[d] = p
+
+    leave_rows = LeaveApplication.query.filter(
+        LeaveApplication.admin_id == admin_id,
+        LeaveApplication.status == "Approved",
+        LeaveApplication.start_date <= range_end,
+        LeaveApplication.end_date >= range_start,
+    ).all()
+    wfh_rows = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin_id,
+        WorkFromHomeApplication.status == "Approved",
+        WorkFromHomeApplication.start_date <= range_end,
+        WorkFromHomeApplication.end_date >= range_start,
+    ).all()
+
+    rows = []
+    day = range_end
+    while day >= range_start:
+        punch = punch_map.get(day)
+        leave_match = next(
+            (
+                lv
+                for lv in leave_rows
+                if (ls := _as_date(lv.start_date))
+                and (le := _as_date(lv.end_date))
+                and ls <= day <= le
+            ),
+            None,
+        )
+        wfh_match = next(
+            (
+                w
+                for w in wfh_rows
+                if (ws := _as_date(w.start_date))
+                and (we := _as_date(w.end_date))
+                and ws <= day <= we
+            ),
+            None,
+        )
+        on_leave = leave_match is not None
+        is_wfh = wfh_match is not None
+        punch_in_s, punch_out_s = _punch_in_out_times(punch)
+        rows.append({
+            "id": punch.id if punch else f"day-{day.isoformat()}",
+            "date": day.isoformat(),
+            "punch_in": punch_in_s or "—",
+            "punch_out": punch_out_s or "—",
+            "on_leave": on_leave,
+            "is_wfh": is_wfh,
+            "leave_type": (leave_match.leave_type if leave_match else "") or "",
+            "today_work": str(punch.today_work) if punch and punch.today_work else "",
+        })
+        day -= timedelta(days=1)
+    return rows
+
+
 # --------------------------------------------------
 # GET /api/admin/dashboard – stats for Admin dashboard (optional circle, emp_type)
 # --------------------------------------------------
@@ -110,6 +230,19 @@ def get_dashboard():
     q = _base_employee_query()
     q = _apply_scope(q, circle, emp_type)
     total_employees = q.count()
+    company_total_employees = _base_employee_query().count()
+
+    today = date.today()
+    active_today = (
+        Punch.query.join(Admin, Punch.admin_id == Admin.id)
+        .filter(
+            Punch.punch_date == today,
+            Punch.punch_in.isnot(None),
+            db.func.coalesce(Admin.is_exited, False) == False,
+            db.func.coalesce(Admin.is_active, True) == True,
+        )
+        .count()
+    )
 
     # Leaves, queries, claims, resignations: all data in DB (Admin has org-wide access)
     total_leaves = LeaveApplication.query.count()
@@ -161,6 +294,8 @@ def get_dashboard():
     return jsonify({
         "success": True,
         "total_employees": total_employees,
+        "company_total_employees": company_total_employees,
+        "active_today": active_today,
         "total_leaves": total_leaves,
         "total_queries": total_queries,
         "total_claims": total_claims,
@@ -445,15 +580,21 @@ def get_employee_detail(admin_id):
         for la in leaves
     ]
 
-    # Queries
-    queries = Query.query.filter_by(admin_id=admin_id).order_by(Query.created_at.desc()).all()
+    # Queries — latest 5 raised by this employee
+    queries = (
+        Query.query.filter_by(admin_id=admin_id)
+        .order_by(Query.created_at.desc(), Query.id.desc())
+        .limit(5)
+        .all()
+    )
     queries_data = [
         {
             "id": q.id,
-            "type": q.department or q.title,
-            "status": q.status,
-            "startDate": _date_iso(q.created_at) if q.created_at else None,
-            "endDate": _date_iso(q.created_at) if q.created_at else None,
+            "title": q.title or "",
+            "department": q.department or "",
+            "status": q.status or "",
+            "created_at": _date_iso(q.created_at) if q.created_at else None,
+            "query_text": ((q.query_text or "")[:200]),
         }
         for q in queries
     ]
@@ -489,60 +630,91 @@ def get_employee_detail(admin_id):
         for r in resignations
     ]
 
-    # Punches (group by date; show as check-in/check-out pairs or single row)
-    punch_rows = Punch.query.filter_by(admin_id=admin_id).order_by(
-        Punch.punch_date.desc()
-    ).limit(100).all()
-    punches_data = []
-    for p in punch_rows:
-        d = _date_iso(p.punch_date)
-        punches_data.append({
-            "id": p.id,
-            "type": "Check-in" if p.punch_in and not p.punch_out else "Check-out",
-            "status": "Approved",
-            "startDate": d,
-            "endDate": d,
-        })
+    # Punches: last 5 calendar days with punch in/out + leave/WFH flags
+    today = date.today()
+    punches_data = _build_admin_punch_days(admin_id, today - timedelta(days=4), today)
 
-    # Payslips
+    # Payslips (newest uploaded/generated first)
     payslips = PaySlip.query.filter_by(admin_id=admin_id).order_by(
-        PaySlip.year.desc(), PaySlip.month.desc()
+        PaySlip.id.desc()
     ).all()
+    month_names = (
+        "", "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    )
+    month_name_to_num = {name.lower(): i for i, name in enumerate(month_names) if name}
+
+    def _payslip_month_parts(raw_month):
+        raw = str(raw_month or "").strip()
+        if raw.isdigit():
+            m = int(raw)
+            if 1 <= m <= 12:
+                return m, month_names[m]
+            return None, raw or "—"
+        key = raw.lower()
+        if key in month_name_to_num:
+            m = month_name_to_num[key]
+            return m, month_names[m]
+        # Truncated / alternate labels e.g. "Jan"
+        for name, num in month_name_to_num.items():
+            if name.startswith(key) or key.startswith(name[:3]):
+                return num, month_names[num]
+        return None, raw or "—"
+
     payslips_data = []
     for ps in payslips:
         try:
-            y = int(ps.year)
-            m = int(ps.month) if (ps.month and str(ps.month).isdigit()) else 1
-            last = date(y, m, monthrange(y, m)[1])
-            sd = date(y, m, 1)
-            payslips_data.append({
-                "id": ps.id,
-                "type": "Monthly",
-                "status": "Approved",
-                "startDate": sd.isoformat(),
-                "endDate": last.isoformat(),
-            })
-        except (ValueError, TypeError):
-            payslips_data.append({
-                "id": ps.id,
-                "type": "Monthly",
-                "status": "Approved",
-                "startDate": None,
-                "endDate": None,
-            })
+            y = int(ps.year) if ps.year and str(ps.year).strip().isdigit() else None
+        except (TypeError, ValueError):
+            y = None
+        m_num, m_label = _payslip_month_parts(ps.month)
+        period_date = None
+        if y and m_num:
+            try:
+                period_date = date(y, m_num, 1).isoformat()
+            except ValueError:
+                period_date = None
+        payslips_data.append({
+            "id": ps.id,
+            "month": m_label,
+            "month_num": m_num,
+            "year": str(ps.year or "").strip() or "—",
+            "date": period_date,
+            "file_path": ps.file_path or "",
+        })
 
-    # Assets
-    assets = Asset.query.filter_by(admin_id=admin_id).all()
-    assets_data = [
-        {
-            "id": a.id,
-            "type": a.name,
-            "status": "Approved",
-            "startDate": _date_iso(a.issue_date),
-            "endDate": _date_iso(a.return_date),
-        }
-        for a in assets
-    ]
+    # Assets — all currently assigned IT inventory + legacy HR assets
+    assets_data = []
+    try:
+        from .it import _serialize_emp_assets
+        for row in _serialize_emp_assets(admin):
+            assets_data.append({
+                "id": row.get("id"),
+                "name": row.get("name") or "—",
+                "category": row.get("category") or "—",
+                "status": row.get("status") or "Assigned",
+                "assignedDate": row.get("assignedDate"),
+                "serialNumber": row.get("serialNumber") or "",
+                "assetTag": row.get("assetTag") or row.get("assetId") or "",
+                "quantity": row.get("quantity"),
+            })
+    except Exception:
+        assets_data = []
+
+    legacy_assets = Asset.query.filter_by(admin_id=admin_id).all()
+    for a in legacy_assets:
+        assets_data.append({
+            "id": f"hr-{a.id}",
+            "name": a.name or "—",
+            "category": "HR Asset",
+            "status": "Returned" if a.return_date else "Assigned",
+            "assignedDate": _date_iso(a.issue_date),
+            "serialNumber": "",
+            "assetTag": "",
+            "quantity": None,
+            "returnDate": _date_iso(a.return_date),
+            "remark": a.remark or "",
+        })
 
     # Profile fields for UI (match frontend expectations: id, name, email, designation, phone, gender, dob, address, photo)
     name = (admin.first_name or "").strip() or admin.email or ""
@@ -570,6 +742,59 @@ def get_employee_detail(admin_id):
             "payslips": payslips_data,
             "assets": assets_data,
         },
+    }), 200
+
+
+# --------------------------------------------------
+# GET /api/admin/employees/<id>/punches – month (or last N days) punch ledger
+# --------------------------------------------------
+@admin_bp.route("/employees/<int:admin_id>/punches", methods=["GET"])
+@jwt_required()
+@_admin_required
+def get_employee_punches(admin_id):
+    admin = Admin.query.get(admin_id)
+    if not admin or admin.is_exited:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    today = date.today()
+    days_arg = (request.args.get("days") or "").strip()
+    month_arg = (request.args.get("month") or "").strip()
+    year_arg = (request.args.get("year") or "").strip()
+
+    if days_arg:
+        try:
+            n = max(1, min(31, int(days_arg)))
+        except ValueError:
+            n = 5
+        range_end = today
+        range_start = today - timedelta(days=n - 1)
+        month = range_end.month
+        year = range_end.year
+    else:
+        try:
+            month = int(month_arg) if month_arg else today.month
+            year = int(year_arg) if year_arg else today.year
+        except ValueError:
+            return jsonify({"success": False, "message": "Invalid month or year"}), 400
+        if month < 1 or month > 12 or year < 2000 or year > 2100:
+            return jsonify({"success": False, "message": "Invalid month or year"}), 400
+        range_start = date(year, month, 1)
+        range_end = date(year, month, monthrange(year, month)[1])
+
+    rows = _build_admin_punch_days(admin_id, range_start, range_end)
+    name = (admin.first_name or "").strip() or admin.email or ""
+    return jsonify({
+        "success": True,
+        "employee": {
+            "id": admin.id,
+            "emp_id": admin.emp_id or "",
+            "name": name,
+        },
+        "month": month,
+        "year": year,
+        "from_date": range_start.isoformat(),
+        "to_date": range_end.isoformat(),
+        "punches": rows,
     }), 200
 
 

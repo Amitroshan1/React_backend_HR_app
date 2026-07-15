@@ -1,30 +1,21 @@
-import { useNavigate, useLocation } from 'react-router-dom';
-import { clearAdminDepartmentVisit, isAdminDepartmentPath } from '../../pages/Admin/AdminLayout';
-import './AdminReturnBar.css';
+import { useLocation } from 'react-router-dom';
+import { AdminBreadcrumb, crumbsForAdminPath } from './AdminBreadcrumb';
 
 export function AdminReturnBar({ visible }) {
-  const navigate = useNavigate();
   const location = useLocation();
+  const path = (location.pathname || '').toLowerCase();
 
-  if (!visible || !isAdminDepartmentPath(location.pathname)) {
+  // Employee detail owns a richer crumb (includes employee name).
+  if (path.startsWith('/employee/')) {
     return null;
   }
 
-  return (
-    <div className="admin-return-bar" role="navigation" aria-label="Return to admin">
-      <button
-        type="button"
-        className="admin-return-bar__btn"
-        onClick={() => {
-          clearAdminDepartmentVisit();
-          navigate('/admin');
-        }}
-      >
-        ← Back to Admin Command Center
-      </button>
-      <span className="admin-return-bar__hint">
-        You are working in a department workspace — all admin controls stay in Admin Management.
-      </span>
-    </div>
-  );
+  if (!visible) {
+    return null;
+  }
+
+  const items = crumbsForAdminPath(location.pathname);
+  if (!items?.length) return null;
+
+  return <AdminBreadcrumb items={items} />;
 }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, Archive, AlertCircle, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { useAdminVisitNav } from '../../hooks/useAdminVisitNav';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import './ExitEmployee.css';
 
@@ -31,7 +32,22 @@ const ExitEmployee = ({onBack}) => {
   // Check if employee data was passed from Archive and where we came from
   const employeeFromArchive = location.state?.selectedEmployee;
   const sourceFrom = location.state?.from; // 'archive' or undefined (from HR)
-  
+  const { fromAdmin, backLabel, goBack } = useAdminVisitNav({
+    fallbackTo: sourceFrom === 'archive' ? '/archive-employees' : '/hr',
+    fallbackLabel: sourceFrom === 'archive' ? 'Back to Archive' : 'Back to Updates',
+    onFallback: () => {
+      if (onBack) {
+        onBack();
+        return;
+      }
+      if (sourceFrom === 'archive') {
+        navigate('/archive-employees', { replace: true });
+        return;
+      }
+      navigate('/hr', { state: { view: 'updates' }, replace: true });
+    },
+  });
+
   const wrapperRef = useRef(null);
   const typeSelectRef = useRef(null);
   const circleSelectRef = useRef(null);
@@ -397,20 +413,13 @@ const ExitEmployee = ({onBack}) => {
 
         <div className="header-section">
           <button
+            type="button"
             className="btn-back-updates"
-            aria-label="Back to Updates"
-            onClick={() => {
-              if (onBack) {
-                onBack();
-              } else if (sourceFrom === 'archive') {
-                navigate('/archive-employees', { replace: true });
-              } else {
-                navigate('/updates', { state: { view: 'updates' }, replace: true });
-              }
-            }}
+            aria-label={backLabel}
+            onClick={() => goBack({ replace: true })}
           >
             <ArrowLeft size={20} />
-            <span>Back to Updates</span>
+            <span>{fromAdmin ? backLabel : (sourceFrom === 'archive' ? 'Back to Archive' : 'Back to Updates')}</span>
           </button>
 
           <button
