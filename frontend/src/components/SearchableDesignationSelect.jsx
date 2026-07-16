@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Plus, Search } from 'lucide-react';
 import {
   addCustomDesignation,
@@ -18,10 +19,23 @@ export function SearchableDesignationSelect({
   placeholder = 'Search or select designation',
 }) {
   const rootRef = useRef(null);
+  const controlRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [menuPosition, setMenuPosition] = useState(null);
+
+  const updateMenuPosition = useCallback(() => {
+    const control = controlRef.current;
+    if (!control) return;
+    const rect = control.getBoundingClientRect();
+    setMenuPosition({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+    });
+  }, []);
 
   const reloadOptions = useCallback(async () => {
     setLoading(true);
@@ -38,12 +52,23 @@ export function SearchableDesignationSelect({
   }, [reloadOptions]);
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open) {
+      setMenuPosition(null);
+      return undefined;
+    }
+
+    updateMenuPosition();
+
     const onDocClick = (e) => {
-      if (rootRef.current && !rootRef.current.contains(e.target)) {
-        setOpen(false);
-        setSearch('');
+      const menu = document.getElementById(`${id}-listbox`);
+      if (
+        (rootRef.current && rootRef.current.contains(e.target))
+        || (menu && menu.contains(e.target))
+      ) {
+        return;
       }
+      setOpen(false);
+      setSearch('');
     };
     const onEsc = (e) => {
       if (e.key === 'Escape') {
@@ -51,13 +76,19 @@ export function SearchableDesignationSelect({
         setSearch('');
       }
     };
+    const onReposition = () => updateMenuPosition();
+
     document.addEventListener('mousedown', onDocClick);
     document.addEventListener('keydown', onEsc);
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
     return () => {
       document.removeEventListener('mousedown', onDocClick);
       document.removeEventListener('keydown', onEsc);
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
     };
-  }, [open]);
+  }, [open, id, updateMenuPosition]);
 
   const query = search.trim();
   const filtered = useMemo(() => {
@@ -90,12 +121,55 @@ export function SearchableDesignationSelect({
     selectValue(next);
   };
 
+  const menu = open && !disabled && menuPosition ? (
+    <div
+      className="searchable-designation__menu searchable-designation__menu--portal"
+      id={`${id}-listbox`}
+      role="listbox"
+      style={{
+        position: 'fixed',
+        top: menuPosition.top,
+        left: menuPosition.left,
+        width: menuPosition.width,
+      }}
+    >
+      {loading ? (
+        <p className="searchable-designation__hint">Loading designations…</p>
+      ) : null}
+      {!loading && filtered.length === 0 && !showAddNew ? (
+        <p className="searchable-designation__hint">No designations match your search.</p>
+      ) : null}
+      {filtered.map((item) => (
+        <button
+          key={item}
+          type="button"
+          role="option"
+          aria-selected={value === item}
+          className={`searchable-designation__option${value === item ? ' is-selected' : ''}`}
+          onClick={() => selectValue(item)}
+        >
+          {item}
+        </button>
+      ))}
+      {showAddNew ? (
+        <button
+          type="button"
+          className="searchable-designation__option searchable-designation__option--add"
+          onClick={handleAddNew}
+        >
+          <Plus size={16} aria-hidden />
+          Add &ldquo;{query}&rdquo;
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <div
       className={`searchable-designation${disabled ? ' is-disabled' : ''}${open ? ' is-open' : ''}`}
       ref={rootRef}
     >
-      <div className="searchable-designation__control">
+      <div className="searchable-designation__control" ref={controlRef}>
         <span className="searchable-designation__icon-wrap" aria-hidden>
           <Search size={15} />
         </span>
@@ -145,38 +219,7 @@ export function SearchableDesignationSelect({
         </button>
       </div>
 
-      {open && !disabled ? (
-        <div className="searchable-designation__menu" id={`${id}-listbox`} role="listbox">
-          {loading ? (
-            <p className="searchable-designation__hint">Loading designations…</p>
-          ) : null}
-          {!loading && filtered.length === 0 && !showAddNew ? (
-            <p className="searchable-designation__hint">No designations match your search.</p>
-          ) : null}
-          {filtered.map((item) => (
-            <button
-              key={item}
-              type="button"
-              role="option"
-              aria-selected={value === item}
-              className={`searchable-designation__option${value === item ? ' is-selected' : ''}`}
-              onClick={() => selectValue(item)}
-            >
-              {item}
-            </button>
-          ))}
-          {showAddNew ? (
-            <button
-              type="button"
-              className="searchable-designation__option searchable-designation__option--add"
-              onClick={handleAddNew}
-            >
-              <Plus size={16} aria-hidden />
-              Add &ldquo;{query}&rdquo;
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      {menu ? createPortal(menu, document.body) : null}
     </div>
   );
 }

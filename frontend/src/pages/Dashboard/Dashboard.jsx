@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   FiChevronRight,
   FiCheckCircle,
@@ -354,7 +354,8 @@ function RecentActivityList({
   );
 }
 
-export const Dashboard = () => {  
+export const Dashboard = () => {
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isPunching, setIsPunching] = useState(false);
@@ -961,12 +962,17 @@ export const Dashboard = () => {
                 key: 'comp',
                 label: 'Compensatory Leave (Comp Off)',
                 remaining: remainingComp,
-                subtext: compSubtext,
+                subtext: `${compSubtext} · tap for details`,
                 icon: <FiRefreshCw size={22} />,
                 colorClass: 'orange',
+                clickable: true,
+                onClick: () => {
+                    setLeaveBalanceModalOpen(false);
+                    navigate('/leaves/comp-off');
+                },
             },
         ];
-    }, [dynamicData.leave_balance]);
+    }, [dynamicData.leave_balance, navigate]);
     const punchInTimeDisplay = useMemo(() => formatTime(dynamicData.punch.punch_in), [dynamicData.punch.punch_in]);
     const todaysDate = useMemo(() => formatDate(new Date()), []);
     const currentStatus = useMemo(() => {
@@ -1417,7 +1423,17 @@ export const Dashboard = () => {
                         {leaveBreakdown.map((item) => (
                             <div
                                 key={item.key}
-                                className={`dashboard-leave-balance-item dashboard-leave-balance-item--${item.colorClass}`}
+                                className={`dashboard-leave-balance-item dashboard-leave-balance-item--${item.colorClass}${item.clickable ? ' dashboard-leave-balance-item--clickable' : ''}`}
+                                role={item.clickable ? 'button' : undefined}
+                                tabIndex={item.clickable ? 0 : undefined}
+                                aria-label={item.clickable ? `${item.label} details` : undefined}
+                                onClick={item.clickable ? item.onClick : undefined}
+                                onKeyDown={item.clickable ? (e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        item.onClick?.();
+                                    }
+                                } : undefined}
                             >
                                 <div className="dashboard-leave-balance-item__content">
                                     <span className="dashboard-leave-balance-item__value">

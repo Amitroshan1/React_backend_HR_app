@@ -96,15 +96,22 @@
   left: 0;
   right: 0;
   z-index: 1200;
-  max-height: 240px;
+  max-height: min(280px, 50vh);
   overflow-y: auto;
-  padding: 6px;
+  overflow-x: hidden;
+  padding: 4px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
+}
+
+.searchable-designation__menu--portal {
+  position: fixed;
+  right: auto;
+  z-index: 9999;
 }
 
 .searchable-designation__menu::-webkit-scrollbar {
@@ -125,14 +132,18 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 10px 12px;
+  min-height: 0;
+  margin: 0;
+  padding: 9px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: #334155;
+  font-family: inherit;
   font-size: 0.88rem;
   line-height: 1.35;
   text-align: left;
+  white-space: normal;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
