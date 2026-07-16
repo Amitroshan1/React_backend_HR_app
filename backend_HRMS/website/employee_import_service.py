@@ -37,8 +37,10 @@ def _map_headers(fieldnames: list[str] | None) -> dict[str, str]:
     out: dict[str, str] = {}
     for key, aliases in _COLUMN_ALIASES.items():
         for alias in aliases:
-            if alias in normalized:
-                out[key] = normalized[alias]
+            # Aliases may use underscores; headers are normalized with spaces.
+            norm_alias = _normalize_header(alias)
+            if norm_alias in normalized:
+                out[key] = normalized[norm_alias]
                 break
     return out
 

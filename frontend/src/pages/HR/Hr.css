@@ -1413,38 +1413,57 @@
 
 @media (max-width: 768px) {
   .hr-main-container.hr-modules-page {
-    padding-left: 16px;
-    padding-right: 16px;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 8px 10px 24px !important;
+    box-sizing: border-box;
   }
 
   .hr-modules-sticky-head {
-    margin-bottom: 16px;
-    padding: 12px 14px 12px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
     border-radius: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 12;
   }
 
   .hr-modules-topbar {
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
-    padding-bottom: 10px;
+    gap: 8px;
+    padding-bottom: 8px;
   }
 
   .hr-modules-page .hr-modules-back.btn-back {
-    width: fit-content;
-    max-width: 100%;
+    width: 100%;
+    justify-content: flex-start;
+    height: 40px;
+    font-size: 0.8125rem;
   }
 
   .hr-modules-search {
     flex: 1 1 auto;
     max-width: none;
     margin-left: 0;
+    height: 40px;
+  }
+
+  .hr-modules-search input {
+    font-size: 0.875rem;
+  }
+
+  .hr-modules-search input::placeholder {
+    font-size: 0.75rem;
   }
 
   .hr-modules-tabs {
+    display: flex;
     flex-wrap: nowrap;
     overflow-x: auto;
-    padding-top: 10px;
+    gap: 6px;
+    padding-top: 8px;
     margin: 0 -4px;
     padding-left: 4px;
     padding-right: 4px;
@@ -1458,10 +1477,134 @@
 
   .hr-modules-tab {
     flex-shrink: 0;
+    min-height: 36px;
+    padding: 6px 14px;
+    font-size: 0.75rem;
   }
 
+  .hr-modules-recent {
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+  }
+
+  .hr-modules-recent__head {
+    margin-bottom: 8px;
+  }
+
+  .hr-modules-recent__head h2 {
+    font-size: 0.6875rem;
+  }
+
+  .hr-modules-recent__list {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    margin: 0 -2px;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .hr-modules-recent__list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hr-modules-recent__chip {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+  }
+
+  .hr-modules-section {
+    margin-bottom: 18px;
+  }
+
+  .hr-modules-section__head {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+  }
+
+  .hr-modules-section__title {
+    font-size: 0.9375rem;
+  }
+
+  .hr-modules-section__desc {
+    font-size: 0.75rem;
+    max-width: none;
+  }
+
+  .hr-modules-section__count {
+    min-width: 26px;
+    height: 26px;
+    font-size: 0.75rem;
+  }
+
+  /* Dashboard-style: full-width list cards (not stacked icon-above-text) */
+  .hr-modules-page .hr-modules-section .updates-grid,
   .hr-modules-section .updates-grid {
-    grid-template-columns: 1fr;
+    display: flex !important;
+    flex-direction: column;
+    grid-template-columns: none;
+    gap: 8px;
+  }
+
+  .hr-modules-page .hr-modules-section .update-card,
+  .hr-modules-section .update-card {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 12px !important;
+    width: 100%;
+    padding: 12px 14px !important;
+    border-radius: 12px;
+    min-height: 64px;
+    box-sizing: border-box;
+  }
+
+  .hr-modules-page .hr-modules-section .update-card:hover,
+  .hr-modules-section .update-card:hover {
+    transform: none;
+  }
+
+  .hr-modules-page .update-icon-box,
+  .hr-modules-section .update-icon-box {
+    width: 40px !important;
+    height: 40px !important;
+    flex-shrink: 0;
+    border-radius: 10px;
+  }
+
+  .hr-modules-page .update-text,
+  .hr-modules-section .update-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .hr-modules-page .update-text h4,
+  .hr-modules-section .update-text h4 {
+    font-size: 0.875rem !important;
+    margin: 0 0 2px;
+    line-height: 1.3;
+  }
+
+  .hr-modules-page .update-text p,
+  .hr-modules-section .update-text p {
+    font-size: 0.75rem !important;
+    line-height: 1.35;
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .hr-modules-empty {
+    padding: 36px 16px;
+    border-radius: 12px;
   }
 }
 
@@ -2643,8 +2786,8 @@
   .hr-main-container.hr-modules-page {
     margin-top: 0;
     padding-top: 0;
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: 10px;
+    padding-right: 10px;
   }
 
   .hr-dashboard .hr-stats-grid {
@@ -2811,11 +2954,26 @@
     gap: 10px 12px;
   }
 
+  /* Keep HR modules hub as list rows on phone (dashboard-style) */
+  .hr-modules-page .hr-modules-section .updates-grid {
+    display: flex !important;
+    flex-direction: column;
+    grid-template-columns: none;
+    gap: 8px;
+  }
+
   .update-card {
     flex-direction: column;
     align-items: flex-start;
     padding: 12px;
     gap: 8px;
+  }
+
+  .hr-modules-page .hr-modules-section .update-card {
+    flex-direction: row !important;
+    align-items: center !important;
+    padding: 12px 14px !important;
+    gap: 12px !important;
   }
 
   .update-icon-box {
