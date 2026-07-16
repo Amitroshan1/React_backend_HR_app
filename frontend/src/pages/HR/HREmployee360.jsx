@@ -403,7 +403,11 @@ function LeaveTab({ employee }) {
 
 function assetImageUrl(path) {
   if (!path) return null;
-  const clean = String(path).replace(/^\/+/, '');
+  const raw = String(path).trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
+  if (raw.startsWith('/static/')) return raw;
+  const clean = raw.replace(/^\/+/, '');
   return `/static/uploads/${clean}`;
 }
 
@@ -444,7 +448,7 @@ function AssetsTab({ employee }) {
   if (loading) return <p className="e360-loading">Loading assigned assets…</p>;
   if (error) return <p className="e360-muted">{error}</p>;
 
-  const activeCount = assets.filter((a) => !a.return_date).length;
+  const activeCount = assets.filter((a) => !a.return_date && String(a.status || '').toLowerCase() !== 'returned').length;
 
   return (
     <div className="e360-assets">
@@ -467,8 +471,15 @@ function AssetsTab({ employee }) {
       ) : (
         <div className="e360-assets__grid">
           {assets.map((asset) => {
-            const isReturned = Boolean(asset.return_date);
+            const isReturned = Boolean(asset.return_date)
+              || String(asset.status || '').toLowerCase() === 'returned';
             const images = Array.isArray(asset.images) ? asset.images.filter(Boolean) : [];
+            const metaBits = [
+              asset.category,
+              asset.asset_tag ? `Tag ${asset.asset_tag}` : null,
+              asset.serial_number ? `S/N ${asset.serial_number}` : null,
+              asset.quantity ? `Qty ${asset.quantity}` : null,
+            ].filter(Boolean);
             return (
               <article key={asset.id} className="e360-asset-card">
                 <div className="e360-asset-card__head">
@@ -478,9 +489,12 @@ function AssetsTab({ employee }) {
                   <div className="e360-asset-card__title-wrap">
                     <h4>{asset.name || 'Asset'}</h4>
                     {asset.description ? <p>{asset.description}</p> : null}
+                    {metaBits.length > 0 ? (
+                      <p className="e360-asset-card__tags">{metaBits.join(' · ')}</p>
+                    ) : null}
                   </div>
                   <span className={`e360-asset-status${isReturned ? ' e360-asset-status--returned' : ''}`}>
-                    {isReturned ? 'Returned' : 'Active'}
+                    {isReturned ? 'Returned' : (asset.status || 'Active')}
                   </span>
                 </div>
 
@@ -493,6 +507,12 @@ function AssetsTab({ employee }) {
                     <span>Return date</span>
                     <strong>{formatDateDDMMYYYY(asset.return_date, '—')}</strong>
                   </div>
+                  {asset.source ? (
+                    <div className="e360-row">
+                      <span>Source</span>
+                      <strong>{asset.source === 'it' ? 'IT Inventory' : 'HR Assets'}</strong>
+                    </div>
+                  ) : null}
                   {asset.remark ? (
                     <div className="e360-asset-card__remark">
                       <span>Remark</span>
@@ -526,7 +546,7 @@ function AssetsTab({ employee }) {
         </div>
       )}
 
-      <p className="e360-muted e360-hint">Read-only view of assets assigned to this employee.</p>
+      <p className="e360-muted e360-hint">Read-only view of assets assigned to this employee (HR + IT inventory).</p>
     </div>
   );
 }

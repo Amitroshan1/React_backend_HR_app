@@ -285,6 +285,8 @@ function RecentActivityList({
   formatTime,
   formatTimeAgo,
   formatDate,
+  onNavigate,
+  canViewPayslip = true,
 }) {
   const items = [];
   if (punchIn) {
@@ -293,6 +295,8 @@ function RecentActivityList({
       dot: "green",
       text: `Punch-in at ${formatTime(punchIn)}`,
       time: "Today",
+      href: "/attendance",
+      ariaLabel: "Open attendance details",
     });
   }
   if (punchOut) {
@@ -301,10 +305,14 @@ function RecentActivityList({
       dot: "blue",
       text: `Punch-out at ${formatTime(punchOut)}`,
       time: "Today",
+      href: "/attendance",
+      ariaLabel: "Open attendance details",
     });
   }
   if (lastLeave) {
     const status = (lastLeave.status || "").toLowerCase();
+    const leaveType = (lastLeave.leave_type || "").toLowerCase();
+    const isCompOff = leaveType.includes("comp");
     const dot =
       status === "approved"
         ? "green"
@@ -317,15 +325,20 @@ function RecentActivityList({
       text: `Leave (${lastLeave.leave_type || "Leave"}): ${lastLeave.status || "Pending"}`,
       time:
         formatTimeAgo(lastLeave.created_at) || formatDate(lastLeave.start_date),
+      href: isCompOff ? "/leaves/comp-off" : "/leaves",
+      ariaLabel: isCompOff ? "Open Comp Off details" : "Open leave details",
+      important: status === "pending" || status === "new" || status === "open",
     });
   }
-  if (lastPayslip) {
+  if (lastPayslip && canViewPayslip) {
     items.push({
       key: `payslip-${lastPayslip.id}`,
       dot: "blue",
       text: `Payslip updated: ${lastPayslip.month || ""} ${lastPayslip.year || ""}`,
       time:
         `${lastPayslip.month || ""} ${lastPayslip.year || ""}`.trim() || "—",
+      href: "/payslip",
+      ariaLabel: "Open payslip details",
     });
   }
   if (items.length === 0) {
@@ -342,14 +355,37 @@ function RecentActivityList({
   }
   return (
     <ul className="activity-list">
-      {items.map((item) => (
-        <li key={item.key}>
-          <div className="left">
-            <span className={`dot ${item.dot}`}></span> {item.text}
-          </div>
-          <span className="time">{item.time}</span>
-        </li>
-      ))}
+      {items.map((item) => {
+        const clickable = Boolean(item.href && onNavigate);
+        return (
+          <li
+            key={item.key}
+            className={`${clickable ? "activity-list__item--clickable" : ""}${item.important ? " activity-list__item--important" : ""}`.trim()}
+            role={clickable ? "button" : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            aria-label={clickable ? item.ariaLabel : undefined}
+            onClick={clickable ? () => onNavigate(item.href) : undefined}
+            onKeyDown={clickable ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onNavigate(item.href);
+              }
+            } : undefined}
+          >
+            <div className="left">
+              <span className={`dot ${item.dot}`}></span>
+              <span className="activity-list__text">{item.text}</span>
+              {item.important ? (
+                <span className="activity-list__badge">Important</span>
+              ) : null}
+            </div>
+            <span className="activity-list__meta">
+              <span className="time">{item.time}</span>
+              {clickable ? <FiChevronRight className="activity-list__chevron" aria-hidden size={16} /> : null}
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -1386,6 +1422,8 @@ export const Dashboard = () => {
                                 formatTime={formatTime}
                                 formatTimeAgo={formatTimeAgo}
                                 formatDate={formatDate}
+                                canViewPayslip={hasFeature("dashboard_payslip")}
+                                onNavigate={(href) => navigate(href)}
                             />
                         </div>
                     </div>

@@ -910,6 +910,13 @@
   line-height: 1.35;
 }
 
+.e360-asset-card__tags {
+  margin-top: 4px !important;
+  font-size: 0.75rem !important;
+  color: #475569 !important;
+  font-weight: 600;
+}
+
 .e360-asset-status {
   display: inline-flex;
   align-items: center;

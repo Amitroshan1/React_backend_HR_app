@@ -6168,16 +6168,74 @@ def get_employee_assets(admin_id):
     if not employee:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
-    assets = Asset.query.filter_by(admin_id=admin_id).all()
+    # Legacy HR-assigned assets (manual Add Assets flow)
+    legacy_assets = []
+    for a in Asset.query.filter_by(admin_id=admin_id).all():
+        row = a.to_dict()
+        row["source"] = "hr"
+        row["category"] = row.get("category") or "HR Asset"
+        row["status"] = "Returned" if row.get("return_date") else "Assigned"
+        legacy_assets.append(row)
+
+    # IT inventory assignments (same source as Dashboard → My Assets)
+    it_assets = []
+    try:
+        from .it import _serialize_emp_assets
+
+        for item in _serialize_emp_assets(employee):
+            photos = item.get("photos") or []
+            if not isinstance(photos, list):
+                photos = []
+            category = (item.get("category") or "IT Asset").strip()
+            parts = [
+                category,
+                item.get("brand"),
+                item.get("make"),
+                item.get("model"),
+                item.get("hwType"),
+            ]
+            description = " · ".join(str(p).strip() for p in parts if p and str(p).strip())
+            remark_bits = []
+            if item.get("assetTag"):
+                remark_bits.append(f"Tag: {item['assetTag']}")
+            if item.get("assetId"):
+                remark_bits.append(f"Unit: {item['assetId']}")
+            if item.get("serialNumber"):
+                remark_bits.append(f"S/N: {item['serialNumber']}")
+            if item.get("quantity"):
+                remark_bits.append(f"Qty: {item['quantity']}")
+            issue_raw = item.get("assignedDate") or ""
+            issue_date = str(issue_raw)[:10] if issue_raw else None
+            it_assets.append({
+                "id": f"it-{item.get('id')}",
+                "name": item.get("name") or "Asset",
+                "description": description or None,
+                "issue_date": issue_date,
+                "return_date": None,
+                "remark": " · ".join(remark_bits) if remark_bits else None,
+                "images": photos,
+                "admin_id": admin_id,
+                "source": "it",
+                "category": category,
+                "status": item.get("status") or "Assigned",
+                "asset_tag": item.get("assetTag"),
+                "serial_number": item.get("serialNumber"),
+                "quantity": item.get("quantity"),
+            })
+    except Exception as exc:
+        current_app.logger.warning("IT assets merge for employee %s failed: %s", admin_id, exc)
+
+    assets = legacy_assets + it_assets
 
     return jsonify({
         "success": True,
         "employee": {
             "id": employee.id,
             "name": employee.first_name,
-            "email": employee.email
+            "email": employee.email,
+            "emp_id": employee.emp_id,
         },
-        "assets": [a.to_dict() for a in assets]
+        "assets": assets,
     }), 200
 
 
