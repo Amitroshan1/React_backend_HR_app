@@ -1,187 +1,5 @@
-// import { useState, useEffect } from "react";
-
-// import "./style/HeroSection.css";
-// export const HeroSection = () => {
-// const [animate, setAnimate] = useState(true);
-
-//   useEffect(() => {
-//     const interval = setInterval(() => {
-//       setAnimate(false);
-//       setTimeout(() => setAnimate(true), 50);
-//     }, 3000);
-
-//     return () => clearInterval(interval);
-//   }, []);
-
-//   return (
-//     <div className="index-container">
-//       {/* Decorative background elements */}
-//       <div className="background-elements">
-//         <div className="bg-circle-1" />
-//         <div className="bg-circle-2" />
-//       </div>
-
-//       {/* Main Content */}
-//       <main className="main-content">
-//         <div className="hero-container">
-//           {/* Hero Text */}
-//           <div className="hero-text">
-//             {/* <h1 className="hero-title animate-typewriter">Welcome...</h1> */}
-//           <h1
-//   className={`hero-title ${animate ? "animate-typewriter" : ""}`}
-// >
-//   Welcome...
-// </h1>
-
-//             <p className="hero-subtitle animate-reveal" style={{ animationDelay: '1.5s' }}>
-//               Unlock Your Potential with our Innovative Platform
-//             </p>
-//             <p className="hero-description animate-reveal" style={{ animationDelay: '2s' }}>
-//               Streamline Your Processes and Enhance Your team's Productivity.
-//             </p>
-//           </div>
-
-//           {/* CTA Section */}
-//           <div className="cta-section animate-fade-in-up" >
-//             <div className="cta-text">
-//               <p className="log-text">Ready to get started?</p>
-    
-//             </div>
-//             <button className="cta-button">Login </button>
-//           </div>
-// {/* 
-//    <Button className="cta-button">
-//        Login to Continue
-//        </Button> */}
-//    {/* Feature Cards */}
-//           <div className="feature-cards">
-//             <div className="feature-card">
-//               <div className="feature-icon">⚡</div>
-//               <h3>Fast & Efficient</h3>
-//               <p>Streamline your HR processes with our intuitive platform</p>
-//             </div>
-
-//             <div className="feature-card">
-//               <div className="feature-icon">🔒</div>
-//               <h3>Secure & Reliable</h3>
-//               <p>Your data is protected with enterprise-grade security</p>
-//             </div>
-
-//             <div className="feature-card">
-//               <div className="feature-icon">📊</div>
-//               <h3>Insightful Analytics</h3>
-//               <p>Make data-driven decisions with comprehensive reports</p>
-//             </div>
-//           </div>
-//         </div>
-//       </main>
-//     </div>
-//   );
-// };
-
-
-// import { useState, useEffect } from "react";
-// import "./style/HeroSection.css";
-
-// export const HeroSection = () => {
-//   const [animate, setAnimate] = useState(true);
-//   const [showLogin, setShowLogin] = useState(false);
-
-//   useEffect(() => {
-//     const interval = setInterval(() => {
-//       setAnimate(false);
-//       setTimeout(() => setAnimate(true), 50);
-//     }, 3000);
-//     return () => clearInterval(interval);
-//   }, []);
-
-//   return (
-//     <div className="index-container">
-//       <div className="background-elements">
-//         <div className="bg-circle-1" />
-//         <div className="bg-circle-2" />
-//       </div>
-
-//       <main className="main-content">
-//         <div className={`hero-container ${showLogin ? "shift-left" : ""}`}>
-          
-//           {/* LEFT TEXT BLOCK */}
-//           <div className="hero-text-block">
-//             <h1 className={`hero-title ${animate ? "animate-typewriter" : ""}`}>
-//               Welcome...
-//             </h1>
-
-//             <p className="hero-subtitle animate-reveal" style={{ animationDelay: '1.5s' }}>
-//               Unlock Your Potential with our Innovative Platform
-//             </p>
-
-//             <p className="hero-description animate-reveal" style={{ animationDelay: '2s' }}>
-//               Streamline Your Processes and Enhance Your team's Productivity.
-//             </p>
-
-//             <div className="cta-section animate-fade-in-up">
-//               <p className="log-text">Ready to get started?</p>
-
-//               <button
-//                 className="cta-button"
-//                 onClick={() => setShowLogin(true)}
-//               >
-//                 Explore 
-//               </button>
-//             </div>
-//           </div>
-
-//           {/* RIGHT-SIDE LOGIN CARD */}
-//           <div className={`login-card ${showLogin ? "slide-in" : ""}`}>
-//             <h2 className="login-text">Login</h2>
-
-//             <input type="email" placeholder="Email" />
-//             <input type="password" placeholder="Password" />
-
-//             <p className="forgot">Forgot Password?</p>
-
-//             <button className="login-submit">Submit</button>
-//           </div>
-//         </div>
-
-//         {/* Feature cards stay same */}
-//         <div className="feature-cards">
-//           <div className="feature-card">
-//             <div className="feature-icon">⚡</div>
-//             <h3>Fast & Efficient</h3>
-//             <p>Streamline your HR processes with our intuitive platform</p>
-//           </div>
-
-//           <div className="feature-card">
-//             <div className="feature-icon">🔒</div>
-//             <h3>Secure & Reliable</h3>
-//             <p>Your data is protected with enterprise-grade security</p>
-//           </div>
-
-//           <div className="feature-card">
-//             <div className="feature-icon">📊</div>
-//             <h3>Insightful Analytics</h3>
-//             <p>Make data-driven decisions with comprehensive reports</p>
-//           </div>
-//         </div>
-//       </main>
-//     </div>
-//   );
-// };
-// correct one
-
-
-
-
-
-
-
-
-
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { FiEye, FiEyeOff } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
 import { setPlanContext } from "../utils/planFeatures";
@@ -190,56 +8,20 @@ import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 import "./style/HeroSection.css";
 
 export const HeroSection = () => {
-   const navigate = useNavigate();
-   const location = useLocation();
-   const { refreshUserData } = useUser();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { refreshUserData } = useUser();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-
+  const [identifier, setIdentifier] = useState("");
+  const [otp, setOtp] = useState("");
+  const [step, setStep] = useState("identifier"); // identifier | otp
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [animate, setAnimate] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
-
-// const ClosedEyeIcon = () => (
-//   <svg
-//     width="30"
-//     height="18"
-//     viewBox="0 0 30 18"
-//     fill="none"
-//     stroke="#555"
-//     strokeWidth="2"
-//     strokeLinecap="round"
-//     strokeLinejoin="round"
-//   >
-//     <path d="M2 9 C26 13, 30 2, 28 7" />
-//     <line x1="6" y1="9" x2="4" y2="4" />
-//     <line x1="10" y1="7" x2="9" y2="13" />
-//     <line x1="15" y1="6" x2="15" y2="12" />
-//     <line x1="20" y1="7" x2="21" y2="13" />
-//     <line x1="24" y1="9" x2="26" y2="14" />
-//   </svg>
-// );
-
-
-// const OpenEyeIcon = () => (
-//   <svg
-//     width="30"
-//     height="18"
-//     viewBox="0 0 30 18"
-//     fill="none"
-//     stroke="#555"
-//     strokeWidth="2"
-//     strokeLinecap="round"
-//     strokeLinejoin="round"
-//   >
-//     <path d="M2 9 C8 2, 22 2, 28 9 C22 16, 8 16, 2 9" />
-//     <circle cx="15" cy="9" r="3" />
-//   </svg>
-// );
-
+  const [resendIn, setResendIn] = useState(0);
+  const resendTimerRef = useRef(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -258,7 +40,6 @@ export const HeroSection = () => {
     }
   }, []);
 
-  /* If user is already logged in and lands on login page (e.g. Back or Forward), send to dashboard – keeps login out of history */
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
@@ -266,7 +47,6 @@ export const HeroSection = () => {
     }
   }, [navigate]);
 
-  /* When on login route with token (e.g. Forward from dashboard), redirect to dashboard; popstate runs when landing here via Back/Forward */
   useEffect(() => {
     const handlePopState = () => {
       const token = localStorage.getItem("token");
@@ -279,7 +59,6 @@ export const HeroSection = () => {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [navigate]);
 
-  /* If we have token, redirect on every location change to login path (covers Forward/Back landing on "/") */
   useEffect(() => {
     const path = location.pathname || "";
     if ((path === "/" || path === "") && localStorage.getItem("token")) {
@@ -287,63 +66,126 @@ export const HeroSection = () => {
     }
   }, [location.pathname, navigate]);
 
- const handleSubmit = async () => {
-  if (isSubmitting) return;
-  if (!email || !password) {
-    setError("Email and password are required.");
-    return;
-  }
-  setIsSubmitting(true);
-
-  try {
-    const res = await fetch("/api/auth/validate-user", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        identifier: email,
-        password: password,
-      }),
-    });
-    const data = await res.json();
-    console.log(data);
-    if (data.success) {
-      clearLoginNotificationsFlag();
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("lastActivityAt", String(Date.now()));
-      setPlanContext(data.plan, data.features);
-      await refreshUserData();
-      toast.success("Login successful!");
-      navigate("/dashboard", { replace: true }); // replace login in history so Back doesn't show login again
-      setError("");
-    } else {
-      setError(data.message || "Invalid credentials");
+  useEffect(() => {
+    if (resendIn <= 0) {
+      if (resendTimerRef.current) {
+        clearInterval(resendTimerRef.current);
+        resendTimerRef.current = null;
+      }
+      return undefined;
     }
-  } catch (err) {
-    console.error(err);
-    setError("Unable to login. Please try again.");
-  } finally {
-    setIsSubmitting(false);
-  }
+    resendTimerRef.current = setInterval(() => {
+      setResendIn((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => {
+      if (resendTimerRef.current) {
+        clearInterval(resendTimerRef.current);
+        resendTimerRef.current = null;
+      }
+    };
+  }, [resendIn > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const startResendCooldown = (seconds = 60) => {
+    setResendIn(seconds);
+  };
+
+  const handleRequestOtp = async () => {
+    if (isSubmitting) return;
+    const value = identifier.trim();
+    if (!value) {
+      setError("Please enter your email or phone number.");
+      return;
+    }
+    setIsSubmitting(true);
+    setError("");
+    setInfo("");
+
+    try {
+      const res = await fetch("/api/auth/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: value }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (data.success) {
+        setStep("otp");
+        setOtp("");
+        setInfo(data.message || "OTP sent. Please check your email.");
+        startResendCooldown(data.resend_after || 60);
+        toast.success(data.message || "OTP sent");
+        return;
+      }
+
+      setError(data.message || "Unable to send OTP. Please try again.");
+      if (typeof data.retry_after === "number" && data.retry_after > 0) {
+        startResendCooldown(data.retry_after);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Unable to send OTP. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (isSubmitting) return;
+    const value = identifier.trim();
+    const code = otp.trim();
+    if (!value || !code) {
+      setError("Please enter the OTP sent to you.");
+      return;
+    }
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: value, otp: code }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (data.success && data.token) {
+        clearLoginNotificationsFlag();
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("lastActivityAt", String(Date.now()));
+        setPlanContext(data.plan, data.features);
+        await refreshUserData();
+        toast.success("Login successful!");
+        navigate("/dashboard", { replace: true });
+        setError("");
+        return;
+      }
+
+      setError(data.message || "Invalid OTP. Please try again.");
+    } catch (err) {
+      console.error(err);
+      setError("Unable to verify OTP. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleEnterPress = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleSubmit();
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (step === "otp") {
+      handleVerifyOtp();
+    } else {
+      handleRequestOtp();
     }
   };
 
-  const handleForgotPassword = () => {
-    alert(
-      "If you have forgotten your password, please contact your HR team to reset it.\n\n" +
-      "If you are already logged in, you can change your password from your dashboard (Change Password option)."
-    );
+  const handleChangeIdentifier = () => {
+    setStep("identifier");
+    setOtp("");
+    setError("");
+    setInfo("");
   };
 
-  /* Don't show login UI when user has token – redirect runs in useEffect; avoids flash when Forward lands on login */
   if (typeof window !== "undefined" && localStorage.getItem("token")) {
     return null;
   }
@@ -357,77 +199,101 @@ export const HeroSection = () => {
 
       <main className="main-content">
         <div className={`hero-container ${showLogin ? "shift-left" : ""}`}>
-          
-          {/* LEFT TEXT BLOCK */}
           <div className="hero-text-block">
             <h1 className={`hero-title ${animate ? "animate-typewriter" : ""}`}>
               SaffoPeople
             </h1>
 
-            <p className="hero-subtitle animate-reveal" style={{ animationDelay: '1.5s' }}>
+            <p className="hero-subtitle animate-reveal" style={{ animationDelay: "1.5s" }}>
               Unlock Your Potential with our Innovative Platform
             </p>
 
-            <p className="hero-description animate-reveal" style={{ animationDelay: '2s' }}>
+            <p className="hero-description animate-reveal" style={{ animationDelay: "2s" }}>
               Streamline Your Processes and Enhance Your team's Productivity.
             </p>
 
             <div className="cta-section animate-fade-in-up">
               <p className="log-text">Ready to get started?</p>
 
-              <button
-                className="cta-button"
-                onClick={() => setShowLogin(true)}
-              >
-                Explore 
+              <button className="cta-button" onClick={() => setShowLogin(true)}>
+                Explore
               </button>
             </div>
           </div>
 
-          {/* RIGHT-SIDE LOGIN CARD */}
           <div className={`login-card ${showLogin ? "slide-in" : ""}`}>
             <h2 className="login-text">Login</h2>
+            <p className="login-hint">
+              Enter your email or phone. We&apos;ll send a one-time OTP to sign you in.
+            </p>
 
-            <input type="email" placeholder="Email"  value={email}
-        onChange={(e) => setEmail(e.target.value)} onKeyDown={handleEnterPress} />
-            {/* <input type="password" placeholder="Password"   value={password}
-        onChange={(e) => setPassword(e.target.value)}/> */}
-         <div className="password-wrapper">
-    <input
-      type={showPassword ? "text" : "password"}
-      placeholder="Password"
-      value={password}
-      onChange={(e) => setPassword(e.target.value)}
-      onKeyDown={handleEnterPress}
-    />
-
-    {/* 👁 Eye Button */}
-      <span className="toggle-eye" onClick={() => setShowPassword(!showPassword)}>
-      {showPassword ? <FiEye size={22} /> : <FiEyeOff size={22} />}
-    </span>
-    {/* <span className="toggle-eye" onClick={() => setShowPassword(!showPassword)}>
-    {showPassword ? <OpenEyeIcon /> : <ClosedEyeIcon />}
-  </span> */}
-          </div> 
-
-          {error && <p style={{ color: "red" }}>{error}</p>}
-          <div className="forgot-wrap">
-            <button
-              type="button"
-              className="forgot-btn"
-              onClick={handleForgotPassword}
-            >
-              Forgot Password?
-            </button>
-          </div>
-
-          <button className="login-submit" onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "Logging in..." : "Submit"}
-          </button>
+            {step === "identifier" ? (
+              <>
+                <input
+                  type="text"
+                  inputMode="email"
+                  autoComplete="username"
+                  placeholder="Email or phone"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  onKeyDown={handleEnterPress}
+                />
+                <p className="login-note">
+                  Email OTP is available now. Phone OTP (SMS) is coming soon.
+                </p>
+                {error && <p className="login-error">{error}</p>}
+                <button
+                  className="login-submit"
+                  onClick={handleRequestOtp}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Sending OTP..." : "Send OTP"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="login-info">{info || "Enter the OTP sent to your email."}</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="Enter OTP"
+                  value={otp}
+                  maxLength={8}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  onKeyDown={handleEnterPress}
+                />
+                {error && <p className="login-error">{error}</p>}
+                <div className="forgot-wrap">
+                  <button
+                    type="button"
+                    className="forgot-btn"
+                    onClick={handleChangeIdentifier}
+                    disabled={isSubmitting}
+                  >
+                    Change email / phone
+                  </button>
+                  <button
+                    type="button"
+                    className="forgot-btn"
+                    onClick={handleRequestOtp}
+                    disabled={isSubmitting || resendIn > 0}
+                  >
+                    {resendIn > 0 ? `Resend OTP in ${resendIn}s` : "Resend OTP"}
+                  </button>
+                </div>
+                <button
+                  className="login-submit"
+                  onClick={handleVerifyOtp}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Verifying..." : "Verify & Login"}
+                </button>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Feature cards stay same */}
         <div className="feature-cards">
           <div className="feature-card">
             <div className="feature-icon">⚡</div>

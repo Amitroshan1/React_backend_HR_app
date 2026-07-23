@@ -172,6 +172,7 @@ def create_app():
     from .models.monthly_payroll import MonthlyPayroll
     from .models.assessment import AssessmentInvite
     from .models.employee_circle_history import EmployeeCircleHistory
+    from .models.otp import OTP  # noqa: F401 — register for db.create_all
     from .models.it_models import (
         ITInventoryItem,
         ITInventoryQuantityAssignment,
@@ -631,6 +632,50 @@ def create_app():
                 app.logger.info("Created table ex_employee_doc_files")
         except Exception as e:
             app.logger.warning("ex_employee_doc tables ensure skipped: %s", e)
+
+    def _ensure_otp_login_table():
+        """Ensure otps table supports email OTP login columns."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.otp import OTP
+
+            insp = inspect(db.engine)
+            tables = set(insp.get_table_names())
+            dialect = db.engine.dialect.name
+            if "otps" not in tables:
+                OTP.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table otps")
+                return
+
+            existing = {c["name"] for c in insp.get_columns("otps")}
+            additions = []
+            if "identifier" not in existing:
+                additions.append(
+                    "identifier VARCHAR(120) NULL" if dialect != "postgresql"
+                    else "identifier VARCHAR(120) NULL"
+                )
+            if "channel" not in existing:
+                additions.append("channel VARCHAR(20) NULL")
+            if "otp_hash" not in existing:
+                additions.append("otp_hash VARCHAR(128) NULL")
+            if "admin_id" not in existing:
+                additions.append("admin_id INTEGER NULL")
+            if "expires_at" not in existing:
+                additions.append(
+                    "expires_at TIMESTAMP NULL" if dialect == "postgresql"
+                    else "expires_at DATETIME NULL"
+                )
+            if "attempts" not in existing:
+                additions.append("attempts INTEGER NULL DEFAULT 0")
+
+            for col_def in additions:
+                col_name = col_def.split()[0]
+                stmt = text(f"ALTER TABLE otps ADD COLUMN {col_def}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column otps.%s", col_name)
+        except Exception as e:
+            app.logger.warning("otp login table ensure skipped: %s", e)
 
     def _ensure_assessment_tables():
         try:
@@ -1503,6 +1548,7 @@ def create_app():
             _ensure_it_inventory_stock_columns()
             _ensure_it_deleted_log_name_column()
             _ensure_ex_employee_doc_tables()
+            _ensure_otp_login_table()
             _ensure_assessment_tables()
             _ensure_employee_circle_history_table()
             _ensure_deployed_customers_table()

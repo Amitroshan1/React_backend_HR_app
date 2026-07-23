@@ -47,20 +47,41 @@ export function authHeaders(extra = {}) {
     return headers;
 }
 
-export async function verifySensitivePassword(password) {
-    const res = await fetch(`${AUTH_API}/sensitive/verify`, {
-        method: "POST",
-        headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ password }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-        throw new Error(data.message || "Password verification failed");
-    }
-    if (data.sensitive_token) {
+function applySensitiveSession(data) {
+    if (data?.sensitive_token) {
         setSensitiveToken(data.sensitive_token, data.expires_in);
     }
     return data;
+}
+
+/** Request email OTP to unlock payslip/tax. All roles must verify OTP. */
+export async function requestSensitiveOtp() {
+    const res = await fetch(`${AUTH_API}/sensitive/request-otp`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        const err = new Error(data.message || "Could not send OTP");
+        err.retryAfter = data.retry_after;
+        throw err;
+    }
+    return data;
+}
+
+/** Verify OTP and store sensitive session token. */
+export async function verifySensitiveOtp(otp) {
+    const res = await fetch(`${AUTH_API}/sensitive/verify-otp`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ otp }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+        throw new Error(data.message || "OTP verification failed");
+    }
+    return applySensitiveSession(data);
 }
 
 export async function revokeSensitiveSession() {

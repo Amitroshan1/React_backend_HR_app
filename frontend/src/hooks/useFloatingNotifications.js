@@ -21,7 +21,9 @@ export function useFloatingNotifications(enabled) {
 
         (async () => {
             try {
-                const res = await fetch("/api/notifications?limit=15", {
+                // Trailing slash required: Flask redirects /api/notifications → /api/notifications/
+                // and the redirect to :5000 drops Authorization (401).
+                const res = await fetch("/api/notifications/?limit=15", {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 if (!res.ok || cancelled) return;

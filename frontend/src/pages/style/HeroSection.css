@@ -288,6 +288,33 @@ color: rgb(255, 255, 255);
   font-size: 1rem;
 }
 
+.login-hint {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  color: #555;
+  line-height: 1.4;
+}
+
+.login-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #777;
+  line-height: 1.35;
+}
+
+.login-info {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #2563eb;
+  line-height: 1.4;
+}
+
+.login-error {
+  margin: 0;
+  color: #dc2626;
+  font-size: 0.9rem;
+}
+
 .login-submit {
   background: linear-gradient(to right, #4f46e5, #3b82f6, #10b981);
   color: white;
@@ -303,9 +330,19 @@ color: rgb(255, 255, 255);
   transform: scale(1.05);
 }
 
+.login-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Wrapper keeps "Forgot Password?" row right-aligned; only the button text is clickable */
 .forgot-wrap {
   text-align: right;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .forgot-btn {

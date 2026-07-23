@@ -16,9 +16,13 @@ from werkzeug.utils import secure_filename
 from flask import Blueprint, request, redirect, url_for, current_app, jsonify
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from .email import send_login_alert_email
+from .email import send_login_alert_email, send_login_otp_email, send_sensitive_otp_email
 from .models.Admin_models import Admin
+from .models.otp import OTP
 from . import db
+import hashlib
+import secrets
+from sqlalchemy import or_
 from .models.emp_detail_models import Employee
 from .models.attendance import Punch, PunchSession, Location, LeaveBalance, LeaveApplication
 from .compoff_utils import get_effective_comp_balance, sync_comp_balance_for_admin
@@ -68,7 +72,6 @@ from .punch_auto_close import (
 )
 from . import tax_declaration_service as tax_decl
 from .sensitive_data_auth import (
-    is_privileged_salary_viewer,
     require_sensitive_for_employee,
     sensitive_session_payload,
 )
@@ -278,37 +281,6 @@ def set_password_by_token():
     return jsonify({"success": True, "message": "Password updated successfully. You can now log in."}), 200
 
 
-@auth.route("/sensitive/verify", methods=["POST"])
-@jwt_required()
-def verify_sensitive_access():
-    """Re-enter login password to unlock payslip / tax data for a short session."""
-    data = request.get_json(silent=True) or {}
-    password = data.get("password")
-    if not password:
-        return jsonify({"success": False, "message": "Password is required"}), 400
-
-    email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
-    if not admin:
-        return jsonify({"success": False, "message": "Unauthorized user"}), 401
-
-    if is_privileged_salary_viewer(admin):
-        return jsonify({
-            "success": True,
-            "privileged": True,
-            **sensitive_session_payload(admin.id),
-        }), 200
-
-    if not admin.check_password(password):
-        return jsonify({"success": False, "message": "Incorrect password"}), 401
-
-    return jsonify({
-        "success": True,
-        "privileged": False,
-        **sensitive_session_payload(admin.id),
-    }), 200
-
-
 @auth.route("/sensitive/revoke", methods=["POST"])
 @jwt_required()
 def revoke_sensitive_access():
@@ -317,69 +289,438 @@ def revoke_sensitive_access():
 
 
 # ===================================================
-# ✅ 1️⃣ VALIDATE USER (EMAIL/MOBILE + PASSWORD)
-# FINAL URL → POST /api/auth/validate-user
-@auth.route("/validate-user", methods=["POST"])
-def validate_user():
-    data = request.get_json(silent=True) or {}
+# OTP LOGIN (email now; phone/SMS later)
+# ===================================================
 
-    identifier = data.get("identifier")
-    password = data.get("password")
-    
-    if not identifier or not password:
-        return jsonify({
-            "success": False,
-            "message": "Missing credentials"
-        }), 400
-    
-    admin = None
-    if identifier.isdigit():
-        # Treat all-digit identifier as either mobile or emp_id
-        from sqlalchemy import or_
-        admin = Admin.query.filter(
-            or_(Admin.mobile == identifier, Admin.emp_id == identifier)
+OTP_TTL_MINUTES = 5
+OTP_RESEND_SECONDS = 60
+OTP_MAX_ATTEMPTS = 5
+
+
+def _hash_otp(code: str) -> str:
+    return hashlib.sha256(str(code).strip().encode("utf-8")).hexdigest()
+
+
+def _normalize_login_identifier(raw: str) -> str:
+    return (raw or "").strip()
+
+
+def _detect_login_channel(identifier: str):
+    """Return ('email'|'sms'|'unknown', normalized_lookup_value)."""
+    ident = _normalize_login_identifier(identifier)
+    if not ident:
+        return "unknown", ""
+    if "@" in ident:
+        return "email", ident.lower()
+    digits = re.sub(r"\D", "", ident)
+    if digits.isdigit() and len(digits) >= 10:
+        # Prefer last 10 digits for Indian mobiles stored without country code
+        return "sms", digits[-10:] if len(digits) > 10 else digits
+    return "unknown", ident
+
+
+def _find_admin_for_login(channel: str, value: str):
+    if channel == "email":
+        return Admin.query.filter(func.lower(Admin.email) == value.lower()).first()
+    if channel == "sms":
+        return Admin.query.filter(
+            or_(Admin.mobile == value, Admin.mobile.endswith(value))
         ).first()
-    elif "@" in identifier:
-        # Email-based login
-        admin = Admin.query.filter_by(email=identifier).first()
+    return None
 
-    # Validate credentials first
-    if not admin or not admin.check_password(password):
+
+def _issue_login_token(admin):
+    access_token = create_access_token(
+        identity=str(admin.id),
+        additional_claims={
+            "email": admin.email,
+            "emp_type": admin.emp_type,
+        },
+    )
+    from .plan_features import plan_payload
+
+    return {
+        "success": True,
+        "token": access_token,
+        **plan_payload(),
+    }
+
+
+@auth.route("/request-otp", methods=["POST"])
+def request_otp():
+    """Send a login OTP to email. Phone/SMS is reserved for a later release."""
+    data = request.get_json(silent=True) or {}
+    identifier = _normalize_login_identifier(data.get("identifier") or data.get("email") or "")
+    if not identifier:
         return jsonify({
             "success": False,
-            "message": "Invalid credentials"
+            "message": "Please enter your email or phone number",
         }), 400
 
-    # Block exited or inactive users from logging in
+    channel, value = _detect_login_channel(identifier)
+    if channel == "unknown":
+        return jsonify({
+            "success": False,
+            "message": "Enter a valid email address or phone number",
+        }), 400
+
+    if channel == "sms":
+        return jsonify({
+            "success": False,
+            "channel": "sms",
+            "message": "Phone OTP is coming soon. Please login with your registered email for now.",
+        }), 501
+
+    admin = _find_admin_for_login(channel, value)
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "No account found with this email",
+        }), 404
+
     from .offboarding_service import admin_login_allowed
 
     if not admin_login_allowed(admin):
         if getattr(admin, "is_exited", False):
             return jsonify({
                 "success": False,
-                "message": "Your account has been exited. Please contact HR."
+                "message": "Your account has been exited. Please contact HR.",
             }), 403
         return jsonify({
             "success": False,
-            "message": "Your account is inactive. Please contact HR."
+            "message": "Your account is inactive. Please contact HR.",
         }), 403
 
-    access_token = create_access_token(
-        identity=str(admin.id),
-        additional_claims={
-            "email": admin.email,
-            "emp_type": admin.emp_type
-        }
+    if not admin.email:
+        return jsonify({
+            "success": False,
+            "message": "No email is registered for this account. Please contact HR.",
+        }), 400
+
+    # Resend cooldown
+    latest = (
+        OTP.query.filter_by(identifier=value, channel="email", is_used=False)
+        .order_by(OTP.created_at.desc())
+        .first()
+    )
+    if latest and latest.created_at:
+        elapsed = (utc_now() - latest.created_at).total_seconds()
+        if elapsed < OTP_RESEND_SECONDS:
+            wait = int(OTP_RESEND_SECONDS - elapsed)
+            return jsonify({
+                "success": False,
+                "message": f"Please wait {wait} seconds before requesting another OTP",
+                "retry_after": wait,
+            }), 429
+
+    # Invalidate previous unused OTPs for this identifier
+    OTP.query.filter_by(identifier=value, channel="email", is_used=False).update(
+        {"is_used": True},
+        synchronize_session=False,
     )
 
+    otp_code = f"{secrets.randbelow(1_000_000):06d}"
+    row = OTP(
+        identifier=value,
+        channel="email",
+        otp_hash=_hash_otp(otp_code),
+        admin_id=admin.id,
+        created_at=utc_now(),
+        expires_at=OTP.expiry_from_now(OTP_TTL_MINUTES),
+        is_used=False,
+        attempts=0,
+        email=admin.email,
+        # Legacy NOT NULL-safe placeholder; real OTP lives in otp_hash only
+        otp_code="******",
+    )
+    db.session.add(row)
+    db.session.commit()
 
-    from .plan_features import plan_payload
+    ok, msg = send_login_otp_email(admin, otp_code, expires_minutes=OTP_TTL_MINUTES)
+    if not ok:
+        current_app.logger.error("Login OTP email failed for %s: %s", admin.email, msg)
+        return jsonify({
+            "success": False,
+            "message": "Could not send OTP email. Please try again later.",
+        }), 502
+
+    masked = admin.email
+    if "@" in masked:
+        local, domain = masked.split("@", 1)
+        masked = (local[:2] + "***@" + domain) if len(local) > 2 else ("***@" + domain)
 
     return jsonify({
         "success": True,
-        "token": access_token,
-        **plan_payload(),
+        "channel": "email",
+        "message": f"OTP sent to {masked}",
+        "expires_in": OTP_TTL_MINUTES * 60,
+        "resend_after": OTP_RESEND_SECONDS,
     }), 200
+
+
+@auth.route("/verify-otp", methods=["POST"])
+def verify_otp():
+    """Verify login OTP and issue JWT (same shape as former password login)."""
+    data = request.get_json(silent=True) or {}
+    identifier = _normalize_login_identifier(data.get("identifier") or data.get("email") or "")
+    otp_code = str(data.get("otp") or data.get("otp_code") or "").strip()
+
+    if not identifier or not otp_code:
+        return jsonify({
+            "success": False,
+            "message": "Email/phone and OTP are required",
+        }), 400
+
+    channel, value = _detect_login_channel(identifier)
+    if channel == "unknown":
+        return jsonify({
+            "success": False,
+            "message": "Enter a valid email address or phone number",
+        }), 400
+
+    if channel == "sms":
+        return jsonify({
+            "success": False,
+            "channel": "sms",
+            "message": "Phone OTP is coming soon. Please login with your registered email for now.",
+        }), 501
+
+    if not re.fullmatch(r"\d{4,8}", otp_code):
+        return jsonify({
+            "success": False,
+            "message": "Enter a valid OTP",
+        }), 400
+
+    row = (
+        OTP.query.filter_by(identifier=value, channel="email", is_used=False)
+        .order_by(OTP.created_at.desc())
+        .first()
+    )
+    if not row:
+        return jsonify({
+            "success": False,
+            "message": "No active OTP found. Please request a new one.",
+        }), 400
+
+    if row.is_expired():
+        row.is_used = True
+        db.session.commit()
+        return jsonify({
+            "success": False,
+            "message": "OTP has expired. Please request a new one.",
+        }), 400
+
+    if (row.attempts or 0) >= OTP_MAX_ATTEMPTS:
+        row.is_used = True
+        db.session.commit()
+        return jsonify({
+            "success": False,
+            "message": "Too many incorrect attempts. Please request a new OTP.",
+        }), 400
+
+    if row.otp_hash != _hash_otp(otp_code):
+        row.attempts = (row.attempts or 0) + 1
+        db.session.commit()
+        remaining = OTP_MAX_ATTEMPTS - row.attempts
+        return jsonify({
+            "success": False,
+            "message": f"Invalid OTP. {remaining} attempt(s) left.",
+        }), 400
+
+    admin = Admin.query.get(row.admin_id) if row.admin_id else _find_admin_for_login("email", value)
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "Account not found",
+        }), 404
+
+    from .offboarding_service import admin_login_allowed
+
+    if not admin_login_allowed(admin):
+        return jsonify({
+            "success": False,
+            "message": "Your account is inactive. Please contact HR.",
+        }), 403
+
+    row.is_used = True
+    db.session.commit()
+
+    return jsonify(_issue_login_token(admin)), 200
+
+
+SENSITIVE_OTP_CHANNEL = "sensitive"
+
+
+def _resolve_jwt_admin():
+    email = (get_jwt().get("email") or "").strip()
+    admin = None
+    if email:
+        admin = Admin.query.filter(func.lower(Admin.email) == email.lower()).first()
+    if not admin:
+        try:
+            admin = Admin.query.get(int(get_jwt_identity()))
+        except (TypeError, ValueError):
+            admin = None
+    return admin
+
+
+@auth.route("/sensitive/request-otp", methods=["POST"])
+@jwt_required()
+def request_sensitive_otp():
+    """Email OTP to unlock payslip / tax data. All roles must verify OTP."""
+    admin = _resolve_jwt_admin()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    if not admin.email:
+        return jsonify({
+            "success": False,
+            "message": "No email is registered for this account. Please contact HR.",
+        }), 400
+
+    identifier = admin.email.strip().lower()
+
+    latest = (
+        OTP.query.filter_by(identifier=identifier, channel=SENSITIVE_OTP_CHANNEL, is_used=False)
+        .order_by(OTP.created_at.desc())
+        .first()
+    )
+    if latest and latest.created_at:
+        elapsed = (utc_now() - latest.created_at).total_seconds()
+        if elapsed < OTP_RESEND_SECONDS:
+            wait = int(OTP_RESEND_SECONDS - elapsed)
+            return jsonify({
+                "success": False,
+                "message": f"Please wait {wait} seconds before requesting another OTP",
+                "retry_after": wait,
+            }), 429
+
+    OTP.query.filter_by(identifier=identifier, channel=SENSITIVE_OTP_CHANNEL, is_used=False).update(
+        {"is_used": True},
+        synchronize_session=False,
+    )
+
+    otp_code = f"{secrets.randbelow(1_000_000):06d}"
+    row = OTP(
+        identifier=identifier,
+        channel=SENSITIVE_OTP_CHANNEL,
+        otp_hash=_hash_otp(otp_code),
+        admin_id=admin.id,
+        created_at=utc_now(),
+        expires_at=OTP.expiry_from_now(OTP_TTL_MINUTES),
+        is_used=False,
+        attempts=0,
+        email=admin.email,
+        otp_code="******",
+    )
+    db.session.add(row)
+    db.session.commit()
+
+    ok, msg = send_sensitive_otp_email(admin, otp_code, expires_minutes=OTP_TTL_MINUTES)
+    if not ok:
+        current_app.logger.error("Sensitive OTP email failed for %s: %s", admin.email, msg)
+        return jsonify({
+            "success": False,
+            "message": "Could not send OTP email. Please try again later.",
+        }), 502
+
+    masked = admin.email
+    if "@" in masked:
+        local, domain = masked.split("@", 1)
+        masked = (local[:2] + "***@" + domain) if len(local) > 2 else ("***@" + domain)
+
+    return jsonify({
+        "success": True,
+        "otp_required": True,
+        "channel": "email",
+        "message": f"OTP sent to {masked}",
+        "expires_in": OTP_TTL_MINUTES * 60,
+        "resend_after": OTP_RESEND_SECONDS,
+    }), 200
+
+
+@auth.route("/sensitive/verify", methods=["POST"])
+@auth.route("/sensitive/verify-otp", methods=["POST"])
+@jwt_required()
+def verify_sensitive_otp():
+    """Verify email OTP and issue short-lived sensitive session token."""
+    admin = _resolve_jwt_admin()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    data = request.get_json(silent=True) or {}
+    otp_code = str(data.get("otp") or data.get("otp_code") or "").strip()
+    if not otp_code:
+        return jsonify({"success": False, "message": "OTP is required"}), 400
+    if not re.fullmatch(r"\d{4,8}", otp_code):
+        return jsonify({"success": False, "message": "Enter a valid OTP"}), 400
+
+    identifier = (admin.email or "").strip().lower()
+    if not identifier:
+        return jsonify({
+            "success": False,
+            "message": "No email is registered for this account. Please contact HR.",
+        }), 400
+
+    row = (
+        OTP.query.filter_by(identifier=identifier, channel=SENSITIVE_OTP_CHANNEL, is_used=False)
+        .order_by(OTP.created_at.desc())
+        .first()
+    )
+    if not row:
+        return jsonify({
+            "success": False,
+            "message": "No active OTP found. Please request a new one.",
+        }), 400
+
+    if row.is_expired():
+        row.is_used = True
+        db.session.commit()
+        return jsonify({
+            "success": False,
+            "message": "OTP has expired. Please request a new one.",
+        }), 400
+
+    if (row.attempts or 0) >= OTP_MAX_ATTEMPTS:
+        row.is_used = True
+        db.session.commit()
+        return jsonify({
+            "success": False,
+            "message": "Too many incorrect attempts. Please request a new OTP.",
+        }), 400
+
+    if row.otp_hash != _hash_otp(otp_code):
+        row.attempts = (row.attempts or 0) + 1
+        db.session.commit()
+        remaining = OTP_MAX_ATTEMPTS - row.attempts
+        return jsonify({
+            "success": False,
+            "message": f"Invalid OTP. {remaining} attempt(s) left.",
+        }), 400
+
+    if row.admin_id and int(row.admin_id) != int(admin.id):
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    row.is_used = True
+    db.session.commit()
+
+    return jsonify({
+        "success": True,
+        **sensitive_session_payload(admin.id),
+    }), 200
+
+
+# ===================================================
+# ✅ 1️⃣ VALIDATE USER (DEPRECATED — use OTP login)
+# FINAL URL → POST /api/auth/validate-user
+@auth.route("/validate-user", methods=["POST"])
+def validate_user():
+    """Password login removed. Clients must use /request-otp and /verify-otp."""
+    return jsonify({
+        "success": False,
+        "message": "Password login is disabled. Please login with email OTP.",
+        "use_otp": True,
+    }), 410
 
 
 def _safe_doj(admin):

@@ -18,6 +18,7 @@ def _current_admin():
 
 
 @notifications.route("/", methods=["GET"])
+@notifications.route("", methods=["GET"])
 @jwt_required()
 def list_notifications():
     admin = _current_admin()

@@ -49,26 +49,39 @@
     color: #374151;
 }
 
-.sensitive-gate-password-row {
-    display: flex;
-    gap: 8px;
-}
-
-.sensitive-gate-password-row input {
-    flex: 1;
+.sensitive-gate-form input {
+    width: 100%;
+    box-sizing: border-box;
     padding: 10px 12px;
     border: 1px solid #d1d5db;
     border-radius: 8px;
     font-size: 1rem;
 }
 
-.sensitive-gate-toggle {
-    border: 1px solid #d1d5db;
-    background: #f9fafb;
-    border-radius: 8px;
-    padding: 0 12px;
-    cursor: pointer;
+.sensitive-gate-info {
+    margin: 0 0 12px;
+    color: #2563eb;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.sensitive-gate-resend-row {
+    margin-top: 10px;
+    text-align: right;
+}
+
+.sensitive-gate-link {
+    border: none;
+    background: none;
+    color: #2563eb;
     font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0;
+}
+
+.sensitive-gate-link:disabled {
+    color: #9ca3af;
+    cursor: not-allowed;
 }
 
 .sensitive-gate-error {

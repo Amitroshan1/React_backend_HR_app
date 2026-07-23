@@ -502,6 +502,52 @@ def send_login_alert_email(user):
     )
 
 
+def send_login_otp_email(admin, otp_code, expires_minutes=5):
+    """Send login OTP to the employee's registered email via ZeptoMail."""
+    name = (getattr(admin, "first_name", None) or "User").strip()
+    subject = "Your login OTP"
+    body = f"""
+    <p>Dear {html.escape(name)},</p>
+    <p>Your one-time password (OTP) to log in is:</p>
+    <p style="font-size:28px;font-weight:700;letter-spacing:4px;">{html.escape(str(otp_code))}</p>
+    <p>This OTP is valid for <strong>{int(expires_minutes)} minutes</strong>. Do not share it with anyone.</p>
+    <p>If you did not request this, you can ignore this email.</p>
+    <p>Regards,<br><strong>SaffoPeople Security</strong></p>
+    """
+    sender = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    from_name = (current_app.config.get("ZEPTO_SENDER_NAME") or "SaffoPeople").strip()
+    return send_email_via_zeptomail(
+        sender_email=sender,
+        subject=subject,
+        body=body,
+        recipient_email=admin.email,
+        from_name=from_name,
+    )
+
+
+def send_sensitive_otp_email(admin, otp_code, expires_minutes=5):
+    """Send OTP to unlock payslip / tax (sensitive) data."""
+    name = (getattr(admin, "first_name", None) or "User").strip()
+    subject = "OTP to view payslip & tax data"
+    body = f"""
+    <p>Dear {html.escape(name)},</p>
+    <p>Your one-time password (OTP) to unlock payslip and tax information is:</p>
+    <p style="font-size:28px;font-weight:700;letter-spacing:4px;">{html.escape(str(otp_code))}</p>
+    <p>This OTP is valid for <strong>{int(expires_minutes)} minutes</strong>. Do not share it with anyone.</p>
+    <p>If you did not request this, you can ignore this email.</p>
+    <p>Regards,<br><strong>SaffoPeople Security</strong></p>
+    """
+    sender = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
+    from_name = (current_app.config.get("ZEPTO_SENDER_NAME") or "SaffoPeople").strip()
+    return send_email_via_zeptomail(
+        sender_email=sender,
+        subject=subject,
+        body=body,
+        recipient_email=admin.email,
+        from_name=from_name,
+    )
+
+
 def send_payslip_uploaded_email(admin, month, year):
     """
     Notify employee that payslip is uploaded in HRMS portal.
