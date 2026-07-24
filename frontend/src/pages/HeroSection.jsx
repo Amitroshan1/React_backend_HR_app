@@ -93,7 +93,7 @@ export const HeroSection = () => {
     if (isSubmitting) return;
     const value = identifier.trim();
     if (!value) {
-      setError("Please enter your email or phone number.");
+      setError("Please enter your email.");
       return;
     }
     setIsSubmitting(true);
@@ -224,22 +224,22 @@ export const HeroSection = () => {
           <div className={`login-card ${showLogin ? "slide-in" : ""}`}>
             <h2 className="login-text">Login</h2>
             <p className="login-hint">
-              Enter your email or phone. We&apos;ll send a one-time OTP to sign you in.
+              Enter your registered email. We&apos;ll send a one-time OTP to sign you in.
             </p>
 
             {step === "identifier" ? (
               <>
                 <input
-                  type="text"
+                  type="email"
                   inputMode="email"
-                  autoComplete="username"
-                  placeholder="Email or phone"
+                  autoComplete="email"
+                  placeholder="Email"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   onKeyDown={handleEnterPress}
                 />
                 <p className="login-note">
-                  Email OTP is available now. Phone OTP (SMS) is coming soon.
+                  We&apos;ll send an OTP to your email.
                 </p>
                 {error && <p className="login-error">{error}</p>}
                 <button
@@ -271,7 +271,7 @@ export const HeroSection = () => {
                     onClick={handleChangeIdentifier}
                     disabled={isSubmitting}
                   >
-                    Change email / phone
+                    Change email
                   </button>
                   <button
                     type="button"
