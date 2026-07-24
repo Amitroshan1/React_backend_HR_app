@@ -91,7 +91,7 @@ export const HeroSection = () => {
 
   const handleRequestOtp = async () => {
     if (isSubmitting) return;
-    const value = identifier.trim();
+    const value = identifier.replace(/\s+/g, "").trim();
     if (!value) {
       setError("Please enter your email.");
       return;
@@ -131,7 +131,7 @@ export const HeroSection = () => {
 
   const handleVerifyOtp = async () => {
     if (isSubmitting) return;
-    const value = identifier.trim();
+    const value = identifier.replace(/\s+/g, "").trim();
     const code = otp.trim();
     if (!value || !code) {
       setError("Please enter the OTP sent to you.");

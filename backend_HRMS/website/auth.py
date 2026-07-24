@@ -302,7 +302,8 @@ def _hash_otp(code: str) -> str:
 
 
 def _normalize_login_identifier(raw: str) -> str:
-    return (raw or "").strip()
+    """Strip all whitespace so spaced emails still match clean typed input."""
+    return re.sub(r"\s+", "", (raw or "")).strip()
 
 
 def _detect_login_channel(identifier: str):
@@ -321,7 +322,11 @@ def _detect_login_channel(identifier: str):
 
 def _find_admin_for_login(channel: str, value: str):
     if channel == "email":
-        return Admin.query.filter(func.lower(Admin.email) == value.lower()).first()
+        # Ignore whitespace in stored emails (leading/trailing/middle)
+        cleaned_db_email = func.replace(func.trim(Admin.email), " ", "")
+        return Admin.query.filter(
+            func.lower(cleaned_db_email) == value.lower()
+        ).first()
     if channel == "sms":
         return Admin.query.filter(
             or_(Admin.mobile == value, Admin.mobile.endswith(value))
@@ -333,7 +338,7 @@ def _issue_login_token(admin):
     access_token = create_access_token(
         identity=str(admin.id),
         additional_claims={
-            "email": admin.email,
+            "email": (admin.email or "").strip(),
             "emp_type": admin.emp_type,
         },
     )
@@ -397,6 +402,11 @@ def request_otp():
             "message": "No email is registered for this account. Please contact HR.",
         }), 400
 
+    # Persist cleaned email if DB row has whitespace
+    cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip().lower()
+    if cleaned_email and admin.email != cleaned_email:
+        admin.email = cleaned_email
+
     # Resend cooldown
     latest = (
         OTP.query.filter_by(identifier=value, channel="email", is_used=False)
@@ -429,7 +439,7 @@ def request_otp():
         expires_at=OTP.expiry_from_now(OTP_TTL_MINUTES),
         is_used=False,
         attempts=0,
-        email=admin.email,
+        email=cleaned_email,
         # Legacy NOT NULL-safe placeholder; real OTP lives in otp_hash only
         otp_code="******",
     )
@@ -578,7 +588,10 @@ def request_sensitive_otp():
             "message": "No email is registered for this account. Please contact HR.",
         }), 400
 
-    identifier = admin.email.strip().lower()
+    cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip()
+    if cleaned_email and admin.email != cleaned_email:
+        admin.email = cleaned_email
+    identifier = cleaned_email.lower()
 
     latest = (
         OTP.query.filter_by(identifier=identifier, channel=SENSITIVE_OTP_CHANNEL, is_used=False)
@@ -655,7 +668,7 @@ def verify_sensitive_otp():
     if not re.fullmatch(r"\d{4,8}", otp_code):
         return jsonify({"success": False, "message": "Enter a valid OTP"}), 400
 
-    identifier = (admin.email or "").strip().lower()
+    identifier = re.sub(r"\s+", "", (admin.email or "")).strip().lower()
     if not identifier:
         return jsonify({
             "success": False,

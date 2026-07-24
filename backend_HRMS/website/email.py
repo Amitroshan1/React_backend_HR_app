@@ -520,7 +520,7 @@ def send_login_otp_email(admin, otp_code, expires_minutes=5):
         sender_email=sender,
         subject=subject,
         body=body,
-        recipient_email=admin.email,
+        recipient_email=(admin.email or "").strip(),
         from_name=from_name,
     )
 
@@ -543,7 +543,7 @@ def send_sensitive_otp_email(admin, otp_code, expires_minutes=5):
         sender_email=sender,
         subject=subject,
         body=body,
-        recipient_email=admin.email,
+        recipient_email=(admin.email or "").strip(),
         from_name=from_name,
     )
 

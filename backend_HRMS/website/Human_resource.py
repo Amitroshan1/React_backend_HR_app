@@ -1007,7 +1007,7 @@ def signup_api():
         }), 400
 
     # Trim to fit DB column lengths (Admin: mobile=15, emp_id=10)
-    email = str(data["email"]).strip()
+    email = re.sub(r"\s+", "", str(data["email"])).strip().lower()
     first_name = str(data["first_name"]).strip()[:150]
     user_name = str(data["user_name"]).strip()[:120]
     mobile = str(data["mobile"]).strip().replace(" ", "")[:15]
@@ -6793,9 +6793,9 @@ def get_employee_api(email_path):
 @hr_required
 def update_employee_api(email_path):
     """Update Admin (employee) by email."""
-    email = unquote(email_path).strip()
+    email = re.sub(r"\s+", "", unquote(email_path)).strip().lower()
     admin = Admin.query.filter(
-        Admin.email == email,
+        func.lower(func.replace(func.trim(Admin.email), " ", "")) == email,
         # Treat NULL as not-exited (older rows may have NULL in is_exited)
         or_(Admin.is_exited == False, Admin.is_exited.is_(None))
     ).first()
@@ -6812,6 +6812,26 @@ def update_employee_api(email_path):
             "success": False,
             "message": "No fields to update"
         }), 400
+
+    if "email" in data:
+        new_email = re.sub(r"\s+", "", str(data.get("email") or "")).strip().lower()
+        if not new_email or "@" not in new_email:
+            return jsonify({
+                "success": False,
+                "message": "Please enter a valid email address."
+            }), 400
+        current = re.sub(r"\s+", "", (admin.email or "")).strip().lower()
+        if new_email != current:
+            conflict = Admin.query.filter(
+                func.lower(func.replace(func.trim(Admin.email), " ", "")) == new_email,
+                Admin.id != admin.id,
+            ).first()
+            if conflict:
+                return jsonify({
+                    "success": False,
+                    "message": "This email is already registered to another employee."
+                }), 400
+            admin.email = new_email
 
     if "emp_type" in data:
         proposed_emp_type = str(data.get("emp_type") or "").strip()

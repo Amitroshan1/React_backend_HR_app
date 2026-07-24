@@ -1373,11 +1373,13 @@ export const Hr = () => {
 
   const buildEmployeeUpdatePayload = (form, original) => {
     const norm = (v) => (v ?? '').toString().trim();
+    const normEmail = (v) => norm(v).replace(/\s+/g, '').toLowerCase();
     const normDoj = (v) => norm(v).slice(0, 10);
     const payload = {};
     const fields = [
       ['user_name', norm(form.user_name)],
       ['first_name', norm(form.first_name)],
+      ['email', normEmail(form.email)],
       ['emp_id', norm(form.emp_id)],
       ['mobile', norm(form.mobile).replace(/\s/g, '')],
       ['doj', normDoj(form.doj)],
@@ -1386,7 +1388,11 @@ export const Hr = () => {
       ['designation', norm(form.designation)],
     ];
     for (const [key, value] of fields) {
-      const prev = key === 'doj' ? normDoj(original[key]) : norm(original[key]);
+      let prev;
+      if (key === 'doj') prev = normDoj(original[key]);
+      else if (key === 'email') prev = normEmail(original[key]);
+      else if (key === 'mobile') prev = norm(original[key]).replace(/\s/g, '');
+      else prev = norm(original[key]);
       if (value && value !== prev) {
         payload[key] = value;
       }
@@ -1424,6 +1430,11 @@ export const Hr = () => {
       const mobileTrim = (mobile || '').trim().replace(/\s/g, '');
       if (mobileTrim && mobileTrim.length !== 10) {
         setSignupError('Mobile number must be exactly 10 digits.');
+        return;
+      }
+      const emailNorm = (email || '').replace(/\s+/g, '').trim().toLowerCase();
+      if (emailNorm && !emailNorm.includes('@')) {
+        setSignupError('Please enter a valid email address.');
         return;
       }
     }
@@ -1470,6 +1481,11 @@ export const Hr = () => {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setSignupSuccess(true);
+          const updatedEmail = (updateBody.email || signupEditEmail || '').toLowerCase();
+          if (updateBody.email) {
+            setSignupEditEmail(updateBody.email);
+            setSignupEditOriginal((prev) => (prev ? { ...prev, email: updateBody.email } : prev));
+          }
           setUpdateSignupSearchSnapshot((prev) => {
             if (!prev?.employees?.length || !signupEditEmail) return prev;
             const norm = (v) => (v ?? '').toString().trim().toLowerCase();
@@ -1483,14 +1499,17 @@ export const Hr = () => {
               (emp.email || '').toLowerCase() === emailLower
                 ? {
                     ...emp,
-                    emp_id: emp_id.trim(),
-                    first_name: first_name.trim(),
+                    email: updateBody.email || emp.email,
+                    emp_id: emp_id.trim() || emp.emp_id,
+                    first_name: first_name.trim() || emp.first_name,
+                    mobile: updateBody.mobile || emp.mobile,
                   }
                 : emp
             );
             if (!stillInSearchFilters) {
               nextEmployees = nextEmployees.filter(
                 (emp) => (emp.email || '').toLowerCase() !== emailLower
+                  && (emp.email || '').toLowerCase() !== updatedEmail
               );
             }
             return { ...prev, employees: nextEmployees };
@@ -1507,7 +1526,7 @@ export const Hr = () => {
           body: JSON.stringify({
             user_name: user_name.trim(),
             first_name: first_name.trim(),
-            email: email.trim(),
+            email: email.replace(/\s+/g, "").trim().toLowerCase(),
             emp_id: emp_id.trim(),
             mobile: mobile.trim().replace(/\s/g, ''),
             doj,
@@ -2617,7 +2636,7 @@ if (view === 'noc_requests') {
               <div className="form-row">
                 <div className="form-group">
                   <label>Email {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
-                  <input name="email" type="email" placeholder="Enter your Email ID" value={signupForm.email} onChange={handleSignupChange} readOnly={isEditMode} disabled={isEditMode} style={isEditMode ? { opacity: 0.9, cursor: 'not-allowed' } : {}} />
+                  <input name="email" type="email" placeholder="Enter your Email ID" value={signupForm.email} onChange={handleSignupChange} />
                 </div>
                 <div className="form-group">
                   <label>Employee ID {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
