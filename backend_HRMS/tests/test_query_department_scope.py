@@ -67,6 +67,27 @@ def _inbox_department_labels(inbox_department):
 
 
 def _query_belongs_to_inbox(query_department, inbox_department):
+    """True when a stored query.department belongs in the requested inbox."""
+    inbox_canon = _canonical_inbox_department(inbox_department)
+    if not inbox_canon:
+        return False
+
+    def canonical(name):
+        n = _norm(name)
+        if not n:
+            return None
+        if n in {"human resource", "human resources", "hr"} or "human resource" in n:
+            return "Human Resource"
+        if n in {"it", "it department", "engineering", "inventory"}:
+            return "IT"
+        if n in {"accounts", "account", "accountant"} or n.startswith("account") or "accounts" in n:
+            return "Accounts"
+        return None
+
+    query_canon = canonical(query_department)
+    if query_canon:
+        return query_canon == inbox_canon
+
     labels = frozenset(_inbox_department_labels(inbox_department))
     if not labels:
         return False

@@ -4,16 +4,35 @@ export const QUERY_CHAT_PARAM = 'chat';
 
 const normDept = (value) => String(value ?? '').trim().toLowerCase();
 
-/** Stored query.department values that belong in the IT ticket inbox. */
-export const IT_INBOX_DEPARTMENT_LABELS = new Set([
-  'it',
-  'it department',
-  'engineering',
-  'inventory',
-]);
+/** Canonical department for inbox scoping (matches Queries.jsx / backend plan_features). */
+export const canonicalQueryDepartment = (name) => {
+  const n = normDept(name);
+  if (!n) return null;
+  if (
+    n === 'human resource' ||
+    n === 'human resources' ||
+    n === 'hr' ||
+    n.includes('human resource')
+  ) {
+    return 'Human Resource';
+  }
+  if (n === 'it' || n === 'it department' || n === 'engineering' || n === 'inventory') {
+    return 'IT';
+  }
+  if (
+    n === 'account' ||
+    n === 'accounts' ||
+    n === 'accountant' ||
+    n.startsWith('account') ||
+    n.includes('accounts')
+  ) {
+    return 'Accounts';
+  }
+  return null;
+};
 
 export const queryBelongsToItInbox = (department) =>
-  IT_INBOX_DEPARTMENT_LABELS.has(normDept(department));
+  canonicalQueryDepartment(department) === 'IT';
 
 export const filterQueriesForItInbox = (queries) =>
   (queries || []).filter((q) => queryBelongsToItInbox(q?.department));

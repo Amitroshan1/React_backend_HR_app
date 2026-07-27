@@ -195,6 +195,17 @@ def _query_department_sql_filter(inbox_department):
 
 
 def _query_belongs_to_inbox(query_department, inbox_department):
+    """True when a stored query.department belongs in the requested inbox."""
+    from .plan_features import canonical_query_department
+
+    inbox_canon = _canonical_inbox_department(inbox_department)
+    if not inbox_canon:
+        return False
+
+    query_canon = canonical_query_department(query_department)
+    if query_canon:
+        return query_canon == inbox_canon
+
     labels = frozenset(_inbox_department_labels(inbox_department))
     if not labels:
         return False
@@ -634,6 +645,94 @@ def my_queries():
 
 
 
+def _serialize_department_inbox_query(q, unread_map):
+    adm = q.admin
+    eff_created = _query_list_effective_created_at(q)
+    unread = unread_map.get(q.id, 0)
+    employee_email = adm.email if adm else None
+    employee_name = (
+        ((adm.first_name or "").strip() if adm else "")
+        or employee_email
+        or "Employee"
+    )
+    return {
+        "id": q.id,
+        "title": q.title,
+        "department": q.department,
+        "query_text": q.query_text,
+        "employee": employee_email,
+        "employee_name": employee_name,
+        "employee_email": employee_email,
+        "emp_id": (adm.emp_id if adm else None) or "",
+        "status": q.status,
+        "created_at": isoformat_api(eff_created),
+        "unread_reply_count": unread,
+        "has_unread_reply": unread > 0,
+    }
+
+
+def _load_department_inbox_queries(admin, department):
+    """Queries for one department inbox, with canonical post-filter."""
+    _repair_query_created_at_from_history()
+
+    q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
+        _query_department_sql_filter(department)
+    )
+
+    reply_created_at_subquery = (
+        db.session.query(func.min(QueryReply.created_at))
+        .filter(QueryReply.query_id == Query.id)
+        .correlate(Query)
+        .scalar_subquery()
+    )
+    effective_created_at = func.coalesce(Query.created_at, reply_created_at_subquery)
+
+    month_str = (request.args.get("month") or "").strip()
+    if month_str:
+        try:
+            year_m, month_m = map(int, month_str.split("-"))
+            if not (1 <= month_m <= 12):
+                raise ValueError()
+            q = q.filter(
+                extract("year", effective_created_at) == year_m,
+                extract("month", effective_created_at) == month_m,
+            )
+        except ValueError:
+            return None, (
+                jsonify({"success": False, "message": "Invalid month format. Use YYYY-MM"}),
+                400,
+            )
+
+    circle_param = (request.args.get("circle") or "").strip()
+    if circle_param:
+        circle_param_lower = circle_param.lower()
+        q = q.filter(
+            Query.admin.has(
+                func.lower(func.trim(func.coalesce(Admin.circle, ""))) == circle_param_lower
+            )
+        )
+
+    queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
+    queries = [
+        row for row in queries
+        if _query_belongs_to_inbox(row.department, department)
+    ]
+    unread_map = _unread_counts_by_query_id(admin.id, [row.id for row in queries])
+    return queries, unread_map
+
+
+def _department_inbox_response(admin, department):
+    loaded = _load_department_inbox_queries(admin, department)
+    if isinstance(loaded[1], tuple):
+        return loaded[1]
+    queries, unread_map = loaded
+    return jsonify({
+        "success": True,
+        "inbox": _canonical_inbox_department(department) or department,
+        "queries": [_serialize_department_inbox_query(q, unread_map) for q in queries],
+    }), 200
+
+
 #department to view all queries
 @query.route("/queries", methods=["GET"])
 @jwt_required()
@@ -660,85 +759,34 @@ def department_queries():
                 return jsonify({"success": False, "message": "Unauthorized"}), 403
             department = _canonical_inbox_department(department) or department
 
-        _repair_query_created_at_from_history()
-
-        q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
-            _query_department_sql_filter(department)
-        )
-
-        reply_created_at_subquery = (
-            db.session.query(func.min(QueryReply.created_at))
-            .filter(QueryReply.query_id == Query.id)
-            .correlate(Query)
-            .scalar_subquery()
-        )
-        effective_created_at = func.coalesce(Query.created_at, reply_created_at_subquery)
-
-        month_str = (request.args.get("month") or "").strip()
-        if month_str:
-            try:
-                year_m, month_m = map(int, month_str.split("-"))
-                if not (1 <= month_m <= 12):
-                    raise ValueError()
-                q = q.filter(
-                    extract("year", effective_created_at) == year_m,
-                    extract("month", effective_created_at) == month_m,
-                )
-            except ValueError:
-                return jsonify(
-                    {"success": False, "message": "Invalid month format. Use YYYY-MM"}
-                ), 400
-
-        circle_param = (request.args.get("circle") or "").strip()
-        if circle_param:
-            circle_param_lower = circle_param.lower()
-            q = q.filter(
-                Query.admin.has(
-                    func.lower(func.trim(func.coalesce(Admin.circle, ""))) == circle_param_lower
-                )
-            )
-
-        queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
-        # Defense in depth: never leak other departments into a scoped inbox.
-        queries = [
-            row for row in queries
-            if _query_belongs_to_inbox(row.department, department)
-        ]
-        unread_map = _unread_counts_by_query_id(admin.id, [row.id for row in queries])
-
-        def _serialize_query(q):
-            adm = q.admin
-            eff_created = _query_list_effective_created_at(q)
-            unread = unread_map.get(q.id, 0)
-            employee_email = adm.email if adm else None
-            employee_name = (
-                ((adm.first_name or "").strip() if adm else "")
-                or employee_email
-                or "Employee"
-            )
-            return {
-                "id": q.id,
-                "title": q.title,
-                "department": q.department,
-                "query_text": q.query_text,
-                "employee": employee_email,
-                "employee_name": employee_name,
-                "employee_email": employee_email,
-                "emp_id": (adm.emp_id if adm else None) or "",
-                "status": q.status,
-                "created_at": isoformat_api(eff_created),
-                "unread_reply_count": unread,
-                "has_unread_reply": unread > 0,
-            }
-
-        return jsonify({
-            "success": True,
-            "queries": [_serialize_query(q) for q in queries]
-        }), 200
+        return _department_inbox_response(admin, department)
     except Exception:
         db.session.rollback()
         current_app.logger.exception("department_queries failed")
         return jsonify({"success": False, "message": "Failed to load department queries"}), 500
+
+
+@query.route("/queries/it-inbox", methods=["GET"])
+@jwt_required()
+def it_department_queries():
+    """IT ticket inbox only — hard-scoped; used by IT Open Tickets panel."""
+    try:
+        claims = get_jwt()
+        emp_type = claims.get("emp_type")
+        email = claims.get("email")
+        admin = Admin.query.filter_by(email=email).first()
+        if not admin:
+            return jsonify({"success": False, "message": "User not found"}), 404
+
+        department = "IT"
+        if not _can_access_inbox_department(admin, emp_type, department):
+            return jsonify({"success": False, "message": "Unauthorized"}), 403
+
+        return _department_inbox_response(admin, department)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("it_department_queries failed")
+        return jsonify({"success": False, "message": "Failed to load IT queries"}), 500
 
 
 @query.route("/queries/<int:query_id>/mark-read", methods=["POST"])
