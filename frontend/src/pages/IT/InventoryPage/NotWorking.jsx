@@ -29,6 +29,12 @@ import {
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./NotWorking.css";
+import {
+  InventoryPanel,
+  InventoryFiltersInner,
+  InventoryFilterSearch,
+  InventoryCategoryTabs,
+} from "./InventoryPanel";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const NOT_WORKING_STATUS = "notWorking";
@@ -113,24 +119,24 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 
 // ─── NotWorkingRow ────────────────────────────────────────────────────────────
 
-function NotWorkingRow({ unit, index, inventoryCategory, onSendToRepair, onRemove }) {
+function NotWorkingRow({ unit, index, inventoryCategory, onSendToRepair, onRemove, serialColLabel }) {
   const isQtyRow = Boolean(unit?.isQuantityRow);
   const { primary, secondary } = getUnitBrandModelDisplay(unit, inventoryCategory);
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
-      <td>
+      <td data-label="Brand / Name">
         <span className="nw-brand">{primary}</span>
         {secondary ? <span className="nw-model"> {secondary}</span> : null}
       </td>
-      <td><span className="inv-category-badge">{unit.category}</span></td>
-      <td>
+      <td data-label="Category"><span className="inv-category-badge">{unit.category}</span></td>
+      <td data-label={serialColLabel}>
         {isQtyRow
           ? <span className="nw-serial">Qty: {unit.notWorkingQuantity || 0}</span>
           : unit.serialNumber
             ? <span className="nw-serial">{unit.serialNumber}</span>
             : "—"}
       </td>
-      <td className="nw-actions">
+      <td className="nw-actions" data-label="Actions">
         <button className="nw-btn-repair" onClick={() => onSendToRepair(unit)}>Send to Repair</button>
         <button className="nw-btn-remove" onClick={() => onRemove(unit)}>Remove</button>
       </td>
@@ -392,57 +398,40 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="nw-page">
-      {toast && <div className="nw-toast">{toast}</div>}
+    <>
+      {toast && <div className="inv-toast">{toast}</div>}
 
-      <div className="nw-card">
-        <div className="nw-header">
-          <div>
-            <h1 className="nw-title">Not Working</h1>
-            <p className="nw-subtitle">Assets currently marked as not working</p>
-          </div>
-          <span className="nw-count-badge">
-            {filteredRows.length} asset{filteredRows.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-
-        {showCategoryTabs && (
-          <div className="nw-tabs">
-            {categoryTabs.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                className={`nw-tab ${activeCategory === cat ? "active" : ""}`}
-                onClick={() => setActiveCategory(cat)}
-              >
-                {cat}
-                {cat !== "All" && (
-                  <span className="nw-tab-count">{getCategoryCount(cat)}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Search */}
-        <div className="nw-search-row">
-          <div className="nw-search-wrap">
-            <span className="nw-search-icon">⌕</span>
-            <input
-              className="nw-search-input"
-              placeholder="Search by brand, name or serial..."
+      <InventoryPanel
+        eyebrow={inventoryCategory}
+        title="Not Working"
+        subtitle="Assets currently marked as not working"
+        recordCount={filteredRows.length}
+        variant="alert"
+        filterBadge={
+          activeCategory !== "All" ? (
+            <span className="inv-table-filter-badge">{activeCategory}</span>
+          ) : null
+        }
+        filters={
+          <InventoryFiltersInner>
+            <InventoryFilterSearch
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={setSearchQuery}
+              placeholder="Search by brand, name or serial…"
             />
-            {searchQuery && (
-              <button className="nw-search-clear" onClick={() => setSearchQuery("")}>×</button>
+            {showCategoryTabs && (
+              <InventoryCategoryTabs
+                tabs={categoryTabs}
+                active={activeCategory}
+                onChange={setActiveCategory}
+                getCount={getCategoryCount}
+              />
             )}
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="nw-table-wrap">
-          <table className="nw-table">
+          </InventoryFiltersInner>
+        }
+      >
+        <div className="inv-table-scroll inv-table-scroll--responsive">
+          <table className="inv-table">
             <thead>
               <tr>
                 <th>Brand / Name</th>
@@ -453,7 +442,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
-                <tr><td colSpan={4} className="nw-empty">No not-working assets found</td></tr>
+                <tr><td colSpan={4} className="inv-empty-row">No not-working assets found</td></tr>
               ) : (
                 filteredRows.map((unit, i) => (
                   <NotWorkingRow
@@ -461,6 +450,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
                     unit={unit}
                     index={i}
                     inventoryCategory={inventoryCategory}
+                    serialColLabel={serialColLabel}
                     onSendToRepair={handleSendToRepair}
                     onRemove={setRemoveTarget}
                   />
@@ -469,7 +459,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
             </tbody>
           </table>
         </div>
-      </div>
+      </InventoryPanel>
 
       {removeTarget && (
         <DeleteModal
@@ -478,7 +468,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
           onCancel={() => setRemoveTarget(null)}
         />
       )}
-    </div>
+    </>
   );
 }
 

@@ -97,7 +97,7 @@ export default function ReturnRequests() {
         ))}
       </div>
 
-      <div className="rr-table-wrap">
+      <div className="rr-table-wrap it-m-scroll--cards">
         {loading ? (
           <div className="rr-loading">Loading…</div>
         ) : (
@@ -125,19 +125,19 @@ export default function ReturnRequests() {
                   const qty = Math.max(1, Number(r.quantity) || 1);
                   return (
                   <tr key={r.id}>
-                    <td>{r.requestCode}</td>
-                    <td>
+                    <td data-label="Code">{r.requestCode}</td>
+                    <td data-label="Employee">
                       <div>{r.requesterName || "—"}</div>
                       <small>{r.requesterEmpId || r.requesterEmail || "—"}</small>
                     </td>
-                    <td>
+                    <td data-label="Asset">
                       <div>{r.assetName || "—"}</div>
                       <small>{r.category || "—"}</small>
                     </td>
-                    <td>{r.inventoryItemId || qty > 1 ? qty : "—"}</td>
-                    <td>{formatReturnDest(r.returnDestination)}</td>
-                    <td className="rr-reason">{r.reason || "—"}</td>
-                    <td>
+                    <td data-label="Qty">{r.inventoryItemId || qty > 1 ? qty : "—"}</td>
+                    <td data-label="Return To">{formatReturnDest(r.returnDestination)}</td>
+                    <td className="rr-reason" data-label="Reason">{r.reason || "—"}</td>
+                    <td data-label="Files">
                       {photos.length > 0 ? (
                         <button
                           type="button"
@@ -156,9 +156,9 @@ export default function ReturnRequests() {
                         "—"
                       )}
                     </td>
-                    <td><span className={`rr-status ${r.status}`}>{r.status}</span></td>
-                    <td>{formatDateTimeDDMMYYYY(r.createdAt)}</td>
-                    <td>
+                    <td data-label="Status"><span className={`rr-status ${r.status}`}>{r.status}</span></td>
+                    <td data-label="Requested">{formatDateTimeDDMMYYYY(r.createdAt)}</td>
+                    <td data-label="Action">
                       {r.status === "pending" && (
                         <div className="rr-actions">
                           <button onClick={() => onApprove(r.id)} className="approve">Approve</button>

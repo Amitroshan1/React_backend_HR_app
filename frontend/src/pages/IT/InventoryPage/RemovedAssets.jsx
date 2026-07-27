@@ -18,6 +18,12 @@ import {
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./RemovedAssets.css";
+import {
+  InventoryPanel,
+  InventoryFiltersInner,
+  InventoryFilterSearch,
+  InventoryCategoryTabs,
+} from "./InventoryPanel";
 import { formatDate } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -92,21 +98,21 @@ function ConfirmWipeModal({ asset, onConfirm, onCancel }) {
 function DeletedAssetRow({ record, index, onView, onWipe }) {
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
-      <td>
+      <td data-label="Brand / Name">
         <span className="del-brand">{record.brand || record.assetName}</span>
         {record.model && <span className="del-model"> {record.model}</span>}
       </td>
-      <td>
+      <td data-label="Category">
         <span className="inv-category-badge">{record.category || "—"}</span>
       </td>
-      <td>
+      <td data-label="Serial No">
         {record.serialNumber
           ? <span className="del-serial">{record.serialNumber}</span>
           : "—"}
       </td>
-      <td>{formatDate(record.deletedAt)}</td>
-      <td><span className="del-by">{record.deletedBy || "—"}</span></td>
-      <td>
+      <td data-label="Removed Date">{formatDate(record.deletedAt)}</td>
+      <td data-label="Removed By"><span className="del-by">{record.deletedBy || "—"}</span></td>
+      <td data-label="Actions">
         <button className="del-btn-view" onClick={() => onView(record)}>View</button>
         <button className="del-btn-wipe" onClick={() => onWipe(record)}>Wipe</button>
       </td>
@@ -206,57 +212,45 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="del-page">
-      {toast && <div className="del-toast">{toast}</div>}
+    <>
+      {toast && <div className="inv-toast">{toast}</div>}
 
-      <div className="del-card">
-        <div className="del-header">
-          <div>
-            <h1 className="del-title">Dead Assets</h1>
-            <p className="del-subtitle">Full audit trail of all dead assets</p>
-          </div>
-          <span className="del-count-badge">
-            {filteredRows.length} record{filteredRows.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-
-        {showCategoryTabs && (
-          <div className="del-tabs">
-            {categoryTabs.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                className={`del-tab ${activeCategory === cat ? "active" : ""}`}
-                onClick={() => setActiveCategory(cat)}
-              >
-                {cat}
-                {cat !== "All" && (
-                  <span className="del-tab-count">{getCategoryCount(cat)}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Search */}
-        <div className="del-search-row">
-          <div className="del-search-wrap">
-            <span className="del-search-icon">⌕</span>
-            <input
-              className="del-search-input"
-              placeholder="Search by brand or serial..."
+      <InventoryPanel
+        eyebrow={inventoryCategory}
+        title="Dead Assets"
+        subtitle="Full audit trail of all dead assets"
+        recordCount={filteredRows.length}
+        filterBadge={
+          activeCategory !== "All" ? (
+            <span className="inv-table-filter-badge">{activeCategory}</span>
+          ) : null
+        }
+        filters={
+          <InventoryFiltersInner>
+            <InventoryFilterSearch
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={setSearchQuery}
+              placeholder="Search by brand or serial…"
             />
-            {searchQuery && (
-              <button className="del-search-clear" onClick={() => setSearchQuery("")}>×</button>
+            {showCategoryTabs && (
+              <InventoryCategoryTabs
+                tabs={categoryTabs}
+                active={activeCategory}
+                onChange={setActiveCategory}
+                getCount={getCategoryCount}
+              />
             )}
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="del-table-wrap">
-          <table className="del-table">
+          </InventoryFiltersInner>
+        }
+        footer={
+          <>
+            Assets appear here when removed from <strong>Not Working</strong> or{" "}
+            <strong>In Repair</strong>. Click <strong>View</strong> for full details.
+          </>
+        }
+      >
+        <div className="inv-table-scroll inv-table-scroll--responsive">
+          <table className="inv-table">
             <thead>
               <tr>
                 <th>Brand / Name</th>
@@ -269,7 +263,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
             </thead>
             <tbody>
               {filteredRows.length === 0 ? (
-                <tr><td colSpan={6} className="del-empty">No dead assets found</td></tr>
+                <tr><td colSpan={6} className="inv-empty-row">No dead assets found</td></tr>
               ) : (
                 filteredRows.map((rec, i) => (
                   <DeletedAssetRow
@@ -284,12 +278,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
             </tbody>
           </table>
         </div>
-
-        <p className="del-info">
-          ℹ Assets appear here when removed from <strong>Not Working</strong> or{" "}
-          <strong>In Repair</strong>. Click <strong>View</strong> for full details.
-        </p>
-      </div>
+      </InventoryPanel>
 
       {detailAsset && (
         <DetailModal asset={detailAsset} onClose={() => setDetailAsset(null)} />
@@ -302,6 +291,6 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
           onCancel={() => setWipeTarget(undefined)}
         />
       )}
-    </div>
+    </>
   );
 }

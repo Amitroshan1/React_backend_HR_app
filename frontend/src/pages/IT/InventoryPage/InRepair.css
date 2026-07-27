@@ -1,4 +1,5 @@
 /* InRepair.css */
+@import "../ITMobileShared.css";
 .repair-page {
   padding: 24px 32px;
   font-family: "Inter", sans-serif;

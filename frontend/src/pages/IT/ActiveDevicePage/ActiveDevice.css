@@ -4,6 +4,7 @@
    ───────────────────────────────────────────── */
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import "../ITMobileShared.css";
 
 /* ══════════════════════════════════════════
    PAGE ROOT
@@ -439,9 +440,33 @@
   }
   .asd-tabs {
     gap: 6px;
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
   }
   .asd-tab {
     padding: 7px 12px;
     font-size: 12px;
+    flex-shrink: 0;
+  }
+  .asd-search-row {
+    flex-direction: column;
+    width: 100%;
+  }
+  .asd-search-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+  .asd-table-head-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 12px 14px;
+  }
+  .it-m-scroll--cards .asd-view-btn {
+    width: 100%;
+    min-height: 42px;
   }
 }

@@ -2136,7 +2136,7 @@ export default function AssetsDashboard() {
             </span>
           </div>
 
-          <div className="am-table-scroll">
+          <div className="am-table-scroll it-m-scroll--cards">
             {mainFilter === "Available" ? (
               <table className="am-table">
                 <thead>
@@ -2164,7 +2164,7 @@ export default function AssetsDashboard() {
                           key={`${a.id}-${i}`}
                           className={i % 2 === 0 ? "am-tr-even" : "am-tr-odd"}
                         >
-                          <td className="am-td-name">
+                          <td className="am-td-name" data-label="Asset Name">
                             {a.category === "Software" && (
                               <span className="am-sw-icon">💿</span>
                             )}
@@ -2173,7 +2173,7 @@ export default function AssetsDashboard() {
                               <span className="am-hwtype-chip">{a.hwType}</span>
                             )}
                           </td>
-                          <td>
+                          <td data-label="Category">
                             <span
                               className="am-cat-badge"
                               style={{
@@ -2185,7 +2185,7 @@ export default function AssetsDashboard() {
                               {a.category}
                             </span>
                           </td>
-                          <td>
+                          <td data-label="Available">
                             {a.category === "Software" ? (
                               <span className="am-sw-qty">
                                 {a.seats
@@ -2198,14 +2198,14 @@ export default function AssetsDashboard() {
                               </span>
                             )}
                           </td>
-                          <td>
+                          <td data-label="Assigned">
                             {assignedQty > 0 ? (
                               <span className="am-assigned-badge">{assignedQty}</span>
                             ) : (
                               <span className="am-assigned-empty">—</span>
                             )}
                           </td>
-                          <td>
+                          <td data-label="Details">
                             <button
                               className="am-view-btn"
                               onClick={() => setDetailItem(a)}
@@ -2245,8 +2245,8 @@ export default function AssetsDashboard() {
                           key={`${a.id}-${i}`}
                           className={i % 2 === 0 ? "am-tr-even" : "am-tr-odd"}
                         >
-                          <td className="am-td-name">{a.name}</td>
-                          <td>
+                          <td className="am-td-name" data-label="Asset Name">{a.name}</td>
+                          <td data-label="Category">
                             <span
                               className="am-cat-badge"
                               style={{
@@ -2258,10 +2258,10 @@ export default function AssetsDashboard() {
                               {a.category}
                             </span>
                           </td>
-                          <td>
+                          <td data-label="Employee ID">
                             <span className="am-emp-id">{a.empId}</span>
                           </td>
-                          <td>
+                          <td data-label="Employee">
                             <div className="am-assignee">
                               <UserAvatar
                                 name={a.empName}
@@ -2273,7 +2273,7 @@ export default function AssetsDashboard() {
                               <span className="am-emp-name">{a.empName}</span>
                             </div>
                           </td>
-                          <td>
+                          <td data-label="Details">
                             <button
                               className="am-view-btn"
                               onClick={() =>

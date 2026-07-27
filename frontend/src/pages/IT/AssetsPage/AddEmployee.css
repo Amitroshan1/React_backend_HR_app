@@ -1,4 +1,5 @@
 /* AddNewEmployee.css — Full styles */
+@import "../ITMobileShared.css";
 
 /* ── Page layout ──────────────────────────────────────────────────────────── */
 .ane-page {

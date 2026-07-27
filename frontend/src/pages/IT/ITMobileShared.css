@@ -1,0 +1,136 @@
+/* Shared mobile patterns for IT panel + inventory pages */
+
+@media (max-width: 768px) {
+  .it-m-scroll--cards {
+    overflow: visible;
+    padding: 12px;
+    background: #f8fafc;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .it-m-scroll--cards table {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .it-m-scroll--cards thead {
+    display: none;
+  }
+
+  .it-m-scroll--cards tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .it-m-scroll--cards tr {
+    display: block;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 4px 14px 12px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  }
+
+  .it-m-scroll--cards tr:hover td {
+    background: transparent;
+  }
+
+  .it-m-scroll--cards td {
+    display: grid;
+    grid-template-columns: minmax(88px, 36%) 1fr;
+    gap: 6px 10px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #f1f5f9;
+    background: transparent !important;
+    text-align: left !important;
+  }
+
+  .it-m-scroll--cards td:last-child {
+    border-bottom: none;
+  }
+
+  .it-m-scroll--cards td[data-label]::before {
+    content: attr(data-label);
+    font-size: 10px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .it-m-scroll--cards td.it-m-empty,
+  .it-m-scroll--cards td.rr-empty,
+  .it-m-scroll--cards td.ot-empty {
+    display: block;
+    text-align: center;
+    padding: 24px;
+    border: none;
+  }
+
+  .it-m-scroll--cards td.it-m-empty::before,
+  .it-m-scroll--cards td.rr-empty::before,
+  .it-m-scroll--cards td.ot-empty::before {
+    display: none;
+  }
+
+  .it-m-scroll--cards .rr-actions,
+  .it-m-scroll--cards .ot-td-query {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    max-width: none;
+  }
+
+  .it-m-scroll--cards .rr-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .it-m-scroll--cards .rr-actions button,
+  .it-m-scroll--cards .complete,
+  .it-m-scroll--cards .ot-chat-btn,
+  .it-m-scroll--cards .ot-resolve-btn,
+  .it-m-scroll--cards .asd-view-btn {
+    min-height: 40px;
+    flex: 1 1 auto;
+  }
+
+  .it-m-scroll--cards .view-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  .it-m-scroll--cards .am-view-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  .it-m-scroll--cards .asd-assignee {
+    justify-content: flex-start;
+  }
+
+  .it-m-scroll--cards .ot-email {
+    max-width: none;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 480px) {
+  .it-m-scroll--cards td {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .it-m-scroll--cards .rr-actions {
+    flex-direction: column;
+  }
+
+  .it-m-scroll--cards .rr-actions button,
+  .it-m-scroll--cards .complete {
+    width: 100%;
+  }
+}

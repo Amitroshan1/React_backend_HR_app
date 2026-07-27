@@ -6,6 +6,11 @@ import ClickableImage from "../../../components/ClickableImage";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import { isAdminVisitActive } from "../../../hooks/useAdminVisitNav";
 import "./InventoryDashboard.css";
+import {
+  InventoryPanel,
+  InventoryFiltersInner,
+  InventoryFilterSearch,
+} from "./InventoryPanel";
 
 import {
   getInventoryFromStorage,
@@ -41,6 +46,8 @@ import {
   getAssignedColumnLabel,
   resolveInventoryCategory,
   getHardwareFields,
+  getMobileTabletHardwareFields,
+  isMobileTabletHwType,
   getUnitBrandModelDisplay,
   hideAssignedColumnForCategory,
   isStockInventoryCategory,
@@ -50,6 +57,7 @@ import {
   getDeployModalConfig,
   rowSupportsInventoryDeploy,
   isUnitDeployRow,
+  INVENTORY_CATEGORY_CONFIG,
 } from "../inventoryCategories";
 import { OfficeIssueModal, OfficeReturnModal } from "./OfficeStockModals";
 import { formatDate } from "../../../utils/dateFormat";
@@ -73,6 +81,19 @@ const EDIT_OPTIONS = [
   { key: "repair",     label: "Repair",     icon: "🔧", color: "#d97706", hoverBg: "#fef3c7", bg: "#fffbeb", borderColor: "#d97706" },
   { key: "notWorking", label: "Not Working", icon: "⚠️",  color: "#ef4444", hoverBg: "#fee2e2", bg: "#fef2f2", borderColor: "#ef4444" },
   { key: "removed",   label: "Remove",     icon: "🗑️",  color: "#64748b", hoverBg: "#f1f5f9", bg: "#f8fafc", borderColor: "#94a3b8" },
+];
+
+const IT_CATEGORY_FILTERS = [
+  { id: "All", label: "All", chip: "all" },
+  { id: "Hardware", label: "Hardware", chip: "hardware" },
+  { id: "Software", label: "Software", chip: "software" },
+  { id: "Accessories", label: "Accessories", chip: "accessories" },
+  { id: "Consumables", label: "Consumable", chip: "consumables" },
+];
+
+const IT_HW_SUB_FILTERS = [
+  "All",
+  ...(INVENTORY_CATEGORY_CONFIG["IT Assets"]?.hwTypes || ["Laptop", "Mobile", "Desktop", "Tablet", "Other"]),
 ];
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
@@ -251,6 +272,58 @@ function getUnitsForAsset(inventoryId, assetName, hwType) {
 
   // 3️⃣ Last resort: name only (old data with no hwType stored on unit)
   return all.filter((u) => u.assetName === assetName || u.name === assetName);
+}
+
+function inventoryCategoryMatches(assetCategory, filterId) {
+  if (!filterId || filterId === "All") return true;
+  const c = String(assetCategory || "").trim().toLowerCase();
+  const f = String(filterId).trim().toLowerCase();
+  if (f === "consumables") return c === "consumables" || c === "consumable";
+  if (f === "accessories") return c === "accessories" || c === "accessory";
+  return c === f;
+}
+
+function assetMatchesHwSubFilter(asset, hwSubFilter) {
+  if (!hwSubFilter || hwSubFilter === "All") return true;
+  return String(asset.hwType || "").trim().toLowerCase() === hwSubFilter.toLowerCase();
+}
+
+function assetMatchesProjectName(asset, projectName) {
+  if (!projectName || projectName === "All") return true;
+  const needle = projectName.trim().toLowerCase();
+  const units = getUnitsForAsset(asset.id, asset.name, asset.hwType);
+  return units.some((u) => (u.make || "").trim().toLowerCase() === needle);
+}
+
+function collectProjectNamesFromAssets(assets) {
+  const names = new Set();
+  assets.forEach((asset) => {
+    if (!isMobileTabletHwType(asset.hwType)) return;
+    getUnitsForAsset(asset.id, asset.name, asset.hwType).forEach((unit) => {
+      const label = (unit.make || "").trim();
+      if (label) names.add(label);
+    });
+  });
+  return ["All", ...Array.from(names).sort((a, b) => a.localeCompare(b))];
+}
+
+function filterITOverviewAssets(assets, { categoryFilter, hwSubFilter, projectNameFilter, searchQuery }) {
+  const q = searchQuery.trim().toLowerCase();
+  return assets
+    .filter((a) => inventoryCategoryMatches(a.category, categoryFilter))
+    .filter((a) => categoryFilter !== "Hardware" || assetMatchesHwSubFilter(a, hwSubFilter))
+    .filter((a) => {
+      if (categoryFilter !== "Hardware" || !isMobileTabletHwType(hwSubFilter)) return true;
+      return assetMatchesProjectName(a, projectNameFilter);
+    })
+    .filter((a) => {
+      if (!q) return true;
+      return (
+        a.name.toLowerCase().includes(q) ||
+        (a.hwType ?? "").toLowerCase().includes(q) ||
+        (a.category ?? "").toLowerCase().includes(q)
+      );
+    });
 }
 
 function safeLogDeletedAsset(asset, deletedBy, reason) {
@@ -818,7 +891,9 @@ function AssetDetailModal({
   const inventoryPhotos = asset?.photos ?? [];
   const inventoryReceipts = asset?.receipts ?? [];
   const stockMode = asset?.isStock || isStockLineItem(asset);
-  const hwFields = getHardwareFields(asset.inventoryCategory, asset.category);
+  const hwFields = isMobileTabletHwType(asset.hwType)
+    ? getMobileTabletHardwareFields(getHardwareFields(asset.inventoryCategory, asset.category))
+    : getHardwareFields(asset.inventoryCategory, asset.category);
   const showItemMeta =
     !stockMode &&
     (isVehicleInventoryCategory(asset.inventoryCategory) ||
@@ -841,6 +916,28 @@ function AssetDetailModal({
         },
         { label: "Make", value: brandModel.primary, mono: false, highlight: false },
         { label: hwFields.model.label, value: brandModel.secondary || "—", mono: false, highlight: false },
+      ]
+    : isMobileTabletHwType(asset.hwType)
+    ? [
+        { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true, highlight: true },
+        { label: hwFields.brand.label, value: brandModel.primary, mono: false, highlight: false },
+        { label: hwFields.make.label, value: unit?.make ?? "—", mono: false, highlight: false },
+        { label: hwFields.projectCode.label, value: unit?.projectCode ?? "—", mono: false, highlight: false },
+        { label: hwFields.deviceLocation.label, value: unit?.deviceLocation ?? "—", mono: false, highlight: false },
+        {
+          label: hwFields.model.label,
+          value: brandModel.secondary || unit?.model || "—",
+          mono: false,
+          highlight: false,
+        },
+        {
+          label: hwFields.serialNumber.label,
+          value: unit?.serialNumber ?? "—",
+          mono: true,
+          highlight: false,
+        },
+        { label: "IMEI 1", value: unit?.imei1 ?? "—", mono: true, highlight: false },
+        { label: "IMEI 2", value: unit?.imei2 ?? "—", mono: true, highlight: false },
       ]
     : [
         { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true, highlight: true },
@@ -1530,6 +1627,114 @@ function CategoryPill({ category }) {
   return <span className={`inv-cat-pill inv-cat-pill--${variant}`}>{label}</span>;
 }
 
+function ITOverviewFilterBar({
+  categoryFilter,
+  onCategoryFilterChange,
+  hwSubFilter,
+  onHwSubFilterChange,
+  projectNameFilter,
+  onProjectNameFilterChange,
+  projectNameOptions,
+  searchQuery,
+  onSearchQueryChange,
+}) {
+  const showHwSub = categoryFilter === "Hardware";
+  const showProject = showHwSub && isMobileTabletHwType(hwSubFilter);
+
+  return (
+    <div className="inv-overview-filters-inner" aria-label="IT asset filters">
+      <div className="inv-search-wrap inv-search-wrap--overview">
+        <span className="inv-search-icon" aria-hidden>🔍</span>
+        <input
+          className="inv-search-input"
+          type="search"
+          placeholder="Search brand, type…"
+          value={searchQuery}
+          onChange={(e) => onSearchQueryChange(e.target.value)}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className="inv-search-clear"
+            onClick={() => onSearchQueryChange("")}
+            aria-label="Clear search"
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      <div className="inv-overview-filter-block">
+        <span className="inv-overview-filter-label">Category</span>
+        <div className="inv-category-filter-row" role="group" aria-label="Category">
+          {IT_CATEGORY_FILTERS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className={
+                categoryFilter === opt.id
+                  ? `inv-cat-filter-chip inv-cat-filter-chip--active inv-cat-filter-chip--${opt.chip}`
+                  : `inv-cat-filter-chip inv-cat-filter-chip--${opt.chip}`
+              }
+              onClick={() => onCategoryFilterChange(opt.id)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {showHwSub && (
+        <div className="inv-overview-filter-block inv-overview-filter-block--sub">
+          <span className="inv-overview-filter-label">Hardware type</span>
+          <div className="inv-hw-subfilter-row" role="group" aria-label="Hardware type">
+            {IT_HW_SUB_FILTERS.map((type) => (
+              <button
+                key={type}
+                type="button"
+                className={
+                  hwSubFilter === type
+                    ? "inv-hw-subfilter-chip inv-hw-subfilter-chip--active"
+                    : "inv-hw-subfilter-chip"
+                }
+                onClick={() => onHwSubFilterChange(type)}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showProject && (
+        <div className="inv-overview-filter-block inv-overview-filter-block--project">
+          <span className="inv-overview-filter-label">Project name</span>
+          {projectNameOptions.length > 1 ? (
+            <div className="inv-project-filter-row">
+              {projectNameOptions.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className={
+                    projectNameFilter === name
+                      ? "inv-project-chip inv-project-chip--active"
+                      : "inv-project-chip"
+                  }
+                  onClick={() => onProjectNameFilterChange(name)}
+                >
+                  {name === "All" ? "All projects" : name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="inv-project-empty-hint">No project names on mobile/tablet units yet.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssetTable({
   assets,
   filter,
@@ -1540,13 +1745,14 @@ function AssetTable({
   inventoryDeploy = false,
   onOfficeIssue,
   onOfficeReturn,
+  responsive = false,
 }) {
   const showAvailable = filter !== "Assigned" && filter !== "In use";
   const showAssigned  = !hideAssigned && filter !== "Available";
   const emptyColSpan  = 4 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
 
   return (
-    <div className="inv-table-scroll">
+    <div className={`inv-table-scroll${responsive ? " inv-table-scroll--responsive" : ""}`}>
       <table className="inv-table">
         <thead>
           <tr>
@@ -1566,7 +1772,7 @@ function AssetTable({
           ) : (
             assets.map((row, i) => (
               <tr key={row.id} className={i % 2 === 0 ? "tr-even" : "tr-odd"}>
-                <td className="td-name">
+                <td className="td-name" data-label="Asset name">
                   {row.hwType && !row.isStock && !row.isSoftware ? (
                     <div className="td-name-wrap">
                       <span className="td-name-brand">{row.name}</span>
@@ -1581,13 +1787,13 @@ function AssetTable({
                     </div>
                   )}
                 </td>
-                <td className="td-category">
+                <td className="td-category" data-label="Category">
                   <CategoryPill category={row.category} />
                 </td>
-                <td>{row.total}</td>
-                {showAvailable && <td className="td-available">{row.available}</td>}
-                {showAssigned  && <td className="td-assigned">{row.assigned}</td>}
-                <td>
+                <td data-label="Total qty">{row.total}</td>
+                {showAvailable && <td className="td-available" data-label="Available">{row.available}</td>}
+                {showAssigned  && <td className="td-assigned" data-label={assignedColumnLabel}>{row.assigned}</td>}
+                <td data-label="Action">
                   <ViewActionGroup
                     row={row}
                     onViewAsset={onViewAsset}
@@ -1603,6 +1809,64 @@ function AssetTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function TotalAssetsFilterBar({
+  filter,
+  onFilterChange,
+  filterOptions,
+  showTypeFilter,
+  hwTypeFilter,
+  onHwTypeFilterChange,
+  searchQuery,
+  onSearchQueryChange,
+}) {
+  return (
+    <InventoryFiltersInner>
+      <InventoryFilterSearch
+        value={searchQuery}
+        onChange={onSearchQueryChange}
+        placeholder="Search brand, type…"
+      />
+
+      <div className="inv-overview-filter-block">
+        <span className="inv-overview-filter-label">Status</span>
+        <div className="inv-category-filter-row" role="group" aria-label="Status">
+          {filterOptions.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              className={
+                filter === opt
+                  ? "inv-cat-filter-chip inv-cat-filter-chip--active"
+                  : "inv-cat-filter-chip"
+              }
+              onClick={() => onFilterChange(opt)}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {showTypeFilter && (
+        <div className="inv-overview-filter-block">
+          <span className="inv-overview-filter-label">Type</span>
+          <select
+            className="inv-hwtype-dropdown inv-hwtype-dropdown--panel"
+            value={hwTypeFilter}
+            onChange={(e) => onHwTypeFilterChange(e.target.value)}
+          >
+            {["All", "Hardware", "Software", "Consumables", "Accessories"].map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+    </InventoryFiltersInner>
   );
 }
 
@@ -1679,54 +1943,32 @@ function TotalAssetsPage({ category }) {
     <>
       {toast && <div className="inv-toast">{toast}</div>}
 
-      <div className="inv-filter-row">
-        <span className="inv-filter-label">Filter:</span>
-        {filterOptions.map((f) => (
-          <button
-            key={f}
-            className={filter === f ? "inv-filter-pill--active" : "inv-filter-pill"}
-            onClick={() => setFilter(f)}
-          >
-            {f}
-          </button>
-        ))}
-
-        {showTypeFilter && (
-          <>
-            <span className="inv-filter-divider" />
-            <span className="inv-filter-label">Type:</span>
-            <select
-              className="inv-hwtype-dropdown"
-              value={hwTypeFilter}
-              onChange={(e) => setHwTypeFilter(e.target.value)}
-            >
-              {["All", "Hardware", "Software", "Consumables", "Accessories"].map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
-          </>
-        )}
-
-        <div className="inv-search-wrap">
-          <span className="inv-search-icon">🔍</span>
-          <input
-            className="inv-search-input"
-            type="text"
-            placeholder="Search by brand..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+      <InventoryPanel
+        eyebrow={category}
+        title="Total Assets"
+        recordCount={filteredAssets.length}
+        filterBadge={
+          (filter !== "All" || hwTypeFilter !== "All") && (
+            <span className="inv-table-filter-badge">
+              {[filter !== "All" ? filter : null, hwTypeFilter !== "All" ? hwTypeFilter : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          )
+        }
+        filters={
+          <TotalAssetsFilterBar
+            filter={filter}
+            onFilterChange={setFilter}
+            filterOptions={filterOptions}
+            showTypeFilter={showTypeFilter}
+            hwTypeFilter={hwTypeFilter}
+            onHwTypeFilterChange={setHwTypeFilter}
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
           />
-          {searchQuery && (
-            <button className="inv-search-clear" onClick={() => setSearchQuery("")}>×</button>
-          )}
-        </div>
-      </div>
-
-      <section className="inv-table-wrap">
-        <div className="inv-table-header">
-          <span className="inv-table-title">{category} — TOTAL ASSETS</span>
-          <span className="inv-table-count">{filteredAssets.length} records</span>
-        </div>
+        }
+      >
         <AssetTable
           assets={filteredAssets}
           filter={filter}
@@ -1737,8 +1979,9 @@ function TotalAssetsPage({ category }) {
           inventoryDeploy={inventoryDeploy}
           onOfficeIssue={setOfficeIssueTarget}
           onOfficeReturn={setOfficeReturnTarget}
+          responsive
         />
-      </section>
+      </InventoryPanel>
 
       {detailAsset && (
         detailAsset.isSoftware ? (
@@ -1786,6 +2029,11 @@ function TotalAssetsPage({ category }) {
 // ─── OverviewPage ─────────────────────────────────────────────────────────────
 
 function OverviewPage({ category }) {
+  const showItFilters = category === "IT Assets";
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [hwSubFilter, setHwSubFilter] = useState("All");
+  const [projectNameFilter, setProjectNameFilter] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
   const [detailAsset, setDetailAsset] = useState(null);
   const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
   const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
@@ -1821,21 +2069,90 @@ function OverviewPage({ category }) {
       });
   }, [category]);
 
-  const assets = useMemo(() => {
+  const baseAssets = useMemo(() => {
     void refreshKey;
-    return getMappedInventory(category)
-      .filter((a) => Number(a.total) > 0);
+    return getMappedInventory(category).filter((a) => Number(a.total) > 0);
   }, [category, refreshKey]);
+
+  const projectNameOptions = useMemo(() => {
+    if (!showItFilters || categoryFilter !== "Hardware" || !isMobileTabletHwType(hwSubFilter)) {
+      return ["All"];
+    }
+    const hardwareMobile = baseAssets.filter(
+      (a) =>
+        inventoryCategoryMatches(a.category, "Hardware") &&
+        assetMatchesHwSubFilter(a, hwSubFilter),
+    );
+    return collectProjectNamesFromAssets(hardwareMobile);
+  }, [baseAssets, showItFilters, categoryFilter, hwSubFilter]);
+
+  useEffect(() => {
+    if (!projectNameOptions.includes(projectNameFilter)) {
+      setProjectNameFilter("All");
+    }
+  }, [projectNameOptions, projectNameFilter]);
+
+  const assets = useMemo(() => {
+    if (!showItFilters) return baseAssets;
+    return filterITOverviewAssets(baseAssets, {
+      categoryFilter,
+      hwSubFilter,
+      projectNameFilter,
+      searchQuery,
+    });
+  }, [baseAssets, showItFilters, categoryFilter, hwSubFilter, projectNameFilter, searchQuery]);
+
+  const handleCategoryFilterChange = useCallback((next) => {
+    setCategoryFilter(next);
+    if (next !== "Hardware") {
+      setHwSubFilter("All");
+      setProjectNameFilter("All");
+    }
+  }, []);
+
+  const handleHwSubFilterChange = useCallback((next) => {
+    setHwSubFilter(next);
+    setProjectNameFilter("All");
+  }, []);
 
   return (
     <>
       {toast && <div className="inv-toast">{toast}</div>}
 
-      <section className="inv-table-wrap">
-        <div className="inv-table-header">
-          <span className="inv-table-title">{category} — OVERVIEW</span>
-          <span className="inv-table-count">{assets.length} records</span>
-        </div>
+      <InventoryPanel
+        eyebrow={category}
+        title="Asset Overview"
+        recordCount={assets.length}
+        filterBadge={
+          showItFilters &&
+          (categoryFilter !== "All" || hwSubFilter !== "All" || projectNameFilter !== "All") ? (
+            <span className="inv-table-filter-badge">
+              {[
+                categoryFilter !== "All" ? categoryFilter : null,
+                hwSubFilter !== "All" ? hwSubFilter : null,
+                projectNameFilter !== "All" ? projectNameFilter : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          ) : null
+        }
+        filters={
+          showItFilters ? (
+            <ITOverviewFilterBar
+              categoryFilter={categoryFilter}
+              onCategoryFilterChange={handleCategoryFilterChange}
+              hwSubFilter={hwSubFilter}
+              onHwSubFilterChange={handleHwSubFilterChange}
+              projectNameFilter={projectNameFilter}
+              onProjectNameFilterChange={setProjectNameFilter}
+              projectNameOptions={projectNameOptions}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+            />
+          ) : null
+        }
+      >
         <AssetTable
           assets={assets}
           filter="All"
@@ -1846,8 +2163,9 @@ function OverviewPage({ category }) {
           inventoryDeploy={inventoryDeploy}
           onOfficeIssue={setOfficeIssueTarget}
           onOfficeReturn={setOfficeReturnTarget}
+          responsive
         />
-      </section>
+      </InventoryPanel>
 
       {detailAsset && (
         detailAsset.isSoftware ? (

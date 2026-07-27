@@ -436,7 +436,7 @@ export default function OpenTicket() {
           </span>
         </div>
 
-        <div className="ot-table-scroll">
+        <div className="ot-table-scroll it-m-scroll--cards">
           <table className="ot-table">
             <thead>
               <tr>
@@ -470,10 +470,10 @@ export default function OpenTicket() {
                       key={ticket.id}
                       className={ticket.hasUnreadReply ? "ot-tr ot-tr-unread" : "ot-tr"}
                     >
-                      <td className="ot-td-idx">{i + 1}</td>
-                      <td><span className="ot-emp-id">{ticket.empId}</span></td>
-                      <td><span className="ot-email">{ticket.email}</span></td>
-                      <td className="ot-td-query">
+                      <td className="ot-td-idx" data-label="#">{i + 1}</td>
+                      <td data-label="Emp ID"><span className="ot-emp-id">{ticket.empId}</span></td>
+                      <td data-label="Email"><span className="ot-email">{ticket.email}</span></td>
+                      <td className="ot-td-query" data-label="Query">
                         <div className="ot-query-title-cell">
                           {ticket.hasUnreadReply && (
                             <span className="ot-unread-dot" title="Unread reply" aria-hidden="true" />
@@ -487,8 +487,8 @@ export default function OpenTicket() {
                         </div>
                         <span className="ot-query">{ticket.query}</span>
                       </td>
-                      <td><span className="ot-date">{fmt(ticket.date)}</span></td>
-                      <td>
+                      <td data-label="Date"><span className="ot-date">{fmt(ticket.date)}</span></td>
+                      <td data-label="Status">
                         <span
                           className="ot-status-badge"
                           style={{
@@ -501,7 +501,7 @@ export default function OpenTicket() {
                           {bLabel}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="Chat">
                         <button
                           type="button"
                           className={`ot-chat-btn${ticket.hasUnreadReply ? " ot-chat-btn-unread" : ""}`}
@@ -517,7 +517,7 @@ export default function OpenTicket() {
                         </button>
                       </td>
                       {statusTab === "Pending" && (
-                        <td>
+                        <td data-label="Action">
                           {ticket.status === "completed" ? (
                             <span className="ot-resolved-badge">✓ Resolved</span>
                           ) : (

@@ -29,6 +29,12 @@ import {
 } from "../inventoryCategories";
 import "./InventoryDashboard.css";
 import "./InRepair.css";
+import {
+  InventoryPanel,
+  InventoryFiltersInner,
+  InventoryFilterSearch,
+  InventoryCategoryTabs,
+} from "./InventoryPanel";
 import { formatDate } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -148,7 +154,7 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 
 // ─── RepairRow ────────────────────────────────────────────────────────────────
 
-function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove }) {
+function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove, serialColLabel }) {
   const isCatalogQty = isCatalogQtyRepairRow(unit);
   const days = isCatalogQty ? null : getDaysElapsed(unit.repairDate);
   const { primary, secondary } = getUnitBrandModelDisplay(unit, inventoryCategory);
@@ -158,7 +164,7 @@ function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove }) {
       : null;
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
-      <td>
+      <td data-label="Brand / Name">
         <span className="repair-brand">{primary}</span>
         {secondary ? <span className="repair-model"> {secondary}</span> : null}
         {lineLabel ? (
@@ -167,23 +173,23 @@ function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove }) {
           </span>
         ) : null}
       </td>
-      <td><span className="inv-category-badge">{unit.category}</span></td>
-      <td>
+      <td data-label="Category"><span className="inv-category-badge">{unit.category}</span></td>
+      <td data-label={serialColLabel}>
         {isCatalogQty
           ? <span className="repair-serial">{lineLabel || "Stock item"}</span>
           : unit.serialNumber
             ? <span className="repair-serial">{unit.serialNumber}</span>
             : "—"}
       </td>
-      <td>{isCatalogQty ? "—" : formatDate(unit.repairDate)}</td>
-      <td>
+      <td data-label="Repair Since">{isCatalogQty ? "—" : formatDate(unit.repairDate)}</td>
+      <td data-label="Days in Repair">
         {isCatalogQty ? (
           <span className="repair-days ok">—</span>
         ) : (
           <span className={`repair-days ${getRepairDaysClass(days)}`}>{days}d</span>
         )}
       </td>
-      <td className="repair-actions">
+      <td className="repair-actions" data-label="Actions">
         <button className="repair-btn-return" onClick={() => onReturn(unit)}>Repaired</button>
         <button className="repair-btn-remove" onClick={() => onRemove(unit)}>Dead Device</button>
       </td>
@@ -328,11 +334,6 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
   const displayRows = useMemo(
     () => expandRepairRowsForDisplay(filteredRows),
     [filteredRows],
-  );
-
-  const repairTotalCount = useMemo(
-    () => expandRepairRowsForDisplay(allRepairRows).length,
-    [allRepairRows],
   );
 
   const getCategoryCount = useCallback(
@@ -513,57 +514,40 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="repair-page">
-      {toast && <div className="repair-toast">{toast}</div>}
+    <>
+      {toast && <div className="inv-toast">{toast}</div>}
 
-      <div className="repair-card">
-        <div className="repair-header">
-          <div>
-            <h1 className="repair-title">In Repair</h1>
-            <p className="repair-subtitle">Assets currently under repair</p>
-          </div>
-          <span className="repair-count-badge">
-            {displayRows.length} asset{displayRows.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-
-        {showCategoryTabs && (
-          <div className="repair-tabs">
-            {categoryTabs.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                className={`repair-tab ${activeCategory === cat ? "active" : ""}`}
-                onClick={() => setActiveCategory(cat)}
-              >
-                {cat}
-                {cat !== "All" && (
-                  <span className="repair-tab-count">{getCategoryCount(cat)}</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Search */}
-        <div className="repair-search-row">
-          <div className="repair-search-wrap">
-            <span className="repair-search-icon">⌕</span>
-            <input
-              className="repair-search-input"
-              placeholder="Search by brand, name or serial..."
+      <InventoryPanel
+        eyebrow={inventoryCategory}
+        title="In Repair"
+        subtitle="Assets currently under repair"
+        recordCount={displayRows.length}
+        variant="warn"
+        filterBadge={
+          activeCategory !== "All" ? (
+            <span className="inv-table-filter-badge">{activeCategory}</span>
+          ) : null
+        }
+        filters={
+          <InventoryFiltersInner>
+            <InventoryFilterSearch
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={setSearchQuery}
+              placeholder="Search by brand, name or serial…"
             />
-            {searchQuery && (
-              <button className="repair-search-clear" onClick={() => setSearchQuery("")}>×</button>
+            {showCategoryTabs && (
+              <InventoryCategoryTabs
+                tabs={categoryTabs}
+                active={activeCategory}
+                onChange={setActiveCategory}
+                getCount={getCategoryCount}
+              />
             )}
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="repair-table-wrap">
-          <table className="repair-table">
+          </InventoryFiltersInner>
+        }
+      >
+        <div className="inv-table-scroll inv-table-scroll--responsive">
+          <table className="inv-table">
             <thead>
               <tr>
                 <th>Brand / Name</th>
@@ -576,7 +560,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
             </thead>
             <tbody>
               {displayRows.length === 0 ? (
-                <tr><td colSpan={6} className="repair-empty">No assets in repair</td></tr>
+                <tr><td colSpan={6} className="inv-empty-row">No assets in repair</td></tr>
               ) : (
                 displayRows.map((unit, i) => (
                   <RepairRow
@@ -584,6 +568,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
                     unit={unit}
                     index={i}
                     inventoryCategory={inventoryCategory}
+                    serialColLabel={serialColLabel}
                     onReturn={handleReturn}
                     onRemove={handleRemovePrompt}
                   />
@@ -592,7 +577,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
             </tbody>
           </table>
         </div>
-      </div>
+      </InventoryPanel>
 
       {removeTarget && (
         <DeleteModal
@@ -601,6 +586,6 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
           onCancel={() => setRemoveTarget(null)}
         />
       )}
-    </div>
+    </>
   );
 }

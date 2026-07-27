@@ -314,7 +314,7 @@ export default function ActiveDevice({ onBack }) {
             </span>
           </div>
 
-          <div className="asd-table-scroll">
+          <div className="asd-table-scroll it-m-scroll--cards">
             <table className="asd-table">
               <thead>
                 <tr>
@@ -351,19 +351,19 @@ export default function ActiveDevice({ onBack }) {
                       }`}
                     >
                       {/* Asset ID */}
-                      <td>
+                      <td data-label="Asset ID">
                         <span className="asd-asset-id">{asset.id}</span>
                       </td>
                       {activeTab === "All" && (
-                        <td>
+                        <td data-label="Category">
                           <span className="asd-cat-pill">{asset.category}</span>
                         </td>
                       )}
-                      <td>
+                      <td data-label="Serial">
                         <span className="asd-asset-id">{asset.serialNumber}</span>
                       </td>
-                      <td className="asd-asset-name">{asset.name}</td>
-                      <td>
+                      <td className="asd-asset-name" data-label="Asset Name">{asset.name}</td>
+                      <td data-label="Assignee">
                         <div className="asd-assignee">
                           <UserAvatar
                             name={asset.assignedTo}
@@ -382,8 +382,8 @@ export default function ActiveDevice({ onBack }) {
                           </div>
                         </div>
                       </td>
-                      <td className="asd-date">{fmt(asset.assignedDate)}</td>
-                      <td>
+                      <td className="asd-date" data-label="Assigned">{fmt(asset.assignedDate)}</td>
+                      <td data-label="Action">
                         <button
                           className="asd-view-btn"
                           onClick={() => handleView(asset.empId, asset)}

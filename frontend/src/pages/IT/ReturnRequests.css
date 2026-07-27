@@ -1,3 +1,5 @@
+@import "./ITMobileShared.css";
+
 .rr-page {
   padding: 20px;
   background: #f8fafc;
@@ -9,6 +11,7 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
 .rr-topbar h1 {
@@ -23,6 +26,9 @@
   border-radius: 8px;
   padding: 8px 12px;
   cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  min-height: 40px;
 }
 
 .rr-filters {
@@ -36,8 +42,11 @@
   border: 1px solid #dbe2ea;
   background: #fff;
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 8px 14px;
   cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  min-height: 36px;
 }
 
 .rr-chip.active {
@@ -49,8 +58,9 @@
 .rr-table-wrap {
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow-x: auto;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
 
 .rr-table {
@@ -90,6 +100,7 @@
 .rr-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .rr-actions button,
@@ -97,8 +108,11 @@
   border: 1px solid #dbe2ea;
   background: #fff;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  min-height: 38px;
 }
 
 .rr-actions .approve { border-color: #16a34a; color: #166534; }
@@ -115,10 +129,11 @@
   background: #eff6ff;
   color: #2563eb;
   border-radius: 6px;
-  padding: 4px 10px;
+  padding: 6px 12px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  min-height: 36px;
 }
 
 .rr-photo-overlay {
@@ -187,4 +202,59 @@
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
+}
+
+@media (max-width: 768px) {
+  .rr-page {
+    padding: 14px 12px 24px;
+  }
+
+  .rr-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rr-topbar h1 {
+    font-size: 18px;
+  }
+
+  .rr-back-btn {
+    width: fit-content;
+  }
+
+  .rr-filters {
+    gap: 6px;
+  }
+
+  .rr-chip {
+    flex: 1 1 calc(50% - 6px);
+    text-align: center;
+  }
+
+  .rr-table-wrap.it-m-scroll--cards {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .rr-reason {
+    max-width: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .rr-chip {
+    flex: 1 1 100%;
+  }
+
+  .rr-photo-panel {
+    padding: 16px;
+    max-height: 90vh;
+  }
+
+  .rr-photo-grid {
+    grid-template-columns: 1fr 1fr;
+  }
 }

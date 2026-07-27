@@ -936,6 +936,8 @@ const _toLocalUnit = (u) => ({
   serialNumber: u.serialNumber || "",
   imei1: u.imei1 || null,
   imei2: u.imei2 || null,
+  projectCode: u.projectCode || u.project_code || "",
+  deviceLocation: u.deviceLocation || u.device_location || "",
   status: u.status || "available",
   assignedTo:
     u.assignedTo == null
@@ -1143,6 +1145,8 @@ export const createHardwareUnitsAPI = async ({
         serial_number: r.serialNumber,
         imei1: r.imei1 || null,
         imei2: r.imei2 || null,
+        project_code: r.projectCode || null,
+        device_location: r.deviceLocation || null,
         photos: r.photos || [],
       })),
     },

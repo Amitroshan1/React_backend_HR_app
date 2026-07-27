@@ -18,7 +18,14 @@ import {
   syncITDataFromAPI,
   syncRemovedITFromAPI,
 } from "../Data";
+import "./InventoryDashboard.css";
 import "./RemovedITAssets.css";
+import {
+  InventoryPanel,
+  InventoryFiltersInner,
+  InventoryFilterSearch,
+  InventoryCategoryTabs,
+} from "./InventoryPanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -79,55 +86,6 @@ async function dismissRemovedITRecord(asset) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FilterBar
-// ─────────────────────────────────────────────────────────────────────────────
-
-function FilterBar({ active, onChange, search, onSearch, assets }) {
-  const counts = CATEGORIES.reduce((acc, cat) => {
-    acc[cat] =
-      cat === "All"
-        ? assets.length
-        : assets.filter((a) => a.category === cat).length;
-    return acc;
-  }, {});
-
-  return (
-    <div className="filter-row">
-      <div className="filter-pills">
-        {CATEGORIES.map((cat) => {
-          const isActive = active === cat;
-          return (
-            <button
-              key={cat}
-              onClick={() => onChange(cat)}
-              className={`filter-pill ${isActive ? "filter-pill--active" : "filter-pill--inactive"}`}
-            >
-              {cat}
-              <span className={`filter-badge ${isActive ? "filter-badge--active" : "filter-badge--inactive"}`}>
-                {counts[cat]}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="search-wrap">
-        <svg className="search-icon" viewBox="0 0 20 20" fill="none">
-          <circle cx="9" cy="9" r="6" stroke="#94a3b8" strokeWidth="1.6" />
-          <path d="M13.5 13.5L17 17" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-        <input
-          className="search-input"
-          placeholder="Search assets or owners…"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // AssetTable
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -135,7 +93,7 @@ function AssetTable({ assets, onView }) {
   if (assets.length === 0) {
     return (
       <div className="empty-state">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" aria-hidden>
           <rect x="3" y="3" width="18" height="18" rx="3" stroke="#cbd5e1" strokeWidth="1.5" />
           <path d="M9 12h6M12 9v6" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
@@ -145,8 +103,8 @@ function AssetTable({ assets, onView }) {
   }
 
   return (
-    <div className="table-wrap">
-      <table className="asset-table">
+    <div className="inv-table-scroll inv-table-scroll--responsive it-m-scroll--cards">
+      <table className="inv-table">
         <thead>
           <tr>
             {["Asset Name", "Asset ID", "Category", "Owner / Assignee", "Detail"].map((h) => (
@@ -159,22 +117,22 @@ function AssetTable({ assets, onView }) {
             const c = CATEGORY_COLORS[asset.category] || {};
             return (
               <tr key={asset.id}>
-                <td>
+                <td data-label="Asset Name">
                   <div className="asset-name-cell">
                     <div className="asset-icon">{(asset.name || "?").charAt(0)}</div>
                     <span className="asset-name-text">{asset.name}</span>
                   </div>
                 </td>
-                <td>
+                <td data-label="Asset ID">
                   <code className="asset-id-code">{asset.id}</code>
                 </td>
-                <td>
+                <td data-label="Category">
                   <span className="cat-badge" style={{ background: c.bg, color: c.text }}>
                     <span className="cat-badge__dot" style={{ background: c.dot }} />
                     {asset.category}
                   </span>
                 </td>
-                <td>
+                <td data-label="Owner / Assignee">
                   <div className="owner-cell">
                     <div className="owner-avatar">
                       {(asset.owner || "?").split(" ").map((w) => w[0]).join("").slice(0, 2)}
@@ -182,8 +140,8 @@ function AssetTable({ assets, onView }) {
                     <span className="owner-name">{asset.owner || "—"}</span>
                   </div>
                 </td>
-                <td>
-                  <button className="view-btn" onClick={() => onView(asset)}>
+                <td data-label="Detail">
+                  <button type="button" className="view-btn" onClick={() => onView(asset)}>
                     View
                   </button>
                 </td>
@@ -465,45 +423,55 @@ export default function RemovedITAssets() {
     return matchCat && matchSearch;
   });
 
+  const getCategoryCount = useCallback(
+    (cat) =>
+      cat === "All"
+        ? assets.length
+        : assets.filter((a) => a.category === cat).length,
+    [assets],
+  );
+
   const handleActionDone = () => {
     reload();
     setSelectedAsset(null);
   };
 
   return (
-    <div className="ria-page">
-
-      {/* Page Header */}
-      <div className="ria-page-header">
-        <div>
-          <p className="ria-breadcrumb">IT Management › Assets</p>
-          <h1 className="ria-page-title">Removed Asset</h1>
-        </div>
-
-        <div className="ria-header-stats">
-          <div className="ria-stat-card ria-stat-card--solo" aria-label={`${assets.length} removed assets`}>
-            <span className="ria-stat-num">{assets.length}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Card */}
-      <div className="ria-card">
-        <FilterBar
-          active={activeFilter}
-          onChange={setActiveFilter}
-          search={search}
-          onSearch={setSearch}
-          assets={assets}
-        />
-
+    <>
+      <InventoryPanel
+        eyebrow="IT Management"
+        title="Removed Assets"
+        subtitle="Assets removed from active inventory"
+        recordCount={filteredAssets.length}
+        filterBadge={
+          activeFilter !== "All" ? (
+            <span className="inv-table-filter-badge">{activeFilter}</span>
+          ) : null
+        }
+        filters={
+          <InventoryFiltersInner>
+            <InventoryFilterSearch
+              value={search}
+              onChange={setSearch}
+              placeholder="Search assets or owners…"
+            />
+            <InventoryCategoryTabs
+              tabs={CATEGORIES}
+              active={activeFilter}
+              onChange={setActiveFilter}
+              getCount={getCategoryCount}
+            />
+          </InventoryFiltersInner>
+        }
+        footer={
+          <>
+            Showing <strong>{filteredAssets.length}</strong> of{" "}
+            <strong>{assets.length}</strong> assets
+          </>
+        }
+      >
         <AssetTable assets={filteredAssets} onView={setSelectedAsset} />
-
-        <div className="ria-table-footer">
-          Showing <strong>{filteredAssets.length}</strong> of{" "}
-          <strong>{assets.length}</strong> assets
-        </div>
-      </div>
+      </InventoryPanel>
 
       {/* Modal */}
       <ActionModal
@@ -511,6 +479,6 @@ export default function RemovedITAssets() {
         onClose={() => setSelectedAsset(null)}
         onActionDone={handleActionDone}
       />
-    </div>
+    </>
   );
 }

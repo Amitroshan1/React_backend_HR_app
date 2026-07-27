@@ -1,4 +1,5 @@
 /* NotWorking.css */
+@import "../ITMobileShared.css";
 .nw-page {
   padding: 24px 32px;
   font-family: "Inter", sans-serif;

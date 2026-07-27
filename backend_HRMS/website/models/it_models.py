@@ -53,6 +53,8 @@ class ITAssetUnit(db.Model):
     serial_number = db.Column(db.String(120), nullable=True, index=True)
     imei1 = db.Column(db.String(25), nullable=True)
     imei2 = db.Column(db.String(25), nullable=True)
+    project_code = db.Column(db.String(120), nullable=True)
+    device_location = db.Column(db.String(200), nullable=True)
 
     status = db.Column(db.String(30), nullable=False, default="available", server_default="available", index=True)
     assigned_to_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)

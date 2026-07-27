@@ -29,6 +29,7 @@ const CATEGORY_BY_KEY = Object.fromEntries(
 export const INVENTORY_CATEGORY_CONFIG = {
   "IT Assets": {
     hwTypes: ["Laptop", "Mobile", "Desktop", "Tablet", "Other"],
+    mobileTabletHwTypes: ["Mobile", "Tablet"],
     mobileHwType: "Mobile",
     itemCategories: ["Hardware", "Software", "Accessories", "Consumables"],
   },
@@ -129,6 +130,21 @@ export const DEFAULT_HARDWARE_FIELDS = {
   model: { label: "Model", placeholder: "Enter Model" },
   serialNumber: { label: "Serial Number", placeholder: "Serial No." },
 };
+
+export const MOBILE_TABLET_HW_TYPES = ["Mobile", "Tablet"];
+
+export function isMobileTabletHwType(hwType) {
+  return MOBILE_TABLET_HW_TYPES.includes(String(hwType || "").trim());
+}
+
+export function getMobileTabletHardwareFields(baseFields = DEFAULT_HARDWARE_FIELDS) {
+  return {
+    ...baseFields,
+    make: { label: "Project Name", placeholder: "Enter Project Name" },
+    projectCode: { label: "Project Code", placeholder: "Enter Project Code" },
+    deviceLocation: { label: "Device Location", placeholder: "Enter Device Location" },
+  };
+}
 
 const INFRA_EQUIPMENT_HARDWARE_FIELDS = {
   brand: { label: "Make", placeholder: "e.g. Cisco" },

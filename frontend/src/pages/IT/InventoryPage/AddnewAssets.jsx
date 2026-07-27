@@ -15,6 +15,7 @@ import {
   ASSET_TYPE_TABS,
   INVENTORY_CATEGORY_CONFIG,
   getHardwareFields,
+  getMobileTabletHardwareFields,
   inventoryCategoryToKey,
   isValidInventoryCategory,
   isStockInventoryCategory,
@@ -38,7 +39,13 @@ const blankHwRow = () => ({
   photos: [], _errors: {},
 });
 
-const blankMobileRow = () => ({ ...blankHwRow(), imei1: "", imei2: "" });
+const blankMobileRow = () => ({
+  ...blankHwRow(),
+  imei1: "",
+  imei2: "",
+  projectCode: "",
+  deviceLocation: "",
+});
 
 const blankQtyRow = () => ({
   id: Date.now() + Math.random(),
@@ -107,9 +114,9 @@ const validateRow = (row, rowType, { vehicleMode = false } = {}) => {
 
 // ─── CellInput ────────────────────────────────────────────────────────────────
 
-function CellInput({ value, onChange, placeholder, error, className = "", ...props }) {
+function CellInput({ value, onChange, placeholder, error, className = "", label = "", ...props }) {
   return (
-    <td>
+    <td data-label={label}>
       <input
         className={`ana-cell-input ${className} ${error ? "err" : ""}`}
         value={value}
@@ -182,9 +189,9 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const config = INVENTORY_CATEGORY_CONFIG[inventoryCategory] || INVENTORY_CATEGORY_CONFIG["IT Assets"];
   const itemCategories = config.itemCategories;
   const hwTypes = config.hwTypes;
-  const mobileHwType = config.mobileHwType;
+  const mobileTabletHwTypes = config.mobileTabletHwTypes || (config.mobileHwType ? [config.mobileHwType] : []);
   const vehicleMode = isVehicleInventoryCategory(inventoryCategory);
-  const hwFields = getHardwareFields(inventoryCategory);
+  const baseHwFields = getHardwareFields(inventoryCategory);
   const otherHwPlaceholder = config.otherHwPlaceholder || "e.g. Docking Station, Router, UPS";
   const validateOpts = useMemo(() => ({ vehicleMode }), [vehicleMode]);
 
@@ -199,9 +206,13 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const rowType = useMemo(() => {
     if (category === "Software")  return "software";
     if (category !== "Hardware")  return "qty";
-    if (mobileHwType && hwType === mobileHwType) return "mobile";
+    if (mobileTabletHwTypes.includes(hwType)) return "mobile";
     return "hw";
-  }, [category, hwType, mobileHwType]);
+  }, [category, hwType, mobileTabletHwTypes]);
+  const hwFields = useMemo(
+    () => (rowType === "mobile" ? getMobileTabletHardwareFields(baseHwFields) : baseHwFields),
+    [rowType, baseHwFields],
+  );
   const effectiveHwType = useMemo(
     () => (hwType === "Other" ? customHwType.trim() : hwType),
     [hwType, customHwType],
@@ -228,8 +239,8 @@ function InventoryAssetsForm({ inventoryCategory }) {
     const type = e.target.value;
     setHwType(type);
     if (type !== "Other") setCustomHwType("");
-    resetForm(mobileHwType && type === mobileHwType ? "mobile" : "hw");
-  }, [resetForm, mobileHwType]);
+    resetForm(mobileTabletHwTypes.includes(type) ? "mobile" : "hw");
+  }, [resetForm, mobileTabletHwTypes]);
 
   const addRow    = useCallback(() => setRows((prev) => [...prev, blankRowForType(rowType)]), [rowType]);
   const removeRow = useCallback((id) => setRows((prev) => prev.length > 1 ? prev.filter((r) => r.id !== id) : prev), []);
@@ -473,7 +484,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
               </span>
             </div>
 
-            <div className="ana-table-wrap">
+            <div className="ana-table-wrap ana-table-wrap--responsive">
               <table className="ana-table">
                 <thead>
                   <tr>
@@ -486,6 +497,8 @@ function InventoryAssetsForm({ inventoryCategory }) {
                         <th>{hwFields.serialNumber.label} <span className="req">*</span></th>
                         {rowType === "mobile" && (
                           <>
+                            <th>{hwFields.projectCode.label}</th>
+                            <th>{hwFields.deviceLocation.label}</th>
                             <th>IMEI 1 <span className="req">*</span></th>
                             <th>IMEI 2</th>
                           </>
@@ -517,14 +530,15 @@ function InventoryAssetsForm({ inventoryCategory }) {
                       key={row.id}
                       className={Object.keys(row._errors).length ? "row-invalid" : ""}
                     >
-                      <td className="ana-td-idx">{idx + 1}</td>
+                      <td className="ana-td-idx" data-label={String(idx + 1)}>{idx + 1}</td>
 
                       {(rowType === "hw" || rowType === "mobile") && (
                         <>
-                          <CellInput value={row.brand}  error={row._errors.brand}  placeholder={hwFields.brand.placeholder}  onChange={(e) => updateRow(row.id, "brand",  e.target.value)} />
-                          <CellInput value={row.make}   error={row._errors.make}   placeholder={hwFields.make.placeholder}   onChange={(e) => updateRow(row.id, "make",   e.target.value)} />
-                          <CellInput value={row.model}  error={row._errors.model}  placeholder={hwFields.model.placeholder}  onChange={(e) => updateRow(row.id, "model",  e.target.value)} />
+                          <CellInput label={hwFields.brand.label} value={row.brand}  error={row._errors.brand}  placeholder={hwFields.brand.placeholder}  onChange={(e) => updateRow(row.id, "brand",  e.target.value)} />
+                          <CellInput label={hwFields.make.label} value={row.make}   error={row._errors.make}   placeholder={hwFields.make.placeholder}   onChange={(e) => updateRow(row.id, "make",   e.target.value)} />
+                          <CellInput label={hwFields.model.label} value={row.model}  error={row._errors.model}  placeholder={hwFields.model.placeholder}  onChange={(e) => updateRow(row.id, "model",  e.target.value)} />
                           <CellInput
+                            label={hwFields.serialNumber.label}
                             value={row.serialNumber}
                             error={row._errors.serialNumber}
                             placeholder={hwFields.serialNumber.placeholder}
@@ -534,20 +548,38 @@ function InventoryAssetsForm({ inventoryCategory }) {
                           {rowType === "mobile" && (
                             <>
                               <CellInput
+                                label={hwFields.projectCode.label}
+                                value={row.projectCode}
+                                error={row._errors.projectCode}
+                                placeholder={hwFields.projectCode.placeholder}
+                                onChange={(e) => updateRow(row.id, "projectCode", e.target.value)}
+                              />
+                              <CellInput
+                                label={hwFields.deviceLocation.label}
+                                value={row.deviceLocation}
+                                error={row._errors.deviceLocation}
+                                placeholder={hwFields.deviceLocation.placeholder}
+                                onChange={(e) => updateRow(row.id, "deviceLocation", e.target.value)}
+                              />
+                              <CellInput
+                                label="IMEI 1"
                                 value={row.imei1}
                                 error={row._errors.imei1}
                                 placeholder="15 digits"
                                 maxLength={15}
+                                inputMode="numeric"
                                 className="mono"
                                 onChange={(e) =>
                                   updateRow(row.id, "imei1", e.target.value.replace(/\D/g, "").slice(0, 15))
                                 }
                               />
                               <CellInput
+                                label="IMEI 2"
                                 value={row.imei2}
                                 error={row._errors.imei2}
                                 placeholder="Optional"
                                 maxLength={15}
+                                inputMode="numeric"
                                 className="mono"
                                 onChange={(e) =>
                                   updateRow(row.id, "imei2", e.target.value.replace(/\D/g, "").slice(0, 15))
@@ -560,22 +592,22 @@ function InventoryAssetsForm({ inventoryCategory }) {
 
                       {rowType === "qty" && (
                         <>
-                          <CellInput value={row.name}     error={row._errors.name}     placeholder="Asset name" onChange={(e) => updateRow(row.id, "name",     e.target.value)} />
-                          <CellInput value={row.quantity} error={row._errors.quantity} type="number" min="1" placeholder="Qty" className="ana-qty-input" onChange={(e) => updateRow(row.id, "quantity", e.target.value)} />
+                          <CellInput label="Asset Name" value={row.name}     error={row._errors.name}     placeholder="Asset name" onChange={(e) => updateRow(row.id, "name",     e.target.value)} />
+                          <CellInput label="Quantity" value={row.quantity} error={row._errors.quantity} type="number" min="1" placeholder="Qty" className="ana-qty-input" onChange={(e) => updateRow(row.id, "quantity", e.target.value)} />
                         </>
                       )}
 
                       {rowType === "software" && (
                         <>
-                          <CellInput value={row.name}              error={row._errors.name}              placeholder="e.g. Microsoft 365" onChange={(e) => updateRow(row.id, "name",              e.target.value)} />
-                          <CellInput value={row.subscriptionStart} error={row._errors.subscriptionStart} type="date"                      onChange={(e) => updateRow(row.id, "subscriptionStart", e.target.value)} />
-                          <CellInput value={row.subscriptionEnd}   error={row._errors.subscriptionEnd}   type="date"                      onChange={(e) => updateRow(row.id, "subscriptionEnd",   e.target.value)} />
-                          <CellInput value={row.quantity}          error={row._errors.quantity}          type="number" min="1" placeholder="1" className="ana-qty-input" onChange={(e) => updateRow(row.id, "quantity", e.target.value)} />
+                          <CellInput label="Software Name" value={row.name}              error={row._errors.name}              placeholder="e.g. Microsoft 365" onChange={(e) => updateRow(row.id, "name",              e.target.value)} />
+                          <CellInput label="Start Date" value={row.subscriptionStart} error={row._errors.subscriptionStart} type="date"                      onChange={(e) => updateRow(row.id, "subscriptionStart", e.target.value)} />
+                          <CellInput label="Valid Till" value={row.subscriptionEnd}   error={row._errors.subscriptionEnd}   type="date"                      onChange={(e) => updateRow(row.id, "subscriptionEnd",   e.target.value)} />
+                          <CellInput label="Licenses" value={row.quantity}          error={row._errors.quantity}          type="number" min="1" placeholder="1" className="ana-qty-input" onChange={(e) => updateRow(row.id, "quantity", e.target.value)} />
                         </>
                       )}
 
                       {rowType !== "software" && (
-                        <td className="ana-td-photos">
+                        <td className="ana-td-photos" data-label="Photos">
                           <div className="ana-photo-cell">
                             <label className="ana-photo-btn">
                               <input
@@ -601,13 +633,14 @@ function InventoryAssetsForm({ inventoryCategory }) {
                         </td>
                       )}
 
-                      <td className="ana-td-action">
+                      <td className="ana-td-action" data-label="">
                         <button
                           type="button"
                           className="ana-btn-rm-row"
                           onClick={() => removeRow(row.id)}
                           disabled={rows.length === 1}
                           title="Remove row"
+                          aria-label={`Remove unit ${idx + 1}`}
                         >
                           ✕
                         </button>

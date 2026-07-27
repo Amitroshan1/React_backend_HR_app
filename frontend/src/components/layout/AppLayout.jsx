@@ -51,7 +51,11 @@ export const AppLayout = () => {
         prevPathRef.current = routeKey;
     }, [location.pathname, location.search, refreshUserData, hasToken]);
 
+    /* Wait for user profile before panel gates — otherwise refresh on /it/* (and other panels)
+       briefly sees user={} and wrongly redirects to /dashboard. */
     useEffect(() => {
+        if (loadingUser) return;
+
         const path = location.pathname || "";
         const user = userData?.user;
         const isAdminAreaPath = (
@@ -112,7 +116,7 @@ export const AppLayout = () => {
         if (path === "/claims" && !hasFeature("dashboard_claims")) {
             navigate("/dashboard", { replace: true });
         }
-    }, [location.pathname, navigate, userData?.user]);
+    }, [location.pathname, navigate, userData?.user, loadingUser]);
 
     /* No token: redirect to login immediately (direct URL, Back after logout) – no dashboard or loading state */
     useEffect(() => {

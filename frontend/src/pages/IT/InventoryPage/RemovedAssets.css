@@ -1,4 +1,5 @@
 /* RemovedAssets.css */
+@import "../ITMobileShared.css";
 .del-page {
   padding: 24px 32px;
   font-family: "Inter", sans-serif;

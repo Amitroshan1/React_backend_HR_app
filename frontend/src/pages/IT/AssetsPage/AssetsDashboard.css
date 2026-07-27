@@ -4,6 +4,7 @@
    ───────────────────────────────────────────── */
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import "../ITMobileShared.css";
 
 /* ══════════════════════════════════════════
    PAGE ROOT
@@ -681,6 +682,26 @@
   .am-cat-btn {
     padding: 6px 12px;
     font-size: 11px;
+  }
+
+  .am-table-card {
+    border-radius: 12px;
+  }
+
+  .am-table-head-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 12px 14px;
+  }
+
+  .it-m-scroll--cards .am-view-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  .it-m-scroll--cards .am-assignee {
+    justify-content: flex-start;
   }
 }
 

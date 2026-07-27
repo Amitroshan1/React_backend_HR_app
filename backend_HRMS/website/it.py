@@ -112,6 +112,8 @@ def _ensure_parcel_name_columns_runtime():
         addcol("it_parcel_exports", "exported_by_name")
         addcol("it_parcel_exports", "inventory_category")
         addcol("it_parcel_export_items", "make")
+        addcol("it_asset_units", "project_code")
+        addcol("it_asset_units", "device_location")
     except Exception as e:
         current_app.logger.warning("parcel runtime column ensure skipped: %s", e)
 
@@ -270,6 +272,8 @@ def _serialize_asset_unit(unit):
         "serialNumber": unit.serial_number,
         "imei1": unit.imei1,
         "imei2": unit.imei2,
+        "projectCode": unit.project_code,
+        "deviceLocation": unit.device_location,
         "status": unit.status,
         "assignedTo": unit.assigned_to_admin_id,
         "assignedToName": _admin_name(unit.assigned_to_admin),
@@ -782,6 +786,8 @@ def create_units_bulk():
             serial_number=row.get("serial_number"),
             imei1=row.get("imei1"),
             imei2=row.get("imei2"),
+            project_code=(row.get("project_code") or row.get("projectCode") or "").strip() or None,
+            device_location=(row.get("device_location") or row.get("deviceLocation") or "").strip() or None,
             status=(row.get("status") or "available").strip(),
             photos_json=row.get("photos") or [],
         )

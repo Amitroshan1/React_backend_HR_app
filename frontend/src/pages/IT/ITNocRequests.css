@@ -1,4 +1,5 @@
 /* IT NOC Requests — aligned with HR NOC queue, teal IT accent */
+@import "./ITMobileShared.css";
 
 .it-noc-page {
   --noc-accent: #0891b2;
@@ -186,10 +187,31 @@
   .it-noc-hero {
     margin: 10px 0 16px;
     padding: 18px 16px;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .it-noc-hero__badge {
     width: 100%;
     justify-content: center;
+  }
+
+  .it-noc-page .rr-table-wrap {
+    border-radius: 12px;
+    overflow: visible;
+  }
+
+  .it-noc-page .rr-table-wrap.it-m-scroll--cards {
+    background: transparent;
+    border: none;
+  }
+
+  .it-noc-page .rr-filters {
+    gap: 6px;
+  }
+
+  .it-noc-page .rr-chip {
+    flex: 1 1 calc(50% - 6px);
+    text-align: center;
   }
 }
