@@ -2,6 +2,22 @@ export const QUERY_CHAT_POLL_MS = 4000;
 export const QUERY_INBOX_POLL_MS = 30000;
 export const QUERY_CHAT_PARAM = 'chat';
 
+const normDept = (value) => String(value ?? '').trim().toLowerCase();
+
+/** Stored query.department values that belong in the IT ticket inbox. */
+export const IT_INBOX_DEPARTMENT_LABELS = new Set([
+  'it',
+  'it department',
+  'engineering',
+  'inventory',
+]);
+
+export const queryBelongsToItInbox = (department) =>
+  IT_INBOX_DEPARTMENT_LABELS.has(normDept(department));
+
+export const filterQueriesForItInbox = (queries) =>
+  (queries || []).filter((q) => queryBelongsToItInbox(q?.department));
+
 export const parseChatIdFromSearch = (search) => {
   const raw = new URLSearchParams(search || '').get(QUERY_CHAT_PARAM);
   if (!raw) return null;

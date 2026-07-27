@@ -699,6 +699,11 @@ def department_queries():
             )
 
         queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
+        # Defense in depth: never leak other departments into a scoped inbox.
+        queries = [
+            row for row in queries
+            if _query_belongs_to_inbox(row.department, department)
+        ]
         unread_map = _unread_counts_by_query_id(admin.id, [row.id for row in queries])
 
         def _serialize_query(q):
@@ -714,6 +719,7 @@ def department_queries():
             return {
                 "id": q.id,
                 "title": q.title,
+                "department": q.department,
                 "query_text": q.query_text,
                 "employee": employee_email,
                 "employee_name": employee_name,

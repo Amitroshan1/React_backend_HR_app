@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import "./ITPanel.css";
+import { filterQueriesForItInbox } from "../Query/queryChatHelpers";
 
 const OPEN_TICKETS_ROUTE = "/it/OpenTicket";
 
@@ -44,7 +45,7 @@ export const ITPanel = () => {
         setUnreadTicketCount(0);
         return;
       }
-      setUnreadTicketCount(countUnreadTicketReplies(data.queries));
+      setUnreadTicketCount(countUnreadTicketReplies(filterQueriesForItInbox(data.queries)));
     } catch {
       setUnreadTicketCount(0);
     }

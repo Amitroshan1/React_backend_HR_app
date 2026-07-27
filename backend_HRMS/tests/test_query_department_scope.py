@@ -138,8 +138,27 @@ def test_super_admin_not_mapped_to_administration_inbox():
     assert infer("Super Admin") is None
 
 
+def test_department_queries_post_filter_excludes_hr_from_it_inbox():
+    """Simulate post-filter applied in department_queries."""
+    it_rows = [
+        {"department": "IT", "title": "VPN"},
+        {"department": "Human Resource", "title": "Attendance"},
+        {"department": "HR", "title": "Leave"},
+        {"department": "Accounts", "title": "Payslip"},
+        {"department": "IT Department", "title": "Laptop"},
+        {"department": "inventory", "title": "Mouse"},
+    ]
+    filtered = [r for r in it_rows if _query_belongs_to_inbox(r["department"], "IT")]
+    titles = {r["title"] for r in filtered}
+    assert titles == {"VPN", "Laptop", "Mouse"}
+    assert "Attendance" not in titles
+    assert "Leave" not in titles
+    assert "Payslip" not in titles
+
+
 if __name__ == "__main__":
     test_scope()
     test_it_inbox_labels_exclude_hr_accounts()
     test_super_admin_not_mapped_to_administration_inbox()
+    test_department_queries_post_filter_excludes_hr_from_it_inbox()
     print("PASS: department query isolation")

@@ -7,6 +7,7 @@ import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import { getITApiErrorMessage } from "../Data";
 import {
   buildQueryAttachmentUrl,
+  filterQueriesForItInbox,
   queryAttachmentDisplayName,
   QUERY_INBOX_POLL_MS,
 } from "../../Query/queryChatHelpers";
@@ -49,6 +50,7 @@ const mapQueryToTicket = (q) => {
     empId: (q.emp_id || "").trim() || "—",
     email: (q.employee || "").trim() || "—",
     title: q.title || "",
+    department: q.department || "",
     query: q.query_text || "",
     date: q.created_at,
     status: closed ? "completed" : "pending",
@@ -115,7 +117,7 @@ export default function OpenTicket() {
     if (!response.ok || !result.success) {
       throw new Error(result.message || "Failed to load department queries");
     }
-    const rows = (result.queries || []).map(mapQueryToTicket);
+    const rows = filterQueriesForItInbox(result.queries || []).map(mapQueryToTicket);
     setTickets(rows);
     try {
       window.dispatchEvent(new Event("it-open-tickets-updated"));
