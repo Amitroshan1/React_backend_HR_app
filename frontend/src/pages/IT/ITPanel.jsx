@@ -34,7 +34,8 @@ export const ITPanel = () => {
 
   const refreshUnreadTicketCount = useCallback(async () => {
     try {
-      const res = await fetch("/api/query/queries", {
+      const params = new URLSearchParams({ department: "IT" });
+      const res = await fetch(`/api/query/queries?${params}`, {
         method: "GET",
         headers: authHeaders(),
       });

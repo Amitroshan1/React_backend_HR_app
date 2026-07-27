@@ -106,7 +106,8 @@ export default function OpenTicket() {
   const [replyText, setReplyText] = useState("");
 
   const loadTickets = useCallback(async () => {
-    const response = await fetch(`${QUERY_API_BASE}/queries`, {
+    const params = new URLSearchParams({ department: "IT" });
+    const response = await fetch(`${QUERY_API_BASE}/queries?${params}`, {
       method: "GET",
       headers: authHeaders(),
     });

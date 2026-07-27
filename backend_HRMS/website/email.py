@@ -75,6 +75,29 @@ def _zeptomail_attachment_from_path(abs_path):
     return {"name": name, "content": content_b64, "mime_type": mime}
 
 
+def _normalize_bcc_list(cc_emails=None, bcc_emails=None, recipient_email=None):
+    """
+    Merge legacy cc_emails + bcc_emails into a deduped BCC list.
+    All former CC addresses are sent as BCC (hidden from other recipients).
+    Excludes empty values and the primary To address.
+    """
+    to_addr = (recipient_email or "").strip().lower()
+    seen = {to_addr} if to_addr else set()
+    out = []
+    for email in list(cc_emails or []) + list(bcc_emails or []):
+        if not email:
+            continue
+        addr = str(email).strip()
+        if not addr:
+            continue
+        key = addr.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(addr)
+    return out
+
+
 def send_email_via_zeptomail(
     sender_email,
     subject,
@@ -83,9 +106,11 @@ def send_email_via_zeptomail(
     cc_emails=None,
     attachments=None,
     from_name=None,
+    bcc_emails=None,
 ):
     """
-    Sends email using Zoho ZeptoMail API
+    Sends email using Zoho ZeptoMail API.
+    Any addresses passed via cc_emails are sent as BCC (not CC).
     Returns: (success: bool, message: str)
     """
     try:
@@ -106,11 +131,15 @@ def send_email_via_zeptomail(
             "htmlbody": body,
         }
 
-        if cc_emails:
-            payload["cc"] = [
+        bcc_list = _normalize_bcc_list(
+            cc_emails=cc_emails,
+            bcc_emails=bcc_emails,
+            recipient_email=recipient_email,
+        )
+        if bcc_list:
+            payload["bcc"] = [
                 {"email_address": {"address": email}}
-                for email in cc_emails
-                if email
+                for email in bcc_list
             ]
 
         if attachments:
@@ -150,7 +179,8 @@ def news_feed_employee_emails(circle, emp_type):
 
 def send_news_feed_announcement_email(title, content, circle, emp_type, attachment_abs_path=None):
     """
-    Announcement email: From ZEPTO_SENDER_EMAIL, To ZEPTO_CC_HR, CC filtered employees (+ HR in CC on first batch).
+    Announcement email: From ZEPTO_SENDER_EMAIL, To ZEPTO_CC_HR,
+    BCC filtered employees (batched; former CC list is sent as BCC).
     Returns (success, message, recipient_count).
     """
     zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
@@ -781,7 +811,8 @@ def Company_verify_oauth2_and_send_email(
     cc_emails=None
 ):
     """
-    Send email using Zoho ZeptoMail API
+    Send email using Zoho ZeptoMail API.
+    Addresses in cc_emails are delivered as BCC (not CC).
     Returns: (success: bool, message: str)
     """
 
@@ -809,10 +840,14 @@ def Company_verify_oauth2_and_send_email(
             "htmlbody": body
         }
 
-        if cc_emails:
-            payload["cc"] = [
+        bcc_list = _normalize_bcc_list(
+            cc_emails=cc_emails,
+            recipient_email=recipient_email,
+        )
+        if bcc_list:
+            payload["bcc"] = [
                 {"email_address": {"address": email}}
-                for email in cc_emails
+                for email in bcc_list
             ]
 
         response = requests.post(

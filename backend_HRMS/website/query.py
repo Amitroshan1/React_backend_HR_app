@@ -149,6 +149,87 @@ def _department_variants(department):
     return list(variants)
 
 
+def _canonical_inbox_department(name):
+    """Canonical inbox department: Human Resource | IT | Accounts."""
+    from .plan_features import QUERY_DEPARTMENT_CANONICAL, canonical_query_department
+
+    if not name:
+        return None
+    canon = canonical_query_department(name)
+    if canon:
+        return canon
+    for label in QUERY_DEPARTMENT_CANONICAL:
+        if _norm(label) == _norm(name):
+            return label
+    mapped = _emp_type_to_department(name)
+    if mapped:
+        return mapped
+    return None
+
+
+def _inbox_department_labels(inbox_department):
+    """All lowercase stored query.department values that belong to this inbox."""
+    from .plan_features import QUERY_DEPARTMENT_CANONICAL, canonical_query_department
+
+    canon = _canonical_inbox_department(inbox_department)
+    if not canon:
+        return []
+    labels = {_norm(canon)}
+    for label in QUERY_DEPARTMENT_CANONICAL:
+        if canonical_query_department(label) == canon:
+            labels.add(_norm(label))
+    labels.update(_norm(v) for v in _department_variants(canon))
+    return sorted(labels)
+
+
+def _query_department_sql_filter(inbox_department):
+    labels = _inbox_department_labels(inbox_department)
+    if not labels:
+        return Query.id.is_(None)
+    return or_(
+        *[
+            func.lower(func.trim(func.coalesce(Query.department, ""))) == label
+            for label in labels
+        ]
+    )
+
+
+def _query_belongs_to_inbox(query_department, inbox_department):
+    labels = frozenset(_inbox_department_labels(inbox_department))
+    if not labels:
+        return False
+    return _norm(query_department) in labels
+
+
+def _can_access_inbox_department(admin, emp_type, inbox_department):
+    """Whether this user may open the given department query inbox."""
+    from .plan_features import (
+        is_accounts_role,
+        is_hr_role,
+        is_it_role,
+        is_org_admin,
+    )
+
+    target = _canonical_inbox_department(inbox_department)
+    if not target:
+        return False
+
+    natural = _resolve_department_for_inbox(admin, emp_type)
+    if natural and _canonical_inbox_department(natural) == target:
+        return True
+
+    claims = {"emp_type": emp_type or getattr(admin, "emp_type", None)}
+    if is_org_admin(claims):
+        return True
+    if target == "IT" and is_it_role(claims):
+        return True
+    if target == "Human Resource" and is_hr_role(claims):
+        return True
+    if target == "Accounts" and is_accounts_role(claims):
+        return True
+    return False
+
+
 def _department_recipients(department, exclude_admin_id=None):
     """Staff whose emp_type matches the query department (for notifications)."""
     dept_options = _department_variants(department)
@@ -170,15 +251,9 @@ def count_new_queries_for_department_staff(emp_type, admin=None):
     department = _resolve_department_for_inbox(admin, emp_type) if admin else _emp_type_to_department(emp_type)
     if not department:
         return 0
-    dept_variants = _department_variants(department)
     return Query.query.filter(
         func.lower(func.coalesce(Query.status, "")) == "new",
-        or_(
-            *[
-                func.lower(func.coalesce(Query.department, "")) == v
-                for v in dept_variants
-            ]
-        ),
+        _query_department_sql_filter(department),
     ).count()
 
 
@@ -233,13 +308,19 @@ def _infer_department_from_text(value):
     text = (value or "").strip()
     if not text:
         return None
+    n = _norm(text)
+    # Super Admin is not a department inbox; avoid matching "admin" inside that label.
+    if "super" in n and "admin" in n:
+        return None
     if re.search(r"\bhuman\s+resources?\b|\bhr\b", text, re.I):
         return "Human Resource"
     if re.search(r"\binformation\s+technology\b|\bit\s+department\b|\bit\b|\binventory\b", text, re.I):
         return "IT"
     if re.search(r"\baccounts\b|\baccountant\b|\baccount\b", text, re.I):
         return "Accounts"
-    if re.search(r"\badministration\b|\badmin\b", text, re.I):
+    if re.search(r"\badministration\b", text, re.I):
+        return "Administration"
+    if n in {"admin", "administrator"}:
         return "Administration"
     return None
 
@@ -307,9 +388,7 @@ def _can_access_query(admin, emp_type, query_obj):
     department = _resolve_department_for_inbox(admin, emp_type)
     if not department:
         return False
-    # Match department_queries list filter (e.g. "IT" vs "IT Department") so visible tickets are chat-allowed.
-    dept_variants = frozenset(_department_variants(department))
-    return _norm(query_obj.department) in dept_variants
+    return _query_belongs_to_inbox(query_obj.department, department)
 
 
 def _create_notifications_for_admins(admins, title, body, query_id):
@@ -568,20 +647,23 @@ def department_queries():
         if not admin:
             return jsonify({"success": False, "message": "User not found"}), 404
 
-        department = _resolve_department_for_inbox(admin, emp_type)
-        if not department:
-            return jsonify({"success": False, "message": "Unauthorized"}), 403
+        requested = (request.args.get("department") or "").strip()
+        if requested:
+            department = _canonical_inbox_department(requested)
+            if not department:
+                return jsonify({"success": False, "message": "Invalid department"}), 400
+            if not _can_access_inbox_department(admin, emp_type, department):
+                return jsonify({"success": False, "message": "Unauthorized"}), 403
+        else:
+            department = _resolve_department_for_inbox(admin, emp_type)
+            if not department:
+                return jsonify({"success": False, "message": "Unauthorized"}), 403
+            department = _canonical_inbox_department(department) or department
 
         _repair_query_created_at_from_history()
 
-        dept_variants = _department_variants(department)
         q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
-            or_(
-                *[
-                    func.lower(func.coalesce(Query.department, "")) == v
-                    for v in dept_variants
-                ]
-            )
+            _query_department_sql_filter(department)
         )
 
         reply_created_at_subquery = (
