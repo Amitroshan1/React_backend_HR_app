@@ -88,12 +88,25 @@ def _accounts_plan_guard():
 
     if request.method == "OPTIONS":
         return None
+
+    path = (request.path or "").lower()
+    # Keep employee self-service salary/tax flows reachable from Payslip pages.
+    if re.search(r"/payslip/history/\d+$", path):
+        return None
+    if re.search(r"/ctc-breakup/\d+(/pdf)?$", path):
+        return None
+    if re.search(r"/form16/history/\d+$", path):
+        return None
+    if "/file/" in path:
+        return None
+
+    # Tax declaration endpoints are guarded inside their own handlers.
+    if "/tax-declaration" in path:
+        return None
+
     if not can_access_accounts_panel():
         return plan_forbidden_response("account_panel")
 
-    path = (request.path or "").lower()
-    if "/tax-declaration" in path:
-        return None
     for feature, prefixes in _ACCOUNTS_ROUTE_FEATURES:
         if any(p in path for p in prefixes) and not has_feature(feature):
             return plan_forbidden_response(feature)
