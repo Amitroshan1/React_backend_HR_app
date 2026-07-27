@@ -89,7 +89,6 @@ QUERY_DEPARTMENT_CANONICAL = (
     "Human Resource",
     "IT",
     "Accounts",
-    "Inventory",
 )
 
 
@@ -245,12 +244,11 @@ def is_inventory_department(name: str) -> bool:
 def canonical_query_department(name: str) -> str | None:
     if is_hr_department(name):
         return "Human Resource"
-    if is_it_department(name):
+    if is_it_department(name) or is_inventory_department(name):
+        # Inventory staff use IT query inbox; Inventory is not a raise-query target.
         return "IT"
     if is_accounts_department(name):
         return "Accounts"
-    if is_inventory_department(name):
-        return "Inventory"
     return None
 
 

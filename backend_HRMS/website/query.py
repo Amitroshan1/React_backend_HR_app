@@ -134,22 +134,23 @@ def _norm(value):
 
 
 def _department_variants(department):
+    """Normalize department labels for inbox filtering (strict per-department scope)."""
     d = _norm(department)
     variants = {d}
     if d in {"human resource", "human resources", "hr"}:
         variants.update({"human resource", "human resources", "hr"})
-    elif d in {"it", "it department"}:
-        variants.update({"it", "it department"})
-    elif d in {"accounts", "account"}:
-        variants.update({"accounts", "account"})
+    elif d in {"it", "it department", "engineering", "inventory"}:
+        # IT staff (+ inventory emp_type) see IT queries; include legacy Inventory tags.
+        variants.update({"it", "it department", "engineering", "inventory"})
+    elif d in {"accounts", "account", "accountant"}:
+        variants.update({"accounts", "account", "accountant"})
     elif d in {"admin", "administration"}:
         variants.update({"admin", "administration"})
-    elif d == "inventory":
-        variants.update({"inventory"})
     return list(variants)
 
 
 def _department_recipients(department, exclude_admin_id=None):
+    """Staff whose emp_type matches the query department (for notifications)."""
     dept_options = _department_variants(department)
     filters = [func.lower(func.coalesce(Admin.emp_type, "")) == val for val in dept_options]
     q = Admin.query.filter(or_(*filters))
@@ -219,10 +220,8 @@ def _emp_type_to_department(emp_type):
     normalized = _norm(emp_type)
     if normalized in {"human resource", "human resources", "hr"}:
         return "Human Resource"
-    if normalized in {"it", "it department", "engineering"}:
+    if normalized in {"it", "it department", "engineering", "inventory"}:
         return "IT"
-    if normalized == "inventory":
-        return "Inventory"
     if normalized in {"admin", "administration"}:
         return "Administration"
     if normalized in {"accounts", "account", "accountant"}:
@@ -236,12 +235,10 @@ def _infer_department_from_text(value):
         return None
     if re.search(r"\bhuman\s+resources?\b|\bhr\b", text, re.I):
         return "Human Resource"
-    if re.search(r"\binformation\s+technology\b|\bit\s+department\b|\bit\b", text, re.I):
+    if re.search(r"\binformation\s+technology\b|\bit\s+department\b|\bit\b|\binventory\b", text, re.I):
         return "IT"
     if re.search(r"\baccounts\b|\baccountant\b|\baccount\b", text, re.I):
         return "Accounts"
-    if re.search(r"\binventory\b", text, re.I):
-        return "Inventory"
     if re.search(r"\badministration\b|\badmin\b", text, re.I):
         return "Administration"
     return None
@@ -359,30 +356,84 @@ def create_query_api():
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
 
-    data = request.form if request.form else (request.get_json() or {})
-    title = data.get("title")
-    department = data.get("department")
-    query_text = data.get("query_text")
+    data = request.form if request.form else (request.get_json(silent=True) or {})
+    title = (data.get("title") or "").strip() if not isinstance(data.get("title"), list) else ""
+    query_text = (data.get("query_text") or "").strip() if not isinstance(data.get("query_text"), list) else ""
 
-    if not title or not department or not query_text:
+    # Multi-department: form getlist, JSON array, or comma-separated single field
+    departments = []
+    if request.form:
+        departments = [
+            (d or "").strip()
+            for d in (request.form.getlist("department") or request.form.getlist("departments") or [])
+            if (d or "").strip()
+        ]
+        if not departments:
+            raw = (request.form.get("department") or "").strip()
+            if raw:
+                departments = [p.strip() for p in raw.split(",") if p.strip()]
+    else:
+        raw_depts = data.get("departments")
+        if raw_depts is None:
+            raw_depts = data.get("department")
+        if isinstance(raw_depts, (list, tuple)):
+            departments = [str(d).strip() for d in raw_depts if str(d).strip()]
+        elif raw_depts:
+            departments = [p.strip() for p in str(raw_depts).split(",") if p.strip()]
+
+    # De-dupe preserving order
+    seen = set()
+    unique_departments = []
+    for d in departments:
+        key = d.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_departments.append(d)
+    departments = unique_departments
+
+    if not title or not departments or not query_text:
         return jsonify({
             "success": False,
-            "message": "title, department and query_text are required"
+            "message": "title, department(s) and query_text are required"
         }), 400
 
     from .plan_features import (
+        QUERY_DEPARTMENT_CANONICAL,
+        canonical_query_department,
         has_feature,
         is_allowed_query_department,
         plan_forbidden_response,
     )
 
-    if not is_allowed_query_department(department):
-        required = (
-            "query_hr_and_accounts"
-            if has_feature("query_hr_and_accounts")
-            else "query_all_departments"
-        )
-        return plan_forbidden_response(required)
+    # Normalize to canonical raise targets only (Human Resource / IT / Accounts).
+    normalized = []
+    seen_canon = set()
+    for raw_dept in departments:
+        canon = canonical_query_department(raw_dept)
+        if not canon or canon not in QUERY_DEPARTMENT_CANONICAL:
+            return jsonify({
+                "success": False,
+                "message": f"Invalid department: {raw_dept}. Choose Human Resource, IT, or Accounts.",
+            }), 400
+        if not is_allowed_query_department(canon):
+            required = (
+                "query_hr_and_accounts"
+                if has_feature("query_hr_and_accounts")
+                else "query_all_departments"
+            )
+            return plan_forbidden_response(required)
+        if canon in seen_canon:
+            continue
+        seen_canon.add(canon)
+        normalized.append(canon)
+    departments = normalized
+
+    if not departments:
+        return jsonify({
+            "success": False,
+            "message": "title, department(s) and query_text are required"
+        }), 400
 
     files = request.files.getlist("files") if request.files else []
     saved_files = []
@@ -406,38 +457,47 @@ def create_query_api():
             file.save(os.path.join(UPLOAD_DIR, unique_name))
             saved_files.append(unique_name)
 
-    query_obj = Query(
-        admin_id=admin.id,
-        title=title,
-        department=department,
-        query_text=query_text,
-        created_at=utc_now(),
-        photo=json.dumps(saved_files) if saved_files else None
-    )
+    photo_json = json.dumps(saved_files) if saved_files else None
+    created_ids = []
+    for department in departments:
+        query_obj = Query(
+            admin_id=admin.id,
+            title=title,
+            department=department,
+            query_text=query_text,
+            created_at=utc_now(),
+            photo=photo_json,
+        )
+        db.session.add(query_obj)
+        db.session.flush()
+        created_ids.append(query_obj.id)
 
-    db.session.add(query_obj)
+        try:
+            notify_query_event(query_obj, action="created")
+        except Exception:
+            pass
+
+        recipients = _department_recipients(department, exclude_admin_id=admin.id)
+        _create_notifications_for_admins(
+            recipients,
+            title=f"New Query: {title}",
+            body=f"{admin.first_name or admin.email} raised a query for {department}.",
+            query_id=query_obj.id,
+        )
+
     db.session.commit()
 
-    # Send email notification to department + CC employee (non-blocking)
-    try:
-        notify_query_event(query_obj, action="created")
-    except Exception:
-        # Safety: email failures must not break API
-        pass
-
-    recipients = _department_recipients(department, exclude_admin_id=admin.id)
-    _create_notifications_for_admins(
-        recipients,
-        title=f"New Query: {title}",
-        body=f"{admin.first_name or admin.email} raised a query for {department}.",
-        query_id=query_obj.id,
-    )
-    db.session.commit()
-
+    dept_label = ", ".join(departments)
     return jsonify({
         "success": True,
-        "message": "Query created successfully",
-        "query_id": query_obj.id
+        "message": (
+            f"Query created for {dept_label}"
+            if len(departments) == 1
+            else f"Query created for {len(departments)} departments: {dept_label}"
+        ),
+        "query_id": created_ids[0] if created_ids else None,
+        "query_ids": created_ids,
+        "departments": departments,
     }), 201
 
 

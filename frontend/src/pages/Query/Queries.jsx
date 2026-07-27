@@ -510,7 +510,7 @@ import {
 const API_BASE_URL = '/api/query';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
 
-const QUERY_DEPARTMENT_CANONICAL = ['Human Resource', 'IT', 'Accounts', 'Inventory'];
+const QUERY_DEPARTMENT_CANONICAL = ['Human Resource', 'IT', 'Accounts'];
 
 const FALLBACK_DEPARTMENTS = QUERY_DEPARTMENT_CANONICAL;
 
@@ -520,7 +520,7 @@ const canonicalQueryDepartment = (name) => {
   if (n === 'human resource' || n === 'human resources' || n === 'hr' || n.includes('human resource')) {
     return 'Human Resource';
   }
-  if (n === 'it' || n === 'it department') return 'IT';
+  if (n === 'it' || n === 'it department' || n === 'inventory') return 'IT';
   if (
     n === 'account' ||
     n === 'accounts' ||
@@ -530,7 +530,6 @@ const canonicalQueryDepartment = (name) => {
   ) {
     return 'Accounts';
   }
-  if (n === 'inventory') return 'Inventory';
   return null;
 };
 
@@ -589,7 +588,7 @@ export const Queries = () => {
   const [, setSearchParams] = useSearchParams();
   const [departments, setDepartments] = useState(FALLBACK_DEPARTMENTS);
   const [queries, setQueries] = useState([]);
-  const [formData, setFormData] = useState({ department: '', title: '', text: '' });
+  const [formData, setFormData] = useState({ departments: [], title: '', text: '' });
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [chatMessage, setChatMessage] = useState('');
@@ -649,10 +648,13 @@ export const Queries = () => {
               hasFeature('query_hr_and_accounts')
                 ? isHrDepartmentName(dept) || isAccountsDepartmentName(dept)
                 : isHrDepartmentName(dept);
-            setFormData((prev) => ({
-              ...prev,
-              department: prev.department && allowed(prev.department) ? prev.department : list[0],
-            }));
+            setFormData((prev) => {
+              const kept = (prev.departments || []).filter(allowed);
+              return {
+                ...prev,
+                departments: kept.length ? kept : (list[0] ? [list[0]] : []),
+              };
+            });
           }
         });
     }
@@ -892,18 +894,34 @@ export const Queries = () => {
     }
   };
 
+  const toggleDepartment = (dept) => {
+    setFormData((prev) => {
+      const selected = prev.departments || [];
+      const exists = selected.includes(dept);
+      return {
+        ...prev,
+        departments: exists
+          ? selected.filter((d) => d !== dept)
+          : [...selected, dept],
+      };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setActionError('');
     setIsSubmitting(true);
     try {
+      if (!(formData.departments || []).length) {
+        throw new Error('Please select at least one department');
+      }
       if (selectedFiles.some(file => file.size > MAX_FILE_SIZE_BYTES)) {
         throw new Error('One or more files exceed 2MB limit');
       }
 
       const payload = new FormData();
       payload.append('title', formData.title);
-      payload.append('department', formData.department);
+      formData.departments.forEach((dept) => payload.append('department', dept));
       payload.append('query_text', formData.text);
       selectedFiles.forEach(file => payload.append('files', file));
 
@@ -924,7 +942,7 @@ export const Queries = () => {
         /* no-op */
       }
       await fetchMyQueries();
-      setFormData({ department: '', title: '', text: '' });
+      setFormData({ departments: [], title: '', text: '' });
       setSelectedFiles([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -1066,18 +1084,36 @@ export const Queries = () => {
               <form onSubmit={handleSubmit} className="query-form">
                 <div className="query-form-row">
                   <div className="query-form-group">
-                    <label className="query-label">Department</label>
-                    <select
-                      className="query-input"
-                      value={formData.department}
-                      onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                      required
-                      disabled={hrOnlyQuery}
-                      style={hrOnlyQuery ? { opacity: 0.9 } : undefined}
+                    <label className="query-label">Department(s)</label>
+                    <div
+                      className="query-dept-multi"
+                      role="group"
+                      aria-label="Select one or more departments"
                     >
-                      <option value="">Select Department</option>
-                      {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
+                      {departments.map((d) => {
+                        const checked = (formData.departments || []).includes(d);
+                        return (
+                          <label
+                            key={d}
+                            className={`query-dept-chip${checked ? ' is-selected' : ''}${hrOnlyQuery ? ' is-locked' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={hrOnlyQuery}
+                              onChange={() => toggleDepartment(d)}
+                            />
+                            <span>{d}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="query-dept-hint">
+                      Select one or more departments for the same query.
+                      {(formData.departments || []).length > 0
+                        ? ` Selected: ${(formData.departments || []).join(', ')}`
+                        : ''}
+                    </p>
                   </div>
                   <div className="query-form-group">
                     <label className="query-label">Subject Title</label>

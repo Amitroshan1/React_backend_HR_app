@@ -305,10 +305,6 @@ SENSITIVE_OTP_IP_LIMIT_PER_HOUR = 10
 SENSITIVE_OTP_USER_LIMIT_PER_DAY = 20
 MAX_PUNCH_SESSIONS_PER_DAY = 8
 GEO_REASON_MIN_CHARS = 10
-OTP_GENERIC_SENT_MESSAGE = (
-    "If an account exists for this email, an OTP has been sent. "
-    "Please check your inbox."
-)
 
 
 def _hash_otp(code: str) -> str:
@@ -419,17 +415,30 @@ def request_otp():
         return blocked
 
     admin = _find_admin_for_login(channel, value)
+    if not admin:
+        return jsonify({
+            "success": False,
+            "message": "No account found with this email",
+        }), 404
+
     from .offboarding_service import admin_login_allowed
 
-    # Anti-enumeration: same response whether missing/inactive/exited (no email sent).
-    if not admin or not admin_login_allowed(admin) or not admin.email:
+    if not admin_login_allowed(admin):
+        if getattr(admin, "is_exited", False):
+            return jsonify({
+                "success": False,
+                "message": "Your account has been exited. Please contact HR.",
+            }), 403
         return jsonify({
-            "success": True,
-            "channel": "email",
-            "message": OTP_GENERIC_SENT_MESSAGE,
-            "expires_in": OTP_TTL_MINUTES * 60,
-            "resend_after": OTP_RESEND_SECONDS,
-        }), 200
+            "success": False,
+            "message": "Your account is inactive. Please contact HR.",
+        }), 403
+
+    if not admin.email:
+        return jsonify({
+            "success": False,
+            "message": "No email is registered for this account. Please contact HR.",
+        }), 400
 
     # Persist cleaned email if DB row has whitespace
     cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip().lower()
@@ -483,10 +492,15 @@ def request_otp():
             "message": "Could not send OTP email. Please try again later.",
         }), 502
 
+    masked = admin.email
+    if "@" in masked:
+        local, domain = masked.split("@", 1)
+        masked = (local[:2] + "***@" + domain) if len(local) > 2 else ("***@" + domain)
+
     return jsonify({
         "success": True,
         "channel": "email",
-        "message": OTP_GENERIC_SENT_MESSAGE,
+        "message": f"OTP sent to {masked}. Please check your email for the OTP.",
         "expires_in": OTP_TTL_MINUTES * 60,
         "resend_after": OTP_RESEND_SECONDS,
     }), 200

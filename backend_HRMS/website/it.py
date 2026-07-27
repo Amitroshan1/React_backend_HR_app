@@ -596,26 +596,40 @@ def employee_return_requests(emp_id):
     return _ok({"requests": [_serialize_return_request(r) for r in rows]})
 
 
+def _employee_lookup_filter(q, limit=20):
+    """Partial match on emp_id, email, or first_name (active employees only)."""
+    term = (q or "").strip()
+    if len(term) < 2:
+        return []
+    pattern = f"%{term.lower()}%"
+    enabled = db.or_(Admin.is_exited == False, Admin.is_exited.is_(None))
+    rows = (
+        Admin.query.filter(
+            enabled,
+            db.or_(
+                db.func.lower(db.func.coalesce(Admin.emp_id, "")).like(pattern),
+                db.func.lower(db.func.coalesce(Admin.email, "")).like(pattern),
+                db.func.lower(db.func.coalesce(Admin.first_name, "")).like(pattern),
+            ),
+        )
+        .order_by(Admin.first_name.asc(), Admin.id.asc())
+        .limit(limit)
+        .all()
+    )
+    return rows
+
+
 @it_bp.route("/employees/lookup", methods=["GET"])
 @jwt_required()
 def lookup_employee():
     q = (request.args.get("q") or "").strip()
     if not q:
         return _err("q is required")
+    if len(q) < 2:
+        return _ok({"employees": [], "message": "Type at least 2 characters to search"})
 
-    ql = q.lower()
-    rows = Admin.query.filter(
-        db.or_(
-            db.func.lower(db.func.coalesce(Admin.emp_id, "")) == ql,
-            db.func.lower(db.func.coalesce(Admin.email, "")) == ql,
-        )
-    ).order_by(Admin.id.desc()).all()
-
-    return _ok(
-        {
-            "employees": [_serialize_admin_employee(r) for r in rows]
-        }
-    )
+    rows = _employee_lookup_filter(q)
+    return _ok({"employees": [_serialize_admin_employee(r) for r in rows]})
 
 
 @it_bp.route("/inventory/items", methods=["GET"])

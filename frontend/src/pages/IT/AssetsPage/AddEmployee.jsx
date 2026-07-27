@@ -44,16 +44,20 @@ const EMPTY_PROFILE = {
   employeeId: "", name: "", type: "", circle: "", email: "", photoUrl: "", photoFile: null,
 };
 
-const EMAIL_LOOKUP_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const EMP_ID_LOOKUP_RE = /^EMP[A-Z0-9]+$/i;
-const LOOKUP_DEBOUNCE_MS = 500;
+const LOOKUP_MIN_CHARS = 2;
+const LOOKUP_DEBOUNCE_MS = 300;
 
 function isLookupQueryReady(raw) {
-  const q = String(raw || "").trim();
-  if (!q) return false;
-  if (EMAIL_LOOKUP_RE.test(q)) return true;
-  if (EMP_ID_LOOKUP_RE.test(q)) return true;
-  return false;
+  return String(raw || "").trim().length >= LOOKUP_MIN_CHARS;
+}
+
+function localEmployeeMatches(emp, q) {
+  const needle = String(q || "").trim().toLowerCase();
+  if (!needle) return false;
+  const id = (emp.id || emp.empId || "").toLowerCase();
+  const email = (emp.email || "").toLowerCase();
+  const name = (emp.name || "").toLowerCase();
+  return id.includes(needle) || email.includes(needle) || name.includes(needle);
 }
 
 // ─── Self-healing employee getter ─────────────────────────────────────────────
@@ -119,6 +123,7 @@ const LookupGate = ({ onFound }) => {
 
   const [query,         setQuery]         = useState("");
   const [loading,       setLoading]       = useState(false);
+  const [results,       setResults]       = useState([]);
   const [notFound,      setNotFound]      = useState(false);
   const [alreadyExists, setAlreadyExists] = useState(null);
   const lastFetchedRef = useRef("");
@@ -129,35 +134,41 @@ const LookupGate = ({ onFound }) => {
     setAlreadyExists(null);
   }, []);
 
-  // Computed once per mount — unactivated employees list doesn't change
-  // during LookupGate's lifetime; moving inside useMemo prevents calling
-  // getEmployeesSafe() on every single keystroke.
   const hints = useMemo(() =>
     getEmployeesSafe()
       .filter((e) => !e.activated)
       .slice(0, 3)
-      .map((e) => ({ label: `${e.id} — ${e.name}`, value: e.id })),
-  [], // stable — employees don't change while LookupGate is mounted
+      .map((e) => ({ label: `${e.id} — ${e.name}`, value: e.id, name: e.name })),
+  [], []);
+
+  const handleSelectEmployee = useCallback(
+    (match) => {
+      if (!match) return;
+      if (match.activated && (match.assignedAssets || []).length > 0) {
+        setAlreadyExists(match);
+        setNotFound(false);
+        return;
+      }
+      clearMessages();
+      setResults([]);
+      onFound(match);
+    },
+    [onFound, clearMessages],
   );
 
   const performSearch = useCallback(
     async (rawQuery) => {
       const trimmed = String(rawQuery || "").trim();
-      const q = trimmed.toLowerCase();
-      if (!q || !isLookupQueryReady(trimmed) || searchInFlightRef.current) return;
+      if (!isLookupQueryReady(trimmed) || searchInFlightRef.current) return;
 
       searchInFlightRef.current = true;
       setLoading(true);
+      setNotFound(false);
+      setAlreadyExists(null);
 
-      let match = null;
+      let matches = [];
       try {
-        const apiRows = await lookupEmployeeByEmpIdOrEmailAPI(trimmed);
-        match =
-          apiRows.find((emp) => {
-            const id = (emp.id || emp.empId || "").toLowerCase();
-            const email = (emp.email || "").toLowerCase();
-            return id === q || email === q;
-          }) || null;
+        matches = await lookupEmployeeByEmpIdOrEmailAPI(trimmed);
       } catch (err) {
         console.warn("[AddEmployee] lookup API failed; falling back to local store", err);
       } finally {
@@ -165,37 +176,23 @@ const LookupGate = ({ onFound }) => {
         setLoading(false);
       }
 
-      if (!match) {
+      if (!matches.length) {
         const employees = getEmployeesSafe();
-        match =
-          employees.find((emp) => {
-            const id = (emp.id || emp.empId || "").toLowerCase();
-            const email = (emp.email || "").toLowerCase();
-            return id === q || email === q;
-          }) || null;
+        matches = employees.filter((emp) => localEmployeeMatches(emp, trimmed));
       }
 
-      if (!match) {
-        setNotFound(true);
-        setAlreadyExists(null);
-        return;
-      }
-
-      if (match.activated && (match.assignedAssets || []).length > 0) {
-        setAlreadyExists(match);
-        setNotFound(false);
-        return;
-      }
-
-      clearMessages();
-      onFound(match);
+      setResults(matches);
+      setNotFound(matches.length === 0);
     },
-    [onFound, clearMessages],
+    [],
   );
 
   useEffect(() => {
     const trimmed = query.trim();
     if (!isLookupQueryReady(trimmed)) {
+      setResults([]);
+      setNotFound(false);
+      setAlreadyExists(null);
       return undefined;
     }
     const timer = setTimeout(() => {
@@ -226,14 +223,20 @@ const LookupGate = ({ onFound }) => {
 
   const hasError = notFound || !!alreadyExists;
   const queryReady = isLookupQueryReady(query);
+  const showResults = queryReady && !alreadyExists && (loading || results.length > 0 || notFound);
 
   return (
     <div className="ane-lookup-wrap">
-      <div className="ane-lookup-icon">🔍</div>
-      <h2 className="ane-lookup-title">Find Employee Profile</h2>
-      <p className="ane-lookup-sub">
-        Enter a complete <strong>Employee ID</strong> (e.g. EMP004) or <strong>email</strong> — your profile loads automatically.
-      </p>
+      <div className="ane-lookup-hero">
+        <div className="ane-lookup-icon-ring">
+          <span className="ane-lookup-icon" aria-hidden>🔍</span>
+        </div>
+        <h2 className="ane-lookup-title">Find Employee Profile</h2>
+        <p className="ane-lookup-sub">
+          Search by <strong>first name</strong>, <strong>employee ID</strong>, or <strong>email</strong>.
+          Results update as you type.
+        </p>
+      </div>
 
       <div className="ane-lookup-field">
         <div
@@ -244,8 +247,8 @@ const LookupGate = ({ onFound }) => {
           </span>
           <input
             className="ane-lookup-input"
-            type="text"
-            placeholder="e.g. EMP004 or neha.patel@company.com"
+            type="search"
+            placeholder="Name, EMP004, or neha.patel@company.com"
             value={query}
             onChange={handleQueryChange}
             autoFocus
@@ -253,21 +256,80 @@ const LookupGate = ({ onFound }) => {
             spellCheck={false}
             aria-busy={loading}
             aria-invalid={hasError}
+            aria-expanded={showResults}
+            aria-controls="ane-lookup-results"
           />
           {loading && (
             <span className="ane-lookup-spinner" aria-label="Searching" />
           )}
+          {query && !loading && (
+            <button
+              type="button"
+              className="ane-lookup-clear"
+              onClick={() => { setQuery(""); setResults([]); clearMessages(); lastFetchedRef.current = ""; }}
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
         </div>
         <p className="ane-lookup-helper">
           {loading
-            ? "Fetching employee profile…"
+            ? "Searching employees…"
             : queryReady
-              ? "Searching automatically"
-              : "Type a full employee ID or email address"}
+              ? `${results.length} match${results.length === 1 ? "" : "es"} — click a profile to continue`
+              : "Type at least 2 characters to search"}
         </p>
       </div>
 
-      {/* Quick-pick hints */}
+      {showResults && (
+        <div id="ane-lookup-results" className="ane-lookup-results" role="listbox" aria-label="Employee search results">
+          {loading && results.length === 0 && (
+            <div className="ane-lookup-results-skeleton">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="ane-lookup-skeleton-row" />
+              ))}
+            </div>
+          )}
+          {!loading && results.map((emp) => (
+            <button
+              key={emp.adminId || emp.id || emp.email}
+              type="button"
+              role="option"
+              className="ane-lookup-result-card"
+              onClick={() => handleSelectEmployee(emp)}
+            >
+              <div className="ane-lookup-result-avatar">
+                {emp.photo || emp.photo_url ? (
+                  <img src={emp.photo || emp.photo_url} alt="" />
+                ) : (
+                  <span>{(emp.name || "?").charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+              <div className="ane-lookup-result-body">
+                <strong className="ane-lookup-result-name">{emp.name || "—"}</strong>
+                <span className="ane-lookup-result-meta">
+                  <span className="ane-lookup-result-id">{emp.id || emp.empId}</span>
+                  {emp.email ? ` · ${emp.email}` : ""}
+                </span>
+                {(emp.type || emp.circle) && (
+                  <span className="ane-lookup-result-tags">
+                    {emp.type && <em>{emp.type}</em>}
+                    {emp.circle && <em>{emp.circle}</em>}
+                  </span>
+                )}
+              </div>
+              <span className="ane-lookup-result-arrow" aria-hidden>→</span>
+            </button>
+          ))}
+          {!loading && notFound && (
+            <div className="ane-lookup-not-found ane-lookup-not-found--inline">
+              <span>⚠️</span> No employee found for <strong>"{query}"</strong>
+            </div>
+          )}
+        </div>
+      )}
+
       {hints.length > 0 && (
         <div className="ane-lookup-hints">
           <span className="ane-lookup-hint-label">Quick pick:</span>
@@ -284,14 +346,6 @@ const LookupGate = ({ onFound }) => {
         </div>
       )}
 
-      {/* Not-found message */}
-      {notFound && (
-        <div className="ane-lookup-not-found">
-          <span>⚠️</span> No employee found for <strong>"{query}"</strong>. Please check and try again.
-        </div>
-      )}
-
-      {/* Already-active warning */}
       {alreadyExists && (
         <div className="ane-lookup-already-exists">
           <div className="ane-lookup-already-exists-icon">⚠️</div>
