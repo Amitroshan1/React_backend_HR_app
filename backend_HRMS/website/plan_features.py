@@ -162,20 +162,56 @@ def can_access_hr_operations(claims: Optional[dict] = None) -> bool:
     return is_hr_role(claims) or is_org_admin(claims)
 
 
-def can_access_it_panel(claims: Optional[dict] = None) -> bool:
-    """IT module: subscription feature or org Admin / Super Admin."""
-    if has_feature("it_panel"):
-        return True
+def is_it_role(claims: Optional[dict] = None) -> bool:
     if claims is None:
         try:
             from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    emp_type = _norm_emp_type(claims.get("emp_type") or "")
+    return is_it_department(emp_type) or is_inventory_department(emp_type)
 
+
+def is_accounts_role(claims: Optional[dict] = None) -> bool:
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    emp_type = _norm_emp_type(claims.get("emp_type") or "")
+    return is_accounts_department(emp_type)
+
+
+def can_access_it_panel(claims: Optional[dict] = None) -> bool:
+    """IT module: must have IT/Inventory role (or org Admin)."""
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
             claims = get_jwt() or {}
         except Exception:
             claims = {}
     if is_org_admin(claims):
         return True
-    return False
+    if not has_feature("it_panel"):
+        return False
+    return is_it_role(claims)
+
+
+def can_access_accounts_panel(claims: Optional[dict] = None) -> bool:
+    """Accounts module: must have Accounts role (or org Admin)."""
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    if is_org_admin(claims):
+        return True
+    if not has_feature("account_panel"):
+        return False
+    return is_accounts_role(claims)
 
 
 def is_hr_department(name: str) -> bool:

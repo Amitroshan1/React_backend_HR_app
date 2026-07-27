@@ -57,6 +57,27 @@ export function isAdminUser(user) {
   return et.includes('super');
 }
 
+export function isHrUser(user) {
+  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
+  const normalized = et.replace(/\s+/g, ' ').trim();
+  if (isAdminUser(user)) return true;
+  return ['hr', 'human resource', 'human resources'].includes(normalized);
+}
+
+export function isAccountUser(user) {
+  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
+  const normalized = et.replace(/\s+/g, ' ').trim();
+  if (isAdminUser(user)) return true;
+  return ['account', 'accounts', 'accountant'].includes(normalized);
+}
+
+export function isItUser(user) {
+  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
+  const normalized = et.replace(/\s+/g, ' ').trim();
+  if (isAdminUser(user)) return true;
+  return ['it', 'it department', 'inventory'].includes(normalized);
+}
+
 /** Org Admin bypasses subscription gates for operational panels. */
 export function adminHasFullPanelAccess(user) {
   return isAdminUser(user);
@@ -65,19 +86,15 @@ export function adminHasFullPanelAccess(user) {
 /** IT / Inventory: plan feature or org Admin / Super Admin. */
 export function canAccessItPanel(user) {
   if (adminHasFullPanelAccess(user)) return true;
-  if (hasFeature('it_panel')) return true;
-  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase();
-  if (['admin', 'administrator', 'administration'].includes(et)) return true;
-  if (et.includes('super')) return true;
-  return false;
+  return hasFeature('it_panel') && isItUser(user);
 }
 
 export function canAccessHrPanel(user) {
   if (adminHasFullPanelAccess(user)) return true;
-  return hasFeature('hr_panel');
+  return hasFeature('hr_panel') && isHrUser(user);
 }
 
 export function canAccessAccountPanel(user) {
   if (adminHasFullPanelAccess(user)) return true;
-  return hasFeature('account_panel');
+  return hasFeature('account_panel') && isAccountUser(user);
 }

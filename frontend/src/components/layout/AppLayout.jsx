@@ -4,6 +4,7 @@ import {
     hasFeature,
     clearPlanContext,
     isAdminUser,
+    isHrUser,
     canAccessAccountPanel,
     canAccessItPanel,
     canAccessHrPanel,
@@ -53,15 +54,35 @@ export const AppLayout = () => {
     useEffect(() => {
         const path = location.pathname || "";
         const user = userData?.user;
+        const isAdminAreaPath = (
+            path === "/admin"
+            || path.startsWith("/admin/")
+            || path === "/employees"
+            || path.startsWith("/employees/")
+            || path.startsWith("/employee/")
+        );
+
+        if (isAdminAreaPath && !isAdminUser(user)) {
+            navigate("/dashboard", { replace: true });
+            return;
+        }
+
+        const isHrAreaPath = (
+            path.startsWith("/hr")
+            || path === "/updates"
+            || path.startsWith("/archive-employees")
+            || path.startsWith("/exit-employees")
+        );
+        if (isHrAreaPath && !canAccessHrPanel(user)) {
+            navigate("/dashboard", { replace: true });
+            return;
+        }
+
         if (path.startsWith("/account") && !canAccessAccountPanel(user)) {
             navigate("/dashboard", { replace: true });
             return;
         }
         if (path.startsWith("/it") && !canAccessItPanel(user)) {
-            navigate("/dashboard", { replace: true });
-            return;
-        }
-        if (path.startsWith("/hr") && !canAccessHrPanel(user)) {
             navigate("/dashboard", { replace: true });
             return;
         }

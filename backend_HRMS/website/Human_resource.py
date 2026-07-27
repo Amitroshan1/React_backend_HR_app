@@ -117,7 +117,7 @@ EX_EMPLOYEE_LINK_TTL_HOURS = 48
 @hr.before_request
 def _hr_plan_guard():
     from flask import request
-    from .plan_features import has_feature, plan_forbidden_response
+    from .plan_features import can_access_hr_operations, has_feature, plan_forbidden_response
 
     if request.method == "OPTIONS":
         return None
@@ -126,6 +126,8 @@ def _hr_plan_guard():
         return None
     if "/ats/public/offer" in path:
         return None
+    if not can_access_hr_operations():
+        return plan_forbidden_response("hr_panel")
     if "/assessment/" in path and not has_feature("hr_assessment_invite"):
         return plan_forbidden_response("hr_assessment_invite")
     if "/ex-employee-documents/" in path and not has_feature("hr_ex_employee_docs"):

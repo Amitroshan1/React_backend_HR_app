@@ -84,11 +84,11 @@ _ACCOUNTS_ROUTE_FEATURES = (
 @Accounts.before_request
 def _accounts_plan_guard():
     from flask import request
-    from .plan_features import has_feature, plan_forbidden_response
+    from .plan_features import can_access_accounts_panel, has_feature, plan_forbidden_response
 
     if request.method == "OPTIONS":
         return None
-    if not has_feature("account_panel"):
+    if not can_access_accounts_panel():
         return plan_forbidden_response("account_panel")
 
     path = (request.path or "").lower()
