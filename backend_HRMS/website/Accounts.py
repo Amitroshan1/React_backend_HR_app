@@ -84,6 +84,7 @@ _ACCOUNTS_ROUTE_FEATURES = (
 @Accounts.before_request
 def _accounts_plan_guard():
     from flask import request
+    from flask_jwt_extended import get_jwt, verify_jwt_in_request
     from .plan_features import can_access_accounts_panel, has_feature, plan_forbidden_response
 
     if request.method == "OPTIONS":
@@ -91,6 +92,7 @@ def _accounts_plan_guard():
 
     path = (request.path or "").lower()
     # Keep employee self-service salary/tax flows reachable from Payslip pages.
+    # Handlers enforce own-vs-privileged access + sensitive OTP.
     if re.search(r"/payslip/history/\d+$", path):
         return None
     if re.search(r"/ctc-breakup/\d+(/pdf)?$", path):
@@ -104,7 +106,13 @@ def _accounts_plan_guard():
     if "/tax-declaration" in path:
         return None
 
-    if not can_access_accounts_panel():
+    try:
+        verify_jwt_in_request()
+    except Exception:
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
+    claims = get_jwt() or {}
+    if not can_access_accounts_panel(claims):
         return plan_forbidden_response("account_panel")
 
     for feature, prefixes in _ACCOUNTS_ROUTE_FEATURES:
@@ -1353,6 +1361,14 @@ def employee_documents(admin_id):
             "success": False,
             "message": "Unauthorized user"
         }), 401
+
+    from .plan_features import can_access_accounts_panel
+
+    if not can_access_accounts_panel(get_jwt() or {}):
+        return jsonify({
+            "success": False,
+            "message": "Accounts access required"
+        }), 403
 
     target_admin = Admin.query.get(admin_id)
     if not target_admin:
@@ -2961,6 +2977,21 @@ def serve_uploaded_file(relative_path):
                 blocked = require_sensitive_for_employee(admin, decl.admin_id)
                 if blocked:
                     return blocked
+    elif not (
+        normalized.startswith("payslips/")
+        or normalized.startswith("form16/")
+        or normalized.startswith("tax_declarations/")
+    ):
+        # Unknown upload prefixes: Accounts panel (or org admin) only — no open JWT file browse.
+        from .plan_features import can_access_accounts_panel, is_org_admin
+
+        claims = get_jwt() or {}
+        emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+        privileged = emp_type_lower in (
+            "account", "accounts", "accountant", "hr", "human resource", "admin"
+        ) or is_org_admin(claims) or can_access_accounts_panel(claims)
+        if not privileged:
+            return jsonify({"success": False, "message": "Access denied"}), 403
 
     uploads_root = _get_uploads_root()
 

@@ -35,11 +35,19 @@ it_bp = Blueprint("it", __name__)
 
 @it_bp.before_request
 def _it_plan_guard():
+    from flask_jwt_extended import get_jwt, verify_jwt_in_request
     from .plan_features import can_access_it_panel, plan_forbidden_response
 
     if request.method == "OPTIONS":
         return None
-    if not can_access_it_panel():
+
+    try:
+        verify_jwt_in_request()
+    except Exception:
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
+    claims = get_jwt() or {}
+    if not can_access_it_panel(claims):
         return plan_forbidden_response("it_panel")
     return None
 

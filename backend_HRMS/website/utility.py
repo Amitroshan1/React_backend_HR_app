@@ -142,13 +142,23 @@ def is_on_leave(admin_id, today):
 
 
 def is_wfh_allowed(admin_id):
-    # Example: reuse leave table with leave_type = 'WFH'
+    """True if approved WFH covers today (WorkFromHomeApplication or leave_type WFH)."""
+    today = date.today()
+
+    if WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id == admin_id,
+        WorkFromHomeApplication.status == "Approved",
+        WorkFromHomeApplication.start_date <= today,
+        WorkFromHomeApplication.end_date >= today,
+    ).first() is not None:
+        return True
+
     return LeaveApplication.query.filter(
         LeaveApplication.admin_id == admin_id,
         LeaveApplication.leave_type == "WFH",
         LeaveApplication.status == "Approved",
-        LeaveApplication.start_date <= date.today(),
-        LeaveApplication.end_date >= date.today()
+        LeaveApplication.start_date <= today,
+        LeaveApplication.end_date >= today,
     ).first() is not None
 
 

@@ -60,7 +60,8 @@ def create_app():
 
     # Uploads root for payslips/form16 etc. Set UPLOADS_ROOT in production to absolute path if files live elsewhere.
     app.config["UPLOADS_ROOT"] = os.getenv("UPLOADS_ROOT")
-    _max_upload_mb = int(os.getenv("MAX_CONTENT_LENGTH_MB", "800"))
+    # Default 100 MB limits DoS via huge uploads; assessment servers may set MAX_CONTENT_LENGTH_MB=800.
+    _max_upload_mb = int(os.getenv("MAX_CONTENT_LENGTH_MB", "100"))
     app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 
     # Vendor master instance: show "New customer deployment" in Admin panel (0 on per-customer servers)

@@ -37,7 +37,7 @@ def _norm(value):
 
 
 def _admin_required(fn):
-    """Decorator: JWT required and emp_type must be Admin/Administrator/Administration."""
+    """Decorator: JWT required and emp_type must be Admin/Administrator/Administration or Super Admin."""
     from functools import wraps
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -45,7 +45,7 @@ def _admin_required(fn):
         if not claims:
             return jsonify({"success": False, "message": "Unauthorized"}), 401
         emp_type = _norm(claims.get("emp_type") or "")
-        if emp_type not in ADMIN_EMP_TYPES:
+        if emp_type not in ADMIN_EMP_TYPES and "super" not in emp_type:
             return jsonify({
                 "success": False,
                 "message": "Admin access required"

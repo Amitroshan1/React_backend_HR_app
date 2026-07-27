@@ -117,16 +117,30 @@ EX_EMPLOYEE_LINK_TTL_HOURS = 48
 @hr.before_request
 def _hr_plan_guard():
     from flask import request
+    from flask_jwt_extended import get_jwt, verify_jwt_in_request
     from .plan_features import can_access_hr_operations, has_feature, plan_forbidden_response
 
     if request.method == "OPTIONS":
         return None
     path = request.path or ""
+    # Public / tokenized flows
     if "/assessment/public" in path:
         return None
     if "/ats/public/offer" in path:
         return None
-    if not can_access_hr_operations():
+    # Employee self-service endpoints that live on this blueprint
+    if "/holidays/user" in path:
+        return None
+    if path.rstrip("/").endswith("/reset-password"):
+        return None
+
+    try:
+        verify_jwt_in_request()
+    except Exception:
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+
+    claims = get_jwt() or {}
+    if not can_access_hr_operations(claims):
         return plan_forbidden_response("hr_panel")
     if "/assessment/" in path and not has_feature("hr_assessment_invite"):
         return plan_forbidden_response("hr_assessment_invite")
@@ -310,6 +324,7 @@ def _is_allowed_profile_designation(value):
 
 @hr.route("/designations", methods=["GET"])
 @jwt_required()
+@hr_required
 def list_profile_designations():
     """Distinct designations in use, merged with the default seed list."""
     defaults = sorted(ALLOWED_PROFILE_DESIGNATIONS)
@@ -1238,10 +1253,32 @@ def signup_api():
 @hr_required
 def send_password_reset():
     """HR sends a password reset link to an employee. Link expires in 1 hour; user sets their own password."""
+    from .rate_limit import client_ip, enforce
+
+    claims = get_jwt() or {}
+    hr_key = (claims.get("email") or client_ip()).strip().lower()
+    blocked = enforce(
+        f"hr-reset:actor:{hr_key}",
+        limit=20,
+        window_seconds=3600,
+        message="Too many password-reset emails sent. Please try again later.",
+    )
+    if blocked:
+        return blocked
+
     data = request.get_json() or {}
     employee_email = (data.get("employee_email") or "").strip()
     if not employee_email:
         return jsonify({"success": False, "message": "employee_email is required"}), 400
+
+    blocked = enforce(
+        f"hr-reset:target:{employee_email.lower()}",
+        limit=3,
+        window_seconds=3600,
+        message="Too many reset emails for this employee. Please try again later.",
+    )
+    if blocked:
+        return blocked
 
     admin = Admin.query.filter_by(email=employee_email).first()
     if not admin:
@@ -1405,6 +1442,7 @@ def _profile_completeness_score(admin) -> int:
 
 @hr.route("/dashboard", methods=["GET"])
 @jwt_required()
+@hr_required
 def hr_dashboard_api():
     today = date.today()
     current_day = today.day
@@ -2821,6 +2859,7 @@ def get_archived_employee_profile(employee_id):
 
 @hr.route("/search", methods=["GET"])
 @jwt_required()
+@hr_required
 def search_employees():
     circle = request.args.get("circle")
     emp_type = request.args.get("emp_type")
@@ -2930,6 +2969,7 @@ def serialize(queryset):
 
 @hr.route("/display-details", methods=["GET"])
 @jwt_required()
+@hr_required
 def display_details_api():
     user_id = request.args.get("user_id", type=int)
     detail_type = request.args.get("detail_type")
@@ -3463,6 +3503,7 @@ def hr_replace_employee_punch_sessions(admin_id):
 
 @hr.route("/employee/<emp_id>", methods=["GET"])
 @jwt_required()
+@hr_required
 def get_employee(emp_id):
     emp = Employee.query.filter_by(emp_id=emp_id).first()
     if not emp:
@@ -3478,6 +3519,7 @@ def get_employee(emp_id):
 
 @hr.route("/employee/<emp_id>", methods=["PUT"])
 @jwt_required()
+@hr_required
 def update_employee_api(emp_id):
     emp = Employee.query.filter_by(emp_id=emp_id).first()
     if not emp:
@@ -6319,6 +6361,7 @@ def assign_asset():
 
 @hr.route("/assets/<int:asset_id>", methods=["PUT"])
 @jwt_required()
+@hr_required
 def update_asset_api(asset_id):
     asset = Asset.query.get(asset_id)
     if not asset:

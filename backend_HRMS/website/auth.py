@@ -295,6 +295,20 @@ def revoke_sensitive_access():
 OTP_TTL_MINUTES = 5
 OTP_RESEND_SECONDS = 60
 OTP_MAX_ATTEMPTS = 5
+# Anti-bombing / anti-enumeration (in-process; also put nginx limits in front of these routes)
+OTP_IP_LIMIT_PER_HOUR = 10
+OTP_IDENTIFIER_LIMIT_PER_HOUR = 5
+OTP_IDENTIFIER_LIMIT_PER_DAY = 15
+VERIFY_OTP_IP_LIMIT_PER_HOUR = 30
+PINCODE_IP_LIMIT_PER_HOUR = 60
+SENSITIVE_OTP_IP_LIMIT_PER_HOUR = 10
+SENSITIVE_OTP_USER_LIMIT_PER_DAY = 20
+MAX_PUNCH_SESSIONS_PER_DAY = 8
+GEO_REASON_MIN_CHARS = 10
+OTP_GENERIC_SENT_MESSAGE = (
+    "If an account exists for this email, an OTP has been sent. "
+    "Please check your inbox."
+)
 
 
 def _hash_otp(code: str) -> str:
@@ -354,6 +368,8 @@ def _issue_login_token(admin):
 @auth.route("/request-otp", methods=["POST"])
 def request_otp():
     """Send a login OTP to email. Phone/SMS is reserved for a later release."""
+    from .rate_limit import client_ip, enforce
+
     data = request.get_json(silent=True) or {}
     identifier = _normalize_login_identifier(data.get("identifier") or data.get("email") or "")
     if not identifier:
@@ -376,31 +392,44 @@ def request_otp():
             "message": "Phone OTP is coming soon. Please login with your registered email for now.",
         }), 501
 
-    admin = _find_admin_for_login(channel, value)
-    if not admin:
-        return jsonify({
-            "success": False,
-            "message": "No account found with this email",
-        }), 404
+    ip = client_ip()
+    blocked = enforce(
+        f"login-otp:ip:{ip}",
+        limit=OTP_IP_LIMIT_PER_HOUR,
+        window_seconds=3600,
+        message="Too many OTP requests from this network. Please try again later.",
+    )
+    if blocked:
+        return blocked
+    blocked = enforce(
+        f"login-otp:id:{value}",
+        limit=OTP_IDENTIFIER_LIMIT_PER_HOUR,
+        window_seconds=3600,
+        message="Too many OTP requests for this account. Please try again later.",
+    )
+    if blocked:
+        return blocked
+    blocked = enforce(
+        f"login-otp:id-day:{value}",
+        limit=OTP_IDENTIFIER_LIMIT_PER_DAY,
+        window_seconds=86400,
+        message="Daily OTP limit reached for this account. Please try again tomorrow.",
+    )
+    if blocked:
+        return blocked
 
+    admin = _find_admin_for_login(channel, value)
     from .offboarding_service import admin_login_allowed
 
-    if not admin_login_allowed(admin):
-        if getattr(admin, "is_exited", False):
-            return jsonify({
-                "success": False,
-                "message": "Your account has been exited. Please contact HR.",
-            }), 403
+    # Anti-enumeration: same response whether missing/inactive/exited (no email sent).
+    if not admin or not admin_login_allowed(admin) or not admin.email:
         return jsonify({
-            "success": False,
-            "message": "Your account is inactive. Please contact HR.",
-        }), 403
-
-    if not admin.email:
-        return jsonify({
-            "success": False,
-            "message": "No email is registered for this account. Please contact HR.",
-        }), 400
+            "success": True,
+            "channel": "email",
+            "message": OTP_GENERIC_SENT_MESSAGE,
+            "expires_in": OTP_TTL_MINUTES * 60,
+            "resend_after": OTP_RESEND_SECONDS,
+        }), 200
 
     # Persist cleaned email if DB row has whitespace
     cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip().lower()
@@ -454,15 +483,10 @@ def request_otp():
             "message": "Could not send OTP email. Please try again later.",
         }), 502
 
-    masked = admin.email
-    if "@" in masked:
-        local, domain = masked.split("@", 1)
-        masked = (local[:2] + "***@" + domain) if len(local) > 2 else ("***@" + domain)
-
     return jsonify({
         "success": True,
         "channel": "email",
-        "message": f"OTP sent to {masked}",
+        "message": OTP_GENERIC_SENT_MESSAGE,
         "expires_in": OTP_TTL_MINUTES * 60,
         "resend_after": OTP_RESEND_SECONDS,
     }), 200
@@ -471,6 +495,17 @@ def request_otp():
 @auth.route("/verify-otp", methods=["POST"])
 def verify_otp():
     """Verify login OTP and issue JWT (same shape as former password login)."""
+    from .rate_limit import client_ip, enforce
+
+    blocked = enforce(
+        f"verify-otp:ip:{client_ip()}",
+        limit=VERIFY_OTP_IP_LIMIT_PER_HOUR,
+        window_seconds=3600,
+        message="Too many OTP verification attempts. Please try again later.",
+    )
+    if blocked:
+        return blocked
+
     data = request.get_json(silent=True) or {}
     identifier = _normalize_login_identifier(data.get("identifier") or data.get("email") or "")
     otp_code = str(data.get("otp") or data.get("otp_code") or "").strip()
@@ -578,9 +613,28 @@ def _resolve_jwt_admin():
 @jwt_required()
 def request_sensitive_otp():
     """Email OTP to unlock payslip / tax data. All roles must verify OTP."""
+    from .rate_limit import client_ip, enforce
+
     admin = _resolve_jwt_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    blocked = enforce(
+        f"sensitive-otp:ip:{client_ip()}",
+        limit=SENSITIVE_OTP_IP_LIMIT_PER_HOUR,
+        window_seconds=3600,
+        message="Too many sensitive OTP requests. Please try again later.",
+    )
+    if blocked:
+        return blocked
+    blocked = enforce(
+        f"sensitive-otp:user:{admin.id}",
+        limit=SENSITIVE_OTP_USER_LIMIT_PER_DAY,
+        window_seconds=86400,
+        message="Daily sensitive OTP limit reached. Please try again tomorrow.",
+    )
+    if blocked:
+        return blocked
 
     if not admin.email:
         return jsonify({
@@ -1231,6 +1285,17 @@ def _fetch_postal_pincode_json(pin):
 @auth.route('/pincode/<pincode>', methods=['GET'])
 def pincode_lookup(pincode):
     """Look up Indian postal pincode → city, district, state (India Post data via postalpincode.in)."""
+    from .rate_limit import client_ip, enforce
+
+    blocked = enforce(
+        f"pincode:ip:{client_ip()}",
+        limit=PINCODE_IP_LIMIT_PER_HOUR,
+        window_seconds=3600,
+        message="Too many pincode lookups. Please try again later.",
+    )
+    if blocked:
+        return blocked
+
     pin = str(pincode or '').strip()
     if not re.match(r'^\d{6}$', pin):
         return jsonify({"success": False, "message": "Enter a valid 6-digit pincode"}), 400
@@ -1841,6 +1906,12 @@ def punch_in():
             PunchSession.clock_out.isnot(None),
         ).count()
     )
+    if closed_count >= MAX_PUNCH_SESSIONS_PER_DAY:
+        return jsonify({
+            "success": False,
+            "message": f"Maximum {MAX_PUNCH_SESSIONS_PER_DAY} punch sessions allowed per day.",
+        }), 400
+
     repeat_reason = (data.get("repeat_punch_reason") or data.get("repeat_reason") or "").strip()
     if closed_count > 0 and len(repeat_reason) < 3:
         return jsonify({
@@ -1853,12 +1924,38 @@ def punch_in():
     zone = geo["zone"]
     location_status = geo["location_status"]
 
+    # Anti punch-in bypass: outside / no GPS requires approved WFH or a written reason.
+    if needs_reason_for_zone(zone):
+        wfh_ok = is_wfh or is_wfh_allowed(employee.id)
+        if is_wfh and not is_wfh_allowed(employee.id):
+            return jsonify({
+                "success": False,
+                "message": "WFH mode is not approved for today",
+            }), 403
+        if not wfh_ok and len(geo_reason) < GEO_REASON_MIN_CHARS:
+            return jsonify({
+                "success": False,
+                "message": (
+                    f"You are outside the office geofence. "
+                    f"Enter a reason (at least {GEO_REASON_MIN_CHARS} characters) or use approved WFH."
+                ),
+                "requires_geo_reason": True,
+                "zone": zone,
+            }), 400
+        if wfh_ok and not is_wfh:
+            is_wfh = True
+
     now = datetime.now()
+    stored_repeat = repeat_reason if closed_count > 0 else None
+    if needs_reason_for_zone(zone) and geo_reason:
+        geo_note = f"geo: {geo_reason}"
+        stored_repeat = f"{stored_repeat} | {geo_note}" if stored_repeat else geo_note
+
     sess = PunchSession(
         punch_id=punch.id,
         clock_in=now,
         clock_out=None,
-        repeat_reason=repeat_reason if closed_count > 0 else None,
+        repeat_reason=stored_repeat,
         is_wfh=is_wfh,
         lat=user_lat,
         lon=user_lon,
@@ -1928,6 +2025,19 @@ def punch_out():
         now = datetime.now()
         is_auto = data.get("auto_system_punch_out") is True
 
+        if not is_auto and needs_reason_for_zone(zone):
+            wfh_ok = bool(getattr(open_sess, "is_wfh", False)) or is_wfh_allowed(employee.id)
+            if not wfh_ok and len(geo_reason) < GEO_REASON_MIN_CHARS:
+                return jsonify({
+                    "success": False,
+                    "message": (
+                        f"You are outside the office geofence. "
+                        f"Enter a reason (at least {GEO_REASON_MIN_CHARS} characters) to punch out."
+                    ),
+                    "requires_geo_reason": True,
+                    "zone": zone,
+                }), 400
+
         err_body, err_code = validate_manual_punch_out_extended_reason(open_sess, data, now)
         if err_body:
             return jsonify(err_body), err_code
@@ -1946,6 +2056,9 @@ def punch_out():
             ext_trim = (data.get("extended_hours_reason") or "").strip()
             if len(ext_trim) >= 3:
                 ext_reason = ext_trim
+            if needs_reason_for_zone(zone) and geo_reason:
+                geo_note = f"geo_out: {geo_reason}"
+                ext_reason = f"{ext_reason} | {geo_note}" if ext_reason else geo_note
 
         close_punch_session(
             open_sess,

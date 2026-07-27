@@ -86,6 +86,21 @@ export const AppLayout = () => {
             navigate("/dashboard", { replace: true });
             return;
         }
+
+        if (path.startsWith("/manager")) {
+            const roleKey = String(user?.emp_type || user?.department || "")
+                .trim()
+                .toLowerCase()
+                .replace(/-/g, " ");
+            const hasManagerAccess =
+                userData?.user?.has_manager_access === true
+                || ["manager", "managers"].includes(roleKey);
+            if (!hasManagerAccess) {
+                navigate("/dashboard", { replace: true });
+                return;
+            }
+        }
+
         if (
             (path === "/payslip"
                 || path === "/tax-declaration"

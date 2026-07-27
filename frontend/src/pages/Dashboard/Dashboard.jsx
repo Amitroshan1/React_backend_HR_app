@@ -423,6 +423,9 @@ export const Dashboard = () => {
     const [punchInDateTime, setPunchInDateTime] = useState(null);
     const [repeatPunchModalOpen, setRepeatPunchModalOpen] = useState(false);
     const [repeatPunchReason, setRepeatPunchReason] = useState("");
+    const [geoReasonModalOpen, setGeoReasonModalOpen] = useState(false);
+    const [geoReason, setGeoReason] = useState("");
+    const [geoReasonMode, setGeoReasonMode] = useState("in"); // "in" | "out"
     const [extendedHoursModalOpen, setExtendedHoursModalOpen] = useState(false);
     const [extendedHoursReason, setExtendedHoursReason] = useState("");
     const [leaveBalanceModalOpen, setLeaveBalanceModalOpen] = useState(false);
@@ -840,12 +843,18 @@ export const Dashboard = () => {
             if (response.ok && result.success) {
                 setRepeatPunchModalOpen(false);
                 setRepeatPunchReason("");
+                setGeoReasonModalOpen(false);
+                setGeoReason("");
                 alert(`Punched In Successfully at ${formatTime(result.punch_in)}!`);
                 await fetchDashboardData(false);
             } else {
                 // If location is out of range, update state
                 if (result.message && result.message.includes("Too far")) {
                     setLocation(prev => ({ ...prev, isInRange: false }));
+                }
+                if (result.requires_geo_reason) {
+                    setGeoReasonMode("in");
+                    setGeoReasonModalOpen(true);
                 }
                 if (result.requires_repeat_punch_reason) {
                     setRepeatPunchModalOpen(true);
@@ -893,12 +902,17 @@ export const Dashboard = () => {
                 await fetchDashboardData();
                 setExtendedHoursModalOpen(false);
                 setExtendedHoursReason("");
+                setGeoReasonModalOpen(false);
+                setGeoReason("");
                 alert(`Punched Out Successfully! Total Today's Work: ${result.today_work || 'N/A'}`);
             } else {
                 if (result.message && result.message.includes("Too far")) {
                     setLocation(prev => ({ ...prev, isInRange: false }));
                 }
-                if (result.requires_extended_hours_reason) {
+                if (result.requires_geo_reason) {
+                    setGeoReasonMode("out");
+                    setGeoReasonModalOpen(true);
+                } else if (result.requires_extended_hours_reason) {
                     setExtendedHoursModalOpen(true);
                 } else {
                     alert(`Punch Out Failed: ${result.message || 'Server error.'}`);
@@ -928,10 +942,20 @@ export const Dashboard = () => {
             setRepeatPunchModalOpen(true);
             return;
         }
+        if (geo.requiresReason || !location.isInRange) {
+            setGeoReasonMode("in");
+            setGeoReasonModalOpen(true);
+            return;
+        }
         await handlePunchIn("", "");
     };
     const onPunchOutClick = async () => {
         if (isPunching || !punchHasOpenSession()) return;
+        if (geo.requiresReason || !location.isInRange) {
+            setGeoReasonMode("out");
+            setGeoReasonModalOpen(true);
+            return;
+        }
         await handlePunchOut("");
     };
 
@@ -941,7 +965,31 @@ export const Dashboard = () => {
             alert("Please enter a reason (at least 3 characters).");
             return;
         }
-        await handlePunchIn("", t);
+        const geoTrim = geoReason.trim();
+        if ((geo.requiresReason || !location.isInRange) && geoTrim.length < 10) {
+            setGeoReasonMode("in");
+            setGeoReasonModalOpen(true);
+            return;
+        }
+        await handlePunchIn(geoTrim, t);
+    };
+
+    const submitGeoReasonPunch = async () => {
+        const t = geoReason.trim();
+        if (t.length < 10) {
+            alert("Please enter a location reason (at least 10 characters).");
+            return;
+        }
+        if (geoReasonMode === "out") {
+            await handlePunchOut(t);
+            return;
+        }
+        const repeatTrim = repeatPunchReason.trim();
+        if (dynamicData.punch.requires_repeat_punch_reason && repeatTrim.length < 3) {
+            setRepeatPunchModalOpen(true);
+            return;
+        }
+        await handlePunchIn(t, repeatTrim);
     };
 
     const submitExtendedHoursPunchOut = async () => {
@@ -1528,6 +1576,58 @@ export const Dashboard = () => {
                             onClick={submitRepeatPunchIn}
                         >
                             {isPunching ? "Submitting…" : "Confirm punch in"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        {geoReasonModalOpen && (
+            <div
+                className="dashboard-repeat-punch-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="geo-reason-title"
+                onClick={() => !isPunching && setGeoReasonModalOpen(false)}
+            >
+                <div className="dashboard-repeat-punch-modal" onClick={(e) => e.stopPropagation()}>
+                    <h3 id="geo-reason-title">
+                        {geoReasonMode === "out" ? "Outside office — punch out reason" : "Outside office — punch in reason"}
+                    </h3>
+                    <p className="dashboard-repeat-punch-hint">
+                        Your location is outside the office geofence. Enter a reason (at least 10 characters),
+                        or punch from an approved WFH day.
+                    </p>
+                    <textarea
+                        className="dashboard-repeat-punch-textarea"
+                        value={geoReason}
+                        onChange={(e) => setGeoReason(e.target.value)}
+                        placeholder="e.g. Client site visit at ABC Corp / field duty"
+                        rows={4}
+                        disabled={isPunching}
+                    />
+                    <div className="dashboard-repeat-punch-actions">
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn secondary"
+                            disabled={isPunching}
+                            onClick={() => {
+                                setGeoReasonModalOpen(false);
+                                setGeoReason("");
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn primary"
+                            disabled={isPunching}
+                            onClick={submitGeoReasonPunch}
+                        >
+                            {isPunching
+                                ? "Submitting…"
+                                : geoReasonMode === "out"
+                                    ? "Confirm punch out"
+                                    : "Confirm punch in"}
                         </button>
                     </div>
                 </div>
