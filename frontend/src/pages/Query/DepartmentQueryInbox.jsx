@@ -333,6 +333,7 @@ export const DepartmentQueryInbox = () => {
     const chatId = activeChat?.id;
     if (!chatId) return undefined;
     const poll = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       openChatRef.current?.({ id: chatId }, { silent: true, skipUrl: true });
       fetchInbox(undefined, { silent: true });
     };
@@ -343,6 +344,7 @@ export const DepartmentQueryInbox = () => {
   useEffect(() => {
     if (activeChat?.id) return undefined;
     const intervalId = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       fetchInbox(undefined, { silent: true });
     }, QUERY_INBOX_POLL_MS);
     return () => window.clearInterval(intervalId);

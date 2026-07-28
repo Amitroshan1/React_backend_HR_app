@@ -534,7 +534,7 @@ export const Profile = () => {
                 showToast('Profile picture updated successfully.');
                 setSaveStatus('Saved!');
                 bumpPhotoVersion?.();
-                refreshUserData();
+                refreshUserData({ force: true });
                 fetchProfile({ silent: true });
             } else {
                 showToast(data.message || 'Failed to upload photo.', 'error');

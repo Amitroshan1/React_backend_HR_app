@@ -301,13 +301,13 @@ export const Leaves= () => {
 
     useRefreshOnNavigate(() => {
         fetchLeaveRequests();
-        refreshUserData();
+        refreshUserData({ force: false });
     });
 
     useEffect(() => {
         const onLeaveDataChanged = () => {
             fetchLeaveRequests();
-            refreshUserData();
+            refreshUserData({ force: true });
         };
         window.addEventListener('leaveApplied', onLeaveDataChanged);
         window.addEventListener('leaveDataUpdated', onLeaveDataChanged);
@@ -318,13 +318,13 @@ export const Leaves= () => {
     }, [refreshUserData]);
 
     useEffect(() => {
-        const onFocus = () => refreshUserData();
+        const onFocus = () => refreshUserData({ force: false });
         window.addEventListener('focus', onFocus);
         return () => window.removeEventListener('focus', onFocus);
     }, [refreshUserData]);
 
     const handleOpenApplyModal = useCallback(async () => {
-        await Promise.all([fetchLeaveRequests(), refreshUserData()]);
+        await Promise.all([fetchLeaveRequests(), refreshUserData({ force: true })]);
         setIsModalOpen(true);
     }, [refreshUserData]);
 
@@ -350,7 +350,7 @@ export const Leaves= () => {
                 return;
             }
             await fetchLeaveRequests();
-            await refreshUserData();
+            await refreshUserData({ force: true });
             window.dispatchEvent(new CustomEvent("leaveDataUpdated"));
             alert("Leave request cancelled.");
         } catch (err) {
@@ -407,7 +407,7 @@ export const Leaves= () => {
                 // Add small delay to ensure DB commit is complete
                 await new Promise(resolve => setTimeout(resolve, 500));
                 await fetchLeaveRequests();
-                await refreshUserData();
+                await refreshUserData({ force: true });
                 // Notify attendance page to refresh
                 window.dispatchEvent(new CustomEvent('leaveApplied'));
                 alert("Leave applied successfully!");

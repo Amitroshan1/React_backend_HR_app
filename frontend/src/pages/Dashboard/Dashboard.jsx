@@ -507,8 +507,20 @@ export const Dashboard = () => {
             dynamicData.punch.has_open_session ??
             !!(dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
         if (!open || loading) return undefined;
-        const id = setInterval(() => fetchDashboardData(false), 60_000);
-        return () => clearInterval(id);
+        const id = setInterval(() => {
+            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+                return;
+            }
+            fetchDashboardData(false);
+        }, 60_000);
+        const onVisibility = () => {
+            if (document.visibilityState === "visible") fetchDashboardData(false);
+        };
+        document.addEventListener("visibilitychange", onVisibility);
+        return () => {
+            clearInterval(id);
+            document.removeEventListener("visibilitychange", onVisibility);
+        };
     }, [
         loading,
         dynamicData.punch.has_open_session,
@@ -751,9 +763,21 @@ export const Dashboard = () => {
         };
         
         checkLocation();
-        const locationInterval = setInterval(checkLocation, 30000);
-        
-        return () => clearInterval(locationInterval);
+        const locationInterval = setInterval(() => {
+            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+                return;
+            }
+            checkLocation();
+        }, 30000);
+        const onVisibility = () => {
+            if (document.visibilityState === "visible") checkLocation();
+        };
+        document.addEventListener("visibilitychange", onVisibility);
+
+        return () => {
+            clearInterval(locationInterval);
+            document.removeEventListener("visibilitychange", onVisibility);
+        };
     }, []);
 
     useEffect(() => {
@@ -853,13 +877,14 @@ export const Dashboard = () => {
                     setLocation(prev => ({ ...prev, isInRange: false }));
                 }
                 if (result.requires_geo_reason) {
+                    setLocation((prev) => ({ ...prev, isInRange: false }));
                     setGeoReasonMode("in");
                     setGeoReasonModalOpen(true);
-                }
-                if (result.requires_repeat_punch_reason) {
+                } else if (result.requires_repeat_punch_reason) {
                     setRepeatPunchModalOpen(true);
+                } else {
+                    alert(`Punch In Failed: ${result.message || 'Server error.'}`);
                 }
-                alert(`Punch In Failed: ${result.message || 'Server error.'}`);
             }
         } catch (error) {
             console.error("Punch In error:", error);

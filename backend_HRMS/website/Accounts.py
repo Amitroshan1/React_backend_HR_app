@@ -77,7 +77,6 @@ Accounts = Blueprint('Accounts', __name__)
 _ACCOUNTS_ROUTE_FEATURES = (
     ("account_payroll", ("/payroll", "/payroll-summary")),
     ("account_ctc_breakup", ("/ctc-breakup", "/tds", "/tax-rules")),
-    ("account_for_client", ("/download-excel-client",)),
 )
 
 
@@ -85,7 +84,13 @@ _ACCOUNTS_ROUTE_FEATURES = (
 def _accounts_plan_guard():
     from flask import request
     from flask_jwt_extended import get_jwt, verify_jwt_in_request
-    from .plan_features import can_access_accounts_panel, has_feature, plan_forbidden_response
+    from .plan_features import (
+        can_access_accounts_panel,
+        can_access_employee_accounts_module,
+        can_access_for_client_export,
+        has_feature,
+        plan_forbidden_response,
+    )
 
     if request.method == "OPTIONS":
         return None
@@ -112,6 +117,17 @@ def _accounts_plan_guard():
         return jsonify({"success": False, "message": "Unauthorized"}), 401
 
     claims = get_jwt() or {}
+
+    # HR + Accounts shared modules (only these two) — do not require full Accounts panel.
+    if any(p in path for p in ("/employee-accounts-profile",)):
+        if not can_access_employee_accounts_module(claims):
+            return plan_forbidden_response("hr_employee_accounts")
+        return None
+    if "/download-excel-client" in path:
+        if not can_access_for_client_export(claims):
+            return plan_forbidden_response("account_for_client")
+        return None
+
     if not can_access_accounts_panel(claims):
         return plan_forbidden_response("account_panel")
 

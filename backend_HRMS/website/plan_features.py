@@ -42,9 +42,8 @@ BASIC_DISABLED = frozenset({
     "hr_ex_employee_docs",
     "query_all_departments",
     "query_hr_and_accounts",
-    "hr_employee_accounts",
+    # hr_employee_accounts + account_for_client: available to HR and Accounts on all plans
     "payslip_payroll_history",
-    "account_for_client",
     "account_payroll",
     "account_ctc_breakup",
     "account_full_employee_view",
@@ -56,9 +55,8 @@ ESSENTIAL_DISABLED = frozenset({
     "hr_assessment_invite",
     "hr_ex_employee_docs",
     "query_all_departments",
-    "hr_employee_accounts",
+    # hr_employee_accounts + account_for_client: available to HR and Accounts on all plans
     "payslip_payroll_history",
-    "account_for_client",
     "account_payroll",
     "account_ctc_breakup",
     "account_full_employee_view",
@@ -211,6 +209,31 @@ def can_access_accounts_panel(claims: Optional[dict] = None) -> bool:
     if not has_feature("account_panel"):
         return False
     return is_accounts_role(claims)
+
+
+def can_access_hr_or_accounts_shared(claims: Optional[dict] = None) -> bool:
+    """HR, Accounts, or org Admin — for the two shared modules only."""
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    return is_org_admin(claims) or is_hr_role(claims) or is_accounts_role(claims)
+
+
+def can_access_employee_accounts_module(claims: Optional[dict] = None) -> bool:
+    """Employee Accounts profile — HR and Accounts (when feature enabled)."""
+    if not has_feature("hr_employee_accounts"):
+        return False
+    return can_access_hr_or_accounts_shared(claims)
+
+
+def can_access_for_client_export(claims: Optional[dict] = None) -> bool:
+    """For Client attendance export — HR and Accounts (when feature enabled)."""
+    if not has_feature("account_for_client"):
+        return False
+    return can_access_hr_or_accounts_shared(claims)
 
 
 def is_hr_department(name: str) -> bool:

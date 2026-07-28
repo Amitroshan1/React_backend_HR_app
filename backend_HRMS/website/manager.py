@@ -807,6 +807,77 @@ def act_on_resignation_request(resignation_id):
     return jsonify({"success": True, "message": f"Resignation request {resignation.status.lower()}"}), 200
 
 
+@manager.route("/pending-counts", methods=["GET"])
+@jwt_required()
+def pending_request_counts():
+    """Lightweight badge counts — avoids loading 5 full request lists."""
+    admin, err = _ensure_manager_user()
+    if err:
+        return err
+
+    team_ids = list(_team_member_admin_ids(admin))
+    if _self_approval_allowed_for_admin(admin) and admin.id not in team_ids:
+        team_ids.append(admin.id)
+
+    leave_count = 0
+    wfh_count = 0
+    claim_count = 0
+    resignation_count = 0
+    noc_count = 0
+
+    if team_ids:
+        leave_count = (
+            LeaveApplication.query.filter(
+                LeaveApplication.status == "Pending",
+                LeaveApplication.admin_id.in_(team_ids),
+            ).count()
+        )
+        wfh_count = (
+            WorkFromHomeApplication.query.filter(
+                WorkFromHomeApplication.status == "Pending",
+                WorkFromHomeApplication.admin_id.in_(team_ids),
+            ).count()
+        )
+        resignation_count = (
+            Resignation.query.filter(
+                Resignation.status == "Pending",
+                Resignation.admin_id.in_(team_ids),
+            ).count()
+        )
+
+        claim_rows = (
+            ExpenseClaimHeader.query.filter(ExpenseClaimHeader.admin_id.in_(team_ids))
+            .order_by(ExpenseClaimHeader.id.desc())
+            .all()
+        )
+        for row in claim_rows:
+            line_items = (
+                ExpenseLineItem.query.filter_by(claim_id=row.id)
+                .order_by(ExpenseLineItem.sr_no.asc())
+                .all()
+            )
+            if _claim_status(line_items).lower() == "pending":
+                claim_count += 1
+
+    try:
+        noc_items = list_noc_requests("manager", admin, "Pending")
+        noc_count = len(noc_items or [])
+    except Exception:
+        current_app.logger.exception("pending_request_counts: noc count failed")
+        noc_count = 0
+
+    return jsonify({
+        "success": True,
+        "counts": {
+            "leave": leave_count,
+            "wfh": wfh_count,
+            "claim": claim_count,
+            "resignation": resignation_count,
+            "noc": noc_count,
+        },
+    }), 200
+
+
 @manager.route("/noc-requests", methods=["GET"])
 @jwt_required()
 def list_noc_department_requests():

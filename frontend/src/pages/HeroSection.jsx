@@ -153,7 +153,7 @@ export const HeroSection = () => {
         localStorage.setItem("token", data.token);
         localStorage.setItem("lastActivityAt", String(Date.now()));
         setPlanContext(data.plan, data.features);
-        await refreshUserData();
+        await refreshUserData({ force: true });
         toast.success("Login successful!");
         navigate("/dashboard", { replace: true });
         setError("");

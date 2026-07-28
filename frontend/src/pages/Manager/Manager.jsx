@@ -119,6 +119,7 @@ export const Manager = () => {
     let isMounted = true;
     let timerId = null;
     const load = async () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       try {
         const count = await fetchPendingPerformanceReviewsCount();
         if (isMounted) {
@@ -132,9 +133,14 @@ export const Manager = () => {
     };
     load();
     timerId = window.setInterval(load, 30000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       isMounted = false;
       if (timerId) window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

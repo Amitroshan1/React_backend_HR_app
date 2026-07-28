@@ -182,7 +182,7 @@ export const Claims = () => {
   };
 
   useRefreshOnNavigate(() => {
-    refreshUserData();
+    refreshUserData({ force: false });
     fetchClaims();
   });
 

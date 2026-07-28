@@ -147,9 +147,21 @@ export default function OpenTicket() {
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
       loadTickets().catch(() => {});
     }, QUERY_INBOX_POLL_MS);
-    return () => window.clearInterval(intervalId);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        loadTickets().catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [loadTickets]);
 
   const markTicketRead = useCallback(async (ticketId) => {

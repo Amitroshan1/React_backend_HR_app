@@ -796,6 +796,7 @@ export const Queries = () => {
     const chatId = activeChat?.id;
     if (!chatId) return undefined;
     const poll = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       openChatRef.current?.({ id: chatId }, { silent: true, skipUrl: true });
       fetchMyQueries({ silent: true });
     };
@@ -806,6 +807,7 @@ export const Queries = () => {
   useEffect(() => {
     if (activeChat?.id) return undefined;
     const intervalId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       fetchMyQueries({ silent: true });
     }, QUERY_INBOX_POLL_MS);
     return () => window.clearInterval(intervalId);

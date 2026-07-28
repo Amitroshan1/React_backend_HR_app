@@ -1930,6 +1930,10 @@ export const Hr = () => {
   };
 
   const handleDownloadClientAllFromSearch = async () => {
+    if (!hasFeature('account_for_client')) {
+      alert('For Client export is not included in your subscription plan.');
+      return;
+    }
     if (!selectedCircle || !selectedEmployeeType) {
       alert('Please search by Circle and Employee Type first.');
       return;
@@ -3051,14 +3055,16 @@ if (view === 'noc_requests') {
                     <button type="button" className="btn-success" onClick={(e) => { e.stopPropagation(); handleDownloadAllFromSearch(); }} disabled={searchDownloading}>
                       <Download size={16}/> {searchDownloading ? 'Downloading...' : 'Download Attendance'}
                     </button>
-                    <button
-                      type="button"
-                      className="btn-success"
-                      onClick={(e) => { e.stopPropagation(); handleDownloadClientAllFromSearch(); }}
-                      disabled={searchClientDownloading}
-                    >
-                      <Download size={16}/> {searchClientDownloading ? 'Downloading...' : 'For Client'}
-                    </button>
+                    {hasFeature('account_for_client') ? (
+                      <button
+                        type="button"
+                        className="btn-success"
+                        onClick={(e) => { e.stopPropagation(); handleDownloadClientAllFromSearch(); }}
+                        disabled={searchClientDownloading}
+                      >
+                        <Download size={16}/> {searchClientDownloading ? 'Downloading...' : 'For Client'}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>

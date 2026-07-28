@@ -149,6 +149,29 @@ export async function uploadNocDepartmentRequest(requestId, file, apiBase = API_
 }
 
 export async function fetchPendingCounts() {
+  try {
+    const response = await fetch(`${API_BASE}/pending-counts`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        ...authHeaders(),
+      },
+    });
+    const result = await parseApiJson(response);
+    if (response.ok && result.success && result.counts) {
+      return {
+        leave: Number(result.counts.leave || 0),
+        wfh: Number(result.counts.wfh || 0),
+        claim: Number(result.counts.claim || 0),
+        resignation: Number(result.counts.resignation || 0),
+        noc: Number(result.counts.noc || 0),
+      };
+    }
+  } catch {
+    /* fall through to legacy multi-list path */
+  }
+
+  // Fallback for older backends without /pending-counts
   const [leave, wfh, claim, resignation, noc] = await Promise.all([
     fetchManagerRequests("leave", "Pending"),
     fetchManagerRequests("wfh", "Pending"),

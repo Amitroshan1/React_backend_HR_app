@@ -436,6 +436,9 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
         const fetchUnreadCount = async () => {
             if (!token) return;
+            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+                return;
+            }
             try
              {
                 const response = await fetch("/api/notifications/unread-count",
@@ -468,11 +471,16 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         const onQueryNotificationsUpdated = () => {
             fetchUnreadCount();
         };
+        const onVisibility = () => {
+            if (document.visibilityState === "visible") fetchUnreadCount();
+        };
         window.addEventListener("queryNotificationsUpdated", onQueryNotificationsUpdated);
+        document.addEventListener("visibilitychange", onVisibility);
         return () => {
             isMounted = false;
             if (timerId) window.clearInterval(timerId);
             window.removeEventListener("queryNotificationsUpdated", onQueryNotificationsUpdated);
+            document.removeEventListener("visibilitychange", onVisibility);
         };
     }, []);
 
@@ -483,6 +491,9 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
         const fetchNoticeInfo = async () => {
             if (!token) return;
+            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+                return;
+            }
             try {
                 const response = await fetch("/api/leave/seperation", {
                     method: "GET",
@@ -515,9 +526,14 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
         fetchNoticeInfo();
         timerId = window.setInterval(fetchNoticeInfo, 60000);
+        const onVisibility = () => {
+            if (document.visibilityState === "visible") fetchNoticeInfo();
+        };
+        document.addEventListener("visibilitychange", onVisibility);
         return () => {
             isMounted = false;
             if (timerId) window.clearInterval(timerId);
+            document.removeEventListener("visibilitychange", onVisibility);
         };
     }, []);
 

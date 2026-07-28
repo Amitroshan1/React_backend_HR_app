@@ -39,14 +39,25 @@ export const AppLayout = () => {
 
     useFloatingNotifications(hasToken && !loadingUser);
 
-    /* Refresh shared user/leave balance when navigating between pages (skip initial load). */
+    /* Refresh shared user shell only when stale (TTL inside UserContext), not on every click.
+       Also refresh when the window regains focus after being away. */
+    useEffect(() => {
+        if (!hasToken) return undefined;
+        const onFocus = () => {
+            refreshUserData({ force: false });
+        };
+        window.addEventListener("focus", onFocus);
+        return () => window.removeEventListener("focus", onFocus);
+    }, [hasToken, refreshUserData]);
+
     useEffect(() => {
         if (!hasToken) return;
         const path = location.pathname || "";
         const search = location.search || "";
         const routeKey = `${path}${search}`;
         if (prevPathRef.current !== null && prevPathRef.current !== routeKey) {
-            refreshUserData();
+            // TTL-gated: no-op if homepage was fetched recently
+            refreshUserData({ force: false });
         }
         prevPathRef.current = routeKey;
     }, [location.pathname, location.search, refreshUserData, hasToken]);
