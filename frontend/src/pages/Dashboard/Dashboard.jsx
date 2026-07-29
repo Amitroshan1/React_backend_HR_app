@@ -31,6 +31,7 @@ import {
   acquireGpsFix,
   zoneToLocationLabel,
 } from "../../services/gpsAcquisition";
+import { loadGeoClientConfig, getGeoClientConfig } from "../../services/geoClientConfig";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 
 const NEWS_FEED_VISIBLE_DAYS = 6;
@@ -416,12 +417,17 @@ export const Dashboard = () => {
     const [error, setError] = useState(null);
     const [isPunching, setIsPunching] = useState(false);
     /** Poll-only indicator — NEVER submit these coords on Punch In/Out. */
-    const [location, setLocation] = useState({ 
-        lat: null, 
-        lon: null, 
-        error: null,
-        isAvailable: false,
-        isInRange: false
+    const [location, setLocation] = useState(() => {
+        try {
+            const cached = sessionStorage.getItem("dash_loc");
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Date.now() - (parsed._ts || 0) < 60000) {
+                    return { lat: parsed.lat, lon: parsed.lon, error: parsed.error, isAvailable: parsed.isAvailable, isInRange: parsed.isInRange };
+                }
+            }
+        } catch {}
+        return { lat: null, lon: null, error: null, isAvailable: false, isInRange: false };
     });
     const [geo, setGeo] = useState({
         zone: "NO_GPS",
@@ -770,63 +776,144 @@ export const Dashboard = () => {
   };
 
     useEffect(() => {
-        // Background poll for UI badge only — NEVER used as Punch coordinates.
-        const checkLocation = async () => {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    async (position) => {
-                        const lat = position.coords.latitude;
-                        const lon = position.coords.longitude;
-                        const locationData = await validateLocationRange(lat, lon);
-                        const inRange = !!locationData?.in_range;
-                        const zone = locationData?.zone || "NO_GPS";
-                        const errorMessage = inRange || zone === "NO_OFFICE_CONFIG"
-                            ? null
-                            : "You are outside office range. Punch In/Out requires a reason.";
-                        setLocation({
-                            lat,
-                            lon,
-                            error: errorMessage,
-                            isAvailable: true,
-                            isInRange: inRange,
-                        });
-                    },
-                    (err) => {
-                        console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
-                        setLocation((prev) => ({ 
-                            ...prev, 
-                            error: "Location access denied or unavailable. Punch In/Out requires location.",
-                            isAvailable: false,
-                            isInRange: false
-                        }));
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-                );
-            } else {
-                setLocation((prev) => ({ 
-                    ...prev, 
-                    error: "Geolocation not supported by this browser.",
-                    isAvailable: false,
-                    isInRange: false
-                }));
-            }
+        // Adaptive background poll for UI badge only — NEVER used as Punch coordinates.
+        // Config loaded async; use defaults synchronously until ready.
+        const dc = getGeoClientConfig().dashboard;
+        let POLL_INTERVAL_MS = dc.pollIntervalMs;
+        let STALE_THRESHOLD_MS = dc.staleThresholdMs;
+        let MIN_RECHECK_MS = dc.minRecheckMs;
+        let HA_TIMEOUT = dc.highAccuracyTimeoutMs;
+        let LA_TIMEOUT = dc.lowAccuracyTimeoutMs;
+        let HA_MAX_AGE = dc.highAccuracyMaxAgeMs;
+        let LA_MAX_AGE = dc.lowAccuracyMaxAgeMs;
+        let REFINE_DELAY = dc.highAccuracyRefineDelayMs;
+        let IDLE_CB_TIMEOUT = dc.idleCallbackTimeoutMs;
+
+        const lastCheckRef = { ts: 0 };
+        let pollTimer = null;
+        let alive = true;
+
+        // Load server config in background; update values if different
+        loadGeoClientConfig().then((cfg) => {
+            if (!alive) return;
+            const d = cfg.dashboard;
+            POLL_INTERVAL_MS = d.pollIntervalMs;
+            STALE_THRESHOLD_MS = d.staleThresholdMs;
+            MIN_RECHECK_MS = d.minRecheckMs;
+            HA_TIMEOUT = d.highAccuracyTimeoutMs;
+            LA_TIMEOUT = d.lowAccuracyTimeoutMs;
+            HA_MAX_AGE = d.highAccuracyMaxAgeMs;
+            LA_MAX_AGE = d.lowAccuracyMaxAgeMs;
+        });
+
+        const applyPosition = async (position) => {
+            if (!alive) return;
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            lastCheckRef.ts = Date.now();
+            const locationData = await validateLocationRange(lat, lon);
+            if (!alive) return;
+            const inRange = !!locationData?.in_range;
+            const zone = locationData?.zone || "NO_GPS";
+            const errorMessage = inRange || zone === "NO_OFFICE_CONFIG"
+                ? null
+                : "You are outside office range. Punch In/Out requires a reason.";
+            const next = { lat, lon, error: errorMessage, isAvailable: true, isInRange: inRange };
+            setLocation((prev) => {
+                if (prev.isInRange === next.isInRange && prev.isAvailable === next.isAvailable && prev.error === next.error) {
+                    return prev;
+                }
+                return next;
+            });
+            try { sessionStorage.setItem("dash_loc", JSON.stringify({ ...next, _ts: Date.now() })); } catch {}
         };
-        
-        checkLocation();
-        const locationInterval = setInterval(() => {
-            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+
+        const onError = (err) => {
+            if (!alive) return;
+            console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
+            setLocation((prev) => ({
+                ...prev,
+                error: "Location access denied or unavailable. Punch In/Out requires location.",
+                isAvailable: false,
+                isInRange: false,
+            }));
+        };
+
+        const checkLocation = (highAccuracy = false) => {
+            if (!alive || !navigator.geolocation) {
+                if (!navigator.geolocation) {
+                    setLocation((prev) => ({
+                        ...prev,
+                        error: "Geolocation not supported by this browser.",
+                        isAvailable: false,
+                        isInRange: false,
+                    }));
+                }
                 return;
             }
-            checkLocation();
-        }, 30000);
+            if (Date.now() - lastCheckRef.ts < MIN_RECHECK_MS) return;
+            navigator.geolocation.getCurrentPosition(
+                applyPosition,
+                onError,
+                {
+                    enableHighAccuracy: highAccuracy,
+                    timeout: highAccuracy ? HA_TIMEOUT : LA_TIMEOUT,
+                    maximumAge: highAccuracy ? HA_MAX_AGE : LA_MAX_AGE,
+                },
+            );
+        };
+
+        const schedulePoll = () => {
+            if (pollTimer) clearTimeout(pollTimer);
+            pollTimer = setTimeout(() => {
+                if (!alive) return;
+                if (document.visibilityState !== "visible") return;
+                checkLocation(true);
+                schedulePoll();
+            }, POLL_INTERVAL_MS);
+        };
+
+        // Delay initial GPS until after paint
+        const initialId = (typeof window.requestIdleCallback === "function")
+            ? window.requestIdleCallback(() => { checkLocation(false); schedulePoll(); }, { timeout: IDLE_CB_TIMEOUT })
+            : setTimeout(() => { checkLocation(false); schedulePoll(); }, 100);
+
+        // High-accuracy refinement after configurable delay
+        const refineTimeout = setTimeout(() => checkLocation(true), REFINE_DELAY);
+
+        // Visibility: suspend when hidden, refresh when visible again
         const onVisibility = () => {
-            if (document.visibilityState === "visible") checkLocation();
+            if (document.visibilityState === "visible") {
+                const age = Date.now() - lastCheckRef.ts;
+                if (age > STALE_THRESHOLD_MS) {
+                    checkLocation(true);
+                } else if (age > MIN_RECHECK_MS) {
+                    checkLocation(false);
+                }
+                schedulePoll();
+            } else {
+                if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+            }
         };
         document.addEventListener("visibilitychange", onVisibility);
 
+        // Network: refresh when coming back online
+        const onOnline = () => {
+            if (document.visibilityState === "visible") checkLocation(true);
+        };
+        window.addEventListener("online", onOnline);
+
         return () => {
-            clearInterval(locationInterval);
+            alive = false;
+            if (typeof window.cancelIdleCallback === "function") {
+                window.cancelIdleCallback(initialId);
+            } else {
+                clearTimeout(initialId);
+            }
+            clearTimeout(refineTimeout);
+            if (pollTimer) clearTimeout(pollTimer);
             document.removeEventListener("visibilitychange", onVisibility);
+            window.removeEventListener("online", onOnline);
         };
     }, []);
 
@@ -888,7 +975,7 @@ export const Dashboard = () => {
         };
     }, [punchInDateTime, dynamicData.punch.punch_out, dynamicData.punch.has_open_session, dynamicData.punch.punch_in]);
 
-    const handlePunchIn = async (geoReason = "", repeatPunchReasonParam = "", measurement = null) => {
+    const handlePunchIn = async (geoReason = "", repeatPunchReasonParam = "", measurement = null, { isWfh = false } = {}) => {
         const fix = measurement || punchMeasurementRef.current;
         if (isPunching || !fix?.lat || !fix?.lon) {
             alert(
@@ -904,7 +991,7 @@ export const Dashboard = () => {
         const repeatTrim = (repeatPunchReasonParam || "").trim();
         const payload = {
             ...measurementToPunchFields(fix),
-            is_wfh: false,
+            is_wfh: isWfh,
             geo_reason: geoReason || null,
         };
         if (repeatTrim.length >= 3) {
@@ -1096,13 +1183,15 @@ export const Dashboard = () => {
         markPunchTiming("locCheckEnd");
         const inRange = !!locationData?.in_range;
         const zone = locationData?.zone || "NO_GPS";
-        const requiresReason = !!locationData?.requires_reason || !inRange;
+        const wfhApproved = !!locationData?.wfh_approved;
+        const requiresReason = (!!locationData?.requires_reason || !inRange) && !wfhApproved;
         // Refresh UI indicator from fresh check (still not used as punch coords).
         setLocation((prev) => ({
             ...prev,
             isInRange: inRange,
+            wfhApproved,
             error:
-                inRange || zone === "NO_OFFICE_CONFIG"
+                inRange || zone === "NO_OFFICE_CONFIG" || wfhApproved
                     ? null
                     : "You are outside office range. Punch In/Out requires a reason.",
         }));
@@ -1115,6 +1204,7 @@ export const Dashboard = () => {
             inRange,
             zone,
             lowSignal: !!acquired.lowSignal,
+            wfhApproved,
         };
     };
 
@@ -1137,7 +1227,7 @@ export const Dashboard = () => {
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchIn("", "", prepared.measurement);
+        await handlePunchIn("", "", prepared.measurement, { isWfh: !!prepared.wfhApproved });
     };
 
     const onPunchOutClick = async () => {
@@ -1159,11 +1249,13 @@ export const Dashboard = () => {
     };
 
     const submitRepeatPunchIn = async () => {
+        resetPunchTimings();
         const t = repeatPunchReason.trim();
         if (t.length < 3) {
             alert("Please enter a reason (at least 3 characters).");
             return;
         }
+        markPunchTiming("afterUiValidation");
         // Need fresh GPS if user opened repeat modal before acquiring
         if (!punchMeasurementRef.current) {
             const prepared = await prepareFreshPunchMeasurement();
@@ -1173,24 +1265,27 @@ export const Dashboard = () => {
                 setGeoReasonModalOpen(true);
                 return;
             }
-            await handlePunchIn("", t, prepared.measurement);
+            await handlePunchIn("", t, prepared.measurement, { isWfh: !!prepared.wfhApproved });
             return;
         }
         const geoTrim = geoReason.trim();
-        if ((geo.requiresReason || !location.isInRange) && geoTrim.length < 10) {
+        const wfhOk = !!location.wfhApproved;
+        if (!wfhOk && (geo.requiresReason || !location.isInRange) && geoTrim.length < 10) {
             setGeoReasonMode("in");
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchIn(geoTrim, t, punchMeasurementRef.current);
+        await handlePunchIn(geoTrim, t, punchMeasurementRef.current, { isWfh: wfhOk });
     };
 
     const submitGeoReasonPunch = async () => {
+        resetPunchTimings();
         const t = geoReason.trim();
         if (t.length < 10) {
             alert("Please enter a location reason (at least 10 characters).");
             return;
         }
+        markPunchTiming("afterUiValidation");
         if (!punchMeasurementRef.current) {
             const prepared = await prepareFreshPunchMeasurement();
             if (!prepared) return;
@@ -1209,11 +1304,13 @@ export const Dashboard = () => {
     };
 
     const submitExtendedHoursPunchOut = async () => {
+        resetPunchTimings();
         const t = extendedHoursReason.trim();
         if (t.length < 3) {
             alert("Please enter a reason (at least 3 characters).");
             return;
         }
+        markPunchTiming("afterUiValidation");
         if (!punchMeasurementRef.current) {
             const prepared = await prepareFreshPunchMeasurement();
             if (!prepared) return;

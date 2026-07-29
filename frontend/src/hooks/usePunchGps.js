@@ -4,6 +4,7 @@ import {
   PunchGpsState,
   acquireGpsFix,
 } from "../services/gpsAcquisition";
+import { getGeoClientConfig } from "../services/geoClientConfig";
 
 /**
  * Shared punch GPS state machine for Punch In and Punch Out.
@@ -46,6 +47,7 @@ export function usePunchGps() {
     try {
       const result = await acquireGpsFix({
         signal: controller.signal,
+        config: getGeoClientConfig().punch,
         onProgress: ({ state: s, message }) => {
           setState(s);
           setStatusMessage(message || GPS_STATUS_MESSAGES[s] || "");

@@ -1749,13 +1749,14 @@ function AssetTable({
 }) {
   const showAvailable = filter !== "Assigned" && filter !== "In use";
   const showAssigned  = !hideAssigned && filter !== "Available";
-  const emptyColSpan  = 4 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
+  const emptyColSpan  = 5 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
 
   return (
     <div className={`inv-table-scroll${responsive ? " inv-table-scroll--responsive" : ""}`}>
       <table className="inv-table">
         <thead>
           <tr>
+            <th>Laptop Code</th>
             <th>Assets Name</th>
             <th>Category</th>
             <th>Total Qty</th>
@@ -1772,6 +1773,9 @@ function AssetTable({
           ) : (
             assets.map((row, i) => (
               <tr key={row.id} className={i % 2 === 0 ? "tr-even" : "tr-odd"}>
+                <td data-label="Laptop Code" style={{ fontFamily: "monospace", fontSize: "0.85rem" }}>
+                  {row.make && row.make !== "—" ? row.make : "—"}
+                </td>
                 <td className="td-name" data-label="Asset name">
                   {row.hwType && !row.isStock && !row.isSoftware ? (
                     <div className="td-name-wrap">

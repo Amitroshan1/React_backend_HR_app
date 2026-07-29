@@ -126,8 +126,8 @@ export function getInventoryRowForUnit(unit, inventory = null) {
 
 export const DEFAULT_HARDWARE_FIELDS = {
   brand: { label: "Brand", placeholder: "Enter Brand" },
-  make: { label: "Make", placeholder: "Enter Make" },
-  model: { label: "Model", placeholder: "Enter Model" },
+  make: { label: "Model", placeholder: "Enter Model" },
+  model: { label: "Laptop Code", placeholder: "Enter Laptop Code" },
   serialNumber: { label: "Serial Number", placeholder: "Serial No." },
 };
 

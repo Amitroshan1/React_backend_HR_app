@@ -9,6 +9,7 @@
 import os
 import re
 import json
+import time
 import urllib.request
 from math import radians, cos, sin, atan2, sqrt
 import requests
@@ -1850,6 +1851,43 @@ def _needs_geo_review(zone, geo_decision=None):
     return zone in ("OUTSIDE", "NO_GPS")
 
 
+@auth.route('/employee/geo/client-config', methods=['GET'])
+@jwt_required()
+def geo_client_config():
+    """Return server-driven GPS timing config for frontend."""
+    from .geo_fence_config import get_geo_fence_config
+    cfg = get_geo_fence_config()
+    return jsonify({
+        "dashboard": {
+            "pollIntervalMs": int(cfg.get("CLIENT_DASH_POLL_INTERVAL_MS", 75000)),
+            "staleThresholdMs": int(cfg.get("CLIENT_DASH_STALE_THRESHOLD_MS", 300000)),
+            "minRecheckMs": int(cfg.get("CLIENT_DASH_MIN_RECHECK_MS", 45000)),
+            "cacheMaxAgeMs": int(cfg.get("CLIENT_DASH_CACHE_MAX_AGE_MS", 60000)),
+            "highAccuracyRefineDelayMs": int(cfg.get("CLIENT_DASH_REFINE_DELAY_MS", 4000)),
+            "idleCallbackTimeoutMs": int(cfg.get("CLIENT_DASH_IDLE_CB_TIMEOUT_MS", 150)),
+            "highAccuracyTimeoutMs": int(cfg.get("CLIENT_DASH_HA_TIMEOUT_MS", 8000)),
+            "lowAccuracyTimeoutMs": int(cfg.get("CLIENT_DASH_LA_TIMEOUT_MS", 3000)),
+            "highAccuracyMaxAgeMs": int(cfg.get("CLIENT_DASH_HA_MAX_AGE_MS", 60000)),
+            "lowAccuracyMaxAgeMs": int(cfg.get("CLIENT_DASH_LA_MAX_AGE_MS", 90000)),
+        },
+        "punch": {
+            "maxAttempts": int(cfg.get("CLIENT_PUNCH_MAX_ATTEMPTS", 5)),
+            "timeoutMs": int(cfg.get("CLIENT_PUNCH_TIMEOUT_MS", 8000)),
+            "totalTimeoutMs": int(cfg.get("CLIENT_PUNCH_TOTAL_TIMEOUT_MS", 12000)),
+            "interAttemptDelayMs": int(cfg.get("CLIENT_PUNCH_INTER_ATTEMPT_DELAY_MS", 1500)),
+            "earlyStopAccuracyM": int(cfg.get("CLIENT_PUNCH_EARLY_STOP_ACCURACY_M", 30)),
+            "earlyStopSpreadM": int(cfg.get("CLIENT_PUNCH_EARLY_STOP_SPREAD_M", 50)),
+            "earlyStopAccuracyLooseM": int(cfg.get("CLIENT_PUNCH_EARLY_STOP_ACCURACY_LOOSE_M", 50)),
+            "earlyStopSpreadLooseM": int(cfg.get("CLIENT_PUNCH_EARLY_STOP_SPREAD_LOOSE_M", 75)),
+            "earlyStopMinSamples": int(cfg.get("CLIENT_PUNCH_EARLY_STOP_MIN_SAMPLES", 2)),
+            "earlyStopMinSamplesLoose": int(cfg.get("CLIENT_PUNCH_EARLY_STOP_MIN_SAMPLES_LOOSE", 3)),
+            "outlierMinMeters": int(cfg.get("CLIENT_PUNCH_OUTLIER_MIN_M", 100)),
+            "accMaxMobileM": int(cfg.get("CLIENT_PUNCH_ACC_MAX_MOBILE_M", 250)),
+            "accMaxDesktopM": int(cfg.get("CLIENT_PUNCH_ACC_MAX_DESKTOP_M", 400)),
+        },
+    }), 200
+
+
 @auth.route('/employee/location-check', methods=['GET'])
 @jwt_required()
 def location_check():
@@ -1860,14 +1898,27 @@ def location_check():
     employee = Admin.query.filter_by(email=email).first()
     admin_id = employee.id if employee else None
 
+    t_req = time.perf_counter()
     payload = _geo_payload_from_request(args=request.args)
+    t_geo = time.perf_counter()
     result = validate_employee_location(
         payload=payload,
         admin_id=admin_id,
         direction="check",
         write_audit=True,
     )
-    return jsonify(result.to_location_check_dict()), 200
+    body = result.to_location_check_dict()
+    body["wfh_approved"] = is_wfh_allowed(admin_id) if admin_id else False
+    body["timing"] = {
+        "geo_validation_ms": round((time.perf_counter() - t_geo) * 1000, 2),
+        "total_ms": round((time.perf_counter() - t_req) * 1000, 2),
+        "geo_engine_ms": (result.diagnostics or {}).get("execution_time_ms"),
+        "legacy_ms": (result.diagnostics or {}).get("execution_time_legacy_ms"),
+        "v2_ms": (result.diagnostics or {}).get("execution_time_v2_ms"),
+        "comparison_store_ms": (result.diagnostics or {}).get("comparison_store_ms"),
+        "audit_insert_ms": (result.diagnostics or {}).get("audit_insert_ms"),
+    }
+    return jsonify(body), 200
 
 
 @auth.route('/employee/punch-in', methods=['POST'])
@@ -1881,6 +1932,8 @@ def punch_in():
     )
 
     data = request.get_json() or {}
+    t_req = time.perf_counter()
+    timings = {}
 
     user_lat = _parse_lat(data.get("lat"))
     user_lon = _parse_lon(data.get("lon"))
@@ -1963,12 +2016,14 @@ def punch_in():
         }), 400
 
     # Geo via Validation Service only (never call geo_fence_engine from attendance)
+    t_geo = time.perf_counter()
     geo_result = validate_employee_location(
         payload=_geo_payload_from_request(data),
         admin_id=employee.id,
         direction="in",
         write_audit=True,
     )
+    timings["geo_validation_ms"] = round((time.perf_counter() - t_geo) * 1000, 2)
     zone = geo_result.zone
     location_status = geo_result.location_status
 
@@ -1992,6 +2047,15 @@ def punch_in():
                 "geo_decision": geo_result.geo_decision,
                 "policy_action": geo_result.policy_action,
                 "attempt_id": geo_result.attempt_id,
+                "timing": {
+                    **timings,
+                    "total_ms": round((time.perf_counter() - t_req) * 1000, 2),
+                    "geo_engine_ms": (geo_result.diagnostics or {}).get("execution_time_ms"),
+                    "legacy_ms": (geo_result.diagnostics or {}).get("execution_time_legacy_ms"),
+                    "v2_ms": (geo_result.diagnostics or {}).get("execution_time_v2_ms"),
+                    "comparison_store_ms": (geo_result.diagnostics or {}).get("comparison_store_ms"),
+                    "audit_insert_ms": (geo_result.diagnostics or {}).get("audit_insert_ms"),
+                },
             }), 400
         if wfh_ok and not is_wfh:
             is_wfh = True
@@ -2019,9 +2083,11 @@ def punch_in():
     punch.lat = sess.lat
     punch.lon = sess.lon
     recompute_punch_aggregate(punch)
+    t_db = time.perf_counter()
     db.session.flush()
     attach_audit_to_session(geo_result.audit_id, sess.id)
     db.session.commit()
+    timings["db_commit_ms"] = round((time.perf_counter() - t_db) * 1000, 2)
 
     needs_review = _needs_geo_review(zone, geo_result.geo_decision)
     punch_in_str = isoformat_punch_clock(now)
@@ -2042,6 +2108,15 @@ def punch_in():
         "confidence": geo_result.confidence,
         "attempt_id": geo_result.attempt_id,
         "geo_engine": geo_result.engine,
+        "timing": {
+            **timings,
+            "total_ms": round((time.perf_counter() - t_req) * 1000, 2),
+            "geo_engine_ms": (geo_result.diagnostics or {}).get("execution_time_ms"),
+            "legacy_ms": (geo_result.diagnostics or {}).get("execution_time_legacy_ms"),
+            "v2_ms": (geo_result.diagnostics or {}).get("execution_time_v2_ms"),
+            "comparison_store_ms": (geo_result.diagnostics or {}).get("comparison_store_ms"),
+            "audit_insert_ms": (geo_result.diagnostics or {}).get("audit_insert_ms"),
+        },
     }), 200
 
 
@@ -2058,6 +2133,8 @@ def punch_out():
 
     try:
         data = request.get_json() or {}
+        t_req = time.perf_counter()
+        timings = {}
         
         user_lat = _parse_lat(data.get("lat"))
         user_lon = _parse_lon(data.get("lon"))
@@ -2086,12 +2163,14 @@ def punch_out():
             if not open_sess or not punch:
                 return jsonify({"success": False, "message": "No active punch-in found"}), 400
 
+        t_geo = time.perf_counter()
         geo_result = validate_employee_location(
             payload=_geo_payload_from_request(data),
             admin_id=employee.id,
             direction="out",
             write_audit=True,
         )
+        timings["geo_validation_ms"] = round((time.perf_counter() - t_geo) * 1000, 2)
         zone = geo_result.zone
         location_status = geo_result.location_status
 
@@ -2112,6 +2191,15 @@ def punch_out():
                     "geo_decision": geo_result.geo_decision,
                     "policy_action": geo_result.policy_action,
                     "attempt_id": geo_result.attempt_id,
+                    "timing": {
+                        **timings,
+                        "total_ms": round((time.perf_counter() - t_req) * 1000, 2),
+                        "geo_engine_ms": (geo_result.diagnostics or {}).get("execution_time_ms"),
+                        "legacy_ms": (geo_result.diagnostics or {}).get("execution_time_legacy_ms"),
+                        "v2_ms": (geo_result.diagnostics or {}).get("execution_time_v2_ms"),
+                        "comparison_store_ms": (geo_result.diagnostics or {}).get("comparison_store_ms"),
+                        "audit_insert_ms": (geo_result.diagnostics or {}).get("audit_insert_ms"),
+                    },
                 }), 400
 
         err_body, err_code = validate_manual_punch_out_extended_reason(open_sess, data, now)
@@ -2149,7 +2237,9 @@ def punch_out():
         )
         apply_session_geo_fields(open_sess, geo_result, direction="out")
         attach_audit_to_session(geo_result.audit_id, open_sess.id)
+        t_db = time.perf_counter()
         db.session.commit()
+        timings["db_commit_ms"] = round((time.perf_counter() - t_db) * 1000, 2)
 
         needs_review = _needs_geo_review(zone, geo_result.geo_decision)
         today_work_str = punch.today_work or "0:00:00"
@@ -2174,6 +2264,15 @@ def punch_out():
             "confidence": geo_result.confidence,
             "attempt_id": geo_result.attempt_id,
             "geo_engine": geo_result.engine,
+            "timing": {
+                **timings,
+                "total_ms": round((time.perf_counter() - t_req) * 1000, 2),
+                "geo_engine_ms": (geo_result.diagnostics or {}).get("execution_time_ms"),
+                "legacy_ms": (geo_result.diagnostics or {}).get("execution_time_legacy_ms"),
+                "v2_ms": (geo_result.diagnostics or {}).get("execution_time_v2_ms"),
+                "comparison_store_ms": (geo_result.diagnostics or {}).get("comparison_store_ms"),
+                "audit_insert_ms": (geo_result.diagnostics or {}).get("audit_insert_ms"),
+            },
         }), 200
     except Exception as e:
         db.session.rollback()
