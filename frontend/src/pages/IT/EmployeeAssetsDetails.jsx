@@ -18,6 +18,11 @@ import { UserAvatar } from "../../components/UserAvatar";
 import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
 import "./EmployeeAssetsDetails.css";
 import { formatDate, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import {
+  getHardwareFields,
+  getMobileTabletHardwareFields,
+  isMobileTabletHwType,
+} from "./inventoryCategories";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const swDaysRemaining = (endDate) => {
@@ -40,6 +45,7 @@ const enrichHardware = (asset) => {
   return {
     ...asset,
     displayAssetId: assetTag || "—",
+    hwType:       unit.hwType       || asset.hwType       || "Laptop",
     brand:        unit.brand        || invItem.brand  || asset.brand  || "—",
     make:         unit.make         || invItem.make   || asset.make   || "—",
     model:        unit.model        || invItem.model  || asset.model  || "—",
@@ -713,6 +719,11 @@ const EmployeeDetails = () => {
 
   const openHwModal    = useCallback((asset) => { setHwModal(enrichHardware(asset)); setHwPhotoIdx(0); }, []);
   const closeHwModal   = useCallback(() => setHwModal(null), []);
+  const hwModalFields = useMemo(() => {
+    if (!hwModal) return null;
+    const base = getHardwareFields("IT Assets", "Hardware", hwModal.hwType);
+    return isMobileTabletHwType(hwModal.hwType) ? getMobileTabletHardwareFields(base) : base;
+  }, [hwModal]);
 
   if (loading)   return <div className="ea-loading">Loading…</div>;
   if (!employee) return <div className="ea-loading">Employee not found.</div>;
@@ -895,8 +906,8 @@ const EmployeeDetails = () => {
                   {[
                     { label: "Asset ID",      value: hwModal.displayAssetId, mono: true, highlight: true },
                     { label: "Brand",         value: hwModal.brand },
-                    { label: "Make",          value: hwModal.make  },
-                    { label: "Model",         value: hwModal.model },
+                    { label: hwModalFields?.make?.label || "Model",   value: hwModal.make  },
+                    { label: hwModalFields?.model?.label || "Laptop Code", value: hwModal.model },
                     { label: "Serial Number", value: hwModal.serialNumber, mono: true },
                   ].map(({ label, value, mono, highlight }) => (
                     <div key={label} className={`hdm-row ${highlight ? "highlight" : ""}`}>

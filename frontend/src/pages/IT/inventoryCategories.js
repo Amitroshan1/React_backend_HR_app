@@ -126,15 +126,37 @@ export function getInventoryRowForUnit(unit, inventory = null) {
 
 export const DEFAULT_HARDWARE_FIELDS = {
   brand: { label: "Brand", placeholder: "Enter Brand" },
+  // DB: make stores model name; model stores laptop code (legacy data entry mapping).
   make: { label: "Model", placeholder: "Enter Model" },
   model: { label: "Laptop Code", placeholder: "Enter Laptop Code" },
   serialNumber: { label: "Serial Number", placeholder: "Serial No." },
 };
 
+/** Laptop-specific labels (same DB mapping as DEFAULT_HARDWARE_FIELDS). */
+export const LAPTOP_HARDWARE_FIELDS = DEFAULT_HARDWARE_FIELDS;
+
 export const MOBILE_TABLET_HW_TYPES = ["Mobile", "Tablet"];
 
 export function isMobileTabletHwType(hwType) {
   return MOBILE_TABLET_HW_TYPES.includes(String(hwType || "").trim());
+}
+
+export function isLaptopHardwareRow(row) {
+  return (
+    String(row?.category || "").trim().toLowerCase() === "hardware" &&
+    String(row?.hwType || "").trim().toLowerCase() === "laptop"
+  );
+}
+
+/** Show Laptop Code column only for IT hardware laptop context (not Software/Accessories/etc.). */
+export function shouldShowLaptopCodeColumn(assets, inventoryCategory) {
+  if (inventoryCategory !== "IT Assets" || !Array.isArray(assets) || assets.length === 0) {
+    return false;
+  }
+  const onlyHardware = assets.every(
+    (row) => String(row?.category || "").trim().toLowerCase() === "hardware",
+  );
+  return onlyHardware && assets.some(isLaptopHardwareRow);
 }
 
 export function getMobileTabletHardwareFields(baseFields = DEFAULT_HARDWARE_FIELDS) {
@@ -204,10 +226,14 @@ export function getUnitBrandModelDisplay(unit, inventoryCategory) {
   return { primary, secondary };
 }
 
-export function getHardwareFields(inventoryCategory, itemCategory = null) {
+export function getHardwareFields(inventoryCategory, itemCategory = null, hwType = null) {
   const cat = String(itemCategory || "").trim().toLowerCase();
   if (inventoryCategory === "Infrastructure Assets" && cat === "equipment") {
     return INFRA_EQUIPMENT_HARDWARE_FIELDS;
+  }
+  const hw = String(hwType || "").trim();
+  if (inventoryCategory === "IT Assets" && hw === "Laptop") {
+    return LAPTOP_HARDWARE_FIELDS;
   }
   const config = INVENTORY_CATEGORY_CONFIG[inventoryCategory];
   return config?.hardwareFields || DEFAULT_HARDWARE_FIELDS;

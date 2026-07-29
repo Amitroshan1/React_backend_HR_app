@@ -47,6 +47,8 @@ import {
   resolveInventoryCategory,
   getHardwareFields,
   getMobileTabletHardwareFields,
+  isLaptopHardwareRow,
+  shouldShowLaptopCodeColumn,
   isMobileTabletHwType,
   getUnitBrandModelDisplay,
   hideAssignedColumnForCategory,
@@ -220,6 +222,8 @@ function readLiveCounts(inventoryCategory = null) {
 
 function mapInventoryItem(item) {
   const inventoryCategory = resolveInventoryCategory(item);
+  const units = getUnitsForAsset(item.id, item.name, item.hwType);
+  const firstUnit = units[0];
   return {
     id:                item.id,
     name:              item.name,
@@ -230,9 +234,9 @@ function mapInventoryItem(item) {
     assigned:          Number(item.assignedQuantity)  || 0,
     notWorking:        Number(item.notWorkingQuantity) || 0,
     inRepair:          Number(item.repairQuantity)     || 0,
-    brand:             item.brand        || "—",
-    make:              item.make         || "—",
-    model:             item.model        || "—",
+    brand:             firstUnit?.brand ?? item.brand ?? "—",
+    make:              firstUnit?.make ?? item.make ?? "—",
+    model:             firstUnit?.model ?? item.model ?? "—",
     serialNumber:      item.serialNumber || "—",
     category:          item.category     || "—",
     vendor:            item.vendor       || "—",
@@ -892,8 +896,8 @@ function AssetDetailModal({
   const inventoryReceipts = asset?.receipts ?? [];
   const stockMode = asset?.isStock || isStockLineItem(asset);
   const hwFields = isMobileTabletHwType(asset.hwType)
-    ? getMobileTabletHardwareFields(getHardwareFields(asset.inventoryCategory, asset.category))
-    : getHardwareFields(asset.inventoryCategory, asset.category);
+    ? getMobileTabletHardwareFields(getHardwareFields(asset.inventoryCategory, asset.category, asset.hwType))
+    : getHardwareFields(asset.inventoryCategory, asset.category, asset.hwType);
   const showItemMeta =
     !stockMode &&
     (isVehicleInventoryCategory(asset.inventoryCategory) ||
@@ -1749,14 +1753,19 @@ function AssetTable({
 }) {
   const showAvailable = filter !== "Assigned" && filter !== "In use";
   const showAssigned  = !hideAssigned && filter !== "Available";
-  const emptyColSpan  = 5 + (showAvailable ? 1 : 0) + (showAssigned ? 1 : 0);
+  const showLaptopCode = shouldShowLaptopCodeColumn(assets, inventoryCategory);
+  const emptyColSpan  =
+    4 +
+    (showLaptopCode ? 1 : 0) +
+    (showAvailable ? 1 : 0) +
+    (showAssigned ? 1 : 0);
 
   return (
     <div className={`inv-table-scroll${responsive ? " inv-table-scroll--responsive" : ""}`}>
       <table className="inv-table">
         <thead>
           <tr>
-            <th>Laptop Code</th>
+            {showLaptopCode && <th>Laptop Code</th>}
             <th>Assets Name</th>
             <th>Category</th>
             <th>Total Qty</th>
@@ -1773,9 +1782,16 @@ function AssetTable({
           ) : (
             assets.map((row, i) => (
               <tr key={row.id} className={i % 2 === 0 ? "tr-even" : "tr-odd"}>
-                <td data-label="Laptop Code" style={{ fontFamily: "monospace", fontSize: "0.85rem" }}>
-                  {row.make && row.make !== "—" ? row.make : "—"}
-                </td>
+                {showLaptopCode && (
+                  <td
+                    data-label="Laptop Code"
+                    style={{ fontFamily: "monospace", fontSize: "0.85rem" }}
+                  >
+                    {isLaptopHardwareRow(row) && row.model && row.model !== "—"
+                      ? row.model
+                      : "—"}
+                  </td>
+                )}
                 <td className="td-name" data-label="Asset name">
                   {row.hwType && !row.isStock && !row.isSoftware ? (
                     <div className="td-name-wrap">

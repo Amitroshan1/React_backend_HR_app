@@ -297,7 +297,7 @@ OTP_TTL_MINUTES = 5
 OTP_RESEND_SECONDS = 60
 OTP_MAX_ATTEMPTS = 5
 # Anti-bombing / anti-enumeration (in-process; also put nginx limits in front of these routes)
-OTP_IP_LIMIT_PER_HOUR = 60
+OTP_IP_LIMIT_PER_HOUR = 10
 OTP_IDENTIFIER_LIMIT_PER_HOUR = 5
 OTP_IDENTIFIER_LIMIT_PER_DAY = 15
 VERIFY_OTP_IP_LIMIT_PER_HOUR = 30

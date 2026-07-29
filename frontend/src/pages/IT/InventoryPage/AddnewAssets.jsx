@@ -191,7 +191,6 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const hwTypes = config.hwTypes;
   const mobileTabletHwTypes = config.mobileTabletHwTypes || (config.mobileHwType ? [config.mobileHwType] : []);
   const vehicleMode = isVehicleInventoryCategory(inventoryCategory);
-  const baseHwFields = getHardwareFields(inventoryCategory);
   const otherHwPlaceholder = config.otherHwPlaceholder || "e.g. Docking Station, Router, UPS";
   const validateOpts = useMemo(() => ({ vehicleMode }), [vehicleMode]);
 
@@ -203,6 +202,15 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const [successMsg,   setSuccessMsg]   = useState("");
   const [photoPreview, setPhotoPreview] = useState(null);
 
+  const effectiveHwType = useMemo(
+    () => (hwType === "Other" ? customHwType.trim() : hwType),
+    [hwType, customHwType],
+  );
+  const baseHwFields = useMemo(
+    () => getHardwareFields(inventoryCategory, category, effectiveHwType || hwType),
+    [inventoryCategory, category, effectiveHwType, hwType],
+  );
+
   const rowType = useMemo(() => {
     if (category === "Software")  return "software";
     if (category !== "Hardware")  return "qty";
@@ -212,10 +220,6 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const hwFields = useMemo(
     () => (rowType === "mobile" ? getMobileTabletHardwareFields(baseHwFields) : baseHwFields),
     [rowType, baseHwFields],
-  );
-  const effectiveHwType = useMemo(
-    () => (hwType === "Other" ? customHwType.trim() : hwType),
-    [hwType, customHwType],
   );
 
   // ── Row management ─────────────────────────────────────────────────────────

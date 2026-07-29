@@ -22,6 +22,11 @@ import {
   syncITDataFromAPI,
   SEED_EMPLOYEES,
 } from "../Data";
+import {
+  getHardwareFields,
+  getMobileTabletHardwareFields,
+  isMobileTabletHwType,
+} from "../inventoryCategories";
 import "./AddEmployee.css";
 
 // ─── Pure utilities ───────────────────────────────────────────────────────────
@@ -456,6 +461,10 @@ const AddEmployee = () => {
   const [profile,              setProfile]              = useState(EMPTY_PROFILE);
   const [activeTab,            setActiveTab]            = useState("Hardware");
   const [hwType,               setHwType]               = useState("Laptop");
+  const hwTableFields = useMemo(() => {
+    const base = getHardwareFields("IT Assets", "Hardware", hwType);
+    return isMobileTabletHwType(hwType) ? getMobileTabletHardwareFields(base) : base;
+  }, [hwType]);
   const [selectedHwUnits,      setSelectedHwUnits]      = useState({});
   const [selectedSw,           setSelectedSw]           = useState([]); // { name, quantity }
   const [selectedNonHw,        setSelectedNonHw]        = useState([]);
@@ -1086,7 +1095,10 @@ const AddEmployee = () => {
                       <thead>
                         <tr>
                           <th className="ane-hw-th-check">Select</th>
-                          <th>Brand</th><th>Make</th><th>Model</th><th>Serial Number</th>
+                          <th>Brand</th>
+                          <th>{hwTableFields.make.label}</th>
+                          <th>{hwTableFields.model.label}</th>
+                          <th>Serial Number</th>
                           {hwType === "Mobile" && <th>IMEI 1</th>}
                           <th>Asset ID</th><th>Photo</th>
                         </tr>
