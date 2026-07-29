@@ -249,6 +249,14 @@ def write_geo_audit(
 
 
 def attach_audit_to_session(audit_id: Optional[int], punch_session_id: int) -> None:
+    """
+    Link geo_punch_attempts.punch_session_id after the punch transaction has committed.
+
+    Must NOT run while the punch Session still holds an open transaction / row lock on
+    punch_sessions: this uses a separate connection, and the FK update will block until
+    innodb_lock_wait_timeout (MySQL 1205), stalling Punch In/Out for ~50s.
+    Never raises — audit must not own or roll back the punch transaction.
+    """
     if not audit_id or not punch_session_id:
         return
     from sqlalchemy.orm import Session
@@ -261,7 +269,7 @@ def attach_audit_to_session(audit_id: Optional[int], punch_session_id: int) -> N
                 row.punch_session_id = punch_session_id
                 audit_sess.commit()
     except Exception:
-        logger.exception("geo_validation: attach audit failed")
+        logger.exception("geo_validation: attach audit failed (non-fatal)")
 
 
 def _safe_int(v: Any) -> Optional[int]:

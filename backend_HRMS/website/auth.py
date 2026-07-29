@@ -2085,9 +2085,13 @@ def punch_in():
     recompute_punch_aggregate(punch)
     t_db = time.perf_counter()
     db.session.flush()
-    attach_audit_to_session(geo_result.audit_id, sess.id)
+    # Commit first so punch_sessions row lock is released before audit FK attach
+    # (attach uses a separate connection; linking while this txn holds X-lock → lock wait).
     db.session.commit()
     timings["db_commit_ms"] = round((time.perf_counter() - t_db) * 1000, 2)
+    t_attach = time.perf_counter()
+    attach_audit_to_session(geo_result.audit_id, sess.id)
+    timings["audit_attach_ms"] = round((time.perf_counter() - t_attach) * 1000, 2)
 
     needs_review = _needs_geo_review(zone, geo_result.geo_decision)
     punch_in_str = isoformat_punch_clock(now)
@@ -2236,10 +2240,15 @@ def punch_out():
             clock_out_at=clock_out_at,
         )
         apply_session_geo_fields(open_sess, geo_result, direction="out")
-        attach_audit_to_session(geo_result.audit_id, open_sess.id)
         t_db = time.perf_counter()
+        # Commit before audit attach: close_punch_session → recompute_punch_aggregate
+        # autoflushes an UPDATE on punch_sessions; attaching audit on another connection
+        # while that X-lock is held causes MySQL 1205 lock-wait (~50s) and proxy 500s.
         db.session.commit()
         timings["db_commit_ms"] = round((time.perf_counter() - t_db) * 1000, 2)
+        t_attach = time.perf_counter()
+        attach_audit_to_session(geo_result.audit_id, open_sess.id)
+        timings["audit_attach_ms"] = round((time.perf_counter() - t_attach) * 1000, 2)
 
         needs_review = _needs_geo_review(zone, geo_result.geo_decision)
         today_work_str = punch.today_work or "0:00:00"
