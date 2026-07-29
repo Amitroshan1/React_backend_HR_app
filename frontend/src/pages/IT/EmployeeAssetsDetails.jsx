@@ -183,18 +183,18 @@ const PhotosCell = ({ photos }) =>
     <span className="ea-no-photos">No photos</span>
   );
 
-const HardwareTable = ({ assets, onRemove, onViewDetails }) => (
+const HardwareTable = ({ assets, onRemove, onViewDetails, canRequestReturn = true }) => (
   <div className="ea-table-wrap">
     <table className="ea-table">
       <thead>
         <tr>
           <th>Asset Name</th><th>Details</th>
-          <th>Status</th><th>Photos</th><th>Action</th>
+          <th>Status</th><th>Photos</th>{canRequestReturn ? <th>Action</th> : null}
         </tr>
       </thead>
       <tbody>
         {assets.length === 0 ? (
-          <tr><td colSpan={5} className="ea-empty">No hardware assets assigned</td></tr>
+          <tr><td colSpan={canRequestReturn ? 5 : 4} className="ea-empty">No hardware assets assigned</td></tr>
         ) : (
           assets.map((a) => (
             <tr key={a.id}>
@@ -211,11 +211,13 @@ const HardwareTable = ({ assets, onRemove, onViewDetails }) => (
               </td>
               <td data-label="Status"><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
               <td data-label="Photos"><PhotosCell photos={a.photos} /></td>
-              <td className="ea-action-cell" data-label="Action">
-                <button className="ea-btn-remove" onClick={() => onRemove(a.assetId, a.id)}>
-                  Return
-                </button>
-              </td>
+              {canRequestReturn ? (
+                <td className="ea-action-cell" data-label="Action">
+                  <button className="ea-btn-remove" onClick={() => onRemove(a.assetId, a.id)}>
+                    Return
+                  </button>
+                </td>
+              ) : null}
             </tr>
           ))
         )}
@@ -224,19 +226,19 @@ const HardwareTable = ({ assets, onRemove, onViewDetails }) => (
   </div>
 );
 
-const SoftwareTable = ({ assets, onRemove }) => (
+const SoftwareTable = ({ assets, onRemove, canRequestReturn = true }) => (
   <div className="ea-table-wrap">
     <table className="ea-table ea-sw-table">
       <thead>
         <tr>
           <th>Software Name</th><th>License ID</th>
           <th>Start Date</th><th>Valid Till</th>
-          <th>Days Left</th><th>Status</th><th>Action</th>
+          <th>Days Left</th><th>Status</th>{canRequestReturn ? <th>Action</th> : null}
         </tr>
       </thead>
       <tbody>
         {assets.length === 0 ? (
-          <tr><td colSpan={7} className="ea-empty">No software assigned</td></tr>
+          <tr><td colSpan={canRequestReturn ? 7 : 6} className="ea-empty">No software assigned</td></tr>
         ) : (
           assets.map((a) => {
             const days      = swDaysRemaining(a.subscriptionEnd || a.licenseExpiry);
@@ -272,11 +274,13 @@ const SoftwareTable = ({ assets, onRemove }) => (
                     {isExpired ? "Expired" : a.status || "Assigned"}
                   </span>
                 </td>
-                <td className="ea-action-cell" data-label="Action">
-                  <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
-                    Return
-                  </button>
-                </td>
+                {canRequestReturn ? (
+                  <td className="ea-action-cell" data-label="Action">
+                    <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
+                      Return
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             );
           })
@@ -466,18 +470,18 @@ const ReturnRequestModal = ({ entry, onClose, onSubmit, submitting }) => {
   );
 };
 
-const NonHardwareTable = ({ assets, onRemove }) => (
+const NonHardwareTable = ({ assets, onRemove, canRequestReturn = true }) => (
   <div className="ea-table-wrap">
     <table className="ea-table">
       <thead>
         <tr>
           <th>Asset Name</th><th>Category</th>
-          <th>Status</th><th>Photos</th><th>Action</th>
+          <th>Status</th><th>Photos</th>{canRequestReturn ? <th>Action</th> : null}
         </tr>
       </thead>
       <tbody>
         {assets.length === 0 ? (
-          <tr><td colSpan={5} className="ea-empty">No assets in this category</td></tr>
+          <tr><td colSpan={canRequestReturn ? 5 : 4} className="ea-empty">No assets in this category</td></tr>
         ) : (
           assets.map((a) => (
             <tr key={a.id}>
@@ -487,11 +491,13 @@ const NonHardwareTable = ({ assets, onRemove }) => (
               </td>
               <td data-label="Status"><span className={`ea-status-badge ${statusCls(a.status)}`}>{a.status}</span></td>
               <td data-label="Photos"><PhotosCell photos={a.photos} /></td>
-              <td className="ea-action-cell" data-label="Action">
-                <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
-                  Return
-                </button>
-              </td>
+              {canRequestReturn ? (
+                <td className="ea-action-cell" data-label="Action">
+                  <button className="ea-btn-remove" onClick={() => onRemove(null, a.id)}>
+                    Return
+                  </button>
+                </td>
+              ) : null}
             </tr>
           ))
         )}
@@ -536,6 +542,9 @@ const EmployeeDetails = () => {
     }
   }, [empId]);
 
+  const isSelfAssetsView = Boolean(location.state?.selfAssets);
+  const canRequestReturn = !isSelfAssetsView;
+
   const loadEmployee = useCallback(async () => {
     const id = empId || "";
     if (!id) {
@@ -545,7 +554,14 @@ const EmployeeDetails = () => {
     }
     setLoading(true);
     try {
-      await syncITDataFromAPI();
+      // Self-assets view should not depend on full IT sync access.
+      if (!isSelfAssetsView) {
+        try {
+          await syncITDataFromAPI();
+        } catch (syncErr) {
+          console.warn("[EmployeeAssetsDetails] IT sync skipped:", syncErr);
+        }
+      }
       const apiEmployee = await fetchEmployeeAssetsAPI(id);
       setEmployee(apiEmployee || null);
       if (apiEmployee) await loadReturnHistory(apiEmployee);
@@ -573,7 +589,7 @@ const EmployeeDetails = () => {
     } finally {
       setLoading(false);
     }
-  }, [empId, location.state, loadReturnHistory]);
+  }, [empId, isSelfAssetsView, location.state, loadReturnHistory]);
 
   useRefreshOnNavigate(loadEmployee, [empId]);
 
@@ -609,6 +625,7 @@ const EmployeeDetails = () => {
 
   const openReturnModal = useCallback(
     (assetId, entryId) => {
+      if (!canRequestReturn) return;
       const list = employee?.assignedAssets || [];
       let entry = null;
       if (entryId != null && entryId !== "") {
@@ -620,11 +637,12 @@ const EmployeeDetails = () => {
       if (!entry) return;
       setReturnTarget(entry);
     },
-    [employee],
+    [employee, canRequestReturn],
   );
 
   const handleReturnSubmit = useCallback(
     async ({ reason, returnDestination, quantity, photos }) => {
+      if (!canRequestReturn) return;
       const entry = returnTarget;
       if (!entry) return;
       setReturnSubmitting(true);
@@ -690,7 +708,7 @@ const EmployeeDetails = () => {
         setReturnSubmitting(false);
       }
     },
-    [returnTarget, employee, empId, loadReturnHistory],
+    [returnTarget, employee, empId, loadReturnHistory, canRequestReturn],
   );
 
   const openHwModal    = useCallback((asset) => { setHwModal(enrichHardware(asset)); setHwPhotoIdx(0); }, []);
@@ -704,7 +722,7 @@ const EmployeeDetails = () => {
 
       <div className="back-button-container">
         <button type="button" className="btn-back" onClick={() => navigate(-1)}>
-          ← Back to Active Devices
+          ← {isSelfAssetsView ? "Back" : "Back to Active Devices"}
         </button>
       </div>
 
@@ -767,6 +785,7 @@ const EmployeeDetails = () => {
                 </div>
                 <HardwareTable
                   assets={hardwareAssets} onRemove={openReturnModal}
+                  canRequestReturn={canRequestReturn}
                   onViewDetails={openHwModal}
                 />
               </>
@@ -776,7 +795,7 @@ const EmployeeDetails = () => {
                 <div className="ea-section-label">
                   <span className="ea-section-dot software" /> Software Assets
                 </div>
-                <SoftwareTable assets={softwareAssets} onRemove={openReturnModal} />
+                <SoftwareTable assets={softwareAssets} onRemove={openReturnModal} canRequestReturn={canRequestReturn} />
               </>
             )}
             {accConAssets.length > 0 && (
@@ -786,6 +805,7 @@ const EmployeeDetails = () => {
                 </div>
                 <NonHardwareTable
                   assets={accConAssets} onRemove={openReturnModal}
+                  canRequestReturn={canRequestReturn}
                 />
               </>
             )}
@@ -800,46 +820,54 @@ const EmployeeDetails = () => {
         {filterTab === "Hardware" && (
           <HardwareTable
             assets={filtered} onRemove={openReturnModal}
+            canRequestReturn={canRequestReturn}
             onViewDetails={openHwModal}
           />
         )}
         {filterTab === "Software" && (
-          <SoftwareTable assets={filtered} onRemove={openReturnModal} />
+          <SoftwareTable assets={filtered} onRemove={openReturnModal} canRequestReturn={canRequestReturn} />
         )}
         {(filterTab === "Accessories" || filterTab === "Consumables") && (
           <NonHardwareTable
             assets={filtered} onRemove={openReturnModal}
+            canRequestReturn={canRequestReturn}
           />
         )}
       </div>
 
-      {/* ── Return Request History ── */}
-      <div className="assets-section" ref={returnHistoryRef}>
-        <h2>Return Request History ({returnHistory.length})</h2>
-        <p className="rr-history-hint">
-          Requests appear here as soon as you submit a return. Use filters to see pending, approved, or completed items.
-        </p>
-        <div className="rr-filter-tabs">
-          {RETURN_STATUS_TABS.map((tab) => (
-            <button
-              key={tab}
-              className={`rr-filter-tab ${returnHistoryFilter === tab ? "active" : ""}`}
-              onClick={() => setReturnHistoryFilter(tab)}
-            >
-              {tab}
-              <span className="count-badge">
-                {tab === "All"
-                  ? returnHistory.length
-                  : returnHistory.filter((r) => String(r.status || "").toLowerCase() === tab.toLowerCase()).length}
-              </span>
-            </button>
-          ))}
+      {canRequestReturn ? (
+        <div className="assets-section" ref={returnHistoryRef}>
+          <h2>Return Request History ({returnHistory.length})</h2>
+          <p className="rr-history-hint">
+            Requests appear here as soon as you submit a return. Use filters to see pending, approved, or completed items.
+          </p>
+          <div className="rr-filter-tabs">
+            {RETURN_STATUS_TABS.map((tab) => (
+              <button
+                key={tab}
+                className={`rr-filter-tab ${returnHistoryFilter === tab ? "active" : ""}`}
+                onClick={() => setReturnHistoryFilter(tab)}
+              >
+                {tab}
+                <span className="count-badge">
+                  {tab === "All"
+                    ? returnHistory.length
+                    : returnHistory.filter((r) => String(r.status || "").toLowerCase() === tab.toLowerCase()).length}
+                </span>
+              </button>
+            ))}
+          </div>
+          <ReturnHistoryTable
+            rows={filteredReturnHistory}
+            onViewPhotos={(photos) => openFirstImageInNewTab(photos)}
+          />
         </div>
-        <ReturnHistoryTable
-          rows={filteredReturnHistory}
-          onViewPhotos={(photos) => openFirstImageInNewTab(photos)}
-        />
-      </div>
+      ) : (
+        <div className="assets-section">
+          <h2>Assigned Assets</h2>
+          <p className="rr-history-hint">Read-only self view. Return-request actions are hidden.</p>
+        </div>
+      )}
 
       {/* ── Hardware Details Modal ── */}
       {hwModal && (
@@ -945,7 +973,7 @@ const EmployeeDetails = () => {
         </div>
       )}
 
-      {returnTarget && (
+      {canRequestReturn && returnTarget && (
         <ReturnRequestModal
           entry={returnTarget}
           onClose={() => !returnSubmitting && setReturnTarget(null)}

@@ -35,6 +35,7 @@ export const HR_MODULE_DISPLAY_NAMES = {
   'NOC Requests': 'NOC requests',
   'Exit Employee': 'Exit employee',
   'Add Locations': 'Office locations',
+  'Geo Analytics': 'Geo monitoring',
   'News Feed': 'News feed',
   'Policy Center': 'Policy center',
   'Organization Chart': 'Org chart',
@@ -130,10 +131,11 @@ export const HR_MODULE_GROUPS = [
   {
     id: 'admin',
     fullLabel: 'Admin & setup',
-    description: 'Master data, locations, and company announcements',
+    description: 'Master data, locations, geo monitoring, and company announcements',
     titles: [
       'Add Department And Circle',
       'Add Locations',
+      'Geo Analytics',
       'News Feed',
     ],
   },

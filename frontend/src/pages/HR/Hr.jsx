@@ -15,6 +15,7 @@ import { UpdateSignUp } from './UpdateSignUp';
 import { AddNewsFeed } from './AddNewsFeed';
 import { UpdateManager } from './UpdateManager';
 import { AddLocation } from './AddLocation';
+import { GeoAnalytics } from './GeoAnalytics';
 import ExitEmployee from './ExitEmployee';
 import OffboardingDashboard from './OffboardingDashboard';
 import AddDeptCircle from './AddDeptCircle';
@@ -62,6 +63,7 @@ const HR_PANEL_VIEWS = [
   'assessment_invite',
   'update_manager',
   'add_location',
+  'geo_analytics',
   'add_assets',
   'noc_requests',
   'exit_employee',
@@ -1692,6 +1694,7 @@ export const Hr = () => {
     { title: 'Compensation', icon: BarChart3, description: 'Increment cycles and salary revision approvals' },
     { title: 'Workforce Planning', icon: Users, description: 'Headcount budget vs actual by circle and department' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
+    { title: 'Geo Analytics', icon: BarChart3, description: 'Geo monitoring, audit, config tuning, and troubleshooting' },
     { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
     { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, and attrition analytics' },
     { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
@@ -2189,6 +2192,9 @@ export const Hr = () => {
    else if (title === 'Add Locations') {
     setView('add_location');
   }
+  else if (title === 'Geo Analytics') {
+    setView('geo_analytics');
+  }
   else if (title === 'Add Assets') {
     setView('add_assets');
   }
@@ -2366,6 +2372,9 @@ if (view === 'update_manager') {
 
 if (view === 'add_location') {
   return <AddLocation onBack={() => setView('updates')} />;
+}
+if (view === 'geo_analytics') {
+  return <GeoAnalytics onBack={() => setView('updates')} />;
 }
 if (view === 'exit_employee') {  //new condition for exit employee
   return <ExitEmployee onBack={() => setView('updates')} />;

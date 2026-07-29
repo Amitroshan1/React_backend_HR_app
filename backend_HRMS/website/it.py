@@ -33,6 +33,30 @@ from .employee_photo import photo_url_for_admin
 it_bp = Blueprint("it", __name__)
 
 
+def _allow_self_asset_view_for_non_it():
+    """Allow employees to read only their own asset/return records."""
+    if request.method != "GET":
+        return False
+    endpoint = request.endpoint or ""
+    if endpoint not in {"it.employee_assets", "it.employee_return_requests"}:
+        return False
+
+    from .plan_features import has_feature
+
+    if not has_feature("dashboard_my_assets"):
+        return False
+
+    req_emp = (request.view_args or {}).get("emp_id")
+    if not req_emp:
+        return False
+
+    actor = _current_admin()
+    target = _resolve_admin_by_emp_key(req_emp)
+    if not actor or not target:
+        return False
+    return int(actor.id) == int(target.id)
+
+
 @it_bp.before_request
 def _it_plan_guard():
     from flask_jwt_extended import get_jwt, verify_jwt_in_request
@@ -48,6 +72,8 @@ def _it_plan_guard():
 
     claims = get_jwt() or {}
     if not can_access_it_panel(claims):
+        if _allow_self_asset_view_for_non_it():
+            return None
         return plan_forbidden_response("it_panel")
     return None
 
@@ -576,6 +602,16 @@ def employee_assets(emp_id):
     emp = _resolve_admin_by_emp_key(emp_id)
     if not emp:
         return _err("Employee not found", 404)
+
+    # Defense-in-depth: non-IT users can only read their own assets.
+    claims = get_jwt() or {}
+    from .plan_features import can_access_it_panel
+
+    actor = _current_admin()
+    if not can_access_it_panel(claims):
+        if not actor or int(actor.id) != int(emp.id):
+            return _err("You can only view your own assigned assets", 403)
+
     payload = {"employee": _serialize_admin_employee(emp)}
     return _ok(payload)
 
@@ -587,6 +623,16 @@ def employee_return_requests(emp_id):
     emp = _resolve_admin_by_emp_key(emp_id)
     if not emp:
         return _err("Employee not found", 404)
+
+    # Defense-in-depth: non-IT users can only read their own history.
+    claims = get_jwt() or {}
+    from .plan_features import can_access_it_panel
+
+    actor = _current_admin()
+    if not can_access_it_panel(claims):
+        if not actor or int(actor.id) != int(emp.id):
+            return _err("You can only view your own return requests", 403)
+
     status = (request.args.get("status") or "").strip().lower()
     q = ITAssetReturnRequest.query.filter(
         ITAssetReturnRequest.requester_admin_id == emp.id

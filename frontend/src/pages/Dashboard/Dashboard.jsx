@@ -26,6 +26,11 @@ import { hasFeature } from "../../utils/planFeatures";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateDDMMYYYY, parseAppDate } from "../../utils/dateFormat";
 import { PolicyAckModal } from "../../components/PolicyAckModal";
+import { usePunchGps } from "../../hooks/usePunchGps";
+import {
+  acquireGpsFix,
+  zoneToLocationLabel,
+} from "../../services/gpsAcquisition";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 
 const NEWS_FEED_VISIBLE_DAYS = 6;
@@ -40,6 +45,12 @@ const isNewsFeedPostVisible = (item) => {
     cutoff.setDate(cutoff.getDate() - NEWS_FEED_VISIBLE_DAYS);
     return created >= cutoff;
 };
+
+/** Birthdays / anniversaries / joinings already say "today" — no date line needed. */
+const isCelebrationFeedItem = (type) =>
+    type === "birthday" || type === "anniversary" || type === "joining";
+
+const shouldShowNewsFeedDate = (item) => !isCelebrationFeedItem(item?.type || "post");
 const API_BASE_URL = "/api/auth";
 
 async function postPunchOutRequest(token, body) {
@@ -61,19 +72,28 @@ async function postPunchOutRequest(token, body) {
   return { ok: response.ok, result };
 }
 
-/** Fresh GPS for auto cap punch-out (not cached punch-in location). */
-function fetchFreshPosition() {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
-    );
-  });
+/** Fresh GPS for auto cap punch-out — same engine as manual punch (never poll cache). */
+async function fetchFreshPosition() {
+  const result = await acquireGpsFix();
+  if (!result.ok || !result.measurement) return null;
+  return result.measurement;
+}
+
+/** Build punch payload coords + V2 measurement fields from a fresh acquisition. */
+function measurementToPunchFields(measurement) {
+  if (!measurement) return {};
+  return {
+    lat: measurement.lat,
+    lon: measurement.lon,
+    accuracy: measurement.accuracy_m,
+    accuracy_m: measurement.accuracy_m,
+    sample_count: measurement.sample_count,
+    spread_m: measurement.spread_m,
+    retry_count: measurement.retry_count,
+    acquisition_ms: measurement.acquisition_ms,
+    device_class: measurement.device_class,
+    attempt_id: measurement.attempt_id,
+  };
 }
 
 const PUNCH_DISPLAY_TZ = "Asia/Kolkata";
@@ -395,6 +415,7 @@ export const Dashboard = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isPunching, setIsPunching] = useState(false);
+    /** Poll-only indicator — NEVER submit these coords on Punch In/Out. */
     const [location, setLocation] = useState({ 
         lat: null, 
         lon: null, 
@@ -410,6 +431,9 @@ export const Dashboard = () => {
         grace: 100,
         message: ""
     });
+    const punchGps = usePunchGps();
+    /** Fresh measurement from last Punch click (shared by In/Out + reason modal). */
+    const punchMeasurementRef = useRef(null);
     const [dynamicData, setDynamicData] = useState({
         user: {},
         employee: {},
@@ -434,10 +458,39 @@ export const Dashboard = () => {
         punch_in: null,
         has_open_session: false,
     });
+    const punchTimingRef = useRef({});
     const [newsFeed, setNewsFeed] = useState([]);
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
     const newsFeedListRef = useRef(null);
     const autoCapPunchOutRef = useRef(false);
+    const resetPunchTimings = () => {
+        punchTimingRef.current = { t0: (typeof performance !== "undefined" ? performance.now() : Date.now()) };
+    };
+    const markPunchTiming = (key, valueMs = null) => {
+        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+        if (valueMs == null) {
+            punchTimingRef.current[key] = now;
+        } else {
+            punchTimingRef.current[key] = valueMs;
+        }
+    };
+    const logPunchTimingBreakdown = (label, backendTiming = null) => {
+        const t = punchTimingRef.current || {};
+        const toDur = (a, b) =>
+            Number.isFinite(t[a]) && Number.isFinite(t[b]) ? Math.max(0, t[b] - t[a]) : null;
+        const out = {
+            label,
+            uiValidationMs: toDur("t0", "afterUiValidation"),
+            gpsAcquisitionMs: toDur("gpsStart", "gpsEnd"),
+            locationCheckApiMs: toDur("locCheckStart", "locCheckEnd"),
+            punchApiMs: toDur("punchApiStart", "punchApiEnd"),
+            responseHandlingMs: toDur("punchApiEnd", "responseDone"),
+            totalMs: toDur("t0", "responseDone"),
+            backendTiming,
+        };
+        // Real measured trace for debugging/optimization.
+        console.table(out);
+    };
     const fetchDashboardData = async (showAlert = false) => {
         const token = localStorage.getItem('token');
         if (!token) return;
@@ -541,14 +594,7 @@ export const Dashboard = () => {
             const fresh = await fetchFreshPosition();
             const body = { auto_system_punch_out: true };
             if (fresh?.lat != null && fresh?.lon != null) {
-                body.lat = fresh.lat;
-                body.lon = fresh.lon;
-                setLocation((prev) => ({
-                    ...prev,
-                    lat: fresh.lat,
-                    lon: fresh.lon,
-                    isAvailable: true,
-                }));
+                Object.assign(body, measurementToPunchFields(fresh));
             }
             const { ok, result } = await postPunchOutRequest(token, body);
             if (ok && result.success) {
@@ -645,8 +691,10 @@ export const Dashboard = () => {
     });
 
   /** Duplicate items for seamless top-to-bottom loop scroll */
+  /** Duplicate list only when long enough for seamless auto-scroll (avoids showing events twice). */
   const loopedNewsFeed = useMemo(() => {
     if (newsFeed.length <= 1) return newsFeed;
+    if (newsFeed.length < 4) return newsFeed;
     return [...newsFeed, ...newsFeed];
   }, [newsFeed]);
 
@@ -722,6 +770,7 @@ export const Dashboard = () => {
   };
 
     useEffect(() => {
+        // Background poll for UI badge only — NEVER used as Punch coordinates.
         const checkLocation = async () => {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
@@ -750,7 +799,8 @@ export const Dashboard = () => {
                             isAvailable: false,
                             isInRange: false
                         }));
-                    }
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
                 );
             } else {
                 setLocation((prev) => ({ 
@@ -836,18 +886,24 @@ export const Dashboard = () => {
                 clearInterval(timer);
             }
         };
-    }, [punchInDateTime, dynamicData.punch.punch_out, dynamicData.punch.has_open_session, dynamicData.punch.punch_in]); 
-    const handlePunchIn = async (geoReason = "", repeatPunchReasonParam = "") => {
-        if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
-            alert(location.error || "Cannot punch in without location. Please enable location services.");
+    }, [punchInDateTime, dynamicData.punch.punch_out, dynamicData.punch.has_open_session, dynamicData.punch.punch_in]);
+
+    const handlePunchIn = async (geoReason = "", repeatPunchReasonParam = "", measurement = null) => {
+        const fix = measurement || punchMeasurementRef.current;
+        if (isPunching || !fix?.lat || !fix?.lon) {
+            alert(
+                punchGps.errorMessage ||
+                    location.error ||
+                    "Cannot punch in without location. Please enable location services.",
+            );
             return;
-        } 
+        }
         setIsPunching(true);
+        punchGps.setPunchState(punchGps.PunchGpsState.SUBMITTING, "Submitting attendance...");
         const token = localStorage.getItem('token');
         const repeatTrim = (repeatPunchReasonParam || "").trim();
         const payload = {
-            lat: location.lat,
-            lon: location.lon,
+            ...measurementToPunchFields(fix),
             is_wfh: false,
             geo_reason: geoReason || null,
         };
@@ -855,6 +911,7 @@ export const Dashboard = () => {
             payload.repeat_punch_reason = repeatTrim;
         }
         try {
+            markPunchTiming("punchApiStart");
             const response = await fetch(`${API_BASE_URL}/employee/punch-in`, {
                 method: 'POST',
                 headers: {
@@ -864,54 +921,87 @@ export const Dashboard = () => {
                 body: JSON.stringify(payload)
             });
             const result = await response.json();
+            markPunchTiming("punchApiEnd");
             if (response.ok && result.success) {
                 setRepeatPunchModalOpen(false);
                 setRepeatPunchReason("");
                 setGeoReasonModalOpen(false);
                 setGeoReason("");
+                punchMeasurementRef.current = null;
+                punchGps.setPunchState(punchGps.PunchGpsState.SUCCESS);
                 alert(`Punched In Successfully at ${formatTime(result.punch_in)}!`);
-                await fetchDashboardData(false);
+                // UX optimization: unblock button/modal immediately, refresh dashboard in background.
+                setIsPunching(false);
+                punchGps.setPunchState(punchGps.PunchGpsState.SUCCESS, "Almost done...");
+                markPunchTiming("responseDone");
+                logPunchTimingBreakdown("Punch In", result.timing || null);
+                fetchDashboardData(false)
+                    .catch((e) => console.warn("Dashboard refresh failed after punch-in:", e))
+                    .finally(() => punchGps.reset());
+                return;
             } else {
-                // If location is out of range, update state
                 if (result.message && result.message.includes("Too far")) {
                     setLocation(prev => ({ ...prev, isInRange: false }));
                 }
                 if (result.requires_geo_reason) {
                     setLocation((prev) => ({ ...prev, isInRange: false }));
+                    punchGps.setPunchState(punchGps.PunchGpsState.OUTSIDE);
                     setGeoReasonMode("in");
                     setGeoReasonModalOpen(true);
                 } else if (result.requires_repeat_punch_reason) {
                     setRepeatPunchModalOpen(true);
+                    punchGps.setPunchState(punchGps.PunchGpsState.READY);
                 } else {
+                    punchGps.setPunchState(punchGps.PunchGpsState.ERROR, result.message);
                     alert(`Punch In Failed: ${result.message || 'Server error.'}`);
                 }
             }
+            markPunchTiming("responseDone");
+            logPunchTimingBreakdown("Punch In (failed)", result?.timing || null);
         } catch (error) {
             console.error("Punch In error:", error);
             if (!navigator.onLine) {
+                punchGps.setPunchState(
+                    punchGps.PunchGpsState.ERROR,
+                    "No internet connection. Please check your network and try again.",
+                );
                 alert("No internet connection. Please check your network and try again.");
             } else {
+                punchGps.setPunchState(
+                    punchGps.PunchGpsState.ERROR,
+                    "We couldn't complete your request right now. Please try again.",
+                );
                 alert("We couldn't complete your request right now. Please try again.");
             }
+            markPunchTiming("responseDone");
+            logPunchTimingBreakdown("Punch In (exception)", null);
         } finally {
             setIsPunching(false);
         }
     };
-    const handlePunchOut = async (geoReason = "", extendedHoursReasonParam = "") => {
-        if (isPunching || !location.lat || !location.lon || !location.isAvailable) {
-            alert(location.error || "Cannot punch out without location. Please enable location services.");
+
+    const handlePunchOut = async (geoReason = "", extendedHoursReasonParam = "", measurement = null) => {
+        const fix = measurement || punchMeasurementRef.current;
+        if (isPunching || !fix?.lat || !fix?.lon) {
+            alert(
+                punchGps.errorMessage ||
+                    location.error ||
+                    "Cannot punch out without location. Please enable location services.",
+            );
             return;
-        } 
+        }
         setIsPunching(true);
+        punchGps.setPunchState(punchGps.PunchGpsState.SUBMITTING, "Submitting attendance...");
         const token = localStorage.getItem('token');
         const extTrim = (extendedHoursReasonParam || "").trim();
         try {
+            markPunchTiming("punchApiStart");
             const { ok, result } = await postPunchOutRequest(token, {
-                lat: location.lat,
-                lon: location.lon,
+                ...measurementToPunchFields(fix),
                 geo_reason: geoReason || null,
                 ...(extTrim.length >= 3 ? { extended_hours_reason: extTrim } : {}),
             });
+            markPunchTiming("punchApiEnd");
             if (ok && result.success) {
                 setPunchInDateTime(null);
                 const workHours = formatWorkingHours(result.today_work);
@@ -924,42 +1014,115 @@ export const Dashboard = () => {
                         working_hours: workHours
                     }
                 }));
-                await fetchDashboardData();
                 setExtendedHoursModalOpen(false);
                 setExtendedHoursReason("");
                 setGeoReasonModalOpen(false);
                 setGeoReason("");
+                punchMeasurementRef.current = null;
+                punchGps.setPunchState(punchGps.PunchGpsState.SUCCESS);
                 alert(`Punched Out Successfully! Total Today's Work: ${result.today_work || 'N/A'}`);
+                // UX optimization: unblock immediately; refresh in background.
+                setIsPunching(false);
+                punchGps.setPunchState(punchGps.PunchGpsState.SUCCESS, "Almost done...");
+                markPunchTiming("responseDone");
+                logPunchTimingBreakdown("Punch Out", result.timing || null);
+                fetchDashboardData()
+                    .catch((e) => console.warn("Dashboard refresh failed after punch-out:", e))
+                    .finally(() => punchGps.reset());
+                return;
             } else {
                 if (result.message && result.message.includes("Too far")) {
                     setLocation(prev => ({ ...prev, isInRange: false }));
                 }
                 if (result.requires_geo_reason) {
+                    punchGps.setPunchState(punchGps.PunchGpsState.OUTSIDE);
                     setGeoReasonMode("out");
                     setGeoReasonModalOpen(true);
                 } else if (result.requires_extended_hours_reason) {
                     setExtendedHoursModalOpen(true);
+                    punchGps.setPunchState(punchGps.PunchGpsState.READY);
                 } else {
+                    punchGps.setPunchState(punchGps.PunchGpsState.ERROR, result.message);
                     alert(`Punch Out Failed: ${result.message || 'Server error.'}`);
                 }
             }
+            markPunchTiming("responseDone");
+            logPunchTimingBreakdown("Punch Out (failed)", result?.timing || null);
         } catch (error) {
             console.error("Punch Out error:", error);
             if (!navigator.onLine) {
+                punchGps.setPunchState(
+                    punchGps.PunchGpsState.ERROR,
+                    "No internet connection. Please check your network and try again.",
+                );
                 alert("No internet connection. Please check your network and try again.");
             } else {
+                punchGps.setPunchState(
+                    punchGps.PunchGpsState.ERROR,
+                    "We couldn't complete your request right now. Please try again.",
+                );
                 alert("We couldn't complete your request right now. Please try again.");
             }
+            markPunchTiming("responseDone");
+            logPunchTimingBreakdown("Punch Out (exception)", null);
         } finally {
             setIsPunching(false);
         }
     };
+
     const punchHasOpenSession = () =>
         dynamicData.punch.has_open_session ?? (!!dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
 
+    /** Acquire fresh GPS, then decide reason modal vs submit — never use poll coords. */
+    const prepareFreshPunchMeasurement = async () => {
+        markPunchTiming("gpsStart");
+        const acquired = await punchGps.acquireForPunch();
+        markPunchTiming("gpsEnd");
+        if (acquired.cancelled) return null;
+        if (!acquired.ok || !acquired.measurement) {
+            alert(
+                acquired.message ||
+                    punchGps.errorMessage ||
+                    "Cannot continue without location. Please enable location services.",
+            );
+            return null;
+        }
+        punchMeasurementRef.current = acquired.measurement;
+        markPunchTiming("locCheckStart");
+        const locationData = await validateLocationRange(
+            acquired.measurement.lat,
+            acquired.measurement.lon,
+        );
+        markPunchTiming("locCheckEnd");
+        const inRange = !!locationData?.in_range;
+        const zone = locationData?.zone || "NO_GPS";
+        const requiresReason = !!locationData?.requires_reason || !inRange;
+        // Refresh UI indicator from fresh check (still not used as punch coords).
+        setLocation((prev) => ({
+            ...prev,
+            isInRange: inRange,
+            error:
+                inRange || zone === "NO_OFFICE_CONFIG"
+                    ? null
+                    : "You are outside office range. Punch In/Out requires a reason.",
+        }));
+        if (requiresReason) {
+            punchGps.setPunchState(punchGps.PunchGpsState.OUTSIDE);
+        }
+        return {
+            measurement: acquired.measurement,
+            requiresReason,
+            inRange,
+            zone,
+            lowSignal: !!acquired.lowSignal,
+        };
+    };
+
     const onPunchInClick = async () => {
-        if (isPunching || punchHasOpenSession()) return;
-        if (!location.lat || !location.lon || !location.isAvailable) {
+        if (isPunching || punchGps.isBusy || punchHasOpenSession()) return;
+        resetPunchTimings();
+        markPunchTiming("afterUiValidation");
+        if (!location.isAvailable) {
             alert(location.error || "Cannot punch in without location. Please enable location services.");
             return;
         }
@@ -967,21 +1130,32 @@ export const Dashboard = () => {
             setRepeatPunchModalOpen(true);
             return;
         }
-        if (geo.requiresReason || !location.isInRange) {
+        const prepared = await prepareFreshPunchMeasurement();
+        if (!prepared) return;
+        if (prepared.requiresReason || prepared.lowSignal) {
             setGeoReasonMode("in");
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchIn("", "");
+        await handlePunchIn("", "", prepared.measurement);
     };
+
     const onPunchOutClick = async () => {
-        if (isPunching || !punchHasOpenSession()) return;
-        if (geo.requiresReason || !location.isInRange) {
+        if (isPunching || punchGps.isBusy || !punchHasOpenSession()) return;
+        resetPunchTimings();
+        markPunchTiming("afterUiValidation");
+        if (!location.isAvailable) {
+            alert(location.error || "Cannot punch out without location. Please enable location services.");
+            return;
+        }
+        const prepared = await prepareFreshPunchMeasurement();
+        if (!prepared) return;
+        if (prepared.requiresReason || prepared.lowSignal) {
             setGeoReasonMode("out");
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchOut("");
+        await handlePunchOut("", "", prepared.measurement);
     };
 
     const submitRepeatPunchIn = async () => {
@@ -990,13 +1164,25 @@ export const Dashboard = () => {
             alert("Please enter a reason (at least 3 characters).");
             return;
         }
+        // Need fresh GPS if user opened repeat modal before acquiring
+        if (!punchMeasurementRef.current) {
+            const prepared = await prepareFreshPunchMeasurement();
+            if (!prepared) return;
+            if (prepared.requiresReason || prepared.lowSignal) {
+                setGeoReasonMode("in");
+                setGeoReasonModalOpen(true);
+                return;
+            }
+            await handlePunchIn("", t, prepared.measurement);
+            return;
+        }
         const geoTrim = geoReason.trim();
         if ((geo.requiresReason || !location.isInRange) && geoTrim.length < 10) {
             setGeoReasonMode("in");
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchIn(geoTrim, t);
+        await handlePunchIn(geoTrim, t, punchMeasurementRef.current);
     };
 
     const submitGeoReasonPunch = async () => {
@@ -1005,8 +1191,13 @@ export const Dashboard = () => {
             alert("Please enter a location reason (at least 10 characters).");
             return;
         }
+        if (!punchMeasurementRef.current) {
+            const prepared = await prepareFreshPunchMeasurement();
+            if (!prepared) return;
+        }
+        punchGps.setPunchState(punchGps.PunchGpsState.READY, "Location verified");
         if (geoReasonMode === "out") {
-            await handlePunchOut(t);
+            await handlePunchOut(t, "", punchMeasurementRef.current);
             return;
         }
         const repeatTrim = repeatPunchReason.trim();
@@ -1014,7 +1205,7 @@ export const Dashboard = () => {
             setRepeatPunchModalOpen(true);
             return;
         }
-        await handlePunchIn(t, repeatTrim);
+        await handlePunchIn(t, repeatTrim, punchMeasurementRef.current);
     };
 
     const submitExtendedHoursPunchOut = async () => {
@@ -1023,7 +1214,16 @@ export const Dashboard = () => {
             alert("Please enter a reason (at least 3 characters).");
             return;
         }
-        await handlePunchOut("", t);
+        if (!punchMeasurementRef.current) {
+            const prepared = await prepareFreshPunchMeasurement();
+            if (!prepared) return;
+            if (prepared.requiresReason || prepared.lowSignal) {
+                setGeoReasonMode("out");
+                setGeoReasonModalOpen(true);
+                return;
+            }
+        }
+        await handlePunchOut("", t, punchMeasurementRef.current);
     };
     const probation = dynamicData.probation;
     const showProbationCard = probation?.show_on_dashboard;
@@ -1091,6 +1291,16 @@ export const Dashboard = () => {
     const isCheckedIn = punchHasOpenSession();
     const isCheckedOut = !punchHasOpenSession() && !!(dynamicData.punch.punch_in || dynamicData.punch.punch_out);
     const isActive = isCheckedIn;
+    const locationPill = useMemo(
+        () => zoneToLocationLabel(geo.zone, location.isInRange),
+        [geo.zone, location.isInRange],
+    );
+    const punchBusy = isPunching || punchGps.isBusy;
+    const punchStatusLine =
+        punchGps.statusMessage ||
+        (punchGps.errorMessage && punchGps.state === punchGps.PunchGpsState.ERROR
+            ? punchGps.errorMessage
+            : "");
     const managerName = [dynamicData.managers?.l2?.name, dynamicData.managers?.l1?.name, dynamicData.managers?.l3?.name]
         .map((n) => (typeof n === "string" ? n.trim() : n))
         .find((n) => n) || "N/A";
@@ -1214,9 +1424,9 @@ export const Dashboard = () => {
                                     <div className="status-row-top">
                                         <div className="location-badge">
                                             <span className="location-label">Location</span>
-                                            <span className={`location-pill ${location.isAvailable && location.isInRange ? 'on' : 'off'}`}>
+                                            <span className={`location-pill ${locationPill.tone}`}>
                                                 <span className="location-dot"></span>
-                                                {location.isAvailable && location.isInRange ? 'Within Range' : 'Off'}
+                                                {location.isAvailable ? locationPill.text : "Off"}
                                             </span>
                                         </div>
                                         <div className={`status-badge-main ${isActive ? 'active' : 'inactive'}`}>
@@ -1225,7 +1435,23 @@ export const Dashboard = () => {
                                         </div>
                                     </div>
 
-                                    {location.error && (
+                                    {punchStatusLine && (
+                                        <div
+                                            className={`location-gps-status${
+                                                punchGps.state === punchGps.PunchGpsState.ERROR
+                                                    ? " location-gps-status--error"
+                                                    : punchGps.state === punchGps.PunchGpsState.LOW_SIGNAL ||
+                                                        punchGps.state === punchGps.PunchGpsState.OUTSIDE
+                                                      ? " location-gps-status--warn"
+                                                      : ""
+                                            }`}
+                                            aria-live="polite"
+                                        >
+                                            {punchStatusLine}
+                                        </div>
+                                    )}
+
+                                    {location.error && !punchStatusLine && (
                                         <div className="location-error-banner">
                                             <span>⚠️</span>
                                             <span>{location.error}</span>
@@ -1250,17 +1476,25 @@ export const Dashboard = () => {
                                         <button
                                             className="btn-punch btn-punch-in"
                                             onClick={onPunchInClick}
-                                            disabled={punchHasOpenSession() || isPunching || !location.isAvailable}
+                                            disabled={punchHasOpenSession() || punchBusy || !location.isAvailable}
                                         >
                                             <FiCheckCircle className="btn-icon" />
-                                            {isPunching && !isCheckedIn ? 'Punching In...' : 'Punch In'}
+                                            {punchBusy && !isCheckedIn
+                                                ? punchGps.isBusy
+                                                    ? punchGps.statusMessage || "Finding your location…"
+                                                    : "Punching In..."
+                                                : "Punch In"}
                                         </button>
                                         <button
                                             className="btn-punch btn-punch-out"
                                             onClick={onPunchOutClick}
-                                            disabled={!punchHasOpenSession() || isPunching || !location.isAvailable}
+                                            disabled={!punchHasOpenSession() || punchBusy || !location.isAvailable}
                                         >
-                                            {isPunching && punchHasOpenSession() ? 'Punching Out...' : 'Punch Out'}
+                                            {punchBusy && punchHasOpenSession()
+                                                ? punchGps.isBusy
+                                                    ? punchGps.statusMessage || "Finding your location…"
+                                                    : "Punching Out..."
+                                                : "Punch Out"}
                                         </button>
                                     </div>
                                 </div>
@@ -1303,17 +1537,28 @@ export const Dashboard = () => {
                             ) : (
                                 <div className="news-feed-scroll-viewport">
                                 <ul className="news-feed-list" ref={newsFeedListRef}>
-                                    {loopedNewsFeed.map((item, index) => (
-                                        <li key={`${item.id}-${index}`} className={`news-feed-item ${(item.type || 'post') === 'birthday' ? 'news-feed-birthday' : ''} ${(item.type || 'post') === 'anniversary' ? 'news-feed-anniversary' : ''}`}>
+                                    {loopedNewsFeed.map((item, index) => {
+                                        const feedType = item.type || "post";
+                                        const showDate = shouldShowNewsFeedDate(item);
+                                        const hasAttachment = Boolean(item.file_url || item.file_path);
+                                        return (
+                                        <li
+                                            key={`${item.id}-${index}`}
+                                            className={`news-feed-item ${feedType === "birthday" ? "news-feed-birthday" : ""} ${feedType === "anniversary" ? "news-feed-anniversary" : ""} ${feedType === "joining" ? "news-feed-joining" : ""}`}
+                                        >
                                             <h4 className="news-feed-title">
-                                                {(item.type || '') === 'birthday' && '🎂 '}
-                                                {(item.type || '') === 'anniversary' && '🎉 '}
+                                                {feedType === "birthday" && "🎂 "}
+                                                {feedType === "anniversary" && "🎉 "}
+                                                {feedType === "joining" && "👋 "}
                                                 {item.title}
                                             </h4>
                                             <p className="news-feed-content">{item.content}</p>
+                                            {(showDate || hasAttachment) && (
                                             <div className="news-feed-meta">
-                                                <span className="news-feed-date">{formatDate(item.created_at)}</span>
-                                                {(item.file_url || item.file_path) && (
+                                                {showDate ? (
+                                                    <span className="news-feed-date">{formatDate(item.created_at)}</span>
+                                                ) : null}
+                                                {hasAttachment ? (
                                                     <a
                                                         href={item.file_url || `/static/uploads/${item.file_path}`}
                                                         target="_blank"
@@ -1322,10 +1567,12 @@ export const Dashboard = () => {
                                                     >
                                                         Attachment
                                                     </a>
-                                                )}
+                                                ) : null}
                                             </div>
+                                            )}
                                         </li>
-                                    ))}
+                                        );
+                                    })}
                                 </ul>
                                 </div>
                             )}
@@ -1399,6 +1646,7 @@ export const Dashboard = () => {
                             {hasFeature("dashboard_my_assets") ? (
                             <NavLink
                                 to={myEmpId ? `/it/employee/${encodeURIComponent(myEmpId)}` : "#"}
+                                state={{ selfAssets: true }}
                                 className="action-card nav-link-card"
                                 onClick={(e) => {
                                     if (!myEmpId) {
@@ -1612,7 +1860,13 @@ export const Dashboard = () => {
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="geo-reason-title"
-                onClick={() => !isPunching && setGeoReasonModalOpen(false)}
+                onClick={() => {
+                  if (isPunching || punchBusy) return;
+                  setGeoReasonModalOpen(false);
+                  setGeoReason("");
+                  punchMeasurementRef.current = null;
+                  punchGps.reset();
+                }}
             >
                 <div className="dashboard-repeat-punch-modal" onClick={(e) => e.stopPropagation()}>
                     <h3 id="geo-reason-title">
@@ -1628,16 +1882,18 @@ export const Dashboard = () => {
                         onChange={(e) => setGeoReason(e.target.value)}
                         placeholder="e.g. Client site visit at ABC Corp / field duty"
                         rows={4}
-                        disabled={isPunching}
+                        disabled={isPunching || punchBusy}
                     />
                     <div className="dashboard-repeat-punch-actions">
                         <button
                             type="button"
                             className="dashboard-repeat-punch-btn secondary"
-                            disabled={isPunching}
+                            disabled={isPunching || punchBusy}
                             onClick={() => {
                                 setGeoReasonModalOpen(false);
                                 setGeoReason("");
+                                punchMeasurementRef.current = null;
+                                punchGps.reset();
                             }}
                         >
                             Cancel
@@ -1645,10 +1901,10 @@ export const Dashboard = () => {
                         <button
                             type="button"
                             className="dashboard-repeat-punch-btn primary"
-                            disabled={isPunching}
+                            disabled={isPunching || punchBusy}
                             onClick={submitGeoReasonPunch}
                         >
-                            {isPunching
+                            {isPunching || punchBusy
                                 ? "Submitting…"
                                 : geoReasonMode === "out"
                                     ? "Confirm punch out"

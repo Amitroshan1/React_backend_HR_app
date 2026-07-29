@@ -6,7 +6,7 @@ import './AddLocation.css';
 const HR_API_BASE = '/api/HumanResource';
 
 export const AddLocation = ({ onBack }) => {
-  const [form, setForm] = useState({ name: '', latitude: '', longitude: '', radius: '100' });
+  const [form, setForm] = useState({ name: '', latitude: '', longitude: '', radius: '100', grace: '25' });
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -67,6 +67,7 @@ export const AddLocation = ({ onBack }) => {
           latitude: form.latitude ? parseFloat(form.latitude) : 0,
           longitude: form.longitude ? parseFloat(form.longitude) : 0,
           radius: form.radius ? parseFloat(form.radius) : 100,
+          grace: form.grace !== '' && form.grace != null ? parseFloat(form.grace) : 25,
         }),
       });
       const data = await res.json();
@@ -75,7 +76,7 @@ export const AddLocation = ({ onBack }) => {
         return;
       }
       setSuccess('Location added successfully');
-      setForm({ name: '', latitude: '', longitude: '', radius: '100' });
+      setForm({ name: '', latitude: '', longitude: '', radius: '100', grace: '25' });
       fetchLocations();
     } catch {
       setError('Network error. Please try again.');
@@ -152,16 +153,31 @@ export const AddLocation = ({ onBack }) => {
                 />
               </div>
             </div>
-            <div className="input-group">
-              <label>Radius (meters)</label>
-              <input
-                type="text"
-                name="radius"
-                placeholder="100"
-                value={form.radius}
-                onChange={handleChange}
-              />
+            <div className="input-row">
+              <div className="input-group flex-1">
+                <label>Radius (meters)</label>
+                <input
+                  type="text"
+                  name="radius"
+                  placeholder="100"
+                  value={form.radius}
+                  onChange={handleChange}
+                />
+              </div>
+              <div className="input-group flex-1">
+                <label>Grace (meters)</label>
+                <input
+                  type="text"
+                  name="grace"
+                  placeholder="25"
+                  value={form.grace}
+                  onChange={handleChange}
+                />
+              </div>
             </div>
+            <p className="location-card-subtitle" style={{ marginTop: 0, marginBottom: 12 }}>
+              Grace is an office-specific doorway/survey buffer. Decision math also uses GPS accuracy — grace does not replace accuracy handling.
+            </p>
             {error && <p className="location-error-msg">{error}</p>}
             {success && <p className="location-success-msg">{success}</p>}
             <button type="submit" className="btn-add-blue" disabled={submitLoading}>
@@ -184,6 +200,7 @@ export const AddLocation = ({ onBack }) => {
                       <th>Latitude</th>
                       <th>Longitude</th>
                       <th>Radius (m)</th>
+                      <th>Grace (m)</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -194,6 +211,7 @@ export const AddLocation = ({ onBack }) => {
                         <td>{loc.latitude}</td>
                         <td>{loc.longitude}</td>
                         <td>{loc.radius}</td>
+                        <td>{loc.grace ?? 25}</td>
                         <td>
                           <button
                             className="btn-delete-red"

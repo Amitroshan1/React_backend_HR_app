@@ -6453,7 +6453,8 @@ def list_locations():
                 "name": loc.name,
                 "latitude": loc.latitude,
                 "longitude": loc.longitude,
-                "radius": loc.radius
+                "radius": loc.radius,
+                "grace": loc.grace if getattr(loc, "grace", None) is not None else 25,
             }
             for loc in locations
         ]
@@ -6469,6 +6470,7 @@ def create_location():
     lat = data.get("latitude")
     lng = data.get("longitude")
     radius = data.get("radius", 100)
+    grace = data.get("grace", 25)
 
     if not name:
         return jsonify({"success": False, "message": "Location name is required"}), 400
@@ -6476,16 +6478,29 @@ def create_location():
         lat_f = float(lat) if lat is not None else 0.0
         lng_f = float(lng) if lng is not None else 0.0
         radius_f = float(radius) if radius is not None else 100.0
+        grace_f = float(grace) if grace is not None else 25.0
     except (TypeError, ValueError):
-        return jsonify({"success": False, "message": "Invalid latitude, longitude or radius"}), 400
+        return jsonify({"success": False, "message": "Invalid latitude, longitude, radius or grace"}), 400
 
-    loc = Location(name=name, latitude=lat_f, longitude=lng_f, radius=radius_f)
+    if radius_f <= 0:
+        return jsonify({"success": False, "message": "Radius must be greater than 0"}), 400
+    if grace_f < 0:
+        return jsonify({"success": False, "message": "Grace cannot be negative"}), 400
+
+    loc = Location(name=name, latitude=lat_f, longitude=lng_f, radius=radius_f, grace=grace_f)
     db.session.add(loc)
     db.session.commit()
     return jsonify({
         "success": True,
         "message": "Location added successfully",
-        "location": {"id": loc.id, "name": loc.name, "latitude": loc.latitude, "longitude": loc.longitude, "radius": loc.radius}
+        "location": {
+            "id": loc.id,
+            "name": loc.name,
+            "latitude": loc.latitude,
+            "longitude": loc.longitude,
+            "radius": loc.radius,
+            "grace": loc.grace,
+        }
     }), 201
 
 
@@ -7324,3 +7339,8 @@ def hr_probation_decision_route():
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     return apply_hr_probation_decision(admin, request.get_json(silent=True))
 
+
+# Geo Analytics / Monitoring (Step 5) - visibility and tuning only; does not alter punch path.
+from .geo_analytics_api import register_geo_analytics_routes
+
+register_geo_analytics_routes(hr, hr_required)

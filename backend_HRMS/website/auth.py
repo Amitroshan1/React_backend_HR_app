@@ -1829,29 +1829,56 @@ def needs_reason_for_zone(zone):
     return zone in ["OUTSIDE", "NO_GPS"]
 
 
+def _geo_payload_from_request(data=None, args=None):
+    """Normalize lat/lon + optional V2 measurement fields for Geo Validation Service."""
+    src = dict(data or {})
+    if args is not None:
+        for key in (
+            "lat", "lon", "latitude", "longitude", "accuracy", "accuracy_m",
+            "sample_count", "spread_m", "spread", "retry_count",
+            "acquisition_ms", "acquisition_time", "device_class", "device_type",
+            "network_match", "attempt_id", "freshness_ms", "age_ms",
+        ):
+            if key in args and args.get(key) is not None and key not in src:
+                src[key] = args.get(key)
+    return src
+
+
+def _needs_geo_review(zone, geo_decision=None):
+    if geo_decision in ("OUTSIDE", "NO_GPS", "LOW_SIGNAL"):
+        return True
+    return zone in ("OUTSIDE", "NO_GPS")
+
+
 @auth.route('/employee/location-check', methods=['GET'])
 @jwt_required()
 def location_check():
     """Check if user's lat/lon is within office range. Used by dashboard for punch-in/out buttons."""
-    lat = request.args.get("lat")
-    lon = request.args.get("lon")
-    geo = resolve_geofence_for_coordinates(lat, lon)
-    zone = geo["zone"]
-    return jsonify({
-        "success": True,
-        "zone": zone,
-        "in_range": geo["in_range"],
-        "distance_meters": geo["distance_meters"],
-        "radius_meters": geo["radius_meters"],
-        "grace_meters": GEOFENCE_GRACE_METERS,
-        "requires_reason": needs_reason_for_zone(zone),
-        "message": f"{zone} zone",
-    }), 200
+    from .geo_mode_orchestrator import validate_employee_location
+
+    email = get_jwt().get("email")
+    employee = Admin.query.filter_by(email=email).first()
+    admin_id = employee.id if employee else None
+
+    payload = _geo_payload_from_request(args=request.args)
+    result = validate_employee_location(
+        payload=payload,
+        admin_id=admin_id,
+        direction="check",
+        write_audit=True,
+    )
+    return jsonify(result.to_location_check_dict()), 200
 
 
 @auth.route('/employee/punch-in', methods=['POST'])
 @jwt_required()
 def punch_in():
+    from .geo_mode_orchestrator import (
+        apply_session_geo_fields,
+        attach_audit_to_session,
+        reason_min_chars,
+        validate_employee_location,
+    )
 
     data = request.get_json() or {}
 
@@ -1859,6 +1886,7 @@ def punch_in():
     user_lon = _parse_lon(data.get("lon"))
     is_wfh = bool(data.get("is_wfh", False))
     geo_reason = (data.get("geo_reason") or "").strip()
+    min_reason = reason_min_chars()
 
     # Logged-in user
     email = get_jwt().get("email")
@@ -1934,34 +1962,43 @@ def punch_in():
             "requires_repeat_punch_reason": True,
         }), 400
 
-    geo = resolve_geofence_for_coordinates(user_lat, user_lon)
-    zone = geo["zone"]
-    location_status = geo["location_status"]
+    # Geo via Validation Service only (never call geo_fence_engine from attendance)
+    geo_result = validate_employee_location(
+        payload=_geo_payload_from_request(data),
+        admin_id=employee.id,
+        direction="in",
+        write_audit=True,
+    )
+    zone = geo_result.zone
+    location_status = geo_result.location_status
 
-    # Anti punch-in bypass: outside / no GPS requires approved WFH or a written reason.
-    if needs_reason_for_zone(zone):
+    # Anti punch-in bypass: policy REQUIRE_REASON → WFH or written reason.
+    if geo_result.requires_reason:
         wfh_ok = is_wfh or is_wfh_allowed(employee.id)
         if is_wfh and not is_wfh_allowed(employee.id):
             return jsonify({
                 "success": False,
                 "message": "WFH mode is not approved for today",
             }), 403
-        if not wfh_ok and len(geo_reason) < GEO_REASON_MIN_CHARS:
+        if not wfh_ok and len(geo_reason) < min_reason:
             return jsonify({
                 "success": False,
                 "message": (
                     f"You are outside the office geofence. "
-                    f"Enter a reason (at least {GEO_REASON_MIN_CHARS} characters) or use approved WFH."
+                    f"Enter a reason (at least {min_reason} characters) or use approved WFH."
                 ),
                 "requires_geo_reason": True,
                 "zone": zone,
+                "geo_decision": geo_result.geo_decision,
+                "policy_action": geo_result.policy_action,
+                "attempt_id": geo_result.attempt_id,
             }), 400
         if wfh_ok and not is_wfh:
             is_wfh = True
 
     now = datetime.now()
     stored_repeat = repeat_reason if closed_count > 0 else None
-    if needs_reason_for_zone(zone) and geo_reason:
+    if geo_result.requires_reason and geo_reason:
         geo_note = f"geo: {geo_reason}"
         stored_repeat = f"{stored_repeat} | {geo_note}" if stored_repeat else geo_note
 
@@ -1971,31 +2008,40 @@ def punch_in():
         clock_out=None,
         repeat_reason=stored_repeat,
         is_wfh=is_wfh,
-        lat=user_lat,
-        lon=user_lon,
+        lat=user_lat if user_lat is not None else geo_result.latitude,
+        lon=user_lon if user_lon is not None else geo_result.longitude,
         location_status=location_status,
         location_status_in=location_status,
         location_status_out=None,
     )
+    apply_session_geo_fields(sess, geo_result, direction="in")
     db.session.add(sess)
-    punch.lat = user_lat
-    punch.lon = user_lon
+    punch.lat = sess.lat
+    punch.lon = sess.lon
     recompute_punch_aggregate(punch)
+    db.session.flush()
+    attach_audit_to_session(geo_result.audit_id, sess.id)
     db.session.commit()
 
+    needs_review = _needs_geo_review(zone, geo_result.geo_decision)
     punch_in_str = isoformat_punch_clock(now)
     tw = punch.today_work or "0:00:00"
     return jsonify({
         "success": True,
-        "message": "Punched in; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched in successfully",
+        "message": "Punched in; pending geo review" if needs_review else "Punched in successfully",
         "punch_in": punch_in_str,
         "today_work": tw,
         "is_wfh": is_wfh,
         "zone": zone,
         "location_status": location_status,
         "location_status_in": location_status,
-        "needs_review": zone in ["OUTSIDE", "NO_GPS"],
+        "needs_review": needs_review,
         "requires_repeat_punch_reason": False,
+        "geo_decision": geo_result.geo_decision,
+        "policy_action": geo_result.policy_action,
+        "confidence": geo_result.confidence,
+        "attempt_id": geo_result.attempt_id,
+        "geo_engine": geo_result.engine,
     }), 200
 
 
@@ -2003,12 +2049,20 @@ def punch_in():
 @auth.route('/employee/punch-out', methods=['POST'])
 @jwt_required()
 def punch_out():
+    from .geo_mode_orchestrator import (
+        apply_session_geo_fields,
+        attach_audit_to_session,
+        reason_min_chars,
+        validate_employee_location,
+    )
+
     try:
         data = request.get_json() or {}
         
         user_lat = _parse_lat(data.get("lat"))
         user_lon = _parse_lon(data.get("lon"))
         geo_reason = (data.get("geo_reason") or "").strip()
+        min_reason = reason_min_chars()
 
         # Get logged-in user email from JWT
         email = get_jwt().get("email")
@@ -2032,24 +2086,32 @@ def punch_out():
             if not open_sess or not punch:
                 return jsonify({"success": False, "message": "No active punch-in found"}), 400
 
-        geo = resolve_geofence_for_coordinates(user_lat, user_lon)
-        zone = geo["zone"]
-        location_status = geo["location_status"]
+        geo_result = validate_employee_location(
+            payload=_geo_payload_from_request(data),
+            admin_id=employee.id,
+            direction="out",
+            write_audit=True,
+        )
+        zone = geo_result.zone
+        location_status = geo_result.location_status
 
         now = datetime.now()
         is_auto = data.get("auto_system_punch_out") is True
 
-        if not is_auto and needs_reason_for_zone(zone):
+        if not is_auto and geo_result.requires_reason:
             wfh_ok = bool(getattr(open_sess, "is_wfh", False)) or is_wfh_allowed(employee.id)
-            if not wfh_ok and len(geo_reason) < GEO_REASON_MIN_CHARS:
+            if not wfh_ok and len(geo_reason) < min_reason:
                 return jsonify({
                     "success": False,
                     "message": (
                         f"You are outside the office geofence. "
-                        f"Enter a reason (at least {GEO_REASON_MIN_CHARS} characters) to punch out."
+                        f"Enter a reason (at least {min_reason} characters) to punch out."
                     ),
                     "requires_geo_reason": True,
                     "zone": zone,
+                    "geo_decision": geo_result.geo_decision,
+                    "policy_action": geo_result.policy_action,
+                    "attempt_id": geo_result.attempt_id,
                 }), 400
 
         err_body, err_code = validate_manual_punch_out_extended_reason(open_sess, data, now)
@@ -2070,7 +2132,7 @@ def punch_out():
             ext_trim = (data.get("extended_hours_reason") or "").strip()
             if len(ext_trim) >= 3:
                 ext_reason = ext_trim
-            if needs_reason_for_zone(zone) and geo_reason:
+            if geo_result.requires_reason and geo_reason:
                 geo_note = f"geo_out: {geo_reason}"
                 ext_reason = f"{ext_reason} | {geo_note}" if ext_reason else geo_note
 
@@ -2078,22 +2140,25 @@ def punch_out():
             open_sess,
             punch,
             is_auto=is_auto,
-            lat=user_lat,
-            lon=user_lon,
+            lat=user_lat if user_lat is not None else geo_result.latitude,
+            lon=user_lon if user_lon is not None else geo_result.longitude,
             location_status_out=location_status,
             extended_hours_reason=ext_reason,
             now=now,
             clock_out_at=clock_out_at,
         )
+        apply_session_geo_fields(open_sess, geo_result, direction="out")
+        attach_audit_to_session(geo_result.audit_id, open_sess.id)
         db.session.commit()
 
+        needs_review = _needs_geo_review(zone, geo_result.geo_decision)
         today_work_str = punch.today_work or "0:00:00"
         out_display = open_sess.clock_out or clock_out_at or now
         punch_out_str = isoformat_punch_clock(out_display)
         auto_cap_msg = (
             "Auto punch-out at 10-hour daily cap"
             if is_auto and clock_out_at
-            else ("Punched out; pending geo review" if zone in ["OUTSIDE", "NO_GPS"] else "Punched out successfully")
+            else ("Punched out; pending geo review" if needs_review else "Punched out successfully")
         )
         return jsonify({
             "success": True,
@@ -2103,7 +2168,12 @@ def punch_out():
             "zone": zone,
             "location_status": location_status,
             "location_status_out": location_status,
-            "needs_review": zone in ["OUTSIDE", "NO_GPS"]
+            "needs_review": needs_review,
+            "geo_decision": geo_result.geo_decision,
+            "policy_action": geo_result.policy_action,
+            "confidence": geo_result.confidence,
+            "attempt_id": geo_result.attempt_id,
+            "geo_engine": geo_result.engine,
         }), 200
     except Exception as e:
         db.session.rollback()

@@ -97,7 +97,9 @@ export const AppLayout = () => {
             navigate("/dashboard", { replace: true });
             return;
         }
-        if (path.startsWith("/it") && !canAccessItPanel(user)) {
+        const isSelfAssetsPath = path.startsWith("/it/employee/");
+        const canSelfAssetsView = isSelfAssetsPath && hasFeature("dashboard_my_assets");
+        if (path.startsWith("/it") && !canAccessItPanel(user) && !canSelfAssetsView) {
             navigate("/dashboard", { replace: true });
             return;
         }

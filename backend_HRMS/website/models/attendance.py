@@ -53,16 +53,25 @@ class PunchSession(db.Model):
     location_status = db.Column(db.String(30), nullable=True)
     location_status_in = db.Column(db.String(30), nullable=True)
     location_status_out = db.Column(db.String(30), nullable=True)
+    # Geo V2 metadata (additive; ensured at app boot). Deferred so old DBs still load.
+    accuracy_m = db.deferred(db.Column(db.Float, nullable=True))
+    geo_decision = db.deferred(db.Column(db.String(30), nullable=True))
+    geo_office_id = db.deferred(db.Column(db.Integer, nullable=True))
+    confidence_score = db.deferred(db.Column(db.Float, nullable=True))
 
     punch = db.relationship("Punch", back_populates="sessions")
 
 
 class Location(db.Model):
+    __tablename__ = "location"
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     radius = db.Column(db.Float, default=100)
+    # Office-specific fence epsilon (meters). NULL → geo_fence_config DEFAULT_OFFICE_GRACE_M.
+    grace = db.Column(db.Float, nullable=True, default=25)
 
 
 

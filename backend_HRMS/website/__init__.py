@@ -74,6 +74,15 @@ def create_app():
         _raw_plan if _raw_plan in ("basic", "essential", "enterprise") else "essential"
     )
 
+    # Geo-fencing V2 thresholds (env-overridable; see website/geo_fence_config.py)
+    from .geo_fence_config import DEFAULTS as _GEO_DEFAULTS, get_geo_fence_config
+
+    for _geo_key, _geo_val in get_geo_fence_config().items():
+        app.config.setdefault(_geo_key, _geo_val)
+    # Ensure documented keys exist even if get_geo_fence_config evolves
+    for _geo_key, _geo_val in _GEO_DEFAULTS.items():
+        app.config.setdefault(_geo_key, _geo_val)
+
     # ---------------------------
     # Enable CORS
     # ---------------------------
@@ -148,7 +157,8 @@ def create_app():
     # Import Models
     # ---------------------------
     from .models.Admin_models import Admin
-    from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch, PunchSession
+    from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch, PunchSession, Location
+    from .models.geo_punch_attempt import GeoPunchAttempt  # noqa: F401 — register for db.create_all
     from .models.query import Query, QueryReply
     from .models.emp_detail_models import Employee
     from .models.education import Education, UploadDoc
@@ -331,6 +341,175 @@ def create_app():
             app.logger.info("Added column %s.auto_punched_out", table)
         except Exception as e:
             app.logger.warning("punch_sessions auto_punched_out migration skipped: %s", e)
+
+    def _ensure_location_grace_column():
+        """Add location.grace (office-specific fence epsilon, meters)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "location"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "grace" in existing:
+                return
+            dialect = db.engine.dialect.name
+            if dialect == "postgresql":
+                stmt = text(
+                    f'ALTER TABLE "{table}" ADD COLUMN grace DOUBLE PRECISION NULL DEFAULT 25'
+                )
+            else:
+                stmt = text(f"ALTER TABLE {table} ADD COLUMN grace FLOAT NULL DEFAULT 25")
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            app.logger.info("Added column %s.grace", table)
+        except Exception as e:
+            app.logger.warning("location.grace migration skipped: %s", e)
+
+    def _ensure_geo_punch_attempts_table():
+        """Create geo_punch_attempts audit table for Geo Analytics (additive)."""
+        try:
+            from sqlalchemy import inspect
+
+            insp = inspect(db.engine)
+            if "geo_punch_attempts" in insp.get_table_names():
+                return
+            from .models.geo_punch_attempt import GeoPunchAttempt  # noqa: F401
+
+            GeoPunchAttempt.__table__.create(db.engine, checkfirst=True)
+            app.logger.info("geo_punch_attempts table created")
+        except Exception as e:
+            app.logger.warning("geo_punch_attempts ensure skipped: %s", e)
+
+    def _ensure_geo_analytics_indexes():
+        """Composite indexes for geo analytics dashboards (idempotent)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "geo_punch_attempts"
+            if table not in insp.get_table_names():
+                return
+            existing = {ix["name"] for ix in insp.get_indexes(table)}
+            dialect = db.engine.dialect.name
+            wanted = [
+                ("ix_geo_attempts_created_decision", ["created_at", "geo_decision"]),
+                ("ix_geo_attempts_created_office", ["created_at", "office_id"]),
+                ("ix_geo_attempts_created_policy", ["created_at", "policy_action"]),
+                ("ix_geo_attempts_created_browser", ["created_at", "browser"]),
+                ("ix_geo_attempts_decision_created", ["geo_decision", "created_at"]),
+            ]
+            with db.engine.begin() as conn:
+                for name, cols in wanted:
+                    if name in existing:
+                        continue
+                    col_sql = ", ".join(cols)
+                    if dialect == "postgresql":
+                        conn.execute(
+                            text(
+                                f'CREATE INDEX IF NOT EXISTS {name} ON "{table}" ({col_sql})'
+                            )
+                        )
+                    else:
+                        try:
+                            conn.execute(text(f"CREATE INDEX {name} ON {table} ({col_sql})"))
+                        except Exception as idx_err:
+                            app.logger.warning("index %s skipped: %s", name, idx_err)
+            app.logger.info("geo analytics indexes ensured")
+        except Exception as e:
+            app.logger.warning("geo analytics indexes ensure skipped: %s", e)
+
+    def _ensure_geo_config_tables():
+        """Config override + version history tables for Admin tuning UI."""
+        try:
+            from .models.geo_config_change import GeoConfigChange, GeoConfigOverride  # noqa: F401
+
+            GeoConfigOverride.__table__.create(db.engine, checkfirst=True)
+            GeoConfigChange.__table__.create(db.engine, checkfirst=True)
+        except Exception as e:
+            app.logger.warning("geo config tables ensure skipped: %s", e)
+
+    def _ensure_geo_engine_comparisons_table():
+        """Shadow-mode Legacy vs V2 comparison table (Phase 6)."""
+        try:
+            from .models.geo_engine_comparison import GeoEngineComparison  # noqa: F401
+
+            GeoEngineComparison.__table__.create(db.engine, checkfirst=True)
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "geo_engine_comparisons"
+            if table not in insp.get_table_names():
+                return
+            existing = {ix["name"] for ix in insp.get_indexes(table)}
+            dialect = db.engine.dialect.name
+            wanted = [
+                ("ix_geo_cmp_created_match", ["created_at", "decision_match"]),
+                ("ix_geo_cmp_created_office", ["created_at", "office_id"]),
+                ("ix_geo_cmp_diff_cat", ["difference_category", "created_at"]),
+            ]
+            with db.engine.begin() as conn:
+                for name, cols in wanted:
+                    if name in existing:
+                        continue
+                    col_sql = ", ".join(cols)
+                    try:
+                        if dialect == "postgresql":
+                            conn.execute(
+                                text(f'CREATE INDEX IF NOT EXISTS {name} ON "{table}" ({col_sql})')
+                            )
+                        else:
+                            conn.execute(text(f"CREATE INDEX {name} ON {table} ({col_sql})"))
+                    except Exception as idx_err:
+                        app.logger.warning("index %s skipped: %s", name, idx_err)
+        except Exception as e:
+            app.logger.warning("geo_engine_comparisons ensure skipped: %s", e)
+
+    def _load_geo_config_overrides():
+        try:
+            from .geo_analytics_service import load_overrides_into_app_config
+
+            n = load_overrides_into_app_config(app)
+            if n:
+                app.logger.info("Loaded %s geo config override(s) from database", n)
+        except Exception as e:
+            app.logger.warning("geo config overrides load skipped: %s", e)
+
+    def _ensure_punch_session_geo_v2_columns():
+        """Optional additive geo metadata on punch_sessions (backward compatible)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "punch_sessions"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            float_type = "DOUBLE PRECISION NULL" if dialect == "postgresql" else "DOUBLE NULL"
+            additions = []
+            if "accuracy_m" not in existing:
+                additions.append(("accuracy_m", float_type))
+            if "geo_decision" not in existing:
+                additions.append(("geo_decision", "VARCHAR(30) NULL"))
+            if "geo_office_id" not in existing:
+                additions.append(("geo_office_id", "INTEGER NULL"))
+            if "confidence_score" not in existing:
+                additions.append(("confidence_score", float_type))
+            if not additions:
+                return
+            with db.engine.begin() as conn:
+                for col, col_type in additions:
+                    if dialect == "postgresql":
+                        conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}'))
+                    else:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+            app.logger.info(
+                "Added punch_sessions geo v2 columns: %s", [a[0] for a in additions]
+            )
+        except Exception as e:
+            app.logger.warning("punch_sessions geo v2 columns migration skipped: %s", e)
 
     def _cleanup_zero_qty_inventory_rows():
         """
@@ -1542,6 +1721,13 @@ def create_app():
             _ensure_parcel_name_columns()
             _ensure_expense_line_item_rejection_reason()
             _ensure_punch_session_auto_punched_out()
+            _ensure_location_grace_column()
+            _ensure_geo_punch_attempts_table()
+            _ensure_geo_analytics_indexes()
+            _ensure_geo_config_tables()
+            _ensure_geo_engine_comparisons_table()
+            _load_geo_config_overrides()
+            _ensure_punch_session_geo_v2_columns()
             _ensure_it_return_request_table()
             _ensure_it_return_request_columns()
             _ensure_it_inventory_quantity_assignment_table()
