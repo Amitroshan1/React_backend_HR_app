@@ -15,6 +15,7 @@ import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPane
 import { TaxDeclarationReview } from '../TaxDeclaration/TaxDeclarationReview';
 import { TaxDeclarationReviewDetail } from '../TaxDeclaration/TaxDeclarationReviewDetail';
 import { formatDate as formatDateDDMMYYYY, formatDateTime as formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
+import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
 import { formatCtcRupee, resolveAnnualCtcTotal, resolveTotalCtcAnnual } from '../../utils/ctcBreakupDisplay';
 import {
   defaultFinancialYear,
@@ -733,30 +734,10 @@ export const Account = ()  => {
   const openProtectedFile = async (filePath) => {
     const url = buildFileUrl(filePath);
     if (!url) return;
-    const token = localStorage.getItem('token');
-    if (!token) {
-      alert('Session expired. Please login again.');
-      return;
-    }
     try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+      await fetchAndOpenAuthenticatedFile(url, {
+        fileName: String(filePath || '').split('/').pop() || 'document',
       });
-      if (!res.ok) {
-        let msg = 'Unable to open file';
-        try {
-          const j = await res.json();
-          msg = j?.message || j?.msg || msg;
-        } catch {
-          // ignore
-        }
-        throw new Error(msg);
-      }
-      const blob = await res.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
     } catch (e) {
       alert(e.message || 'Unable to open file');
     }

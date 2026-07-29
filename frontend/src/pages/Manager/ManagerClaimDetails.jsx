@@ -6,6 +6,7 @@ import {
   fetchManagerClaimFileBlob,
 } from "./api";
 import { formatDate } from "../../utils/dateFormat";
+import { openOrDownloadBlob } from "../../utils/openBlobFile";
 import "./ManagerClaimDetails.css";
 
 function isImageFile(name) {
@@ -118,9 +119,9 @@ export const ManagerClaimDetails = () => {
     if (!claim?.id || !lineItem?.has_file) return;
     try {
       const blob = await fetchManagerClaimFileBlob(claim.id, lineItem.id);
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      openOrDownloadBlob(blob, {
+        fileName: lineItem.file_path?.split("/").pop() || lineItem.file || "Receipt",
+      });
     } catch (err) {
       setError(err.message || "Unable to open file");
     }

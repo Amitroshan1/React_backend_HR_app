@@ -13,7 +13,7 @@ import {
   mapChatMessages,
   messagesChanged,
   parseChatIdFromSearch,
-  buildQueryAttachmentUrl,
+  openQueryAttachmentFile,
   readApiResponse,
 } from "./queryChatHelpers";
 
@@ -165,22 +165,8 @@ export const DepartmentQueryInbox = () => {
   };
 
   const openQueryAttachment = async (queryId, storedName) => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setError("Please log in again to view attachments.");
-      return;
-    }
     try {
-      const response = await fetch(buildQueryAttachmentUrl(API_BASE_URL, queryId, storedName), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        throw new Error("Unable to open file");
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openQueryAttachmentFile(API_BASE_URL, queryId, storedName);
     } catch (e) {
       console.error("Open query attachment error:", e);
       setError(e.message || "Unable to open attachment");

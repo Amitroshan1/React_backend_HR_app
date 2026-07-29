@@ -84,6 +84,10 @@ def is_pdf_download(name: str = "", mimetype: str = "") -> bool:
     return (name or "").lower().endswith(".pdf")
 
 
+# Backward-compatible alias used by older download routes
+is_pdf_filename = is_pdf_download
+
+
 def _watermark_page_pdf_bytes(width: float, height: float) -> bytes:
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(width, height))

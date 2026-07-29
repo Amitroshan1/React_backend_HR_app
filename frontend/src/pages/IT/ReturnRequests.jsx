@@ -9,7 +9,7 @@ import {
   listReturnRequestsAPI,
   rejectReturnRequestAPI,
 } from "./Data";
-import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
+import { openFirstImageInNewTab, openImageInNewTab } from "../../utils/openImageInNewTab";
 import "./ReturnRequests.css";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 
@@ -146,7 +146,7 @@ export default function ReturnRequests() {
                             const images = photos.filter((p) => String(p).startsWith("data:image/"));
                             if (images.length && openFirstImageInNewTab(images)) return;
                             const first = photos[0];
-                            if (first) window.open(first, "_blank", "noopener,noreferrer");
+                            if (first) openImageInNewTab(first);
                           }}
                           title="Open attachment in new tab"
                         >

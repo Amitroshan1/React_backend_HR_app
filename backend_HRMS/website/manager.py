@@ -694,10 +694,14 @@ def serve_claim_line_file(claim_id, line_item_id):
 
     directory = os.path.dirname(full_path)
     filename = os.path.basename(full_path)
-    from .pdf_watermark import is_pdf_filename, send_download_file
-    if is_pdf_filename(filename):
-        return send_download_file(path=full_path, download_name=filename, as_attachment=False)
-    return send_from_directory(directory, filename, as_attachment=False)
+    try:
+        from .pdf_watermark import is_pdf_download, send_download_file
+        if is_pdf_download(filename):
+            return send_download_file(path=full_path, download_name=filename, as_attachment=False)
+        return send_from_directory(directory, filename, as_attachment=False)
+    except Exception:
+        current_app.logger.exception("serve_claim_line_file failed for %s", filename)
+        return jsonify({"success": False, "message": "Unable to open file"}), 500
 
 
 @manager.route("/claim-requests/<int:claim_id>/action", methods=["POST"])

@@ -1,3 +1,5 @@
+import { fetchAndOpenAuthenticatedFile, openOrDownloadBlob } from "../../utils/openBlobFile";
+
 export const QUERY_CHAT_POLL_MS = 4000;
 export const QUERY_INBOX_POLL_MS = 30000;
 export const QUERY_CHAT_PARAM = 'chat';
@@ -78,6 +80,21 @@ export const queryAttachmentDisplayName = (storedName) => {
 
 export const buildQueryAttachmentUrl = (apiBase, queryId, storedName) =>
   `${apiBase}/queries/${queryId}/files/${encodeURIComponent(storedName)}`;
+
+export { openOrDownloadBlob };
+
+/**
+ * Fetch an authenticated query attachment and open/download it.
+ */
+export async function openQueryAttachmentFile(apiBase, queryId, storedName, { token } = {}) {
+  if (!queryId || !storedName) {
+    throw new Error("Invalid attachment");
+  }
+  await fetchAndOpenAuthenticatedFile(
+    buildQueryAttachmentUrl(apiBase, queryId, storedName),
+    { token, fileName: storedName },
+  );
+}
 
 /** Parse fetch responses safely (handles empty bodies and non-JSON). */
 export async function readApiResponse(response) {

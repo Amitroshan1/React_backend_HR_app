@@ -48,6 +48,7 @@ import { SearchableDesignationSelect } from '../../components/SearchableDesignat
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import { scrollAppToTop } from '../../utils/scrollToTop';
+import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
 
 const HR_PANEL_VIEWS = [
   'main',
@@ -662,30 +663,10 @@ function HrEmployeeAccountsView({ employee, onBack }) {
   const openProtectedFile = async (filePath) => {
     const url = buildFileUrl(filePath);
     if (!url) return;
-    const token = localStorage.getItem('token');
-    if (!token) {
-      alert('Session expired. Please login again.');
-      return;
-    }
     try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+      await fetchAndOpenAuthenticatedFile(url, {
+        fileName: String(filePath || '').split('/').pop() || 'document',
       });
-      if (!res.ok) {
-        let msg = 'Unable to open file';
-        try {
-          const j = await res.json();
-          msg = j?.message || j?.msg || msg;
-        } catch {
-          // ignore
-        }
-        throw new Error(msg);
-      }
-      const blob = await res.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
     } catch (e) {
       alert(e.message || 'Unable to open file');
     }

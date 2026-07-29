@@ -6,7 +6,7 @@ import { toast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import { getITApiErrorMessage } from "../Data";
 import {
-  buildQueryAttachmentUrl,
+  openQueryAttachmentFile,
   filterQueriesForItInbox,
   queryAttachmentDisplayName,
   QUERY_INBOX_POLL_MS,
@@ -247,23 +247,8 @@ export default function OpenTicket() {
   }, []);
 
   const openQueryAttachment = useCallback(async (queryId, storedName) => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      toast.error("Please log in again to view attachments.");
-      return;
-    }
     try {
-      const response = await fetch(
-        buildQueryAttachmentUrl(QUERY_API_BASE, queryId, storedName),
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!response.ok) {
-        throw new Error("Unable to open file");
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openQueryAttachmentFile(QUERY_API_BASE, queryId, storedName);
     } catch (err) {
       console.error("[OpenTicket] Open attachment failed:", err);
       toast.error(getITApiErrorMessage(err, "Unable to open attachment."));

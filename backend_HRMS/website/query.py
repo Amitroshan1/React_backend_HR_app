@@ -912,10 +912,14 @@ def download_query_file(query_id, filename):
     if not os.path.isfile(file_path):
         return jsonify({"success": False, "message": "File not found"}), 404
 
-    from .pdf_watermark import is_pdf_filename, send_download_file
-    if is_pdf_filename(stored):
-        return send_download_file(path=file_path, download_name=stored, as_attachment=False)
-    return send_from_directory(UPLOAD_DIR, stored, as_attachment=False)
+    try:
+        from .pdf_watermark import is_pdf_download, send_download_file
+        if is_pdf_download(stored):
+            return send_download_file(path=file_path, download_name=stored, as_attachment=False)
+        return send_from_directory(UPLOAD_DIR, stored, as_attachment=False)
+    except Exception:
+        current_app.logger.exception("download_query_file failed for %s", stored)
+        return jsonify({"success": False, "message": "Unable to open file"}), 500
 
 
 #reply to a query

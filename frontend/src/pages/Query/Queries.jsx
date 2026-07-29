@@ -504,7 +504,7 @@ import {
   messagesChanged,
   parseChatIdFromSearch,
   queryAttachmentDisplayName,
-  buildQueryAttachmentUrl,
+  openQueryAttachmentFile,
 } from './queryChatHelpers';
 
 const API_BASE_URL = '/api/query';
@@ -870,26 +870,19 @@ export const Queries = () => {
   const handlePreviewFile = (file) => {
     const url = filePreviewUrls[getFileKey(file)];
     if (!url) return;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    // Local File object already has a blob URL — open via <a> (popup-safe).
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const openQueryAttachment = async (queryId, storedName) => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setActionError('Please log in again to view attachments.');
-      return;
-    }
     try {
-      const response = await fetch(buildQueryAttachmentUrl(API_BASE_URL, queryId, storedName), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        throw new Error('Unable to open file');
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await openQueryAttachmentFile(API_BASE_URL, queryId, storedName);
     } catch (error) {
       console.error('Open query attachment error:', error);
       setActionError(error.message || 'Unable to open attachment');
