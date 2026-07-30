@@ -5,7 +5,7 @@ import { toast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import ClickableImage from "../../../../components/ClickableImage";
 import { openImageInNewTab } from "../../../../utils/openImageInNewTab";
-import { getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
+import {toastITApiFailure, syncParcelsFromAPI} from "../../Data";
 import {
   formatParcelBrandModel,
   getParcelAssetDisplayName,
@@ -284,12 +284,10 @@ export default function Parcel() {
       await syncParcelsFromAPI();
     } catch (err) {
       console.error("[ParcelDashboard] API sync failed, using cached parcels:", err);
-      toast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not sync parcels from the server. Showing cached data.",
-        ),
-      );
+        );
     }
     setImportedData(readImported());
     setExportedData(readExported());

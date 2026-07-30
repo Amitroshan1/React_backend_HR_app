@@ -5,9 +5,9 @@ import { toast as rtToast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import {
   createParcelExportAPI,
-  getITApiErrorMessage,
+  toastITApiFailure,
   syncITDataFromAPI,
-  syncParcelsFromAPI,
+  syncParcelsFromAPI
 } from "../../Data";
 import ClickableImage from "../../../../components/ClickableImage";
 import { openFirstImageInNewTab } from "../../../../utils/openImageInNewTab";
@@ -443,12 +443,10 @@ export default function ReadyForExport() {
       await syncITDataFromAPI();
     } catch (err) {
       console.error("[ReadyForExport] sync IT data failed:", err);
-      rtToast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not refresh inventory from the server. Showing cached assets if any.",
-        ),
-      );
+        );
     }
     loadAssets();
   }, [loadAssets]);
@@ -557,9 +555,8 @@ export default function ReadyForExport() {
         );
       } catch (e) {
         console.error("[ReadyForExport] Export failed:", e);
-        const msg = getITApiErrorMessage(e, "Export failed. Please try again.");
-        rtToast.error(msg);
-        showToast(`❌ ${msg}`);
+        const msg = toastITApiFailure(e, "Export failed. Please try again.");
+        showToast(`⚠️ ${msg}`);
       }
     },
     [selectedAssets, individualPhotos, activeCat, loadAssets, showToast]

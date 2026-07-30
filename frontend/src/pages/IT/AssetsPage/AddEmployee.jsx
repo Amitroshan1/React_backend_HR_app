@@ -17,10 +17,10 @@ import {
   assignInventoryQuantityAPI,
   assignUnitToEmployeeAPI,
   compressImage,
-  getITApiErrorMessage,
+  toastITApiFailure,
   lookupEmployeeByEmpIdOrEmailAPI,
   syncITDataFromAPI,
-  SEED_EMPLOYEES,
+  SEED_EMPLOYEES
 } from "../Data";
 import {
   getHardwareFields,
@@ -477,12 +477,10 @@ const AddEmployee = () => {
       .then(() => setUnitsRefreshKey((k) => k + 1))
       .catch((err) => {
         console.error("[AddEmployee] API sync failed, using cached units:", err);
-        toast.error(
-          getITApiErrorMessage(
+        toastITApiFailure(
             err,
             "Could not refresh assignable assets from the server. Showing cached inventory.",
-          ),
-        );
+          );
         setUnitsRefreshKey((k) => k + 1);
       });
   }, []);
@@ -967,11 +965,10 @@ const AddEmployee = () => {
     } catch (err) {
       setSaving(false);
       console.error("[AddEmployee] handleSubmit error:", err);
-      const msg = getITApiErrorMessage(
+      const msg = toastITApiFailure(
         err,
         "Could not save this employee on the server. Please try again.",
       );
-      toast.error(msg);
       setSubmitError(`Failed to save employee: ${msg}`);
     }
   }, [profile, selectedHwUnits, selectedNonHw, selectedSw]);

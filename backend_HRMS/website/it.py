@@ -815,11 +815,50 @@ def create_units_bulk():
     if not inv:
         return _err("Inventory item not found", 404)
 
-    created = []
+    prepared = []
+    seen_codes = set()
+    dup_in_request = []
     for row in units:
         unit_code = (row.get("unit_code") or row.get("serial_number") or "").strip()
         if not unit_code:
             continue
+        code_key = unit_code.casefold()
+        if code_key in seen_codes:
+            if unit_code not in dup_in_request:
+                dup_in_request.append(unit_code)
+            continue
+        seen_codes.add(code_key)
+        prepared.append((unit_code, row))
+
+    if dup_in_request:
+        listed = ", ".join(dup_in_request[:10])
+        return _err(
+            f"Duplicate serial / unit code(s) in this request: {listed}. "
+            "Each asset must have a unique serial number.",
+            409,
+        )
+    if not prepared:
+        return _err("No valid units provided")
+
+    existing = (
+        ITAssetUnit.query.filter(
+            db.func.lower(ITAssetUnit.unit_code).in_([c.casefold() for c, _ in prepared])
+        )
+        .with_entities(ITAssetUnit.unit_code)
+        .all()
+    )
+    if existing:
+        codes = sorted({row[0] for row in existing if row and row[0]})
+        listed = ", ".join(codes[:10])
+        more = f" (+{len(codes) - 10} more)" if len(codes) > 10 else ""
+        return _err(
+            f"Asset unit code(s) already exist: {listed}{more}. "
+            "Use a unique serial / unit code for each device.",
+            409,
+        )
+
+    created = []
+    for unit_code, row in prepared:
         unit = ITAssetUnit(
             unit_code=unit_code,
             inventory_item_id=inventory_id,
@@ -839,11 +878,21 @@ def create_units_bulk():
         )
         db.session.add(unit)
         created.append(unit)
-    if not created:
-        return _err("No valid units provided")
-    db.session.flush()
-    _recalc_inventory_counts(inventory_id)
-    db.session.commit()
+
+    try:
+        db.session.flush()
+        _recalc_inventory_counts(inventory_id)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        from sqlalchemy.exc import IntegrityError
+
+        if isinstance(e, IntegrityError):
+            return _err(
+                "Asset unit code already exists. Use a unique serial / unit code for each device.",
+                409,
+            )
+        raise
     return _ok({"units": [_serialize_asset_unit(u) for u in created]}, "Units created", 201)
 
 

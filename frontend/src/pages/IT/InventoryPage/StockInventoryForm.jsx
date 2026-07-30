@@ -1,11 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import {
-  createInventoryItemAPI,
-  getITApiErrorMessage,
-  syncITDataFromAPI,
-} from "../Data";
+import {createInventoryItemAPI, toastITApiFailure, syncITDataFromAPI} from "../Data";
 import {
   buildPreviewItems,
   encodeInventoryFiles,
@@ -199,7 +195,7 @@ export default function StockInventoryForm({
       setRows([blankRow()]);
       setSubmitted(false);
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, saveErrorMessage));
+      toastITApiFailure(err, saveErrorMessage);
     } finally {
       setSaving(false);
     }

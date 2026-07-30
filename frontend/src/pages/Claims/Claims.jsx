@@ -4,6 +4,8 @@ import './Claims.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
 import { useUser } from '../../components/layout/UserContext';
+import { errorFromApiResponse, getApiErrorMessage } from '../../utils/apiError';
+import { notifyApiFailure } from '../../utils/notify';
 
 const API_BASE_URL = "/api/leave";
 
@@ -143,11 +145,11 @@ export const Claims = () => {
       try {
         json = text ? JSON.parse(text) : {};
       } catch (e) {
-        throw new Error(`Server error (${res.status}). Check backend logs.`);
+        throw errorFromApiResponse(res, {});
       }
 
       if (!res.ok) {
-        throw new Error(json.message || 'Failed to fetch claims');
+        throw errorFromApiResponse(res, json);
       }
 
       if (json.success && json.claims) {
@@ -174,7 +176,9 @@ export const Claims = () => {
         setSubmittedClaims(allItems);
       }
     } catch (err) {
-      setError(err.message);
+      const msg = getApiErrorMessage(err, "Failed to fetch claims");
+      setError(msg);
+      notifyApiFailure(err, "Failed to fetch claims");
       console.error('Error fetching claims:', err);
     } finally {
       setLoading(false);
@@ -325,11 +329,11 @@ export const Claims = () => {
       try {
         json = text ? JSON.parse(text) : {};
       } catch (e) {
-        throw new Error(`Server error (${res.status}). Check backend logs.`);
+        throw errorFromApiResponse(res, {});
       }
 
       if (!res.ok) {
-        throw new Error(json.message || 'Failed to submit expense claim');
+        throw errorFromApiResponse(res, json);
       }
 
       if (json.success) {
@@ -343,7 +347,9 @@ export const Claims = () => {
         });
       }
     } catch (err) {
-      setError(err.message);
+      const msg = getApiErrorMessage(err, "Failed to submit expense claim");
+      setError(msg);
+      notifyApiFailure(err, "Failed to submit expense claim");
       console.error('Error submitting claim:', err);
     } finally {
       setSubmitting(false);

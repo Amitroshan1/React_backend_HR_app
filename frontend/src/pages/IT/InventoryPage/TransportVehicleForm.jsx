@@ -4,7 +4,7 @@ import { toast } from "react-toastify";
 import {
   createHardwareUnitsAPI,
   createInventoryItemAPI,
-  getITApiErrorMessage,
+  toastITApiFailure,
   syncITDataFromAPI,
 } from "../Data";
 import {
@@ -208,7 +208,7 @@ export default function TransportVehicleForm() {
       setRows([blankRow()]);
       setSubmitted(false);
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Failed to save vehicles."));
+      toastITApiFailure(err, "Failed to save vehicles.");
     } finally {
       setSaving(false);
     }

@@ -5,7 +5,7 @@ import { toast } from "react-toastify";
 import {
   createInventoryItemAPI,
   createSoftwareLicensesAPI,
-  getITApiErrorMessage,
+  toastITApiFailure,
   syncITDataFromAPI,
 } from "../Data";
 import "./AddSoftWare.css";
@@ -167,12 +167,11 @@ const AddSoftwarePage = () => {
       setSubmitted(false);
     } catch (err) {
       console.error("[AddSoftwarePage] handleSubmit error:", err);
-      const detail = getITApiErrorMessage(err, "Could not save to the server.");
+      const detail = toastITApiFailure(err, "Could not save to the server.");
       setBanner({
         type: "error",
-        message: `❌ Failed to save: ${detail}`,
+        message: `⚠️ Failed to save: ${detail}`,
       });
-      toast.error(detail);
     } finally {
       setSaving(false);
     }

@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
-import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
 import { UserAvatar } from "../../../components/UserAvatar";
 import { getUserPhotoUrl } from "../../../utils/userPhoto";
@@ -13,7 +12,7 @@ import {
   getRemovedITAssets,
   getSoftwareInventory,
   getEmployees,
-  getITApiErrorMessage,
+  toastITApiFailure,
   notifyInventoryChange,
   assignSoftwareToEmployeeAPI,
   assignUnitToEmployeeAPI,
@@ -26,7 +25,7 @@ import {
   saveInventoryToStorage,
   saveSoftwareInventory,
   syncITDataFromAPI,
-  syncRemovedITFromAPI,
+  syncRemovedITFromAPI
 } from "../Data";
 import "./AssetsDashboard.css";
 
@@ -1162,8 +1161,8 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
             : `✔ Removed — marked as "${newStatus}"`,
         );
       } catch (err) {
-        const msg = getITApiErrorMessage(err, "Could not unassign this asset.");
-        showToast(`❌ ${msg}`);
+        const msg = toastITApiFailure(err, "Could not unassign this asset.");
+        showToast(`⚠️ ${msg}`);
       }
     },
     [empId, bump, showToast],
@@ -1209,8 +1208,8 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
           : unit.assetName || unit.name || "Asset";
         showToast(`✔ "${name}" moved to Removed From IT`);
       } catch (err) {
-        const msg = getITApiErrorMessage(err, "Could not remove this asset from IT.");
-        showToast(`❌ ${msg}`);
+        const msg = toastITApiFailure(err, "Could not remove this asset from IT.");
+        showToast(`⚠️ ${msg}`);
       }
     },
     [empId, empName, bump, showToast],
@@ -1244,8 +1243,8 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
           : unit.assetName || unit.name || "Asset";
         showToast(`✔ "${name}" assigned to ${empName}`);
       } catch (err) {
-        const msg = getITApiErrorMessage(err, "Could not assign this asset.");
-        showToast(`❌ ${msg}`);
+        const msg = toastITApiFailure(err, "Could not assign this asset.");
+        showToast(`⚠️ ${msg}`);
       }
     },
     [empId, empName, bump, showToast],
@@ -1280,8 +1279,8 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
         bump();
         showToast(`✔ Software renewed until ${fmt(renewDate)}`);
       } catch (err) {
-        const msg = getITApiErrorMessage(err, "Could not renew this software license.");
-        showToast(`❌ ${msg}`);
+        const msg = toastITApiFailure(err, "Could not renew this software license.");
+        showToast(`⚠️ ${msg}`);
       }
     },
     [renewDate, empId, bump, showToast],
@@ -1900,12 +1899,10 @@ export default function AssetsDashboard() {
   const syncAssetsFromServer = useCallback(() => {
     syncITDataFromAPI().then(bumpRefreshKey).catch((err) => {
       console.error("[AssetsDashboard] API sync failed, using cached data:", err);
-      toast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not sync IT data from the server. Showing cached assets.",
-        ),
-      );
+        );
       bumpRefreshKey();
     });
   }, [bumpRefreshKey]);

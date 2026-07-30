@@ -3,10 +3,10 @@ import { toast } from "react-toastify";
 import {
   fetchOfficeStockDeploymentsAPI,
   getAssetUnitsFromStorage,
-  getITApiErrorMessage,
+  toastITApiFailure,
   inventoryStockDeployAPI,
   inventoryStockReturnAPI,
-  syncITDataFromAPI,
+  syncITDataFromAPI
 } from "../Data";
 import {
   getDeployModalConfig,
@@ -89,9 +89,8 @@ function InventoryIssueModal({ asset, inventoryCategory, onClose, onSuccess }) {
       onSuccess?.();
       onClose();
     } catch (err) {
-      const msg = getITApiErrorMessage(err, "Could not deploy item.");
+      const msg = toastITApiFailure(err, "Could not deploy item.");
       setError(msg);
-      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -235,7 +234,7 @@ function InventoryReturnModal({ asset, inventoryCategory, onClose, onSuccess }) 
       setDeployments(rows);
       if (rows.length > 0) setSelectedId(rows[0].id);
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Could not load deployed records."));
+      toastITApiFailure(err, "Could not load deployed records.");
       setDeployments([]);
     } finally {
       setLoading(false);
@@ -269,9 +268,8 @@ function InventoryReturnModal({ asset, inventoryCategory, onClose, onSuccess }) 
       onSuccess?.();
       onClose();
     } catch (err) {
-      const msg = getITApiErrorMessage(err, "Could not return item.");
+      const msg = toastITApiFailure(err, "Could not return item.");
       setError(msg);
-      toast.error(msg);
     } finally {
       setSaving(false);
     }

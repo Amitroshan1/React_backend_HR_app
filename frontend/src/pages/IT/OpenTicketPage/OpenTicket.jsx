@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Paperclip } from "lucide-react";
 import { toast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
-import { getITApiErrorMessage } from "../Data";
+import {toastITApiFailure} from "../Data";
 import {
   openQueryAttachmentFile,
   filterQueriesForItInbox,
@@ -128,12 +128,10 @@ export default function OpenTicket() {
   const refreshTickets = useCallback(() => {
     loadTickets().catch((err) => {
       console.error("[OpenTicket] Failed to load queries:", err);
-      toast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not load queries from the server. You may need department (e.g. IT) access.",
-        ),
-      );
+        );
       setTickets([]);
       try {
         window.dispatchEvent(new Event("it-open-tickets-updated"));
@@ -231,7 +229,7 @@ export default function OpenTicket() {
       await markTicketRead(ticket.id);
     } catch (err) {
       console.error("[OpenTicket] Chat load failed:", err);
-      toast.error(getITApiErrorMessage(err, "Could not load chat history."));
+      toastITApiFailure(err, "Could not load chat history.");
       setChatTicket(null);
     } finally {
       setChatLoading(false);
@@ -251,7 +249,7 @@ export default function OpenTicket() {
       await openQueryAttachmentFile(QUERY_API_BASE, queryId, storedName);
     } catch (err) {
       console.error("[OpenTicket] Open attachment failed:", err);
-      toast.error(getITApiErrorMessage(err, "Unable to open attachment."));
+      toastITApiFailure(err, "Unable to open attachment.");
     }
   }, []);
 
@@ -275,7 +273,7 @@ export default function OpenTicket() {
       await loadTickets();
     } catch (err) {
       console.error("[OpenTicket] Reply failed:", err);
-      toast.error(getITApiErrorMessage(err, "Could not send your reply."));
+      toastITApiFailure(err, "Could not send your reply.");
     } finally {
       setChatSending(false);
     }
@@ -339,7 +337,7 @@ export default function OpenTicket() {
       toast.success("Query marked as resolved.");
     } catch (err) {
       console.error("[OpenTicket] Close query failed:", err);
-      toast.error(getITApiErrorMessage(err, "Could not resolve this query on the server."));
+      toastITApiFailure(err, "Could not resolve this query on the server.");
     }
   };
 

@@ -6,8 +6,8 @@ import {
   getEmployees,
   getAssetUnitsFromStorage,
   getSoftwareInventory,
-  getITApiErrorMessage,
-  syncITDataFromAPI,
+  toastITApiFailure,
+  syncITDataFromAPI
 } from "../Data";
 import { UserAvatar } from "../../../components/UserAvatar";
 import { getUserPhotoUrl } from "../../../utils/userPhoto";
@@ -163,12 +163,10 @@ export default function ActiveDevice({ onBack }) {
       .then(() => setRefreshKey((k) => k + 1))
       .catch((err) => {
         console.error("[ActiveDevice] API sync failed, using cached data:", err);
-        toast.error(
-          getITApiErrorMessage(
+        toastITApiFailure(
             err,
             "Could not refresh devices from the server. Showing cached assignments.",
-          ),
-        );
+          );
         setRefreshKey((k) => k + 1);
       });
   }, []);

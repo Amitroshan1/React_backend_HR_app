@@ -2,6 +2,12 @@ import {
   getInventoryRowForUnit,
   resolveInventoryCategory,
 } from "./inventoryCategories";
+import {
+  errorFromApiResponse,
+  getApiErrorMessage,
+  isApiWarningFailure,
+} from "../../utils/apiError";
+import { notifyApiFailure } from "../../utils/notify";
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  STORAGE KEYS
@@ -876,7 +882,7 @@ async function _itFetch(path, { method = "GET", body, headers = {} } = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data?.success === false) {
-    throw new Error(data?.message || `IT API request failed (${res.status})`);
+    throw errorFromApiResponse(res, data);
   }
   return data;
 }
@@ -886,14 +892,17 @@ export function getITApiErrorMessage(
   err,
   fallback = "Something went wrong. Please try again.",
 ) {
-  if (err == null) return fallback;
-  if (typeof err === "string") {
-    const s = err.trim();
-    return s || fallback;
-  }
-  const msg = err?.message;
-  if (typeof msg === "string" && msg.trim()) return msg.trim();
-  return fallback;
+  return getApiErrorMessage(err, fallback);
+}
+
+/** Duplicate unit/serial and similar conflicts — show as warning, not hard error. */
+export function isITApiConflictError(err) {
+  return isApiWarningFailure(err);
+}
+
+/** Toast API failures as warnings with the exact issue (never bare Internal Server Error). */
+export function toastITApiFailure(err, fallback) {
+  return notifyApiFailure(err, fallback);
 }
 
 const _toLocalInventory = (item) => {

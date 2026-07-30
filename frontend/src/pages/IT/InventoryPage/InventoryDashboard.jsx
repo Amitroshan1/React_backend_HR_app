@@ -20,7 +20,7 @@ import {
   notifyInventoryChange,
   logDeletedAsset,
   getInventoryCounts,
-  getITApiErrorMessage,
+  toastITApiFailure,
   syncITDataFromAPI,
   syncDeletedLogsFromAPI,
   setUnitStatusAPI,
@@ -28,7 +28,7 @@ import {
   deleteAssetUnitAPI,
   updateInventoryItemAPI,
   getDeletedAssetsFromStorage,
-  getSoftwareInventory,
+  getSoftwareInventory
 } from "../Data";
 
 import AddNewAssets    from "./AddnewAssets";
@@ -1236,9 +1236,7 @@ function useAssetActions(onRefresh) {
         await syncITDataFromAPI();
       } catch (err) {
         console.error("[InventoryDashboard] set unit status via API failed:", err);
-        toast.error(
-          getITApiErrorMessage(err, "Could not update this unit on the server."),
-        );
+        toastITApiFailure(err, "Could not update this unit on the server.");
         return;
       }
     } else {
@@ -1324,9 +1322,7 @@ function useAssetActions(onRefresh) {
       await syncITDataFromAPI();
     } catch (err) {
       console.error("[InventoryDashboard] quantity action via API failed:", err);
-      toast.error(
-        getITApiErrorMessage(err, "Could not update quantity status on the server."),
-      );
+      toastITApiFailure(err, "Could not update quantity status on the server.");
       return;
     }
 
@@ -1387,9 +1383,7 @@ function useAssetActions(onRefresh) {
         await syncDeletedLogsFromAPI();
       } catch (err) {
         console.error("[InventoryDashboard] remove via API failed:", err);
-        toast.error(
-          getITApiErrorMessage(err, "Could not remove this asset on the server."),
-        );
+        toastITApiFailure(err, "Could not remove this asset on the server.");
         return;
       }
     } else if (unit) {
@@ -1469,12 +1463,10 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
     const update = () => setCounts(readLiveCounts(category));
     syncITDataFromAPI().then(update).catch((err) => {
       console.error("[InventoryDashboard] API sync failed, using cached data:", err);
-      toast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not sync IT data from the server. Showing cached inventory.",
-        ),
-      );
+        );
       update();
     });
   }, [category]);
@@ -1925,12 +1917,10 @@ function TotalAssetsPage({ category }) {
       .then(() => refresh())
       .catch((err) => {
         console.error("[TotalAssetsPage] API sync failed, using cached data:", err);
-        toast.error(
-          getITApiErrorMessage(
+        toastITApiFailure(
             err,
             "Could not sync inventory from the server. Showing cached assets.",
-          ),
-        );
+          );
         refresh();
       });
   }, [category]);
@@ -2079,12 +2069,10 @@ function OverviewPage({ category }) {
       .then(() => refresh())
       .catch((err) => {
         console.error("[OverviewPage] API sync failed, using cached data:", err);
-        toast.error(
-          getITApiErrorMessage(
+        toastITApiFailure(
             err,
             "Could not sync inventory from the server. Showing cached overview.",
-          ),
-        );
+          );
         refresh();
       });
   }, [category]);

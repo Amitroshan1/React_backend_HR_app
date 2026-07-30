@@ -4,7 +4,7 @@ import { toast } from "react-toastify";
 import {
   createHardwareUnitsAPI,
   createInventoryItemAPI,
-  getITApiErrorMessage,
+  toastITApiFailure,
   syncITDataFromAPI,
 } from "../Data";
 import {
@@ -186,7 +186,7 @@ export default function InfraEquipmentForm({ equipmentType, customType }) {
       setRows([blankRow()]);
       setSubmitted(false);
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Failed to save equipment."));
+      toastITApiFailure(err, "Failed to save equipment.");
     } finally {
       setSaving(false);
     }

@@ -8,7 +8,7 @@ import {
   createInventoryItemAPI,
   createSoftwareLicensesAPI,
   compressImage,
-  getITApiErrorMessage,
+  toastITApiFailure,
   syncITDataFromAPI,
 } from "../Data";
 import {
@@ -378,9 +378,8 @@ function InventoryAssetsForm({ inventoryCategory }) {
       setSubmitted(false);
     } catch (err) {
       console.error("[AddNewAssets] Failed to save via API:", err);
-      const msg = getITApiErrorMessage(err, "Failed to save assets.");
-      toast.error(msg);
-      setSuccessMsg(`❌ ${msg}`);
+      const msg = toastITApiFailure(err, "Failed to save assets.");
+      setSuccessMsg(`⚠️ ${msg}`);
     }
   }, [rows, rowType, category, hwType, customHwType, effectiveHwType, inventoryCategory, vehicleMode, validateOpts]);
 

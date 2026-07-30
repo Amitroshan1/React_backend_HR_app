@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast as rtToast } from "react-toastify";
 import ClickableImage from "../../../../components/ClickableImage";
-import { createParcelImportsAPI, getITApiErrorMessage, syncParcelsFromAPI } from "../../Data";
+import { createParcelImportsAPI, toastITApiFailure, syncParcelsFromAPI } from "../../Data";
 import "./AddImportedAssets.css";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -257,9 +257,8 @@ export default function AddImportedAssets() {
       setIsSubmitted(false);
     } catch (e) {
       console.error("[AddImportedAssets] Save failed:", e);
-      const msg = getITApiErrorMessage(e, "Failed to save import records.");
-      rtToast.error(msg);
-      showToast(`❌ ${msg}`);
+      const msg = toastITApiFailure(e, "Failed to save import records.");
+      showToast(`⚠️ ${msg}`);
     }
   };
 

@@ -7,7 +7,7 @@ import {
   createDeletedLogAPI,
   deleteAssetUnitAPI,
   getAssetUnitsFromStorage,
-  getITApiErrorMessage,
+  toastITApiFailure,
   getRemovedITAssets,
   getSoftwareInventory,
   removeFromRemovedIT,
@@ -16,7 +16,7 @@ import {
   setUnitStatusAPI,
   syncDeletedLogsFromAPI,
   syncITDataFromAPI,
-  syncRemovedITFromAPI,
+  syncRemovedITFromAPI
 } from "../Data";
 import "./InventoryDashboard.css";
 import "./RemovedITAssets.css";
@@ -184,7 +184,7 @@ function ActionModal({ asset, onClose, onActionDone }) {
         onActionDone?.();
       } catch (err) {
         console.error("[RemovedITAssets] Repair action failed:", err);
-        toast.error(getITApiErrorMessage(err, "Could not send this asset to repair on the server."));
+        toastITApiFailure(err, "Could not send this asset to repair on the server.");
       }
     })();
   };
@@ -253,9 +253,7 @@ function ActionModal({ asset, onClose, onActionDone }) {
         onActionDone?.();
       } catch (err) {
         console.error("[RemovedITAssets] Dead asset failed:", err);
-        toast.error(
-          getITApiErrorMessage(err, "Could not move this asset to Dead Assets."),
-        );
+        toastITApiFailure(err, "Could not move this asset to Dead Assets.");
       } finally {
         setBusy(false);
       }
@@ -400,12 +398,10 @@ export default function RemovedITAssets() {
         await syncITDataFromAPI();
       } catch (err) {
         console.error("[RemovedITAssets] API sync failed, using cached data:", err);
-        toast.error(
-          getITApiErrorMessage(
+        toastITApiFailure(
             err,
             "Could not sync removed IT assets from the server. Showing cached data.",
-          ),
-        );
+          );
       }
       reload();
     };

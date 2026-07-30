@@ -6,10 +6,10 @@ import {
   getAssetUnitsFromStorage,
   getDeletedAssetsFromStorage,
   getInventoryFromStorage,
-  getITApiErrorMessage,
+  toastITApiFailure,
   syncDeletedLogsFromAPI,
   wipeAllDeletedLogsAPI,
-  wipeDeletedLogAPI,
+  wipeDeletedLogAPI
 } from "../Data";
 import {
   deletedLogBelongsToInventoryCategory,
@@ -142,12 +142,10 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
       await syncDeletedLogsFromAPI();
     } catch (err) {
       console.error("[RemovedAssets] API sync failed, using cached logs:", err);
-      rtToast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not load removal history from the server. Showing cached records.",
-        ),
-      );
+        );
     }
     setRecords(getDeletedAssetsFromStorage());
   }, []);
@@ -204,8 +202,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
       showToast("Record permanently removed ✓");
     } catch (err) {
       console.error("[RemovedAssets] wipe failed:", err);
-      const msg = getITApiErrorMessage(err, "Failed to remove record on the server.");
-      rtToast.error(msg);
+      const msg = toastITApiFailure(err, "Failed to remove record on the server.");
       showToast(msg);
     }
   }, [wipeTarget, reload, showToast]);

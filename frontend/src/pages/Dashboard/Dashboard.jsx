@@ -37,6 +37,7 @@ import {
   tryReuseTrustedLocation,
   evaluateTrustedLocation,
 } from "../../services/trustedLocationCache";
+import { getApiErrorMessage } from "../../utils/apiError";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 
 const NEWS_FEED_VISIBLE_DAYS = 6;
@@ -73,7 +74,21 @@ async function postPunchOutRequest(token, body) {
   try {
     result = text ? JSON.parse(text) : {};
   } catch (_) {
-    result = { message: `Server error (${response.status})` };
+    result = {
+      message: getApiErrorMessage(
+        { status: response.status },
+        "The server could not complete this request. Please try again.",
+      ),
+    };
+  }
+  if (!response.ok && (!result.message || /^internal server error/i.test(result.message))) {
+    result = {
+      ...result,
+      message: getApiErrorMessage(
+        { status: response.status, message: result.message },
+        "The server could not complete this request. Please try again.",
+      ),
+    };
   }
   return { ok: response.ok, result };
 }

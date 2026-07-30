@@ -162,6 +162,8 @@ import { Toast } from './ui/Toast';
 import './Wfh.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
+import { errorFromApiResponse, getApiErrorMessage } from '../../utils/apiError';
+import { notifyApiFailure } from '../../utils/notify';
 
 const API_BASE_URL = "/api/leave";
 
@@ -243,7 +245,7 @@ export const Wfh = () => {
       try {
         json = await res.json();
       } catch {
-        throw new Error(`Server error (${res.status})`);
+        throw errorFromApiResponse(res, {});
       }
 
       if (json.success) {
@@ -253,10 +255,17 @@ export const Wfh = () => {
         // Notify attendance page to refresh
         window.dispatchEvent(new CustomEvent('wfhApplied'));
       } else {
-        setToast({ show: true, message: json.message || 'Failed to submit', type: 'error' });
+        const msg = getApiErrorMessage(
+          { message: json.message, status: res.status },
+          'Failed to submit',
+        );
+        setToast({ show: true, message: msg, type: 'warning' });
+        notifyApiFailure({ message: msg, status: res.status }, msg);
       }
     } catch (err) {
-      setToast({ show: true, message: err.message || 'Network error', type: 'error' });
+      const msg = getApiErrorMessage(err, 'Network error');
+      setToast({ show: true, message: msg, type: 'warning' });
+      notifyApiFailure(err, msg);
     } finally {
       setSubmitting(false);
     }

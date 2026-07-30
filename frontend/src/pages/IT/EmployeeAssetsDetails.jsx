@@ -9,9 +9,9 @@ import {
   getEmployees,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
-  getITApiErrorMessage,
+  toastITApiFailure,
   listEmployeeReturnRequestsAPI,
-  syncITDataFromAPI,
+  syncITDataFromAPI
 } from "./Data";
 import ClickableImage from "../../components/ClickableImage";
 import { UserAvatar } from "../../components/UserAvatar";
@@ -573,12 +573,10 @@ const EmployeeDetails = () => {
       if (apiEmployee) await loadReturnHistory(apiEmployee);
     } catch (err) {
       console.error("[EmployeeAssetsDetails] API load failed, using fallback:", err);
-      toast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not load this employee from the server. Showing saved or cached data.",
-        ),
-      );
+        );
       const fromState = location.state?.employee;
       if (fromState) await loadReturnHistory(fromState);
       else await loadReturnHistory({ empId: id, id });
@@ -707,9 +705,7 @@ const EmployeeDetails = () => {
         });
       } catch (err) {
         console.error("[EmployeeAssetsDetails] Return request failed:", err);
-        toast.error(
-          getITApiErrorMessage(err, "Could not submit return request."),
-        );
+        toastITApiFailure(err, "Could not submit return request.");
       } finally {
         setReturnSubmitting(false);
       }

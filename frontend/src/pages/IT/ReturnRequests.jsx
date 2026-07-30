@@ -5,9 +5,9 @@ import { toast } from "react-toastify";
 import {
   approveReturnRequestAPI,
   completeReturnRequestAPI,
-  getITApiErrorMessage,
+  toastITApiFailure,
   listReturnRequestsAPI,
-  rejectReturnRequestAPI,
+  rejectReturnRequestAPI
 } from "./Data";
 import { openFirstImageInNewTab, openImageInNewTab } from "../../utils/openImageInNewTab";
 import "./ReturnRequests.css";
@@ -31,7 +31,7 @@ export default function ReturnRequests() {
       });
       setRows(data);
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Could not load return requests."));
+      toastITApiFailure(err, "Could not load return requests.");
     } finally {
       setLoading(false);
     }
@@ -47,7 +47,7 @@ export default function ReturnRequests() {
       toast.success("Return request approved.");
       await load();
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Could not approve request."));
+      toastITApiFailure(err, "Could not approve request.");
     }
   };
 
@@ -63,7 +63,7 @@ export default function ReturnRequests() {
       toast.success("Return request rejected.");
       await load();
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Could not reject request."));
+      toastITApiFailure(err, "Could not reject request.");
     }
   };
 
@@ -74,7 +74,7 @@ export default function ReturnRequests() {
       toast.success("Return completed and asset unassigned.");
       await load();
     } catch (err) {
-      toast.error(getITApiErrorMessage(err, "Could not complete request."));
+      toastITApiFailure(err, "Could not complete request.");
     }
   };
 

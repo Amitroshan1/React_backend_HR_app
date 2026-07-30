@@ -9,7 +9,7 @@ import {
   deleteAssetUnitAPI,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
-  getITApiErrorMessage,
+  toastITApiFailure,
   deleteHwUnit,
   logDeletedAsset,
   saveAssetUnitsToStorage,
@@ -17,7 +17,7 @@ import {
   syncDeletedLogsFromAPI,
   syncITDataFromAPI,
   syncInventoryCount,
-  updateInventoryItemAPI,
+  updateInventoryItemAPI
 } from "../Data";
 import {
   getHardwareFields,
@@ -174,12 +174,10 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         await syncDeletedLogsFromAPI();
       } catch (err) {
         console.error("[NotWorking] API sync failed, using cached data:", err);
-        rtToast.error(
-          getITApiErrorMessage(
+        toastITApiFailure(
             err,
             "Could not sync not-working assets from the server. Showing cached units.",
-          ),
-        );
+          );
       }
       reload();
     };
@@ -273,7 +271,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         await syncITDataFromAPI();
       } catch (err) {
         console.error("[NotWorking] qty move to repair failed:", err);
-        rtToast.error(getITApiErrorMessage(err, "Could not update quantity on the server."));
+        toastITApiFailure(err, "Could not update quantity on the server.");
         return;
       }
       dispatchInventoryUpdate();
@@ -287,9 +285,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
       await syncITDataFromAPI();
     } catch (err) {
       console.error("[NotWorking] set repair via API failed:", err);
-      rtToast.error(
-        getITApiErrorMessage(err, "Could not move this unit to repair on the server."),
-      );
+      toastITApiFailure(err, "Could not move this unit to repair on the server.");
     }
     const updated = readAssetUnits().map((u) =>
       u.id === unit.id
@@ -335,7 +331,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         await syncITDataFromAPI();
       } catch (err) {
         console.error("[NotWorking] qty remove failed:", err);
-        rtToast.error(getITApiErrorMessage(err, "Could not remove quantity on the server."));
+        toastITApiFailure(err, "Could not remove quantity on the server.");
         return;
       }
       dispatchInventoryUpdate();
@@ -357,12 +353,10 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
       await syncDeletedLogsFromAPI();
     } catch (err) {
       console.error("[NotWorking] dead device failed:", err);
-      rtToast.error(
-        getITApiErrorMessage(
+      toastITApiFailure(
           err,
           "Could not complete dead device removal on the server.",
-        ),
-      );
+        );
       try {
         logDeletedAsset(removeTarget, deletedBy, reason);
       } catch {
