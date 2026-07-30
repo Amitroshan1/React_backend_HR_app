@@ -32,6 +32,11 @@ import {
   zoneToLocationLabel,
 } from "../../services/gpsAcquisition";
 import { loadGeoClientConfig, getGeoClientConfig } from "../../services/geoClientConfig";
+import {
+  buildTrustedSnapshot,
+  tryReuseTrustedLocation,
+  evaluateTrustedLocation,
+} from "../../services/trustedLocationCache";
 const formatDate = (value) => formatDateDDMMYYYY(value, "N/A");
 
 const NEWS_FEED_VISIBLE_DAYS = 6;
@@ -94,6 +99,13 @@ function measurementToPunchFields(measurement) {
     acquisition_ms: measurement.acquisition_ms,
     device_class: measurement.device_class,
     attempt_id: measurement.attempt_id,
+    ...(measurement.from_trusted_cache
+      ? {
+          from_trusted_cache: true,
+          trusted_age_ms: measurement.trusted_age_ms,
+          freshness_ms: measurement.trusted_age_ms,
+        }
+      : {}),
   };
 }
 
@@ -440,6 +452,13 @@ export const Dashboard = () => {
     const punchGps = usePunchGps();
     /** Fresh measurement from last Punch click (shared by In/Out + reason modal). */
     const punchMeasurementRef = useRef(null);
+    /**
+     * Trusted dashboard fix for Punch reuse (INSIDE + fresh + accurate + confident).
+     * Separate from UI `location` — always updated on successful poll.
+     */
+    const trustedLocationRef = useRef(null);
+    /** Presentation-only: age (seconds) when trusted cache is valid for instant punch. */
+    const [instantPunchAgeSec, setInstantPunchAgeSec] = useState(null);
     const [dynamicData, setDynamicData] = useState({
         user: {},
         employee: {},
@@ -741,13 +760,21 @@ export const Dashboard = () => {
       if (intervalId) window.clearInterval(intervalId);
     };
   }, [newsFeed.length, newsFeedScrollPaused, loopedNewsFeed.length]);
-  const validateLocationRange = async (lat, lon) => {
+  const validateLocationRange = async (lat, lon, accuracyM = null) => {
     const token = localStorage.getItem("token");
     if (!token)
       return { in_range: false, requires_reason: true, zone: "NO_GPS" };
     try {
+      const params = new URLSearchParams({
+        lat: String(lat),
+        lon: String(lon),
+      });
+      if (accuracyM != null && Number.isFinite(Number(accuracyM))) {
+        params.set("accuracy", String(accuracyM));
+        params.set("accuracy_m", String(accuracyM));
+      }
       const res = await fetch(
-        `${API_BASE_URL}/employee/location-check?lat=${lat}&lon=${lon}`,
+        `${API_BASE_URL}/employee/location-check?${params.toString()}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -760,6 +787,9 @@ export const Dashboard = () => {
         radius: data.radius_meters ?? null,
         grace: data.grace_meters ?? 100,
         message: data.message || "",
+        confidence: data.confidence ?? null,
+        geoDecision: data.geo_decision || null,
+        accuracyM: data.accuracy_m ?? accuracyM ?? null,
       });
       return data;
     } catch {
@@ -770,6 +800,9 @@ export const Dashboard = () => {
         radius: null,
         grace: 100,
         message: "Location check failed",
+        confidence: null,
+        geoDecision: null,
+        accuracyM: null,
       });
       return { in_range: false, requires_reason: true, zone: "NO_GPS" };
     }
@@ -810,8 +843,13 @@ export const Dashboard = () => {
             if (!alive) return;
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
+            const accuracyM = Number(position.coords.accuracy);
             lastCheckRef.ts = Date.now();
-            const locationData = await validateLocationRange(lat, lon);
+            const locationData = await validateLocationRange(
+                lat,
+                lon,
+                Number.isFinite(accuracyM) ? accuracyM : null,
+            );
             if (!alive) return;
             const inRange = !!locationData?.in_range;
             const zone = locationData?.zone || "NO_GPS";
@@ -819,18 +857,44 @@ export const Dashboard = () => {
                 ? null
                 : "You are outside office range. Punch In/Out requires a reason.";
             const next = { lat, lon, error: errorMessage, isAvailable: true, isInRange: inRange };
+            // Always refresh trusted snapshot (even when UI badge fields are unchanged).
+            trustedLocationRef.current = buildTrustedSnapshot({
+                lat,
+                lon,
+                accuracy_m: Number.isFinite(accuracyM) ? accuracyM : null,
+                locationData,
+            });
             setLocation((prev) => {
-                if (prev.isInRange === next.isInRange && prev.isAvailable === next.isAvailable && prev.error === next.error) {
+                if (
+                    prev.isInRange === next.isInRange &&
+                    prev.isAvailable === next.isAvailable &&
+                    prev.error === next.error &&
+                    prev.lat === next.lat &&
+                    prev.lon === next.lon
+                ) {
                     return prev;
                 }
                 return next;
             });
-            try { sessionStorage.setItem("dash_loc", JSON.stringify({ ...next, _ts: Date.now() })); } catch {}
+            try {
+                sessionStorage.setItem(
+                    "dash_loc",
+                    JSON.stringify({
+                        ...next,
+                        accuracy_m: Number.isFinite(accuracyM) ? accuracyM : null,
+                        confidence: locationData?.confidence ?? null,
+                        zone,
+                        geo_decision: locationData?.geo_decision || null,
+                        _ts: Date.now(),
+                    }),
+                );
+            } catch {}
         };
 
         const onError = (err) => {
             if (!alive) return;
             console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
+            trustedLocationRef.current = null;
             setLocation((prev) => ({
                 ...prev,
                 error: "Location access denied or unavailable. Punch In/Out requires location.",
@@ -1160,10 +1224,36 @@ export const Dashboard = () => {
     const punchHasOpenSession = () =>
         dynamicData.punch.has_open_session ?? (!!dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
 
-    /** Acquire fresh GPS, then decide reason modal vs submit — never use poll coords. */
+    /** Prefer trusted INSIDE cache; otherwise acquire fresh GPS. Backend always re-validates. */
     const prepareFreshPunchMeasurement = async () => {
         markPunchTiming("gpsStart");
-        const acquired = await punchGps.acquireForPunch();
+        let acquired = null;
+        let usedTrustedCache = false;
+
+        const trustedTry = tryReuseTrustedLocation(trustedLocationRef.current);
+        if (trustedTry.ok && trustedTry.measurement) {
+            usedTrustedCache = true;
+            punchGps.setPunchState(punchGps.PunchGpsState.READY, "Using recent office location…");
+            acquired = {
+                ok: true,
+                cancelled: false,
+                lowSignal: false,
+                measurement: trustedTry.measurement,
+                message: "trusted_cache",
+            };
+            if (typeof console !== "undefined" && console.info) {
+                console.info("[punch] trusted location cache hit", {
+                    ageMs: trustedTry.evaluation?.ageMs,
+                    confidence: trustedTry.evaluation?.confidence,
+                    accuracy_m: trustedTry.measurement.accuracy_m,
+                });
+            }
+        } else {
+            if (typeof console !== "undefined" && console.info && trustedTry.reason) {
+                console.info("[punch] trusted location cache miss:", trustedTry.reason);
+            }
+            acquired = await punchGps.acquireForPunch();
+        }
         markPunchTiming("gpsEnd");
         if (acquired.cancelled) return null;
         if (!acquired.ok || !acquired.measurement) {
@@ -1179,13 +1269,14 @@ export const Dashboard = () => {
         const locationData = await validateLocationRange(
             acquired.measurement.lat,
             acquired.measurement.lon,
+            acquired.measurement.accuracy_m,
         );
         markPunchTiming("locCheckEnd");
         const inRange = !!locationData?.in_range;
         const zone = locationData?.zone || "NO_GPS";
+        const geoDecision = locationData?.geo_decision || null;
         const wfhApproved = !!locationData?.wfh_approved;
         const requiresReason = (!!locationData?.requires_reason || !inRange) && !wfhApproved;
-        // Refresh UI indicator from fresh check (still not used as punch coords).
         setLocation((prev) => ({
             ...prev,
             isInRange: inRange,
@@ -1195,6 +1286,13 @@ export const Dashboard = () => {
                     ? null
                     : "You are outside office range. Punch In/Out requires a reason.",
         }));
+        trustedLocationRef.current = buildTrustedSnapshot({
+            lat: acquired.measurement.lat,
+            lon: acquired.measurement.lon,
+            accuracy_m: acquired.measurement.accuracy_m,
+            locationData,
+            device_class: acquired.measurement.device_class,
+        });
         if (requiresReason) {
             punchGps.setPunchState(punchGps.PunchGpsState.OUTSIDE);
         }
@@ -1203,8 +1301,10 @@ export const Dashboard = () => {
             requiresReason,
             inRange,
             zone,
+            geoDecision,
             lowSignal: !!acquired.lowSignal,
             wfhApproved,
+            usedTrustedCache,
         };
     };
 
@@ -1398,6 +1498,37 @@ export const Dashboard = () => {
         (punchGps.errorMessage && punchGps.state === punchGps.PunchGpsState.ERROR
             ? punchGps.errorMessage
             : "");
+
+    // Presentation-only: mirror trusted-cache eligibility under the location badge.
+    useEffect(() => {
+        let alive = true;
+        const refreshHint = () => {
+            if (!alive) return;
+            if (punchGps.isBusy || isPunching) {
+                setInstantPunchAgeSec(null);
+                return;
+            }
+            const evaluation = evaluateTrustedLocation(trustedLocationRef.current);
+            if (!evaluation.ok) {
+                setInstantPunchAgeSec(null);
+                return;
+            }
+            setInstantPunchAgeSec(Math.max(0, Math.floor((evaluation.ageMs || 0) / 1000)));
+        };
+        refreshHint();
+        const id = window.setInterval(refreshHint, 1000);
+        return () => {
+            alive = false;
+            window.clearInterval(id);
+        };
+    }, [punchGps.isBusy, isPunching, location.lat, location.lon, location.isInRange, geo.zone]);
+
+    const instantPunchHint =
+        instantPunchAgeSec == null
+            ? null
+            : instantPunchAgeSec <= 1
+              ? "Ready for instant punch"
+              : `Verified ${instantPunchAgeSec} seconds ago`;
     const managerName = [dynamicData.managers?.l2?.name, dynamicData.managers?.l1?.name, dynamicData.managers?.l3?.name]
         .map((n) => (typeof n === "string" ? n.trim() : n))
         .find((n) => n) || "N/A";
@@ -1519,12 +1650,22 @@ export const Dashboard = () => {
                                 <div className="attendance-body-primary">
                                     {/* Location & Status Row */}
                                     <div className="status-row-top">
-                                        <div className="location-badge">
-                                            <span className="location-label">Location</span>
-                                            <span className={`location-pill ${locationPill.tone}`}>
-                                                <span className="location-dot"></span>
-                                                {location.isAvailable ? locationPill.text : "Off"}
-                                            </span>
+                                        <div className="location-badge-stack">
+                                            <div className="location-badge">
+                                                <span className="location-label">Location</span>
+                                                <span className={`location-pill ${locationPill.tone}`}>
+                                                    <span className="location-dot"></span>
+                                                    {location.isAvailable ? locationPill.text : "Off"}
+                                                </span>
+                                            </div>
+                                            {instantPunchHint && !punchStatusLine && (
+                                                <span
+                                                    className="location-trusted-hint"
+                                                    aria-live="polite"
+                                                >
+                                                    {instantPunchHint}
+                                                </span>
+                                            )}
                                         </div>
                                         <div className={`status-badge-main ${isActive ? 'active' : 'inactive'}`}>
                                             <span className={`status-pulse-dot ${isActive ? 'active' : ''}`}></span>

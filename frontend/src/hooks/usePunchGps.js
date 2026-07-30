@@ -8,7 +8,8 @@ import { getGeoClientConfig } from "../services/geoClientConfig";
 
 /**
  * Shared punch GPS state machine for Punch In and Punch Out.
- * Always acquires a fresh fix — never returns polled/cached coordinates.
+ * Acquires a fresh fix by default. Dashboard may skip this via Trusted Location Cache
+ * (INSIDE-only) before calling acquireForPunch.
  */
 export function usePunchGps() {
   const [state, setState] = useState(PunchGpsState.IDLE);

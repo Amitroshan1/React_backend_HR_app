@@ -123,6 +123,10 @@ DEFAULTS: dict[str, Any] = {
     "CLIENT_PUNCH_OUTLIER_MIN_M": 100,
     "CLIENT_PUNCH_ACC_MAX_MOBILE_M": 250,
     "CLIENT_PUNCH_ACC_MAX_DESKTOP_M": 400,
+    # --- Trusted location cache (frontend Punch reuse of recent INSIDE dash fix) ---
+    "CLIENT_TRUSTED_CACHE_LIFETIME_MS": 10000,
+    "CLIENT_TRUSTED_CACHE_MIN_CONFIDENCE": 80,
+    "CLIENT_TRUSTED_CACHE_MAX_ACCURACY_M": 25,
 }
 
 
@@ -153,6 +157,9 @@ def _coerce(key: str, default: Any) -> Any:
             "EARLY_STOP_MIN_SAMPLES_LOOSE",
             "GEO_ATTEMPT_TTL_SECONDS",
             "GEO_REASON_MIN_CHARS",
+            "CLIENT_TRUSTED_CACHE_LIFETIME_MS",
+            "CLIENT_TRUSTED_CACHE_MIN_CONFIDENCE",
+            "CLIENT_TRUSTED_CACHE_MAX_ACCURACY_M",
         }:
             return _env_int(key, default)
         return _env_float(key, float(default))
@@ -269,4 +276,7 @@ CONFIG_DOCS: dict[str, str] = {
     "DEFAULT_OFFICE_RADIUS_M": "Fallback radius (m) when location.radius is NULL.",
     "GEO_ATTEMPT_TTL_SECONDS": "Single-use attempt_id lifetime.",
     "GEO_REASON_MIN_CHARS": "Min chars for outside / weak-GPS reason.",
+    "CLIENT_TRUSTED_CACHE_LIFETIME_MS": "Max age (ms) of dashboard INSIDE fix reusable for Punch (skip fresh GPS).",
+    "CLIENT_TRUSTED_CACHE_MIN_CONFIDENCE": "Min confidence (0–100) to reuse dashboard location for Punch.",
+    "CLIENT_TRUSTED_CACHE_MAX_ACCURACY_M": "Max GPS accuracy (m) to reuse dashboard location for Punch.",
 }

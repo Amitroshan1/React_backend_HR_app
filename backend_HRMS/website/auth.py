@@ -1885,6 +1885,11 @@ def geo_client_config():
             "accMaxMobileM": int(cfg.get("CLIENT_PUNCH_ACC_MAX_MOBILE_M", 250)),
             "accMaxDesktopM": int(cfg.get("CLIENT_PUNCH_ACC_MAX_DESKTOP_M", 400)),
         },
+        "trustedCache": {
+            "lifetimeMs": int(cfg.get("CLIENT_TRUSTED_CACHE_LIFETIME_MS", 10000)),
+            "minConfidence": int(cfg.get("CLIENT_TRUSTED_CACHE_MIN_CONFIDENCE", 80)),
+            "maxAccuracyM": int(cfg.get("CLIENT_TRUSTED_CACHE_MAX_ACCURACY_M", 25)),
+        },
     }), 200
 
 
@@ -1908,6 +1913,16 @@ def location_check():
         write_audit=True,
     )
     body = result.to_location_check_dict()
+    # Trusted-cache client signal: when SHADOW legacy confidence is 0, surface V2
+    # confidence only if both engines agree on INSIDE (never for Outside/Uncertain).
+    diag = result.diagnostics or {}
+    if (
+        (body.get("confidence") or 0) <= 0
+        and diag.get("shadow_decision_match")
+        and diag.get("shadow_v2_decision") == "INSIDE"
+        and diag.get("shadow_v2_confidence") is not None
+    ):
+        body["confidence"] = diag["shadow_v2_confidence"]
     body["wfh_approved"] = is_wfh_allowed(admin_id) if admin_id else False
     body["timing"] = {
         "geo_validation_ms": round((time.perf_counter() - t_geo) * 1000, 2),

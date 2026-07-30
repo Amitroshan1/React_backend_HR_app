@@ -1175,6 +1175,24 @@
   gap: 10px;
 }
 
+.location-badge-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.location-trusted-hint {
+  margin: 0;
+  padding-left: 2px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.3;
+  color: #15803d;
+  opacity: 0.9;
+}
+
 .location-label {
   font-size: 0.8rem;
   color: var(--text-muted);

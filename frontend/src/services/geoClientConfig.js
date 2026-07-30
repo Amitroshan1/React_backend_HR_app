@@ -28,6 +28,12 @@ const DEFAULTS = Object.freeze({
     accMaxMobileM: 250,
     accMaxDesktopM: 400,
   },
+  /** Reuse dashboard INSIDE fix for Punch when all gates pass (skip fresh GPS only). */
+  trustedCache: {
+    lifetimeMs: 10000,
+    minConfidence: 80,
+    maxAccuracyM: 25,
+  },
 });
 
 let _cached = null;
@@ -53,6 +59,7 @@ export async function loadGeoClientConfig() {
       _cached = {
         dashboard: { ...DEFAULTS.dashboard, ...data.dashboard },
         punch: { ...DEFAULTS.punch, ...data.punch },
+        trustedCache: { ...DEFAULTS.trustedCache, ...data.trustedCache },
       };
       return _cached;
     } catch {

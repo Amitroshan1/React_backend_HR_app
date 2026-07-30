@@ -261,6 +261,7 @@ def validate_employee_location(
     legacy.diagnostics["execution_time_v2_ms"] = v2_ms
     legacy.diagnostics["comparison_store_ms"] = comparison_store_ms
     legacy.diagnostics["shadow_v2_decision"] = v2.geo_decision if v2 else None
+    legacy.diagnostics["shadow_v2_confidence"] = (v2.confidence if v2 else None)
     legacy.diagnostics["shadow_decision_match"] = bool(v2 and legacy.geo_decision == v2.geo_decision)
 
     if write_audit:
