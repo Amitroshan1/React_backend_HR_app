@@ -35,7 +35,7 @@ def create_app():
 
     # JWT configuration
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret-key")
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 86400  # 1 day
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 3600  # 1 hour
 
     app.config["BASE_URL"] = os.getenv(
         "BASE_URL",

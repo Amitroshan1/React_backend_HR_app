@@ -91,7 +91,7 @@ export function mapProfileFromApi(p) {
         fatherName: emp.father_name || '',
         motherName: emp.mother_name || '',
         maritalStatus: emp.marital_status || '',
-        personalEmail: emp.email || admin.email || '',
+        personalEmail: emp.email || '',
         mobile: String(mobileParsed.number || ''),
         mobileCountryCode: mobileParsed.code || '+91',
         emergency: String(emergencyParsed.number || ''),

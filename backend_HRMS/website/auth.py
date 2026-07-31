@@ -488,6 +488,9 @@ def request_otp():
     ok, msg = send_login_otp_email(admin, otp_code, expires_minutes=OTP_TTL_MINUTES)
     if not ok:
         current_app.logger.error("Login OTP email failed for %s: %s", admin.email, msg)
+        # Do not start resend cooldown when delivery failed — mark OTP unused/consumed.
+        row.is_used = True
+        db.session.commit()
         return jsonify({
             "success": False,
             "message": "Could not send OTP email. Please try again later.",
@@ -701,6 +704,8 @@ def request_sensitive_otp():
     ok, msg = send_sensitive_otp_email(admin, otp_code, expires_minutes=OTP_TTL_MINUTES)
     if not ok:
         current_app.logger.error("Sensitive OTP email failed for %s: %s", admin.email, msg)
+        row.is_used = True
+        db.session.commit()
         return jsonify({
             "success": False,
             "message": "Could not send OTP email. Please try again later.",
@@ -2361,14 +2366,12 @@ def create_or_update_employee():
     new_email_raw = (data.get("email") or data.get("personalEmail") or "").strip()
     new_email = new_email_raw.lower() if new_email_raw else ""
 
-    # Proactive duplicate email check (Employee and Admin tables) - case-insensitive
+    # Proactive duplicate email check against Employee table only (personal contact).
+    # Do not treat Admin.email (login identity) as the personal email uniqueness domain.
     dup_msg = "This email is already taken. Please use a different email."
     if new_email:
         existing_emp = Employee.query.filter(func.lower(Employee.email) == new_email).first()
         if existing_emp and (not employee or existing_emp.admin_id != admin_id):
-            return jsonify({"success": False, "message": dup_msg}), 400
-        existing_admin = Admin.query.filter(Admin.email.isnot(None), func.lower(Admin.email) == new_email).first()
-        if existing_admin and existing_admin.id != admin_id:
             return jsonify({"success": False, "message": dup_msg}), 400
 
     try:
@@ -2438,14 +2441,14 @@ def create_or_update_employee():
                 em = (data.get("emergency_mobile") or "").strip()
                 employee.emergency_mobile = em[:50] if len(em) > 50 else em
 
-            # Update Admin.emp_type and Admin.email if provided (stored on Admin)
+            # Update Admin.emp_type if provided (employment type lives on Admin).
+            # Personal Email updates Employee.email only — never overwrite Admin.email
+            # (login / OTP identity).
             admin_obj = Admin.query.get(admin_id)
             if admin_obj:
                 emp_type_val = data.get("emp_type") or data.get("employment_type")
                 if emp_type_val is not None:
                     admin_obj.emp_type = (str(emp_type_val).strip() or None) if str(emp_type_val).strip() else None
-                if new_email and "email" in data:
-                    admin_obj.email = (data.get("email") or data.get("personalEmail") or "").strip() or None
 
             try:
                 db.session.commit()

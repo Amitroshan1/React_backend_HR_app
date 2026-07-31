@@ -21,7 +21,7 @@ import { useFloatingNotifications } from "../../hooks/useFloatingNotifications";
 // import "../../pages/style/Dashboard.css"
 import "../../pages/Dashboard/Dashboard.css"
 
-const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const ACTIVITY_KEY = "lastActivityAt";
 
 // Normalize photo URL: strip /public prefix if present (Vite serves public files at root)

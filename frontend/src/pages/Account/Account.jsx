@@ -22,8 +22,32 @@ import {
   formatFinancialYearInput,
   isValidFinancialYear,
 } from '../../utils/financialYear';
+import { notifyApiFailure, notifySuccess } from '../../utils/notify';
 
 const TAX_REGIME_OPTIONS = ['New Tax Regime', 'Old Tax Regime'];
+const BULK_PAYROLL_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** Allow clearing a field while typing; coerce empty/invalid to '' (not 0). */
+function parsePayrollAmountInput(raw) {
+  if (raw === '' || raw === null || raw === undefined) return '';
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) return '';
+  return Math.max(0, n);
+}
+
+function payrollAmountDisplay(value) {
+  if (value === '' || value === null || value === undefined) return '';
+  return value;
+}
+
+function selectPayrollZeroOnFocus(e) {
+  if (Number(e.target.value) === 0) {
+    e.target.select();
+  }
+}
 
 /** Map spelling variants (e.g. "Old Tax regime") to the canonical dropdown labels. */
 function normalizeTaxRegimeLabel(value) {
@@ -2441,6 +2465,21 @@ export const Account = ()  => {
 
   const payrollRowEditable = (row) => (row?.status || 'draft') === 'draft';
 
+  const updatePayrollAmountField = (adminId, field, raw) => {
+    const next = parsePayrollAmountInput(raw);
+    setPayrollRows((prev) =>
+      prev.map((r) => (r.adminId === adminId ? { ...r, [field]: next } : r))
+    );
+  };
+
+  const commitPayrollAmountField = (adminId, field, raw) => {
+    const parsed = parseFloat(raw);
+    const next = raw === '' || !Number.isFinite(parsed) ? 0 : Math.max(0, parsed);
+    setPayrollRows((prev) =>
+      prev.map((r) => (r.adminId === adminId ? { ...r, [field]: next } : r))
+    );
+  };
+
   const handlePayrollStatusUpdate = async (status) => {
     if (!payrollRows.length) return;
     const token = localStorage.getItem('token');
@@ -2518,21 +2557,29 @@ export const Account = ()  => {
     const token = localStorage.getItem('token');
     if (!token) {
       setBulkPayrollError('Please login again.');
+      notifyApiFailure('Please login again.');
       return;
     }
     if (!Array.isArray(payrollRows) || payrollRows.length === 0) {
       setBulkPayrollError('No payroll rows to save.');
+      notifyApiFailure('No payroll rows to save.');
+      return;
+    }
+
+    const editableRows = payrollRows.filter((row) => payrollRowEditable(row));
+    if (editableRows.length === 0) {
+      const msg = 'No draft rows to save. Locked/reviewed rows cannot be edited.';
+      setBulkPayrollError(msg);
+      notifyApiFailure(msg);
       return;
     }
 
     try {
       setIsPayrollSaving(true);
       const failures = [];
+      let savedCount = 0;
 
-      for (const row of payrollRows) {
-        if (!payrollRowEditable(row)) {
-          continue;
-        }
+      for (const row of editableRows) {
         try {
           const payload = {
             admin_id: row.adminId,
@@ -2565,6 +2612,8 @@ export const Account = ()  => {
               name: row.name,
               reason: result.message || 'Save deductions failed',
             });
+          } else {
+            savedCount += 1;
           }
         } catch (e) {
           failures.push({
@@ -2575,26 +2624,31 @@ export const Account = ()  => {
         }
       }
 
+      const resultPayload = {
+        month: bulkPayrollMonth,
+        year: bulkPayrollYear.trim(),
+        saved_count: savedCount,
+        failed_count: failures.length,
+        failed_rows: failures.length > 0 ? failures : undefined,
+      };
+
       if (failures.length > 0) {
-        setBulkPayrollResult({
-          month: bulkPayrollMonth,
-          year: bulkPayrollYear.trim(),
-          saved_count: payrollRows.length - failures.length,
-          failed_count: failures.length,
-          failed_rows: failures,
-        });
         setBulkPayrollError('Some employees failed to save deductions. See details below.');
+        notifyApiFailure(
+          `Saved ${savedCount} of ${editableRows.length}. ${failures.length} failed.`,
+        );
       } else {
-        setBulkPayrollResult({
-          month: bulkPayrollMonth,
-          year: bulkPayrollYear.trim(),
-          saved_count: payrollRows.length,
-          failed_count: 0,
-        });
+        notifySuccess(
+          savedCount === 1
+            ? 'Deductions saved successfully.'
+            : `Deductions saved for ${savedCount} employees.`,
+        );
       }
 
       // Refresh rows to ensure DB-calculated net salary is reflected.
       await handleGeneratePayrollForFiltered({ clearMessages: false });
+      // Re-apply after refresh so auto-reload cannot wipe the success banner.
+      setBulkPayrollResult(resultPayload);
     } finally {
       setIsPayrollSaving(false);
     }
@@ -5292,9 +5346,9 @@ export const Account = ()  => {
                 value={bulkPayrollMonth}
                 onChange={(e) => setBulkPayrollMonth(e.target.value)}
               >
-                <option>January</option><option>February</option><option>March</option><option>April</option>
-                <option>May</option><option>June</option><option>July</option><option>August</option>
-                <option>September</option><option>October</option><option>November</option><option>December</option>
+                {BULK_PAYROLL_MONTHS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
               </select>
             </div>
             <div className="input-group">
@@ -5317,6 +5371,24 @@ export const Account = ()  => {
             </button>
           </div>
         </div>
+
+        {bulkPayrollResult && (
+          <div className="bulk-payroll-save-banner">
+            {Number(bulkPayrollResult.failed_count || 0) === 0 ? (
+              <div className="q-success" style={{ margin: 0 }}>
+                Deductions saved for {bulkPayrollResult.saved_count || 0} employee
+                {(bulkPayrollResult.saved_count || 0) === 1 ? '' : 's'}
+                {' '}({bulkPayrollResult.month} {bulkPayrollResult.year}).
+              </div>
+            ) : (
+              <div className="q-error" style={{ margin: 0 }}>
+                Saved {bulkPayrollResult.saved_count || 0}, failed {bulkPayrollResult.failed_count || 0}.
+                See details below.
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="bulk-payroll-scroll">
           <table className="results-table bulk-payroll-table">
             <thead>
@@ -5379,18 +5451,11 @@ export const Account = ()  => {
                         className="bulk-payroll-input"
                         type="number"
                         step="0.01"
-                        value={row.epf_final}
+                        value={payrollAmountDisplay(row.epf_final)}
                         disabled={!editable}
-                        onChange={(e) => {
-                          const val = Math.max(0, parseFloat(e.target.value || '0'));
-                          setPayrollRows((prev) =>
-                            prev.map((r) =>
-                              r.adminId === row.adminId
-                                ? { ...r, epf_final: val }
-                                : r
-                            )
-                          );
-                        }}
+                        onFocus={selectPayrollZeroOnFocus}
+                        onChange={(e) => updatePayrollAmountField(row.adminId, 'epf_final', e.target.value)}
+                        onBlur={(e) => commitPayrollAmountField(row.adminId, 'epf_final', e.target.value)}
                       />
                     </td>
                     <td className="bulk-payroll-col-num" data-label="P.Tax">
@@ -5398,18 +5463,11 @@ export const Account = ()  => {
                         className="bulk-payroll-input"
                         type="number"
                         step="0.01"
-                        value={row.ptax_final}
+                        value={payrollAmountDisplay(row.ptax_final)}
                         disabled={!editable}
-                        onChange={(e) => {
-                          const val = Math.max(0, parseFloat(e.target.value || '0'));
-                          setPayrollRows((prev) =>
-                            prev.map((r) =>
-                              r.adminId === row.adminId
-                                ? { ...r, ptax_final: val }
-                                : r
-                            )
-                          );
-                        }}
+                        onFocus={selectPayrollZeroOnFocus}
+                        onChange={(e) => updatePayrollAmountField(row.adminId, 'ptax_final', e.target.value)}
+                        onBlur={(e) => commitPayrollAmountField(row.adminId, 'ptax_final', e.target.value)}
                       />
                     </td>
                     <td className="bulk-payroll-col-num" data-label="ESIC">
@@ -5417,18 +5475,11 @@ export const Account = ()  => {
                         className="bulk-payroll-input"
                         type="number"
                         step="0.01"
-                        value={row.esic_final}
+                        value={payrollAmountDisplay(row.esic_final)}
                         disabled={!editable}
-                        onChange={(e) => {
-                          const val = Math.max(0, parseFloat(e.target.value || '0'));
-                          setPayrollRows((prev) =>
-                            prev.map((r) =>
-                              r.adminId === row.adminId
-                                ? { ...r, esic_final: val }
-                                : r
-                            )
-                          );
-                        }}
+                        onFocus={selectPayrollZeroOnFocus}
+                        onChange={(e) => updatePayrollAmountField(row.adminId, 'esic_final', e.target.value)}
+                        onBlur={(e) => commitPayrollAmountField(row.adminId, 'esic_final', e.target.value)}
                       />
                     </td>
                     <td className="bulk-payroll-col-num" data-label="LWF">
@@ -5436,18 +5487,11 @@ export const Account = ()  => {
                         className="bulk-payroll-input"
                         type="number"
                         step="0.01"
-                        value={row.lwf_final}
+                        value={payrollAmountDisplay(row.lwf_final)}
                         disabled={!editable}
-                        onChange={(e) => {
-                          const val = Math.max(0, parseFloat(e.target.value || '0'));
-                          setPayrollRows((prev) =>
-                            prev.map((r) =>
-                              r.adminId === row.adminId
-                                ? { ...r, lwf_final: val }
-                                : r
-                            )
-                          );
-                        }}
+                        onFocus={selectPayrollZeroOnFocus}
+                        onChange={(e) => updatePayrollAmountField(row.adminId, 'lwf_final', e.target.value)}
+                        onBlur={(e) => commitPayrollAmountField(row.adminId, 'lwf_final', e.target.value)}
                       />
                     </td>
                     <td className="bulk-payroll-col-num" data-label="Arrears">
@@ -5455,18 +5499,11 @@ export const Account = ()  => {
                         className="bulk-payroll-input"
                         type="number"
                         step="0.01"
-                        value={row.arrears_gross_final}
+                        value={payrollAmountDisplay(row.arrears_gross_final)}
                         disabled={!editable}
-                        onChange={(e) => {
-                          const val = Math.max(0, parseFloat(e.target.value || '0'));
-                          setPayrollRows((prev) =>
-                            prev.map((r) =>
-                              r.adminId === row.adminId
-                                ? { ...r, arrears_gross_final: val }
-                                : r
-                            )
-                          );
-                        }}
+                        onFocus={selectPayrollZeroOnFocus}
+                        onChange={(e) => updatePayrollAmountField(row.adminId, 'arrears_gross_final', e.target.value)}
+                        onBlur={(e) => commitPayrollAmountField(row.adminId, 'arrears_gross_final', e.target.value)}
                       />
                     </td>
                     <td className="bulk-payroll-col-num" data-label="Bonus">{bonus.toFixed(2)}</td>
@@ -5475,18 +5512,11 @@ export const Account = ()  => {
                         className="bulk-payroll-input"
                         type="number"
                         step="0.01"
-                        value={row.tds_final}
+                        value={payrollAmountDisplay(row.tds_final)}
                         disabled={!editable}
-                        onChange={(e) => {
-                          const val = Math.max(0, parseFloat(e.target.value || '0'));
-                          setPayrollRows((prev) =>
-                            prev.map((r) =>
-                              r.adminId === row.adminId
-                                ? { ...r, tds_final: val }
-                                : r
-                            )
-                          );
-                        }}
+                        onFocus={selectPayrollZeroOnFocus}
+                        onChange={(e) => updatePayrollAmountField(row.adminId, 'tds_final', e.target.value)}
+                        onBlur={(e) => commitPayrollAmountField(row.adminId, 'tds_final', e.target.value)}
                       />
                     </td>
                     <td className="bulk-payroll-col-num" data-label="Actual Working Days">
@@ -5494,19 +5524,11 @@ export const Account = ()  => {
                         className="bulk-payroll-input bulk-payroll-input--days"
                         type="number"
                         step="0.1"
-                        value={row.actual_working_days}
+                        value={payrollAmountDisplay(row.actual_working_days)}
                         disabled={!editable}
-                        onChange={(e) => {
-                          const raw = parseFloat(e.target.value || '0');
-                          const val = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-                          setPayrollRows((prev) =>
-                            prev.map((r) =>
-                              r.adminId === row.adminId
-                                ? { ...r, actual_working_days: val }
-                                : r
-                            )
-                          );
-                        }}
+                        onFocus={selectPayrollZeroOnFocus}
+                        onChange={(e) => updatePayrollAmountField(row.adminId, 'actual_working_days', e.target.value)}
+                        onBlur={(e) => commitPayrollAmountField(row.adminId, 'actual_working_days', e.target.value)}
                       />
                     </td>
                     <td className="bulk-payroll-col-num bulk-payroll-net" data-label="Net Salary">{net.toFixed(2)}</td>
@@ -5570,24 +5592,8 @@ export const Account = ()  => {
           </button>
         </div>
 
-        {bulkPayrollResult && (
-          <div style={{ marginTop: 12 }}>
-            {Number(bulkPayrollResult.failed_count || 0) === 0 ? (
-              <div className="q-success">
-                <strong>Success:</strong> {bulkPayrollResult.saved_count || 0} &nbsp;|&nbsp;
-                <strong>Failed:</strong> {bulkPayrollResult.failed_count || 0}
-              </div>
-            ) : (
-              <div className="q-error">
-                <strong>Success:</strong> {bulkPayrollResult.saved_count || 0} &nbsp;|&nbsp;
-                <strong>Failed:</strong> {bulkPayrollResult.failed_count || 0}
-              </div>
-            )}
-          </div>
-        )}
-
         {bulkPayrollResult && bulkPayrollResult.failed_rows?.length > 0 && (
-          <div style={{ marginTop: 12 }}>
+          <div className="bulk-payroll-failed-panel">
             <h5 style={{ margin: '0 0 8px 0' }}>Failed to save for</h5>
             <div className="table-responsive">
               <table className="results-table">

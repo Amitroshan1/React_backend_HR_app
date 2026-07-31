@@ -948,7 +948,12 @@
 
 .form-group {
     position: relative;
-    margin-bottom: 6px;
+    margin-bottom: 14px;
+    padding-top: 6px;
+}
+
+.form-group.has-error {
+    margin-bottom: 18px;
 }
 
 .form-group .form-control {
@@ -962,7 +967,10 @@
     color: var(--text-primary);
     transition: border-color 180ms ease, box-shadow 180ms ease;
     width: 100%;
+    max-width: 100%;
     box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .form-group select.form-control {
@@ -980,11 +988,17 @@
     padding: 0 6px;
     pointer-events: none;
     transition: all 200ms ease;
+    z-index: 1;
+    max-width: calc(100% - 28px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .form-group .form-control:focus + .input-label,
 .form-group .label-float {
-    top: -7px;
+    top: 0;
+    transform: translateY(-50%);
     font-size: 11px;
     font-weight: 600;
     color: var(--color-primary);
@@ -1015,9 +1029,13 @@
 }
 
 .error-message {
+    display: block;
     font-size: 12px;
+    line-height: 1.4;
     color: var(--color-danger);
-    margin-top: 4px;
+    margin-top: 6px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 @keyframes inputShake {
@@ -1120,14 +1138,14 @@
 
 /* Default (label inside input) */
 .form-group .input-label {
-    font-size: 15px;          /* ⬆ bigger & readable */
+    font-size: 14px;
     font-weight: 500;
 }
 
-/* Floating state (on focus / value) */
+/* Floating state (on focus / value) — keep compact so it does not collide with the row above */
 .form-group .form-control:focus + .input-label,
 .form-group .label-float {
-    font-size: 15px;        /* slightly smaller, still readable */
+    font-size: 11px;
     font-weight: 600;
 }
 /* Add Education Details Box */
@@ -1638,6 +1656,20 @@
         grid-template-columns: 1fr;
     }
 
+    .profile-page-inner--edit .grid-3:not(.address-location-grid):not(.address-view-grid) {
+        grid-template-columns: 1fr;
+        gap: 18px;
+    }
+
+    .profile-page-inner--edit .form-group {
+        padding-top: 8px;
+    }
+
+    .profile-page-inner--edit .error-message {
+        position: static;
+        margin-top: 8px;
+    }
+
     .full {
         grid-column: span 1;
     }
@@ -1865,7 +1897,8 @@
 
 .phone-input-group:focus-within .input-label,
 .phone-input-group .label-float {
-    top: -7px;
+    top: 0;
+    transform: translateY(-50%);
     font-size: 11px;
     font-weight: 600;
     color: var(--color-primary);
@@ -1910,12 +1943,28 @@
 
 @media (max-width: 480px) {
     .phone-input-wrapper {
-        flex-direction: column;
-        gap: 6px;
+        flex-direction: row;
+        gap: 8px;
     }
 
-    .country-code-select {
+    .phone-input-group .country-code-select {
+        width: 118px;
+        flex-shrink: 0;
+    }
+
+    .phone-input-group .phone-number-input {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .profile-edit-toolbar__actions {
         width: 100%;
+    }
+
+    .profile-edit-btn {
+        flex: 1;
+        text-align: center;
+        justify-content: center;
     }
 }
 
@@ -2359,14 +2408,30 @@
 
 .profile-page-inner--edit .grid-3:not(.address-location-grid):not(.address-view-grid) {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px 16px;
+    grid-template-columns: 1fr;
+    gap: 16px;
 }
 
-@media (min-width: 720px) {
+@media (min-width: 769px) {
+    .profile-page-inner--edit .grid-3:not(.address-location-grid):not(.address-view-grid) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px 16px;
+    }
+}
+
+@media (min-width: 960px) {
     .profile-page-inner--edit .grid-3:not(.address-location-grid):not(.address-view-grid) {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
+}
+
+.profile-page-inner--edit .form-group {
+    margin-bottom: 0;
+    min-width: 0;
+}
+
+.profile-page-inner--edit .form-group.has-error {
+    margin-bottom: 4px;
 }
 
 .profile-page-inner--edit .address-body .form-group {

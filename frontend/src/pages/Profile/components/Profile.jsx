@@ -349,12 +349,7 @@ export const Profile = () => {
             educationDetails: eduList.map((e) => ({ ...e })),
         };
 
-        // Force React to commit this state immediately so view mode shows it when we exit edit
-        flushSync(() => {
-            setSavedData(newSavedData);
-            setLastSavedTime(new Date().toLocaleTimeString());
-        });
-
+        // Commit snapshot only after API succeeds so Discard can restore last good data.
         const runSave = async () => {
             const token = localStorage.getItem('token');
             if (!adminId || !token) {
@@ -413,6 +408,10 @@ export const Profile = () => {
                 showToast('Failed to save profile.', 'error');
                 return false;
             }
+            flushSync(() => {
+                setSavedData(newSavedData);
+                setLastSavedTime(new Date().toLocaleTimeString());
+            });
             setSaveStatus('Saved!');
             showToast(successMsg, 'success');
             return true;
@@ -670,17 +669,29 @@ export const Profile = () => {
     }, [saveCurrentChanges, showToast, hasNoChanges, exitEditMode]);
 
     const handleUndoChanges = () => {
-        const savedClone = JSON.parse(JSON.stringify(savedData));
+        const savedClone = {
+            formData: JSON.parse(JSON.stringify(savedData.formData || {})),
+            currentAddress: JSON.parse(JSON.stringify(savedData.currentAddress || {})),
+            permanentAddress: JSON.parse(JSON.stringify(savedData.permanentAddress || {})),
+            sameAsCurrent: Boolean(savedData.sameAsCurrent),
+            // Preserve File instances; JSON.stringify strips them.
+            files: typeof File !== 'undefined' && Object.values(savedData.files || {}).some((v) => v instanceof File)
+                ? { ...(savedData.files || {}) }
+                : JSON.parse(JSON.stringify(savedData.files || {})),
+            documentMeta: JSON.parse(JSON.stringify(savedData.documentMeta || INITIAL_DOCUMENT_META)),
+            previousEmployment: JSON.parse(JSON.stringify(savedData.previousEmployment || [])),
+            educationDetails: Array.isArray(savedData.educationDetails) && savedData.educationDetails.length > 0
+                ? savedData.educationDetails.map((e) => ({ ...e }))
+                : [{ id: Date.now(), qualification: '', institution: '', university: '', fromDate: '', toDate: '', marks: '', certificate: null }],
+        };
         setFormData(savedClone.formData);
         setCurrentAddress(savedClone.currentAddress);
         setPermanentAddress(savedClone.permanentAddress);
         setSameAsCurrent(savedClone.sameAsCurrent);
         setFiles(savedClone.files);
-        setDocumentMeta(savedClone.documentMeta || { ...INITIAL_DOCUMENT_META });
+        setDocumentMeta(savedClone.documentMeta);
         setPreviousEmployment(savedClone.previousEmployment);
-        setEducationDetails(Array.isArray(savedClone.educationDetails) && savedClone.educationDetails.length > 0
-            ? savedClone.educationDetails
-            : [{ id: Date.now(), qualification: '', institution: '', university: '', fromDate: '', toDate: '', marks: '', certificate: null }]);
+        setEducationDetails(savedClone.educationDetails);
         setErrors({});
         setSaveStatus('Ready');
         setShowEditCards(false);
