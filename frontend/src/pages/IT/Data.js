@@ -24,6 +24,146 @@ const ASSIGNED_SHAPE_MIGRATION_KEY = "it_assigned_shape_migrated_v1";
 
 const SEED_FLAG_KEY = "app_seeded_v3"; // bumped: employees-only seeding
 
+/** In-memory caches — source of truth while the IT panel is open. localStorage is optional. */
+const _mem = {
+  [UNITS_KEY]: null,
+  [DELETED_KEY]: null,
+  [INVENTORY_KEY]: null,
+  [EMPLOYEES_KEY]: null,
+  [SOFTWARE_KEY]: null,
+  [TICKETS_KEY]: null,
+  [REMOVED_IT_KEY]: null,
+};
+
+const HEAVY_MEDIA_KEYS = new Set([
+  "photos",
+  "assignmentPhotos",
+  "receipts",
+  "individualPhoto",
+]);
+
+/** Strip base64 / media blobs so localStorage stays under browser quota. */
+function _slimForLocalStorage(value) {
+  if (Array.isArray(value)) return value.map(_slimForLocalStorage);
+  if (!value || typeof value !== "object") return value;
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (HEAVY_MEDIA_KEYS.has(k)) {
+      out[k] = Array.isArray(v) ? [] : v ? true : null;
+      continue;
+    }
+    out[k] = _slimForLocalStorage(v);
+  }
+  return out;
+}
+
+function _readLocalJson(key, fallback = []) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed == null ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Persist to localStorage without ever throwing QuotaExceededError.
+ * Full data stays in memory; disk gets a slim copy. If quota is still full,
+ * drop this key (and other IT caches if needed) and continue memory-only.
+ */
+function _safePersist(key, value) {
+  _mem[key] = value;
+  if (typeof localStorage === "undefined") return false;
+
+  const write = (payload) => {
+    localStorage.setItem(key, JSON.stringify(payload));
+  };
+
+  try {
+    write(_slimForLocalStorage(value));
+    return true;
+  } catch (err) {
+    const isQuota =
+      err?.name === "QuotaExceededError" ||
+      err?.code === 22 ||
+      err?.code === 1014 ||
+      /quota/i.test(String(err?.message || err));
+    if (!isQuota) {
+      console.warn(`[Data] localStorage set failed for ${key}:`, err);
+      return false;
+    }
+  }
+
+  // Quota full: free space then retry slim payload once.
+  try {
+    [
+      UNITS_KEY,
+      INVENTORY_KEY,
+      SOFTWARE_KEY,
+      DELETED_KEY,
+      TICKETS_KEY,
+      REMOVED_IT_KEY,
+    ].forEach((k) => {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* ignore */
+      }
+    });
+    write(_slimForLocalStorage(value));
+    return true;
+  } catch (err) {
+    console.warn(
+      `[Data] ${key} kept in memory only (localStorage quota exceeded).`,
+      err,
+    );
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+}
+
+function _getCached(key, fallback = []) {
+  if (_mem[key] != null) return _mem[key];
+  const fromDisk = _readLocalJson(key, fallback);
+  _mem[key] = fromDisk;
+  return fromDisk;
+}
+
+/** Rewrite oversized IT caches without photos so quota is freed on next visit. */
+function _reclaimLocalStorageQuota() {
+  if (typeof localStorage === "undefined") return;
+  const keys = [
+    UNITS_KEY,
+    INVENTORY_KEY,
+    SOFTWARE_KEY,
+    DELETED_KEY,
+    TICKETS_KEY,
+    REMOVED_IT_KEY,
+    "pcl_imported",
+    "pcl_exported",
+  ];
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw || raw.length < 200_000) continue;
+      const parsed = JSON.parse(raw);
+      _safePersist(key, parsed);
+    } catch {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 //  SEED DATA  — employees only
 
@@ -96,13 +236,13 @@ const _stampSeedFlag = () => {
 
 // Only seeds employees — all other stores start as empty arrays.
 const _writeSeedData = () => {
-  localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(SEED_EMPLOYEES));
-  localStorage.setItem(INVENTORY_KEY, JSON.stringify([]));
-  localStorage.setItem(UNITS_KEY, JSON.stringify([]));
-  localStorage.setItem(SOFTWARE_KEY, JSON.stringify([]));
-  localStorage.setItem(DELETED_KEY, JSON.stringify([]));
-  localStorage.setItem(TICKETS_KEY, JSON.stringify([]));
-  localStorage.setItem(REMOVED_IT_KEY, JSON.stringify([]));
+  _safePersist(EMPLOYEES_KEY, SEED_EMPLOYEES);
+  _safePersist(INVENTORY_KEY, []);
+  _safePersist(UNITS_KEY, []);
+  _safePersist(SOFTWARE_KEY, []);
+  _safePersist(DELETED_KEY, []);
+  _safePersist(TICKETS_KEY, []);
+  _safePersist(REMOVED_IT_KEY, []);
 };
 
 const initStorage = () => {
@@ -119,6 +259,7 @@ const initStorage = () => {
 };
 
 // Run on module load.
+_reclaimLocalStorageQuota();
 initStorage();
 
 const runAssignedToShapeMigrationOnce = () => {
@@ -126,7 +267,7 @@ const runAssignedToShapeMigrationOnce = () => {
     const done = localStorage.getItem(ASSIGNED_SHAPE_MIGRATION_KEY) === "true";
     if (done) return;
 
-    const employees = JSON.parse(localStorage.getItem(EMPLOYEES_KEY) || "[]");
+    const employees = _getCached(EMPLOYEES_KEY, []);
     const byEmpId = new Map();
     const byAdminId = new Map();
     for (const e of employees) {
@@ -163,7 +304,7 @@ const runAssignedToShapeMigrationOnce = () => {
       };
     };
 
-    const units = JSON.parse(localStorage.getItem(UNITS_KEY) || "[]");
+    const units = _getCached(UNITS_KEY, []);
     let changedUnits = false;
     const nextUnits = units.map((u) => {
       if (!u || !u.assignedTo || (u.assignedTo != null && typeof u.assignedTo === "object")) {
@@ -172,9 +313,9 @@ const runAssignedToShapeMigrationOnce = () => {
       changedUnits = true;
       return { ...u, assignedTo: mapAssignedTo(u.assignedTo) };
     });
-    if (changedUnits) localStorage.setItem(UNITS_KEY, JSON.stringify(nextUnits));
+    if (changedUnits) _safePersist(UNITS_KEY, nextUnits);
 
-    const sw = JSON.parse(localStorage.getItem(SOFTWARE_KEY) || "[]");
+    const sw = _getCached(SOFTWARE_KEY, []);
     let changedSw = false;
     const nextSw = sw.map((s) => {
       if (!s || !s.assignedTo || (s.assignedTo != null && typeof s.assignedTo === "object")) {
@@ -183,7 +324,7 @@ const runAssignedToShapeMigrationOnce = () => {
       changedSw = true;
       return { ...s, assignedTo: mapAssignedTo(s.assignedTo) };
     });
-    if (changedSw) localStorage.setItem(SOFTWARE_KEY, JSON.stringify(nextSw));
+    if (changedSw) _safePersist(SOFTWARE_KEY, nextSw);
 
     localStorage.setItem(ASSIGNED_SHAPE_MIGRATION_KEY, "true");
     sessionStorage.setItem(ASSIGNED_SHAPE_MIGRATION_KEY, "true");
@@ -217,6 +358,7 @@ export const clearAllData = () => {
     REMOVED_IT_KEY,
     SEED_FLAG_KEY,
   ].forEach((k) => {
+    _mem[k] = null;
     localStorage.removeItem(k);
     sessionStorage.removeItem(k);
   });
@@ -261,18 +403,15 @@ if (process.env.NODE_ENV === "development") {
 }
 
 export const getAssetUnitsFromStorage = () => {
-  try {
-    return JSON.parse(localStorage.getItem(UNITS_KEY)) || [];
-  } catch {
-    return [];
-  }
+  const units = _getCached(UNITS_KEY, []);
+  return Array.isArray(units) ? units : [];
 };
 
 export const saveAssetUnitsToStorage = (units) => {
   // Dedup by `id` before saving — last-write-wins for same id.
   const seen = new Map();
-  units.forEach((u) => seen.set(u.id, u));
-  localStorage.setItem(UNITS_KEY, JSON.stringify([...seen.values()]));
+  (units || []).forEach((u) => seen.set(u.id, u));
+  _safePersist(UNITS_KEY, [...seen.values()]);
 };
 
 const saveUnits = saveAssetUnitsToStorage;
@@ -418,11 +557,8 @@ export const syncCatalogAfterBulkAssign = (assignedUnits = []) => {
 };
 
 export const getDeletedAssetsFromStorage = () => {
-  try {
-    return JSON.parse(localStorage.getItem(DELETED_KEY)) || [];
-  } catch {
-    return [];
-  }
+  const rows = _getCached(DELETED_KEY, []);
+  return Array.isArray(rows) ? rows : [];
 };
 
 const _toInventoryItemId = (value) => {
@@ -471,36 +607,31 @@ export const logDeletedAsset = (unit, deletedBy, deleteReason) => {
   const deleted = getDeletedAssetsFromStorage();
   const deletedId = `del-${unit.id || unit.assetId || unit.assetName}-${deleted.length}`;
   deleted.unshift(buildLocalDeletedEntry(unit, deletedBy, deleteReason, deletedId));
-  localStorage.setItem(DELETED_KEY, JSON.stringify(deleted));
+  _safePersist(DELETED_KEY, deleted);
 };
 
 export const permanentlyWipeDeletedAsset = (deletedId) =>
-  localStorage.setItem(
+  _safePersist(
     DELETED_KEY,
-    JSON.stringify(
-      getDeletedAssetsFromStorage().filter((d) => d.deletedId !== deletedId),
-    ),
+    getDeletedAssetsFromStorage().filter((d) => d.deletedId !== deletedId),
   );
 
 export const permanentlyWipeAllDeletedAssets = () =>
-  localStorage.setItem(DELETED_KEY, JSON.stringify([]));
+  _safePersist(DELETED_KEY, []);
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  INVENTORY CATALOG — CRUD
 
 export const getInventoryFromStorage = () => {
-  try {
-    return JSON.parse(localStorage.getItem(INVENTORY_KEY)) || [];
-  } catch {
-    return [];
-  }
+  const inv = _getCached(INVENTORY_KEY, []);
+  return Array.isArray(inv) ? inv : [];
 };
 
 export const saveInventoryToStorage = (inventory) => {
   // Dedup by `id` before saving.
   const seen = new Map();
-  inventory.forEach((i) => seen.set(i.id, i));
-  localStorage.setItem(INVENTORY_KEY, JSON.stringify([...seen.values()]));
+  (inventory || []).forEach((i) => seen.set(i.id, i));
+  _safePersist(INVENTORY_KEY, [...seen.values()]);
 };
 
 // ─── Deterministic ID generator — NO Date.now() ───────────────────────────────
@@ -690,10 +821,11 @@ export const getInventoryCounts = () => {
 //  EMPLOYEES — CRUD
 // ══════════════════════════════════════════════════════════════════════════════
 
-export const getEmployees = () =>
-  JSON.parse(localStorage.getItem(EMPLOYEES_KEY) || "[]");
-export const saveEmployees = (d) =>
-  localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(d));
+export const getEmployees = () => {
+  const rows = _getCached(EMPLOYEES_KEY, []);
+  return Array.isArray(rows) ? rows : [];
+};
+export const saveEmployees = (d) => _safePersist(EMPLOYEES_KEY, d || []);
 export const getEmployeeById = (id) =>
   getEmployees().find(
     (e) =>
@@ -705,10 +837,11 @@ export const getEmployeeById = (id) =>
 //  SOFTWARE LICENSES — individual seat pool
 // ══════════════════════════════════════════════════════════════════════════════
 
-export const getSoftwareInventory = () =>
-  JSON.parse(localStorage.getItem(SOFTWARE_KEY) || "[]");
-export const saveSoftwareInventory = (d) =>
-  localStorage.setItem(SOFTWARE_KEY, JSON.stringify(d));
+export const getSoftwareInventory = () => {
+  const rows = _getCached(SOFTWARE_KEY, []);
+  return Array.isArray(rows) ? rows : [];
+};
+export const saveSoftwareInventory = (d) => _safePersist(SOFTWARE_KEY, d || []);
 
 export const returnSoftwareLicense = (licenseId) => {
   const sw = getSoftwareInventory();
@@ -769,10 +902,11 @@ export const addSoftwareLicensesToPool = ({
 //  TICKETS — CRUD
 // ══════════════════════════════════════════════════════════════════════════════
 
-export const getTickets = () =>
-  JSON.parse(localStorage.getItem(TICKETS_KEY) || "[]");
-export const saveTickets = (d) =>
-  localStorage.setItem(TICKETS_KEY, JSON.stringify(d));
+export const getTickets = () => {
+  const rows = _getCached(TICKETS_KEY, []);
+  return Array.isArray(rows) ? rows : [];
+};
+export const saveTickets = (d) => _safePersist(TICKETS_KEY, d || []);
 export const resolveTicket = (ticketId) =>
   saveTickets(
     getTickets().map((t) =>
@@ -785,14 +919,10 @@ export const resolveTicket = (ticketId) =>
 // ══════════════════════════════════════════════════════════════════════════════
 
 export const getRemovedITAssets = () => {
-  try {
-    return JSON.parse(localStorage.getItem(REMOVED_IT_KEY)) || [];
-  } catch {
-    return [];
-  }
+  const rows = _getCached(REMOVED_IT_KEY, []);
+  return Array.isArray(rows) ? rows : [];
 };
-export const saveRemovedITAssets = (d) =>
-  localStorage.setItem(REMOVED_IT_KEY, JSON.stringify(d));
+export const saveRemovedITAssets = (d) => _safePersist(REMOVED_IT_KEY, d || []);
 
 export const addRemovedITAsset = (asset) => {
   const existing = getRemovedITAssets();
@@ -902,6 +1032,14 @@ export function isITApiConflictError(err) {
 
 /** Toast API failures as warnings with the exact issue (never bare Internal Server Error). */
 export function toastITApiFailure(err, fallback) {
+  const isQuota =
+    err?.name === "QuotaExceededError" ||
+    err?.code === 22 ||
+    /quota/i.test(String(err?.message || err || ""));
+  if (isQuota) {
+    console.warn("[IT] Browser storage full; continuing with in-memory cache.", err);
+    return "";
+  }
   return notifyApiFailure(err, fallback);
 }
 
@@ -1365,8 +1503,8 @@ export const syncParcelsFromAPI = async () => {
   ]);
   const imports = importsRows.map(_toLocalParcelImport);
   const exports = exportsRows.map(_toLocalParcelExport);
-  localStorage.setItem("pcl_imported", JSON.stringify(imports));
-  localStorage.setItem("pcl_exported", JSON.stringify(exports));
+  _safePersist("pcl_imported", imports);
+  _safePersist("pcl_exported", exports);
   notifyInventoryChange();
   return { imports, exports };
 };
@@ -1412,7 +1550,7 @@ export const createDeletedLogAPI = async (payload) =>
 export const syncDeletedLogsFromAPI = async () => {
   const res = await _itFetch("/deleted-logs");
   const rows = (res.logs || []).map(_toLocalDeletedLog);
-  localStorage.setItem(DELETED_KEY, JSON.stringify(rows));
+  _safePersist(DELETED_KEY, rows);
   notifyInventoryChange();
   return rows;
 };

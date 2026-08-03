@@ -7,7 +7,11 @@ import {
   createParcelExportAPI,
   toastITApiFailure,
   syncITDataFromAPI,
-  syncParcelsFromAPI
+  syncParcelsFromAPI,
+  getAssetUnitsFromStorage,
+  saveAssetUnitsToStorage,
+  getInventoryFromStorage,
+  saveInventoryToStorage,
 } from "../../Data";
 import ClickableImage from "../../../../components/ClickableImage";
 import { openFirstImageInNewTab } from "../../../../utils/openImageInNewTab";
@@ -62,11 +66,11 @@ const readAsDataURL = (file) =>
 const readFilesAsDataURLs = (files) =>
   Promise.all(Array.from(files).map(readAsDataURL));
 
-/** Build the flat list of available assets from localStorage. */
+/** Build the flat list of available assets from in-memory / storage cache. */
 function getAvailableAssetsFromStorage() {
   try {
-    const units     = JSON.parse(localStorage.getItem("assetUnits") || "[]");
-    const inventory = JSON.parse(localStorage.getItem("inventory")  || "[]");
+    const units     = getAssetUnitsFromStorage() || [];
+    const inventory = getInventoryFromStorage() || [];
 
     const inventoryIdsWithUnits = new Set(
       units.map((u) => String(u.inventoryId)).filter(Boolean)
@@ -125,22 +129,19 @@ function getAvailableAssetsFromStorage() {
   }
 }
 
-/** Update assetUnits + inventory in localStorage after an export. */
+/** Update assetUnits + inventory cache after an export. */
 function commitExport(selectedAssets, destination) {
   try {
     const unitAssets = selectedAssets.filter((a) => a._source === "unit");
 
     if (unitAssets.length > 0) {
       const exportedUnitIds = new Set(unitAssets.map((a) => a.id));
-      const units = JSON.parse(localStorage.getItem("assetUnits") || "[]");
-      localStorage.setItem(
-        "assetUnits",
-        JSON.stringify(
-          units.map((u) =>
-            exportedUnitIds.has(u.id)
-              ? { ...u, status: "exported", exportedTo: destination, exportedAt: new Date().toISOString() }
-              : u
-          )
+      const units = getAssetUnitsFromStorage() || [];
+      saveAssetUnitsToStorage(
+        units.map((u) =>
+          exportedUnitIds.has(u.id)
+            ? { ...u, status: "exported", exportedTo: destination, exportedAt: new Date().toISOString() }
+            : u
         )
       );
     }
@@ -156,11 +157,9 @@ function commitExport(selectedAssets, destination) {
       unitAssets.map((a) => String(a.inventoryId)).filter(Boolean)
     );
 
-    const inventory = JSON.parse(localStorage.getItem("inventory") || "[]");
-    localStorage.setItem(
-      "inventory",
-      JSON.stringify(
-        inventory.map((inv) => {
+    const inventory = getInventoryFromStorage() || [];
+    saveInventoryToStorage(
+      inventory.map((inv) => {
           const delta = countByInvId[String(inv.id)] || 0;
           if (!delta) return inv;
           const isUnitTracked = unitInvIds.has(String(inv.id));
@@ -172,7 +171,6 @@ function commitExport(selectedAssets, destination) {
               : Math.max(0, (Number(inv.totalQuantity) || 0) - delta),
           };
         })
-      )
     );
 
     window.dispatchEvent(new Event("inventory-updated"));
