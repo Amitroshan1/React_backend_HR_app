@@ -219,6 +219,14 @@ def _coerce_optional_int(value):
         return None
 
 
+def _existing_fk_id(model, value):
+    """Return value only when the FK target row exists; otherwise None (avoids MySQL 1452)."""
+    pk = _coerce_optional_int(value)
+    if pk is None:
+        return None
+    return pk if model.query.get(pk) is not None else None
+
+
 def _inventory_id_from_export_slot(value):
     """Parse inv-slot-{inventoryId}-{index} from Ready for Export UI."""
     s = str(value or "").strip()
@@ -1908,10 +1916,10 @@ def create_removed_asset():
         return _err("name is required")
     r = ITRemovedAsset(
         removed_code=data.get("removed_code") or _next_code("RIT", ITRemovedAsset, "removed_code"),
-        asset_unit_id=data.get("asset_unit_id"),
-        inventory_item_id=data.get("inventory_item_id"),
-        owner_admin_id=data.get("owner_admin_id"),
-        removed_by_admin_id=data.get("removed_by_admin_id"),
+        asset_unit_id=_existing_fk_id(ITAssetUnit, data.get("asset_unit_id")),
+        inventory_item_id=_existing_fk_id(ITInventoryItem, data.get("inventory_item_id")),
+        owner_admin_id=_existing_fk_id(Admin, data.get("owner_admin_id")),
+        removed_by_admin_id=_existing_fk_id(Admin, data.get("removed_by_admin_id")),
         name=name,
         category=data.get("category"),
         reason=data.get("reason"),
@@ -1919,7 +1927,21 @@ def create_removed_asset():
         removed_at=_parse_dt(data.get("removed_at")) or utc_now(),
     )
     db.session.add(r)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        from sqlalchemy.exc import IntegrityError
+
+        if isinstance(e, IntegrityError):
+            r.asset_unit_id = None
+            r.inventory_item_id = None
+            r.owner_admin_id = None
+            r.removed_by_admin_id = None
+            db.session.add(r)
+            db.session.commit()
+        else:
+            raise
     return _ok({"removed_asset": _serialize_removed_asset(r)}, "Removed asset logged", 201)
 
 
@@ -1945,11 +1967,15 @@ def list_deleted_logs():
 @jwt_required()
 def create_deleted_log():
     data = request.get_json(silent=True) or {}
+    asset_unit_id = _existing_fk_id(ITAssetUnit, data.get("asset_unit_id"))
+    inventory_item_id = _existing_fk_id(ITInventoryItem, data.get("inventory_item_id"))
+    deleted_by_admin_id = _existing_fk_id(Admin, data.get("deleted_by_admin_id"))
+
     d = ITDeletedAssetLog(
         delete_code=data.get("delete_code") or _next_code("DEL", ITDeletedAssetLog, "delete_code"),
-        asset_unit_id=data.get("asset_unit_id"),
-        inventory_item_id=data.get("inventory_item_id"),
-        deleted_by_admin_id=data.get("deleted_by_admin_id"),
+        asset_unit_id=asset_unit_id,
+        inventory_item_id=inventory_item_id,
+        deleted_by_admin_id=deleted_by_admin_id,
         deleted_by_name=(data.get("deleted_by_name") or "").strip() or None,
         asset_name=data.get("asset_name"),
         category=data.get("category"),
@@ -1958,7 +1984,21 @@ def create_deleted_log():
         deleted_at=_parse_dt(data.get("deleted_at")) or utc_now(),
     )
     db.session.add(d)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        from sqlalchemy.exc import IntegrityError
+
+        # Stale unit/inventory ids from client cache — keep the history row without FKs.
+        if isinstance(e, IntegrityError):
+            d.asset_unit_id = None
+            d.inventory_item_id = None
+            d.deleted_by_admin_id = None
+            db.session.add(d)
+            db.session.commit()
+        else:
+            raise
     return _ok({"log": _serialize_deleted_log(d)}, "Deleted asset log created", 201)
 
 

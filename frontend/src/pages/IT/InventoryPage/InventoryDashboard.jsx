@@ -1368,9 +1368,16 @@ function useAssetActions(onRefresh) {
 
     if (canUseApi) {
       try {
+        // Soft-delete unit first (404 = already gone). Then log history without requiring FK.
+        try {
+          await deleteAssetUnitAPI(unitIdNum);
+        } catch (delErr) {
+          const status = delErr?.status || delErr?.response?.status;
+          if (status !== 404) throw delErr;
+        }
         await createDeletedLogAPI({
           delete_code: entry.deletedId,
-          asset_unit_id: unitIdNum,
+          asset_unit_id: null,
           inventory_item_id: Number(unit.inventoryId) || Number(removeTarget.id) || null,
           deleted_by_name: removedBy,
           asset_name: entry.assetName,
@@ -1378,7 +1385,6 @@ function useAssetActions(onRefresh) {
           serial_number: entry.serialNumber,
           reason,
         });
-        await deleteAssetUnitAPI(unitIdNum);
         await syncITDataFromAPI();
         await syncDeletedLogsFromAPI();
       } catch (err) {
