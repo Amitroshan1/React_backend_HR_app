@@ -176,7 +176,7 @@ class TaxDeclarationDocument(db.Model):
             "mime_type": self.mime_type,
             "size_bytes": self.size_bytes,
             "uploaded_at": isoformat_api(self.uploaded_at),
-            "url": f"/static/uploads/{self.file_path}" if self.file_path else None,
+            "url": None,  # clients must use /api/accounts/file/ or /api/files/content/ with JWT
         }
 
 

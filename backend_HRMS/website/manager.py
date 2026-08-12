@@ -225,7 +225,9 @@ def manager_profile():
             current_address = ", ".join(parts)
         photo_fn = (getattr(emp, "photo_filename", None) or "").strip()
         if photo_fn:
-            photo_url = url_for("static", filename=f"uploads/{photo_fn}")
+            from .secure_file_service import secure_public_url_for_upload
+
+            photo_url = secure_public_url_for_upload(photo_fn)
 
     if not designation and (getattr(admin, "emp_type", None) or "").strip():
         designation = (admin.emp_type or "").strip()

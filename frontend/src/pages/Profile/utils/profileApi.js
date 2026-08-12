@@ -441,13 +441,15 @@ export async function postUploadPhoto(blob) {
     return { ok: res.ok, data };
 }
 
-/** Document preview URL (paths from upload-profile-file) */
+/** Document preview path key (FileUpload loads via authenticated blob). */
 export function documentPreviewUrl(path) {
     if (!path || typeof path !== 'string') return null;
     if (path.startsWith('http://') || path.startsWith('https://')) {
         return normalizePhotoUrl(path);
     }
     const clean = path.startsWith('/') ? path.slice(1) : path;
-    if (clean.startsWith('static/')) return `/${clean}`;
-    return `/static/uploads/${clean}`;
+    if (clean.startsWith('static/uploads/')) return clean.slice('static/uploads/'.length);
+    if (clean.startsWith('uploads/')) return clean.slice('uploads/'.length);
+    // Return relative upload key — FileUpload / secure helpers auth-fetch it
+    return clean.startsWith('static/') ? `/${clean}` : clean;
 }

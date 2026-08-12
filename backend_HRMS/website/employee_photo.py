@@ -1,8 +1,7 @@
 """Resolve profile photo URL for an Admin from linked Employee.photo_filename."""
 
-from flask import url_for
-
 from .models.emp_detail_models import Employee
+from .secure_file_service import secure_public_url_for_upload
 
 
 def photo_url_for_admin_id(admin_id):
@@ -14,10 +13,8 @@ def photo_url_for_admin_id(admin_id):
     photo_fn = (getattr(emp, "photo_filename", None) or "").strip()
     if not photo_fn:
         return ""
-    try:
-        return url_for("static", filename=f"uploads/{photo_fn}", _external=False)
-    except Exception:
-        return f"/static/uploads/{photo_fn}"
+    # Signed URL — works in <img src> without exposing bare /static/uploads/
+    return secure_public_url_for_upload(photo_fn)
 
 
 def photo_url_for_admin(admin):

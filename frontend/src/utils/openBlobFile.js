@@ -66,7 +66,38 @@ export async function fetchAndOpenAuthenticatedFile(url, {
     throw new Error("Invalid file path");
   }
 
-  const response = await fetch(url, {
+  let fetchUrl = url;
+  try {
+    const { isLegacyStaticUploadUrl, toAccountsFileUrl, toAuthContentUrl, isSecureApiFileUrl } =
+      await import("./secureFileUrl.js");
+    if (isLegacyStaticUploadUrl(fetchUrl) && !String(fetchUrl).includes("/api/")) {
+      // Prefer accounts file route for payslip/form16/tax; else generic content route
+      const lower = String(fetchUrl).toLowerCase();
+      if (
+        lower.includes("payslip") ||
+        lower.includes("form16") ||
+        lower.includes("tax_declaration")
+      ) {
+        fetchUrl = toAccountsFileUrl(fetchUrl);
+      } else {
+        fetchUrl = toAuthContentUrl(fetchUrl);
+      }
+    } else if (!isSecureApiFileUrl(fetchUrl) && !String(fetchUrl).startsWith("blob:")) {
+      // Relative upload key like "profile/..." or "payslips/..."
+      const s = String(fetchUrl);
+      if (!s.startsWith("http") && !s.startsWith("/api/")) {
+        if (s.startsWith("payslips/") || s.startsWith("form16/") || s.startsWith("tax_declarations/")) {
+          fetchUrl = toAccountsFileUrl(s);
+        } else if (s.includes("/")) {
+          fetchUrl = toAuthContentUrl(s);
+        }
+      }
+    }
+  } catch {
+    /* keep original url */
+  }
+
+  const response = await fetch(fetchUrl, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${authToken}`,

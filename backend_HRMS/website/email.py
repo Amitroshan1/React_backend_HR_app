@@ -1624,10 +1624,18 @@ def send_asset_assigned_email(admin, asset):
     try:
         image_links = ""
         if asset.image_files:
+            from .secure_file_service import build_signed_file_url
+
+            base = (current_app.config.get("BASE_URL") or "").rstrip("/")
             for img in asset.image_files.split(","):
+                img = (img or "").strip()
+                if not img:
+                    continue
+                signed = build_signed_file_url(img)
+                href = f"{base}{signed}" if signed.startswith("/") else signed
                 image_links += f"""
                 <li>
-                    <a href="{current_app.config['BASE_URL']}/static/uploads/{img}" target="_blank">
+                    <a href="{href}" target="_blank">
                         View Asset Image
                     </a>
                 </li>

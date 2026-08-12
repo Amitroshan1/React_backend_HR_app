@@ -6,6 +6,9 @@ import { usePersistedView } from '../../hooks/usePersistedView';
 import { scrollAppToTop } from '../../utils/scrollToTop';
 import { HRApplyLeaveOnBehalf } from './HRApplyLeaveOnBehalf';
 import { CompOffLedger } from '../Leaves/CompOffLedger';
+import { fetchAuthenticatedObjectUrl } from '../../utils/secureFileUrl';
+import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
+import { toAuthContentUrl } from '../../utils/secureFileUrl';
 import './HREmployee360.css';
 import '../Leaves/CompOffLedger.css';
 
@@ -406,9 +409,60 @@ function assetImageUrl(path) {
   const raw = String(path).trim();
   if (!raw) return null;
   if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
-  if (raw.startsWith('/static/')) return raw;
-  const clean = raw.replace(/^\/+/, '');
-  return `/static/uploads/${clean}`;
+  if (raw.startsWith('/api/files/')) return raw;
+  const clean = raw.replace(/^\/+/, '').replace(/^static\/uploads\//, '');
+  return clean;
+}
+
+function SecureAssetThumb({ path, alt }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => {
+    let revoke = () => {};
+    let cancelled = false;
+    const key = assetImageUrl(path);
+    if (!key) return undefined;
+    if (/^https?:\/\//i.test(key) || key.startsWith('data:')) {
+      setSrc(key);
+      return undefined;
+    }
+    (async () => {
+      const result = await fetchAuthenticatedObjectUrl(key);
+      if (cancelled) {
+        result.revoke();
+        return;
+      }
+      revoke = result.revoke;
+      setSrc(result.objectUrl || '');
+    })();
+    return () => {
+      cancelled = true;
+      revoke();
+    };
+  }, [path]);
+  if (!src) return null;
+  return (
+    <button
+      type="button"
+      className="e360-asset-card__thumb"
+      onClick={async () => {
+        try {
+          const key = assetImageUrl(path);
+          if (!key) return;
+          if (/^https?:\/\//i.test(key) || key.startsWith('data:')) {
+            window.open(key, '_blank', 'noopener,noreferrer');
+            return;
+          }
+          await fetchAndOpenAuthenticatedFile(toAuthContentUrl(key), {
+            fileName: String(path).split('/').pop() || 'asset',
+          });
+        } catch (e) {
+          alert(e.message || 'Unable to open image');
+        }
+      }}
+    >
+      <img src={src} alt={alt || 'Asset'} />
+    </button>
+  );
 }
 
 function AssetsTab({ employee }) {
@@ -524,18 +578,14 @@ function AssetsTab({ employee }) {
                 {images.length > 0 ? (
                   <div className="e360-asset-card__images">
                     {images.map((img, idx) => {
-                      const src = assetImageUrl(img);
-                      if (!src) return null;
+                      const key = assetImageUrl(img);
+                      if (!key) return null;
                       return (
-                        <a
+                        <SecureAssetThumb
                           key={`${asset.id}-${idx}`}
-                          href={src}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="e360-asset-card__thumb"
-                        >
-                          <img src={src} alt={`${asset.name || 'Asset'} ${idx + 1}`} />
-                        </a>
+                          path={img}
+                          alt={`${asset.name || 'Asset'} ${idx + 1}`}
+                        />
                       );
                     })}
                   </div>

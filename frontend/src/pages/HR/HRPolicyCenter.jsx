@@ -1,6 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { ArrowLeft, FileText, Plus, RefreshCw } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
+import { toAuthContentUrl } from '../../utils/secureFileUrl';
 import './HRPolicyCenter.css';
 import './OffboardingDashboard.css';
 
@@ -21,6 +23,16 @@ export const HRPolicyCenter = ({ onBack, circleOptions = [], empTypeOptions = []
     effective_from: '',
     requires_acknowledgment: true,
   });
+
+  const openPolicyPdf = async (filePath) => {
+    try {
+      await fetchAndOpenAuthenticatedFile(toAuthContentUrl(filePath), {
+        fileName: String(filePath).split('/').pop() || 'policy.pdf',
+      });
+    } catch (e) {
+      alert(e.message || 'Unable to open policy PDF');
+    }
+  };
 
   const getAuthHeaders = useCallback(() => {
     const token = localStorage.getItem('token');
@@ -192,7 +204,9 @@ export const HRPolicyCenter = ({ onBack, circleOptions = [], empTypeOptions = []
                 <div className="policy-card__meta">
                   <span>Acknowledged: {p.ack_count ?? 0}</span>
                   {p.file_path ? (
-                    <a href={`/static/uploads/${p.file_path}`} target="_blank" rel="noopener noreferrer">View PDF</a>
+                    <button type="button" className="policy-link-btn" onClick={() => openPolicyPdf(p.file_path)}>
+                      View PDF
+                    </button>
                   ) : null}
                   <label className="policy-pdf-upload">
                     Upload PDF

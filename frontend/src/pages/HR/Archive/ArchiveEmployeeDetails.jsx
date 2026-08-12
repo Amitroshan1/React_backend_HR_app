@@ -2,9 +2,44 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
+import { fetchAuthenticatedObjectUrl } from '../../../utils/secureFileUrl';
 import './Archive.css';
 
 const HR_API_BASE = '/api/HumanResource';
+
+function SecureArchiveThumb({ path, alt }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => {
+    let revoke = () => {};
+    let cancelled = false;
+    (async () => {
+      const result = await fetchAuthenticatedObjectUrl(path);
+      if (cancelled) {
+        result.revoke();
+        return;
+      }
+      revoke = result.revoke;
+      setSrc(result.objectUrl || '');
+    })();
+    return () => {
+      cancelled = true;
+      revoke();
+    };
+  }, [path]);
+  if (!src) return null;
+  return (
+    <img
+      src={src}
+      alt={alt || 'Document'}
+      style={{
+        maxWidth: '100%',
+        maxHeight: 160,
+        borderRadius: 6,
+        marginTop: 8,
+      }}
+    />
+  );
+}
 
 const ArchiveEmployeeDetails = () => {
   const { adminId } = useParams();
@@ -24,12 +59,18 @@ const ArchiveEmployeeDetails = () => {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
 
-  const staticBase =
-    typeof window !== 'undefined' && window.__BACKEND_STATIC__
-      ? window.__BACKEND_STATIC__
-      : '';
-
-  const docUrl = (path) => (path ? `${staticBase}/static/uploads/${path}` : null);
+  const openArchiveDoc = async (path) => {
+    if (!path) return;
+    try {
+      const { fetchAndOpenAuthenticatedFile } = await import('../../../utils/openBlobFile');
+      const { toAuthContentUrl } = await import('../../../utils/secureFileUrl');
+      await fetchAndOpenAuthenticatedFile(toAuthContentUrl(path), {
+        fileName: String(path).split('/').pop() || 'document',
+      });
+    } catch (e) {
+      alert(e.message || 'Unable to open file');
+    }
+  };
 
   const loadEmployee = useCallback(async () => {
     setLoading(true);
@@ -289,7 +330,7 @@ const ArchiveEmployeeDetails = () => {
               <h3>Documents</h3>
               {Array.isArray(documents) && documents.length > 0 ? (
                 documents.map((d, i) => {
-                  const url = docUrl(d.file);
+                  const hasFile = Boolean(d.file);
                   const isImage =
                     d.file && /\.(png|jpe?g|gif|webp)$/i.test(d.file || '');
 
@@ -297,25 +338,16 @@ const ArchiveEmployeeDetails = () => {
                     <div key={i} className="archive-detail-subitem">
                       <p>
                         <strong>{d.doc_type || 'Document'}:</strong>{' '}
-                        {url ? (
-                          <a href={url} target="_blank" rel="noopener noreferrer">
+                        {hasFile ? (
+                          <button type="button" className="doc-link" onClick={() => openArchiveDoc(d.file)}>
                             View file
-                          </a>
+                          </button>
                         ) : (
                           'Not uploaded'
                         )}
                       </p>
-                      {url && isImage && (
-                        <img
-                          src={url}
-                          alt={d.doc_type || 'Document'}
-                          style={{
-                            maxWidth: '100%',
-                            maxHeight: 160,
-                            borderRadius: 6,
-                            marginTop: 8,
-                          }}
-                        />
+                      {hasFile && isImage && (
+                        <SecureArchiveThumb path={d.file} alt={d.doc_type || 'Document'} />
                       )}
                     </div>
                   );

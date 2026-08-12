@@ -336,7 +336,19 @@ function HrEmployeeProfileView({ employee, onBack, embedded = false }) {
   const education = p.education || [];
   const previousEmployment = p.previous_employment || [];
   const docBase = (typeof window !== 'undefined' && window.__BACKEND_STATIC__) ? window.__BACKEND_STATIC__ : '';
-  const docUrl = (path) => (path ? `${docBase}/static/uploads/${path}` : null);
+  const openDoc = async (path) => {
+    if (!path) return;
+    try {
+      const { toAuthContentUrl } = await import('../../utils/secureFileUrl');
+      await fetchAndOpenAuthenticatedFile(toAuthContentUrl(path), {
+        fileName: String(path).split('/').pop() || 'document',
+      });
+    } catch (e) {
+      alert(e.message || 'Unable to open file');
+    }
+  };
+  // legacy helper kept for any remaining callers — prefer openDoc
+  const docUrl = (path) => (path ? `${docBase}/api/files/content/${String(path).replace(/^\/+/, '')}` : null);
 
   const { score, missing, completedSections, totalSections } = hrProfileCompleteness(
     admin,
@@ -475,7 +487,7 @@ function HrEmployeeProfileView({ employee, onBack, embedded = false }) {
                     <p><strong>{edu.qualification || notProvided}</strong> – {edu.institution || notProvided}</p>
                     <p>{edu.university || edu.board ? `Board/University: ${edu.university || edu.board}` : ''} {edu.start && edu.end ? `${edu.start} to ${edu.end}` : ''} {edu.marks ? ` • ${edu.marks}` : ''}</p>
                     {edu.doc_file ? (
-                      <a href={docUrl(edu.doc_file)} target="_blank" rel="noopener noreferrer" className="doc-link">View certificate</a>
+                      <button type="button" onClick={() => openDoc(edu.doc_file)} className="doc-link">View certificate</button>
                     ) : (
                       <span className="hr-profile-value--missing">{notUploaded}</span>
                     )}
@@ -501,7 +513,7 @@ function HrEmployeeProfileView({ employee, onBack, embedded = false }) {
                   <div key={key} className="doc-item">
                     <span>{label}</span>
                     {docs[key] ? (
-                      <a href={docUrl(docs[key])} target="_blank" rel="noopener noreferrer" className="doc-link">View</a>
+                      <button type="button" onClick={() => openDoc(docs[key])} className="doc-link">View</button>
                     ) : (
                       <span className="hr-profile-value--missing">{notUploaded}</span>
                     )}

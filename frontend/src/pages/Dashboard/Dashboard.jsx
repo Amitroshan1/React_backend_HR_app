@@ -23,6 +23,8 @@ import { GiReceiveMoney } from "react-icons/gi";
 import { IoMdPerson } from "react-icons/io";
 import "./Dashboard.css";
 import { hasFeature } from "../../utils/planFeatures";
+import { fetchAndOpenAuthenticatedFile } from "../../utils/openBlobFile";
+import { toAuthContentUrl, isAlreadySignedFileUrl, toPathOnly } from "../../utils/secureFileUrl";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { formatDateDDMMYYYY, parseAppDate } from "../../utils/dateFormat";
 import { PolicyAckModal } from "../../components/PolicyAckModal";
@@ -1812,14 +1814,27 @@ export const Dashboard = () => {
                                                     <span className="news-feed-date">{formatDate(item.created_at)}</span>
                                                 ) : null}
                                                 {hasAttachment ? (
-                                                    <a
-                                                        href={item.file_url || `/static/uploads/${item.file_path}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
+                                                    <button
+                                                        type="button"
                                                         className="news-feed-file"
+                                                        onClick={async () => {
+                                                            try {
+                                                                const raw = item.file_url || item.file_path;
+                                                                const url = isAlreadySignedFileUrl(raw)
+                                                                    ? toPathOnly(raw)
+                                                                    : toAuthContentUrl(raw);
+                                                                await fetchAndOpenAuthenticatedFile(url, {
+                                                                    fileName: String(item.file_path || "attachment")
+                                                                        .split("/")
+                                                                        .pop(),
+                                                                });
+                                                            } catch (e) {
+                                                                alert(e.message || "Unable to open attachment");
+                                                            }
+                                                        }}
                                                     >
                                                         Attachment
-                                                    </a>
+                                                    </button>
                                                 ) : null}
                                             </div>
                                             )}

@@ -1445,7 +1445,9 @@ def upload_form16():
         }), 400
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    final_name = f"{admin_id}_{financial_year}_{timestamp}_{safe_name}"
+    import uuid as _uuid
+
+    final_name = f"{admin_id}_{financial_year}_{timestamp}_{_uuid.uuid4().hex[:10]}_{safe_name}"
     file.save(os.path.join(upload_folder, final_name))
 
     data_source = "official_traces" if is_official else (request.form.get("data_source") or "upload_manual").strip()
@@ -1664,7 +1666,9 @@ def upload_payslip():
 
     safe_name = secure_filename(file.filename)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    final_name = f"{admin_id}_{month}_{year}_{timestamp}_{safe_name}"
+    import uuid as _uuid
+
+    final_name = f"{admin_id}_{month}_{year}_{timestamp}_{_uuid.uuid4().hex[:10]}_{safe_name}"
     file.save(os.path.join(upload_folder, final_name))
 
     payslip = PaySlip(
@@ -1738,7 +1742,9 @@ def bulk_upload_payslips():
             continue
 
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        final_name = f"{target_admin.id}_{month}_{year}_{timestamp}_{original_name}"
+        import uuid as _uuid
+
+        final_name = f"{target_admin.id}_{month}_{year}_{timestamp}_{_uuid.uuid4().hex[:10]}_{original_name}"
         abs_path = os.path.join(upload_folder, final_name)
         file.save(abs_path)
 

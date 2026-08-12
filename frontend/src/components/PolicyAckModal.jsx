@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { fetchAndOpenAuthenticatedFile } from '../utils/openBlobFile';
+import { toAuthContentUrl } from '../utils/secureFileUrl';
 import './PolicyAckModal.css';
 
 const API_BASE = '/api/auth';
@@ -14,6 +16,16 @@ export function PolicyAckModal() {
     const token = localStorage.getItem('token');
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, []);
+
+  const openPolicyPdf = async (filePath) => {
+    try {
+      await fetchAndOpenAuthenticatedFile(toAuthContentUrl(filePath), {
+        fileName: String(filePath).split('/').pop() || 'policy.pdf',
+      });
+    } catch (e) {
+      setError(e.message || 'Unable to open policy PDF');
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +82,15 @@ export function PolicyAckModal() {
         <p className="policy-ack-meta">{current.title} · v{current.version}</p>
         {current.file_path ? (
           <p className="policy-ack-pdf">
-            <a href={`/static/uploads/${current.file_path}`} target="_blank" rel="noopener noreferrer">Open policy PDF</a>
+            <a
+              href="#open-policy"
+              onClick={(e) => {
+                e.preventDefault();
+                openPolicyPdf(current.file_path);
+              }}
+            >
+              Open policy PDF
+            </a>
           </p>
         ) : null}
         <div className="policy-ack-body">{current.content_html || 'Please read and acknowledge this policy to continue.'}</div>

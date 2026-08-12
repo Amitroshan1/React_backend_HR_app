@@ -1,4 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { fetchAndOpenAuthenticatedFile } from '../../../../utils/openBlobFile';
+import { fetchAuthenticatedObjectUrl, toAuthContentUrl } from '../../../../utils/secureFileUrl';
 
 const IMAGE_EXT_PATTERN = /\.(jpe?g|png|gif|webp|bmp|svg)$/i;
 
@@ -20,6 +22,40 @@ function triggerFileDownload(url, filename) {
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
+}
+
+function useSecurePreviewUrl(fileData) {
+    const [url, setUrl] = useState(null);
+    useEffect(() => {
+        let revoke = () => {};
+        let cancelled = false;
+        if (!fileData) {
+            setUrl(null);
+            return undefined;
+        }
+        if (typeof fileData === 'object' && fileData.url) {
+            setUrl(fileData.url);
+            return undefined;
+        }
+        if (typeof fileData === 'string') {
+            (async () => {
+                const result = await fetchAuthenticatedObjectUrl(fileData);
+                if (cancelled) {
+                    result.revoke();
+                    return;
+                }
+                revoke = result.revoke;
+                setUrl(result.objectUrl || null);
+            })();
+            return () => {
+                cancelled = true;
+                revoke();
+            };
+        }
+        setUrl(null);
+        return undefined;
+    }, [fileData]);
+    return url;
 }
 
 export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId, uploadProfileFileUrl, accept }) => {
@@ -111,11 +147,33 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
         if (inputRef.current) inputRef.current.value = '';
     };
 
-    const previewUrl = typeof fileData === 'string' ? `/static/uploads/${fileData}` : (fileData?.url || null);
+    const previewUrl = useSecurePreviewUrl(fileData);
     const isImage = isImageFile(fileData);
 
-    const handleOpenFile = (e) => {
+    const handleOpenFile = async (e) => {
         e?.stopPropagation?.();
+        if (typeof fileData === 'object' && fileData.url) {
+            if (isImage) {
+                setIsPreviewOpen(true);
+                return;
+            }
+            triggerFileDownload(fileData.url, getDisplayName() || 'download');
+            return;
+        }
+        if (typeof fileData === 'string') {
+            if (isImage && previewUrl) {
+                setIsPreviewOpen(true);
+                return;
+            }
+            try {
+                await fetchAndOpenAuthenticatedFile(toAuthContentUrl(fileData), {
+                    fileName: getDisplayName() || 'download',
+                });
+            } catch (err) {
+                setUploadError(err.message || 'Unable to open file');
+            }
+            return;
+        }
         if (!previewUrl) return;
         if (isImage) {
             setIsPreviewOpen(true);

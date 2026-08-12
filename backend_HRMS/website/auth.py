@@ -1088,10 +1088,7 @@ def _employee_homepage_impl():
     if employee:
         photo_fn = (getattr(employee, "photo_filename", None) or "").strip()
         if photo_fn:
-            try:
-                photo_url = url_for("static", filename=f"uploads/{photo_fn}", _external=True)
-            except Exception:
-                photo_url = f"/static/uploads/{photo_fn}"
+            photo_url = _static_upload_photo_url(photo_fn)
 
     from .probation_utils import build_employee_probation_status
 
@@ -1399,10 +1396,7 @@ def employee_profile():
         photo_url = None
         photo_fn = (getattr(employee, "photo_filename", None) or "").strip()
         if photo_fn:
-            try:
-                photo_url = url_for("static", filename=f"uploads/{photo_fn}", _external=True)
-            except Exception:
-                photo_url = f"/static/uploads/{photo_fn}"
+            photo_url = _static_upload_photo_url(photo_fn)
         profile["employee"] = {
             "name": employee.name,
             "email": employee.email,
@@ -1554,8 +1548,10 @@ def _sync_upload_doc_to_employee_accounts(admin, upload_doc):
 
 
 def _static_upload_photo_url(filename):
-    """Relative URL so the Vite dev proxy can serve /static from Flask."""
-    return f"/static/uploads/{filename}"
+    """Signed URL so photos work in <img> without public /static/uploads access."""
+    from .secure_file_service import secure_public_url_for_upload
+
+    return secure_public_url_for_upload(filename)
 
 
 def _photo_extension_from_upload(photo):
@@ -1662,11 +1658,24 @@ def upload_profile_photo():
         }), 400
 
     emp_slug = secure_filename(str(admin.emp_id or admin.id))
-    filename = secure_filename(f"profile_{admin.id}_{emp_slug}.{ext}")
+    # UUID segment prevents enumeration of profile_{admin_id}_{emp_id}.ext
+    import uuid as _uuid
+
+    filename = secure_filename(f"profile_{admin.id}_{emp_slug}_{_uuid.uuid4().hex[:12]}.{ext}")
     upload_dir = os.path.join(current_app.static_folder, "uploads")
     os.makedirs(upload_dir, exist_ok=True)
     photo_path = os.path.join(upload_dir, filename)
     photo.save(photo_path)
+
+    # Remove previous photo file if stored under uploads
+    old_fn = (getattr(employee, "photo_filename", None) or "").strip()
+    if old_fn and old_fn != filename:
+        try:
+            old_path = os.path.join(upload_dir, old_fn)
+            if os.path.isfile(old_path):
+                os.remove(old_path)
+        except OSError:
+            pass
 
     employee.photo_filename = filename
     try:
@@ -2836,7 +2845,9 @@ def upload_profile_file():
 
     upload_dir = os.path.join(current_app.root_path, "static", "uploads", "profile")
     os.makedirs(upload_dir, exist_ok=True)
-    filename = f"{admin_id}_{field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+    import uuid as _uuid
+
+    filename = f"{admin_id}_{field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:10]}{ext}"
     file_path = os.path.join(upload_dir, filename)
     file.save(file_path)
     rel_path = f"profile/{filename}"

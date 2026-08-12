@@ -3554,13 +3554,23 @@ def update_employee_api(emp_id):
         photo = request.files["photo"]
         if photo and photo.filename:
             filename = secure_filename(photo.filename)
+            import uuid as _uuid
+            ext = ""
+            if "." in filename:
+                ext = filename.rsplit(".", 1)[-1].lower()
+            admin_for_photo = Admin.query.get(emp.admin_id) if getattr(emp, "admin_id", None) else None
+            aid = (admin_for_photo.id if admin_for_photo else emp.admin_id) or 0
+            emp_slug = secure_filename(str(
+                (admin_for_photo.emp_id if admin_for_photo else None) or emp.emp_id or aid
+            ))
+            stored = secure_filename(f"profile_{aid}_{emp_slug}_{_uuid.uuid4().hex[:12]}.{ext or 'jpg'}")
             upload_dir = os.path.join(current_app.static_folder, "uploads")
             os.makedirs(upload_dir, exist_ok=True)
 
-            photo_path = os.path.join(upload_dir, filename)
+            photo_path = os.path.join(upload_dir, stored)
             photo.save(photo_path)
 
-            emp.photo_filename = filename
+            emp.photo_filename = stored
 
     db.session.commit()
 

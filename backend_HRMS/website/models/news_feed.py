@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from flask import url_for
 from .. import db
 
 
@@ -19,7 +18,9 @@ class NewsFeed(db.Model):
 
     def file_url(self):
         if self.file_path:
-            return url_for('static', filename=f'uploads/{self.file_path}', _external=True)
+            from ..secure_file_service import secure_public_url_for_upload
+
+            return secure_public_url_for_upload(self.file_path)
         return None
     
 

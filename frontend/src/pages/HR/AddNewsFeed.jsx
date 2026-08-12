@@ -43,10 +43,21 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
     setError('');
   };
 
-  // In this deployment, attachments are reliably served from /static/uploads.
-  // Keep HR history on a fixed static path to avoid API base mismatches.
-  const historyAttachmentUrl = (item) =>
-    (item?.file_path ? `/static/uploads/${item.file_path}` : null);
+  // Authenticated download — do not use bare /static/uploads links
+  const openHistoryAttachment = async (item) => {
+    if (!item?.file_path && !item?.file_url) return;
+    try {
+      const { fetchAndOpenAuthenticatedFile } = await import('../../utils/openBlobFile');
+      const { toAuthContentUrl, isAlreadySignedFileUrl, toPathOnly } = await import('../../utils/secureFileUrl');
+      const raw = item.file_url || item.file_path;
+      const url = isAlreadySignedFileUrl(raw) ? toPathOnly(raw) : toAuthContentUrl(raw);
+      await fetchAndOpenAuthenticatedFile(url, {
+        fileName: String(item.file_path || 'attachment').split('/').pop(),
+      });
+    } catch (e) {
+      alert(e.message || 'Unable to open attachment');
+    }
+  };
 
   useEffect(() => {
     if (propCircleOptions?.length) setCircleOptions(['All', ...propCircleOptions]);
@@ -302,13 +313,13 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
                         <td>{formatDate(item.created_at, '-')}</td>
                         <td>
                           {(item.file_url || item.file_path) ? (
-                            <a
-                              href={historyAttachmentUrl(item)}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              className="newsfeed-view-btn"
+                              onClick={() => openHistoryAttachment(item)}
                             >
                               View
-                            </a>
+                            </button>
                           ) : (
                             '-'
                           )}

@@ -60,6 +60,11 @@ def create_app():
 
     # Uploads root for payslips/form16 etc. Set UPLOADS_ROOT in production to absolute path if files live elsewhere.
     app.config["UPLOADS_ROOT"] = os.getenv("UPLOADS_ROOT")
+    # Signed file URL lifetime (seconds) for <img src> / email links without JWT header.
+    try:
+        app.config["FILE_SIGN_TTL_SECONDS"] = int(os.getenv("FILE_SIGN_TTL_SECONDS", "3600"))
+    except ValueError:
+        app.config["FILE_SIGN_TTL_SECONDS"] = 3600
     # Default 100 MB limits DoS via huge uploads; assessment servers may set MAX_CONTENT_LENGTH_MB=800.
     _max_upload_mb = int(os.getenv("MAX_CONTENT_LENGTH_MB", "100"))
     app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
@@ -250,6 +255,8 @@ def create_app():
     from .performance_api import performance_api
     from .probation_api import probation_api
 
+    from .files import files_bp
+
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(leave, url_prefix="/api/leave")
@@ -261,6 +268,16 @@ def create_app():
     app.register_blueprint(notifications, url_prefix="/api/notifications")
     app.register_blueprint(performance_api, url_prefix="/api/performance")
     app.register_blueprint(probation_api, url_prefix="/api/probation")
+    app.register_blueprint(files_bp, url_prefix="/api/files")
+
+    # Block anonymous access to /static/uploads/* (IDOR via guessable names).
+    # Legitimate access: JWT Authorization header OR ?exp=&sig= signed query.
+    # IMPORTANT (production): nginx must proxy /static/uploads/ to Flask (not serve files directly).
+    @app.route("/static/uploads/<path:filename>", methods=["GET", "HEAD"])
+    def protected_static_uploads(filename):
+        from .secure_file_service import serve_upload_with_request_auth
+
+        return serve_upload_with_request_auth(filename)
 
     # Lightweight schema patch: free-text parcel tracking (no admin FK required)
     def _ensure_parcel_name_columns():

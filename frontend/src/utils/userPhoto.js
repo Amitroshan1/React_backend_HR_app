@@ -1,20 +1,19 @@
 /**
- * Normalize profile photo paths from API (relative /static/uploads/...).
+ * Normalize profile photo paths from API.
+ * Prefer signed /api/files/signed/... URLs from the backend.
+ * Legacy /static/uploads/... is handled by UserAvatar via authenticated fetch.
  */
+import { isAlreadySignedFileUrl, toPathOnly } from './secureFileUrl';
+
 export function normalizePhotoUrl(url) {
   if (!url || typeof url !== 'string') return '';
-  let path = url.trim();
+  let path = toPathOnly(url);
   if (!path) return '';
-  if (path.startsWith('/public/')) path = path.replace('/public/', '/');
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    try {
-      const u = new URL(path);
-      path = u.pathname || path;
-    } catch {
-      /* keep */
-    }
+  // Keep signed URLs (path + query)
+  if (isAlreadySignedFileUrl(url)) {
+    return toPathOnly(url);
   }
-  return path;
+  return path.split('?')[0];
 }
 
 /** First non-empty photo field on a user/employee object. */

@@ -1,8 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getUserPhotoUrl, makeInitialsAvatar } from '../utils/userPhoto';
+import {
+  fetchAuthenticatedObjectUrl,
+  isAlreadySignedFileUrl,
+  isLegacyStaticUploadUrl,
+  toPathOnly,
+} from '../utils/secureFileUrl';
 
 /**
  * User/employee avatar: shows uploaded photo when available, else initials.
+ * Private uploads are loaded with JWT or signed URLs (never anonymous /static/uploads).
  */
 export function UserAvatar({
   user,
@@ -26,10 +33,56 @@ export function UserAvatar({
     [displayName, initialsBg],
   );
   const [failed, setFailed] = useState(false);
+  const [blobSrc, setBlobSrc] = useState('');
+
   useEffect(() => {
     setFailed(false);
+    let revoke = () => {};
+    let cancelled = false;
+
+    const path = toPathOnly(resolvedPhoto);
+    const needsAuthFetch =
+      path &&
+      !isAlreadySignedFileUrl(path) &&
+      (isLegacyStaticUploadUrl(path) ||
+        path.startsWith('/api/files/content/') ||
+        path.includes('/api/accounts/file/'));
+
+    if (!path) {
+      setBlobSrc('');
+      return undefined;
+    }
+
+    if (isAlreadySignedFileUrl(path)) {
+      setBlobSrc(path);
+      return undefined;
+    }
+
+    if (!needsAuthFetch) {
+      // Public/non-upload URL
+      setBlobSrc(path);
+      return undefined;
+    }
+
+    setBlobSrc('');
+    (async () => {
+      const result = await fetchAuthenticatedObjectUrl(resolvedPhoto);
+      if (cancelled) {
+        result.revoke();
+        return;
+      }
+      revoke = result.revoke;
+      setBlobSrc(result.objectUrl || '');
+      if (!result.objectUrl) setFailed(true);
+    })();
+
+    return () => {
+      cancelled = true;
+      revoke();
+    };
   }, [resolvedPhoto]);
-  const src = resolvedPhoto && !failed ? resolvedPhoto : fallbackSrc;
+
+  const src = !failed && blobSrc ? blobSrc : fallbackSrc;
 
   if (as === 'span') {
     return (
