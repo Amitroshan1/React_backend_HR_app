@@ -3029,6 +3029,16 @@ def display_details_api():
         month_start = date(year, month, 1)
         month_end = date(year, month, num_days)
 
+        from .attendance_engine import (
+            load_attendance_month_context,
+            resolve_day_status,
+            status_display_label,
+            calculate_credited_working_days,
+        )
+
+        emp_type = (admin.emp_type or "").strip()
+        ctx = load_attendance_month_context(user_id, year, month, emp_type=emp_type)
+
         punches = (
             Punch.query.options(joinedload(Punch.sessions))
             .filter(
@@ -3037,34 +3047,24 @@ def display_details_api():
             )
             .all()
         )
-
-        leaves = LeaveApplication.query.filter(
-            LeaveApplication.admin_id == user_id,
-            LeaveApplication.status == "Approved",
-            LeaveApplication.start_date <= month_end,
-            LeaveApplication.end_date >= month_start
-        ).all()
-
-        wfh_apps = WorkFromHomeApplication.query.filter(
-            WorkFromHomeApplication.admin_id == user_id,
-            WorkFromHomeApplication.status == "Approved",
-            WorkFromHomeApplication.start_date <= month_end,
-            WorkFromHomeApplication.end_date >= month_start
-        ).all()
-
         punch_map = {p.punch_date: p for p in punches}
 
         attendance = []
         for d in range(1, num_days + 1):
             current_day = date(year, month, d)
             punch = punch_map.get(current_day)
-            is_wfh = any(wfh.start_date <= current_day <= wfh.end_date for wfh in wfh_apps)
-            on_leave = any(lv.start_date <= current_day <= lv.end_date for lv in leaves)
+            resolved = resolve_day_status(ctx, current_day)
+            status = resolved.get("status")
+            details = resolved.get("details") or {}
+            status_label = status_display_label(status, details)
 
             loc_in, loc_out = _hr_punch_location_in_out(punch) if punch else ("", "")
             legacy_loc = (getattr(punch, "location_status", None) or "").strip() if punch else ""
             if punch and not loc_in and not loc_out and legacy_loc:
                 loc_in = loc_out = legacy_loc
+
+            on_leave = status == "LEAVE"
+            is_wfh = status in ("WFH_APPROVED", "WFH_PENDING") or bool(details.get("wfh"))
 
             if on_leave:
                 punch_in_s = "On leave"
@@ -3086,6 +3086,8 @@ def display_details_api():
 
             attendance.append({
                 "date": current_day.isoformat(),
+                "status": status,
+                "status_label": status_label,
                 "punch_in": punch_in_s,
                 "punch_out": punch_out_s,
                 "location_status": combined_loc or legacy_loc,
@@ -3096,7 +3098,11 @@ def display_details_api():
                 "on_leave": on_leave,
             })
 
+        credited_days, unpaid_leave_days = calculate_credited_working_days(ctx)
         summary = calculate_month_summary(user_id, year, month)
+        summary["working_days_final"] = credited_days
+        summary["credited_working_days"] = credited_days
+        summary["unpaid_leave_days"] = unpaid_leave_days
 
         return jsonify({
             "success": True,

@@ -29,6 +29,16 @@ from .circle_transfer_utils import (
     preload_circle_history,
 )
 from .commands.payroll_logic import normalize_payable_days, payroll_earnings_factor
+from .attendance_engine import (
+    load_attendance_month_context,
+    calculate_credited_working_days,
+    calculate_accounts_totals,
+    resolve_day_status,
+    status_display_label,
+    is_weekend_non_working,
+    punch_work_seconds,
+    FULL_DAY_WORK_SECONDS,
+)
 
 
 def add_circle_transfers_worksheet(workbook, admins, emp_type, circle, year, month, history_by_admin=None):
@@ -278,69 +288,12 @@ def calculate_month_summary(admin_id, year, month):
                 pass
 
     # -------------------------------------------------------
-    # ADVANCED WORKING DAYS LOGIC (from your bulk function)
+    # WORKING DAYS — aligned with employee attendance calendar
     # -------------------------------------------------------
-
-    # Get admin profile to extract emp_type (source of truth)
     admin_obj = Admin.query.get(admin_id)
     emp_type = (admin_obj.emp_type or "").strip() if admin_obj else ""
-
-    working_days = 0.0
-
-    # Loop through each day of the selected month
-    for d in range(1, num_days + 1):
-
-        the_day = date(year, month, d)
-        weekday = the_day.weekday()
-
-        is_weekend = weekday in (5, 6)
-        is_sunday = weekday == 6
-
-        # ---- CHECK PUNCHES FOR THAT DAY ----
-        punch = next((p for p in punches if p.punch_date == the_day), None)
-
-        punch_value = 0
-        if punch:
-            in_present = bool(punch.punch_in)
-            out_present = bool(punch.punch_out)
-
-            if in_present and out_present:
-                punch_value = 1
-            elif in_present or out_present:
-                punch_value = 0.5
-
-        # ---- CHECK LEAVE FOR THE DAY ----
-        leave_for_day = False
-        for lv in leaves:
-            if lv.start_date <= the_day <= lv.end_date:
-                leave_for_day = True
-                break
-
-        # ---- APPLY SAME RULES AS BULK FUNCTION ----
-        if emp_type in ("Engineering", "Software Development"):
-            # Sat + Sun always counted as working
-            if is_weekend:
-                working_days += 1
-            elif punch_value > 0 or leave_for_day:
-                working_days += punch_value if punch_value > 0 else 1
-
-        else:  # Accounts, HR, etc.
-            if is_sunday:
-                working_days += 1
-            elif weekday == 5:  # Saturday
-                if punch_value > 0 or leave_for_day:
-                    working_days += punch_value if punch_value > 0 else 1
-            else:  # Mon–Fri
-                if punch_value > 0 or leave_for_day:
-                    working_days += punch_value if punch_value > 0 else 1
-
-    # Subtract extra days
-    working_days -= extra_days
-    if working_days < 0:
-        working_days = 0
-
-    # Round clean
-    working_days_final = round(working_days, 1)
+    att_ctx = load_attendance_month_context(admin_id, year, month, emp_type=emp_type)
+    working_days_final, _ = calculate_credited_working_days(att_ctx)
 
     # -------------------------------------------------------
     # CALENDAR WORKING DAYS (for expected hours only)
@@ -486,6 +439,13 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
                     leave_days_by_admin[lv.admin_id].add(cur)
                 cur += timedelta(days=1)
 
+        att_ctx_by_admin = {
+            a.id: load_attendance_month_context(
+                a.id, year, month, emp_type=(a.emp_type or "").strip()
+            )
+            for a in admins
+        }
+
         def parse_today_work_to_seconds(val):
             if not val:
                 return 0
@@ -535,12 +495,17 @@ def generate_attendance_excel(admins, emp_type, circle, year, month, file_prefix
 
             # Per-admin punches mapped by day (1..num_days)
             admin_punches = punch_map.get(admin.id, {})
+            att_ctx = att_ctx_by_admin.get(admin.id)
 
             for d in range(1, num_days + 1):
                 current_day_date = date(year, month, d)
                 day_circle = circle_on_date(admin, current_day_date, admin_history) or ""
                 circle_days.append(day_circle)
-                on_leave_day = current_day_date in leave_days_by_admin.get(admin.id, set())
+                if att_ctx:
+                    day_resolved = resolve_day_status(att_ctx, current_day_date)
+                    on_leave_day = day_resolved.get("status") == "LEAVE"
+                else:
+                    on_leave_day = current_day_date in leave_days_by_admin.get(admin.id, set())
                 punch = admin_punches.get(d)
 
                 loc_in, loc_out = "", ""
@@ -773,183 +738,11 @@ def calculate_attendance_Accounts(admin_id, emp_type, year, month):
       - expected_working_days: calendar working days for this employee (weekends + mandatory holidays excluded,
         optional holidays excluded only if the employee has an approved Optional Leave on that date).
       - absent_days: only counts absence on expected working days (float, supports 0.5 for half-day leave without punch).
-
-    Notes:
-      - Mandatory holidays are loaded from HolidayCalendar (DB).
-      - Optional holidays are NOT treated as non-working unless Optional Leave is approved for that date.
-      - Approved WFH counts as present on a working day.
-      - Approved leaves count as paid leave days on working days; leave.extra_days (LWP/LOP) is approximated into absences.
     """
-
-    # -------- DATE RANGE --------
-    start_date = date(year, month, 1)
-    month_end = date(year, month, calendar.monthrange(year, month)[1])
-
-    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
-    end_date = today if (year == today.year and month == today.month) else month_end
-
-    # -------- HOLIDAYS (DB) --------
-    holiday_rows = HolidayCalendar.query.filter(
-        HolidayCalendar.year == year,
-        HolidayCalendar.is_active.is_(True),
-        HolidayCalendar.holiday_date.between(start_date, end_date),
-    ).all()
-    mandatory_holidays = {h.holiday_date for h in holiday_rows if not getattr(h, "is_optional", False)}
-    optional_holidays = {h.holiday_date for h in holiday_rows if getattr(h, "is_optional", False)}
-
-    # -------- PUNCHES (WORKED DAYS: >= 8h full present, < 8h half day → 0.5 absent) --------
-    FULL_DAY_WORK_SECONDS = 8 * 3600
-
-    def _punch_work_seconds(p):
-        if getattr(p, "today_work", None) and str(p.today_work).strip():
-            s = str(p.today_work).strip()
-            parts = s.split(":")
-            try:
-                h = int(parts[0]) if len(parts) > 0 else 0
-                m = int(parts[1]) if len(parts) > 1 else 0
-                sec = int(parts[2]) if len(parts) > 2 else 0
-                return h * 3600 + m * 60 + sec
-            except (ValueError, IndexError):
-                pass
-        if p.punch_in and p.punch_out:
-            delta = p.punch_out - p.punch_in
-            return max(0, int(delta.total_seconds()))
-        return 0
-
-    punches = Punch.query.filter(
-        Punch.admin_id == admin_id,
-        Punch.punch_date.between(start_date, end_date)
-    ).all()
-    worked_full_dates = set()
-    worked_half_dates = set()
-    for p in punches:
-        if not p.punch_in or not p.punch_out:
-            continue
-        secs = _punch_work_seconds(p)
-        if secs >= FULL_DAY_WORK_SECONDS:
-            worked_full_dates.add(p.punch_date)
-        else:
-            worked_half_dates.add(p.punch_date)
-
-    # -------- WFH (APPROVED) --------
-    wfh_apps = WorkFromHomeApplication.query.filter(
-        WorkFromHomeApplication.admin_id == admin_id,
-        WorkFromHomeApplication.status == "Approved",
-        WorkFromHomeApplication.start_date <= end_date,
-        WorkFromHomeApplication.end_date >= start_date
-    ).all()
-    wfh_dates = set()
-    for wfh in wfh_apps:
-        d = max(wfh.start_date, start_date)
-        d_end = min(wfh.end_date, end_date)
-        while d <= d_end:
-            wfh_dates.add(d)
-            d += timedelta(days=1)
-
-    # -------- LEAVES (APPROVED) --------
-    leaves = LeaveApplication.query.filter(
-        LeaveApplication.admin_id == admin_id,
-        LeaveApplication.status == "Approved",
-        LeaveApplication.start_date <= end_date,
-        LeaveApplication.end_date >= start_date
-    ).all()
-
-    # Day -> leave units (1.0 or 0.5) for working-day coverage (excluding Optional Leave)
-    leave_units = {}
-    optional_leave_taken = set()
-    lop_total = 0.0  # approximated LWP/LOP days within this month range
-
-    for leave in leaves:
-        d_start = max(leave.start_date, start_date)
-        d_end = min(leave.end_date, end_date)
-
-        # Approximate LOP allocation into this month slice (best effort; extra_days is stored at application level).
-        span_days = (leave.end_date - leave.start_date).days + 1
-        overlap_days = (d_end - d_start).days + 1 if d_end >= d_start else 0
-        if span_days > 0 and overlap_days > 0 and float(getattr(leave, "extra_days", 0) or 0) > 0:
-            lop_total += float(leave.extra_days or 0) * (overlap_days / span_days)
-
-        # Optional Leave: treat as a day-off only if the date is an optional holiday.
-        if leave.leave_type == "Optional Leave":
-            d = d_start
-            while d <= d_end:
-                if d in optional_holidays:
-                    optional_leave_taken.add(d)
-                d += timedelta(days=1)
-            continue
-
-        # Half Day Leave: count as 0.5 on its start date (common case)
-        if leave.leave_type == "Half Day Leave":
-            if d_start <= d_end:
-                leave_units[d_start] = max(leave_units.get(d_start, 0.0), 0.5)
-            continue
-
-        # Other leave types: cover each day in the overlapping range
-        d = d_start
-        while d <= d_end:
-            leave_units[d] = max(leave_units.get(d, 0.0), 1.0)
-            d += timedelta(days=1)
-
-    # -------- DAY-WISE TOTALS --------
-    expected_working_days = 0.0
-    absent_days = 0.0
-
-    current = start_date
-    while current <= end_date:
-        weekday = current.weekday()  # Mon=0 ... Sun=6
-
-        # Weekend rules (company calendar)
-        is_weekend_non_working = (
-            weekday == 6 or
-            (weekday == 5 and emp_type not in ["Human Resource", "Accounts"])
-        )
-        is_mandatory_holiday = current in mandatory_holidays
-
-        # Base calendar working day (optional holidays remain working unless taken)
-        is_calendar_working_day = (not is_weekend_non_working) and (not is_mandatory_holiday)
-
-        # If it's not a working day, it doesn't affect expected/absent.
-        if not is_calendar_working_day:
-            current += timedelta(days=1)
-            continue
-
-        # Optional holiday taken (approved Optional Leave) becomes a day-off for this employee.
-        if current in optional_leave_taken:
-            current += timedelta(days=1)
-            continue
-
-        expected_working_days += 1.0
-
-        # Present if worked full day (>= 8h) or approved WFH
-        if current in worked_full_dates or current in wfh_dates:
-            current += timedelta(days=1)
-            continue
-
-        # Half day: punch in+out but < 8 hours → 0.5 absent
-        if current in worked_half_dates:
-            absent_days += 0.5
-            current += timedelta(days=1)
-            continue
-
-        # Approved leave covers the day (full or half)
-        units = float(leave_units.get(current, 0.0) or 0.0)
-        if units >= 1.0:
-            current += timedelta(days=1)
-            continue
-        if units == 0.5:
-            absent_days += 0.5
-            current += timedelta(days=1)
-            continue
-
-        # No punch, no WFH, no approved leave => absent
-        absent_days += 1.0
-        current += timedelta(days=1)
-
-    # Apply approximated LOP days (from leave.extra_days) into absences, capped by expected_working_days
-    if lop_total > 0:
-        absent_days = min(expected_working_days, absent_days + float(lop_total))
-
-    return expected_working_days, absent_days
+    ctx = load_attendance_month_context(
+        admin_id, year, month, emp_type=emp_type, include_pending=False
+    )
+    return calculate_accounts_totals(ctx)
 
 
 def calculate_sundays_in_span(year: int, month: int) -> int:
@@ -1803,15 +1596,15 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     month_start = date(year, month, 1)
     month_end = date(year, month, num_days)
 
-    # Non-optional, active holidays for this month
-    holidays = HolidayCalendar.query.filter(
+    # Mandatory and optional holidays for this month (aligned with attendance calendar)
+    all_holidays = HolidayCalendar.query.filter(
         HolidayCalendar.year == year,
         HolidayCalendar.holiday_date >= month_start,
         HolidayCalendar.holiday_date <= month_end,
-        HolidayCalendar.is_optional == False,
         HolidayCalendar.is_active == True,
     ).all()
-    holiday_dates = {h.holiday_date: h for h in holidays}
+    holiday_dates = {h.holiday_date: h for h in all_holidays if not h.is_optional}
+    optional_holiday_dates = {h.holiday_date: h for h in all_holidays if h.is_optional}
 
     # Single worksheet for all employees
     worksheet = workbook.add_worksheet("Attendance")
@@ -1937,14 +1730,16 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             current = date(year, month, day)
             row = first_day_row + (day - 1)
 
+            emp_type = (admin.emp_type or "").strip()
             is_sunday = current.weekday() == 6
-            is_weekend = current.weekday() in (5, 6)
-            is_holiday = current in holiday_dates
+            is_weekend_off = is_weekend_non_working(current, emp_type)
+            is_mandatory_holiday = current in holiday_dates
+            is_optional_holiday = current in optional_holiday_dates
 
             # Only write the Day_Date once (for the first employee)
             if emp_index == 0:
                 label = f"{current.strftime('%A')}, {day} {calendar.month_name[month]}, {year}"
-                if is_holiday:
+                if is_mandatory_holiday or is_optional_holiday:
                     fmt_day = legend_holiday_fmt
                 else:
                     fmt_day = sunday_row_fmt if is_sunday else border_fmt
@@ -1958,13 +1753,26 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
 
             base_fmt = sunday_row_fmt if is_sunday else border_fmt
 
-            if is_holiday:
-                # Show holiday name (or generic label) for all employees
+            if is_mandatory_holiday:
                 holiday_name = holiday_dates[current].holiday_name
                 text = holiday_name or "Holiday"
-                worksheet.write(row, base_col,     text, legend_holiday_fmt)
-                worksheet.write(row, base_col + 1, "",   legend_holiday_fmt)
-            elif leaves_for_day:
+                worksheet.write(row, base_col, text, legend_holiday_fmt)
+                worksheet.write(row, base_col + 1, "", legend_holiday_fmt)
+                continue
+
+            if is_optional_holiday:
+                has_optional_leave = any(
+                    _client_is_approved_leave(la)
+                    and (getattr(la, "leave_type", "") or "").strip() == "Optional Leave"
+                    for la in leaves_for_day
+                )
+                if not has_optional_leave:
+                    opt_name = optional_holiday_dates[current].holiday_name or "Optional Holiday"
+                    worksheet.write(row, base_col, opt_name, legend_holiday_fmt)
+                    worksheet.write(row, base_col + 1, "", legend_holiday_fmt)
+                    continue
+
+            if leaves_for_day:
                 approved_leaves = [la for la in leaves_for_day if _client_is_approved_leave(la)]
                 pending_leaves = [la for la in leaves_for_day if _client_is_pending_leave(la)]
                 approved_compoff = [la for la in approved_leaves if _client_is_compoff_leave(la)]
@@ -2013,14 +1821,9 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                     worksheet.write(row, base_col + 1, "", legend_leave_pending_fmt)
                 # Pending Comp Off but employee punched → show punch times
                 elif pending_compoff and not pending_other and has_punch:
-                    if is_weekend:
-                        _client_write_punch_row_cells(
-                            worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
-                        )
-                    else:
-                        _client_write_punch_row_cells(
-                            worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
-                        )
+                    _client_write_punch_row_cells(
+                        worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
+                    )
                 elif pending_leaves:
                     pending_label = _client_leave_types_label(pending_leaves)
                     cell_text = f"Leave not approved ({pending_label})"
@@ -2029,7 +1832,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                     worksheet.write(row, base_col + 1, "", fmt)
                 else:
                     # Rejected (or other non-approved): employee expected to work — show attendance
-                    if is_weekend:
+                    if is_weekend_off:
                         if has_punch:
                             _client_write_punch_row_cells(
                                 worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
@@ -2041,7 +1844,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                         _client_write_punch_row_cells(
                             worksheet, row, base_col, punch, base_fmt, legend_half_day_fmt
                         )
-            elif is_weekend:
+            elif is_weekend_off:
                 has_punch = punch and (punch.punch_in or punch.punch_out)
                 if has_punch:
                     time_in_str = (

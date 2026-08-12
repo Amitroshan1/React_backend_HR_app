@@ -98,6 +98,7 @@ export const DepartmentQueryInbox = () => {
   const mapInboxRow = (q) => ({
     id: q.id,
     title: q.title,
+    department: q.department || "—",
     employeeName: q.employee_name || "Employee",
     employeeEmail: q.employee_email || q.employee || "—",
     status: q.status,
@@ -443,6 +444,7 @@ export const DepartmentQueryInbox = () => {
                 <th>Name</th>
                 <th>Email</th>
                 <th>Title</th>
+                <th>Department</th>
                 <th>Status</th>
                 <th>Created</th>
                 <th>Action</th>
@@ -451,11 +453,11 @@ export const DepartmentQueryInbox = () => {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan="6" className="dept-empty">Loading...</td>
+                  <td colSpan="7" className="dept-empty">Loading...</td>
                 </tr>
               ) : queries.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="dept-empty">
+                  <td colSpan="7" className="dept-empty">
                     {hasActiveFilters
                       ? "No queries match your filters."
                       : "No queries for your department."}
@@ -481,6 +483,11 @@ export const DepartmentQueryInbox = () => {
                           <span className="dept-new-reply-pill">New reply</span>
                         )}
                       </div>
+                    </td>
+                    <td data-label="Department">
+                      <span className="dept-dept-badge" title={q.department || ""}>
+                        {q.department || "—"}
+                      </span>
                     </td>
                     <td data-label="Status">{getStatusLabel(q.status)}</td>
                     <td data-label="Created">{q.createdAt}</td>

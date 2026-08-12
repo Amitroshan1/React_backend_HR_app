@@ -81,6 +81,7 @@ const ticketSearchBlob = (t) =>
     t.id,
     t.empId,
     t.email,
+    t.department,
     t.title,
     t.query,
     t.rawStatus,
@@ -439,6 +440,7 @@ export default function OpenTicket() {
                 <th>#</th>
                 <th>EMP ID</th>
                 <th>Email</th>
+                <th>Department</th>
                 <th>Query Details</th>
                 <th>Date</th>
                 <th>Status</th>
@@ -449,7 +451,7 @@ export default function OpenTicket() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={statusTab === "Pending" ? 8 : 7} className="ot-empty">
+                  <td colSpan={statusTab === "Pending" ? 9 : 8} className="ot-empty">
                     <div className="ot-empty-inner">
                       <span className="ot-empty-icon">📭</span>
                       <p>No {statusTab === "Pending" ? "active" : "resolved"} tickets found</p>
@@ -469,6 +471,11 @@ export default function OpenTicket() {
                       <td className="ot-td-idx" data-label="#">{i + 1}</td>
                       <td data-label="Emp ID"><span className="ot-emp-id">{ticket.empId}</span></td>
                       <td data-label="Email"><span className="ot-email">{ticket.email}</span></td>
+                      <td data-label="Department">
+                        <span className="ot-dept-badge" title={ticket.department || ""}>
+                          {ticket.department || "—"}
+                        </span>
+                      </td>
                       <td className="ot-td-query" data-label="Query">
                         <div className="ot-query-title-cell">
                           {ticket.hasUnreadReply && (
@@ -551,6 +558,7 @@ export default function OpenTicket() {
                 </h3>
                 <p className="ot-chat-meta">
                   {chatTicket.empId} · {chatTicket.email}
+                  {chatTicket.department ? ` · ${chatTicket.department}` : ""}
                   {chatQueryMeta?.status && (
                     <span className="ot-chat-status-pill">{chatQueryMeta.status}</span>
                   )}

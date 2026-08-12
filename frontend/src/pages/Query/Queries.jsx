@@ -487,7 +487,7 @@
 
 
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { MessageSquarePlus, MessageCircle, Send, X, Loader2, CheckCircle, FileText, Eye, Paperclip } from 'lucide-react';
 import './Queries.css';
@@ -505,6 +505,8 @@ import {
   parseChatIdFromSearch,
   queryAttachmentDisplayName,
   openQueryAttachmentFile,
+  groupMyQueriesForHistory,
+  shortDepartmentLabel,
 } from './queryChatHelpers';
 
 const API_BASE_URL = '/api/query';
@@ -1052,9 +1054,43 @@ export const Queries = () => {
     }
   };
 
+  const closeQueryGroup = async (members) => {
+    const openIds = (members || [])
+      .filter((m) => String(m.status || '').toLowerCase() !== 'closed')
+      .map((m) => m.id);
+    if (!openIds.length) return;
+    setActionError('');
+    try {
+      const results = await Promise.all(
+        openIds.map(async (id) => {
+          const response = await fetch(`${API_BASE_URL}/queries/${id}/close`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders() },
+          });
+          const result = await response.json().catch(() => ({}));
+          return { id, ok: response.ok && result.success, message: result.message };
+        })
+      );
+      const failed = results.filter((r) => !r.ok);
+      await fetchMyQueries();
+      if (activeChat?.id && openIds.includes(activeChat.id)) closeChatPanel();
+      if (failed.length) {
+        throw new Error(
+          failed.length === openIds.length
+            ? failed[0].message || 'Failed to close queries'
+            : `Closed ${openIds.length - failed.length} of ${openIds.length}; some failed.`
+        );
+      }
+    } catch (error) {
+      console.error('Close query group error:', error);
+      setActionError(error.message || 'Unable to close queries');
+    }
+  };
+
   const hrOnlyQuery = !hasFeature('query_all_departments') && !hasFeature('query_hr_and_accounts');
   const hrAccountsQuery = !hasFeature('query_all_departments') && hasFeature('query_hr_and_accounts');
   const unreadQueryCount = queries.filter((q) => q.hasUnreadReply).length;
+  const historyGroups = useMemo(() => groupMyQueriesForHistory(queries), [queries]);
 
   return (
     <div className="query-dashboard-container">
@@ -1258,6 +1294,7 @@ export const Queries = () => {
               <thead>
                 <tr>
                   <th>Query Details</th>
+                  <th>Department</th>
                   <th>Description</th>
                   <th>Files</th>
                   <th>Status</th>
@@ -1267,76 +1304,160 @@ export const Queries = () => {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan="6" className="query-empty">Loading...</td></tr>
-                ) : queries.length === 0 ? (
-                  <tr><td colSpan="6" className="query-empty">No queries yet.</td></tr>
+                  <tr><td colSpan="7" className="query-empty">Loading...</td></tr>
+                ) : historyGroups.length === 0 ? (
+                  <tr><td colSpan="7" className="query-empty">No queries yet.</td></tr>
                 ) : (
-                  queries.map(q => (
-                    <tr key={q.id} className={q.hasUnreadReply ? 'query-row-unread' : undefined}>
-                      <td data-label="Query Details">
-                        <div className="query-cell-main query-title-cell">
-                          {q.hasUnreadReply && (
-                            <span className="query-unread-dot" title="New reply" aria-hidden="true" />
-                          )}
-                          <div>
-                            <strong className={q.hasUnreadReply ? 'query-title-unread' : undefined}>{q.title}</strong>
-                            <small>{q.department} • {q.createdAt}</small>
-                            {q.hasUnreadReply && (
-                              <span className="query-new-reply-pill">New reply</span>
+                  historyGroups.map((group) => {
+                    const primary = group.members[0];
+                    const multi = group.members.length > 1;
+                    const allClosed = group.openMembers.length === 0;
+                    const statuses = [...new Set(group.members.map((m) => m.status || 'New'))];
+                    return (
+                      <tr
+                        key={group.groupKey}
+                        className={group.hasUnreadReply ? 'query-row-unread' : undefined}
+                      >
+                        <td data-label="Query Details">
+                          <div className="query-cell-main query-title-cell">
+                            {group.hasUnreadReply && (
+                              <span className="query-unread-dot" title="New reply" aria-hidden="true" />
                             )}
+                            <div>
+                              <strong className={group.hasUnreadReply ? 'query-title-unread' : undefined}>
+                                {group.title}
+                              </strong>
+                              <small>{group.createdAt}</small>
+                              {group.hasUnreadReply && (
+                                <span className="query-new-reply-pill">New reply</span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td data-label="Description" className="query-desc-td">
-                        <span className="query-desc-cell" title={q.queryText || ''}>
-                          {getSummary(q.queryText)}
-                        </span>
-                      </td>
-                      <td data-label="Files" className="query-files-cell">
-                        {q.attachments?.length ? (
-                          <ul className="query-history-files">
-                            {q.attachments.map((file) => (
-                              <li key={file}>
-                                <button
-                                  type="button"
-                                  className="query-history-file-link"
-                                  onClick={() => openQueryAttachment(q.id, file)}
-                                  title={queryAttachmentDisplayName(file)}
-                                >
-                                  <Paperclip size={13} aria-hidden="true" />
-                                  <span>{queryAttachmentDisplayName(file)}</span>
-                                </button>
-                              </li>
+                        </td>
+                        <td data-label="Department">
+                          <div className="query-dept-badge-list">
+                            {group.members.map((m) => (
+                              <span
+                                key={m.id}
+                                className="query-dept-badge"
+                                title={m.department || ''}
+                              >
+                                {m.department || '—'}
+                              </span>
                             ))}
-                          </ul>
-                        ) : (
-                          <span className="query-no-files">—</span>
-                        )}
-                      </td>
-                      <td data-label="Status"><span className={`query-status-badge query-status-${(q.status || '').toLowerCase()}`}>{getStatusLabel(q.status)}</span></td>
-                      <td className="query-action-cell" data-label="Action">
-                        <button
-                          type="button"
-                          onClick={() => openChat(q)}
-                          className={`query-chat-btn${q.hasUnreadReply ? ' query-chat-btn--unread' : ''}`}
-                          title={q.hasUnreadReply ? 'New reply — open chat' : 'Open chat'}
-                        >
-                          <MessageCircle size={14} aria-hidden="true" />
-                          Chat
-                          {q.unreadReplyCount > 0 && (
-                            <span className="query-chat-unread-badge">
-                              {q.unreadReplyCount > 9 ? '9+' : q.unreadReplyCount}
+                          </div>
+                        </td>
+                        <td data-label="Description" className="query-desc-td">
+                          <span className="query-desc-cell" title={group.queryText || ''}>
+                            {getSummary(group.queryText)}
+                          </span>
+                        </td>
+                        <td data-label="Files" className="query-files-cell">
+                          {group.attachments?.length ? (
+                            <ul className="query-history-files">
+                              {group.attachments.map((file) => (
+                                <li key={file}>
+                                  <button
+                                    type="button"
+                                    className="query-history-file-link"
+                                    onClick={() => openQueryAttachment(primary.id, file)}
+                                    title={queryAttachmentDisplayName(file)}
+                                  >
+                                    <Paperclip size={13} aria-hidden="true" />
+                                    <span>{queryAttachmentDisplayName(file)}</span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <span className="query-no-files">—</span>
+                          )}
+                        </td>
+                        <td data-label="Status">
+                          {multi ? (
+                            <div className="query-status-stack">
+                              {group.members.map((m) => (
+                                <span
+                                  key={m.id}
+                                  className={`query-status-badge query-status-${(m.status || '').toLowerCase()}`}
+                                  title={m.department || ''}
+                                >
+                                  {shortDepartmentLabel(m.department)}: {getStatusLabel(m.status)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className={`query-status-badge query-status-${(statuses[0] || '').toLowerCase()}`}>
+                              {getStatusLabel(statuses[0])}
                             </span>
                           )}
-                        </button>
-                      </td>
-                      <td data-label="Close">
-                        {q.status !== 'Closed' ? (
-                          <button type="button" className="query-close-btn" onClick={() => closeQuery(q.id)}><CheckCircle size={14}/> Close</button>
-                        ) : (<span className="query-closed-text">Closed</span>)}
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className="query-action-cell" data-label="Action">
+                          <div className="query-action-stack">
+                            {group.members.map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => openChat(m)}
+                                className={`query-chat-btn${m.hasUnreadReply ? ' query-chat-btn--unread' : ''}`}
+                                title={
+                                  m.hasUnreadReply
+                                    ? `New reply from ${m.department || 'department'}`
+                                    : `Open chat with ${m.department || 'department'}`
+                                }
+                              >
+                                <MessageCircle size={14} aria-hidden="true" />
+                                {multi ? `Chat (${shortDepartmentLabel(m.department)})` : 'Chat'}
+                                {m.unreadReplyCount > 0 && (
+                                  <span className="query-chat-unread-badge">
+                                    {m.unreadReplyCount > 9 ? '9+' : m.unreadReplyCount}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                        <td data-label="Close">
+                          {allClosed ? (
+                            <span className="query-closed-text">Closed</span>
+                          ) : multi ? (
+                            <div className="query-close-stack">
+                              {group.openMembers.map((m) => (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  className="query-close-btn"
+                                  onClick={() => closeQuery(m.id)}
+                                  title={`Close ${m.department || 'query'}`}
+                                >
+                                  <CheckCircle size={14} />
+                                  Close ({shortDepartmentLabel(m.department)})
+                                </button>
+                              ))}
+                              {group.openMembers.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="query-close-btn query-close-btn--all"
+                                  onClick={() => closeQueryGroup(group.members)}
+                                >
+                                  <CheckCircle size={14} />
+                                  Close all
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="query-close-btn"
+                              onClick={() => closeQuery(group.openMembers[0].id)}
+                            >
+                              <CheckCircle size={14} /> Close
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

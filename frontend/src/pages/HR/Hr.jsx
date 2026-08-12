@@ -590,6 +590,7 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
               <thead>
                 <tr>
                   <th>Date</th>
+                  <th>Status</th>
                   <th>Punch In</th>
                   <th>Punch Out</th>
                   <th>Location (Punch In)</th>
@@ -602,6 +603,7 @@ function HrEmployeeAttendanceView({ employee, onBack }) {
                 {attendance.attendance.map((row, i) => (
                   <tr key={i}>
                     <td>{formatDateDDMMYYYY(row.date)}</td>
+                    <td>{row.status_label || row.status || '–'}</td>
                     <td>{row.punch_in || '–'}</td>
                     <td>{row.punch_out || '–'}</td>
                     <td>{row.location_status_in || '–'}</td>

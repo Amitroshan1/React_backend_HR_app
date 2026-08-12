@@ -1,3 +1,9 @@
 backend_HRMS/.venv/
 **/__pycache__/
 *.py[cod]
+
+backend_HRMS/uploads/
+migrations/
+myenv/
+backend_HRMS/website/static/
+backend_HRMS/uploads/

@@ -134,3 +134,83 @@ export async function readApiResponse(response) {
     };
   }
 }
+
+/** Same raise to multiple departments creates separate tickets — group them for employee history. */
+const MULTI_DEPT_GROUP_WINDOW_MS = 15000;
+
+const attachmentKey = (attachments) =>
+  (Array.isArray(attachments) ? attachments : []).slice().sort().join('|');
+
+export function shortDepartmentLabel(department) {
+  const canon = canonicalQueryDepartment(department);
+  if (canon === 'Human Resource') return 'HR';
+  if (canon === 'Accounts') return 'Accounts';
+  if (canon === 'IT') return 'IT';
+  const raw = String(department || '').trim();
+  return raw || '—';
+}
+
+/**
+ * Group employee "my queries" that were raised together (same title/text/files, close timestamps).
+ * Department inboxes stay one-row-per-ticket; only history UI uses groups.
+ */
+export function groupMyQueriesForHistory(queries, windowMs = MULTI_DEPT_GROUP_WINDOW_MS) {
+  const list = Array.isArray(queries) ? queries : [];
+  const sorted = [...list].sort((a, b) => {
+    const tb = new Date(b.createdAtRaw || 0).getTime();
+    const ta = new Date(a.createdAtRaw || 0).getTime();
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
+
+  const used = new Set();
+  const groups = [];
+
+  for (const q of sorted) {
+    if (used.has(q.id)) continue;
+    const members = [q];
+    used.add(q.id);
+    const t0 = new Date(q.createdAtRaw || 0).getTime();
+    const att0 = attachmentKey(q.attachments);
+    const title0 = String(q.title || '').trim();
+    const text0 = String(q.queryText || '').trim();
+
+    for (const other of sorted) {
+      if (used.has(other.id)) continue;
+      if (String(other.title || '').trim() !== title0) continue;
+      if (String(other.queryText || '').trim() !== text0) continue;
+      if (attachmentKey(other.attachments) !== att0) continue;
+      const t1 = new Date(other.createdAtRaw || 0).getTime();
+      if (!Number.isFinite(t0) || !Number.isFinite(t1)) continue;
+      if (Math.abs(t1 - t0) > windowMs) continue;
+      members.push(other);
+      used.add(other.id);
+    }
+
+    members.sort((a, b) =>
+      String(a.department || '').localeCompare(String(b.department || ''), undefined, {
+        sensitivity: 'base',
+      })
+    );
+
+    const newest = members.reduce((best, m) => {
+      const tb = new Date(best.createdAtRaw || 0).getTime();
+      const tm = new Date(m.createdAtRaw || 0).getTime();
+      return tm >= tb ? m : best;
+    }, members[0]);
+
+    groups.push({
+      groupKey: members.map((m) => m.id).join('-'),
+      title: newest.title,
+      queryText: newest.queryText,
+      attachments: newest.attachments || [],
+      createdAt: newest.createdAt,
+      createdAtRaw: newest.createdAtRaw,
+      members,
+      hasUnreadReply: members.some((m) => m.hasUnreadReply),
+      unreadReplyCount: members.reduce((sum, m) => sum + Number(m.unreadReplyCount || 0), 0),
+      openMembers: members.filter((m) => String(m.status || '').toLowerCase() !== 'closed'),
+    });
+  }
+
+  return groups;
+}

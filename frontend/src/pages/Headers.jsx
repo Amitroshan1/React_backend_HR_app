@@ -379,12 +379,19 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     };
 
     const roleInfo = getRoleInfo(rawRole, user);
+    // Header "Query" is for HR / Accounts department inbox.
+    // IT uses "Open Tickets" in the IT panel — hide Query for IT to avoid duplicate entry points.
     const queryShortcutAllowed = (() => {
         const display = roleInfo.display?.toLowerCase();
-        if (["hr", "account", "accounts", "it"].includes(display)) return true;
+        if (display === "it") return false;
+        if (["hr", "account", "accounts"].includes(display)) return true;
         const candidates = [user?.emp_type, user?.designation, user?.department, rawRole].filter(Boolean);
+        const looksLikeIt = candidates.some((c) =>
+            /\bit\s+department\b|\binformation\s+technology\b|(^|\s)it(\s|$)|inventory/i.test(String(c))
+        );
+        if (looksLikeIt) return false;
         return candidates.some((c) =>
-            /\bhuman\s+resources?\b|\bhr\b|\baccounts?\b|\baccountant\b|\bit\b|\binventory\b/i.test(String(c))
+            /\bhuman\s+resources?\b|\bhr\b|\baccounts?\b|\baccountant\b/i.test(String(c))
         );
     })();
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
@@ -640,7 +647,9 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                         </button>
                     )}
                     
-                    <div className="divider"></div>
+                    {(queryShortcutAllowed || noticeInfo.notice_active) && (
+                        <div className="divider"></div>
+                    )}
 
                     <div className="user-profile-wrapper" ref={dropdownRef}>
                         <div className="user-profile" onClick={() => setIsDropdownOpen(!isDropdownOpen)}>
