@@ -19,6 +19,7 @@ import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
 import { AppLayout } from "./components/layout/AppLayout";
 import { SensitiveDataGate } from "./components/security/SensitiveDataGate";
+import { RequirePanel } from "./components/security/RequirePanel";
 import { UserProvider } from "./components/layout/UserContext";
 import { Queries } from "./pages/Query/Queries";
 import { DepartmentQueryInbox } from "./pages/Query/DepartmentQueryInbox";
@@ -140,15 +141,15 @@ export const App = () => {
         { path: "wfh",                             element: <Wfh /> },
         { path: "performance",                     element: <EmployeePerformance /> },
         { path: "holiday-calendar",                element: <HolidayCalendarUser /> },
-        { path: "account",                         element: <Account /> },
-        { path: "hr",                              element: <Hr /> },
-        { path: "updates",                         element: <Hr /> },
-        { path: "archive-employees",               element: <ArchiveEmployees /> },
-        { path: "archive-employees/:adminId",      element: <ArchiveEmployeeDetails /> },
-        { path: "exit-employees",                  element: <ExitEmployee /> },
+        { path: "account",                         element: <RequirePanel panel="account"><Account /></RequirePanel> },
+        { path: "hr",                              element: <RequirePanel panel="hr"><Hr /></RequirePanel> },
+        { path: "updates",                         element: <RequirePanel panel="hr"><Hr /></RequirePanel> },
+        { path: "archive-employees",               element: <RequirePanel panel="hr"><ArchiveEmployees /></RequirePanel> },
+        { path: "archive-employees/:adminId",      element: <RequirePanel panel="hr"><ArchiveEmployeeDetails /></RequirePanel> },
+        { path: "exit-employees",                  element: <RequirePanel panel="hr"><ExitEmployee /></RequirePanel> },
         {
           path: "admin",
-          element: <AdminLayout />,
+          element: <RequirePanel panel="admin"><AdminLayout /></RequirePanel>,
           children: [
             { index: true, element: <Admin /> },
             { path: "customers", element: <AdminCustomers /> },
@@ -159,26 +160,26 @@ export const App = () => {
             { path: "resignations", element: <AdminResignations /> },
           ],
         },
-        { path: "manager",                         element: <Manager /> },
-        { path: "manager/claims/:claimId",         element: <ManagerClaimDetails /> },
-        { path: "manager/performance-reviews",     element: <ManagerPerformanceReviews /> },
-        { path: "it",                              element: <ITPanel /> },
+        { path: "manager",                         element: <RequirePanel panel="manager"><Manager /></RequirePanel> },
+        { path: "manager/claims/:claimId",         element: <RequirePanel panel="manager"><ManagerClaimDetails /></RequirePanel> },
+        { path: "manager/performance-reviews",     element: <RequirePanel panel="manager"><ManagerPerformanceReviews /></RequirePanel> },
+        { path: "it",                              element: <RequirePanel panel="it"><ITPanel /></RequirePanel> },
 
         // IT Sub-routes
-        { path: "it/inventory/*",                  element: <InventoryDashboard /> },
-        { path: "it/OpenTicket",                   element: <OpenTicket /> },
-        { path: "it/ActiveDevices",                element: <ActiveDevice /> },
-        { path: "it/Assets",                       element: <AssetsDashboard /> },
-        { path: "it/AssetsPage/AddSoftWare",       element: <AddSoftWare /> },
-        { path: "it/AssetsPage/AddEmployee",       element: <AddEmployee /> },
-        { path: "it/employee/:empId",              element: <ITEmployeeDetails /> },
-        { path: "it/return-requests",              element: <ReturnRequests /> },
-        { path: "it/noc-requests",                 element: <ITNocRequests /> },
+        { path: "it/inventory/*",                  element: <RequirePanel panel="it"><InventoryDashboard /></RequirePanel> },
+        { path: "it/OpenTicket",                   element: <RequirePanel panel="it"><OpenTicket /></RequirePanel> },
+        { path: "it/ActiveDevices",                element: <RequirePanel panel="it"><ActiveDevice /></RequirePanel> },
+        { path: "it/Assets",                       element: <RequirePanel panel="it"><AssetsDashboard /></RequirePanel> },
+        { path: "it/AssetsPage/AddSoftWare",       element: <RequirePanel panel="it"><AddSoftWare /></RequirePanel> },
+        { path: "it/AssetsPage/AddEmployee",       element: <RequirePanel panel="it"><AddEmployee /></RequirePanel> },
+        { path: "it/employee/:empId",              element: <RequirePanel panel="it"><ITEmployeeDetails /></RequirePanel> },
+        { path: "it/return-requests",              element: <RequirePanel panel="it"><ReturnRequests /></RequirePanel> },
+        { path: "it/noc-requests",                 element: <RequirePanel panel="it"><ITNocRequests /></RequirePanel> },
 
         // Admin Employee Management
-        { path: "employees",                       element: <Employee /> },
-        { path: "employee/:id",                    element: <AdminEmployeeDetails /> },
-        { path: "employee/:id/punches",            element: <AdminEmployeePunches /> },
+        { path: "employees",                       element: <RequirePanel panel="admin"><Employee /></RequirePanel> },
+        { path: "employee/:id",                    element: <RequirePanel panel="admin"><AdminEmployeeDetails /></RequirePanel> },
+        { path: "employee/:id/punches",            element: <RequirePanel panel="admin"><AdminEmployeePunches /></RequirePanel> },
       ],
     },
       ],

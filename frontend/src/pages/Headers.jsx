@@ -122,7 +122,7 @@ import { toast } from "react-toastify";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
-import { hasFeature, clearPlanContext, canAccessItPanel } from "../utils/planFeatures";
+import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountPanel } from "../utils/planFeatures";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
 import { clearSensitiveToken } from "../utils/sensitiveDataAuth";
 import { DEPARTMENT_TITLES, getPanelLinkLabel } from "../utils/departmentLabels";
@@ -401,8 +401,8 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
 
     const panelRouteAllowed = (route) => {
         if (isAdminRole) return true;
-        if (route === "/hr") return hasFeature("hr_panel");
-        if (route === "/account") return hasFeature("account_panel");
+        if (route === "/hr") return canAccessHrPanel(user);
+        if (route === "/account") return canAccessAccountPanel(user);
         if (route === "/it" || route === "/it/inventory") return canAccessItPanel(user);
         return true;
     };
