@@ -59,6 +59,18 @@ export function isLegacyStaticUploadUrl(url) {
   return p.includes("/static/uploads/") || p.startsWith("static/uploads/");
 }
 
+/**
+ * Append a cache-bust param without breaking signed URLs that already have ?exp=&sig=.
+ * Use this instead of `${url}?t=...` which invalidates HMAC signatures.
+ */
+export function withFileCacheBust(url, bustValue = Date.now()) {
+  if (!url || typeof url !== "string") return url || "";
+  const base = url.trim();
+  if (!base) return "";
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}_=${encodeURIComponent(String(bustValue))}`;
+}
+
 /** JWT content URL for a relative upload key or legacy path. */
 export function toAuthContentUrl(pathOrUrl) {
   if (isAlreadySignedFileUrl(pathOrUrl) || (isSecureApiFileUrl(pathOrUrl) && !isLegacyStaticUploadUrl(pathOrUrl))) {

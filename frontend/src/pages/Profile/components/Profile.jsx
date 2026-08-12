@@ -30,6 +30,7 @@ import {
     postUploadDocs,
     postUploadPhoto,
 } from '../utils/profileApi';
+import { withFileCacheBust } from '../../../utils/secureFileUrl';
 import { useUser } from "../../../components/layout/UserContext";
 
 const isValidEmail = (email) => {
@@ -166,7 +167,7 @@ export const Profile = () => {
         setPreviousEmployment(saved.previousEmployment);
         setEducationDetails(saved.educationDetails);
         if (avatarUrl) {
-            setCurrentAvatarUrl(`${avatarUrl}?t=${Date.now()}`);
+            setCurrentAvatarUrl(withFileCacheBust(avatarUrl, Date.now()));
         }
     }, []);
 
@@ -528,7 +529,7 @@ export const Profile = () => {
             const { ok, data } = await postUploadPhoto(imageBlob);
             if (ok && data.success && data.photo_url) {
                 const normalizedUrl = normalizePhotoUrl(data.photo_url);
-                setCurrentAvatarUrl(`${normalizedUrl}?t=${Date.now()}`);
+                setCurrentAvatarUrl(withFileCacheBust(normalizedUrl, Date.now()));
                 setHasEmployeeRecord(true);
                 showToast('Profile picture updated successfully.');
                 setSaveStatus('Saved!');

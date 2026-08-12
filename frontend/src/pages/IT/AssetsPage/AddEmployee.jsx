@@ -28,6 +28,7 @@ import {
   isMobileTabletHwType,
 } from "../inventoryCategories";
 import "./AddEmployee.css";
+import { UserAvatar } from "../../../components/UserAvatar";
 
 // ─── Pure utilities ───────────────────────────────────────────────────────────
 
@@ -306,7 +307,13 @@ const LookupGate = ({ onFound }) => {
             >
               <div className="ane-lookup-result-avatar">
                 {emp.photo || emp.photo_url ? (
-                  <img src={emp.photo || emp.photo_url} alt="" />
+                  <UserAvatar
+                    user={emp}
+                    photo={emp.photo}
+                    photo_url={emp.photo_url}
+                    name={emp.name || ""}
+                    imgClassName="ane-lookup-result-avatar-img"
+                  />
                 ) : (
                   <span>{(emp.name || "?").charAt(0).toUpperCase()}</span>
                 )}

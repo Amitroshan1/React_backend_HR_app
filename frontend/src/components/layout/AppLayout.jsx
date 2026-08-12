@@ -20,15 +20,11 @@ import { AppFooter } from "./AppFooter";
 import { useFloatingNotifications } from "../../hooks/useFloatingNotifications";
 // import "../../pages/style/Dashboard.css"
 import "../../pages/Dashboard/Dashboard.css"
+import { withFileCacheBust } from "../../utils/secureFileUrl";
+import { normalizePhotoUrl } from "../../utils/userPhoto";
 
 const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const ACTIVITY_KEY = "lastActivityAt";
-
-// Normalize photo URL: strip /public prefix if present (Vite serves public files at root)
-const normalizePhotoUrl = (url) => {
-    if (!url) return url;
-    return url.startsWith('/public/') ? url.replace('/public/', '/') : url;
-};
 
 export const AppLayout = () => {
     const navigate = useNavigate();
@@ -204,10 +200,10 @@ export const AppLayout = () => {
     // Get emp_type from admins table (from backend /employee/homepage response)
     const empType = userData.user?.emp_type || userData.user?.department || "Employee";
     
-    // Cache-bust profile picture URL when photo_url or photoVersion changes (photoVersion bumps on profile upload)
+    // Cache-bust profile picture when photo_url or photoVersion changes (do not break signed ?exp=&sig=)
     const profilePicWithCache = useMemo(() => {
         const url = normalizePhotoUrl(userData.user?.photo_url);
-        return url ? `${url}?v=${photoVersion}&t=${Date.now()}` : null;
+        return url ? withFileCacheBust(url, `${photoVersion || 0}-${Date.now()}`) : null;
     }, [userData.user?.photo_url, photoVersion]);
 
     /** Merge employee profile fields used by Headers for panel routing (emp_type alone may be "Super Admin"). */

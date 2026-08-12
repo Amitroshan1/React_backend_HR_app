@@ -9,6 +9,8 @@ import {
     normalizeIfsc,
     normalizeBankBranchCode,
 } from './documentIdentity';
+import { normalizePhotoUrl as normalizePhotoUrlShared } from '../../../utils/userPhoto';
+import { isAlreadySignedFileUrl, toPathOnly } from '../../../utils/secureFileUrl';
 
 export const API_BASE_URL = '/api/auth';
 
@@ -16,19 +18,11 @@ import { DOCUMENT_FIELD_LABELS } from './profileUtils';
 
 export const DOCUMENT_LABELS = DOCUMENT_FIELD_LABELS;
 
+/** Preserve signed ?exp=&sig=; strip only junk query on legacy paths. */
 export function normalizePhotoUrl(url) {
     if (!url) return url;
-    let path = url;
-    if (path.startsWith('/public/')) path = path.replace('/public/', '/');
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-        try {
-            const u = new URL(path);
-            path = u.pathname || path;
-        } catch {
-            /* keep */
-        }
-    }
-    return path;
+    if (isAlreadySignedFileUrl(url)) return toPathOnly(url);
+    return normalizePhotoUrlShared(url) || url;
 }
 
 export function mapGenderForBackend(gender) {

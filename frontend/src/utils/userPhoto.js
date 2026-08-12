@@ -3,18 +3,20 @@
  * Prefer signed /api/files/signed/... URLs from the backend.
  * Legacy /static/uploads/... is handled by UserAvatar via authenticated fetch.
  */
-import { isAlreadySignedFileUrl, toPathOnly } from './secureFileUrl';
+import { isAlreadySignedFileUrl, toPathOnly, withFileCacheBust } from './secureFileUrl';
 
 export function normalizePhotoUrl(url) {
   if (!url || typeof url !== 'string') return '';
   let path = toPathOnly(url);
   if (!path) return '';
   // Keep signed URLs (path + query)
-  if (isAlreadySignedFileUrl(url)) {
+  if (isAlreadySignedFileUrl(url) || isAlreadySignedFileUrl(path)) {
     return toPathOnly(url);
   }
   return path.split('?')[0];
 }
+
+export { withFileCacheBust };
 
 /** First non-empty photo field on a user/employee object. */
 export function getUserPhotoUrl(user) {
