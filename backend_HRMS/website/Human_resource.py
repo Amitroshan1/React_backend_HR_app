@@ -79,6 +79,7 @@ from .models.leave_accrual_log import LeaveAccrualLog
 from .models.holiday_calendar import HolidayCalendar
 from werkzeug.security import generate_password_hash
 import os
+import shutil
 from urllib.parse import unquote
 from . import db
 from .punch_aggregate import (
@@ -5145,6 +5146,8 @@ def _assessment_save_selfie(invite_id, selfie_data_url):
 
 
 ASSESSMENT_RECORDING_MAX_BYTES = 800 * 1024 * 1024  # 800 MB — long tests; tune server/proxy if needed
+# Per-chunk limit for streaming upload during the test (15s @ ~350kbps is ~0.7MB).
+ASSESSMENT_RECORDING_CHUNK_MAX_BYTES = 15 * 1024 * 1024
 # Days after first HR view of the recording before the file is removed (disk + DB path).
 ASSESSMENT_RECORDING_HR_RETENTION_DAYS = 15
 
@@ -5157,6 +5160,23 @@ def _assessment_uploads_root():
         uploads_root = os.path.abspath(os.path.join(current_app.root_path, "static", "uploads"))
     os.makedirs(uploads_root, exist_ok=True)
     return uploads_root
+
+
+def _assessment_chunks_dir(uploads_root, invite_id):
+    return os.path.join(uploads_root, "assessment_recordings", "_chunks", str(int(invite_id)))
+
+
+def _assessment_remove_chunks_dir(uploads_root, invite_id):
+    """Remove in-progress chunk folder for an invite (if present)."""
+    d = _assessment_chunks_dir(uploads_root, invite_id)
+    if not os.path.isdir(d):
+        return
+    try:
+        shutil.rmtree(d)
+    except OSError as e:
+        current_app.logger.warning(
+            "Failed to remove assessment recording chunks dir %s: %s", d, e
+        )
 
 
 def _assessment_remove_recording_disk(uploads_root, rel):
@@ -5176,6 +5196,10 @@ def _assessment_clear_recording_fields(invite, uploads_root=None):
     root = uploads_root if uploads_root is not None else _assessment_uploads_root()
     rel = (getattr(invite, "recording_path", None) or "").strip()
     _assessment_remove_recording_disk(root, rel)
+    try:
+        _assessment_remove_chunks_dir(root, invite.id)
+    except Exception:
+        pass
     invite.recording_path = None
     invite.recording_first_viewed_at = None
 
@@ -5261,6 +5285,160 @@ def _assessment_save_recording_file(invite_id, file_storage):
         except OSError:
             pass
         return None, "Recording file is empty or invalid."
+    return f"assessment_recordings/{filename}", None
+
+
+def _assessment_save_recording_chunk(invite_id, seq, file_storage):
+    """Store one MediaRecorder timeslice during the test. Idempotent for the same seq.
+
+    Returns (info_dict, error_message).
+    """
+    try:
+        seq_i = int(seq)
+    except (TypeError, ValueError):
+        return None, "Invalid chunk sequence."
+    if seq_i < 0 or seq_i > 100_000:
+        return None, "Invalid chunk sequence."
+    if not file_storage:
+        return None, "No recording chunk provided."
+
+    try:
+        uploads_root = _assessment_uploads_root()
+    except OSError as e:
+        current_app.logger.exception("assessment recording chunk: uploads root unavailable")
+        return None, f"Server cannot store recordings: {e}"
+
+    chunks_dir = _assessment_chunks_dir(uploads_root, invite_id)
+    try:
+        os.makedirs(chunks_dir, exist_ok=True)
+    except OSError as e:
+        current_app.logger.exception("assessment recording chunk: cannot create directory")
+        return None, f"Server cannot store recordings: {e}"
+
+    part_name = f"{seq_i:06d}.part"
+    abs_part = os.path.join(chunks_dir, part_name)
+
+    # Idempotent retry: already have this seq.
+    if os.path.isfile(abs_part) and os.path.getsize(abs_part) >= 1:
+        return {"seq": seq_i, "bytes": os.path.getsize(abs_part), "duplicate": True}, None
+
+    tmp_path = abs_part + f".tmp_{uuid.uuid4().hex}"
+    try:
+        file_storage.save(tmp_path)
+        sz = os.path.getsize(tmp_path)
+        if sz < 1:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return None, "Recording chunk is empty."
+        if sz > ASSESSMENT_RECORDING_CHUNK_MAX_BYTES:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return None, "Recording chunk is too large."
+        # Atomic-ish replace
+        if os.path.isfile(abs_part):
+            try:
+                os.remove(abs_part)
+            except OSError:
+                pass
+        os.replace(tmp_path, abs_part)
+    except OSError as e:
+        current_app.logger.exception(
+            "assessment recording chunk save failed invite=%s seq=%s", invite_id, seq_i
+        )
+        try:
+            if os.path.isfile(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+        return None, f"Could not save recording chunk: {e}"
+
+    return {"seq": seq_i, "bytes": sz, "duplicate": False}, None
+
+
+def _assessment_finalize_recording_chunks(invite_id):
+    """Concatenate uploaded .part files into one webm under assessment_recordings/.
+
+    Returns (relative_path, error_message).
+    """
+    try:
+        uploads_root = _assessment_uploads_root()
+    except OSError as e:
+        return None, f"Server cannot store recordings: {e}"
+
+    chunks_dir = _assessment_chunks_dir(uploads_root, invite_id)
+    if not os.path.isdir(chunks_dir):
+        return None, "No recording chunks found."
+
+    parts = []
+    try:
+        for name in os.listdir(chunks_dir):
+            if not name.endswith(".part"):
+                continue
+            base = name[: -len(".part")]
+            if not base.isdigit():
+                continue
+            abs_p = os.path.join(chunks_dir, name)
+            if os.path.isfile(abs_p) and os.path.getsize(abs_p) >= 1:
+                parts.append((int(base), abs_p))
+    except OSError as e:
+        return None, f"Could not read recording chunks: {e}"
+
+    if not parts:
+        return None, "No recording chunks found."
+
+    parts.sort(key=lambda x: x[0])
+    # Require contiguous sequence from 0 for a playable MediaRecorder webm.
+    expected = 0
+    for seq, _path in parts:
+        if seq != expected:
+            return None, f"Missing recording chunk at sequence {expected}."
+        expected += 1
+
+    target_dir = os.path.join(uploads_root, "assessment_recordings")
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError as e:
+        return None, f"Server cannot store recordings: {e}"
+
+    filename = f"assessment_{invite_id}_{uuid.uuid4().hex}_session.webm"
+    abs_out = os.path.join(target_dir, filename)
+    total = 0
+    try:
+        with open(abs_out, "wb") as out:
+            for _seq, abs_p in parts:
+                with open(abs_p, "rb") as inp:
+                    while True:
+                        buf = inp.read(1024 * 1024)
+                        if not buf:
+                            break
+                        out.write(buf)
+                        total += len(buf)
+                        if total > ASSESSMENT_RECORDING_MAX_BYTES:
+                            raise OSError("Recording file is too large.")
+    except OSError as e:
+        try:
+            if os.path.isfile(abs_out):
+                os.remove(abs_out)
+        except OSError:
+            pass
+        current_app.logger.exception(
+            "assessment recording finalize failed invite=%s", invite_id
+        )
+        return None, f"Could not assemble recording: {e}"
+
+    if total < 32:
+        try:
+            os.remove(abs_out)
+        except OSError:
+            pass
+        return None, "Recording file is empty or invalid."
+
+    # Cleanup chunk parts after successful merge.
+    _assessment_remove_chunks_dir(uploads_root, invite_id)
     return f"assessment_recordings/{filename}", None
 
 
@@ -5749,6 +5927,7 @@ def delete_assessment_invite(invite_id):
         rel_rec = (getattr(invite, "recording_path", None) or "").strip()
         if rel_rec:
             _assessment_remove_recording_disk(uploads_root, rel_rec)
+        _assessment_remove_chunks_dir(uploads_root, invite_id)
     except Exception as e:
         current_app.logger.warning("Failed to remove assessment recording for invite %s: %s", invite_id, e)
 
@@ -6046,8 +6225,86 @@ def assessment_public_upload_recording():
         db.session.rollback()
         current_app.logger.exception("assessment recording db commit failed invite=%s", invite.id)
         return jsonify({"success": False, "message": f"Could not save recording: {e}"}), 500
+    # Full-file upload supersedes any in-progress chunks from the streaming path.
+    try:
+        _assessment_remove_chunks_dir(_assessment_uploads_root(), invite.id)
+    except Exception:
+        pass
     return jsonify({"success": True, "message": "Recording saved"}), 200
 
+
+@hr.route("/assessment/public/recording-chunk", methods=["POST"])
+def assessment_public_recording_chunk():
+    """Upload one MediaRecorder timeslice while the test is running (or final flush after submit).
+
+    multipart: token, seq (0-based int), file
+    Does not set recording_path — call recording-finalize after submit.
+    """
+    token = (request.form.get("token") or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    # Allow during active test and briefly after submit for the last slice.
+    if invite.status not in ("started", "submitted", "disqualified"):
+        return jsonify({"success": False, "message": "Recording upload is not allowed for this invite"}), 400
+    if (getattr(invite, "recording_path", None) or "").strip():
+        return jsonify({"success": False, "message": "Recording already finalized"}), 409
+
+    cl = request.content_length
+    if cl is not None and cl > ASSESSMENT_RECORDING_CHUNK_MAX_BYTES + (512 * 1024):
+        return jsonify({"success": False, "message": "Recording chunk is too large"}), 413
+
+    seq_raw = request.form.get("seq")
+    file = request.files.get("file")
+    info, err = _assessment_save_recording_chunk(invite.id, seq_raw, file)
+    if err:
+        status = 413 if "too large" in err.lower() else 400
+        return jsonify({"success": False, "message": err}), status
+    return jsonify({"success": True, "message": "Chunk saved", "chunk": info}), 200
+
+
+@hr.route("/assessment/public/recording-finalize", methods=["POST"])
+def assessment_public_recording_finalize():
+    """After submit: assemble uploaded chunks into one file and set recording_path.
+
+    Accepts JSON or form: { token }.
+    Idempotent if recording_path is already set.
+    """
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or request.form.get("token") or "").strip()
+    if not token:
+        return jsonify({"success": False, "message": "token is required"}), 400
+    invite = AssessmentInvite.query.filter_by(token_hash=_assessment_hash_token(token)).first()
+    if not invite:
+        return jsonify({"success": False, "message": "Invalid link"}), 404
+    if invite.status not in ("submitted", "disqualified"):
+        return jsonify({"success": False, "message": "Submit the assessment before finalizing a recording"}), 400
+
+    existing = (getattr(invite, "recording_path", None) or "").strip()
+    if existing:
+        return jsonify({"success": True, "message": "Recording already saved", "already": True}), 200
+
+    rel, err = _assessment_finalize_recording_chunks(invite.id)
+    if err:
+        return jsonify({"success": False, "message": err}), 400
+    invite.recording_path = rel
+    invite.recording_first_viewed_at = None
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.exception(
+            "assessment recording finalize db commit failed invite=%s", invite.id
+        )
+        # Best-effort: remove assembled file if DB failed so retry can recreate.
+        try:
+            _assessment_remove_recording_disk(_assessment_uploads_root(), rel)
+        except Exception:
+            pass
+        return jsonify({"success": False, "message": f"Could not save recording: {e}"}), 500
+    return jsonify({"success": True, "message": "Recording saved"}), 200
 
 
 @hr.route("/news-feed", methods=["POST"])

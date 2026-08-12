@@ -126,7 +126,6 @@ export default function AssessmentTestPublic() {
   const finalizeSessionRecording = () =>
     new Promise((resolve) => {
       const box = recorderBoxRef.current;
-      recorderBoxRef.current = null;
       if (!box || !box.mr) {
         resolve(null);
         return;
@@ -160,6 +159,55 @@ export default function AssessmentTestPublic() {
       }
     });
 
+  const uploadRecordingChunk = async (seq, blob) => {
+    if (!blob || !token) return false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 600 * attempt));
+      }
+      try {
+        const fd = new FormData();
+        fd.append("token", token);
+        fd.append("seq", String(seq));
+        fd.append("file", blob, `chunk_${seq}.webm`);
+        const res = await fetch(`${API_BASE}/recording-chunk`, { method: "POST", body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) return true;
+        // Client errors (except transient) — stop retrying this chunk.
+        if (res.status > 0 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+          return false;
+        }
+      } catch {
+        /* network — retry */
+      }
+    }
+    return false;
+  };
+
+  const finalizeChunkedRecording = async () => {
+    if (!token) return { ok: false, message: "No token" };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 700 * attempt));
+      }
+      try {
+        const res = await fetch(`${API_BASE}/recording-finalize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) return { ok: true, message: "" };
+        if (res.status > 0 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+          return { ok: false, message: data.message || "Recording finalize failed" };
+        }
+      } catch {
+        /* retry */
+      }
+    }
+    return { ok: false, message: "Recording finalize failed" };
+  };
+
   const beginSessionRecording = () => {
     const stream = streamRef.current;
     if (!stream || typeof MediaRecorder === "undefined") return;
@@ -185,12 +233,34 @@ export default function AssessmentTestPublic() {
       }
       const mr = new MediaRecorder(stream, opts);
       const chunks = [];
+      const box = {
+        mr,
+        chunks,
+        mimeType,
+        nextSeq: 0,
+        uploadedCount: 0,
+        chunkUpload: true,
+        uploadChain: Promise.resolve(),
+      };
       mr.ondataavailable = (e) => {
-        if (e.data && e.data.size) chunks.push(e.data);
+        if (!e.data || !e.data.size) return;
+        chunks.push(e.data);
+        if (!box.chunkUpload) return;
+        const seq = box.nextSeq;
+        box.nextSeq += 1;
+        const slice = e.data;
+        box.uploadChain = box.uploadChain
+          .then(async () => {
+            const ok = await uploadRecordingChunk(seq, slice);
+            if (ok) box.uploadedCount += 1;
+          })
+          .catch(() => {
+            /* keep chain alive */
+          });
       };
       mr.onerror = () => {};
       mr.start(15_000);
-      recorderBoxRef.current = { mr, chunks, mimeType };
+      recorderBoxRef.current = box;
     } catch {
       /* optional proctoring recording */
     }
@@ -215,6 +285,8 @@ export default function AssessmentTestPublic() {
         data = {};
       }
       if (res.ok && data.success) return { ok: true, message: "" };
+      // Another path (chunk finalize) may have won the race — treat as success.
+      if (res.status === 409) return { ok: true, message: "" };
       lastMsg =
         data.message ||
         (res.status === 413
@@ -223,6 +295,51 @@ export default function AssessmentTestPublic() {
       if (res.status < 500) break;
     }
     return { ok: false, message: lastMsg };
+  };
+
+  const finishAndUploadRecording = async () => {
+    const recBox = recorderBoxRef.current;
+    if (recBox?.mr && typeof recBox.mr.requestData === "function") {
+      try {
+        recBox.mr.requestData();
+      } catch {
+        /* ignore */
+      }
+    }
+    const blob = await finalizeSessionRecording();
+    // Wait for in-flight chunk uploads from the session (best-effort).
+    if (recBox?.uploadChain) {
+      try {
+        await Promise.race([
+          recBox.uploadChain,
+          new Promise((r) => setTimeout(r, 120_000)),
+        ]);
+      } catch {
+        /* ignore */
+      }
+    }
+    recorderBoxRef.current = null;
+    if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+
+    const allChunksOnServer =
+      recBox &&
+      recBox.chunkUpload &&
+      recBox.nextSeq > 0 &&
+      recBox.uploadedCount === recBox.nextSeq;
+
+    if (allChunksOnServer) {
+      const fin = await finalizeChunkedRecording();
+      if (fin.ok) return { ok: true, message: "" };
+      // Fall through to classic full-file upload if finalize fails.
+    }
+
+    if (blob && blob.size > 0) {
+      return uploadSessionRecording(blob);
+    }
+    if (recBox && recBox.uploadedCount > 0) {
+      return finalizeChunkedRecording();
+    }
+    return { ok: false, message: "Recording file is empty." };
   };
 
   const handleSubmit = async (opts = {}) => {
@@ -257,7 +374,7 @@ export default function AssessmentTestPublic() {
       };
     }
 
-    setSubmitProgress("Submitting answers…");
+    setSubmitProgress("Submitting…");
     const res = await fetch(`${API_BASE}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -279,24 +396,11 @@ export default function AssessmentTestPublic() {
     setError("");
 
     let recordingWarning = "";
-    setSubmitProgress("Uploading verification recording…");
+    // Keep UI generic while background recording finishes — no upload wording during the test or mid-submit.
+    setSubmitProgress("Submitting…");
     try {
-      const recBox = recorderBoxRef.current;
-      if (recBox?.mr && typeof recBox.mr.requestData === "function") {
-        try {
-          recBox.mr.requestData();
-        } catch {
-          /* ignore */
-        }
-      }
-      const blob = await finalizeSessionRecording();
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-      if (blob && blob.size > 0) {
-        const up = await uploadSessionRecording(blob);
-        if (!up.ok) recordingWarning = up.message || "Recording upload failed";
-      } else {
-        recordingWarning = "Recording file is empty.";
-      }
+      const up = await finishAndUploadRecording();
+      if (!up.ok) recordingWarning = up.message || "Recording upload failed";
     } catch {
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       recordingWarning = "Recording could not be processed.";
