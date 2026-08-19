@@ -21,6 +21,7 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { SensitiveDataGate } from "./components/security/SensitiveDataGate";
 import { RequirePanel } from "./components/security/RequirePanel";
 import { UserProvider } from "./components/layout/UserContext";
+import { AttendanceEventsProvider } from "./hooks/useAttendanceEvents";
 import { Queries } from "./pages/Query/Queries";
 import { DepartmentQueryInbox } from "./pages/Query/DepartmentQueryInbox";
 import { Claims } from "./pages/Claims/Claims";
@@ -188,17 +189,19 @@ export const App = () => {
 
   return (
     <UserProvider>
-      <ToastContainer
-        position="bottom-right"
-        autoClose={4000}
-        hideProgressBar={false}
-        theme="light"
-        newestOnTop
-        closeOnClick
-        pauseOnHover
-        draggable
-      />
-      <RouterProvider router={router} />
+      <AttendanceEventsProvider>
+        <ToastContainer
+          position="bottom-right"
+          autoClose={4000}
+          hideProgressBar={false}
+          theme="light"
+          newestOnTop
+          closeOnClick
+          pauseOnHover
+          draggable
+        />
+        <RouterProvider router={router} />
+      </AttendanceEventsProvider>
     </UserProvider>
   );
 };

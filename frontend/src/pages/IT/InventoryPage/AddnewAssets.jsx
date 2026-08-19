@@ -14,13 +14,22 @@ import {
 import {
   ASSET_TYPE_TABS,
   INVENTORY_CATEGORY_CONFIG,
+  ADD_NEW_HW_TYPE_VALUE,
+  addCustomAccessoryType,
+  addCustomConsumableType,
+  addCustomHwType,
+  getAccessoryTypesForCategory,
+  getConsumableTypesForCategory,
   getHardwareFields,
+  getHwTypesForCategory,
   getMobileTabletHardwareFields,
+  hwTypeOptionLabel,
   inventoryCategoryToKey,
   isValidInventoryCategory,
   isStockInventoryCategory,
   isVehicleInventoryCategory,
   keyToInventoryCategory,
+  subscribeHwTypesChange,
 } from "../inventoryCategories";
 import OfficeStockForm from "./OfficeStockForm";
 import TransportVehicleForm from "./TransportVehicleForm";
@@ -36,6 +45,7 @@ const BASE = "/it/inventory";
 const blankHwRow = () => ({
   id: Date.now() + Math.random(),
   brand: "", make: "", model: "", serialNumber: "",
+  remarks: "",
   photos: [], _errors: {},
 });
 
@@ -50,12 +60,14 @@ const blankMobileRow = () => ({
 const blankQtyRow = () => ({
   id: Date.now() + Math.random(),
   name: "", quantity: "",
+  remarks: "",
   photos: [], _errors: {},
 });
 
 const blankSoftwareRow = () => ({
   id: Date.now() + Math.random(),
   name: "", subscriptionStart: "", subscriptionEnd: "", quantity: "1",
+  remarks: "",
   _errors: {},
 });
 
@@ -109,6 +121,10 @@ const validateRow = (row, rowType, { vehicleMode = false } = {}) => {
     if (!row.quantity || parseInt(row.quantity) < 1)   errors.quantity = "Min 1";
   }
 
+  const remarkText = String(row.remarks || "").trim();
+  if (remarkText && remarkText.length < 10) errors.remarks = "Min 10 chars";
+  else if (remarkText.length > 500) errors.remarks = "Max 500";
+
   return errors;
 };
 
@@ -123,6 +139,22 @@ function CellInput({ value, onChange, placeholder, error, className = "", label 
         placeholder={placeholder}
         onChange={onChange}
         {...props}
+      />
+      {error && <span className="ana-cell-err">{error}</span>}
+    </td>
+  );
+}
+
+function CellRemarks({ value, onChange, error }) {
+  return (
+    <td data-label="Remarks" className="ana-td-remarks">
+      <textarea
+        className={`ana-cell-remarks ${error ? "err" : ""}`}
+        value={value || ""}
+        placeholder="Optional note (min 10 chars if filled)"
+        rows={2}
+        maxLength={500}
+        onChange={onChange}
       />
       {error && <span className="ana-cell-err">{error}</span>}
     </td>
@@ -188,24 +220,68 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const navigate = useNavigate();
   const config = INVENTORY_CATEGORY_CONFIG[inventoryCategory] || INVENTORY_CATEGORY_CONFIG["IT Assets"];
   const itemCategories = config.itemCategories;
-  const hwTypes = config.hwTypes;
   const mobileTabletHwTypes = config.mobileTabletHwTypes || (config.mobileHwType ? [config.mobileHwType] : []);
   const vehicleMode = isVehicleInventoryCategory(inventoryCategory);
   const otherHwPlaceholder = config.otherHwPlaceholder || "e.g. Docking Station, Router, UPS";
+  const otherAccPlaceholder = "e.g. Webcam, USB Hub, Laptop Bag";
+  const otherConsPlaceholder = "e.g. Marker, Tissue, Cable Tie";
   const validateOpts = useMemo(() => ({ vehicleMode }), [vehicleMode]);
 
+  const [hwTypes, setHwTypes] = useState(() =>
+    getHwTypesForCategory(inventoryCategory, { includeAddNew: true }),
+  );
+  const [accTypes, setAccTypes] = useState(() =>
+    getAccessoryTypesForCategory(inventoryCategory, { includeAddNew: true }),
+  );
+  const [consTypes, setConsTypes] = useState(() =>
+    getConsumableTypesForCategory(inventoryCategory, { includeAddNew: true }),
+  );
   const [category,     setCategory]     = useState("Hardware");
-  const [hwType,       setHwType]       = useState(hwTypes[0] || "Other");
+  const [hwType,       setHwType]       = useState(
+    () => getHwTypesForCategory(inventoryCategory)[0] || "Laptop",
+  );
+  const [accType, setAccType] = useState(
+    () => getAccessoryTypesForCategory(inventoryCategory)[0] || "Mouse",
+  );
+  const [consType, setConsType] = useState(
+    () => getConsumableTypesForCategory(inventoryCategory)[0] || "Pen Drive",
+  );
   const [customHwType, setCustomHwType] = useState("");
+  const [customAccType, setCustomAccType] = useState("");
+  const [customConsType, setCustomConsType] = useState("");
   const [rows,         setRows]         = useState([blankHwRow()]);
   const [submitted,    setSubmitted]    = useState(false);
   const [successMsg,   setSuccessMsg]   = useState("");
   const [photoPreview, setPhotoPreview] = useState(null);
 
-  const effectiveHwType = useMemo(
-    () => (hwType === "Other" ? customHwType.trim() : hwType),
-    [hwType, customHwType],
-  );
+  useEffect(() => {
+    const refresh = () => {
+      setHwTypes(getHwTypesForCategory(inventoryCategory, { includeAddNew: true }));
+      setAccTypes(getAccessoryTypesForCategory(inventoryCategory, { includeAddNew: true }));
+      setConsTypes(getConsumableTypesForCategory(inventoryCategory, { includeAddNew: true }));
+    };
+    refresh();
+    return subscribeHwTypesChange(refresh);
+  }, [inventoryCategory]);
+
+  const isAddingNewHwType = hwType === ADD_NEW_HW_TYPE_VALUE;
+  const isAddingNewAccType = accType === ADD_NEW_HW_TYPE_VALUE;
+  const isAddingNewConsType = consType === ADD_NEW_HW_TYPE_VALUE;
+
+  const effectiveHwType = useMemo(() => {
+    if (isAddingNewHwType) return customHwType.trim();
+    return hwType;
+  }, [hwType, customHwType, isAddingNewHwType]);
+
+  const effectiveAccType = useMemo(() => {
+    if (isAddingNewAccType) return customAccType.trim();
+    return accType;
+  }, [accType, customAccType, isAddingNewAccType]);
+
+  const effectiveConsType = useMemo(() => {
+    if (isAddingNewConsType) return customConsType.trim();
+    return consType;
+  }, [consType, customConsType, isAddingNewConsType]);
   const baseHwFields = useMemo(
     () => getHardwareFields(inventoryCategory, category, effectiveHwType || hwType),
     [inventoryCategory, category, effectiveHwType, hwType],
@@ -234,17 +310,83 @@ function InventoryAssetsForm({ inventoryCategory }) {
     setCategory(cat);
     const nextRowType =
       cat === "Software" ? "software" : cat !== "Hardware" ? "qty" : "hw";
-    if (cat === "Hardware") setHwType(hwTypes[0] || "Other");
-    setCustomHwType("");
+    if (cat === "Hardware") {
+      const types = getHwTypesForCategory(inventoryCategory);
+      setHwType(types[0] || "Laptop");
+      setCustomHwType("");
+    }
+    if (cat === "Accessories") {
+      const types = getAccessoryTypesForCategory(inventoryCategory);
+      setAccType(types[0] || "Mouse");
+      setCustomAccType("");
+    }
+    if (cat === "Consumables") {
+      const types = getConsumableTypesForCategory(inventoryCategory);
+      setConsType(types[0] || "Pen Drive");
+      setCustomConsType("");
+    }
     resetForm(nextRowType);
-  }, [resetForm, hwTypes]);
+  }, [resetForm, inventoryCategory]);
 
   const handleTypeChange = useCallback((e) => {
     const type = e.target.value;
     setHwType(type);
-    if (type !== "Other") setCustomHwType("");
+    setCustomHwType("");
+    if (type === ADD_NEW_HW_TYPE_VALUE) {
+      resetForm("hw");
+      return;
+    }
     resetForm(mobileTabletHwTypes.includes(type) ? "mobile" : "hw");
   }, [resetForm, mobileTabletHwTypes]);
+
+  const handleAccTypeChange = useCallback((e) => {
+    const type = e.target.value;
+    setAccType(type);
+    setCustomAccType("");
+  }, []);
+
+  const handleConsTypeChange = useCallback((e) => {
+    const type = e.target.value;
+    setConsType(type);
+    setCustomConsType("");
+  }, []);
+
+  const confirmNewHwType = useCallback(() => {
+    const saved = addCustomHwType(inventoryCategory, customHwType);
+    if (!saved) {
+      toast.error("Enter a valid hardware type name (max 40 characters).");
+      return;
+    }
+    setHwTypes(getHwTypesForCategory(inventoryCategory, { includeAddNew: true }));
+    setHwType(saved);
+    setCustomHwType("");
+    resetForm(mobileTabletHwTypes.includes(saved) ? "mobile" : "hw");
+    toast.success(`Hardware type “${saved}” added`);
+  }, [customHwType, inventoryCategory, mobileTabletHwTypes, resetForm]);
+
+  const confirmNewAccType = useCallback(() => {
+    const saved = addCustomAccessoryType(inventoryCategory, customAccType);
+    if (!saved) {
+      toast.error("Enter a valid accessory type name (max 40 characters).");
+      return;
+    }
+    setAccTypes(getAccessoryTypesForCategory(inventoryCategory, { includeAddNew: true }));
+    setAccType(saved);
+    setCustomAccType("");
+    toast.success(`Accessory type “${saved}” added`);
+  }, [customAccType, inventoryCategory]);
+
+  const confirmNewConsType = useCallback(() => {
+    const saved = addCustomConsumableType(inventoryCategory, customConsType);
+    if (!saved) {
+      toast.error("Enter a valid consumable type name (max 40 characters).");
+      return;
+    }
+    setConsTypes(getConsumableTypesForCategory(inventoryCategory, { includeAddNew: true }));
+    setConsType(saved);
+    setCustomConsType("");
+    toast.success(`Consumable type “${saved}” added`);
+  }, [customConsType, inventoryCategory]);
 
   const addRow    = useCallback(() => setRows((prev) => [...prev, blankRowForType(rowType)]), [rowType]);
   const removeRow = useCallback((id) => setRows((prev) => prev.length > 1 ? prev.filter((r) => r.id !== id) : prev), []);
@@ -290,13 +432,26 @@ function InventoryAssetsForm({ inventoryCategory }) {
 
   const handleSubmit = useCallback(async () => {
     setSubmitted(true);
-    if (category === "Hardware" && hwType === "Other" && !customHwType.trim()) {
-      toast.error("Please enter a hardware name for type 'Other'.");
+    if (category === "Hardware" && isAddingNewHwType) {
+      toast.error("Confirm the new hardware type before saving, or pick an existing type.");
+      return;
+    }
+    if (category === "Accessories" && isAddingNewAccType) {
+      toast.error("Confirm the new accessory type before saving, or pick an existing type.");
+      return;
+    }
+    if (category === "Consumables" && isAddingNewConsType) {
+      toast.error("Confirm the new consumable type before saving, or pick an existing type.");
       return;
     }
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, rowType, validateOpts) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
+
+    const rowNotes = (row) => {
+      const t = String(row.remarks || "").trim();
+      return t || null;
+    };
 
     try {
       if (category === "Hardware") {
@@ -311,11 +466,13 @@ function InventoryAssetsForm({ inventoryCategory }) {
         for (const [brandKey, groupRows] of groups.entries()) {
           if (!brandKey) continue;
           const brandName = groupRows[0].brand.trim();
+          const invNotes = groupRows.map(rowNotes).find(Boolean) || null;
           const invRes = await createInventoryItemAPI({
             name: brandName,
             category: "Hardware",
             inventoryCategory,
             hwType: effectiveHwType,
+            notes: invNotes,
           });
           const inventoryItemId = invRes?.item?.id;
           if (!inventoryItemId) continue;
@@ -343,6 +500,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
             name: row.name.trim(),
             category: "Software",
             inventoryCategory,
+            notes: rowNotes(row),
           });
           const inventoryItemId = invRes?.item?.id;
           if (!inventoryItemId) continue;
@@ -357,6 +515,40 @@ function InventoryAssetsForm({ inventoryCategory }) {
         }
         await syncITDataFromAPI();
         setSuccessMsg(`✅ ${totalLicenses} Software license${totalLicenses !== 1 ? "s" : ""} added.`);
+      } else if (category === "Accessories") {
+        for (const row of validated) {
+          await createInventoryItemAPI({
+            name: row.name.trim(),
+            category,
+            inventoryCategory,
+            hwType: effectiveAccType || null,
+            quantity: parseInt(row.quantity, 10),
+            photos: row.photos || [],
+            notes: rowNotes(row),
+          });
+        }
+        await syncITDataFromAPI();
+        const totalQty = validated.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+        setSuccessMsg(
+          `✅ ${validated.length} ${effectiveAccType || "Accessories"} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added.`,
+        );
+      } else if (category === "Consumables") {
+        for (const row of validated) {
+          await createInventoryItemAPI({
+            name: row.name.trim(),
+            category,
+            inventoryCategory,
+            hwType: effectiveConsType || null,
+            quantity: parseInt(row.quantity, 10),
+            photos: row.photos || [],
+            notes: rowNotes(row),
+          });
+        }
+        await syncITDataFromAPI();
+        const totalQty = validated.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+        setSuccessMsg(
+          `✅ ${validated.length} ${effectiveConsType || "Consumables"} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added.`,
+        );
       } else {
         for (const row of validated) {
           await createInventoryItemAPI({
@@ -365,6 +557,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
             inventoryCategory,
             quantity: parseInt(row.quantity, 10),
             photos: row.photos || [],
+            notes: rowNotes(row),
           });
         }
         await syncITDataFromAPI();
@@ -381,7 +574,23 @@ function InventoryAssetsForm({ inventoryCategory }) {
       const msg = toastITApiFailure(err, "Failed to save assets.");
       setSuccessMsg(`⚠️ ${msg}`);
     }
-  }, [rows, rowType, category, hwType, customHwType, effectiveHwType, inventoryCategory, vehicleMode, validateOpts]);
+  }, [
+    rows,
+    rowType,
+    category,
+    hwType,
+    accType,
+    consType,
+    effectiveHwType,
+    effectiveAccType,
+    effectiveConsType,
+    inventoryCategory,
+    vehicleMode,
+    validateOpts,
+    isAddingNewHwType,
+    isAddingNewAccType,
+    isAddingNewConsType,
+  ]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -422,7 +631,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
                 ))}
               </div>
 
-              {/* Dropdown — only visible when Hardware is selected */}
+              {/* Dropdown — Hardware or Accessories type */}
               {category === "Hardware" && (
                 <div className="ana-hwtype-dropdown-wrap">
                   <div className="ana-hwtype-select-block">
@@ -437,25 +646,149 @@ function InventoryAssetsForm({ inventoryCategory }) {
                         onChange={handleTypeChange}
                       >
                         {hwTypes.map((type) => (
-                          <option key={type} value={type}>{type}</option>
+                          <option key={type} value={type}>
+                            {hwTypeOptionLabel(type)}
+                          </option>
                         ))}
                       </select>
-                      {/* Custom chevron */}
                       <span className="ana-hwtype-chevron">▾</span>
                     </div>
                   </div>
-                  {hwType === "Other" && (
+                  {isAddingNewHwType && (
                     <div className="ana-hwtype-custom-block">
                       <label className="ana-hwtype-label" htmlFor="hw-type-custom">
-                        Enter Hardware Name <span className="req">*</span>
+                        New hardware type <span className="req">*</span>
                       </label>
-                      <input
-                        id="hw-type-custom"
-                        className="ana-hwtype-custom-input"
-                        placeholder={otherHwPlaceholder}
-                        value={customHwType}
-                        onChange={(e) => setCustomHwType(e.target.value)}
-                      />
+                      <div className="ana-hwtype-custom-row">
+                        <input
+                          id="hw-type-custom"
+                          className="ana-hwtype-custom-input"
+                          placeholder={otherHwPlaceholder}
+                          value={customHwType}
+                          onChange={(e) => setCustomHwType(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              confirmNewHwType();
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="ana-hwtype-add-btn"
+                          onClick={confirmNewHwType}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {category === "Accessories" && (
+                <div className="ana-hwtype-dropdown-wrap">
+                  <div className="ana-hwtype-select-block">
+                    <label className="ana-hwtype-label" htmlFor="acc-type-select">
+                      Accessory Type
+                    </label>
+                    <div className="ana-hwtype-select-wrap">
+                      <select
+                        id="acc-type-select"
+                        className="ana-hwtype-select"
+                        value={accType}
+                        onChange={handleAccTypeChange}
+                      >
+                        {accTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {hwTypeOptionLabel(type)}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="ana-hwtype-chevron">▾</span>
+                    </div>
+                  </div>
+                  {isAddingNewAccType && (
+                    <div className="ana-hwtype-custom-block">
+                      <label className="ana-hwtype-label" htmlFor="acc-type-custom">
+                        New accessory type <span className="req">*</span>
+                      </label>
+                      <div className="ana-hwtype-custom-row">
+                        <input
+                          id="acc-type-custom"
+                          className="ana-hwtype-custom-input"
+                          placeholder={otherAccPlaceholder}
+                          value={customAccType}
+                          onChange={(e) => setCustomAccType(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              confirmNewAccType();
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="ana-hwtype-add-btn"
+                          onClick={confirmNewAccType}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {category === "Consumables" && (
+                <div className="ana-hwtype-dropdown-wrap">
+                  <div className="ana-hwtype-select-block">
+                    <label className="ana-hwtype-label" htmlFor="cons-type-select">
+                      Consumable Type
+                    </label>
+                    <div className="ana-hwtype-select-wrap">
+                      <select
+                        id="cons-type-select"
+                        className="ana-hwtype-select"
+                        value={consType}
+                        onChange={handleConsTypeChange}
+                      >
+                        {consTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {hwTypeOptionLabel(type)}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="ana-hwtype-chevron">▾</span>
+                    </div>
+                  </div>
+                  {isAddingNewConsType && (
+                    <div className="ana-hwtype-custom-block">
+                      <label className="ana-hwtype-label" htmlFor="cons-type-custom">
+                        New consumable type <span className="req">*</span>
+                      </label>
+                      <div className="ana-hwtype-custom-row">
+                        <input
+                          id="cons-type-custom"
+                          className="ana-hwtype-custom-input"
+                          placeholder={otherConsPlaceholder}
+                          value={customConsType}
+                          onChange={(e) => setCustomConsType(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              confirmNewConsType();
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="ana-hwtype-add-btn"
+                          onClick={confirmNewConsType}
+                        >
+                          Add
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -467,7 +800,10 @@ function InventoryAssetsForm({ inventoryCategory }) {
           <div className="ana-category-pill-row">
             <span className={`ana-cat-dot ${category.toLowerCase()}`} />
             <span className="ana-category-pill-label">
-              {category}{category === "Hardware" && ` — ${effectiveHwType || "Other"}`}
+              {category}
+              {category === "Hardware" && ` — ${effectiveHwType || hwType}`}
+              {category === "Accessories" && ` — ${effectiveAccType || accType}`}
+              {category === "Consumables" && ` — ${effectiveConsType || consType}`}
             </span>
           </div>
 
@@ -477,9 +813,13 @@ function InventoryAssetsForm({ inventoryCategory }) {
               <span className="ana-section-num">02</span>
               <h2>
                 {category === "Hardware"
-                  ? `Add ${effectiveHwType || "Other"} Units`
+                  ? `Add ${effectiveHwType || hwType || "Hardware"} Units`
                   : category === "Software"
                   ? "Add Software Licenses"
+                  : category === "Accessories"
+                  ? `Add ${effectiveAccType || accType || "Accessories"}`
+                  : category === "Consumables"
+                  ? `Add ${effectiveConsType || consType || "Consumables"}`
                   : `Add ${category}`}
               </h2>
               <span className="ana-row-count">
@@ -507,6 +847,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
                           </>
                         )}
                         <th>Photos</th>
+                        <th>Remarks</th>
                       </>
                     )}
                     {rowType === "qty" && (
@@ -514,6 +855,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
                         <th>Asset Name <span className="req">*</span></th>
                         <th>Quantity <span className="req">*</span></th>
                         <th>Photos</th>
+                        <th>Remarks</th>
                       </>
                     )}
                     {rowType === "software" && (
@@ -522,6 +864,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
                         <th>Start Date <span className="req">*</span></th>
                         <th>Valid Till <span className="req">*</span></th>
                         <th>Licenses <span className="req">*</span></th>
+                        <th>Remarks</th>
                       </>
                     )}
                     <th className="ana-th-action" />
@@ -635,6 +978,12 @@ function InventoryAssetsForm({ inventoryCategory }) {
                           </div>
                         </td>
                       )}
+
+                      <CellRemarks
+                        value={row.remarks}
+                        error={row._errors.remarks}
+                        onChange={(e) => updateRow(row.id, "remarks", e.target.value)}
+                      />
 
                       <td className="ana-td-action" data-label="">
                         <button

@@ -12,6 +12,8 @@ import {
 import { openFirstImageInNewTab, openImageInNewTab } from "../../utils/openImageInNewTab";
 import "./ReturnRequests.css";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
+import { useTransitionRemark } from "./itam/TransitionRemarkModal";
+import { remarkPayload } from "./itam/transitionUi";
 
 const STATUS_OPTIONS = ["all", "pending", "approved", "rejected", "completed"];
 
@@ -20,6 +22,7 @@ const formatReturnDest = (dest) =>
 
 export default function ReturnRequests() {
   const navigate = useNavigate();
+  const { requestRemark } = useTransitionRemark();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("all");
@@ -42,8 +45,13 @@ export default function ReturnRequests() {
   }, [status]);
 
   const onApprove = async (id) => {
+    const remarkResult = await requestRemark("APPROVE_RETURN", {
+      title: "Approve return",
+      subtitle: "Confirm approval of this return request",
+    });
+    if (remarkResult === null) return;
     try {
-      await approveReturnRequestAPI(id);
+      await approveReturnRequestAPI(id, remarkPayload(remarkResult));
       toast.success("Return request approved.");
       await load();
     } catch (err) {
@@ -52,14 +60,23 @@ export default function ReturnRequests() {
   };
 
   const onReject = async (id) => {
-    const reason = window.prompt("Enter rejection reason:");
-    if (reason == null) return;
-    if (!reason.trim()) {
+    const remarkResult = await requestRemark("REJECT_RETURN", {
+      title: "Reject return",
+      subtitle: "Provide rejection reason",
+    });
+    if (remarkResult === null) return;
+    const reason = (remarkResult.skipped ? "" : remarkResult.remark) || "";
+    if (!remarkResult.skipped && !reason.trim()) {
+      toast.error("Rejection reason is required.");
+      return;
+    }
+    const finalReason = reason.trim() || window.prompt("Enter rejection reason:");
+    if (finalReason == null || !String(finalReason).trim()) {
       toast.error("Rejection reason is required.");
       return;
     }
     try {
-      await rejectReturnRequestAPI(id, reason.trim());
+      await rejectReturnRequestAPI(id, String(finalReason).trim());
       toast.success("Return request rejected.");
       await load();
     } catch (err) {
@@ -69,8 +86,14 @@ export default function ReturnRequests() {
 
   const onComplete = async (id) => {
     if (!window.confirm("Confirm physical receipt and complete this return?")) return;
+    const remarkResult = await requestRemark("CHECKIN", {
+      title: "Complete return",
+      subtitle: "Confirm physical receipt",
+      defaultConditionGrade: "B",
+    });
+    if (remarkResult === null) return;
     try {
-      await completeReturnRequestAPI(id);
+      await completeReturnRequestAPI(id, remarkPayload(remarkResult));
       toast.success("Return completed and asset unassigned.");
       await load();
     } catch (err) {

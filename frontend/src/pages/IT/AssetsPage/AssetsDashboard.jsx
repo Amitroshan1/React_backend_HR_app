@@ -27,6 +27,11 @@ import {
   syncITDataFromAPI,
   syncRemovedITFromAPI
 } from "../Data";
+import { useTransitionRemark } from "../itam/TransitionRemarkModal";
+import { remarkPayload } from "../itam/transitionUi";
+import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
+import { isItamFlagEnabled } from "../../../utils/itamFlags";
+import { unitCustodyLabel, unitStatusLabel } from "../itam/lifecycleUi";
 import "./AssetsDashboard.css";
 
 // ─── Persist + notify helpers ─────────────────────────────────────────────────
@@ -1060,11 +1065,14 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
   const [removingId, setRemovingId] = useState(null);
   const [renewingId, setRenewingId] = useState(null);
   const [renewDate, setRenewDate] = useState("");
+  const { requestRemark } = useTransitionRemark();
   const [availSearch, setAvailSearch] = useState("");
   const [tick, setTick] = useState(0);
   const [toast, setToast] = useState(null);
   const [removeFromITTarget, setRemoveFromITTarget] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
+  const [historyUnit, setHistoryUnit] = useState(null);
+  const timelineOn = isItamFlagEnabled("itam_timeline_v1");
 
   const assignedEmpId = useCallback((assignedTo) => {
     if (!assignedTo) return "";
@@ -1145,11 +1153,25 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
   const handleRemove = useCallback(
     async (unit, newStatus) => {
       const isSw = normCat(unit.category) === "Software";
+      const actionCode =
+        String(newStatus || "available").toLowerCase() === "available"
+          ? "CHECKIN"
+          : String(newStatus || "").toLowerCase().includes("repair")
+            ? "SEND_REPAIR"
+            : "MARK_QUARANTINE";
+      const remarkResult = await requestRemark(actionCode, {
+        force: true,
+        assetLabel: unit.assetName || unit.name || unit.serialNumber || "Asset",
+        subtitle: isSw ? "Unassign software license" : `Unassign → ${newStatus}`,
+        defaultConditionGrade: actionCode === "CHECKIN" ? "B" : "",
+      });
+      if (remarkResult === null) return;
+      const fields = remarkPayload(remarkResult);
       try {
         if (isSw) {
-          await returnSoftwareLicenseAPI(unit.id);
+          await returnSoftwareLicenseAPI(unit.id, fields);
         } else {
-          await returnAssetUnitAPI(unit.id, newStatus);
+          await returnAssetUnitAPI(unit.id, newStatus, fields);
         }
         await syncITDataFromAPI();
         syncEmployee(empId, "remove", unit);
@@ -1165,7 +1187,7 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
         showToast(`⚠️ ${msg}`);
       }
     },
-    [empId, bump, showToast],
+    [empId, bump, showToast, requestRemark],
   );
 
   // ── Remove From IT ─────────────────────────────────────────────────────────
@@ -1220,16 +1242,27 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
   const handleAssign = useCallback(
     async (unit) => {
       const isSw = normCat(unit.category) === "Software";
+      const remarkResult = await requestRemark("CHECKOUT", {
+        assetLabel: unit.assetName || unit.name || unit.serialNumber || "Asset",
+        subtitle: isSw ? `Assign license to ${empId}` : `Assign unit to ${empId}`,
+      });
+      if (remarkResult === null) return;
+      const fields = remarkPayload(remarkResult);
 
       try {
         if (isSw) {
-          await assignSoftwareToEmployeeAPI({ licenseId: unit.id, empId });
+          await assignSoftwareToEmployeeAPI({
+            licenseId: unit.id,
+            empId,
+            ...fields,
+          });
         } else {
           await assignUnitToEmployeeAPI({
             unitId: unit.id,
             empId,
             assetTag: unit.assetTag || unit.assetId || "",
             assignmentPhotos: unit.assignmentPhotos || unit.photos || [],
+            ...fields,
           });
         }
 
@@ -1241,13 +1274,13 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
         const name = unit.brand
           ? `${unit.brand} ${unit.model || ""}`.trim()
           : unit.assetName || unit.name || "Asset";
-        showToast(`✔ "${name}" assigned to ${empName}`);
+        showToast(`✔ "${name}" assigned`);
       } catch (err) {
         const msg = toastITApiFailure(err, "Could not assign this asset.");
         showToast(`⚠️ ${msg}`);
       }
     },
-    [empId, empName, bump, showToast],
+    [empId, bump, showToast, requestRemark],
   );
 
   // ── Renew ──────────────────────────────────────────────────────────────────
@@ -1340,7 +1373,7 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
                 border: `1px solid ${sc.border}`,
               }}
             >
-              Assigned
+              {unitStatusLabel(unit)}
             </span>
           </div>
         </div>
@@ -1353,13 +1386,19 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
               ["Serial No.", unit.serialNumber],
               ["Asset Tag", unit.assetTag],
               ["HW Type", unit.hwType],
+              isItamFlagEnabled("itam_lifecycle_v1")
+                ? ["Custody", unitCustodyLabel(unit)]
+                : null,
               [
                 "Assigned On",
                 unit.assignedDate
                   ? `${fmt(unit.assignedDate)}${days !== null ? ` (${days}d ago)` : ""}`
                   : null,
               ],
-            ].map(([label, value]) =>
+              unit.lastRemark ? ["Last remark", unit.lastRemark] : null,
+            ]
+              .filter(Boolean)
+              .map(([label, value]) =>
               value ? (
                 <div key={label} className="ep-detail-row">
                   <span className="ep-detail-lbl">{label}</span>
@@ -1373,6 +1412,15 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
         <div className="ep-card-foot">
           {!isRemoving ? (
             <div className="ep-card-foot-actions">
+              {timelineOn && unit?.id != null ? (
+                <button
+                  type="button"
+                  className="btn-ep-remove"
+                  onClick={() => setHistoryUnit(unit)}
+                >
+                  History
+                </button>
+              ) : null}
               <button
                 className="btn-ep-remove"
                 onClick={() => {
@@ -1875,6 +1923,18 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
           onCancel={() => setAssignTarget(null)}
         />
       )}
+
+      {historyUnit && timelineOn ? (
+        <AssetHistoryTimeline
+          unitId={Number(historyUnit.id)}
+          assetLabel={
+            historyUnit.brand
+              ? `${historyUnit.brand}${historyUnit.model ? ` ${historyUnit.model}` : ""}`.trim()
+              : historyUnit.assetName || historyUnit.serialNumber || "Asset"
+          }
+          onClose={() => setHistoryUnit(null)}
+        />
+      ) : null}
     </>
   );
 }

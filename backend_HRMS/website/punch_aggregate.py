@@ -143,6 +143,14 @@ def serialize_punch_sessions(punch_row, *, attendance_day_only=False):
         if s.clock_out and s.clock_in:
             dur = seconds_to_hms_str(int((s.clock_out - s.clock_in).total_seconds()))
         deadline = session_auto_close_deadline(s) if s.clock_out is None else None
+        is_nhq_biometric = False
+        if s.clock_out is None:
+            try:
+                from .biometric.scope import is_nhq_biometric_open_session
+
+                is_nhq_biometric = is_nhq_biometric_open_session(s, punch_row)
+            except Exception:
+                is_nhq_biometric = False
         out.append(
             {
                 "id": s.id,
@@ -150,6 +158,8 @@ def serialize_punch_sessions(punch_row, *, attendance_day_only=False):
                 "clock_out": isoformat_punch_clock(s.clock_out),
                 "duration_hms": dur,
                 "is_open": s.clock_out is None,
+                "source": (getattr(s, "source", None) or "").strip().lower() or None,
+                "is_nhq_biometric": is_nhq_biometric,
                 "repeat_reason": (s.repeat_reason or "").strip() or None,
                 "extended_hours_reason": (getattr(s, "extended_hours_reason", None) or "").strip()
                 or None,

@@ -1,0 +1,105 @@
+.itam-remark-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.itam-remark-modal {
+  width: min(480px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.itam-remark-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #0f172a;
+}
+
+.itam-remark-asset {
+  margin: 4px 0 0;
+  color: #334155;
+  font-size: 0.92rem;
+}
+
+.itam-remark-sub {
+  margin: 2px 0 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.itam-remark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  color: #334155;
+}
+
+.itam-remark-field em {
+  font-style: normal;
+  color: #94a3b8;
+}
+
+.itam-remark-field input,
+.itam-remark-field select,
+.itam-remark-field textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  color: #0f172a;
+  resize: vertical;
+}
+
+.itam-remark-count {
+  align-self: flex-end;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.itam-remark-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.itam-remark-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.itam-remark-btn {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.itam-remark-btn.ghost {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.itam-remark-btn.primary {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.itam-remark-btn.primary:hover {
+  background: #1e40af;
+}

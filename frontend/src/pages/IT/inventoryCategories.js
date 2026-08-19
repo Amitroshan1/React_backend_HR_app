@@ -28,20 +28,24 @@ const CATEGORY_BY_KEY = Object.fromEntries(
 
 export const INVENTORY_CATEGORY_CONFIG = {
   "IT Assets": {
-    hwTypes: ["Laptop", "Mobile", "Desktop", "Tablet", "Other"],
+    hwTypes: ["Laptop", "Mobile", "Desktop", "Tablet"],
+    accessoryTypes: ["Mouse", "Keyboard", "Headset", "Monitor", "Charger", "Cable"],
+    consumableTypes: ["Pen Drive", "Battery", "Toner", "SIM Card", "Cleaning Kit"],
     mobileTabletHwTypes: ["Mobile", "Tablet"],
     mobileHwType: "Mobile",
     itemCategories: ["Hardware", "Software", "Accessories", "Consumables"],
   },
   "Office Assets": {
     stockMode: true,
-    hwTypes: ["Furniture", "Electronics", "Appliances", "Safety Equipment", "Other"],
+    hwTypes: ["Furniture", "Electronics", "Appliances", "Safety Equipment"],
+    accessoryTypes: ["Stationery", "Decor", "Kitchen"],
+    consumableTypes: ["Paper", "Ink", "Cleaning", "Pantry"],
     mobileHwType: null,
     itemCategories: ["Hardware", "Accessories", "Consumables"],
   },
   "Transport Assets": {
     vehicleMode: true,
-    hwTypes: ["Car", "Bike", "Scooter", "Van", "Truck", "Bus", "Other"],
+    hwTypes: ["Car", "Bike", "Scooter", "Van", "Truck", "Bus"],
     mobileHwType: null,
     hardwareFields: {
       brand: { label: "Fleet / Owner", placeholder: "e.g. Company Fleet" },
@@ -53,8 +57,10 @@ export const INVENTORY_CATEGORY_CONFIG = {
   "Infrastructure Assets": {
     stockMode: true,
     equipmentMode: true,
-    equipmentTypes: ["Networking", "Power", "Cooling", "Security", "Other"],
-    hwTypes: ["Networking", "Power", "Cooling", "Security", "Other"],
+    equipmentTypes: ["Networking", "Power", "Cooling", "Security"],
+    hwTypes: ["Networking", "Power", "Cooling", "Security"],
+    accessoryTypes: ["Mount", "Cable", "Bracket"],
+    consumableTypes: ["Cable Tie", "Label", "Fuse", "Tape"],
     mobileHwType: null,
     itemCategories: ["Hardware", "Accessories", "Consumables"],
   },
@@ -126,13 +132,32 @@ export function getInventoryRowForUnit(unit, inventory = null) {
 
 export const DEFAULT_HARDWARE_FIELDS = {
   brand: { label: "Brand", placeholder: "Enter Brand" },
-  // DB: make stores model name; model stores laptop code (legacy data entry mapping).
+  // DB: make stores model name; model stores asset/unit code (legacy data entry mapping).
   make: { label: "Model", placeholder: "Enter Model" },
-  model: { label: "Laptop Code", placeholder: "Enter Laptop Code" },
+  model: { label: "Asset Code", placeholder: "Enter Asset Code" },
   serialNumber: { label: "Serial Number", placeholder: "Serial No." },
 };
 
-/** Laptop-specific labels (same DB mapping as DEFAULT_HARDWARE_FIELDS). */
+/** Display name for a hardware type (e.g. speaker → Speaker). */
+export function formatHwTypeDisplayName(hwType) {
+  const raw = String(hwType || "").trim();
+  if (!raw) return "Asset";
+  if (raw === raw.toLowerCase() || raw === raw.toUpperCase()) {
+    return raw
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return raw;
+}
+
+/** Label/placeholder for the unit code field (model column), e.g. Laptop Code / Speaker Code. */
+export function getAssetCodeField(hwType) {
+  const typeName = formatHwTypeDisplayName(hwType);
+  const label = `${typeName} Code`;
+  return { label, placeholder: `Enter ${label}` };
+}
+
+/** @deprecated Prefer getHardwareFields(…, "Laptop") — kept as alias of defaults without type. */
 export const LAPTOP_HARDWARE_FIELDS = DEFAULT_HARDWARE_FIELDS;
 
 export const MOBILE_TABLET_HW_TYPES = ["Mobile", "Tablet"];
@@ -231,12 +256,19 @@ export function getHardwareFields(inventoryCategory, itemCategory = null, hwType
   if (inventoryCategory === "Infrastructure Assets" && cat === "equipment") {
     return INFRA_EQUIPMENT_HARDWARE_FIELDS;
   }
-  const hw = String(hwType || "").trim();
-  if (inventoryCategory === "IT Assets" && hw === "Laptop") {
-    return LAPTOP_HARDWARE_FIELDS;
-  }
   const config = INVENTORY_CATEGORY_CONFIG[inventoryCategory];
-  return config?.hardwareFields || DEFAULT_HARDWARE_FIELDS;
+  if (config?.hardwareFields) {
+    return config.hardwareFields;
+  }
+  const hw = String(hwType || "").trim();
+  // "{Type} Code" for Laptop, Desktop, Speaker, Mobile, etc. (not a hard-coded Laptop Code).
+  if (hw) {
+    return {
+      ...DEFAULT_HARDWARE_FIELDS,
+      model: getAssetCodeField(hw),
+    };
+  }
+  return DEFAULT_HARDWARE_FIELDS;
 }
 
 export function isStockInventoryCategory(inventoryCategory) {
@@ -421,4 +453,187 @@ export function deletedLogBelongsToInventoryCategory(
   }
 
   return false;
+}
+
+/* ── Custom / dynamic item types (hardware + accessories + consumables) ─── */
+
+export const ADD_NEW_HW_TYPE_VALUE = "__add_new_hw_type__";
+export const ADD_NEW_HW_TYPE_LABEL = "+ Add new type…";
+
+const CUSTOM_HW_TYPES_STORAGE_KEY = "it_custom_hw_types_v1";
+const HW_TYPES_CHANGED_EVENT = "it-hw-types-changed";
+
+const TYPE_KIND = {
+  hardware: "hardware",
+  accessories: "accessories",
+  consumables: "consumables",
+};
+
+function _readCustomHwStore() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_HW_TYPES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function _writeCustomHwStore(store) {
+  try {
+    localStorage.setItem(CUSTOM_HW_TYPES_STORAGE_KEY, JSON.stringify(store || {}));
+  } catch {
+    /* ignore quota */
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(HW_TYPES_CHANGED_EVENT));
+  }
+}
+
+function _normalizeHwTypeName(name) {
+  return String(name || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+}
+
+function _normalizeKind(kind) {
+  const k = String(kind || TYPE_KIND.hardware).trim().toLowerCase();
+  if (k === TYPE_KIND.accessories) return TYPE_KIND.accessories;
+  if (k === TYPE_KIND.consumables) return TYPE_KIND.consumables;
+  return TYPE_KIND.hardware;
+}
+
+function _emptyKindBuckets() {
+  return { hardware: [], accessories: [], consumables: [] };
+}
+
+/** Read custom list for category + kind (migrates legacy flat arrays → hardware). */
+function _getCustomList(store, cat, kind) {
+  const entry = store[cat];
+  if (Array.isArray(entry)) {
+    return kind === TYPE_KIND.hardware ? entry : [];
+  }
+  if (entry && typeof entry === "object") {
+    const list = entry[kind];
+    return Array.isArray(list) ? list : [];
+  }
+  return [];
+}
+
+function _setCustomList(store, cat, kind, list) {
+  let entry = store[cat];
+  if (Array.isArray(entry)) {
+    entry = { ..._emptyKindBuckets(), hardware: entry };
+  } else if (!entry || typeof entry !== "object") {
+    entry = _emptyKindBuckets();
+  } else {
+    entry = {
+      hardware: Array.isArray(entry.hardware) ? entry.hardware : [],
+      accessories: Array.isArray(entry.accessories) ? entry.accessories : [],
+      consumables: Array.isArray(entry.consumables) ? entry.consumables : [],
+    };
+  }
+  entry[kind] = list;
+  store[cat] = entry;
+}
+
+/** Built-in types for a category + kind. Use "+ Add new type…" for extras. */
+export function getDefaultHwTypes(inventoryCategory, kind = TYPE_KIND.hardware) {
+  const k = _normalizeKind(kind);
+  const cfg = INVENTORY_CATEGORY_CONFIG[inventoryCategory] || INVENTORY_CATEGORY_CONFIG["IT Assets"];
+  if (k === TYPE_KIND.accessories) {
+    return [...(cfg.accessoryTypes || [])];
+  }
+  if (k === TYPE_KIND.consumables) {
+    return [...(cfg.consumableTypes || [])];
+  }
+  if (inventoryCategory === "Infrastructure Assets") {
+    return [...(cfg.equipmentTypes || cfg.hwTypes || [])];
+  }
+  return [...(cfg.hwTypes || [])];
+}
+
+/** User-added types for a category (excludes built-ins). */
+export function getCustomHwTypes(inventoryCategory, kind = TYPE_KIND.hardware) {
+  const cat = inventoryCategory || "IT Assets";
+  const k = _normalizeKind(kind);
+  const list = _getCustomList(_readCustomHwStore(), cat, k);
+  return list.map(_normalizeHwTypeName).filter(Boolean);
+}
+
+/**
+ * Full list for dropdowns / filters: defaults + customs (+ optional Add new).
+ * @param {{ includeAddNew?: boolean, kind?: "hardware"|"accessories"|"consumables" }} opts
+ */
+export function getHwTypesForCategory(inventoryCategory, opts = {}) {
+  const includeAddNew = Boolean(opts.includeAddNew);
+  const kind = _normalizeKind(opts.kind);
+  const defaults = getDefaultHwTypes(inventoryCategory, kind).filter((t) => t !== "Other");
+  const custom = getCustomHwTypes(inventoryCategory, kind).filter(
+    (c) => !defaults.some((d) => d.toLowerCase() === c.toLowerCase()),
+  );
+  const merged = [...defaults, ...custom];
+  if (includeAddNew) merged.push(ADD_NEW_HW_TYPE_VALUE);
+  return merged;
+}
+
+export function getAccessoryTypesForCategory(inventoryCategory, opts = {}) {
+  return getHwTypesForCategory(inventoryCategory, { ...opts, kind: TYPE_KIND.accessories });
+}
+
+export function getConsumableTypesForCategory(inventoryCategory, opts = {}) {
+  return getHwTypesForCategory(inventoryCategory, { ...opts, kind: TYPE_KIND.consumables });
+}
+
+/** Persist a new type; returns canonical name or null if invalid. */
+export function addCustomHwType(inventoryCategory, name, kind = TYPE_KIND.hardware) {
+  const cat = inventoryCategory || "IT Assets";
+  const k = _normalizeKind(kind);
+  const normalized = _normalizeHwTypeName(name);
+  if (!normalized || normalized.toLowerCase() === "other") return null;
+
+  const defaults = getDefaultHwTypes(cat, k).filter((t) => t !== "Other");
+  const existingDefault = defaults.find((d) => d.toLowerCase() === normalized.toLowerCase());
+  if (existingDefault) return existingDefault;
+
+  const store = _readCustomHwStore();
+  const list = [..._getCustomList(store, cat, k)];
+  const existingCustom = list.find((d) => String(d).toLowerCase() === normalized.toLowerCase());
+  if (existingCustom) return _normalizeHwTypeName(existingCustom);
+
+  list.push(normalized);
+  _setCustomList(store, cat, k, list);
+  _writeCustomHwStore(store);
+  return normalized;
+}
+
+export function addCustomAccessoryType(inventoryCategory, name) {
+  return addCustomHwType(inventoryCategory, name, TYPE_KIND.accessories);
+}
+
+export function addCustomConsumableType(inventoryCategory, name) {
+  return addCustomHwType(inventoryCategory, name, TYPE_KIND.consumables);
+}
+
+/** Subscribe to custom type list changes (same-tab + storage). Returns unsubscribe. */
+export function subscribeHwTypesChange(callback) {
+  if (typeof window === "undefined" || typeof callback !== "function") return () => {};
+  const onCustom = () => callback();
+  const onStorage = (e) => {
+    if (e.key === CUSTOM_HW_TYPES_STORAGE_KEY || e.key === null) callback();
+  };
+  window.addEventListener(HW_TYPES_CHANGED_EVENT, onCustom);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(HW_TYPES_CHANGED_EVENT, onCustom);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+/** React-friendly label for select option values. */
+export function hwTypeOptionLabel(value) {
+  if (value === ADD_NEW_HW_TYPE_VALUE) return ADD_NEW_HW_TYPE_LABEL;
+  return value;
 }

@@ -22,10 +22,14 @@ import {
   syncITDataFromAPI,
   SEED_EMPLOYEES
 } from "../Data";
+import { useTransitionRemark } from "../itam/TransitionRemarkModal";
+import { remarkPayload } from "../itam/transitionUi";
 import {
   getHardwareFields,
   getMobileTabletHardwareFields,
   isMobileTabletHwType,
+  getHwTypesForCategory,
+  subscribeHwTypesChange,
 } from "../inventoryCategories";
 import "./AddEmployee.css";
 import { UserAvatar } from "../../../components/UserAvatar";
@@ -41,7 +45,6 @@ const generateAssetId = () =>
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ASSIGN_CATS   = ["Hardware", "Software", "Accessories", "Consumables"];
-const HW_TYPES      = ["Laptop", "Mobile", "Desktop", "Tablet", "Other"];
 const STEPS         = ["Profile", "Assign Assets", "Review"];
 const TAB_ICONS     = { Hardware: "🖥️", Software: "💿", Accessories: "🖱️", Consumables: "📦" };
 const HW_TYPE_ICONS = { Laptop: "💻", Mobile: "📱", Desktop: "🖥️", Tablet: "📲", Other: "🔧" };
@@ -457,6 +460,7 @@ const ProfileSummaryBanner = ({ profile }) => {
 
 const AddEmployee = () => {
   const navigate = useNavigate();
+  const { requestRemark } = useTransitionRemark();
 
   const [step,                 setStep]                = useState(0);
   const [saving,               setSaving]              = useState(false);
@@ -468,6 +472,14 @@ const AddEmployee = () => {
   const [profile,              setProfile]              = useState(EMPTY_PROFILE);
   const [activeTab,            setActiveTab]            = useState("Hardware");
   const [hwType,               setHwType]               = useState("Laptop");
+  const [hwTypes, setHwTypes] = useState(() =>
+    getHwTypesForCategory("IT Assets"),
+  );
+  useEffect(() => {
+    const refresh = () => setHwTypes(getHwTypesForCategory("IT Assets"));
+    refresh();
+    return subscribeHwTypesChange(refresh);
+  }, []);
   const hwTableFields = useMemo(() => {
     const base = getHardwareFields("IT Assets", "Hardware", hwType);
     return isMobileTabletHwType(hwType) ? getMobileTabletHardwareFields(base) : base;
@@ -803,6 +815,17 @@ const AddEmployee = () => {
     try {
       setSaving(true);
 
+      const remarkResult = await requestRemark("CHECKOUT", {
+        title: "Assign assets",
+        assetLabel: profile.name || empId,
+        subtitle: `${selectedEntries.length} hardware unit(s) will be assigned`,
+      });
+      if (remarkResult === null) {
+        setSaving(false);
+        return;
+      }
+      const fields = remarkPayload(remarkResult);
+
       // 1. Persist hardware assignment to backend first.
       for (const { unit, assetTag, assignmentPhotos } of selectedEntries) {
         await assignUnitToEmployeeAPI({
@@ -810,6 +833,7 @@ const AddEmployee = () => {
           empId,
           assetTag: assetTag.trim(),
           assignmentPhotos: assignmentPhotos || [],
+          ...fields,
         });
       }
 
@@ -1072,13 +1096,13 @@ const AddEmployee = () => {
                 <div className="ane-hw-type-row">
                   <span className="ane-hw-type-label">Hardware Type:</span>
                   <div className="ane-hw-type-chips">
-                    {HW_TYPES.map((t) => (
+                    {hwTypes.map((t) => (
                       <button
                         key={t}
                         className={`ane-hw-chip${hwType === t ? " active" : ""}`}
                         onClick={() => setHwType(t)}
                       >
-                        {HW_TYPE_ICONS[t]} {t}
+                        {HW_TYPE_ICONS[t] || "🔧"} {t}
                       </button>
                     ))}
                   </div>

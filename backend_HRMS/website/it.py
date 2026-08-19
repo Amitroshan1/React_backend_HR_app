@@ -89,6 +89,55 @@ def _err(message="Bad request", code=400):
     return jsonify({"success": False, "message": message}), code
 
 
+def _record_transition_or_err(**kwargs):
+    """
+    Record ITAM transition when itam_transitions_v1 is ON.
+    Returns Flask error tuple on validation failure, else None.
+    """
+    from flask import current_app
+    from .itam.transition_service import TransitionValidationError, record_transition
+
+    try:
+        record_transition(config=current_app.config, **kwargs)
+        return None
+    except TransitionValidationError as exc:
+        return _err(str(exc), 400)
+
+
+def _apply_lifecycle_or_err(
+    unit,
+    *,
+    lifecycle_status,
+    custody_type=None,
+    custody=None,
+    actor_admin_id=None,
+    dual_write_legacy=True,
+):
+    """Apply P3 lifecycle dual-write when itam_lifecycle_v1 is ON."""
+    from flask import current_app
+    from .itam.lifecycle_service import (
+        LifecycleValidationError,
+        apply_unit_lifecycle,
+        lifecycle_enabled,
+    )
+
+    if not lifecycle_enabled(current_app.config):
+        return None
+    try:
+        apply_unit_lifecycle(
+            unit,
+            lifecycle_status=lifecycle_status,
+            custody_type=custody_type,
+            custody=custody,
+            actor_admin_id=actor_admin_id,
+            dual_write_legacy=dual_write_legacy,
+            config=current_app.config,
+        )
+        return None
+    except LifecycleValidationError as exc:
+        return _err(str(exc), 400)
+
+
 def _iso(dt):
     return isoformat_api(dt)
 
@@ -292,8 +341,11 @@ def _serialize_inventory_item(item):
 
 
 def _serialize_asset_unit(unit):
+    from flask import current_app, has_app_context
+    from .itam.lifecycle_service import lifecycle_enabled, serialize_lifecycle_fields
+
     assigned_admin = unit.assigned_to_admin
-    return {
+    payload = {
         "id": unit.id,
         "unitCode": unit.unit_code,
         "inventoryId": unit.inventory_item_id,
@@ -323,6 +375,9 @@ def _serialize_asset_unit(unit):
         "created_at": _iso(unit.created_at),
         "updated_at": _iso(unit.updated_at),
     }
+    if has_app_context() and lifecycle_enabled(current_app.config):
+        payload.update(serialize_lifecycle_fields(unit))
+    return payload
 
 
 def _serialize_license(lic):
@@ -736,6 +791,9 @@ def create_inventory_item():
         return _err("initial_quantity must be >= 1 for quantity-based stock items")
 
     current_admin = _current_admin()
+    notes = (data.get("notes") or data.get("remark") or "").strip() or None
+    if notes and len(notes) > 500:
+        notes = notes[:500]
     item = ITInventoryItem(
         inventory_code=data.get("inventory_code") or _next_code("INV", ITInventoryItem, "inventory_code"),
         name=name,
@@ -747,13 +805,29 @@ def create_inventory_item():
         purchase_date=_parse_date(data.get("purchase_date")),
         receipts_json=data.get("receipts") or [],
         location=(data.get("location") or "").strip() or None,
-        notes=(data.get("notes") or "").strip() or None,
+        notes=notes,
         total_quantity=initial_quantity if is_qty_managed else 0,
         available_quantity=initial_quantity if is_qty_managed else 0,
         assigned_quantity=0,
         created_by_admin_id=current_admin.id if current_admin else None,
     )
     db.session.add(item)
+    db.session.flush()
+
+    # Optional RECEIVE timeline for qty-managed stock (Accessories / Consumables / Stock).
+    if notes and is_qty_managed:
+        err = _record_transition_or_err(
+            action_code="RECEIVE",
+            remark=notes,
+            actor_admin_id=current_admin.id if current_admin else None,
+            inventory_item_id=item.id,
+            from_status=None,
+            to_status="available",
+        )
+        if err:
+            db.session.rollback()
+            return err
+
     db.session.commit()
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory item created", 201)
 
@@ -800,6 +874,9 @@ def update_inventory_item(item_id):
 @it_bp.route("/units", methods=["GET"])
 @jwt_required()
 def list_units():
+    from flask import current_app
+    from .itam.timeline_service import latest_by_unit_ids, timeline_enabled
+
     status = (request.args.get("status") or "").strip()
     inventory_id = request.args.get("inventory_id", type=int)
     q = ITAssetUnit.query
@@ -808,7 +885,16 @@ def list_units():
     if inventory_id:
         q = q.filter(ITAssetUnit.inventory_item_id == inventory_id)
     rows = q.order_by(ITAssetUnit.id.desc()).all()
-    return _ok({"units": [_serialize_asset_unit(r) for r in rows]})
+    payload = [_serialize_asset_unit(r) for r in rows]
+    if timeline_enabled(current_app.config) and payload:
+        latest_map = latest_by_unit_ids([r.id for r in rows])
+        for item in payload:
+            latest = latest_map.get(int(item["id"]))
+            if latest:
+                item["lastTransition"] = latest
+                item["lastRemark"] = latest.get("remark")
+                item["lastTransitionAt"] = latest.get("occurredAt")
+    return _ok({"units": payload})
 
 
 @it_bp.route("/units/bulk", methods=["POST"])
@@ -884,11 +970,38 @@ def create_units_bulk():
             status=(row.get("status") or "available").strip(),
             photos_json=row.get("photos") or [],
         )
+        unit_notes = (row.get("notes") or row.get("remark") or "").strip() or None
+        if unit_notes and len(unit_notes) > 500:
+            unit_notes = unit_notes[:500]
         db.session.add(unit)
-        created.append(unit)
+        created.append((unit, unit_notes))
+
+    batch_notes = (data.get("notes") or data.get("remark") or "").strip() or None
+    if batch_notes and len(batch_notes) > 500:
+        batch_notes = batch_notes[:500]
+    first_unit_notes = next((n for _, n in created if n), None)
+    if not (inv.notes or "").strip():
+        inv.notes = first_unit_notes or batch_notes
 
     try:
         db.session.flush()
+        actor = _current_admin()
+        for unit, unit_notes in created:
+            remark = unit_notes or batch_notes
+            if not remark:
+                continue
+            err = _record_transition_or_err(
+                action_code="RECEIVE",
+                remark=remark,
+                actor_admin_id=actor.id if actor else None,
+                asset_unit_id=unit.id,
+                inventory_item_id=inventory_id,
+                from_status=None,
+                to_status=unit.status or "available",
+            )
+            if err:
+                db.session.rollback()
+                return err
         _recalc_inventory_counts(inventory_id)
         db.session.commit()
     except Exception as e:
@@ -901,12 +1014,18 @@ def create_units_bulk():
                 409,
             )
         raise
-    return _ok({"units": [_serialize_asset_unit(u) for u in created]}, "Units created", 201)
+    return _ok(
+        {"units": [_serialize_asset_unit(u) for u, _ in created]},
+        "Units created",
+        201,
+    )
 
 
 @it_bp.route("/units/<int:unit_id>/status", methods=["PATCH"])
 @jwt_required()
 def update_unit_status(unit_id):
+    from .itam.transition_service import action_for_unit_status, extract_remark_fields
+
     unit = ITAssetUnit.query.get(unit_id)
     if not unit:
         return _err("Unit not found", 404)
@@ -915,11 +1034,52 @@ def update_unit_status(unit_id):
     if not status:
         return _err("status is required")
 
+    fields = extract_remark_fields(data)
+    from_status = unit.status
+    action = action_for_unit_status(status, from_status=from_status)
+    if action == "COMPLETE_REPAIR" and not fields.get("condition_grade"):
+        fields["condition_grade"] = (data.get("condition_grade") or "B").strip() or "B"
+
+    actor = _current_admin()
+    err = _record_transition_or_err(
+        action_code=action,
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=unit.id,
+        inventory_item_id=unit.inventory_item_id,
+        from_status=from_status,
+        to_status=status,
+    )
+    if err:
+        return err
+
     unit.status = status
     if status == "repair" and not unit.repair_date:
         unit.repair_date = utc_now()
     if status == "available":
         unit.repair_date = None
+        unit.assigned_to_admin_id = None
+        unit.assigned_at = None
+
+    from .itam.lifecycle_service import lifecycle_for_legacy_status_change
+
+    life, ctype = lifecycle_for_legacy_status_change(status, from_unit=unit)
+    custody = {"type": ctype}
+    if ctype == "VENDOR":
+        custody["vendor_name"] = (data.get("vendor_name") or data.get("vendor") or "").strip() or None
+    err = _apply_lifecycle_or_err(
+        unit,
+        lifecycle_status=life,
+        custody_type=ctype,
+        custody=custody,
+        actor_admin_id=actor.id if actor else None,
+        dual_write_legacy=False,  # caller already set legacy status
+    )
+    if err:
+        return err
+
     _recalc_inventory_counts(unit.inventory_item_id)
     db.session.commit()
     return _ok({"unit": _serialize_asset_unit(unit)}, "Unit status updated")
@@ -928,13 +1088,49 @@ def update_unit_status(unit_id):
 @it_bp.route("/units/<int:unit_id>", methods=["DELETE"])
 @jwt_required()
 def delete_unit(unit_id):
+    from .itam.transition_service import extract_remark_fields
+
     unit = ITAssetUnit.query.get(unit_id)
     if not unit:
         return _err("Unit not found", 404)
     if unit.status == "assigned":
         return _err("Unassign this unit before permanent removal", 400)
 
+    data = request.get_json(silent=True) or {}
+    fields = extract_remark_fields(data)
+    actor = _current_admin()
     inv_id = unit.inventory_item_id
+    from_status = unit.status
+
+    err = _record_transition_or_err(
+        action_code="RETIRE",
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code") or "PERMANENT_DELETE",
+        condition_grade=fields.get("condition_grade") or "Fail",
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=unit.id,
+        inventory_item_id=inv_id,
+        from_status=from_status,
+        to_status="Retired",
+    )
+    if err:
+        return err
+
+    from flask import current_app
+    from .itam.lifecycle_service import close_open_custodies, lifecycle_enabled
+
+    if lifecycle_enabled(current_app.config):
+        close_open_custodies(asset_unit_id=unit.id)
+        err = _apply_lifecycle_or_err(
+            unit,
+            lifecycle_status="Retired",
+            custody_type="NONE",
+            custody={"type": "NONE"},
+            actor_admin_id=actor.id if actor else None,
+            dual_write_legacy=False,
+        )
+        if err:
+            return err
 
     ITDeletedAssetLog.query.filter_by(asset_unit_id=unit_id).update(
         {ITDeletedAssetLog.asset_unit_id: None},
@@ -979,18 +1175,56 @@ def assign_unit():
     if unit.status == "assigned":
         return _err("Unit is already assigned")
 
+    from .itam.transition_service import extract_remark_fields
+
+    fields = extract_remark_fields(data)
+    err = _record_transition_or_err(
+        action_code="CHECKOUT",
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=unit.id,
+        inventory_item_id=unit.inventory_item_id,
+        from_status=unit.status,
+        to_status="assigned",
+        from_custody={"type": "NONE"},
+        to_custody={
+            "type": "EMPLOYEE",
+            "admin_id": target_admin.id,
+            "emp_id": getattr(target_admin, "emp_id", None),
+        },
+    )
+    if err:
+        return err
+
     unit.status = "assigned"
     unit.assigned_to_admin_id = target_admin.id
     unit.assigned_at = _parse_dt(data.get("assigned_at")) or utc_now()
     unit.asset_tag = (data.get("asset_tag") or unit.asset_tag)
     unit.assignment_photos_json = data.get("assignment_photos") or unit.assignment_photos_json or []
 
+    err = _apply_lifecycle_or_err(
+        unit,
+        lifecycle_status="CheckedOut",
+        custody_type="EMPLOYEE",
+        custody={
+            "type": "EMPLOYEE",
+            "admin_id": target_admin.id,
+            "emp_id": getattr(target_admin, "emp_id", None),
+        },
+        actor_admin_id=actor.id if actor else None,
+        dual_write_legacy=False,
+    )
+    if err:
+        return err
+
     assignment = ITAssetAssignment(
         assignment_type="assign",
         assigned_to_admin_id=target_admin.id,
         assigned_by_admin_id=actor.id if actor else None,
         asset_unit_id=unit.id,
-        notes=data.get("notes"),
+        notes=fields.get("remark") or data.get("notes"),
         assigned_at=unit.assigned_at,
     )
     db.session.add(assignment)
@@ -1030,6 +1264,11 @@ def assign_unit():
 @it_bp.route("/assignments/units/<int:unit_id>/return", methods=["POST"])
 @jwt_required()
 def return_unit(unit_id):
+    from .itam.transition_service import (
+        action_for_return_destination,
+        extract_remark_fields,
+    )
+
     data = request.get_json(silent=True) or {}
     unit = ITAssetUnit.query.get(unit_id)
     actor = _current_admin()
@@ -1041,6 +1280,27 @@ def return_unit(unit_id):
         return _err("Unit is not assigned")
 
     new_status = (data.get("status") or "available").strip()
+    fields = extract_remark_fields(data)
+    action = action_for_return_destination(new_status)
+    if action == "CHECKIN" and not fields.get("condition_grade"):
+        fields["condition_grade"] = (data.get("condition_grade") or "B").strip() or "B"
+
+    err = _record_transition_or_err(
+        action_code=action,
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=unit.id,
+        inventory_item_id=unit.inventory_item_id,
+        from_status=unit.status,
+        to_status=new_status,
+        from_custody={"type": "EMPLOYEE", "admin_id": previous_assigned_to},
+        to_custody={"type": "NONE"},
+    )
+    if err:
+        return err
+
     unit.status = new_status
     unit.assigned_to_admin_id = None
     unit.assigned_at = None
@@ -1049,12 +1309,26 @@ def return_unit(unit_id):
     elif new_status == "available":
         unit.repair_date = None
 
+    from .itam.lifecycle_service import lifecycle_for_legacy_status_change
+
+    life, ctype = lifecycle_for_legacy_status_change(new_status)
+    err = _apply_lifecycle_or_err(
+        unit,
+        lifecycle_status=life,
+        custody_type=ctype,
+        custody={"type": ctype},
+        actor_admin_id=actor.id if actor else None,
+        dual_write_legacy=False,
+    )
+    if err:
+        return err
+
     assignment = ITAssetAssignment(
         assignment_type="return",
         assigned_to_admin_id=previous_assigned_to,
         assigned_by_admin_id=actor.id if actor else None,
         asset_unit_id=unit.id,
-        notes=data.get("notes"),
+        notes=fields.get("remark") or data.get("notes"),
         assigned_at=utc_now(),
         unassigned_at=utc_now(),
     )
@@ -1134,6 +1408,28 @@ def assign_software():
     if lic.status == "assigned":
         return _err("License is already assigned")
 
+    from .itam.transition_service import extract_remark_fields
+
+    fields = extract_remark_fields(data)
+    err = _record_transition_or_err(
+        action_code="CHECKOUT",
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        software_license_id=lic.id,
+        inventory_item_id=lic.inventory_item_id,
+        from_status=lic.status,
+        to_status="assigned",
+        to_custody={
+            "type": "EMPLOYEE",
+            "admin_id": target_admin.id,
+            "emp_id": getattr(target_admin, "emp_id", None),
+        },
+    )
+    if err:
+        return err
+
     lic.status = "assigned"
     lic.assigned_to_admin_id = target_admin.id
     lic.assigned_at = utc_now()
@@ -1143,7 +1439,7 @@ def assign_software():
         assigned_to_admin_id=target_admin.id,
         assigned_by_admin_id=actor.id if actor else None,
         software_license_id=lic.id,
-        notes=data.get("notes"),
+        notes=fields.get("remark") or data.get("notes"),
     )
     db.session.add(assignment)
     _recalc_inventory_counts(lic.inventory_item_id)
@@ -1182,6 +1478,8 @@ def assign_software():
 @it_bp.route("/assignments/software/<int:license_id>/return", methods=["POST"])
 @jwt_required()
 def return_software(license_id):
+    from .itam.transition_service import extract_remark_fields
+
     data = request.get_json(silent=True) or {}
     lic = ITSoftwareLicense.query.get(license_id)
     actor = _current_admin()
@@ -1190,7 +1488,26 @@ def return_software(license_id):
     if lic.status != "assigned":
         return _err("Software license is not assigned")
 
+    fields = extract_remark_fields(data)
+    if not fields.get("condition_grade"):
+        fields["condition_grade"] = (data.get("condition_grade") or "B").strip() or "B"
     prev_target = lic.assigned_to_admin_id
+    err = _record_transition_or_err(
+        action_code="CHECKIN",
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        software_license_id=lic.id,
+        inventory_item_id=lic.inventory_item_id,
+        from_status=lic.status,
+        to_status="available",
+        from_custody={"type": "EMPLOYEE", "admin_id": prev_target},
+        to_custody={"type": "NONE"},
+    )
+    if err:
+        return err
+
     lic.status = "available"
     lic.assigned_to_admin_id = None
     lic.assigned_at = None
@@ -1200,7 +1517,7 @@ def return_software(license_id):
         assigned_to_admin_id=prev_target,
         assigned_by_admin_id=actor.id if actor else None,
         software_license_id=lic.id,
-        notes=data.get("notes"),
+        notes=fields.get("remark") or data.get("notes"),
         unassigned_at=utc_now(),
     )
     db.session.add(assignment)
@@ -1274,6 +1591,20 @@ def create_return_request():
     if dup:
         return _err("A return request for this asset is already pending/approved", 409)
 
+    err = _record_transition_or_err(
+        action_code="REQUEST_RETURN",
+        remark=reason,
+        actor_admin_id=actor.id,
+        asset_unit_id=unit_id,
+        software_license_id=license_id,
+        inventory_item_id=inventory_id,
+        from_status="assigned",
+        to_status="PendingReturn",
+        related={"return_destination": return_destination},
+    )
+    if err:
+        return err
+
     req = ITAssetReturnRequest(
         request_code=_next_code("RTR", ITAssetReturnRequest, "request_code"),
         requester_admin_id=actor.id,
@@ -1333,12 +1664,33 @@ def list_return_requests():
 @it_bp.route("/return-requests/<int:request_id>/approve", methods=["PATCH"])
 @jwt_required()
 def approve_return_request(request_id):
+    from .itam.transition_service import extract_remark_fields
+
     actor = _current_admin()
     row = ITAssetReturnRequest.query.get(request_id)
     if not row:
         return _err("Return request not found", 404)
     if row.status != "pending":
         return _err("Only pending requests can be approved")
+    data = request.get_json(silent=True) or {}
+    fields = extract_remark_fields(data)
+    if not fields.get("remark"):
+        fields["remark"] = f"Approved return request {row.request_code}"
+    err = _record_transition_or_err(
+        action_code="APPROVE_RETURN",
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=row.asset_unit_id,
+        software_license_id=row.software_license_id,
+        inventory_item_id=row.inventory_item_id,
+        from_status="pending",
+        to_status="approved",
+        related={"return_request_id": row.id, "request_code": row.request_code},
+    )
+    if err:
+        return err
     row.status = "approved"
     row.approved_by_admin_id = actor.id if actor else None
     row.approved_at = utc_now()
@@ -1366,6 +1718,19 @@ def reject_return_request(request_id):
     rejection_reason = (data.get("rejection_reason") or "").strip()
     if not rejection_reason:
         return _err("rejection_reason is required")
+    err = _record_transition_or_err(
+        action_code="REJECT_RETURN",
+        remark=rejection_reason,
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=row.asset_unit_id,
+        software_license_id=row.software_license_id,
+        inventory_item_id=row.inventory_item_id,
+        from_status="pending",
+        to_status="rejected",
+        related={"return_request_id": row.id, "request_code": row.request_code},
+    )
+    if err:
+        return err
     row.status = "rejected"
     row.approved_by_admin_id = actor.id if actor else None
     row.approved_at = utc_now()
@@ -1392,8 +1757,37 @@ def complete_return_request(request_id):
     if row.status != "approved":
         return _err("Only approved requests can be completed")
 
+    from .itam.transition_service import extract_remark_fields
+
+    data = request.get_json(silent=True) or {}
+    fields = extract_remark_fields(data)
+    if not fields.get("remark"):
+        fields["remark"] = (
+            f"Physical receipt confirmed for return {row.request_code}. "
+            f"Original reason: {(row.reason or '').strip() or 'n/a'}"
+        )
+    if not fields.get("condition_grade"):
+        fields["condition_grade"] = "B"
+
     dest = (row.return_destination or "available").strip().lower()
     to_removed = dest == "removed_from_it"
+    to_status = "not-working" if to_removed else "available"
+    err = _record_transition_or_err(
+        action_code="CHECKIN",
+        remark=fields.get("remark"),
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=row.asset_unit_id,
+        software_license_id=row.software_license_id,
+        inventory_item_id=row.inventory_item_id,
+        from_status="approved",
+        to_status=to_status,
+        related={"return_request_id": row.id, "request_code": row.request_code},
+    )
+    if err:
+        return err
+
     return_photos = row.photos_json if isinstance(row.photos_json, list) else []
 
     if row.asset_unit_id:
@@ -1740,7 +2134,40 @@ def _stock_deploy_impl():
         if (unit.status or "").lower() != "available":
             return _err("This unit is not available to issue", 400)
         quantity = 1
+        err = _record_transition_or_err(
+            action_code="DEPLOY",
+            remark=notes or f"Deployed to {location}",
+            actor_admin_id=actor.id if actor else None,
+            asset_unit_id=unit.id,
+            inventory_item_id=item.id,
+            from_status=unit.status,
+            to_status="Deployed",
+            to_custody={
+                "type": "LOCATION",
+                "location": location,
+                "custodian_name": custodian_name,
+            },
+        )
+        if err:
+            return err
         unit.status = "assigned"
+        unit.assigned_to_admin_id = None
+        unit.assigned_at = None
+        err = _apply_lifecycle_or_err(
+            unit,
+            lifecycle_status="Deployed",
+            custody_type="LOCATION",
+            custody={
+                "type": "LOCATION",
+                "location": location,
+                "custodian_name": custodian_name,
+                "custodian_emp_id": custodian_emp_id,
+            },
+            actor_admin_id=actor.id if actor else None,
+            dual_write_legacy=False,
+        )
+        if err:
+            return err
         db.session.add(
             ITOfficeStockDeployment(
                 inventory_item_id=item.id,
@@ -1757,7 +2184,7 @@ def _stock_deploy_impl():
         _recalc_inventory_counts(item.id)
         db.session.commit()
         return _ok(
-            {"item": _serialize_inventory_item(item)},
+            {"item": _serialize_inventory_item(item), "unit": _serialize_asset_unit(unit)},
             f"Issued to {location}",
             201,
         )
@@ -1766,6 +2193,23 @@ def _stock_deploy_impl():
         return _err("quantity must be >= 1", 400)
     if int(item.available_quantity or 0) < quantity:
         return _err("Not enough available quantity", 400)
+
+    err = _record_transition_or_err(
+        action_code="DEPLOY",
+        remark=notes or f"Deployed qty {quantity} to {location}",
+        actor_admin_id=actor.id if actor else None,
+        inventory_item_id=item.id,
+        from_status="InStock",
+        to_status="Deployed",
+        to_custody={
+            "type": "LOCATION",
+            "location": location,
+            "quantity": quantity,
+            "custodian_name": custodian_name,
+        },
+    )
+    if err:
+        return err
 
     item.available_quantity = int(item.available_quantity or 0) - quantity
     item.assigned_quantity = int(item.assigned_quantity or 0) + quantity
@@ -1790,6 +2234,8 @@ def _stock_deploy_impl():
 
 
 def _stock_return_impl():
+    from .itam.transition_service import extract_remark_fields
+
     data = request.get_json(silent=True) or {}
     try:
         deployment_id = int(data.get("deployment_id"))
@@ -1808,12 +2254,48 @@ def _stock_return_impl():
     if int(row.quantity or 0) < quantity:
         return _err("Return quantity exceeds issued quantity", 400)
 
+    fields = extract_remark_fields(data)
+    actor = _current_admin()
+    remark = fields.get("remark") or (row.notes or "").strip() or f"Returned {quantity} from {row.deployment_location}"
+    err = _record_transition_or_err(
+        action_code="UNDEPLOY",
+        remark=remark,
+        reason_code=fields.get("reason_code"),
+        condition_grade=fields.get("condition_grade"),
+        actor_admin_id=actor.id if actor else None,
+        asset_unit_id=row.asset_unit_id,
+        inventory_item_id=item.id,
+        from_status="Deployed",
+        to_status="InStock",
+        from_custody={
+            "type": "LOCATION",
+            "location": row.deployment_location,
+            "deployment_id": row.id,
+        },
+        to_custody={"type": "NONE"},
+        related={"quantity": quantity},
+    )
+    if err:
+        return err
+
     if row.asset_unit_id:
         if quantity != 1:
             return _err("Return quantity must be 1 for a single vehicle or equipment unit", 400)
         unit = ITAssetUnit.query.get(row.asset_unit_id)
         if unit:
             unit.status = "available"
+            unit.assigned_to_admin_id = None
+            unit.assigned_at = None
+            err = _apply_lifecycle_or_err(
+                unit,
+                lifecycle_status="InStock",
+                custody_type="NONE",
+                custody={"type": "NONE"},
+                actor_admin_id=actor.id if actor else None,
+                dual_write_legacy=False,
+            )
+            if err:
+                return err
         db.session.delete(row)
         _recalc_inventory_counts(item.id)
     else:
@@ -2270,4 +2752,237 @@ def it_download_noc_department_document(req_id):
         download_name=out["download_name"],
         as_attachment=True,
     )
+
+
+@it_bp.route("/itam/meta", methods=["GET"])
+@jwt_required()
+def itam_meta():
+    """
+    P0/P1 read-only: ITAM contract version, feature flags (default OFF), remark policies,
+    lifecycle mapping draft, and planned API surface.
+    """
+    from flask import current_app
+    from .itam.contracts import api_contract_snapshot
+
+    return jsonify({"success": True, **api_contract_snapshot(current_app.config)}), 200
+
+
+@it_bp.route("/units/<int:unit_id>/transitions", methods=["POST"])
+@jwt_required()
+def create_unit_transition(unit_id):
+    """
+    P1 dedicated transitions API. When itam_transitions_v1 is OFF, returns 409 so
+    clients use legacy endpoints. When ON, records transition; for status-changing
+    actions also applies legacy status mutation (CHECKOUT/CHECKIN/repair paths still
+    prefer existing assignment endpoints).
+    """
+    from flask import current_app
+    from .itam.transition_service import (
+        TransitionValidationError,
+        extract_remark_fields,
+        record_transition,
+        serialize_transition,
+        transitions_enabled,
+    )
+
+    if not transitions_enabled(current_app.config):
+        return _err(
+            "ITAM transitions are disabled. Set ITAM_TRANSITIONS_V1=1 or use legacy endpoints.",
+            409,
+        )
+
+    unit = ITAssetUnit.query.get(unit_id)
+    if not unit:
+        return _err("Unit not found", 404)
+
+    data = request.get_json(silent=True) or {}
+    action_code = (data.get("action_code") or "").strip().upper()
+    if not action_code:
+        return _err("action_code is required")
+
+    fields = extract_remark_fields(data)
+    actor = _current_admin()
+    to_status = (data.get("to_status") or "").strip() or None
+
+    # NOTE / status-only actions: record without forcing assignment APIs
+    try:
+        row = record_transition(
+            action_code=action_code,
+            remark=fields.get("remark"),
+            reason_code=fields.get("reason_code"),
+            condition_grade=fields.get("condition_grade"),
+            actor_admin_id=actor.id if actor else None,
+            asset_unit_id=unit.id,
+            inventory_item_id=unit.inventory_item_id,
+            from_status=unit.status,
+            to_status=to_status or unit.status,
+            from_custody=data.get("from_custody"),
+            to_custody=data.get("custody") or data.get("to_custody"),
+            related=data.get("related"),
+            attachments=data.get("attachments"),
+            config=current_app.config,
+            require=True,
+        )
+    except TransitionValidationError as exc:
+        return _err(str(exc), 400)
+
+    # Apply simple status flips for repair/quarantine/restore/note-adjacent
+    status_map = {
+        "SEND_REPAIR": "repair",
+        "MARK_QUARANTINE": "not-working",
+        "COMPLETE_REPAIR": "available",
+        "LOST": "not-working",
+    }
+    if action_code in status_map and (to_status or status_map[action_code]):
+        new_status = to_status or status_map[action_code]
+        unit.status = new_status
+        if new_status == "repair" and not unit.repair_date:
+            unit.repair_date = utc_now()
+        if new_status == "available":
+            unit.repair_date = None
+        _recalc_inventory_counts(unit.inventory_item_id)
+
+    db.session.commit()
+    return _ok(
+        {"transition": serialize_transition(row), "unit": _serialize_asset_unit(unit)},
+        "Transition recorded",
+        201,
+    )
+
+
+@it_bp.route("/units/<int:unit_id>/timeline", methods=["GET"])
+@jwt_required()
+def unit_timeline(unit_id):
+    """P2: paginated asset history. Requires itam_timeline_v1."""
+    from flask import current_app
+    from .itam.timeline_service import query_transitions, timeline_enabled
+
+    if not timeline_enabled(current_app.config):
+        return _err(
+            "ITAM timeline is disabled. Set ITAM_TIMELINE_V1=1 to enable.",
+            409,
+        )
+
+    unit = ITAssetUnit.query.get(unit_id)
+    if not unit:
+        return _err("Unit not found", 404)
+
+    actions_raw = (request.args.get("action") or request.args.get("actions") or "").strip()
+    actions = [a for a in actions_raw.split(",") if a.strip()] if actions_raw else None
+    result = query_transitions(
+        asset_unit_id=unit_id,
+        actions=actions,
+        q=request.args.get("q"),
+        date_from=request.args.get("from"),
+        date_to=request.args.get("to"),
+        page=request.args.get("page", 1, type=int),
+        limit=request.args.get("limit", 50, type=int),
+    )
+    return _ok(
+        {
+            **result,
+            "unit": _serialize_asset_unit(unit),
+        }
+    )
+
+
+@it_bp.route("/units/<int:unit_id>/timeline.csv", methods=["GET"])
+@jwt_required()
+def unit_timeline_csv(unit_id):
+    """P2: export full timeline CSV for one unit."""
+    from flask import Response, current_app
+    from .itam.timeline_service import query_transitions, timeline_enabled, timeline_to_csv
+
+    if not timeline_enabled(current_app.config):
+        return _err(
+            "ITAM timeline is disabled. Set ITAM_TIMELINE_V1=1 to enable.",
+            409,
+        )
+
+    unit = ITAssetUnit.query.get(unit_id)
+    if not unit:
+        return _err("Unit not found", 404)
+
+    # Export up to 5000 newest events
+    result = query_transitions(asset_unit_id=unit_id, page=1, limit=5000)
+    csv_text = timeline_to_csv(result.get("transitions") or [])
+    filename = f"asset-{unit.unit_code or unit_id}-timeline.csv"
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@it_bp.route("/software/licenses/<int:license_id>/timeline", methods=["GET"])
+@jwt_required()
+def software_timeline(license_id):
+    from flask import current_app
+    from .itam.timeline_service import query_transitions, timeline_enabled
+
+    if not timeline_enabled(current_app.config):
+        return _err(
+            "ITAM timeline is disabled. Set ITAM_TIMELINE_V1=1 to enable.",
+            409,
+        )
+    lic = ITSoftwareLicense.query.get(license_id)
+    if not lic:
+        return _err("Software license not found", 404)
+    actions_raw = (request.args.get("action") or request.args.get("actions") or "").strip()
+    actions = [a for a in actions_raw.split(",") if a.strip()] if actions_raw else None
+    result = query_transitions(
+        software_license_id=license_id,
+        actions=actions,
+        q=request.args.get("q"),
+        date_from=request.args.get("from"),
+        date_to=request.args.get("to"),
+        page=request.args.get("page", 1, type=int),
+        limit=request.args.get("limit", 50, type=int),
+    )
+    return _ok({**result, "license": _serialize_license(lic)})
+
+
+@it_bp.route("/itam/backfill-assignment-history", methods=["POST"])
+@jwt_required()
+def itam_backfill_assignment_history():
+    """
+    P2 optional: seed transitions from ITAssetAssignment rows.
+    Requires itam_timeline_v1 (or itam_transitions_v1) so ops can hydrate history.
+    """
+    from flask import current_app
+    from .itam.flags import is_itam_flag_enabled
+    from .itam.timeline_service import backfill_from_assignments
+
+    cfg = current_app.config
+    if not (
+        is_itam_flag_enabled("itam_timeline_v1", cfg)
+        or is_itam_flag_enabled("itam_transitions_v1", cfg)
+    ):
+        return _err(
+            "Enable ITAM_TIMELINE_V1 or ITAM_TRANSITIONS_V1 before backfill.",
+            409,
+        )
+
+    data = request.get_json(silent=True) or {}
+    limit = int(data.get("limit") or request.args.get("limit") or 500)
+    stats = backfill_from_assignments(limit=limit, config=cfg)
+    return _ok(stats, "Assignment history backfill completed")
+
+
+@it_bp.route("/itam/backfill-lifecycle", methods=["POST"])
+@jwt_required()
+def itam_backfill_lifecycle():
+    """P3: hydrate lifecycle_status + custody records from legacy unit state."""
+    from flask import current_app
+    from .itam.flags import is_itam_flag_enabled
+    from .itam.lifecycle_service import backfill_unit_lifecycle
+
+    cfg = current_app.config
+    if not is_itam_flag_enabled("itam_lifecycle_v1", cfg):
+        return _err("Enable ITAM_LIFECYCLE_V1 before lifecycle backfill.", 409)
+
+    data = request.get_json(silent=True) or {}
+    limit = int(data.get("limit") or request.args.get("limit") or 500)
+    stats = backfill_unit_lifecycle(limit=limit, config=cfg)
+    return _ok(stats, "Lifecycle backfill completed")
 

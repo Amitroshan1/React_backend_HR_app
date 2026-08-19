@@ -12,14 +12,10 @@ import {
   getFieldMeta,
   InventoryFileCell,
 } from "./inventoryFileUpload";
-import { INVENTORY_CATEGORY_CONFIG } from "../inventoryCategories";
 import "./AddnewAssets.css";
 
 const BASE = "/it/inventory";
 const INV_CAT = "Infrastructure Assets";
-const EQUIP_TYPES =
-  INVENTORY_CATEGORY_CONFIG[INV_CAT]?.equipmentTypes ||
-  ["Networking", "Power", "Cooling", "Security", "Other"];
 
 const blankRow = () => ({
   id: Date.now() + Math.random(),
@@ -61,9 +57,9 @@ function CellInput({ value, onChange, placeholder, error, type = "text", classNa
   );
 }
 
-export default function InfraEquipmentForm({ equipmentType, customType }) {
+export default function InfraEquipmentForm({ equipmentType }) {
   const navigate = useNavigate();
-  const effectiveType = equipmentType === "Other" ? customType.trim() : equipmentType;
+  const effectiveType = equipmentType || "Equipment";
   const [rows, setRows] = useState([blankRow()]);
   const [submitted, setSubmitted] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -131,10 +127,6 @@ export default function InfraEquipmentForm({ equipmentType, customType }) {
 
   const handleSubmit = useCallback(async () => {
     setSubmitted(true);
-    if (equipmentType === "Other" && !customType.trim()) {
-      toast.error("Enter equipment type for Other.");
-      return;
-    }
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
@@ -190,14 +182,14 @@ export default function InfraEquipmentForm({ equipmentType, customType }) {
     } finally {
       setSaving(false);
     }
-  }, [rows, equipmentType, customType, effectiveType]);
+  }, [rows, effectiveType]);
 
   return (
     <>
       <section className="ana-section ana-section-table">
         <div className="ana-section-head">
           <span className="ana-section-num">02</span>
-          <h2>Installed equipment — {effectiveType || "Other"}</h2>
+          <h2>Installed equipment — {effectiveType}</h2>
         </div>
         <div className="ana-table-wrap">
           <table className="ana-table">

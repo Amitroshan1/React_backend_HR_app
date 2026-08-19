@@ -903,7 +903,7 @@ const EmployeeDetails = () => {
                     { label: "Asset ID",      value: hwModal.displayAssetId, mono: true, highlight: true },
                     { label: "Brand",         value: hwModal.brand },
                     { label: hwModalFields?.make?.label || "Model",   value: hwModal.make  },
-                    { label: hwModalFields?.model?.label || "Laptop Code", value: hwModal.model },
+                    { label: hwModalFields?.model?.label || "Asset Code", value: hwModal.model },
                     { label: "Serial Number", value: hwModal.serialNumber, mono: true },
                   ].map(({ label, value, mono, highlight }) => (
                     <div key={label} className={`hdm-row ${highlight ? "highlight" : ""}`}>

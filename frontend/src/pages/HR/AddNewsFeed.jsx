@@ -3,6 +3,8 @@ import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { ArrowLeft } from 'lucide-react';
 import './AddNewsFeed.css';
 import { formatDate } from '../../utils/dateFormat';
+import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
+import { toAuthContentUrl, isAlreadySignedFileUrl, toPathOnly } from '../../utils/secureFileUrl';
 
 const API_BASE = '/api/HumanResource';
 const MASTER_OPTIONS_API = '/api/auth/master-options';
@@ -47,8 +49,6 @@ export const AddNewsFeed = ({ onBack, circleOptions: propCircleOptions, empTypeO
   const openHistoryAttachment = async (item) => {
     if (!item?.file_path && !item?.file_url) return;
     try {
-      const { fetchAndOpenAuthenticatedFile } = await import('../../utils/openBlobFile');
-      const { toAuthContentUrl, isAlreadySignedFileUrl, toPathOnly } = await import('../../utils/secureFileUrl');
       const raw = item.file_url || item.file_path;
       const url = isAlreadySignedFileUrl(raw) ? toPathOnly(raw) : toAuthContentUrl(raw);
       await fetchAndOpenAuthenticatedFile(url, {

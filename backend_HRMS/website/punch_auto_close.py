@@ -93,6 +93,19 @@ def capped_daily_work_seconds(open_sess, now=None):
 
 def session_auto_close_deadline(open_sess, now=None):
     """When today's total work (all sessions + this open one) reaches 10 hours."""
+    try:
+        punch = getattr(open_sess, "punch", None)
+        if punch is None and open_sess and open_sess.punch_id:
+            punch = Punch.query.get(open_sess.punch_id)
+        from .biometric.scope import is_nhq_biometric_open_session
+
+        if is_nhq_biometric_open_session(open_sess, punch):
+            cin = getattr(open_sess, "clock_in", None)
+            pd = getattr(punch, "punch_date", None) if punch else None
+            if cin and pd and cin.date() == pd:
+                return None
+    except Exception:
+        pass
     return auto_close_deadline(open_sess)
 
 
@@ -160,6 +173,7 @@ def close_punch_session(
     extended_hours_reason=None,
     now=None,
     clock_out_at=None,
+    closed_by=None,
 ):
     """Close an open session and recompute punch aggregate. Caller commits."""
     now = now or datetime.now()
@@ -178,6 +192,14 @@ def close_punch_session(
     elif extended_hours_reason:
         open_sess.extended_hours_reason = extended_hours_reason
         open_sess.auto_punched_out = False
+    # Additive provenance (NULL = legacy web). Do not fail if column missing.
+    try:
+        if closed_by:
+            open_sess.closed_by = closed_by
+        elif is_auto and not getattr(open_sess, "closed_by", None):
+            open_sess.closed_by = "system"
+    except Exception:
+        pass
     if punch:
         if lat is not None:
             punch.lat = lat
@@ -185,6 +207,56 @@ def close_punch_session(
             punch.lon = lon
         recompute_punch_aggregate(punch)
     return out_time
+
+
+def _biometric_preferred_clock_out(open_sess, cap_at):
+    """
+    For biometric-sourced open sessions, prefer last_scan_at when it is after clock_in
+    (activity after IN). Still never exceed the 10h cap deadline.
+
+    If the only scan is clock_in itself, fall back to normal cap_at (existing 10h rule).
+    """
+    if not open_sess or not cap_at:
+        return cap_at
+    src = (getattr(open_sess, "source", None) or "").strip().lower()
+    if src != "biometric":
+        return cap_at
+    try:
+        from .biometric.models import BiometricDayState
+
+        punch = getattr(open_sess, "punch", None)
+        if punch is None and open_sess.punch_id:
+            punch = Punch.query.get(open_sess.punch_id)
+        if not punch or not open_sess.clock_in:
+            return cap_at
+        day = BiometricDayState.query.filter_by(
+            admin_id=punch.admin_id,
+            punch_date=punch.punch_date,
+        ).first()
+        if not day or not day.last_scan_at:
+            return cap_at
+        if day.last_scan_at > open_sess.clock_in:
+            preferred = day.last_scan_at
+            if preferred > cap_at:
+                return cap_at
+            return preferred
+    except Exception:
+        return cap_at
+    return cap_at
+
+
+def _skip_same_day_nhq_biometric_auto_close(open_sess, punch):
+    """NHQ biometric same-day sessions finalize at 20:00 IST, not 10h cap."""
+    try:
+        from .biometric.scope import is_nhq_biometric_open_session
+
+        if not is_nhq_biometric_open_session(open_sess, punch):
+            return False
+        cin = getattr(open_sess, "clock_in", None)
+        pd = getattr(punch, "punch_date", None) if punch else None
+        return bool(cin and pd and cin.date() == pd)
+    except Exception:
+        return False
 
 
 def _close_overdue_session(open_sess, now=None):
@@ -195,8 +267,13 @@ def _close_overdue_session(open_sess, now=None):
         return False
 
     punch = Punch.query.get(open_sess.punch_id) if open_sess.punch_id else None
+    if _skip_same_day_nhq_biometric_auto_close(open_sess, punch):
+        return False
+
     if punch and ensure_punch_sessions_backfill(punch):
         db.session.flush()
+
+    out_at = _biometric_preferred_clock_out(open_sess, out_at)
 
     close_punch_session(
         open_sess,
@@ -208,7 +285,35 @@ def _close_overdue_session(open_sess, now=None):
         extended_hours_reason=reason,
         now=now,
         clock_out_at=out_at,
+        closed_by="system",
     )
+    # Mark biometric day state if present
+    try:
+        src = (getattr(open_sess, "source", None) or "").strip().lower()
+        if src == "biometric" and punch:
+            from .biometric.models import BiometricDayState
+
+            day = BiometricDayState.query.filter_by(
+                admin_id=punch.admin_id,
+                punch_date=punch.punch_date,
+            ).first()
+            if day:
+                day.status = "auto_closed"
+    except Exception:
+        pass
+    try:
+        from .attendance_realtime.publisher import queue_attendance_updated
+
+        if punch:
+            queue_attendance_updated(
+                employee_admin_id=punch.admin_id,
+                attendance_date=punch.punch_date,
+                punch_session_id=open_sess.id,
+                source="system",
+                event_time=out_at,
+            )
+    except Exception:
+        pass
     return True
 
 

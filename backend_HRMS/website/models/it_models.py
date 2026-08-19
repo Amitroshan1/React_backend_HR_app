@@ -61,6 +61,11 @@ class ITAssetUnit(db.Model):
     assigned_at = db.Column(db.DateTime, nullable=True)
     asset_tag = db.Column(db.String(80), nullable=True, unique=True)
 
+    # P3 dual-write (populated when itam_lifecycle_v1 ON). Legacy `status` remains source for old filters.
+    lifecycle_status = db.Column(db.String(40), nullable=True, index=True)
+    custody_type = db.Column(db.String(20), nullable=True, index=True)
+    custody_json = db.Column(db.JSON, nullable=True)
+
     exported_to = db.Column(db.String(150), nullable=True)
     exported_at = db.Column(db.DateTime, nullable=True)
     repair_date = db.Column(db.DateTime, nullable=True)
@@ -361,4 +366,107 @@ class ITAssetReturnRequest(db.Model):
     asset_unit = db.relationship("ITAssetUnit", backref=db.backref("return_requests", lazy="dynamic"))
     software_license = db.relationship("ITSoftwareLicense", backref=db.backref("return_requests", lazy="dynamic"))
     inventory_item = db.relationship("ITInventoryItem", backref=db.backref("return_requests", lazy="dynamic"))
+
+
+class ITAssetCustody(db.Model):
+    """
+    Open / closed custody records (P3).
+
+    Invariant: at most one open row per asset_unit_id (or software_license_id).
+    """
+
+    __tablename__ = "it_asset_custodies"
+
+    id = db.Column(db.Integer, primary_key=True)
+    asset_unit_id = db.Column(
+        db.Integer, db.ForeignKey("it_asset_units.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    software_license_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_software_licenses.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    custody_type = db.Column(db.String(20), nullable=False, default="NONE", server_default="NONE", index=True)
+    holder_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
+    location = db.Column(db.String(200), nullable=True)
+    vendor_name = db.Column(db.String(150), nullable=True)
+    custody_json = db.Column(db.JSON, nullable=True)
+    is_open = db.Column(db.Boolean, nullable=False, default=True, server_default="1", index=True)
+    opened_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    closed_at = db.Column(db.DateTime, nullable=True)
+    opened_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True)
+
+    asset_unit = db.relationship(
+        "ITAssetUnit", backref=db.backref("custody_records", lazy="dynamic")
+    )
+    software_license = db.relationship(
+        "ITSoftwareLicense", backref=db.backref("custody_records", lazy="dynamic")
+    )
+    holder_admin = db.relationship(
+        "Admin",
+        foreign_keys=[holder_admin_id],
+        backref=db.backref("it_asset_custodies_held", lazy="dynamic"),
+    )
+
+
+class ITAssetTransition(db.Model):
+    """
+    Append-only lifecycle / remark history (schema frozen in P0).
+
+    Writes begin in P1 when itam_transitions_v1 is enabled. P0 only registers the table.
+    """
+
+    __tablename__ = "it_asset_transitions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    transition_code = db.Column(db.String(40), unique=True, nullable=False, index=True)
+
+    asset_unit_id = db.Column(
+        db.Integer, db.ForeignKey("it_asset_units.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    software_license_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_software_licenses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    inventory_item_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_inventory_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    action_code = db.Column(db.String(32), nullable=False, index=True)
+    from_status = db.Column(db.String(40), nullable=True)
+    to_status = db.Column(db.String(40), nullable=True)
+    from_custody_json = db.Column(db.JSON, nullable=True)
+    to_custody_json = db.Column(db.JSON, nullable=True)
+
+    remark = db.Column(db.Text, nullable=False)
+    reason_code = db.Column(db.String(60), nullable=True)
+    condition_grade = db.Column(db.String(10), nullable=True)
+
+    actor_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
+    related_json = db.Column(db.JSON, nullable=True)
+    attachments_json = db.Column(db.JSON, nullable=True)
+
+    occurred_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+    asset_unit = db.relationship(
+        "ITAssetUnit", backref=db.backref("transitions", lazy="dynamic")
+    )
+    software_license = db.relationship(
+        "ITSoftwareLicense", backref=db.backref("transitions", lazy="dynamic")
+    )
+    inventory_item = db.relationship(
+        "ITInventoryItem", backref=db.backref("transitions", lazy="dynamic")
+    )
+    actor_admin = db.relationship(
+        "Admin",
+        foreign_keys=[actor_admin_id],
+        backref=db.backref("it_asset_transitions_acted", lazy="dynamic"),
+    )
 

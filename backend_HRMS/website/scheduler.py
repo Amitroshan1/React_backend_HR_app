@@ -100,3 +100,30 @@ def run_auto_punch_out_job():
         except Exception as e:
             log.exception("scheduler: auto-punch-out failed: %s", e)
             db.session.rollback()
+
+
+def run_biometric_day_finalization_job():
+    """
+    20:00 IST: finalize NHQ biometric open sessions (latest scan <= 20:00).
+    Includes catch-up for up to 7 prior days with missed finalization.
+    """
+    if _app is None:
+        return
+    with _app.app_context():
+        from . import db
+        from .biometric.finalization import finalize_all_nhq_biometric_days
+
+        log = _app.logger
+        try:
+            summary = finalize_all_nhq_biometric_days(include_catchup=True)
+            if summary.get("finalized_count"):
+                log.info(
+                    "scheduler: biometric day finalization finalized=%s skipped=%s errors=%s dates=%s",
+                    summary.get("finalized_count"),
+                    summary.get("skipped_count"),
+                    summary.get("error_count"),
+                    summary.get("dates"),
+                )
+        except Exception as e:
+            log.exception("scheduler: biometric-day-finalization failed: %s", e)
+            db.session.rollback()

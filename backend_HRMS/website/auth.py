@@ -364,22 +364,32 @@ def _issue_login_token(admin):
 
 @auth.route("/request-otp", methods=["POST"])
 def request_otp():
-    """Send a login OTP to email. Phone/SMS is reserved for a later release."""
+    """Send a login OTP to the registered email. Payslip/tax OTP remains at /sensitive/request-otp."""
     from .rate_limit import client_ip, enforce
+    from .offboarding_service import admin_login_allowed
+
+    blocked = enforce(
+        f"login-otp:ip:{client_ip()}",
+        limit=OTP_IP_LIMIT_PER_HOUR,
+        window_seconds=3600,
+        message="Too many OTP requests. Please try again later.",
+    )
+    if blocked:
+        return blocked
 
     data = request.get_json(silent=True) or {}
     identifier = _normalize_login_identifier(data.get("identifier") or data.get("email") or "")
     if not identifier:
         return jsonify({
             "success": False,
-            "message": "Please enter your email or phone number",
+            "message": "Please enter your email",
         }), 400
 
     channel, value = _detect_login_channel(identifier)
     if channel == "unknown":
         return jsonify({
             "success": False,
-            "message": "Enter a valid email address or phone number",
+            "message": "Enter a valid email address",
         }), 400
 
     if channel == "sms":
@@ -389,20 +399,11 @@ def request_otp():
             "message": "Phone OTP is coming soon. Please login with your registered email for now.",
         }), 501
 
-    ip = client_ip()
-    blocked = enforce(
-        f"login-otp:ip:{ip}",
-        limit=OTP_IP_LIMIT_PER_HOUR,
-        window_seconds=3600,
-        message="Too many OTP requests from this network. Please try again later.",
-    )
-    if blocked:
-        return blocked
     blocked = enforce(
         f"login-otp:id:{value}",
         limit=OTP_IDENTIFIER_LIMIT_PER_HOUR,
         window_seconds=3600,
-        message="Too many OTP requests for this account. Please try again later.",
+        message="Too many OTP requests for this email. Please try again later.",
     )
     if blocked:
         return blocked
@@ -410,45 +411,33 @@ def request_otp():
         f"login-otp:id-day:{value}",
         limit=OTP_IDENTIFIER_LIMIT_PER_DAY,
         window_seconds=86400,
-        message="Daily OTP limit reached for this account. Please try again tomorrow.",
+        message="Daily OTP limit reached for this email. Please try again tomorrow.",
     )
     if blocked:
         return blocked
 
-    admin = _find_admin_for_login(channel, value)
-    if not admin:
+    def _generic_sent(masked_hint=None):
+        hint = masked_hint or "your email"
         return jsonify({
-            "success": False,
-            "message": "No account found with this email",
-        }), 404
+            "success": True,
+            "channel": "email",
+            "message": f"OTP sent to {hint}. Please check your email for the OTP.",
+            "expires_in": OTP_TTL_MINUTES * 60,
+            "resend_after": OTP_RESEND_SECONDS,
+        }), 200
 
-    from .offboarding_service import admin_login_allowed
+    admin = _find_admin_for_login("email", value)
+    if not admin or not (admin.email or "").strip() or not admin_login_allowed(admin):
+        # Anti-enumeration: same success shape whether the account exists or not.
+        return _generic_sent()
 
-    if not admin_login_allowed(admin):
-        if getattr(admin, "is_exited", False):
-            return jsonify({
-                "success": False,
-                "message": "Your account has been exited. Please contact HR.",
-            }), 403
-        return jsonify({
-            "success": False,
-            "message": "Your account is inactive. Please contact HR.",
-        }), 403
-
-    if not admin.email:
-        return jsonify({
-            "success": False,
-            "message": "No email is registered for this account. Please contact HR.",
-        }), 400
-
-    # Persist cleaned email if DB row has whitespace
-    cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip().lower()
+    cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip()
     if cleaned_email and admin.email != cleaned_email:
         admin.email = cleaned_email
+    ident = cleaned_email.lower()
 
-    # Resend cooldown
     latest = (
-        OTP.query.filter_by(identifier=value, channel="email", is_used=False)
+        OTP.query.filter_by(identifier=ident, channel="email", is_used=False)
         .order_by(OTP.created_at.desc())
         .first()
     )
@@ -462,15 +451,14 @@ def request_otp():
                 "retry_after": wait,
             }), 429
 
-    # Invalidate previous unused OTPs for this identifier
-    OTP.query.filter_by(identifier=value, channel="email", is_used=False).update(
+    OTP.query.filter_by(identifier=ident, channel="email", is_used=False).update(
         {"is_used": True},
         synchronize_session=False,
     )
 
     otp_code = f"{secrets.randbelow(1_000_000):06d}"
     row = OTP(
-        identifier=value,
+        identifier=ident,
         channel="email",
         otp_hash=_hash_otp(otp_code),
         admin_id=admin.id,
@@ -478,8 +466,7 @@ def request_otp():
         expires_at=OTP.expiry_from_now(OTP_TTL_MINUTES),
         is_used=False,
         attempts=0,
-        email=cleaned_email,
-        # Legacy NOT NULL-safe placeholder; real OTP lives in otp_hash only
+        email=admin.email,
         otp_code="******",
     )
     db.session.add(row)
@@ -488,7 +475,6 @@ def request_otp():
     ok, msg = send_login_otp_email(admin, otp_code, expires_minutes=OTP_TTL_MINUTES)
     if not ok:
         current_app.logger.error("Login OTP email failed for %s: %s", admin.email, msg)
-        # Do not start resend cooldown when delivery failed — mark OTP unused/consumed.
         row.is_used = True
         db.session.commit()
         return jsonify({
@@ -501,19 +487,14 @@ def request_otp():
         local, domain = masked.split("@", 1)
         masked = (local[:2] + "***@" + domain) if len(local) > 2 else ("***@" + domain)
 
-    return jsonify({
-        "success": True,
-        "channel": "email",
-        "message": f"OTP sent to {masked}. Please check your email for the OTP.",
-        "expires_in": OTP_TTL_MINUTES * 60,
-        "resend_after": OTP_RESEND_SECONDS,
-    }), 200
+    return _generic_sent(masked)
 
 
 @auth.route("/verify-otp", methods=["POST"])
 def verify_otp():
-    """Verify login OTP and issue JWT (same shape as former password login)."""
+    """Verify login OTP and issue JWT. Payslip/tax OTP remains at /sensitive/verify-otp."""
     from .rate_limit import client_ip, enforce
+    from .offboarding_service import admin_login_allowed
 
     blocked = enforce(
         f"verify-otp:ip:{client_ip()}",
@@ -531,14 +512,14 @@ def verify_otp():
     if not identifier or not otp_code:
         return jsonify({
             "success": False,
-            "message": "Email/phone and OTP are required",
+            "message": "Email and OTP are required",
         }), 400
 
     channel, value = _detect_login_channel(identifier)
     if channel == "unknown":
         return jsonify({
             "success": False,
-            "message": "Enter a valid email address or phone number",
+            "message": "Enter a valid email address",
         }), 400
 
     if channel == "sms":
@@ -596,8 +577,6 @@ def verify_otp():
             "success": False,
             "message": "Account not found",
         }), 404
-
-    from .offboarding_service import admin_login_allowed
 
     if not admin_login_allowed(admin):
         return jsonify({
@@ -798,11 +777,11 @@ def verify_sensitive_otp():
 
 
 # ===================================================
-# ✅ 1️⃣ VALIDATE USER (DEPRECATED — use OTP login)
+# ✅ 1️⃣ VALIDATE USER (password login disabled — use email OTP)
 # FINAL URL → POST /api/auth/validate-user
 @auth.route("/validate-user", methods=["POST"])
 def validate_user():
-    """Password login removed. Clients must use /request-otp and /verify-otp."""
+    """Password login disabled. Clients must use /request-otp and /verify-otp."""
     return jsonify({
         "success": False,
         "message": "Password login is disabled. Please login with email OTP.",
@@ -2107,6 +2086,10 @@ def punch_in():
         location_status_in=location_status,
         location_status_out=None,
     )
+    try:
+        sess.source = "web"
+    except Exception:
+        pass
     apply_session_geo_fields(sess, geo_result, direction="in")
     db.session.add(sess)
     punch.lat = sess.lat
@@ -2116,6 +2099,18 @@ def punch_in():
     db.session.flush()
     # Commit first so punch_sessions row lock is released before audit FK attach
     # (attach uses a separate connection; linking while this txn holds X-lock → lock wait).
+    try:
+        from .attendance_realtime.publisher import queue_attendance_updated
+
+        queue_attendance_updated(
+            employee_admin_id=employee.id,
+            attendance_date=today,
+            punch_session_id=sess.id,
+            source="web",
+            event_time=now,
+        )
+    except Exception:
+        pass
     db.session.commit()
     timings["db_commit_ms"] = round((time.perf_counter() - t_db) * 1000, 2)
     t_attach = time.perf_counter()
@@ -2267,12 +2262,26 @@ def punch_out():
             extended_hours_reason=ext_reason,
             now=now,
             clock_out_at=clock_out_at,
+            closed_by="system" if is_auto else "web",
         )
         apply_session_geo_fields(open_sess, geo_result, direction="out")
         t_db = time.perf_counter()
         # Commit before audit attach: close_punch_session → recompute_punch_aggregate
         # autoflushes an UPDATE on punch_sessions; attaching audit on another connection
         # while that X-lock is held causes MySQL 1205 lock-wait (~50s) and proxy 500s.
+        try:
+            from .attendance_realtime.publisher import queue_attendance_updated
+
+            pd = punch.punch_date if punch else None
+            queue_attendance_updated(
+                employee_admin_id=employee.id,
+                attendance_date=pd,
+                punch_session_id=open_sess.id,
+                source="system" if is_auto else "web",
+                event_time=open_sess.clock_out or now,
+            )
+        except Exception:
+            pass
         db.session.commit()
         timings["db_commit_ms"] = round((time.perf_counter() - t_db) * 1000, 2)
         t_attach = time.perf_counter()

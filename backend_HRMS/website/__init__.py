@@ -79,6 +79,12 @@ def create_app():
         _raw_plan if _raw_plan in ("basic", "essential", "enterprise") else "essential"
     )
 
+    # ITAM rollout flags (P0+) — default OFF. See docs/itam/P0_ROLLOUT_CHECKLIST.md
+    from .itam.flags import load_itam_flags_from_env
+
+    for _itam_flag, _itam_val in load_itam_flags_from_env().items():
+        app.config[_itam_flag] = _itam_val
+
     # Geo-fencing V2 thresholds (env-overridable; see website/geo_fence_config.py)
     from .geo_fence_config import DEFAULTS as _GEO_DEFAULTS, get_geo_fence_config
 
@@ -164,6 +170,13 @@ def create_app():
     from .models.Admin_models import Admin
     from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch, PunchSession, Location
     from .models.geo_punch_attempt import GeoPunchAttempt  # noqa: F401 — register for db.create_all
+    from .biometric.models import (  # noqa: F401 — register for db.create_all
+        BiometricDevice,
+        BiometricEmployeeMap,
+        BiometricLog,
+        BiometricDayState,
+    )
+    from .attendance_realtime.models import AttendanceRealtimeEvent  # noqa: F401
     from .models.query import Query, QueryReply
     from .models.emp_detail_models import Employee
     from .models.education import Education, UploadDoc
@@ -203,6 +216,7 @@ def create_app():
         ITParcelExport,
         ITParcelExportItem,
         ITParcelImport,
+        ITAssetTransition,
     )
 
     # ---------------------------
@@ -256,6 +270,9 @@ def create_app():
     from .probation_api import probation_api
 
     from .files import files_bp
+    from .biometric import biometric_bp
+    from .attendance_realtime import attendance_realtime_bp
+    from .attendance_realtime import routes as attendance_realtime_routes  # noqa: F401
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -269,6 +286,10 @@ def create_app():
     app.register_blueprint(performance_api, url_prefix="/api/performance")
     app.register_blueprint(probation_api, url_prefix="/api/probation")
     app.register_blueprint(files_bp, url_prefix="/api/files")
+    # eSSL ADMS / iClock push (Phase 3A+: /iclock/health; 3B+: /iclock/cdata)
+    app.register_blueprint(biometric_bp, url_prefix="/iclock")
+    # Phase 3D: attendance SSE (does not write Punch / PunchSession)
+    app.register_blueprint(attendance_realtime_bp, url_prefix="/api/attendance")
 
     # Block anonymous access to /static/uploads/* (IDOR via guessable names).
     # Legitimate access: JWT Authorization header OR ?exp=&sig= signed query.
@@ -528,6 +549,114 @@ def create_app():
         except Exception as e:
             app.logger.warning("punch_sessions geo v2 columns migration skipped: %s", e)
 
+    def _ensure_punch_session_source_columns():
+        """Additive source/closed_by for web vs biometric provenance (default NULL = legacy web)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "punch_sessions"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            additions = []
+            if "source" not in existing:
+                additions.append(("source", "VARCHAR(20) NULL"))
+            if "closed_by" not in existing:
+                additions.append(("closed_by", "VARCHAR(20) NULL"))
+            if not additions:
+                return
+            with db.engine.begin() as conn:
+                for col, col_type in additions:
+                    if dialect == "postgresql":
+                        conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}'))
+                    else:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+            app.logger.info(
+                "Added punch_sessions source columns: %s", [a[0] for a in additions]
+            )
+        except Exception as e:
+            app.logger.warning("punch_sessions source columns migration skipped: %s", e)
+
+    def _ensure_biometric_schema_tables():
+        """
+        Phase 3A–3C: create missing biometric tables only (additive).
+
+        Never alters admins, punch, punch_sessions, or attendance_realtime_events.
+        Idempotent: safe to run on every startup.
+        """
+        from sqlalchemy import inspect
+
+        insp = inspect(db.engine)
+        existing = set(insp.get_table_names())
+
+        tables_in_order = (
+            ("biometric_devices", BiometricDevice),
+            ("biometric_logs", BiometricLog),
+            ("biometric_day_state", BiometricDayState),
+            ("biometric_employee_map", BiometricEmployeeMap),
+        )
+
+        for table_name, model in tables_in_order:
+            if table_name in existing:
+                app.logger.info("BIOMETRIC_SCHEMA table %s already exists", table_name)
+                continue
+            try:
+                model.__table__.create(bind=db.engine, checkfirst=True)
+            except Exception as e:
+                app.logger.error(
+                    "BIOMETRIC_SCHEMA failed to create table %s: %s",
+                    table_name,
+                    e,
+                    exc_info=True,
+                )
+                raise
+            app.logger.info("BIOMETRIC_SCHEMA created table %s", table_name)
+            existing.add(table_name)
+
+    def _ensure_biometric_employee_map_emp_id():
+        """Additive emp_id on biometric_employee_map (HR business id; Admin.id remains FK)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "biometric_employee_map"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "emp_id" in existing:
+                return
+            dialect = db.engine.dialect.name
+            with db.engine.begin() as conn:
+                if dialect == "postgresql":
+                    conn.execute(
+                        text(f'ALTER TABLE "{table}" ADD COLUMN emp_id VARCHAR(10) NULL')
+                    )
+                    conn.execute(
+                        text(f'CREATE INDEX IF NOT EXISTS ix_bio_map_emp_id ON "{table}" (emp_id)')
+                    )
+                else:
+                    conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN emp_id VARCHAR(10) NULL")
+                    )
+            app.logger.info("Added biometric_employee_map.emp_id column")
+        except Exception as e:
+            app.logger.warning("biometric_employee_map.emp_id migration skipped: %s", e)
+
+    def _ensure_attendance_realtime_events_table():
+        """Phase 3D SSE outbox — additive; never writes Punch / PunchSession."""
+        try:
+            from sqlalchemy import inspect
+
+            insp = inspect(db.engine)
+            if "attendance_realtime_events" in insp.get_table_names():
+                return
+            AttendanceRealtimeEvent.__table__.create(bind=db.engine, checkfirst=True)
+            app.logger.info("Created attendance_realtime_events table")
+        except Exception as e:
+            app.logger.warning("attendance_realtime_events migration skipped: %s", e)
+
     def _cleanup_zero_qty_inventory_rows():
         """
         Remove legacy zero-quantity Accessories/Consumables rows that have no
@@ -725,6 +854,64 @@ def create_app():
                         )
         except Exception as e:
             app.logger.warning("IT office stock deployment table ensure skipped: %s", e)
+
+    def _ensure_it_asset_transitions_table():
+        """P0: create empty it_asset_transitions table (writes start in P1)."""
+        try:
+            from sqlalchemy import inspect
+            from .models.it_models import ITAssetTransition
+
+            insp = inspect(db.engine)
+            table = "it_asset_transitions"
+            if table not in set(insp.get_table_names()):
+                ITAssetTransition.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table it_asset_transitions (ITAM P0 schema)")
+        except Exception as e:
+            app.logger.warning("IT asset transitions table ensure skipped: %s", e)
+
+    def _ensure_it_asset_lifecycle_columns():
+        """P3: dual-write columns on it_asset_units + it_asset_custodies table."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.it_models import ITAssetCustody
+
+            insp = inspect(db.engine)
+            table = "it_asset_units"
+            if table in set(insp.get_table_names()):
+                existing = {c["name"] for c in insp.get_columns(table)}
+                dialect = db.engine.dialect.name
+                cols = [
+                    ("lifecycle_status", "VARCHAR(40) NULL"),
+                    ("custody_type", "VARCHAR(20) NULL"),
+                ]
+                for col, col_type in cols:
+                    if col in existing:
+                        continue
+                    if dialect == "postgresql":
+                        stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                    else:
+                        stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column %s.%s", table, col)
+
+                if "custody_json" not in existing:
+                    if dialect == "postgresql":
+                        stmt = text(f'ALTER TABLE "{table}" ADD COLUMN custody_json JSONB NULL')
+                    elif dialect == "mysql":
+                        stmt = text(f"ALTER TABLE {table} ADD COLUMN custody_json JSON NULL")
+                    else:
+                        stmt = text(f"ALTER TABLE {table} ADD COLUMN custody_json TEXT NULL")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column %s.custody_json", table)
+
+            custody_table = "it_asset_custodies"
+            if custody_table not in set(insp.get_table_names()):
+                ITAssetCustody.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table it_asset_custodies (ITAM P3 schema)")
+        except Exception as e:
+            app.logger.warning("IT asset lifecycle ensure skipped: %s", e)
 
     def _ensure_it_inventory_item_photos_column():
         try:
@@ -1745,10 +1932,16 @@ def create_app():
             _ensure_geo_engine_comparisons_table()
             _load_geo_config_overrides()
             _ensure_punch_session_geo_v2_columns()
+            _ensure_punch_session_source_columns()
+            _ensure_biometric_schema_tables()
+            _ensure_biometric_employee_map_emp_id()
+            _ensure_attendance_realtime_events_table()
             _ensure_it_return_request_table()
             _ensure_it_return_request_columns()
             _ensure_it_inventory_quantity_assignment_table()
             _ensure_it_office_stock_deployment_table()
+            _ensure_it_asset_transitions_table()
+            _ensure_it_asset_lifecycle_columns()
             _fix_it_inventory_category_mismatches()
             _ensure_it_inventory_item_photos_column()
             _ensure_it_inventory_stock_columns()
@@ -1795,6 +1988,10 @@ def create_app():
     register_offboarding_commands(app)
     from .commands.offboarding_reminders import register_offboarding_reminders_command
     register_offboarding_reminders_command(app)
+    from .commands.biometric_audit import register_biometric_audit_command
+    register_biometric_audit_command(app)
+    from .commands.biometric_finalize import register_biometric_finalize_command
+    register_biometric_finalize_command(app)
 
     # ---------------------------
     # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention
@@ -1818,6 +2015,13 @@ def create_app():
             "func": "website.scheduler:run_auto_punch_out_job",
             "trigger": "interval",
             "minutes": 2,
+        },
+        {
+            "id": "biometric_day_finalization",
+            "func": "website.scheduler:run_biometric_day_finalization_job",
+            "trigger": "cron",
+            "hour": 20,
+            "minute": 0,
         },
     ]
     scheduler.init_app(app)

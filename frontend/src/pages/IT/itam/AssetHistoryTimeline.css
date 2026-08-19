@@ -1,0 +1,173 @@
+.itam-hist-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12100;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.itam-hist-modal {
+  width: min(640px, 100%);
+  max-height: min(86vh, 800px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.itam-hist {
+  padding: 16px 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.itam-hist--embedded {
+  padding: 8px 0 0;
+}
+
+.itam-hist-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.itam-hist-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+
+.itam-hist-asset {
+  margin: 2px 0 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.itam-hist-latest {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: #334155;
+  max-width: 36rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itam-hist-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.itam-hist-filters {
+  display: flex;
+  gap: 8px;
+}
+
+.itam-hist-filters input {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.itam-hist-btn {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 7px 12px;
+  font: inherit;
+  cursor: pointer;
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.itam-hist-btn.ghost {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.itam-hist-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.itam-hist-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.88rem;
+}
+
+.itam-hist-muted {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.itam-hist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.itam-hist-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+
+.itam-hist-item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.itam-hist-action {
+  font-weight: 600;
+  color: #1e3a8a;
+  font-size: 0.9rem;
+}
+
+.itam-hist-when {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.itam-hist-remark {
+  margin: 0 0 6px;
+  color: #0f172a;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.itam-hist-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.itam-hist-meta .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.itam-hist-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #475569;
+}

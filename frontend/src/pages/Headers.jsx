@@ -379,19 +379,15 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     };
 
     const roleInfo = getRoleInfo(rawRole, user);
-    // Header "Query" is for HR / Accounts department inbox.
-    // IT uses "Open Tickets" in the IT panel — hide Query for IT to avoid duplicate entry points.
+    // Header "Query" opens the department inbox for HR / Accounts / IT.
     const queryShortcutAllowed = (() => {
         const display = roleInfo.display?.toLowerCase();
-        if (display === "it") return false;
-        if (["hr", "account", "accounts"].includes(display)) return true;
+        if (["hr", "account", "accounts", "it"].includes(display)) return true;
         const candidates = [user?.emp_type, user?.designation, user?.department, rawRole].filter(Boolean);
-        const looksLikeIt = candidates.some((c) =>
-            /\bit\s+department\b|\binformation\s+technology\b|(^|\s)it(\s|$)|inventory/i.test(String(c))
-        );
-        if (looksLikeIt) return false;
         return candidates.some((c) =>
-            /\bhuman\s+resources?\b|\bhr\b|\baccounts?\b|\baccountant\b/i.test(String(c))
+            /\bhuman\s+resources?\b|\bhr\b|\baccounts?\b|\baccountant\b|\bit\s+department\b|\binformation\s+technology\b|(^|\s)it(\s|$)|inventory/i.test(
+                String(c)
+            )
         );
     })();
     const showManagerPanel = hasManagerAccess === true || ["manager", "managers"].includes(roleKey);
@@ -415,12 +411,18 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         if (roleInfo.hasPanel && roleInfo.route && panelRouteAllowed(roleInfo.route)) {
             panelLinks.push({ display: roleInfo.display, route: roleInfo.route });
         }
+        // Inventory Management — IT only, directly below IT Management
         if (
-            isItPrimaryRole &&
             canAccessItPanel(user) &&
-            !panelLinks.some((p) => p.route === "/it" || p.route === "/it/inventory")
+            !panelLinks.some((p) => p.route === "/it/inventory")
         ) {
-            panelLinks.push({ display: "IT / Inventory", route: "/it/inventory" });
+            const invLink = { display: "Inventory", route: "/it/inventory" };
+            const itIdx = panelLinks.findIndex((p) => p.route === "/it");
+            if (itIdx >= 0) {
+                panelLinks.splice(itIdx + 1, 0, invLink);
+            } else if (isItPrimaryRole) {
+                panelLinks.push(invLink);
+            }
         }
         if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {
             panelLinks.push({ display: "Manager", route: "/manager" });

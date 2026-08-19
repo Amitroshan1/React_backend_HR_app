@@ -26,6 +26,7 @@ import { hasFeature } from "../../utils/planFeatures";
 import { fetchAndOpenAuthenticatedFile } from "../../utils/openBlobFile";
 import { toAuthContentUrl, isAlreadySignedFileUrl, toPathOnly } from "../../utils/secureFileUrl";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { useAttendanceUpdatedListener } from "../../hooks/useAttendanceEvents";
 import { formatDateDDMMYYYY, parseAppDate } from "../../utils/dateFormat";
 import { PolicyAckModal } from "../../components/PolicyAckModal";
 import { usePunchGps } from "../../hooks/usePunchGps";
@@ -623,6 +624,14 @@ export const Dashboard = () => {
         dynamicData.punch.punch_out,
     ]);
 
+    /** Phase 3D: SSE attendance.updated → targeted homepage refresh (polling remains). */
+    useAttendanceUpdatedListener(() => {
+        if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+            return;
+        }
+        fetchDashboardData(false);
+    });
+
     const runAutoCapPunchOut = useCallback(async (capIso) => {
         if (autoCapPunchOutRef.current) return;
         autoCapPunchOutRef.current = true;
@@ -684,6 +693,9 @@ export const Dashboard = () => {
             ? dynamicData.punch.sessions
             : [];
         const openSeg = sessions.find((s) => s.is_open);
+        if (openSeg?.is_nhq_biometric === true) {
+            return undefined;
+        }
         const capMs = parseIsoToMs(openSeg?.session_auto_close_at);
         if (!Number.isFinite(capMs)) return undefined;
 

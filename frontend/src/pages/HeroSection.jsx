@@ -209,7 +209,7 @@ export const HeroSection = () => {
             </p>
 
             <p className="hero-description animate-reveal" style={{ animationDelay: "2s" }}>
-              Streamline Your Processes and Enhance Your team's Productivity.
+              Streamline Your Processes and Enhance Your team&apos;s Productivity.
             </p>
 
             <div className="cta-section animate-fade-in-up">

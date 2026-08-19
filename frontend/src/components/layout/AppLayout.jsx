@@ -22,6 +22,8 @@ import { useFloatingNotifications } from "../../hooks/useFloatingNotifications";
 import "../../pages/Dashboard/Dashboard.css"
 import { withFileCacheBust } from "../../utils/secureFileUrl";
 import { normalizePhotoUrl } from "../../utils/userPhoto";
+import { TransitionRemarkProvider } from "../../pages/IT/itam/TransitionRemarkModal";
+import { syncItamFlagsFromApi } from "../../utils/itamFlags";
 
 const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 const ACTIVITY_KEY = "lastActivityAt";
@@ -34,6 +36,14 @@ export const AppLayout = () => {
     const hasToken = typeof window !== "undefined" && !!localStorage.getItem("token");
 
     useFloatingNotifications(hasToken && !loadingUser);
+
+    useEffect(() => {
+        if (!hasToken || loadingUser) return;
+        const user = userData?.user;
+        if (!canAccessItPanel(user)) return;
+        const token = localStorage.getItem("token");
+        syncItamFlagsFromApi(token ? { Authorization: `Bearer ${token}` } : {});
+    }, [hasToken, loadingUser, userData?.user]);
 
     /* Refresh shared user shell only when stale (TTL inside UserContext), not on every click.
        Also refresh when the window regains focus after being away. */
@@ -258,8 +268,9 @@ export const AppLayout = () => {
             
             <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}${isInventoryPage && showAdminReturnBar ? " content-area--inventory-admin" : ""}`}>
                 <AdminReturnBar visible={showAdminReturnBar} />
-                {/* Outlet renders the child routes: Dashboard, Attendance, etc. */}
-                <Outlet />
+                <TransitionRemarkProvider>
+                    <Outlet />
+                </TransitionRemarkProvider>
                 <AppFooter />
             </div>
         </div>

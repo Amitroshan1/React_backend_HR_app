@@ -1100,6 +1100,26 @@ const _toLocalUnit = (u) => ({
   photos: u.photos || [],
   assignmentPhotos: u.assignmentPhotos || [],
   repairDate: u.repairDate || null,
+  lastRemark: u.lastRemark || u.last_remark || null,
+  lastTransitionAt: u.lastTransitionAt || u.last_transition_at || null,
+  lastTransition: u.lastTransition || u.last_transition || null,
+  lifecycleStatus: u.lifecycleStatus || u.lifecycle_status || null,
+  statusLabel: u.statusLabel || u.status_label || null,
+  custodyType: u.custodyType || u.custody_type || null,
+  custodyLabel: u.custodyLabel || u.custody_label || null,
+  custody: u.custody || null,
+  isCheckedOut:
+    typeof u.isCheckedOut === "boolean"
+      ? u.isCheckedOut
+      : typeof u.is_checked_out === "boolean"
+        ? u.is_checked_out
+        : undefined,
+  isDeployed:
+    typeof u.isDeployed === "boolean"
+      ? u.isDeployed
+      : typeof u.is_deployed === "boolean"
+        ? u.is_deployed
+        : undefined,
 });
 
 const _toLocalSoftware = (s) => ({
@@ -1246,6 +1266,7 @@ export const createInventoryItemAPI = async ({
   receipts = [],
   location = null,
   notes = null,
+  remark = null,
 }) =>
   _itFetch("/inventory/items", {
     method: "POST",
@@ -1260,7 +1281,8 @@ export const createInventoryItemAPI = async ({
       purchase_date: purchaseDate,
       receipts,
       location,
-      notes,
+      notes: notes || remark || null,
+      remark: remark || notes || null,
     },
   });
 
@@ -1276,26 +1298,35 @@ export const createHardwareUnitsAPI = async ({
   category = "Hardware",
   hwType = null,
   rows = [],
+  notes = null,
+  remark = null,
 }) =>
   _itFetch("/units/bulk", {
     method: "POST",
     body: {
       inventory_item_id: inventoryItemId,
-      units: rows.map((r) => ({
-        unit_code: r.serialNumber,
-        asset_name: assetName,
-        category,
-        hw_type: hwType,
-        brand: r.brand,
-        make: r.make,
-        model: r.model,
-        serial_number: r.serialNumber,
-        imei1: r.imei1 || null,
-        imei2: r.imei2 || null,
-        project_code: r.projectCode || null,
-        device_location: r.deviceLocation || null,
-        photos: r.photos || [],
-      })),
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      units: rows.map((r) => {
+        const unitNotes = String(r.remarks || r.notes || "").trim() || null;
+        return {
+          unit_code: r.serialNumber,
+          asset_name: assetName,
+          category,
+          hw_type: hwType,
+          brand: r.brand,
+          make: r.make,
+          model: r.model,
+          serial_number: r.serialNumber,
+          imei1: r.imei1 || null,
+          imei2: r.imei2 || null,
+          project_code: r.projectCode || null,
+          device_location: r.deviceLocation || null,
+          photos: r.photos || [],
+          notes: unitNotes,
+          remark: unitNotes,
+        };
+      }),
     },
   });
 
@@ -1338,6 +1369,10 @@ export const assignUnitToEmployeeAPI = async ({
   empId,
   assetTag,
   assignmentPhotos = [],
+  notes = null,
+  remark = null,
+  reasonCode = null,
+  conditionGrade = null,
 }) =>
   _itFetch("/assignments/units", {
     method: "POST",
@@ -1347,16 +1382,32 @@ export const assignUnitToEmployeeAPI = async ({
       assigned_to_emp_id: empId || null,
       asset_tag: assetTag,
       assignment_photos: assignmentPhotos,
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      reason_code: reasonCode || null,
+      condition_grade: conditionGrade || null,
     },
   });
 
-export const assignSoftwareToEmployeeAPI = async ({ licenseId, adminId, empId }) =>
+export const assignSoftwareToEmployeeAPI = async ({
+  licenseId,
+  adminId,
+  empId,
+  notes = null,
+  remark = null,
+  reasonCode = null,
+  conditionGrade = null,
+}) =>
   _itFetch("/assignments/software", {
     method: "POST",
     body: {
       license_id: licenseId,
       assigned_to_admin_id: adminId || null,
       assigned_to_emp_id: empId || null,
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      reason_code: reasonCode || null,
+      condition_grade: conditionGrade || null,
     },
   });
 
@@ -1402,12 +1453,19 @@ export const inventoryStockDeployAPI = async ({
 export const officeStockDeployAPI = inventoryStockDeployAPI;
 
 /** Return issued qty or unit back to available. */
-export const inventoryStockReturnAPI = async ({ deploymentId, quantity = 1 }) =>
+export const inventoryStockReturnAPI = async ({
+  deploymentId,
+  quantity = 1,
+  notes = null,
+  remark = null,
+}) =>
   _itFetch("/inventory-stock/return", {
     method: "POST",
     body: {
       deployment_id: deploymentId,
       quantity,
+      notes: notes || remark || null,
+      remark: remark || notes || null,
     },
   });
 
@@ -1585,14 +1643,81 @@ export const syncRemovedITFromAPI = async () => {
 export const removeRemovedITAssetAPI = async (removedId) =>
   _itFetch(`/removed-assets/${removedId}`, { method: "DELETE" });
 
-export const setUnitStatusAPI = async ({ unitId, status }) =>
+export const setUnitStatusAPI = async ({
+  unitId,
+  status,
+  notes = null,
+  remark = null,
+  reasonCode = null,
+  conditionGrade = null,
+}) =>
   _itFetch(`/units/${unitId}/status`, {
     method: "PATCH",
-    body: { status },
+    body: {
+      status,
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      reason_code: reasonCode || null,
+      condition_grade: conditionGrade || null,
+    },
   });
 
-export const deleteAssetUnitAPI = async (unitId) =>
-  _itFetch(`/units/${unitId}`, { method: "DELETE" });
+/** P2: paginated asset transition timeline (requires ITAM_TIMELINE_V1). */
+export const fetchUnitTimelineAPI = async (
+  unitId,
+  { q = "", page = 1, limit = 50, action = "", from = "", to = "" } = {},
+) => {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (page) params.set("page", String(page));
+  if (limit) params.set("limit", String(limit));
+  if (action) params.set("action", action);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
+  return _itFetch(`/units/${unitId}/timeline${qs ? `?${qs}` : ""}`);
+};
+
+/** P2: download timeline CSV for one unit. */
+export const downloadUnitTimelineCsvAPI = async (unitId, assetLabel = "asset") => {
+  const token = localStorage.getItem("token");
+  const res = await fetch(`${IT_API_BASE}/units/${unitId}/timeline.csv`, {
+    method: "GET",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw errorFromApiResponse(res, data);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safe = String(assetLabel || "asset")
+    .replace(/[^\w\-]+/g, "_")
+    .slice(0, 40);
+  a.href = url;
+  a.download = `${safe || "asset"}-timeline.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
+export const deleteAssetUnitAPI = async (
+  unitId,
+  { notes = null, remark = null, reasonCode = null, conditionGrade = null } = {},
+) =>
+  _itFetch(`/units/${unitId}`, {
+    method: "DELETE",
+    body: {
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      reason_code: reasonCode || "PERMANENT_DELETE",
+      condition_grade: conditionGrade || "Fail",
+    },
+  });
 
 export const fetchEmployeeAssetsAPI = async (empId) => {
   const res = await _itFetch(`/employees/${encodeURIComponent(empId)}/assets`);
@@ -1606,16 +1731,34 @@ export const lookupEmployeeByEmpIdOrEmailAPI = async (query) => {
   return Array.isArray(res?.employees) ? res.employees : [];
 };
 
-export const returnAssetUnitAPI = async (unitId, status = "available") =>
+export const returnAssetUnitAPI = async (
+  unitId,
+  status = "available",
+  { notes = null, remark = null, reasonCode = null, conditionGrade = null } = {},
+) =>
   _itFetch(`/assignments/units/${unitId}/return`, {
     method: "POST",
-    body: { status },
+    body: {
+      status,
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      reason_code: reasonCode || null,
+      condition_grade: conditionGrade || null,
+    },
   });
 
-export const returnSoftwareLicenseAPI = async (licenseId) =>
+export const returnSoftwareLicenseAPI = async (
+  licenseId,
+  { notes = null, remark = null, reasonCode = null, conditionGrade = null } = {},
+) =>
   _itFetch(`/assignments/software/${licenseId}/return`, {
     method: "POST",
-    body: {},
+    body: {
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      reason_code: reasonCode || null,
+      condition_grade: conditionGrade || null,
+    },
   });
 
 export const createReturnRequestAPI = async ({
@@ -1663,17 +1806,33 @@ export const listEmployeeReturnRequestsAPI = async (empId, { status = "" } = {})
   return Array.isArray(res?.requests) ? res.requests : [];
 };
 
-export const approveReturnRequestAPI = async (requestId) =>
-  _itFetch(`/return-requests/${requestId}/approve`, { method: "PATCH" });
+export const approveReturnRequestAPI = async (requestId, { notes = null, remark = null } = {}) =>
+  _itFetch(`/return-requests/${requestId}/approve`, {
+    method: "PATCH",
+    body: {
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+    },
+  });
 
 export const rejectReturnRequestAPI = async (requestId, rejectionReason) =>
   _itFetch(`/return-requests/${requestId}/reject`, {
     method: "PATCH",
-    body: { rejection_reason: rejectionReason },
+    body: { rejection_reason: rejectionReason, remark: rejectionReason, notes: rejectionReason },
   });
 
-export const completeReturnRequestAPI = async (requestId) =>
-  _itFetch(`/return-requests/${requestId}/complete`, { method: "PATCH" });
+export const completeReturnRequestAPI = async (
+  requestId,
+  { notes = null, remark = null, conditionGrade = null } = {},
+) =>
+  _itFetch(`/return-requests/${requestId}/complete`, {
+    method: "PATCH",
+    body: {
+      notes: notes || remark || null,
+      remark: remark || notes || null,
+      condition_grade: conditionGrade || null,
+    },
+  });
 
 export const renewSoftwareLicenseAPI = async ({ licenseId, subscriptionEnd }) =>
   _itFetch(`/software/licenses/${licenseId}/renew`, {

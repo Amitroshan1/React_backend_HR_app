@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { fetchManagerTeamAttendance } from "./api";
+import { useAttendanceUpdatedListener } from "../../hooks/useAttendanceEvents";
 import "./ManagerTeamAttendance.css";
 
 function formatSessionTime(iso) {
@@ -78,6 +79,22 @@ export function ManagerTeamAttendance({ scope }) {
       cancelled = true;
     };
   }, [month, year]);
+
+  const reloadQuiet = useCallback(async () => {
+    try {
+      const data = await fetchManagerTeamAttendance(month, year);
+      setRows(Array.isArray(data) ? data : []);
+    } catch {
+      /* keep existing rows; polling/SSE retry later */
+    }
+  }, [month, year]);
+
+  useAttendanceUpdatedListener(() => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+      return;
+    }
+    reloadQuiet();
+  });
 
   const circleLabel = (scope?.circle || "—").trim() || "—";
   const deptLabel = (scope?.emp_type || "—").trim() || "—";

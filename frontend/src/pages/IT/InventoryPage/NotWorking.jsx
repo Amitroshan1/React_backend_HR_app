@@ -27,6 +27,8 @@ import {
   unitBelongsToInventoryCategory,
   resolveInventoryCategory,
 } from "../inventoryCategories";
+import { useTransitionRemark } from "../itam/TransitionRemarkModal";
+import { remarkPayload } from "../itam/transitionUi";
 import "./InventoryDashboard.css";
 import "./NotWorking.css";
 import {
@@ -63,8 +65,9 @@ function dispatchInventoryUpdate() {
 // ─── DeleteModal ──────────────────────────────────────────────────────────────
 
 function DeleteModal({ asset, onConfirm, onCancel }) {
+  const prefilledReason = String(asset?._remarkText || "").trim();
   const [deletedBy, setDeletedBy] = useState("");
-  const [reason,    setReason]    = useState("");
+  const [reason,    setReason]    = useState(prefilledReason);
   const [errors,    setErrors]    = useState({});
 
   const displayName = asset?.brand
@@ -75,6 +78,7 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
     const nextErrors = {};
     if (!deletedBy.trim()) nextErrors.deletedBy = "Required";
     if (!reason.trim())    nextErrors.reason    = "Required";
+    else if (reason.trim().length < 20) nextErrors.reason = "Min 20 characters";
     if (Object.keys(nextErrors).length) { setErrors(nextErrors); return; }
     onConfirm(deletedBy.trim(), reason.trim());
   };
@@ -84,6 +88,9 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
       <div className="nw-modal-box" onClick={(e) => e.stopPropagation()}>
         <h3 className="nw-modal-title">Remove Asset Permanently?</h3>
         <p className="nw-modal-sub">{displayName}</p>
+        {prefilledReason ? (
+          <p className="nw-modal-sub">Remarks already captured — confirm removed-by.</p>
+        ) : null}
 
         <div className="nw-modal-field">
           <label>Removed By *</label>
@@ -158,6 +165,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
   const [searchQuery,    setSearchQuery]    = useState("");
   const [removeTarget,   setRemoveTarget]   = useState(null);
   const [toast,          setToast]          = useState("");
+  const { requestRemark } = useTransitionRemark();
 
   useEffect(() => {
     setActiveCategory("All");
@@ -251,6 +259,15 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleSendToRepair = useCallback(async (unit) => {
+    const remarkResult = await requestRemark("SEND_REPAIR", {
+      force: true,
+      assetLabel: unit?.assetName || unit?.serialNumber || unit?.brand || "Asset",
+      subtitle: "Move from Not Working → Repair",
+    });
+    if (remarkResult === null) return;
+    const fields = remarkPayload(remarkResult);
+    const remarkText = String(fields.remark || "").trim();
+
     if (unit?.isQuantityRow) {
       const maxQty = Number(unit.notWorkingQuantity || 0);
       const input = window.prompt(`Enter quantity to move to Repair (1-${maxQty})`, "1");
@@ -267,6 +284,17 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
           available_quantity: Number(unit.availableQuantity || 0),
           assigned_quantity: Number(unit.assignedQuantity || 0),
           total_quantity: Number(unit.totalQuantity || 0),
+          ...(remarkText
+            ? {
+                notes: [
+                  String(unit.notes || "").trim(),
+                  `[Repair x${qty}] ${remarkText}`,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+                  .slice(0, 500),
+              }
+            : {}),
         });
         await syncITDataFromAPI();
       } catch (err) {
@@ -281,15 +309,21 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
     }
 
     try {
-      await setUnitStatusAPI({ unitId: unit.id, status: "repair" });
+      await setUnitStatusAPI({ unitId: unit.id, status: "repair", ...fields });
       await syncITDataFromAPI();
     } catch (err) {
       console.error("[NotWorking] set repair via API failed:", err);
       toastITApiFailure(err, "Could not move this unit to repair on the server.");
+      return;
     }
     const updated = readAssetUnits().map((u) =>
       u.id === unit.id
-        ? { ...u, status: "repair", repairDate: u.repairDate ?? new Date().toISOString() }
+        ? {
+            ...u,
+            status: "repair",
+            repairDate: u.repairDate ?? new Date().toISOString(),
+            lastRemark: fields.remark || u.lastRemark,
+          }
         : u,
     );
     writeAssetUnits(updated);
@@ -298,9 +332,30 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
     reload();
     const { primary } = getUnitBrandModelDisplay(unit, inventoryCategory);
     showToast(`${primary} sent to repair ✓`);
-  }, [reload, showToast, inventoryCategory]);
+  }, [reload, showToast, inventoryCategory, requestRemark]);
+
+  const handleRemovePrompt = useCallback(async (unit) => {
+    const remarkResult = await requestRemark("RETIRE", {
+      force: true,
+      assetLabel: unit?.assetName || unit?.serialNumber || unit?.brand || "Asset",
+      subtitle: "Remove / retire from inventory",
+      defaultReasonCode: "PERMANENT_DELETE",
+      defaultConditionGrade: "Fail",
+    });
+    if (remarkResult === null) return;
+    setRemoveTarget({
+      ...unit,
+      _remarkFields: remarkPayload(remarkResult),
+      _remarkText: String(remarkResult.remark || "").trim(),
+    });
+  }, [requestRemark]);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
+    const retireFields = {
+      ...(removeTarget?._remarkFields || {}),
+      remark: reason || removeTarget?._remarkText || "",
+      notes: reason || removeTarget?._remarkText || "",
+    };
     if (removeTarget?.isQuantityRow) {
       const maxQty = Number(removeTarget.notWorkingQuantity || 0);
       const input = window.prompt(`Enter quantity to remove as dead device (1-${maxQty})`, "1");
@@ -348,7 +403,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
       await createDeletedLogAPI(
         buildDeletedLogApiPayload(removeTarget, deletedBy, reason, deletedId),
       );
-      await deleteAssetUnitAPI(removeTarget.id);
+      await deleteAssetUnitAPI(removeTarget.id, retireFields);
       await syncITDataFromAPI();
       await syncDeletedLogsFromAPI();
     } catch (err) {
@@ -446,7 +501,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
                     inventoryCategory={inventoryCategory}
                     serialColLabel={serialColLabel}
                     onSendToRepair={handleSendToRepair}
-                    onRemove={setRemoveTarget}
+                    onRemove={handleRemovePrompt}
                   />
                 ))
               )}

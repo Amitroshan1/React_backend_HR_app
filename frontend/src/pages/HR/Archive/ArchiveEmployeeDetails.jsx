@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
-import { fetchAuthenticatedObjectUrl } from '../../../utils/secureFileUrl';
+import { fetchAuthenticatedObjectUrl, toAuthContentUrl } from '../../../utils/secureFileUrl';
+import { fetchAndOpenAuthenticatedFile } from '../../../utils/openBlobFile';
 import './Archive.css';
 
 const HR_API_BASE = '/api/HumanResource';
@@ -62,8 +63,6 @@ const ArchiveEmployeeDetails = () => {
   const openArchiveDoc = async (path) => {
     if (!path) return;
     try {
-      const { fetchAndOpenAuthenticatedFile } = await import('../../../utils/openBlobFile');
-      const { toAuthContentUrl } = await import('../../../utils/secureFileUrl');
       await fetchAndOpenAuthenticatedFile(toAuthContentUrl(path), {
         fileName: String(path).split('/').pop() || 'document',
       });

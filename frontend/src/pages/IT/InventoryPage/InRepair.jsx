@@ -19,6 +19,10 @@ import {
   setUnitStatusAPI,
   updateInventoryItemAPI
 } from "../Data";
+import { useTransitionRemark } from "../itam/TransitionRemarkModal";
+import { remarkPayload } from "../itam/transitionUi";
+import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
+import { isItamFlagEnabled } from "../../../utils/itamFlags";
 import {
   getHardwareFields,
   getInventoryStatusCategoryTabs,
@@ -94,8 +98,9 @@ function dispatchInventoryUpdate() {
 // ─── DeleteModal ──────────────────────────────────────────────────────────────
 
 function DeleteModal({ asset, onConfirm, onCancel }) {
+  const prefilledReason = String(asset?._remarkText || "").trim();
   const [deletedBy, setDeletedBy] = useState("");
-  const [reason,    setReason]    = useState("");
+  const [reason,    setReason]    = useState(prefilledReason);
   const [errors,    setErrors]    = useState({});
 
   const displayName = asset?.brand
@@ -106,6 +111,7 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
     const nextErrors = {};
     if (!deletedBy.trim()) nextErrors.deletedBy = "Required";
     if (!reason.trim())    nextErrors.reason    = "Required";
+    else if (reason.trim().length < 20) nextErrors.reason = "Min 20 characters";
     if (Object.keys(nextErrors).length) { setErrors(nextErrors); return; }
     onConfirm(deletedBy.trim(), reason.trim());
   };
@@ -117,7 +123,7 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
         <p className="repair-modal-sub">{displayName}</p>
         <p className="repair-modal-sub">
           This device will be moved to <strong>Dead Assets</strong> and removed from active inventory.
-          Please confirm to continue.
+          {prefilledReason ? " Remarks already captured — confirm removed-by." : " Please confirm to continue."}
         </p>
 
         <div className="repair-modal-field">
@@ -154,7 +160,7 @@ function DeleteModal({ asset, onConfirm, onCancel }) {
 
 // ─── RepairRow ────────────────────────────────────────────────────────────────
 
-function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove, serialColLabel }) {
+function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove, onViewHistory, serialColLabel }) {
   const isCatalogQty = isCatalogQtyRepairRow(unit);
   const days = isCatalogQty ? null : getDaysElapsed(unit.repairDate);
   const { primary, secondary } = getUnitBrandModelDisplay(unit, inventoryCategory);
@@ -162,6 +168,11 @@ function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove, serialC
     unit?.isQuantityLine && unit.qtyLineTotal > 1
       ? `Unit ${unit.qtyLineIndex} of ${unit.qtyLineTotal}`
       : null;
+  const canHistory =
+    typeof onViewHistory === "function" &&
+    !isCatalogQty &&
+    unit?.id != null &&
+    Number.isFinite(Number(unit.id));
   return (
     <tr className={index % 2 === 0 ? "tr-even" : "tr-odd"}>
       <td data-label="Brand / Name">
@@ -170,6 +181,11 @@ function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove, serialC
         {lineLabel ? (
           <span className="repair-model" style={{ display: "block", marginTop: 2 }}>
             {lineLabel}
+          </span>
+        ) : null}
+        {unit?.lastRemark ? (
+          <span className="repair-model" style={{ display: "block", marginTop: 2 }} title={unit.lastRemark}>
+            Last remark: {unit.lastRemark}
           </span>
         ) : null}
       </td>
@@ -190,6 +206,11 @@ function RepairRow({ unit, index, inventoryCategory, onReturn, onRemove, serialC
         )}
       </td>
       <td className="repair-actions" data-label="Actions">
+        {canHistory ? (
+          <button type="button" className="repair-btn-return" onClick={() => onViewHistory(unit)}>
+            History
+          </button>
+        ) : null}
         <button className="repair-btn-return" onClick={() => onReturn(unit)}>Repaired</button>
         <button className="repair-btn-remove" onClick={() => onRemove(unit)}>Dead Device</button>
       </td>
@@ -211,6 +232,9 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
   const [searchQuery,  setSearchQuery]  = useState("");
   const [removeTarget, setRemoveTarget] = useState(null);
   const [toast,        setToast]        = useState("");
+  const [historyUnit, setHistoryUnit] = useState(null);
+  const { requestRemark } = useTransitionRemark();
+  const timelineOn = isItamFlagEnabled("itam_timeline_v1");
 
   useEffect(() => {
     setActiveCategory("All");
@@ -383,8 +407,17 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     );
     if (!ok) return;
 
+    const remarkResult = await requestRemark("COMPLETE_REPAIR", {
+      force: true,
+      assetLabel: unit.assetName || unit.serialNumber || unit.name || "Asset",
+      subtitle: "Return from repair to available",
+      defaultConditionGrade: "B",
+    });
+    if (remarkResult === null) return;
+    const fields = remarkPayload(remarkResult);
+
     try {
-      await setUnitStatusAPI({ unitId: unit.id, status: "available" });
+      await setUnitStatusAPI({ unitId: unit.id, status: "available", ...fields });
       await syncITDataFromAPI();
     } catch (err) {
       console.error("[InRepair] set available via API failed:", err);
@@ -393,7 +426,9 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     }
 
     const updated = readAssetUnits().map((u) =>
-      u.id === unit.id ? { ...u, status: "available", repairDate: null } : u,
+      u.id === unit.id
+        ? { ...u, status: "available", repairDate: null, lastRemark: fields.remark || u.lastRemark }
+        : u,
     );
     writeAssetUnits(updated);
     syncInventoryCount(unit, "fromRepairToAvailable");
@@ -401,17 +436,34 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     reload();
     const { primary } = getUnitBrandModelDisplay(unit, inventoryCategory);
     showToast(`${primary} marked repaired and moved to available ✓`);
-  }, [reload, showToast, inventoryCategory]);
+  }, [reload, showToast, inventoryCategory, requestRemark]);
 
-  const handleRemovePrompt = useCallback((unit) => {
+  const handleRemovePrompt = useCallback(async (unit) => {
     const ok = window.confirm(
       "This will move the device to Dead Assets and remove it from active inventory. Continue?",
     );
     if (!ok) return;
-    setRemoveTarget(unit);
-  }, []);
+    const remarkResult = await requestRemark("RETIRE", {
+      force: true,
+      assetLabel: unit?.assetName || unit?.serialNumber || unit?.brand || "Asset",
+      subtitle: "Remove / retire from inventory",
+      defaultReasonCode: "PERMANENT_DELETE",
+      defaultConditionGrade: "Fail",
+    });
+    if (remarkResult === null) return;
+    setRemoveTarget({
+      ...unit,
+      _remarkFields: remarkPayload(remarkResult),
+      _remarkText: String(remarkResult.remark || "").trim(),
+    });
+  }, [requestRemark]);
 
   const handleRemoveConfirm = useCallback(async (deletedBy, reason) => {
+    const retireFields = {
+      ...(removeTarget?._remarkFields || {}),
+      remark: reason || removeTarget?._remarkText || "",
+      notes: reason || removeTarget?._remarkText || "",
+    };
     if (isCatalogQtyRepairRow(removeTarget)) {
       const maxQty = removeTarget?.isQuantityLine
         ? 1
@@ -464,7 +516,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
       await createDeletedLogAPI(
         buildDeletedLogApiPayload(removeTarget, deletedBy, reason, deletedId),
       );
-      await deleteAssetUnitAPI(removeTarget.id);
+      await deleteAssetUnitAPI(removeTarget.id, retireFields);
       await syncITDataFromAPI();
       await syncDeletedLogsFromAPI();
     } catch (err) {
@@ -565,6 +617,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
                     serialColLabel={serialColLabel}
                     onReturn={handleReturn}
                     onRemove={handleRemovePrompt}
+                    onViewHistory={timelineOn ? setHistoryUnit : undefined}
                   />
                 ))
               )}
@@ -580,6 +633,19 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
           onCancel={() => setRemoveTarget(null)}
         />
       )}
+
+      {historyUnit && timelineOn ? (
+        <AssetHistoryTimeline
+          unitId={Number(historyUnit.id)}
+          assetLabel={
+            historyUnit.assetName ||
+            historyUnit.serialNumber ||
+            `${historyUnit.brand || ""} ${historyUnit.model || ""}`.trim() ||
+            "Asset"
+          }
+          onClose={() => setHistoryUnit(null)}
+        />
+      ) : null}
     </>
   );
 }

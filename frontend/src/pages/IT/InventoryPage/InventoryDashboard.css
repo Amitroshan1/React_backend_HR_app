@@ -708,6 +708,9 @@ body {
 }
 
 .inv-cat-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 16px;
   border-radius: 999px;
   border: 1.5px solid #e2e8f0;
@@ -726,32 +729,43 @@ body {
 }
 
 .inv-cat-filter-chip--active {
+  /* Default active look — used by Status / Category tabs without a color variant.
+     Variant modifiers below override the background when present. */
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35);
 }
 
 .inv-cat-filter-chip--active.inv-cat-filter-chip--all {
   background: linear-gradient(135deg, #334155, #1e293b);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.2);
 }
 
 .inv-cat-filter-chip--active.inv-cat-filter-chip--hardware {
   background: linear-gradient(135deg, #3b82f6, #2563eb);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
 }
 
 .inv-cat-filter-chip--active.inv-cat-filter-chip--software {
   background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
 }
 
 .inv-cat-filter-chip--active.inv-cat-filter-chip--accessories {
   background: linear-gradient(135deg, #f59e0b, #d97706);
+  box-shadow: 0 4px 14px rgba(217, 119, 6, 0.35);
 }
 
 .inv-cat-filter-chip--active.inv-cat-filter-chip--consumables {
   background: linear-gradient(135deg, #ec4899, #db2777);
+  box-shadow: 0 4px 14px rgba(219, 39, 119, 0.35);
 }
 
 .inv-hw-subfilter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 14px;
   border-radius: 10px;
   border: 1.5px solid #dbeafe;
@@ -775,6 +789,27 @@ body {
   border-color: transparent;
   color: #fff;
   box-shadow: 0 3px 12px rgba(14, 165, 233, 0.35);
+}
+
+.inv-hw-subfilter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  padding: 0 5px;
+  height: 1.2rem;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(15, 23, 42, 0.08);
+  color: inherit;
+}
+
+.inv-hw-subfilter-chip--active .inv-hw-subfilter-count,
+.inv-cat-filter-chip--active .inv-hw-subfilter-count {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
 }
 
 .inv-project-chip {

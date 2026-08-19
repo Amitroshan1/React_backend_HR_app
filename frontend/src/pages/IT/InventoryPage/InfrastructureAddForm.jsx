@@ -1,18 +1,47 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { toast } from "react-toastify";
 import StockInventoryForm from "./StockInventoryForm";
 import InfraEquipmentForm from "./InfraEquipmentForm";
-import { INVENTORY_CATEGORY_CONFIG } from "../inventoryCategories";
+import {
+  ADD_NEW_HW_TYPE_VALUE,
+  addCustomHwType,
+  getHwTypesForCategory,
+  hwTypeOptionLabel,
+  subscribeHwTypesChange,
+} from "../inventoryCategories";
 import "./AddnewAssets.css";
 
 const INV_CAT = "Infrastructure Assets";
-const EQUIP_TYPES =
-  INVENTORY_CATEGORY_CONFIG[INV_CAT]?.equipmentTypes ||
-  ["Networking", "Power", "Cooling", "Security", "Other"];
 
 export default function InfrastructureAddForm() {
   const [mode, setMode] = useState("stock");
-  const [equipmentType, setEquipmentType] = useState(EQUIP_TYPES[0]);
+  const [equipTypes, setEquipTypes] = useState(() =>
+    getHwTypesForCategory(INV_CAT, { includeAddNew: true }),
+  );
+  const [equipmentType, setEquipmentType] = useState(
+    () => getHwTypesForCategory(INV_CAT)[0] || "Networking",
+  );
   const [customType, setCustomType] = useState("");
+
+  useEffect(() => {
+    const refresh = () => setEquipTypes(getHwTypesForCategory(INV_CAT, { includeAddNew: true }));
+    refresh();
+    return subscribeHwTypesChange(refresh);
+  }, []);
+
+  const isAddingNew = equipmentType === ADD_NEW_HW_TYPE_VALUE;
+
+  const confirmNewType = useCallback(() => {
+    const saved = addCustomHwType(INV_CAT, customType);
+    if (!saved) {
+      toast.error("Enter a valid equipment type name.");
+      return;
+    }
+    setEquipTypes(getHwTypesForCategory(INV_CAT, { includeAddNew: true }));
+    setEquipmentType(saved);
+    setCustomType("");
+    toast.success(`Equipment type “${saved}” added`);
+  }, [customType]);
 
   return (
     <div className="ana-page">
@@ -53,25 +82,39 @@ export default function InfrastructureAddForm() {
                       className="ana-hwtype-select"
                       value={equipmentType}
                       onChange={(e) => {
-                        setEquipmentType(e.target.value);
-                        if (e.target.value !== "Other") setCustomType("");
+                        const v = e.target.value;
+                        setEquipmentType(v);
+                        setCustomType("");
                       }}
                     >
-                      {EQUIP_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
+                      {equipTypes.map((t) => (
+                        <option key={t} value={t}>
+                          {hwTypeOptionLabel(t)}
+                        </option>
                       ))}
                     </select>
                     <span className="ana-hwtype-chevron">▾</span>
                   </div>
                 </div>
-                {equipmentType === "Other" && (
+                {isAddingNew && (
                   <div className="ana-hwtype-custom-block">
-                    <label className="ana-hwtype-label">Type name</label>
-                    <input
-                      className="ana-hwtype-custom-input"
-                      value={customType}
-                      onChange={(e) => setCustomType(e.target.value)}
-                    />
+                    <label className="ana-hwtype-label">New type name</label>
+                    <div className="ana-hwtype-custom-row">
+                      <input
+                        className="ana-hwtype-custom-input"
+                        value={customType}
+                        onChange={(e) => setCustomType(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            confirmNewType();
+                          }
+                        }}
+                      />
+                      <button type="button" className="ana-hwtype-add-btn" onClick={confirmNewType}>
+                        Add
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -89,8 +132,12 @@ export default function InfrastructureAddForm() {
             stockCategory="Stock"
             saveErrorMessage="Failed to save infrastructure stock."
           />
+        ) : isAddingNew ? (
+          <p className="ana-office-hint" style={{ marginTop: 12 }}>
+            Add and confirm the new equipment type above to continue.
+          </p>
         ) : (
-          <InfraEquipmentForm equipmentType={equipmentType} customType={customType} />
+          <InfraEquipmentForm equipmentType={equipmentType} />
         )}
       </main>
     </div>

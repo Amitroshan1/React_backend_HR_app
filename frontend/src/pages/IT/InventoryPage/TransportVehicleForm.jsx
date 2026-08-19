@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
@@ -12,12 +12,17 @@ import {
   getFieldMeta,
   InventoryFileCell,
 } from "./inventoryFileUpload";
-import { INVENTORY_CATEGORY_CONFIG } from "../inventoryCategories";
+import {
+  ADD_NEW_HW_TYPE_VALUE,
+  addCustomHwType,
+  getHwTypesForCategory,
+  hwTypeOptionLabel,
+  subscribeHwTypesChange,
+} from "../inventoryCategories";
 import "./AddnewAssets.css";
 
 const BASE = "/it/inventory";
 const INV_CAT = "Transport Assets";
-const HW_TYPES = INVENTORY_CATEGORY_CONFIG[INV_CAT]?.hwTypes || ["Car", "Van", "Other"];
 
 const blankRow = () => ({
   id: Date.now() + Math.random(),
@@ -74,14 +79,38 @@ function CellInput({ value, onChange, placeholder, error, type = "text", classNa
 
 export default function TransportVehicleForm() {
   const navigate = useNavigate();
-  const [vehicleType, setVehicleType] = useState(HW_TYPES[0]);
+  const [hwTypes, setHwTypes] = useState(() =>
+    getHwTypesForCategory(INV_CAT, { includeAddNew: true }),
+  );
+  const [vehicleType, setVehicleType] = useState(
+    () => getHwTypesForCategory(INV_CAT)[0] || "Car",
+  );
   const [customType, setCustomType] = useState("");
   const [rows, setRows] = useState([blankRow()]);
   const [submitted, setSubmitted] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const effectiveType = vehicleType === "Other" ? customType.trim() : vehicleType;
+  useEffect(() => {
+    const refresh = () => setHwTypes(getHwTypesForCategory(INV_CAT, { includeAddNew: true }));
+    refresh();
+    return subscribeHwTypesChange(refresh);
+  }, []);
+
+  const isAddingNew = vehicleType === ADD_NEW_HW_TYPE_VALUE;
+  const effectiveType = isAddingNew ? "" : vehicleType;
+
+  const confirmNewType = useCallback(() => {
+    const saved = addCustomHwType(INV_CAT, customType);
+    if (!saved) {
+      toast.error("Enter a valid vehicle type name.");
+      return;
+    }
+    setHwTypes(getHwTypesForCategory(INV_CAT, { includeAddNew: true }));
+    setVehicleType(saved);
+    setCustomType("");
+    toast.success(`Vehicle type “${saved}” added`);
+  }, [customType]);
 
   const updateRow = useCallback((id, field, value) => {
     setRows((prev) =>
@@ -145,8 +174,8 @@ export default function TransportVehicleForm() {
 
   const handleSubmit = useCallback(async () => {
     setSubmitted(true);
-    if (vehicleType === "Other" && !customType.trim()) {
-      toast.error("Enter a vehicle type for Other.");
+    if (isAddingNew) {
+      toast.error("Confirm the new vehicle type before saving.");
       return;
     }
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r) }));
@@ -212,7 +241,7 @@ export default function TransportVehicleForm() {
     } finally {
       setSaving(false);
     }
-  }, [rows, vehicleType, customType, effectiveType]);
+  }, [rows, vehicleType, effectiveType, isAddingNew]);
 
   return (
     <div className="ana-page">
@@ -235,101 +264,121 @@ export default function TransportVehicleForm() {
                     className="ana-hwtype-select"
                     value={vehicleType}
                     onChange={(e) => {
-                      setVehicleType(e.target.value);
-                      if (e.target.value !== "Other") setCustomType("");
+                      const v = e.target.value;
+                      setVehicleType(v);
+                      setCustomType("");
                     }}
                   >
-                    {HW_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                    {hwTypes.map((t) => (
+                      <option key={t} value={t}>
+                        {hwTypeOptionLabel(t)}
+                      </option>
                     ))}
                   </select>
                   <span className="ana-hwtype-chevron">▾</span>
                 </div>
               </div>
-              {vehicleType === "Other" && (
+              {isAddingNew && (
                 <div className="ana-hwtype-custom-block">
-                  <label className="ana-hwtype-label">Type name <span className="req">*</span></label>
-                  <input
-                    className="ana-hwtype-custom-input"
-                    placeholder="e.g. Forklift"
-                    value={customType}
-                    onChange={(e) => setCustomType(e.target.value)}
-                  />
+                  <label className="ana-hwtype-label">
+                    New type name <span className="req">*</span>
+                  </label>
+                  <div className="ana-hwtype-custom-row">
+                    <input
+                      className="ana-hwtype-custom-input"
+                      placeholder="e.g. Forklift"
+                      value={customType}
+                      onChange={(e) => setCustomType(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          confirmNewType();
+                        }
+                      }}
+                    />
+                    <button type="button" className="ana-hwtype-add-btn" onClick={confirmNewType}>
+                      Add
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           </div>
         </section>
 
-        <section className="ana-section ana-section-table">
-          <div className="ana-section-head">
-            <span className="ana-section-num">02</span>
-            <h2>Add vehicles — {effectiveType || "Other"}</h2>
-          </div>
-          <div className="ana-table-wrap">
-            <table className="ana-table">
-              <thead>
-                <tr>
-                  <th className="ana-th-idx">#</th>
-                  <th>Fleet / owner <span className="req">*</span></th>
-                  <th>Make <span className="req">*</span></th>
-                  <th>Model <span className="req">*</span></th>
-                  <th>Registration <span className="req">*</span></th>
-                  <th>Dealer / vendor</th>
-                  <th>Purchase date <span className="req">*</span></th>
-                  <th>Parking / location</th>
-                  <th>Photos</th>
-                  <th>Receipt</th>
-                  <th className="ana-th-action" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={row.id} className={Object.keys(row._errors).length ? "row-invalid" : ""}>
-                    <td className="ana-td-idx">{idx + 1}</td>
-                    <CellInput value={row.fleet} error={row._errors.fleet} placeholder="Company fleet" onChange={(e) => updateRow(row.id, "fleet", e.target.value)} />
-                    <CellInput value={row.make} error={row._errors.make} placeholder="Toyota" onChange={(e) => updateRow(row.id, "make", e.target.value)} />
-                    <CellInput value={row.model} error={row._errors.model} placeholder="Innova" onChange={(e) => updateRow(row.id, "model", e.target.value)} />
-                    <CellInput value={row.registration} error={row._errors.registration} placeholder="MH12AB1234" className="mono" onChange={(e) => updateRow(row.id, "registration", e.target.value)} />
-                    <CellInput value={row.vendor} placeholder="Dealer" onChange={(e) => updateRow(row.id, "vendor", e.target.value)} />
-                    <CellInput value={row.purchaseDate} error={row._errors.purchaseDate} type="date" onChange={(e) => updateRow(row.id, "purchaseDate", e.target.value)} />
-                    <CellInput value={row.location} placeholder="Parking" onChange={(e) => updateRow(row.id, "location", e.target.value)} />
-                    <InventoryFileCell
-                      row={row}
-                      field="photos"
-                      buttonLabel="Upload"
-                      accept="image/*"
-                      imagesOnly
-                      onUpload={uploadFiles}
-                    />
-                    <InventoryFileCell
-                      row={row}
-                      field="receipts"
-                      buttonLabel="Receipt"
-                      accept="*/*"
-                      imagesOnly={false}
-                      onUpload={uploadFiles}
-                    />
-                    <td className="ana-td-action">
-                      <button type="button" className="ana-btn-rm-row" onClick={() => setRows((p) => (p.length > 1 ? p.filter((r) => r.id !== row.id) : p))} disabled={rows.length === 1}>✕</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button type="button" className="ana-btn-add-row" onClick={() => setRows((p) => [...p, blankRow()])}>+ Add Row</button>
-        </section>
+        {!isAddingNew && (
+          <>
+            <section className="ana-section ana-section-table">
+              <div className="ana-section-head">
+                <span className="ana-section-num">02</span>
+                <h2>Add vehicles — {effectiveType || "Vehicle"}</h2>
+              </div>
+              <div className="ana-table-wrap">
+                <table className="ana-table">
+                  <thead>
+                    <tr>
+                      <th className="ana-th-idx">#</th>
+                      <th>Fleet / owner <span className="req">*</span></th>
+                      <th>Make <span className="req">*</span></th>
+                      <th>Model <span className="req">*</span></th>
+                      <th>Registration <span className="req">*</span></th>
+                      <th>Dealer / vendor</th>
+                      <th>Purchase date <span className="req">*</span></th>
+                      <th>Parking / location</th>
+                      <th>Photos</th>
+                      <th>Receipt</th>
+                      <th className="ana-th-action" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, idx) => (
+                      <tr key={row.id} className={Object.keys(row._errors).length ? "row-invalid" : ""}>
+                        <td className="ana-td-idx">{idx + 1}</td>
+                        <CellInput value={row.fleet} error={row._errors.fleet} placeholder="Company fleet" onChange={(e) => updateRow(row.id, "fleet", e.target.value)} />
+                        <CellInput value={row.make} error={row._errors.make} placeholder="Toyota" onChange={(e) => updateRow(row.id, "make", e.target.value)} />
+                        <CellInput value={row.model} error={row._errors.model} placeholder="Innova" onChange={(e) => updateRow(row.id, "model", e.target.value)} />
+                        <CellInput value={row.registration} error={row._errors.registration} placeholder="MH12AB1234" className="mono" onChange={(e) => updateRow(row.id, "registration", e.target.value)} />
+                        <CellInput value={row.vendor} placeholder="Dealer" onChange={(e) => updateRow(row.id, "vendor", e.target.value)} />
+                        <CellInput value={row.purchaseDate} error={row._errors.purchaseDate} type="date" onChange={(e) => updateRow(row.id, "purchaseDate", e.target.value)} />
+                        <CellInput value={row.location} placeholder="Parking" onChange={(e) => updateRow(row.id, "location", e.target.value)} />
+                        <InventoryFileCell
+                          row={row}
+                          field="photos"
+                          buttonLabel="Upload"
+                          accept="image/*"
+                          imagesOnly
+                          onUpload={uploadFiles}
+                        />
+                        <InventoryFileCell
+                          row={row}
+                          field="receipts"
+                          buttonLabel="Receipt"
+                          accept="*/*"
+                          imagesOnly={false}
+                          onUpload={uploadFiles}
+                        />
+                        <td className="ana-td-action">
+                          <button type="button" className="ana-btn-rm-row" onClick={() => setRows((p) => (p.length > 1 ? p.filter((r) => r.id !== row.id) : p))} disabled={rows.length === 1}>✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button type="button" className="ana-btn-add-row" onClick={() => setRows((p) => [...p, blankRow()])}>+ Add Row</button>
+            </section>
 
-        <div className="ana-footer">
-          <div className="ana-footer-info">{successMsg && <span className="ana-footer-success">{successMsg}</span>}</div>
-          <div className="ana-footer-actions">
-            <button type="button" className="ana-btn-cancel" onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(INV_CAT)}`)}>Cancel</button>
-            <button type="button" className="ana-btn-submit" onClick={handleSubmit} disabled={saving}>
-              {saving ? "Saving…" : "Save to Inventory"}
-            </button>
-          </div>
-        </div>
+            <div className="ana-footer">
+              <div className="ana-footer-info">{successMsg && <span className="ana-footer-success">{successMsg}</span>}</div>
+              <div className="ana-footer-actions">
+                <button type="button" className="ana-btn-cancel" onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(INV_CAT)}`)}>Cancel</button>
+                <button type="button" className="ana-btn-submit" onClick={handleSubmit} disabled={saving}>
+                  {saving ? "Saving…" : "Save to Inventory"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

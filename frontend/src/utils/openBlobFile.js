@@ -3,6 +3,13 @@
  * Avoids window.open() which browsers block after await (popup blocker).
  */
 
+import {
+  isLegacyStaticUploadUrl,
+  toAccountsFileUrl,
+  toAuthContentUrl,
+  isSecureApiFileUrl,
+} from "./secureFileUrl.js";
+
 const INLINE_VIEWABLE_PREFIXES = ["image/", "text/", "application/pdf"];
 
 export function isInlineViewableBlob(blob, fileName = "") {
@@ -68,8 +75,6 @@ export async function fetchAndOpenAuthenticatedFile(url, {
 
   let fetchUrl = url;
   try {
-    const { isLegacyStaticUploadUrl, toAccountsFileUrl, toAuthContentUrl, isSecureApiFileUrl } =
-      await import("./secureFileUrl.js");
     if (isLegacyStaticUploadUrl(fetchUrl) && !String(fetchUrl).includes("/api/")) {
       // Prefer accounts file route for payslip/form16/tax; else generic content route
       const lower = String(fetchUrl).toLowerCase();

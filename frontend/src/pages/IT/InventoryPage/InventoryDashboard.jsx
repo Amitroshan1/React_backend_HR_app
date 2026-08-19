@@ -30,6 +30,11 @@ import {
   getDeletedAssetsFromStorage,
   getSoftwareInventory
 } from "../Data";
+import { useTransitionRemark } from "../itam/TransitionRemarkModal";
+import { actionCodeForStatusChange, remarkPayload } from "../itam/transitionUi";
+import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
+import { isItamFlagEnabled } from "../../../utils/itamFlags";
+import { unitCustodyLabel, unitStatusLabel } from "../itam/lifecycleUi";
 
 import AddNewAssets    from "./AddnewAssets";
 import NotWorking      from "./NotWorking";
@@ -59,6 +64,10 @@ import {
   getDeployModalConfig,
   rowSupportsInventoryDeploy,
   isUnitDeployRow,
+  getAccessoryTypesForCategory,
+  getConsumableTypesForCategory,
+  getHwTypesForCategory,
+  subscribeHwTypesChange,
   INVENTORY_CATEGORY_CONFIG,
 } from "../inventoryCategories";
 import { OfficeIssueModal, OfficeReturnModal } from "./OfficeStockModals";
@@ -93,10 +102,47 @@ const IT_CATEGORY_FILTERS = [
   { id: "Consumables", label: "Consumable", chip: "consumables" },
 ];
 
-const IT_HW_SUB_FILTERS = [
-  "All",
-  ...(INVENTORY_CATEGORY_CONFIG["IT Assets"]?.hwTypes || ["Laptop", "Mobile", "Desktop", "Tablet", "Other"]),
-];
+function useItHwSubFilters() {
+  const [filters, setFilters] = useState(() => [
+    "All",
+    ...getHwTypesForCategory("IT Assets"),
+  ]);
+  useEffect(() => {
+    const refresh = () =>
+      setFilters(["All", ...getHwTypesForCategory("IT Assets")]);
+    refresh();
+    return subscribeHwTypesChange(refresh);
+  }, []);
+  return filters;
+}
+
+function useItAccSubFilters() {
+  const [filters, setFilters] = useState(() => [
+    "All",
+    ...getAccessoryTypesForCategory("IT Assets"),
+  ]);
+  useEffect(() => {
+    const refresh = () =>
+      setFilters(["All", ...getAccessoryTypesForCategory("IT Assets")]);
+    refresh();
+    return subscribeHwTypesChange(refresh);
+  }, []);
+  return filters;
+}
+
+function useItConsSubFilters() {
+  const [filters, setFilters] = useState(() => [
+    "All",
+    ...getConsumableTypesForCategory("IT Assets"),
+  ]);
+  useEffect(() => {
+    const refresh = () =>
+      setFilters(["All", ...getConsumableTypesForCategory("IT Assets")]);
+    refresh();
+    return subscribeHwTypesChange(refresh);
+  }, []);
+  return filters;
+}
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -292,6 +338,51 @@ function assetMatchesHwSubFilter(asset, hwSubFilter) {
   return String(asset.hwType || "").trim().toLowerCase() === hwSubFilter.toLowerCase();
 }
 
+/** Sum of total qty by hwType within a category (All = category total). Keys preserve first-seen casing. */
+function buildHwTypeQtyCounts(assets, categoryFilter) {
+  const counts = Object.create(null);
+  counts.All = 0;
+  const keyMap = Object.create(null); // lower -> display key
+
+  (assets || []).forEach((a) => {
+    if (!inventoryCategoryMatches(a.category, categoryFilter)) return;
+    const qty = Number(a.total) || 0;
+    if (qty <= 0) return;
+    counts.All += qty;
+    const raw = String(a.hwType || "").trim() || "Other";
+    const lower = raw.toLowerCase();
+    if (!keyMap[lower]) keyMap[lower] = raw;
+    const key = keyMap[lower];
+    counts[key] = (counts[key] || 0) + qty;
+  });
+  return counts;
+}
+
+function getHwTypeQtyCount(counts, typeLabel) {
+  if (!counts) return 0;
+  if (!typeLabel || typeLabel === "All") return counts.All || 0;
+  if (counts[typeLabel] != null) return counts[typeLabel];
+  const lower = String(typeLabel).toLowerCase();
+  const key = Object.keys(counts).find((k) => k.toLowerCase() === lower);
+  return key ? counts[key] : 0;
+}
+
+/** Qty totals for IT category chips (All / Hardware / Software / …). */
+function buildCategoryQtyCounts(assets) {
+  const base = (assets || []).filter((a) => Number(a.total) > 0);
+  const sumFor = (filterId) =>
+    base
+      .filter((a) => inventoryCategoryMatches(a.category, filterId))
+      .reduce((sum, a) => sum + (Number(a.total) || 0), 0);
+  return {
+    All: base.reduce((sum, a) => sum + (Number(a.total) || 0), 0),
+    Hardware: sumFor("Hardware"),
+    Software: sumFor("Software"),
+    Accessories: sumFor("Accessories"),
+    Consumables: sumFor("Consumables"),
+  };
+}
+
 function assetMatchesProjectName(asset, projectName) {
   if (!projectName || projectName === "All") return true;
   const needle = projectName.trim().toLowerCase();
@@ -315,7 +406,12 @@ function filterITOverviewAssets(assets, { categoryFilter, hwSubFilter, projectNa
   const q = searchQuery.trim().toLowerCase();
   return assets
     .filter((a) => inventoryCategoryMatches(a.category, categoryFilter))
-    .filter((a) => categoryFilter !== "Hardware" || assetMatchesHwSubFilter(a, hwSubFilter))
+    .filter((a) => {
+      if (categoryFilter === "Hardware" || categoryFilter === "Accessories" || categoryFilter === "Consumables") {
+        return assetMatchesHwSubFilter(a, hwSubFilter);
+      }
+      return true;
+    })
     .filter((a) => {
       if (categoryFilter !== "Hardware" || !isMobileTabletHwType(hwSubFilter)) return true;
       return assetMatchesProjectName(a, projectNameFilter);
@@ -395,16 +491,23 @@ function findUnitIndex(all, row) {
 // ─── RemoveAssetModal ─────────────────────────────────────────────────────────
 
 function RemoveAssetModal({ asset, onConfirm, onCancel }) {
+  const prefilledReason = String(asset?._remarkText || "").trim();
   const [removedBy, setRemovedBy] = useState("");
-  const [reason,    setReason]    = useState("");
+  const [reason,    setReason]    = useState(prefilledReason);
   const [errors,    setErrors]    = useState({});
 
   const handleSubmit = () => {
     const nextErrors = {};
     if (!removedBy.trim()) nextErrors.removedBy = "Required";
     if (!reason.trim())    nextErrors.reason    = "Required";
+    else if (reason.trim().length < 20) nextErrors.reason = "Min 20 characters";
     if (Object.keys(nextErrors).length) { setErrors(nextErrors); return; }
-    onConfirm(removedBy.trim(), reason.trim());
+    const trimmed = reason.trim();
+    onConfirm(removedBy.trim(), trimmed, {
+      ...(asset?._remarkFields || {}),
+      remark: trimmed,
+      notes: trimmed,
+    });
   };
 
   return (
@@ -417,7 +520,8 @@ function RemoveAssetModal({ asset, onConfirm, onCancel }) {
         </div>
         <div className="inv-modal-body">
           <p className="inv-modal-hint">
-            This asset will be moved to <strong>Removed Assets</strong>. Please fill in the details below.
+            This asset will be moved to <strong>Removed Assets</strong>. Confirm who is removing it
+            {prefilledReason ? " (remarks already captured)" : " and why"}.
           </p>
 
           <div className="inv-modal-field">
@@ -463,6 +567,7 @@ function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
       : "Repair";
 
   const isRemove = actionKey === "removed";
+  const remarkMin = actionKey === "notWorking" ? 15 : actionKey === "removed" ? 20 : 10;
   const maxQty = Math.max(0, Number(row?.available ?? 0));
   const [quantity, setQuantity] = useState(maxQty > 0 ? "1" : "0");
   const [removedBy, setRemovedBy] = useState("");
@@ -481,21 +586,24 @@ function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
       setError(`Quantity cannot exceed available count (${maxQty}).`);
       return;
     }
-    if (isRemove) {
-      if (!removedBy.trim()) nextErrors.removedBy = "Required";
-      if (!reason.trim()) nextErrors.reason = "Required";
-      if (Object.keys(nextErrors).length) {
-        setFieldErrors(nextErrors);
-        setError("");
-        return;
-      }
+    if (!reason.trim()) nextErrors.reason = "Remarks required";
+    else if (reason.trim().length < remarkMin) {
+      nextErrors.reason = `Min ${remarkMin} characters`;
+    }
+    if (isRemove && !removedBy.trim()) nextErrors.removedBy = "Required";
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors(nextErrors);
+      setError("");
+      return;
     }
     setError("");
     setFieldErrors({});
-    onConfirm(
-      qty,
-      isRemove ? { removedBy: removedBy.trim(), reason: reason.trim() } : null,
-    );
+    onConfirm(qty, {
+      removedBy: isRemove ? removedBy.trim() : "",
+      reason: reason.trim(),
+      remark: reason.trim(),
+      notes: reason.trim(),
+    });
   };
 
   return (
@@ -508,7 +616,7 @@ function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
         </div>
         <div className="inv-modal-body">
           <p className="inv-modal-hint">
-            How many items do you want to mark for <strong>{actionLabel}</strong>?
+            How many items do you want to mark for <strong>{actionLabel}</strong>? Add remarks for the audit trail.
           </p>
           <div className="inv-modal-field">
             <label className="inv-modal-label">
@@ -531,38 +639,44 @@ function QuantityActionModal({ actionTarget, onConfirm, onCancel }) {
           </div>
 
           {isRemove && (
-            <>
-              <div className="inv-modal-field">
-                <label className="inv-modal-label">
-                  Removed By <span className="req">*</span>
-                </label>
-                <input
-                  className={`inv-modal-input${fieldErrors.removedBy ? " err" : ""}`}
-                  value={removedBy}
-                  onChange={(e) => setRemovedBy(e.target.value)}
-                  placeholder="Enter your name"
-                />
-                {fieldErrors.removedBy && (
-                  <span className="inv-modal-err">{fieldErrors.removedBy}</span>
-                )}
-              </div>
-              <div className="inv-modal-field">
-                <label className="inv-modal-label">
-                  Reason for Removal <span className="req">*</span>
-                </label>
-                <textarea
-                  className={`inv-modal-textarea${fieldErrors.reason ? " err" : ""}`}
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Explain why this asset is being removed..."
-                  rows={3}
-                />
-                {fieldErrors.reason && (
-                  <span className="inv-modal-err">{fieldErrors.reason}</span>
-                )}
-              </div>
-            </>
+            <div className="inv-modal-field">
+              <label className="inv-modal-label">
+                Removed By <span className="req">*</span>
+              </label>
+              <input
+                className={`inv-modal-input${fieldErrors.removedBy ? " err" : ""}`}
+                value={removedBy}
+                onChange={(e) => setRemovedBy(e.target.value)}
+                placeholder="Enter your name"
+              />
+              {fieldErrors.removedBy && (
+                <span className="inv-modal-err">{fieldErrors.removedBy}</span>
+              )}
+            </div>
           )}
+
+          <div className="inv-modal-field">
+            <label className="inv-modal-label">
+              Remarks <span className="req">*</span>
+            </label>
+            <textarea
+              className={`inv-modal-textarea${fieldErrors.reason ? " err" : ""}`}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={
+                isRemove
+                  ? "Explain why these items are being removed…"
+                  : `Why marking as ${actionLabel}?`
+              }
+              rows={3}
+            />
+            <span className="inv-modal-hint-sub">
+              {reason.trim().length}/{remarkMin} min
+            </span>
+            {fieldErrors.reason && (
+              <span className="inv-modal-err">{fieldErrors.reason}</span>
+            )}
+          </div>
 
           <div className="inv-modal-actions">
             <button className="inv-modal-btn-confirm" onClick={submit}>
@@ -888,6 +1002,12 @@ function AssetDetailModal({
   inventoryCategory,
 }) {
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
+  const [detailTab, setDetailTab] = useState("details");
+  const timelineOn = isItamFlagEnabled("itam_timeline_v1");
+
+  useEffect(() => {
+    setDetailTab("details");
+  }, [selectedUnitIndex, asset?.id]);
 
   const units  = getUnitsForAsset(asset.id, asset.name, asset.hwType);
   const unit   = units[selectedUnitIndex] ?? null;
@@ -909,6 +1029,12 @@ function AssetDetailModal({
     String(asset.category || "").toLowerCase() === "equipment";
   const brandModel = unit ? getUnitBrandModelDisplay(unit, invCat) : { primary: "—", secondary: "" };
   const hideInUseInSummary = showInventoryDeploy(invCat);
+  const historyUnitId = unit?.id != null && Number.isFinite(Number(unit.id)) ? Number(unit.id) : null;
+  const historyLabel =
+    unit?.assetName ||
+    unit?.serialNumber ||
+    asset?.name ||
+    "Asset";
 
   const detailFields = isInfraEquipment
     ? [
@@ -961,6 +1087,15 @@ function AssetDetailModal({
         },
       ];
 
+  if (asset?.notes) {
+    detailFields.push({
+      label: "Remarks",
+      value: asset.notes,
+      mono: false,
+      highlight: false,
+    });
+  }
+
   return (
     <>
       <div className="inv-detail-backdrop" onClick={onClose}>
@@ -997,8 +1132,52 @@ function AssetDetailModal({
             </div>
           )}
 
+          {timelineOn && historyUnitId ? (
+            <div className="inv-detail-tabs" style={{ display: "flex", gap: 8, padding: "0 16px 8px" }}>
+              <button
+                type="button"
+                className={`inv-unit-tab${detailTab === "details" ? " inv-unit-tab--active" : ""}`}
+                onClick={() => setDetailTab("details")}
+              >
+                Details
+              </button>
+              <button
+                type="button"
+                className={`inv-unit-tab${detailTab === "history" ? " inv-unit-tab--active" : ""}`}
+                onClick={() => setDetailTab("history")}
+              >
+                History
+              </button>
+            </div>
+          ) : null}
+
+          {unit?.lastRemark ? (
+            <p
+              className="itam-hist-latest"
+              style={{ margin: "0 16px 8px", fontSize: "0.82rem", color: "#475569" }}
+              title={unit.lastRemark}
+            >
+              Last remark: {unit.lastRemark}
+            </p>
+          ) : null}
+
+          {unit && isItamFlagEnabled("itam_lifecycle_v1") ? (
+            <p
+              style={{ margin: "0 16px 8px", fontSize: "0.82rem", color: "#334155" }}
+            >
+              Status: {unitStatusLabel(unit)}
+              {unit.custodyType ? ` · Custody: ${unitCustodyLabel(unit)}` : ""}
+            </p>
+          ) : null}
+
           <div className="inv-detail-body">
-            {units.length === 0 ? (
+            {detailTab === "history" && timelineOn && historyUnitId ? (
+              <AssetHistoryTimeline
+                unitId={historyUnitId}
+                assetLabel={historyLabel}
+                embedded
+              />
+            ) : units.length === 0 ? (
               <div className="inv-detail-empty">
                 <div className="inv-empty-qty-layout">
                   <div className="inv-empty-photo-card">
@@ -1197,6 +1376,7 @@ function useAssetActions(onRefresh) {
   const [removeTarget, setRemoveTarget] = useState(null);
   const [quantityTarget, setQuantityTarget] = useState(null);
   const [toast,        setToast]        = useState("");
+  const { requestRemark } = useTransitionRemark();
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -1208,8 +1388,34 @@ function useAssetActions(onRefresh) {
       setQuantityTarget({ row, actionKey });
       return;
     }
+
+    const resolveUnitPreview = () => {
+      const all = readUnits();
+      if (unit) {
+        const uid = unit.assetId ?? unit.id;
+        const idx = all.findIndex((u) => (u.assetId ?? u.id) === uid);
+        return idx >= 0 ? all[idx] : unit;
+      }
+      const matchIdx = findUnitIndex(all, row);
+      return matchIdx >= 0 ? all[matchIdx] : null;
+    };
+
     if (actionKey === "removed") {
-      setRemoveTarget({ ...row, _selectedUnit: unit ?? null });
+      const previewUnit = resolveUnitPreview();
+      const remarkResult = await requestRemark("RETIRE", {
+        force: true,
+        assetLabel: previewUnit?.assetName || previewUnit?.serialNumber || row?.name || "Asset",
+        subtitle: "Remove / retire from inventory",
+        defaultReasonCode: "PERMANENT_DELETE",
+        defaultConditionGrade: "Fail",
+      });
+      if (remarkResult === null) return;
+      setRemoveTarget({
+        ...row,
+        _selectedUnit: unit ?? null,
+        _remarkFields: remarkPayload(remarkResult),
+        _remarkText: String(remarkResult.remark || "").trim(),
+      });
       return;
     }
 
@@ -1230,9 +1436,22 @@ function useAssetActions(onRefresh) {
     const serverUnitId = rowUnit != null ? Number(rowUnit.id) : NaN;
     const canSyncServer = Number.isFinite(serverUnitId) && serverUnitId > 0;
 
+    const actionCode = actionCodeForStatusChange(actionKey, rowUnit?.status);
+    const remarkResult = await requestRemark(actionCode, {
+      force: true,
+      assetLabel: rowUnit?.assetName || rowUnit?.serialNumber || row?.name || "Asset",
+      subtitle: `Mark as ${targetStatus === "repair" ? "In Repair" : "Not Working"}`,
+    });
+    if (remarkResult === null) return;
+    const remarkFields = remarkPayload(remarkResult);
+
     if (canSyncServer) {
       try {
-        await setUnitStatusAPI({ unitId: serverUnitId, status: targetStatus });
+        await setUnitStatusAPI({
+          unitId: serverUnitId,
+          status: targetStatus,
+          ...remarkFields,
+        });
         await syncITDataFromAPI();
       } catch (err) {
         console.error("[InventoryDashboard] set unit status via API failed:", err);
@@ -1250,6 +1469,7 @@ function useAssetActions(onRefresh) {
             repairDate: targetStatus === "repair"
               ? all[idx].repairDate ?? new Date().toISOString()
               : all[idx].repairDate,
+            lastRemark: remarkFields.remark || all[idx].lastRemark,
           };
           writeUnits(all);
         }
@@ -1266,11 +1486,12 @@ function useAssetActions(onRefresh) {
     );
     dispatchInventoryUpdate();
     onRefresh();
-  }, [onRefresh, showToast]);
+  }, [onRefresh, showToast, requestRemark]);
 
-  const handleQuantityConfirm = useCallback(async (qty, removeMeta = null) => {
+  const handleQuantityConfirm = useCallback(async (qty, actionMeta = null) => {
     if (!quantityTarget) return;
     const { row, actionKey } = quantityTarget;
+    const remarkText = String(actionMeta?.remark || actionMeta?.reason || "").trim();
 
     const inventory = readInventory();
     const index = inventory.findIndex((i) => String(i.id) === String(row.id));
@@ -1299,6 +1520,24 @@ function useAssetActions(onRefresh) {
       item.availableQuantity = Math.max(0, available - safeQty);
     }
 
+    const actionLabel =
+      actionKey === "repair"
+        ? "Repair"
+        : actionKey === "notWorking"
+          ? "Not Working"
+          : "Removed";
+    const notesPayload = remarkText
+      ? {
+          notes: [
+            String(item.notes || "").trim(),
+            `[${actionLabel} x${safeQty}] ${remarkText}`,
+          ]
+            .filter(Boolean)
+            .join("\n")
+            .slice(0, 500),
+        }
+      : {};
+
     try {
       await updateInventoryItemAPI(row.id, {
         total_quantity: item.totalQuantity,
@@ -1306,16 +1545,17 @@ function useAssetActions(onRefresh) {
         assigned_quantity: item.assignedQuantity,
         not_working_quantity: item.notWorkingQuantity,
         repair_quantity: item.repairQuantity,
+        ...notesPayload,
       });
       if (actionKey === "removed") {
         await createDeletedLogAPI({
           delete_code: `del-qty-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           inventory_item_id: Number(row.id) || null,
-          deleted_by_name: removeMeta?.removedBy || "Inventory",
+          deleted_by_name: actionMeta?.removedBy || "Inventory",
           asset_name: row.name,
           category: row.category || "Accessories",
           serial_number: "",
-          reason: removeMeta?.reason || `Dead quantity marked: ${safeQty}`,
+          reason: remarkText || `Dead quantity marked: ${safeQty}`,
         });
         await syncDeletedLogsFromAPI();
       }
@@ -1338,11 +1578,17 @@ function useAssetActions(onRefresh) {
     onRefresh();
   }, [quantityTarget, onRefresh, showToast]);
 
-  const handleRemoveConfirm = useCallback(async (removedBy, reason) => {
+  const handleRemoveConfirm = useCallback(async (removedBy, reason, remarkFields = {}) => {
     if (!removeTarget) return;
 
     const all          = readUnits();
     const selectedUnit = removeTarget._selectedUnit ?? null;
+    const retireFields = {
+      ...(removeTarget._remarkFields || {}),
+      ...(remarkFields || {}),
+      remark: reason || remarkFields?.remark || removeTarget._remarkText || "",
+      notes: reason || remarkFields?.notes || removeTarget._remarkText || "",
+    };
 
     let unit = null;
     if (selectedUnit) {
@@ -1370,7 +1616,7 @@ function useAssetActions(onRefresh) {
       try {
         // Soft-delete unit first (404 = already gone). Then log history without requiring FK.
         try {
-          await deleteAssetUnitAPI(unitIdNum);
+          await deleteAssetUnitAPI(unitIdNum, retireFields);
         } catch (delErr) {
           const status = delErr?.status || delErr?.response?.status;
           if (status !== 404) throw delErr;
@@ -1519,7 +1765,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
       <header className={`inv-header${fromAdmin ? ' inv-header--admin-visit' : ''}`} ref={headerRef}>
         {!fromAdmin ? (
           <div className="inv-header-left">
-            <button type="button" className="inv-back-btn" onClick={() => navigate('/it/')}>← Back</button>
+            <button type="button" className="inv-back-btn" onClick={() => navigate('/dashboard')}>← Back</button>
             <div className="inv-logo-group">
               <div className="inv-logo">
                 <span className="inv-logo-dot" />
@@ -1639,9 +1885,32 @@ function ITOverviewFilterBar({
   projectNameOptions,
   searchQuery,
   onSearchQueryChange,
+  categoryCounts,
+  subTypeCounts,
 }) {
   const showHwSub = categoryFilter === "Hardware";
+  const showAccSub = categoryFilter === "Accessories";
+  const showConsSub = categoryFilter === "Consumables";
   const showProject = showHwSub && isMobileTabletHwType(hwSubFilter);
+  const hwSubFilters = useItHwSubFilters();
+  const accSubFilters = useItAccSubFilters();
+  const consSubFilters = useItConsSubFilters();
+
+  const renderSubChip = (type) => (
+    <button
+      key={type}
+      type="button"
+      className={
+        hwSubFilter === type
+          ? "inv-hw-subfilter-chip inv-hw-subfilter-chip--active"
+          : "inv-hw-subfilter-chip"
+      }
+      onClick={() => onHwSubFilterChange(type)}
+    >
+      {type}
+      <span className="inv-hw-subfilter-count">{getHwTypeQtyCount(subTypeCounts, type)}</span>
+    </button>
+  );
 
   return (
     <div className="inv-overview-filters-inner" aria-label="IT asset filters">
@@ -1681,6 +1950,7 @@ function ITOverviewFilterBar({
               onClick={() => onCategoryFilterChange(opt.id)}
             >
               {opt.label}
+              <span className="inv-hw-subfilter-count">{categoryCounts?.[opt.id] ?? 0}</span>
             </button>
           ))}
         </div>
@@ -1690,20 +1960,25 @@ function ITOverviewFilterBar({
         <div className="inv-overview-filter-block inv-overview-filter-block--sub">
           <span className="inv-overview-filter-label">Hardware type</span>
           <div className="inv-hw-subfilter-row" role="group" aria-label="Hardware type">
-            {IT_HW_SUB_FILTERS.map((type) => (
-              <button
-                key={type}
-                type="button"
-                className={
-                  hwSubFilter === type
-                    ? "inv-hw-subfilter-chip inv-hw-subfilter-chip--active"
-                    : "inv-hw-subfilter-chip"
-                }
-                onClick={() => onHwSubFilterChange(type)}
-              >
-                {type}
-              </button>
-            ))}
+            {hwSubFilters.map(renderSubChip)}
+          </div>
+        </div>
+      )}
+
+      {showAccSub && (
+        <div className="inv-overview-filter-block inv-overview-filter-block--sub">
+          <span className="inv-overview-filter-label">Accessory type</span>
+          <div className="inv-hw-subfilter-row" role="group" aria-label="Accessory type">
+            {accSubFilters.map(renderSubChip)}
+          </div>
+        </div>
+      )}
+
+      {showConsSub && (
+        <div className="inv-overview-filter-block inv-overview-filter-block--sub">
+          <span className="inv-overview-filter-label">Consumable type</span>
+          <div className="inv-hw-subfilter-row" role="group" aria-label="Consumable type">
+            {consSubFilters.map(renderSubChip)}
           </div>
         </div>
       )}
@@ -1831,57 +2106,97 @@ function AssetTable({
 }
 
 function TotalAssetsFilterBar({
-  filter,
-  onFilterChange,
-  filterOptions,
   showTypeFilter,
-  hwTypeFilter,
-  onHwTypeFilterChange,
-  searchQuery,
-  onSearchQueryChange,
+  categoryTypeFilter,
+  onCategoryTypeFilterChange,
+  subTypeFilter,
+  onSubTypeFilterChange,
+  subTypeCounts,
+  categoryCounts,
 }) {
+  const showHwSub = categoryTypeFilter === "Hardware";
+  const showAccSub = categoryTypeFilter === "Accessories";
+  const showConsSub = categoryTypeFilter === "Consumables";
+  const hwSubFilters = useItHwSubFilters();
+  const accSubFilters = useItAccSubFilters();
+  const consSubFilters = useItConsSubFilters();
+
+  if (!showTypeFilter) return null;
+
+  const renderSubChip = (type) => {
+    const count = getHwTypeQtyCount(subTypeCounts, type);
+    return (
+      <button
+        key={type}
+        type="button"
+        className={
+          subTypeFilter === type
+            ? "inv-hw-subfilter-chip inv-hw-subfilter-chip--active"
+            : "inv-hw-subfilter-chip"
+        }
+        onClick={() => onSubTypeFilterChange(type)}
+      >
+        {type}
+        <span className="inv-hw-subfilter-count">{count}</span>
+      </button>
+    );
+  };
+
   return (
     <InventoryFiltersInner>
-      <InventoryFilterSearch
-        value={searchQuery}
-        onChange={onSearchQueryChange}
-        placeholder="Search brand, type…"
-      />
-
       <div className="inv-overview-filter-block">
-        <span className="inv-overview-filter-label">Status</span>
-        <div className="inv-category-filter-row" role="group" aria-label="Status">
-          {filterOptions.map((opt) => (
+        <span className="inv-overview-filter-label">Type</span>
+        <div className="inv-category-filter-row" role="group" aria-label="Type">
+          {[
+            { id: "All", label: "All", chip: "all" },
+            { id: "Hardware", label: "Hardware", chip: "hardware" },
+            { id: "Software", label: "Software", chip: "software" },
+            { id: "Accessories", label: "Accessories", chip: "accessories" },
+            { id: "Consumables", label: "Consumables", chip: "consumables" },
+          ].map((opt) => (
             <button
-              key={opt}
+              key={opt.id}
               type="button"
               className={
-                filter === opt
-                  ? "inv-cat-filter-chip inv-cat-filter-chip--active"
-                  : "inv-cat-filter-chip"
+                categoryTypeFilter === opt.id
+                  ? `inv-cat-filter-chip inv-cat-filter-chip--active inv-cat-filter-chip--${opt.chip}`
+                  : `inv-cat-filter-chip inv-cat-filter-chip--${opt.chip}`
               }
-              onClick={() => onFilterChange(opt)}
+              onClick={() => onCategoryTypeFilterChange(opt.id)}
             >
-              {opt}
+              {opt.label}
+              <span className="inv-hw-subfilter-count">
+                {categoryCounts?.[opt.id] ?? 0}
+              </span>
             </button>
           ))}
         </div>
       </div>
 
-      {showTypeFilter && (
-        <div className="inv-overview-filter-block">
-          <span className="inv-overview-filter-label">Type</span>
-          <select
-            className="inv-hwtype-dropdown inv-hwtype-dropdown--panel"
-            value={hwTypeFilter}
-            onChange={(e) => onHwTypeFilterChange(e.target.value)}
-          >
-            {["All", "Hardware", "Software", "Consumables", "Accessories"].map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+      {showHwSub && (
+        <div className="inv-overview-filter-block inv-overview-filter-block--sub">
+          <span className="inv-overview-filter-label">Hardware type</span>
+          <div className="inv-hw-subfilter-row" role="group" aria-label="Hardware type">
+            {hwSubFilters.map(renderSubChip)}
+          </div>
+        </div>
+      )}
+
+      {showAccSub && (
+        <div className="inv-overview-filter-block inv-overview-filter-block--sub">
+          <span className="inv-overview-filter-label">Accessory type</span>
+          <div className="inv-hw-subfilter-row" role="group" aria-label="Accessory type">
+            {accSubFilters.map(renderSubChip)}
+          </div>
+        </div>
+      )}
+
+      {showConsSub && (
+        <div className="inv-overview-filter-block inv-overview-filter-block--sub">
+          <span className="inv-overview-filter-label">Consumable type</span>
+          <div className="inv-hw-subfilter-row" role="group" aria-label="Consumable type">
+            {consSubFilters.map(renderSubChip)}
+          </div>
         </div>
       )}
     </InventoryFiltersInner>
@@ -1892,18 +2207,14 @@ function TotalAssetsFilterBar({
 
 function TotalAssetsPage({ category }) {
   const showTypeFilter = category === "IT Assets";
-  const [filter,        setFilter]        = useState("All");
-  const [hwTypeFilter,  setHwTypeFilter]  = useState("All");
-  const [searchQuery,   setSearchQuery]   = useState("");
+  const [categoryTypeFilter, setCategoryTypeFilter] = useState("All");
+  const [subTypeFilter, setSubTypeFilter] = useState("All");
   const [detailAsset,   setDetailAsset]   = useState(null);
   const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
   const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
   const [refreshKey,    setRefreshKey]    = useState(0);
 
   const inventoryDeploy = showInventoryDeploy(category);
-  const filterOptions = inventoryDeploy
-    ? ["All", "Available", "In use"]
-    : FILTER_OPTIONS;
   const assignedLabel = getAssignedColumnLabel(category);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -1931,29 +2242,47 @@ function TotalAssetsPage({ category }) {
       });
   }, [category]);
 
+  const handleCategoryTypeFilterChange = useCallback((next) => {
+    setCategoryTypeFilter(next);
+    setSubTypeFilter("All");
+  }, []);
+
+  const inventoryForCounts = useMemo(() => {
+    void refreshKey;
+    return getMappedInventory(category).filter((a) => Number(a.total) > 0);
+  }, [category, refreshKey]);
+
+  const categoryCounts = useMemo(
+    () => buildCategoryQtyCounts(inventoryForCounts),
+    [inventoryForCounts],
+  );
+
+  const subTypeCounts = useMemo(
+    () => buildHwTypeQtyCounts(inventoryForCounts, categoryTypeFilter),
+    [inventoryForCounts, categoryTypeFilter],
+  );
+
   const filteredAssets = useMemo(() => {
     void refreshKey;
-    const q = searchQuery.trim().toLowerCase();
     return getMappedInventory(category)
       .filter((a) => Number(a.total) > 0)
+      .filter((a) => inventoryCategoryMatches(a.category, categoryTypeFilter))
       .filter((a) => {
-        if (filter === "Available") return a.available > 0;
-        if (filter === "Assigned" || filter === "In use") return a.assigned > 0;
+        if (
+          categoryTypeFilter === "Hardware" ||
+          categoryTypeFilter === "Accessories" ||
+          categoryTypeFilter === "Consumables"
+        ) {
+          return assetMatchesHwSubFilter(a, subTypeFilter);
+        }
         return true;
-      })
-      .filter((a) => {
-        if (!showTypeFilter || hwTypeFilter === "All") return true;
-        return (a.category ?? "").toLowerCase() === hwTypeFilter.toLowerCase();
-      })
-      .filter((a) => {
-        if (!q) return true;
-        return (
-          a.name.toLowerCase().includes(q) ||
-          (a.hwType  ?? "").toLowerCase().includes(q) ||
-          (a.category ?? "").toLowerCase().includes(q)
-        );
       });
-  }, [category, filter, hwTypeFilter, searchQuery, refreshKey, showTypeFilter]);
+  }, [category, categoryTypeFilter, subTypeFilter, refreshKey]);
+
+  const filterBadgeParts = [
+    categoryTypeFilter !== "All" ? categoryTypeFilter : null,
+    subTypeFilter !== "All" ? subTypeFilter : null,
+  ].filter(Boolean);
 
   return (
     <>
@@ -1964,30 +2293,25 @@ function TotalAssetsPage({ category }) {
         title="Total Assets"
         recordCount={filteredAssets.length}
         filterBadge={
-          (filter !== "All" || hwTypeFilter !== "All") && (
-            <span className="inv-table-filter-badge">
-              {[filter !== "All" ? filter : null, hwTypeFilter !== "All" ? hwTypeFilter : null]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-          )
+          filterBadgeParts.length > 0 ? (
+            <span className="inv-table-filter-badge">{filterBadgeParts.join(" · ")}</span>
+          ) : null
         }
         filters={
           <TotalAssetsFilterBar
-            filter={filter}
-            onFilterChange={setFilter}
-            filterOptions={filterOptions}
             showTypeFilter={showTypeFilter}
-            hwTypeFilter={hwTypeFilter}
-            onHwTypeFilterChange={setHwTypeFilter}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
+            categoryTypeFilter={categoryTypeFilter}
+            onCategoryTypeFilterChange={handleCategoryTypeFilterChange}
+            subTypeFilter={subTypeFilter}
+            onSubTypeFilterChange={setSubTypeFilter}
+            subTypeCounts={subTypeCounts}
+            categoryCounts={categoryCounts}
           />
         }
       >
         <AssetTable
           assets={filteredAssets}
-          filter={filter}
+          filter="All"
           onViewAsset={setDetailAsset}
           hideAssigned={hideAssignedColumnForCategory(category)}
           assignedColumnLabel={assignedLabel}
@@ -2088,6 +2412,16 @@ function OverviewPage({ category }) {
     return getMappedInventory(category).filter((a) => Number(a.total) > 0);
   }, [category, refreshKey]);
 
+  const categoryCounts = useMemo(
+    () => buildCategoryQtyCounts(baseAssets),
+    [baseAssets],
+  );
+
+  const subTypeCounts = useMemo(
+    () => buildHwTypeQtyCounts(baseAssets, categoryFilter),
+    [baseAssets, categoryFilter],
+  );
+
   const projectNameOptions = useMemo(() => {
     if (!showItFilters || categoryFilter !== "Hardware" || !isMobileTabletHwType(hwSubFilter)) {
       return ["All"];
@@ -2118,8 +2452,8 @@ function OverviewPage({ category }) {
 
   const handleCategoryFilterChange = useCallback((next) => {
     setCategoryFilter(next);
+    setHwSubFilter("All");
     if (next !== "Hardware") {
-      setHwSubFilter("All");
       setProjectNameFilter("All");
     }
   }, []);
@@ -2163,6 +2497,8 @@ function OverviewPage({ category }) {
               projectNameOptions={projectNameOptions}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
+              categoryCounts={categoryCounts}
+              subTypeCounts={subTypeCounts}
             />
           ) : null
         }

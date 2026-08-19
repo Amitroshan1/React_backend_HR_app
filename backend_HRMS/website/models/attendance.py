@@ -58,6 +58,9 @@ class PunchSession(db.Model):
     geo_decision = db.deferred(db.Column(db.String(30), nullable=True))
     geo_office_id = db.deferred(db.Column(db.Integer, nullable=True))
     confidence_score = db.deferred(db.Column(db.Float, nullable=True))
+    # Attendance provenance (biometric integration). Defaults keep legacy rows = web.
+    source = db.deferred(db.Column(db.String(20), nullable=True))  # web | biometric | hr | system
+    closed_by = db.deferred(db.Column(db.String(20), nullable=True))  # web | biometric | hr | system
 
     punch = db.relationship("Punch", back_populates="sessions")
 

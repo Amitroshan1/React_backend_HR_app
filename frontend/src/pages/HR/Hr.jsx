@@ -49,6 +49,7 @@ import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPane
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 import { scrollAppToTop } from '../../utils/scrollToTop';
 import { fetchAndOpenAuthenticatedFile } from '../../utils/openBlobFile';
+import { toAuthContentUrl } from '../../utils/secureFileUrl';
 
 const HR_PANEL_VIEWS = [
   'main',
@@ -339,7 +340,6 @@ function HrEmployeeProfileView({ employee, onBack, embedded = false }) {
   const openDoc = async (path) => {
     if (!path) return;
     try {
-      const { toAuthContentUrl } = await import('../../utils/secureFileUrl');
       await fetchAndOpenAuthenticatedFile(toAuthContentUrl(path), {
         fileName: String(path).split('/').pop() || 'document',
       });
