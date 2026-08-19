@@ -427,9 +427,16 @@ def request_otp():
         }), 200
 
     admin = _find_admin_for_login("email", value)
-    if not admin or not (admin.email or "").strip() or not admin_login_allowed(admin):
-        # Anti-enumeration: same success shape whether the account exists or not.
-        return _generic_sent()
+    if not admin or not (admin.email or "").strip():
+        return jsonify({
+            "success": False,
+            "message": "No account found with this email. Please check and try again.",
+        }), 404
+    if not admin_login_allowed(admin):
+        return jsonify({
+            "success": False,
+            "message": "Your account is inactive. Please contact HR.",
+        }), 403
 
     cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip()
     if cleaned_email and admin.email != cleaned_email:
