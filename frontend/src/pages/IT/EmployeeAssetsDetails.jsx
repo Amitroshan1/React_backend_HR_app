@@ -2,6 +2,8 @@ import React, { useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { useUser } from "../../components/layout/UserContext";
+import { canAccessItPanel, canViewOwnAssignedAssets } from "../../utils/planFeatures";
 import {
   compressImage,
   createReturnRequestAPI,
@@ -38,20 +40,20 @@ const enrichHardware = (asset) => {
   const assetTag = (asset.assetTag || unit.assetTag || "").trim();
   const photos   =
     asset.status?.toLowerCase() === "available"
-      ? unit.photos || []
+      ? unit.photos || asset.photos || []
       : unit.assignmentPhotos?.length
         ? unit.assignmentPhotos
-        : asset.photos || [];
+        : asset.photos || unit.photos || [];
   return {
     ...asset,
-    displayAssetId: assetTag || "—",
-    hwType:       unit.hwType       || asset.hwType       || "Laptop",
-    brand:        unit.brand        || invItem.brand  || asset.brand  || "—",
-    make:         unit.make         || invItem.make   || asset.make   || "—",
-    model:        unit.model        || invItem.model  || asset.model  || "—",
-    serialNumber: unit.serialNumber || asset.serialNumber             || "—",
-    imei1:        unit.imei1        || asset.imei1                    || null,
-    imei2:        unit.imei2        || asset.imei2                    || null,
+    displayAssetId: assetTag || asset.assetId || "—",
+    hwType:       asset.hwType       || unit.hwType       || "Laptop",
+    brand:        asset.brand        || unit.brand        || invItem.brand  || "—",
+    make:         asset.make         || unit.make         || invItem.make   || "—",
+    model:        asset.model        || unit.model        || invItem.model  || "—",
+    serialNumber: asset.serialNumber || unit.serialNumber || "—",
+    imei1:        asset.imei1        || unit.imei1        || null,
+    imei2:        asset.imei2        || unit.imei2        || null,
     photos,
   };
 };
@@ -517,6 +519,8 @@ const EmployeeDetails = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
   const { empId } = useParams();
+  const { userData } = useUser();
+  const user = userData?.user;
 
   const [employee,   setEmployee  ] = useState(null);
   const [loading,    setLoading   ] = useState(true);
@@ -548,8 +552,12 @@ const EmployeeDetails = () => {
     }
   }, [empId]);
 
-  const isSelfAssetsView = Boolean(location.state?.selfAssets);
-  const canRequestReturn = !isSelfAssetsView;
+  const isSelfAssetsView =
+    Boolean(location.state?.selfAssets)
+    || canViewOwnAssignedAssets(user, empId);
+  const isOwnAssetsPage = canViewOwnAssignedAssets(user, empId);
+  const canRequestReturn = canAccessItPanel(user) || isOwnAssetsPage;
+  const showReturnHistory = canRequestReturn || isSelfAssetsView;
 
   const loadEmployee = useCallback(async () => {
     const id = empId || "";
@@ -593,7 +601,7 @@ const EmployeeDetails = () => {
     } finally {
       setLoading(false);
     }
-  }, [empId, isSelfAssetsView, location.state, loadReturnHistory]);
+  }, [empId, isSelfAssetsView, location.state, loadReturnHistory, user]);
 
   useRefreshOnNavigate(loadEmployee, [empId]);
 
@@ -728,8 +736,8 @@ const EmployeeDetails = () => {
     <div className="employee-assets">
 
       <div className="back-button-container">
-        <button type="button" className="btn-back" onClick={() => navigate(-1)}>
-          ← {isSelfAssetsView ? "Back" : "Back to Active Devices"}
+        <button type="button" className="btn-back" onClick={() => navigate(isSelfAssetsView ? "/dashboard" : -1)}>
+          ← {isSelfAssetsView ? "Back to Dashboard" : "Back to Active Devices"}
         </button>
       </div>
 
@@ -842,11 +850,13 @@ const EmployeeDetails = () => {
         )}
       </div>
 
-      {canRequestReturn ? (
+      {showReturnHistory ? (
         <div className="assets-section" ref={returnHistoryRef}>
           <h2>Return Request History ({returnHistory.length})</h2>
           <p className="rr-history-hint">
-            Requests appear here as soon as you submit a return. Use filters to see pending, approved, or completed items.
+            {isSelfAssetsView && !canAccessItPanel(user)
+              ? "Your return requests appear here after you submit them from the tables above."
+              : "Requests appear here as soon as you submit a return. Use filters to see pending, approved, or completed items."}
           </p>
           <div className="rr-filter-tabs">
             {RETURN_STATUS_TABS.map((tab) => (
@@ -869,12 +879,7 @@ const EmployeeDetails = () => {
             onViewPhotos={(photos) => openFirstImageInNewTab(photos)}
           />
         </div>
-      ) : (
-        <div className="assets-section">
-          <h2>Assigned Assets</h2>
-          <p className="rr-history-hint">Read-only self view. Return-request actions are hidden.</p>
-        </div>
-      )}
+      ) : null}
 
       {/* ── Hardware Details Modal ── */}
       {hwModal && (

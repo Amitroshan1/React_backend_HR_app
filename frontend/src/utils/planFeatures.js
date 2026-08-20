@@ -83,6 +83,20 @@ export function adminHasFullPanelAccess(user) {
   return isAdminUser(user);
 }
 
+/** Normalized employee id from profile (emp_id / empId). */
+export function getUserEmpId(user) {
+  return String(user?.emp_id || user?.empId || "").trim();
+}
+
+/** Employee viewing their own assigned assets (My Assets dashboard tile). */
+export function canViewOwnAssignedAssets(user, routeEmpId) {
+  if (!hasFeature("dashboard_my_assets")) return false;
+  const myEmpId = getUserEmpId(user);
+  const target = String(routeEmpId || "").trim();
+  if (!myEmpId || !target) return false;
+  return myEmpId.toUpperCase() === target.toUpperCase();
+}
+
 /** IT / Inventory: plan feature or org Admin / Super Admin. */
 export function canAccessItPanel(user) {
   if (adminHasFullPanelAccess(user)) return true;

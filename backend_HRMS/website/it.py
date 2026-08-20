@@ -33,28 +33,32 @@ from .employee_photo import photo_url_for_admin
 it_bp = Blueprint("it", __name__)
 
 
-def _allow_self_asset_view_for_non_it():
-    """Allow employees to read only their own asset/return records."""
-    if request.method != "GET":
-        return False
-    endpoint = request.endpoint or ""
-    if endpoint not in {"it.employee_assets", "it.employee_return_requests"}:
-        return False
-
+def _allow_self_asset_access_for_non_it():
+    """My Assets: employees read own records and submit return requests (ownership checked in handlers)."""
     from .plan_features import has_feature
 
     if not has_feature("dashboard_my_assets"):
         return False
 
-    req_emp = (request.view_args or {}).get("emp_id")
-    if not req_emp:
+    actor = _current_admin()
+    if not actor:
         return False
 
-    actor = _current_admin()
-    target = _resolve_admin_by_emp_key(req_emp)
-    if not actor or not target:
-        return False
-    return int(actor.id) == int(target.id)
+    endpoint = request.endpoint or ""
+
+    if request.method == "GET" and endpoint in {"it.employee_assets", "it.employee_return_requests"}:
+        req_emp = (request.view_args or {}).get("emp_id")
+        if not req_emp:
+            return False
+        target = _resolve_admin_by_emp_key(req_emp)
+        if not target:
+            return False
+        return int(actor.id) == int(target.id)
+
+    if request.method == "POST" and endpoint == "it.create_return_request":
+        return True
+
+    return False
 
 
 @it_bp.before_request
@@ -72,7 +76,7 @@ def _it_plan_guard():
 
     claims = get_jwt() or {}
     if not can_access_it_panel(claims):
-        if _allow_self_asset_view_for_non_it():
+        if _allow_self_asset_access_for_non_it():
             return None
         return plan_forbidden_response("it_panel")
     return None

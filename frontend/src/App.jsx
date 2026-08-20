@@ -19,7 +19,7 @@ import { Profile } from "./pages/Profile/components/Profile";
 import ChangePassword from "./pages/Profile/ChangePassword";
 import { AppLayout } from "./components/layout/AppLayout";
 import { SensitiveDataGate } from "./components/security/SensitiveDataGate";
-import { RequirePanel } from "./components/security/RequirePanel";
+import { RequirePanel, RequireItOrSelfAssets } from "./components/security/RequirePanel";
 import { UserProvider } from "./components/layout/UserContext";
 import { AttendanceEventsProvider } from "./hooks/useAttendanceEvents";
 import { Queries } from "./pages/Query/Queries";
@@ -173,7 +173,7 @@ export const App = () => {
         { path: "it/Assets",                       element: <RequirePanel panel="it"><AssetsDashboard /></RequirePanel> },
         { path: "it/AssetsPage/AddSoftWare",       element: <RequirePanel panel="it"><AddSoftWare /></RequirePanel> },
         { path: "it/AssetsPage/AddEmployee",       element: <RequirePanel panel="it"><AddEmployee /></RequirePanel> },
-        { path: "it/employee/:empId",              element: <RequirePanel panel="it"><ITEmployeeDetails /></RequirePanel> },
+        { path: "it/employee/:empId",              element: <RequireItOrSelfAssets><ITEmployeeDetails /></RequireItOrSelfAssets> },
         { path: "it/return-requests",              element: <RequirePanel panel="it"><ReturnRequests /></RequirePanel> },
         { path: "it/noc-requests",                 element: <RequirePanel panel="it"><ITNocRequests /></RequirePanel> },
 

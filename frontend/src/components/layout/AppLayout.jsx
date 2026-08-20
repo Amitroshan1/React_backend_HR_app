@@ -8,6 +8,7 @@ import {
     canAccessAccountPanel,
     canAccessItPanel,
     canAccessHrPanel,
+    canViewOwnAssignedAssets,
 } from "../../utils/planFeatures";
 import { clearPersistedPanelViews } from "../../hooks/usePersistedView";
 import { clearSensitiveToken } from "../../utils/sensitiveDataAuth";
@@ -104,7 +105,12 @@ export const AppLayout = () => {
             return;
         }
         const isSelfAssetsPath = path.startsWith("/it/employee/");
-        const canSelfAssetsView = isSelfAssetsPath && hasFeature("dashboard_my_assets");
+        const selfAssetsEmpMatch = path.match(/^\/it\/employee\/([^/?#]+)/);
+        const selfAssetsEmpId = selfAssetsEmpMatch
+          ? decodeURIComponent(selfAssetsEmpMatch[1])
+          : "";
+        const canSelfAssetsView =
+          isSelfAssetsPath && canViewOwnAssignedAssets(user, selfAssetsEmpId);
         if (path.startsWith("/it") && !canAccessItPanel(user) && !canSelfAssetsView) {
             navigate("/dashboard", { replace: true });
             return;

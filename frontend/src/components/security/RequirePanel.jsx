@@ -1,9 +1,10 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { useUser } from "../layout/UserContext";
 import {
   canAccessAccountPanel,
   canAccessHrPanel,
   canAccessItPanel,
+  canViewOwnAssignedAssets,
   isAdminUser,
 } from "../../utils/planFeatures";
 
@@ -50,4 +51,32 @@ export function RequirePanel({ panel, children, fallback = "/dashboard" }) {
   }
 
   return children;
+}
+
+/**
+ * IT staff can open any employee assets page; other users only their own
+ * when the plan includes dashboard_my_assets (My Assets tile).
+ */
+export function RequireItOrSelfAssets({ children, fallback = "/dashboard" }) {
+  const { userData, loadingUser } = useUser();
+  const user = userData?.user;
+  const { empId } = useParams();
+
+  if (loadingUser) {
+    return (
+      <div className="full-height-center">
+        <h2 className="loader" />
+      </div>
+    );
+  }
+
+  if (user && canAccessItPanel(user)) {
+    return children;
+  }
+
+  if (user && canViewOwnAssignedAssets(user, empId)) {
+    return children;
+  }
+
+  return <Navigate to={fallback} replace />;
 }
