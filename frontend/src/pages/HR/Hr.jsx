@@ -2225,6 +2225,9 @@ else if (title === 'Probation Reviews') {
 else if (title === 'Holiday Calendar') {
   setView('holiday_calendar');
 }
+else if (title === 'Biometric Attendance') {
+  setView('biometric_attendance');
+}
     else {
       console.log(`Navigating to ${title}`);
     }
