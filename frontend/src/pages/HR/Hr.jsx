@@ -2402,13 +2402,7 @@ if (view === 'holiday_calendar') {
 }
 
 if (view === 'biometric_attendance') {
-  return (
-    <BiometricAttendance
-      onBack={() => setView('updates')}
-      empTypeOptions={masterOptions.departments}
-      circleOptions={masterOptions.circles}
-    />
-  );
+  return <BiometricAttendance onBack={() => setView('updates')} />;
 }
 
 // Simple placeholder view for Add Circle & Employee Type card

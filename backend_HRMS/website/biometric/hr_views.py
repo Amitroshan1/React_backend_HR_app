@@ -205,15 +205,24 @@ def _unmapped_summary_rows(args, start, end):
     # emp_id / emp_type / circle / admin_id filters do not apply to unmapped rows.
     rows = q.group_by(BiometricLog.device_user_id, func.date(BiometricLog.punch_time)).all()
 
+    # If the device PIN matches an Admin.emp_id, show the employee first name
+    # even though the raw log row is not physically mapped yet.
+    pins = {r.device_user_id for r in rows if r.device_user_id}
+    admin_by_pin = {}
+    if pins:
+        for a in Admin.query.filter(Admin.emp_id.in_(pins)).all():
+            admin_by_pin[a.emp_id] = a
+
     out = []
     for r in rows:
+        a = admin_by_pin.get(r.device_user_id) if r.device_user_id else None
         out.append(
             {
-                "admin_id": None,
-                "emp_id": None,
-                "employee_name": None,
-                "emp_type": None,
-                "circle": None,
+                "admin_id": a.id if a else None,
+                "emp_id": a.emp_id if a else None,
+                "employee_name": a.first_name if a else None,
+                "emp_type": a.emp_type if a else None,
+                "circle": a.circle if a else None,
                 "device_user_id": r.device_user_id,
                 "date": _day_str(r.day),
                 "first_scan": r.first_scan.strftime("%Y-%m-%d %H:%M:%S") if r.first_scan else None,

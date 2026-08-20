@@ -11,18 +11,20 @@ const getAuthHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+const currentMonth = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
 const EMPTY_FILTERS = {
-  month: '',
+  month: currentMonth(),
   date: '',
   start: '',
   end: '',
   emp_id: '',
-  emp_type: '',
-  circle: '',
-  device_sn: '',
 };
 
-export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions = [] }) {
+export function BiometricAttendance({ onBack }) {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -31,7 +33,6 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [devices, setDevices] = useState([]);
   const [detail, setDetail] = useState(null);
 
   const buildParams = useCallback(
@@ -42,9 +43,6 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
       if (filters.start) params.set('start', filters.start);
       if (filters.end) params.set('end', filters.end);
       if (filters.emp_id) params.set('emp_id', filters.emp_id);
-      if (filters.emp_type) params.set('emp_type', filters.emp_type);
-      if (filters.circle) params.set('circle', filters.circle);
-      if (filters.device_sn) params.set('device_sn', filters.device_sn);
       params.set('page', String(p));
       params.set('per_page', String(pp));
       return params;
@@ -76,20 +74,6 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
     [buildParams, page, perPage]
   );
 
-  const fetchDevices = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/devices`, { headers: getAuthHeaders() });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) setDevices(data.devices || []);
-    } catch {
-      /* ignore device list errors */
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDevices();
-  }, [fetchDevices]);
-
   useEffect(() => {
     fetchRows();
   }, [fetchRows]);
@@ -113,9 +97,6 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
       if (filters.start) params.set('start', filters.start);
       if (filters.end) params.set('end', filters.end);
       if (filters.emp_id) params.set('emp_id', filters.emp_id);
-      if (filters.emp_type) params.set('emp_type', filters.emp_type);
-      if (filters.circle) params.set('circle', filters.circle);
-      if (filters.device_sn) params.set('device_sn', filters.device_sn);
       const res = await fetch(`${API_BASE}/export?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -141,7 +122,7 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
 
   const closeDetail = () => setDetail(null);
 
-  const hasActiveFilters = Object.values(filters).some((v) => v);
+  const hasActiveFilters = ['date', 'start', 'end', 'emp_id'].some((k) => filters[k]);
 
   return (
     <div className="bio-att-page">
@@ -160,7 +141,8 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
           <input
             type="month"
             value={filters.month}
-            onChange={(e) => handleFilterChange('month', e.target.value)}
+            disabled
+            title="Always shows the current month"
           />
         </label>
         <label>
@@ -196,48 +178,7 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
             onChange={(e) => handleFilterChange('emp_id', e.target.value)}
           />
         </label>
-        <label>
-          Department
-          <select
-            value={filters.emp_type}
-            onChange={(e) => handleFilterChange('emp_type', e.target.value)}
-          >
-            <option value="">All</option>
-            {empTypeOptions.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Circle
-          <select
-            value={filters.circle}
-            onChange={(e) => handleFilterChange('circle', e.target.value)}
-          >
-            <option value="">All</option>
-            {circleOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Device
-          <select
-            value={filters.device_sn}
-            onChange={(e) => handleFilterChange('device_sn', e.target.value)}
-          >
-            <option value="">All</option>
-            {devices.map((d) => (
-              <option key={d.serial_number} value={d.serial_number}>
-                {d.name || d.serial_number}
-              </option>
-            ))}
-          </select>
-        </label>
+
       </div>
 
       <div className="bio-att-toolbar">
@@ -251,7 +192,7 @@ export function BiometricAttendance({ onBack, empTypeOptions = [], circleOptions
           <button
             className="bio-att-clear"
             onClick={() => {
-              setFilters(EMPTY_FILTERS);
+              setFilters({ ...EMPTY_FILTERS, month: currentMonth() });
               setPage(1);
             }}
           >
