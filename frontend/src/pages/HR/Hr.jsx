@@ -36,6 +36,7 @@ import { OrgChart } from './OrgChart';
 import { HRPolicyCenter } from './HRPolicyCenter';
 import { HRATS } from './HRATS';
 import { HRCompensation } from './HRCompensation';
+import { BiometricAttendance } from './BiometricAttendance';
 import { HRWorkforcePlan } from './HRWorkforcePlan';
 import { HR_MODULE_TABS, HR_SHOW_PAY_MODULES, isPayModuleTitle, isPayView, buildGroupedModules, resolvePinnedModules, enrichModuleOption, groupIdForTitle } from './hrModuleGroups';
 import { recordRecentModule, getRecentModuleTitles, resolveRecentModules, DASHBOARD_RECENT_LIMIT } from './hrModuleRecent';
@@ -88,6 +89,7 @@ const HR_PANEL_VIEWS = [
   'punch_form',
   'employee_accounts',
   'add_circle_type',
+  'biometric_attendance',
 ];
 
 const HR_API_BASE = '/api/HumanResource';
@@ -1698,6 +1700,7 @@ export const Hr = () => {
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
     { title: 'Probation Reviews', icon: UserCheck, description: 'Review manager feedback and record probation decisions' },
     { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
+    { title: 'Biometric Attendance', icon: Clock, description: 'View raw biometric scans and daily first/last attendance' },
   ];
 
   const isUpdateOptionAllowed = (title) => {
@@ -2393,6 +2396,16 @@ if (view === 'probation_reviews') {
 
 if (view === 'holiday_calendar') {
   return <HolidayCalendar onBack={() => setView('updates')} />;
+}
+
+if (view === 'biometric_attendance') {
+  return (
+    <BiometricAttendance
+      onBack={() => setView('updates')}
+      empTypeOptions={masterOptions.departments}
+      circleOptions={masterOptions.circles}
+    />
+  );
 }
 
 // Simple placeholder view for Add Circle & Employee Type card

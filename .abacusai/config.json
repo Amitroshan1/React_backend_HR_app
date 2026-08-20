@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Select-String *)",
+      "Bash(python *)",
+      "Bash(python *)",
+      "Bash(Remove-Item *)"
+    ]
+  }
+}

@@ -41,6 +41,7 @@ export const HR_MODULE_DISPLAY_NAMES = {
   'Organization Chart': 'Org chart',
   'Update Manager': 'Update manager',
   'Holiday Calendar': 'Holiday calendar',
+  'Biometric Attendance': 'Biometric attendance',
 };
 
 export function moduleLabel(option) {
@@ -106,6 +107,7 @@ export const HR_MODULE_GROUPS = [
       'Leave Application Updation',
       'Leave Accrual Monitor',
       'Holiday Calendar',
+      'Biometric Attendance',
     ],
   },
   {

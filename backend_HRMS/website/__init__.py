@@ -271,6 +271,7 @@ def create_app():
 
     from .files import files_bp
     from .biometric import biometric_bp
+    from .biometric.hr_views import biometric_hr_bp
     from .attendance_realtime import attendance_realtime_bp
     from .attendance_realtime import routes as attendance_realtime_routes  # noqa: F401
 
@@ -288,6 +289,8 @@ def create_app():
     app.register_blueprint(files_bp, url_prefix="/api/files")
     # eSSL ADMS / iClock push (Phase 3A+: /iclock/health; 3B+: /iclock/cdata)
     app.register_blueprint(biometric_bp, url_prefix="/iclock")
+    # HR Biometric Attendance reporting (read-only over biometric_logs)
+    app.register_blueprint(biometric_hr_bp, url_prefix="/api/hr/biometric")
     # Phase 3D: attendance SSE (does not write Punch / PunchSession)
     app.register_blueprint(attendance_realtime_bp, url_prefix="/api/attendance")
 
@@ -656,6 +659,41 @@ def create_app():
             app.logger.info("Created attendance_realtime_events table")
         except Exception as e:
             app.logger.warning("attendance_realtime_events migration skipped: %s", e)
+
+    def _ensure_biometric_hr_indexes():
+        """Composite (admin_id, punch_time) index for HR biometric reporting (idempotent)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "biometric_logs"
+            if table not in insp.get_table_names():
+                return
+            existing = {ix["name"] for ix in insp.get_indexes(table)}
+            if "ix_biometric_logs_admin_punch" in existing:
+                return
+            dialect = db.engine.dialect.name
+            with db.engine.begin() as conn:
+                if dialect == "postgresql":
+                    conn.execute(
+                        text(
+                            'CREATE INDEX IF NOT EXISTS ix_biometric_logs_admin_punch '
+                            'ON "biometric_logs" (admin_id, punch_time)'
+                        )
+                    )
+                else:
+                    try:
+                        conn.execute(
+                            text(
+                                "CREATE INDEX ix_biometric_logs_admin_punch "
+                                "ON biometric_logs (admin_id, punch_time)"
+                            )
+                        )
+                    except Exception as idx_err:
+                        app.logger.warning("biometric hr index skipped: %s", idx_err)
+            app.logger.info("biometric_logs (admin_id, punch_time) index ensured")
+        except Exception as e:
+            app.logger.warning("biometric hr index ensure skipped: %s", e)
 
     def _cleanup_zero_qty_inventory_rows():
         """
@@ -1936,6 +1974,7 @@ def create_app():
             _ensure_biometric_schema_tables()
             _ensure_biometric_employee_map_emp_id()
             _ensure_attendance_realtime_events_table()
+            _ensure_biometric_hr_indexes()
             _ensure_it_return_request_table()
             _ensure_it_return_request_columns()
             _ensure_it_inventory_quantity_assignment_table()
