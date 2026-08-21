@@ -567,3 +567,13 @@ def process_received_logs_for_device(
             if row.status == "received":
                 row.status = "failed"
                 row.error_message = "bridge_exception"
+        try:
+            from .day_rollup import upsert_attendance_day_from_log
+
+            upsert_attendance_day_from_log(row)
+        except Exception:
+            logger.exception(
+                "BIOMETRIC_DAY_ROLLUP_ERROR log_id=%s sn=%s",
+                lid,
+                getattr(device, "serial_number", None),
+            )

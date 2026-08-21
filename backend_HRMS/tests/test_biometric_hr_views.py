@@ -230,6 +230,8 @@ def test_ten_scan_scenario(hr_stack):
     assert row["scan_count"] == 11, row
     assert row["first_scan"] == "2026-08-20 09:03:16"
     assert row["last_scan"] == "2026-08-20 14:36:28"
+    assert isinstance(row["total_scans"], list)
+    assert len(row["total_scans"]) == 11
     assert row["employee_name"] == "Amit Kumar"
     assert row["emp_type"] == "Engineering"
     assert row["circle"] == "NHQ"

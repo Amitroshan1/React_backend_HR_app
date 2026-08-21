@@ -4,10 +4,12 @@ HR Biometric Attendance reporting (read-only).
 Sits alongside the working ingestion pipeline:
 
     biometric_logs
+        -> incremental upsert biometric_attendance_day
         -> HR reporting API (this module)
         -> HR Biometric Attendance UI
 
-This module is a READ/REPORTING layer over biometric_logs. It never writes to
+This module is a READ/REPORTING layer over biometric_attendance_day
+(incrementally upserted from biometric_logs). It never writes to
 biometric_logs, never creates Punch/PunchSession, and never talks to the device.
 
 Scan classification (uses actual BiometricLog fields, no new status system):
@@ -29,11 +31,11 @@ from typing import List, Optional, Tuple
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt, jwt_required
-from sqlalchemy import func
 
 from .. import db
 from ..models.Admin_models import Admin
-from .models import BiometricDevice, BiometricLog
+from .models import BiometricAttendanceDay, BiometricDevice, BiometricLog
+from .day_rollup import rebuild_attendance_days_from_logs
 
 biometric_hr_bp = Blueprint("biometric_hr", __name__)
 
@@ -110,14 +112,8 @@ def _base_scan_filter():
     )
 
 
-def _day_str(day) -> str:
-    """func.date() returns a date on MySQL/Postgres but a string on SQLite."""
-    if isinstance(day, str):
-        return day
-    return day.isoformat()
-
-
 def _apply_common_filters(query, args, start, end):
+    """Date/device filters for raw biometric_logs (export/detail). DB only."""
     if start:
         query = query.filter(BiometricLog.punch_time >= datetime.combine(start, datetime.min.time()))
     if end:
@@ -128,40 +124,129 @@ def _apply_common_filters(query, args, start, end):
     return query
 
 
-def _mapped_summary_rows(args, start, end):
-    """Grouped daily summary for mapped employees (admin_id NOT NULL)."""
-    q = (
-        db.session.query(
-            BiometricLog.admin_id.label("admin_id"),
-            func.date(BiometricLog.punch_time).label("day"),
-            func.min(BiometricLog.punch_time).label("first_scan"),
-            func.max(BiometricLog.punch_time).label("last_scan"),
-            func.count(BiometricLog.id).label("scan_count"),
-        )
-        .join(Admin, Admin.id == BiometricLog.admin_id)
-        .filter(*_base_scan_filter(), BiometricLog.admin_id.isnot(None))
+def _ensure_day_read_model():
+    """If the read model is empty but logs exist, rebuild once (DB only)."""
+    if BiometricAttendanceDay.query.first() is not None:
+        return
+    if BiometricLog.query.filter(BiometricLog.punch_time.isnot(None)).first() is None:
+        return
+    rebuild_attendance_days_from_logs()
+    db.session.commit()
+
+
+def _scan_count(row: BiometricAttendanceDay) -> int:
+    scans = row.total_scans
+    if isinstance(scans, list):
+        return len(scans)
+    return 0
+
+
+def _fmt_dt(dt) -> Optional[str]:
+    return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else None
+
+
+def _pin_dates_for_device(device_sn: str, start, end):
+    """DB-only helper: (device_user_id, date) pairs that have logs on this device."""
+    q = BiometricLog.query.filter(
+        *_base_scan_filter(),
+        BiometricLog.device_serial_number == device_sn,
     )
-    q = _apply_common_filters(q, args, start, end)
+    if start:
+        q = q.filter(BiometricLog.punch_time >= datetime.combine(start, datetime.min.time()))
+    if end:
+        q = q.filter(BiometricLog.punch_time <= datetime.combine(end, datetime.max.time()))
+    pairs = set()
+    for log in q.with_entities(BiometricLog.device_user_id, BiometricLog.punch_time).all():
+        pin, pt = log
+        if pin and pt:
+            pairs.add(((pin or "").strip(), pt.date()))
+    return pairs
+
+
+def _base_day_query(args, start, end):
+    q = BiometricAttendanceDay.query
+    if start:
+        q = q.filter(BiometricAttendanceDay.attendance_date >= start)
+    if end:
+        q = q.filter(BiometricAttendanceDay.attendance_date <= end)
+    device_sn = (args.get("device_sn") or "").strip()
+    if device_sn:
+        pairs = _pin_dates_for_device(device_sn, start, end)
+        if not pairs:
+            return q.filter(db.false())
+        from sqlalchemy import or_, tuple_
+
+        dialect = db.engine.dialect.name
+        if dialect == "sqlite":
+            conds = [
+                db.and_(
+                    BiometricAttendanceDay.device_user_id == pin,
+                    BiometricAttendanceDay.attendance_date == day,
+                )
+                for pin, day in pairs
+            ]
+            q = q.filter(or_(*conds)) if conds else q.filter(db.false())
+        else:
+            q = q.filter(
+                tuple_(
+                    BiometricAttendanceDay.device_user_id,
+                    BiometricAttendanceDay.attendance_date,
+                ).in_(list(pairs))
+            )
+    return q
+
+
+def _serialize_day_row(row: BiometricAttendanceDay, admin: Optional[Admin]) -> dict:
+    mapped = row.admin_id is not None
+    scans = row.total_scans if isinstance(row.total_scans, list) else []
+    return {
+        "admin_id": row.admin_id,
+        "emp_id": admin.emp_id if admin else None,
+        "employee_name": admin.first_name if admin else None,
+        "emp_type": admin.emp_type if admin else None,
+        "circle": admin.circle if admin else None,
+        "device_user_id": row.device_user_id,
+        "date": row.attendance_date.isoformat() if row.attendance_date else None,
+        "first_scan": _fmt_dt(row.first_scan),
+        "last_scan": _fmt_dt(row.last_scan),
+        "scan_count": _scan_count(row),
+        "total_scans": scans,
+        "mapped": mapped,
+    }
+
+
+def _summary_rows(args, start, end):
+    """Daily summary from biometric_attendance_day (mapped + unmapped)."""
+    q = _base_day_query(args, start, end)
 
     emp_id = (args.get("emp_id") or "").strip()
-    if emp_id:
-        q = q.filter(Admin.emp_id == emp_id)
     emp_type = (args.get("emp_type") or "").strip()
-    if emp_type:
-        q = q.filter(Admin.emp_type == emp_type)
     circle = (args.get("circle") or "").strip()
-    if circle:
-        q = q.filter(Admin.circle == circle)
     admin_id = (args.get("admin_id") or "").strip()
+    needs_admin_join = bool(emp_type or circle or emp_id)
+
     if admin_id:
         try:
-            q = q.filter(BiometricLog.admin_id == int(admin_id))
+            q = q.filter(BiometricAttendanceDay.admin_id == int(admin_id))
         except (ValueError, TypeError):
             pass
 
-    rows = q.group_by(BiometricLog.admin_id, func.date(BiometricLog.punch_time)).all()
+    if needs_admin_join:
+        q = q.outerjoin(Admin, Admin.id == BiometricAttendanceDay.admin_id)
+        if emp_id:
+            q = q.filter(
+                db.or_(
+                    Admin.emp_id == emp_id,
+                    BiometricAttendanceDay.admin_id.is_(None),
+                )
+            )
+        if emp_type:
+            q = q.filter(Admin.emp_type == emp_type)
+        if circle:
+            q = q.filter(Admin.circle == circle)
 
-    admin_ids = {r.admin_id for r in rows}
+    rows = q.all()
+    admin_ids = {r.admin_id for r in rows if r.admin_id}
     admins = {}
     if admin_ids:
         for a in Admin.query.filter(Admin.id.in_(admin_ids)).all():
@@ -169,68 +254,12 @@ def _mapped_summary_rows(args, start, end):
 
     out = []
     for r in rows:
-        a = admins.get(r.admin_id)
-        out.append(
-            {
-                "admin_id": r.admin_id,
-                "emp_id": a.emp_id if a else None,
-                "employee_name": a.first_name if a else None,
-                "emp_type": a.emp_type if a else None,
-                "circle": a.circle if a else None,
-                "device_user_id": None,
-                "date": _day_str(r.day),
-                "first_scan": r.first_scan.strftime("%Y-%m-%d %H:%M:%S") if r.first_scan else None,
-                "last_scan": r.last_scan.strftime("%Y-%m-%d %H:%M:%S") if r.last_scan else None,
-                "scan_count": int(r.scan_count),
-                "mapped": True,
-            }
-        )
-    return out
-
-
-def _unmapped_summary_rows(args, start, end):
-    """Grouped daily summary for unmapped PINs (admin_id IS NULL)."""
-    q = (
-        db.session.query(
-            BiometricLog.device_user_id.label("device_user_id"),
-            func.date(BiometricLog.punch_time).label("day"),
-            func.min(BiometricLog.punch_time).label("first_scan"),
-            func.max(BiometricLog.punch_time).label("last_scan"),
-            func.count(BiometricLog.id).label("scan_count"),
-        )
-        .filter(*_base_scan_filter(), BiometricLog.admin_id.is_(None))
-    )
-    q = _apply_common_filters(q, args, start, end)
-
-    # emp_id / emp_type / circle / admin_id filters do not apply to unmapped rows.
-    rows = q.group_by(BiometricLog.device_user_id, func.date(BiometricLog.punch_time)).all()
-
-    # If the device PIN matches an Admin.emp_id, show the employee first name
-    # even though the raw log row is not physically mapped yet.
-    pins = {r.device_user_id for r in rows if r.device_user_id}
-    admin_by_pin = {}
-    if pins:
-        for a in Admin.query.filter(Admin.emp_id.in_(pins)).all():
-            admin_by_pin[a.emp_id] = a
-
-    out = []
-    for r in rows:
-        a = admin_by_pin.get(r.device_user_id) if r.device_user_id else None
-        out.append(
-            {
-                "admin_id": a.id if a else None,
-                "emp_id": a.emp_id if a else None,
-                "employee_name": a.first_name if a else None,
-                "emp_type": a.emp_type if a else None,
-                "circle": a.circle if a else None,
-                "device_user_id": r.device_user_id,
-                "date": _day_str(r.day),
-                "first_scan": r.first_scan.strftime("%Y-%m-%d %H:%M:%S") if r.first_scan else None,
-                "last_scan": r.last_scan.strftime("%Y-%m-%d %H:%M:%S") if r.last_scan else None,
-                "scan_count": int(r.scan_count),
-                "mapped": False,
-            }
-        )
+        a = admins.get(r.admin_id) if r.admin_id else None
+        # Preserve prior emp_id filter: mapped rows must match; unmapped still listed
+        # unless emp_type/circle required a join that already excluded them.
+        if emp_id and r.admin_id is not None and (not a or a.emp_id != emp_id):
+            continue
+        out.append(_serialize_day_row(r, a))
     return out
 
 
@@ -259,10 +288,9 @@ def biometric_summary():
     except (ValueError, TypeError):
         per_page = DEFAULT_PER_PAGE
 
-    mapped = _mapped_summary_rows(args, start, end)
-    unmapped = _unmapped_summary_rows(args, start, end)
-    combined = mapped + unmapped
-    combined.sort(key=lambda r: (r["date"], r["employee_name"] or r["device_user_id"] or ""), reverse=True)
+    _ensure_day_read_model()
+    combined = _summary_rows(args, start, end)
+    combined.sort(key=lambda r: (r["date"] or "", r["employee_name"] or r["device_user_id"] or ""), reverse=True)
 
     rows, total, page, per_page, total_pages = _paginate(combined, page, per_page)
 
@@ -398,10 +426,9 @@ def biometric_export():
     args = request.args
     start, end = _resolve_date_range(args)
 
-    mapped = _mapped_summary_rows(args, start, end)
-    unmapped = _unmapped_summary_rows(args, start, end)
-    combined = mapped + unmapped
-    combined.sort(key=lambda r: (r["date"], r["employee_name"] or r["device_user_id"] or ""))
+    _ensure_day_read_model()
+    combined = _summary_rows(args, start, end)
+    combined.sort(key=lambda r: (r["date"] or "", r["employee_name"] or r["device_user_id"] or ""))
 
     # Raw scans for the same filter set (mapped + unmapped).
     raw_q = BiometricLog.query.filter(*_base_scan_filter())

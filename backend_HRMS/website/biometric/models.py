@@ -106,3 +106,34 @@ class BiometricDayState(db.Model):
     __table_args__ = (
         db.UniqueConstraint("admin_id", "punch_date", name="uq_bio_day_admin_date"),
     )
+
+
+class BiometricAttendanceDay(db.Model):
+    """
+    HR reporting read model: one row per device PIN + calendar day.
+
+    Incrementally upserted from biometric_logs. Not Punch/PunchSession.
+    total_scans stores every valid punch_time (JSON array of 'YYYY-MM-DD HH:MM:SS').
+    """
+
+    __tablename__ = "biometric_attendance_day"
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, nullable=True, index=True)
+    device_user_id = db.Column(db.String(64), nullable=False, index=True)
+    attendance_date = db.Column(db.Date, nullable=False, index=True)
+    first_scan = db.Column(db.DateTime, nullable=True)
+    last_scan = db.Column(db.DateTime, nullable=True)
+    total_scans = db.Column(db.JSON, nullable=False, default=lambda: [])
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "device_user_id", "attendance_date", name="uq_bio_att_day_pin_date"
+        ),
+        db.Index("ix_bio_att_day_admin_date", "admin_id", "attendance_date"),
+        db.Index("ix_bio_att_day_date", "attendance_date"),
+    )

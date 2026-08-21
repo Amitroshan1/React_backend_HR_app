@@ -46,6 +46,7 @@ def _ensure_biometric_schema_tables(db, models):
         ("biometric_logs", models.BiometricLog),
         ("biometric_day_state", models.BiometricDayState),
         ("biometric_employee_map", models.BiometricEmployeeMap),
+        ("biometric_attendance_day", models.BiometricAttendanceDay),
     )
     for table_name, model in tables_in_order:
         if table_name in existing:
@@ -96,6 +97,7 @@ def test_biometric_schema_tables_created(bio_schema_stack):
         "biometric_logs",
         "biometric_day_state",
         "biometric_employee_map",
+        "biometric_attendance_day",
     }
     with app.app_context():
         names = set(inspect(db.engine).get_table_names())
@@ -156,3 +158,22 @@ def test_biometric_logs_idempotency_key_unique(bio_schema_stack):
             if ix.get("unique")
         }
         assert ("idempotency_key",) in unique_cols or ("idempotency_key",) in indexed_unique
+
+
+def test_biometric_attendance_day_unique_and_columns(bio_schema_stack):
+    app, db, models = bio_schema_stack
+    with app.app_context():
+        cols = {c["name"] for c in inspect(db.engine).get_columns("biometric_attendance_day")}
+        assert {
+            "id",
+            "admin_id",
+            "device_user_id",
+            "attendance_date",
+            "first_scan",
+            "last_scan",
+            "total_scans",
+            "created_at",
+            "updated_at",
+        } <= cols
+        uniques = inspect(db.engine).get_unique_constraints("biometric_attendance_day")
+        assert any(u.get("name") == "uq_bio_att_day_pin_date" for u in uniques)

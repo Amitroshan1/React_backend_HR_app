@@ -244,7 +244,7 @@ export function BiometricAttendance({ onBack }) {
                   <td className="bio-att-scan-highlight">
                     <Star size={12} /> {r.last_scan ? r.last_scan.slice(11) : '—'}
                   </td>
-                  <td>{r.scan_count}</td>
+                  <td>{Array.isArray(r.total_scans) ? r.total_scans.length : r.scan_count}</td>
                   <td>
                     <span className={r.mapped ? 'bio-att-badge mapped' : 'bio-att-badge unmapped'}>
                       {r.mapped ? 'Mapped' : 'Unmapped'}

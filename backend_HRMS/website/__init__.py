@@ -175,6 +175,7 @@ def create_app():
         BiometricEmployeeMap,
         BiometricLog,
         BiometricDayState,
+        BiometricAttendanceDay,
     )
     from .attendance_realtime.models import AttendanceRealtimeEvent  # noqa: F401
     from .models.query import Query, QueryReply
@@ -599,6 +600,7 @@ def create_app():
             ("biometric_logs", BiometricLog),
             ("biometric_day_state", BiometricDayState),
             ("biometric_employee_map", BiometricEmployeeMap),
+            ("biometric_attendance_day", BiometricAttendanceDay),
         )
 
         for table_name, model in tables_in_order:
@@ -617,6 +619,27 @@ def create_app():
                 raise
             app.logger.info("BIOMETRIC_SCHEMA created table %s", table_name)
             existing.add(table_name)
+
+    def _ensure_biometric_attendance_day_backfill():
+        """Populate empty biometric_attendance_day from biometric_logs (idempotent)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            if "biometric_attendance_day" not in insp.get_table_names():
+                return
+            with db.engine.connect() as conn:
+                n = conn.execute(text("SELECT COUNT(*) FROM biometric_attendance_day")).scalar()
+            if n:
+                return
+            from .biometric.day_rollup import rebuild_attendance_days_from_logs
+
+            rebuilt = rebuild_attendance_days_from_logs()
+            db.session.commit()
+            app.logger.info("BIOMETRIC_SCHEMA backfilled biometric_attendance_day rows=%s", rebuilt)
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning("biometric_attendance_day backfill skipped: %s", e)
 
     def _ensure_biometric_employee_map_emp_id():
         """Additive emp_id on biometric_employee_map (HR business id; Admin.id remains FK)."""
@@ -1972,6 +1995,7 @@ def create_app():
             _ensure_punch_session_geo_v2_columns()
             _ensure_punch_session_source_columns()
             _ensure_biometric_schema_tables()
+            _ensure_biometric_attendance_day_backfill()
             _ensure_biometric_employee_map_emp_id()
             _ensure_attendance_realtime_events_table()
             _ensure_biometric_hr_indexes()
@@ -2031,6 +2055,8 @@ def create_app():
     register_biometric_audit_command(app)
     from .commands.biometric_finalize import register_biometric_finalize_command
     register_biometric_finalize_command(app)
+    from .commands.biometric_attendance_day import register_biometric_attendance_day_command
+    register_biometric_attendance_day_command(app)
 
     # ---------------------------
     # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention
