@@ -24,8 +24,6 @@ const currentMonth = () => {
 const EMPTY_FILTERS = {
   month: currentMonth(),
   date: '',
-  start: '',
-  end: '',
   emp_id: '',
 };
 
@@ -56,15 +54,9 @@ export function BiometricAttendance({ onBack }) {
     (p = page, pp = perPage) => {
       const params = new URLSearchParams();
       const date = (filters.date || '').trim();
-      const start = (filters.start || '').trim();
-      const end = (filters.end || '').trim();
       const empId = (filters.emp_id || '').trim();
-      // Specific date/range overrides the default month so filters actually narrow.
       if (date) {
         params.set('date', date);
-      } else if (start || end) {
-        if (start) params.set('start', start);
-        if (end) params.set('end', end);
       } else if (filters.month) {
         params.set('month', filters.month);
       }
@@ -120,14 +112,9 @@ export function BiometricAttendance({ onBack }) {
     try {
       const params = new URLSearchParams();
       const date = (filters.date || '').trim();
-      const start = (filters.start || '').trim();
-      const end = (filters.end || '').trim();
       const empId = (filters.emp_id || '').trim();
       if (date) {
         params.set('date', date);
-      } else if (start || end) {
-        if (start) params.set('start', start);
-        if (end) params.set('end', end);
       } else if (filters.month) {
         params.set('month', filters.month);
       }
@@ -157,7 +144,7 @@ export function BiometricAttendance({ onBack }) {
 
   const closeDetail = () => setDetail(null);
 
-  const hasActiveFilters = ['date', 'start', 'end', 'emp_id'].some((k) => filters[k]);
+  const hasActiveFilters = ['date', 'emp_id'].some((k) => filters[k]);
 
   return (
     <div className="bio-att-page">
@@ -204,22 +191,6 @@ export function BiometricAttendance({ onBack }) {
             type="date"
             value={filters.date}
             onChange={(e) => handleFilterChange('date', e.target.value)}
-          />
-        </label>
-        <label>
-          From
-          <input
-            type="date"
-            value={filters.start}
-            onChange={(e) => handleFilterChange('start', e.target.value)}
-          />
-        </label>
-        <label>
-          To
-          <input
-            type="date"
-            value={filters.end}
-            onChange={(e) => handleFilterChange('end', e.target.value)}
           />
         </label>
         <label>
