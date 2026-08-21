@@ -90,13 +90,11 @@ def _parse_month(value: Optional[str]) -> Optional[Tuple[int, int]]:
 
 
 def _resolve_date_range(args) -> Tuple[Optional[date], Optional[date]]:
-    """Return (start, end) inclusive from month | date | start+end. Never both."""
-    month = _parse_month(args.get("month"))
-    if month:
-        year, mon = month
-        last = calendar.monthrange(year, mon)[1]
-        return date(year, mon, 1), date(year, mon, last)
-
+    """
+    Inclusive (start, end). More specific filters win so the HR UI can always
+    send the current month as a default without blocking Date / From / To.
+    Precedence: date > start/end > month.
+    """
     single = _parse_date(args.get("date"))
     if single:
         return single, single
@@ -104,7 +102,15 @@ def _resolve_date_range(args) -> Tuple[Optional[date], Optional[date]]:
     start = _parse_date(args.get("start"))
     end = _parse_date(args.get("end"))
     if start or end:
+        if start and end and end < start:
+            start, end = end, start
         return start, end
+
+    month = _parse_month(args.get("month"))
+    if month:
+        year, mon = month
+        last = calendar.monthrange(year, mon)[1]
+        return date(year, mon, 1), date(year, mon, last)
 
     return None, None
 
@@ -242,7 +248,7 @@ def _summary_rows(args, start, end):
             q = q.filter(
                 db.or_(
                     Admin.emp_id == emp_id,
-                    BiometricAttendanceDay.admin_id.is_(None),
+                    BiometricAttendanceDay.device_user_id == emp_id,
                 )
             )
         if emp_type:
@@ -260,10 +266,11 @@ def _summary_rows(args, start, end):
     out = []
     for r in rows:
         a = admins.get(r.admin_id) if r.admin_id else None
-        # Preserve prior emp_id filter: mapped rows must match; unmapped still listed
-        # unless emp_type/circle required a join that already excluded them.
-        if emp_id and r.admin_id is not None and (not a or a.emp_id != emp_id):
-            continue
+        if emp_id:
+            pin = (r.device_user_id or "").strip()
+            mapped_id = (a.emp_id if a else None) or ""
+            if emp_id not in (mapped_id, pin):
+                continue
         out.append(_serialize_day_row(r, a))
     return out
 

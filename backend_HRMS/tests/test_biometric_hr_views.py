@@ -310,10 +310,38 @@ def test_date_range_filter(hr_stack):
     assert dates == {"2026-08-21"}
 
 
+def test_date_overrides_month_when_both_sent(hr_stack):
+    """HR UI always sends current month; a Date filter must still narrow to that day."""
+    res = _get(
+        hr_stack,
+        "/api/hr/biometric/summary?month=2026-08&date=2026-08-21",
+        _hr_token(hr_stack),
+    )
+    data = res.get_json()
+    dates = {r["date"] for r in data["rows"]}
+    assert dates == {"2026-08-21"}
+
+
+def test_start_end_overrides_month_when_both_sent(hr_stack):
+    res = _get(
+        hr_stack,
+        "/api/hr/biometric/summary?month=2026-08&start=2026-08-21&end=2026-08-21",
+        _hr_token(hr_stack),
+    )
+    data = res.get_json()
+    dates = {r["date"] for r in data["rows"]}
+    assert dates == {"2026-08-21"}
+
+
 def test_employee_id_filter(hr_stack):
     res = _get(hr_stack, "/api/hr/biometric/summary?emp_id=10237", _hr_token(hr_stack))
     data = res.get_json()
-    assert all(r["emp_id"] == "10237" for r in data["rows"] if r["mapped"])
+    assert data["rows"]
+    assert all(
+        (r.get("emp_id") == "10237" or r.get("device_user_id") == "10237")
+        for r in data["rows"]
+    )
+    assert not any(r.get("device_user_id") == "10320" for r in data["rows"])
 
 
 def test_emp_type_filter(hr_stack):

@@ -55,11 +55,20 @@ export function BiometricAttendance({ onBack }) {
   const buildParams = useCallback(
     (p = page, pp = perPage) => {
       const params = new URLSearchParams();
-      if (filters.month) params.set('month', filters.month);
-      if (filters.date) params.set('date', filters.date);
-      if (filters.start) params.set('start', filters.start);
-      if (filters.end) params.set('end', filters.end);
-      if (filters.emp_id) params.set('emp_id', filters.emp_id);
+      const date = (filters.date || '').trim();
+      const start = (filters.start || '').trim();
+      const end = (filters.end || '').trim();
+      const empId = (filters.emp_id || '').trim();
+      // Specific date/range overrides the default month so filters actually narrow.
+      if (date) {
+        params.set('date', date);
+      } else if (start || end) {
+        if (start) params.set('start', start);
+        if (end) params.set('end', end);
+      } else if (filters.month) {
+        params.set('month', filters.month);
+      }
+      if (empId) params.set('emp_id', empId);
       params.set('page', String(p));
       params.set('per_page', String(pp));
       return params;
@@ -110,11 +119,19 @@ export function BiometricAttendance({ onBack }) {
     setError('');
     try {
       const params = new URLSearchParams();
-      if (filters.month) params.set('month', filters.month);
-      if (filters.date) params.set('date', filters.date);
-      if (filters.start) params.set('start', filters.start);
-      if (filters.end) params.set('end', filters.end);
-      if (filters.emp_id) params.set('emp_id', filters.emp_id);
+      const date = (filters.date || '').trim();
+      const start = (filters.start || '').trim();
+      const end = (filters.end || '').trim();
+      const empId = (filters.emp_id || '').trim();
+      if (date) {
+        params.set('date', date);
+      } else if (start || end) {
+        if (start) params.set('start', start);
+        if (end) params.set('end', end);
+      } else if (filters.month) {
+        params.set('month', filters.month);
+      }
+      if (empId) params.set('emp_id', empId);
       const res = await fetch(`${API_BASE}/export?${params}`, { headers: getAuthHeaders() });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
