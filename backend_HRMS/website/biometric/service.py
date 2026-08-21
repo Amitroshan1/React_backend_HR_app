@@ -13,6 +13,7 @@ from .. import db
 from .device_manager import (
     build_options_response,
     resolve_device,
+    touch_device_data_push,
     touch_device_seen,
 )
 from .models import BiometricLog
@@ -248,6 +249,7 @@ def handle_attlog_ingest(
         from .attendance_bridge import process_received_logs_for_device
 
         process_received_logs_for_device(device=device, log_ids=received_ids)
+        touch_device_data_push(device)
 
     try:
         db.session.commit()

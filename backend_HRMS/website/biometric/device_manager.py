@@ -7,12 +7,17 @@ import logging
 import os
 from typing import Optional, Tuple
 
+from datetime import datetime
+
 from .. import db
 from ..datetime_utils import utc_now
 from .models import BiometricDevice
 from .validators import client_ip_from_request, is_valid_serial, normalize_serial
 
 logger = logging.getLogger(__name__)
+
+# ZKTeco TransInterval=1 min + ErrorDelay=60s; allow a couple of missed heartbeats.
+DEFAULT_ONLINE_TIMEOUT_SECONDS = 180
 
 
 def _env_allowed_serials() -> set[str]:
@@ -98,10 +103,50 @@ def resolve_device(
     return device, None
 
 
+def device_online_timeout_seconds() -> int:
+    """Seconds without last_seen_at after which the device is Offline."""
+    raw = None
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context():
+            raw = current_app.config.get("BIOMETRIC_DEVICE_ONLINE_TIMEOUT_SECONDS")
+    except Exception:
+        raw = None
+    if raw is None:
+        raw = os.getenv("BIOMETRIC_DEVICE_ONLINE_TIMEOUT_SECONDS") or DEFAULT_ONLINE_TIMEOUT_SECONDS
+    try:
+        return max(30, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_ONLINE_TIMEOUT_SECONDS
+
+
+def is_device_online(device: Optional[BiometricDevice], *, now: Optional[datetime] = None) -> bool:
+    """Online iff last_seen_at is within the timeout. Never uses last_data_push_at."""
+    if device is None or device.last_seen_at is None:
+        return False
+    now = now or utc_now()
+    seen = device.last_seen_at
+    try:
+        delta = (now - seen).total_seconds()
+    except TypeError:
+        return False
+    return delta <= device_online_timeout_seconds()
+
+
 def touch_device_seen(device: BiometricDevice) -> None:
-    """Update last_seen_at (caller commits)."""
-    device.last_seen_at = utc_now()
-    device.updated_at = utc_now()
+    """Update last_seen_at (caller commits). Heartbeat / any valid ADMS contact."""
+    now = utc_now()
+    device.last_seen_at = now
+    device.updated_at = now
+
+
+def touch_device_data_push(device: BiometricDevice) -> None:
+    """ATTLOG stored in biometric_logs: communication + last attendance received."""
+    now = utc_now()
+    device.last_seen_at = now
+    device.last_data_push_at = now
+    device.updated_at = now
 
 
 def build_options_response(serial_number: str) -> str:

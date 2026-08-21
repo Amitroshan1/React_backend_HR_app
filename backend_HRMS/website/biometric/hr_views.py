@@ -33,7 +33,12 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt, jwt_required
 
 from .. import db
+from ..datetime_utils import isoformat_api
 from ..models.Admin_models import Admin
+from .device_manager import (
+    device_online_timeout_seconds,
+    is_device_online,
+)
 from .models import BiometricAttendanceDay, BiometricDevice, BiometricLog
 from .day_rollup import rebuild_attendance_days_from_logs
 
@@ -395,23 +400,28 @@ def biometric_unmapped_day(device_user_id: str, date_str: str):
 @jwt_required()
 @hr_required
 def biometric_devices():
-    """List registered biometric devices for the device filter."""
+    """Registered devices + Online/Offline from last_seen_at (DB only; no device I/O)."""
+    timeout = device_online_timeout_seconds()
     devices = BiometricDevice.query.order_by(BiometricDevice.serial_number.asc()).all()
+    payload = []
+    for d in devices:
+        payload.append(
+            {
+                "id": d.id,
+                "serial_number": d.serial_number,
+                "name": d.name,
+                "is_active": d.is_active,
+                "last_seen_at": isoformat_api(d.last_seen_at),
+                "last_data_push_at": isoformat_api(getattr(d, "last_data_push_at", None)),
+                "online": is_device_online(d),
+                "status": "Online" if is_device_online(d) else "Offline",
+            }
+        )
     return jsonify(
         {
             "success": True,
-            "devices": [
-                {
-                    "id": d.id,
-                    "serial_number": d.serial_number,
-                    "name": d.name,
-                    "is_active": d.is_active,
-                    "last_seen_at": d.last_seen_at.strftime("%Y-%m-%d %H:%M:%S")
-                    if d.last_seen_at
-                    else None,
-                }
-                for d in devices
-            ],
+            "online_timeout_seconds": timeout,
+            "devices": payload,
         }
     ), 200
 

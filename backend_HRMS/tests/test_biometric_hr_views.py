@@ -341,7 +341,51 @@ def test_devices_endpoint(hr_stack):
     res = _get(hr_stack, "/api/hr/biometric/devices", _hr_token(hr_stack))
     data = res.get_json()
     assert data["success"] is True
+    assert "online_timeout_seconds" in data
     assert any(d["serial_number"] == "NES1254800218" for d in data["devices"])
+    row = next(d for d in data["devices"] if d["serial_number"] == "NES1254800218")
+    assert "last_seen_at" in row
+    assert "last_data_push_at" in row
+    assert "online" in row
+    assert row["status"] in ("Online", "Offline")
+
+
+def test_devices_status_online_from_last_seen_not_data_push(hr_stack):
+    """Heartbeat-style last_seen_at makes Online even if no attendance push."""
+    from website.datetime_utils import utc_now
+
+    with hr_stack.app.app_context():
+        d = hr_stack.bio_models.BiometricDevice.query.filter_by(
+            serial_number="NES1254800218"
+        ).first()
+        d.last_seen_at = utc_now()
+        d.last_data_push_at = None
+        hr_stack.db.session.commit()
+    res = _get(hr_stack, "/api/hr/biometric/devices", _hr_token(hr_stack))
+    row = next(d for d in res.get_json()["devices"] if d["serial_number"] == "NES1254800218")
+    assert row["online"] is True
+    assert row["status"] == "Online"
+    assert row["last_data_push_at"] is None
+
+
+def test_devices_status_offline_stale_last_seen(hr_stack):
+    from datetime import datetime
+
+    with hr_stack.app.app_context():
+        d = hr_stack.bio_models.BiometricDevice.query.filter_by(
+            serial_number="NES1254800218"
+        ).first()
+        d.last_seen_at = datetime(2020, 1, 1, 0, 0, 0)
+        hr_stack.db.session.commit()
+    res = _get(hr_stack, "/api/hr/biometric/devices", _hr_token(hr_stack))
+    row = next(d for d in res.get_json()["devices"] if d["serial_number"] == "NES1254800218")
+    assert row["online"] is False
+    assert row["status"] == "Offline"
+
+
+def test_devices_forbidden_for_employee(hr_stack):
+    res = _get(hr_stack, "/api/hr/biometric/devices", _emp_token(hr_stack))
+    assert res.status_code == 403
 
 
 def test_pagination(hr_stack):

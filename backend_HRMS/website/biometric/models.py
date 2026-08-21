@@ -18,6 +18,8 @@ class BiometricDevice(db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
     timezone = db.Column(db.String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
     last_seen_at = db.Column(db.DateTime, nullable=True)
+    # Last time a valid ATTLOG row was stored in biometric_logs (not heartbeat).
+    last_data_push_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(
         db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow

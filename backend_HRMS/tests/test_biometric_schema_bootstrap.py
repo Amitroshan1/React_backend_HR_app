@@ -116,6 +116,7 @@ def test_biometric_devices_columns(bio_schema_stack):
             "is_active",
             "timezone",
             "last_seen_at",
+            "last_data_push_at",
             "created_at",
             "updated_at",
         } <= cols

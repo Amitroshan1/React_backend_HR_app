@@ -398,3 +398,37 @@ def test_aspx_unknown_employee_attlog(client, bio_stack):
         assert row.status == "unknown_employee"
         assert row.punch_session_id is None
 
+
+def test_heartbeat_updates_last_seen_not_data_push(client, bio_stack):
+    with bio_stack.app.app_context():
+        resp = client.get("/iclock/cdata.aspx?SN=ERIS001")
+        assert resp.status_code == 200
+        device = bio_stack.BiometricDevice.query.filter_by(serial_number="ERIS001").first()
+        assert device.last_seen_at is not None
+        assert device.last_data_push_at is None
+
+
+def test_empty_attlog_heartbeat_does_not_set_data_push(client, bio_stack):
+    with bio_stack.app.app_context():
+        resp = client.post(
+            "/iclock/cdata?SN=ERIS001&table=ATTLOG",
+            data="",
+            content_type="text/plain",
+        )
+        assert resp.status_code == 200
+        device = bio_stack.BiometricDevice.query.filter_by(serial_number="ERIS001").first()
+        assert device.last_seen_at is not None
+        assert device.last_data_push_at is None
+
+
+def test_attlog_sets_last_data_push_at(client, bio_stack):
+    with bio_stack.app.app_context():
+        body = "1024\t2026-08-17 09:01:22\t0\t15\t0\t0"
+        resp = client.post("/iclock/cdata?SN=ERIS001&table=ATTLOG", data=body)
+        assert resp.status_code == 200
+        assert _count_logs(bio_stack) == 1
+        device = bio_stack.BiometricDevice.query.filter_by(serial_number="ERIS001").first()
+        assert device.last_seen_at is not None
+        assert device.last_data_push_at is not None
+        assert device.last_data_push_at == device.last_seen_at
+

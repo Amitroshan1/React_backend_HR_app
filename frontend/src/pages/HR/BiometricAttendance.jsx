@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, RefreshCw, Download, ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import { formatDate } from '../../utils/dateFormat';
 import { BiometricAttendanceDetail } from './BiometricAttendanceDetail';
+import {
+  deviceDisplayName,
+  formatDeviceClock,
+  pickPrimaryDevice,
+} from './deviceStatusDisplay';
 import './BiometricAttendance.css';
 
 const API_BASE = '/api/hr/biometric';
@@ -34,6 +39,18 @@ export function BiometricAttendance({ onBack }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
+  const [deviceStatus, setDeviceStatus] = useState(null);
+
+  const fetchDeviceStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/devices`, { headers: getAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) return;
+      setDeviceStatus(pickPrimaryDevice(data.devices || []));
+    } catch {
+      /* keep last known status */
+    }
+  }, []);
 
   const buildParams = useCallback(
     (p = page, pp = perPage) => {
@@ -64,6 +81,7 @@ export function BiometricAttendance({ onBack }) {
         setTotal(data.total || 0);
         setTotalPages(data.total_pages || 0);
         setPage(data.page || 1);
+        fetchDeviceStatus();
       } catch (err) {
         setRows([]);
         setError(err.message || 'Network error');
@@ -71,7 +89,7 @@ export function BiometricAttendance({ onBack }) {
         setLoading(false);
       }
     },
-    [buildParams, page, perPage]
+    [buildParams, page, perPage, fetchDeviceStatus]
   );
 
   useEffect(() => {
@@ -134,6 +152,24 @@ export function BiometricAttendance({ onBack }) {
         <h2>Biometric Attendance</h2>
         <p>Raw biometric scans from the device. First and last scan of each day are highlighted.</p>
       </div>
+
+      {deviceStatus && (
+        <div className="bio-att-device-status" data-testid="bio-device-status">
+          <div className="bio-att-device-status-title">{deviceDisplayName(deviceStatus)}</div>
+          <div
+            className={`bio-att-device-pill ${deviceStatus.online ? 'online' : 'offline'}`}
+          >
+            <span className="bio-att-device-dot" />
+            {deviceStatus.online ? 'Online' : 'Offline'}
+          </div>
+          <div className="bio-att-device-meta">
+            Last communication: {formatDeviceClock(deviceStatus.last_seen_at)}
+          </div>
+          <div className="bio-att-device-meta">
+            Last attendance received: {formatDeviceClock(deviceStatus.last_data_push_at)}
+          </div>
+        </div>
+      )}
 
       <div className="bio-att-filters">
         <label>

@@ -670,6 +670,32 @@ def create_app():
         except Exception as e:
             app.logger.warning("biometric_employee_map.emp_id migration skipped: %s", e)
 
+    def _ensure_biometric_device_last_data_push_at():
+        """Additive last_data_push_at on biometric_devices (ATTLOG stored vs heartbeat)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "biometric_devices"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            if "last_data_push_at" in existing:
+                return
+            dialect = db.engine.dialect.name
+            with db.engine.begin() as conn:
+                if dialect == "postgresql":
+                    conn.execute(
+                        text(f'ALTER TABLE "{table}" ADD COLUMN last_data_push_at TIMESTAMP NULL')
+                    )
+                else:
+                    conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN last_data_push_at DATETIME NULL")
+                    )
+            app.logger.info("Added biometric_devices.last_data_push_at column")
+        except Exception as e:
+            app.logger.warning("biometric_devices.last_data_push_at migration skipped: %s", e)
+
     def _ensure_attendance_realtime_events_table():
         """Phase 3D SSE outbox — additive; never writes Punch / PunchSession."""
         try:
@@ -1997,6 +2023,7 @@ def create_app():
             _ensure_biometric_schema_tables()
             _ensure_biometric_attendance_day_backfill()
             _ensure_biometric_employee_map_emp_id()
+            _ensure_biometric_device_last_data_push_at()
             _ensure_attendance_realtime_events_table()
             _ensure_biometric_hr_indexes()
             _ensure_it_return_request_table()
