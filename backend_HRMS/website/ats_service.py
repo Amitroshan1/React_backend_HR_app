@@ -273,6 +273,7 @@ def candidate_signup_payload(candidate_id: int) -> dict:
             "emp_type": emp_type,
             "circle": circle,
             "designation": req.title if req else "",
+            "employment_status": "probation",
         },
         "offer_annual_ctc": offer.annual_ctc if offer else None,
         "band_hint": _offer_band_hint(row),

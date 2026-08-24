@@ -219,11 +219,28 @@ def apply_hr_probation_decision(hr_admin, data):
 
     if decision == HR_DECISION_CONFIRMED:
         row.status = STATUS_HR_CONFIRMED
+        from .employment_status import transition_to_on_role
+
+        transition_to_on_role(
+            target,
+            effective_from=date.today(),
+            changed_by=getattr(hr_admin, "email", None),
+            notes=notes or "HR probation confirmation",
+            send_email=False,
+        )
     elif decision == HR_DECISION_FAILED:
         row.status = STATUS_HR_FAILED
     elif decision == HR_DECISION_EXTENDED:
         row.status = STATUS_HR_EXTENDED
         row.extended_until = extended_until
+        from .employment_status import apply_probation_extension
+
+        apply_probation_extension(
+            target,
+            extended_until,
+            changed_by=getattr(hr_admin, "email", None),
+            notes=notes or "Probation extended",
+        )
         existing_next = ProbationReview.query.filter_by(
             admin_id=row.admin_id,
             probation_end_date=extended_until,

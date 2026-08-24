@@ -433,11 +433,23 @@ def biometric_devices():
     ), 200
 
 
+def _time_only(value: Optional[str]) -> str:
+    """HH:MM:SS from a datetime string used by the UI first/last scan columns."""
+    if not value:
+        return ""
+    text = str(value).strip()
+    if " " in text:
+        return text.split(" ", 1)[1][:8]
+    if "T" in text:
+        return text.split("T", 1)[1][:8]
+    return text
+
+
 @biometric_hr_bp.route("/export", methods=["GET"])
 @jwt_required()
 @hr_required
 def biometric_export():
-    """Excel export of the filtered biometric summary + all raw scans."""
+    """One-sheet Excel of the same summary rows shown in the HR UI."""
     from ..utility import send_excel_file
 
     args = request.args
@@ -447,98 +459,52 @@ def biometric_export():
     combined = _summary_rows(args, start, end)
     combined.sort(key=lambda r: (r["date"] or "", r["employee_name"] or r["device_user_id"] or ""))
 
-    # Raw scans for the same filter set (mapped + unmapped).
-    raw_q = BiometricLog.query.filter(*_base_scan_filter())
-    raw_q = _apply_common_filters(raw_q, args, start, end)
-    emp_id = (args.get("emp_id") or "").strip()
-    emp_type = (args.get("emp_type") or "").strip()
-    circle = (args.get("circle") or "").strip()
-    admin_id = (args.get("admin_id") or "").strip()
-    if emp_id or emp_type or circle or admin_id:
-        raw_q = raw_q.outerjoin(Admin, Admin.id == BiometricLog.admin_id)
-        if emp_id:
-            raw_q = raw_q.filter(Admin.emp_id == emp_id)
-        if emp_type:
-            raw_q = raw_q.filter(Admin.emp_type == emp_type)
-        if circle:
-            raw_q = raw_q.filter(Admin.circle == circle)
-        if admin_id:
-            try:
-                raw_q = raw_q.filter(BiometricLog.admin_id == int(admin_id))
-            except (ValueError, TypeError):
-                pass
-    raw_logs = raw_q.order_by(BiometricLog.punch_time.asc(), BiometricLog.id.asc()).all()
-
-    admin_ids = {l.admin_id for l in raw_logs if l.admin_id}
-    admins = {}
-    if admin_ids:
-        for a in Admin.query.filter(Admin.id.in_(admin_ids)).all():
-            admins[a.id] = a
-
     import io
 
     from openpyxl import Workbook
 
-    summary_rows = []
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Attendance"
+    ws.append(
+        [
+            "Employee",
+            "Employee ID",
+            "Date",
+            "Punch In",
+            "Punch Out",
+            "Total Scans",
+            "Status",
+        ]
+    )
     for r in combined:
-        summary_rows.append(
+        ws.append(
             [
                 r["employee_name"] or "Unmapped",
                 r["emp_id"] or (r["device_user_id"] or ""),
-                r["date"],
-                r["first_scan"],
-                r["last_scan"],
+                r["date"] or "",
+                _time_only(r.get("first_scan")),
+                _time_only(r.get("last_scan")),
                 r["scan_count"],
                 "Mapped" if r["mapped"] else "Unmapped",
             ]
         )
 
-    raw_rows = []
-    for l in raw_logs:
-        a = admins.get(l.admin_id)
-        raw_rows.append(
-            [
-                a.first_name if a else "Unmapped",
-                a.emp_id if a else (l.device_user_id or ""),
-                l.punch_time.date().isoformat() if l.punch_time else None,
-                l.punch_time.strftime("%Y-%m-%d %H:%M:%S") if l.punch_time else None,
-                l.device_serial_number,
-                l.device_user_id,
-                l.verification_mode,
-                l.status,
-            ]
-        )
-
-    wb = Workbook()
-    ws_summary = wb.active
-    ws_summary.title = "Summary"
-    ws_summary.append(
-        ["Employee", "Employee ID", "Date", "First Scan", "Last Scan", "Total Scans", "Status"]
-    )
-    for row in summary_rows:
-        ws_summary.append(row)
-
-    ws_raw = wb.create_sheet("Raw Scans")
-    ws_raw.append(
-        [
-            "Employee",
-            "Employee ID",
-            "Date",
-            "Punch Time",
-            "Device Serial",
-            "Device User ID",
-            "Verification Mode",
-            "Status",
-        ]
-    )
-    for row in raw_rows:
-        ws_raw.append(row)
-
     output = io.BytesIO()
     wb.save(output)
+    output.seek(0)
+
+    month = (args.get("month") or "").strip()
+    day = (args.get("date") or "").strip()
+    if day:
+        download_name = f"Biometric_Attendance_{day}.xlsx"
+    elif month:
+        download_name = f"Biometric_Attendance_{month}.xlsx"
+    else:
+        download_name = "Biometric_Attendance.xlsx"
 
     return send_excel_file(
         output,
-        download_name="Biometric_Attendance.xlsx",
+        download_name=download_name,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )

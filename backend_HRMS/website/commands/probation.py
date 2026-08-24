@@ -181,6 +181,10 @@ def _ensure_probation_review_cycle(admin, run_date, summary, send_notifications=
     """
     if not _is_active_employee(admin):
         return None
+    from ..employment_status import is_probation_employment
+
+    if not is_probation_employment(admin):
+        return None
     if _employee_probation_confirmed(admin):
         return None
 
@@ -261,7 +265,12 @@ def _process_initial_reminders(run_date, summary):
     ).all()
 
     for admin in admins:
-        end = compute_probation_end_date(admin.doj)
+        from ..employment_status import is_probation_employment
+        from ..probation_utils import effective_probation_end_date
+
+        if not is_probation_employment(admin):
+            continue
+        end = effective_probation_end_date(admin)
         if not end or end != target_end:
             continue
         if not is_probation_review_eligible(admin, run_date):

@@ -25,6 +25,14 @@ from .email import (
     send_news_feed_announcement_email,
     zeptomail_config_error,
 )
+from .employment_status import (
+    EmploymentStatusError,
+    apply_employment_fields,
+    resolve_employment_payload,
+    serialize_employment_fields,
+    _payload_has_employment_keys,
+    is_probation_employment,
+)
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
@@ -1071,6 +1079,11 @@ def signup_api():
     hr_email = get_jwt().get("email")
 
     try:
+        employment_fields = resolve_employment_payload(data, doj=doj, for_create=True)
+    except EmploymentStatusError as emp_err:
+        return jsonify({"success": False, "message": str(emp_err)}), 400
+
+    try:
         # Pre-check for duplicate identifiers to avoid raw IntegrityError messages
         existing_conflict = Admin.query.filter(
             (Admin.email == email) |
@@ -1194,6 +1207,13 @@ def signup_api():
 
         db.session.add(audit)
 
+        apply_employment_fields(
+            admin,
+            employment_fields,
+            changed_by=hr_email,
+            notes="Employee signup",
+            send_email=False,
+        )
         _sync_probation_after_doj_change(admin)
 
         candidate_id_raw = data.get("candidate_id")
@@ -7117,6 +7137,7 @@ def get_employee_api(email_path):
             "circle": admin.circle,
             "emp_type": admin.emp_type,
             "designation": emp_row.designation if emp_row else None,
+            **serialize_employment_fields(admin),
         }
     }), 200
 
@@ -7238,12 +7259,48 @@ def update_employee_api(email_path):
     if "doj" in data and data.get("doj"):
         try:
             admin.doj = datetime.fromisoformat(str(data["doj"]).strip()[:10]).date()
+            if not _payload_has_employment_keys(data) and is_probation_employment(admin):
+                try:
+                    derived = resolve_employment_payload(
+                        {
+                            "probation_start_date": admin.doj.isoformat(),
+                            "probation_duration_months": admin.probation_duration_months or 6,
+                        },
+                        doj=admin.doj,
+                        existing=admin,
+                    )
+                    apply_employment_fields(
+                        admin,
+                        derived,
+                        changed_by=(get_jwt() or {}).get("email"),
+                        notes="DOJ change",
+                        send_email=True,
+                    )
+                except EmploymentStatusError:
+                    pass
             _sync_probation_after_doj_change(admin)
         except (ValueError, TypeError):
             return jsonify({
                 "success": False,
                 "message": "Invalid DOJ format (YYYY-MM-DD)"
             }), 400
+
+    if _payload_has_employment_keys(data):
+        try:
+            employment_fields = resolve_employment_payload(
+                data, doj=admin.doj, existing=admin, for_create=False
+            )
+        except EmploymentStatusError as emp_err:
+            return jsonify({"success": False, "message": str(emp_err)}), 400
+        apply_employment_fields(
+            admin,
+            employment_fields,
+            changed_by=(get_jwt() or {}).get("email"),
+            notes="HR employee update",
+            send_email=True,
+        )
+        if is_probation_employment(admin):
+            _sync_probation_after_doj_change(admin)
 
     if data.get("password"):
         admin.set_password(data["password"])

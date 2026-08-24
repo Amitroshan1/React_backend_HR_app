@@ -83,11 +83,17 @@ def compute_probation_end_date(doj):
 
 
 def effective_probation_end_date(admin):
-    """
-    Date after which the employee is eligible for leave accrual.
-    Uses the latest open probation cycle end when probation was extended.
-    """
-    base = compute_probation_end_date(getattr(admin, "doj", None))
+    """Current probation cycle end for review workflow (not leave eligibility)."""
+    stored = getattr(admin, "probation_end_date", None) if admin else None
+    if stored:
+        return stored
+    start = getattr(admin, "probation_start_date", None) if admin else None
+    months = getattr(admin, "probation_duration_months", None) if admin else None
+    if start and months:
+        from .employment_status import add_calendar_months
+
+        return add_calendar_months(start, int(months))
+    base = compute_probation_end_date(getattr(admin, "doj", None) if admin else None)
     if not admin:
         return base
 
@@ -98,7 +104,7 @@ def effective_probation_end_date(admin):
         status=STATUS_HR_CONFIRMED,
     ).first()
     if confirmed:
-        return base
+        return confirmed.probation_end_date or base
 
     latest_row = (
         ProbationReview.query.filter_by(admin_id=admin.id)
@@ -152,6 +158,11 @@ def is_probation_review_eligible(admin, run_date=None, *, allow_awaiting_hr=Fals
     """
     run_date = run_date or date.today()
     if not admin or not getattr(admin, "doj", None):
+        return False
+
+    from .employment_status import is_probation_employment
+
+    if not is_probation_employment(admin) and not (allow_awaiting_hr and _has_pending_hr_decision(admin)):
         return False
 
     current_end = effective_probation_end_date(admin)
@@ -260,7 +271,12 @@ def build_employee_probation_status(admin, run_date=None):
     if not doj:
         return {"applicable": False, "show_on_dashboard": False}
 
+    from .employment_status import STATUS_ON_ROLE, STATUS_CONTRACT, employment_status_of
     from .models.probation import ProbationReview
+
+    emp_status = employment_status_of(admin)
+    if emp_status == STATUS_CONTRACT:
+        return {"applicable": False, "show_on_dashboard": False}
 
     base_end = compute_probation_end_date(doj)
     effective_end = effective_probation_end_date(admin)
@@ -269,6 +285,8 @@ def build_employee_probation_status(admin, run_date=None):
         .order_by(ProbationReview.hr_decided_at.desc())
         .first()
     )
+    if emp_status == STATUS_ON_ROLE and not confirmed_row:
+        return {"applicable": False, "show_on_dashboard": False}
     if confirmed_row:
         confirmed_at = confirmed_row.hr_decided_at
         decided_date = _hr_decision_date(confirmed_at)

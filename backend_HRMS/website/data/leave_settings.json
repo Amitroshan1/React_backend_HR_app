@@ -2,5 +2,6 @@
   "max_hr_backdate_days": 60,
   "block_on_payroll_locked": true,
   "max_regularization_backdate_days": 30,
-  "manager_on_behalf_allowed": false
+  "manager_on_behalf_allowed": false,
+  "contract_leave_accrual_default": false
 }

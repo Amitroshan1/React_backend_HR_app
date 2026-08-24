@@ -436,5 +436,45 @@ def test_empty_result(hr_stack):
 def test_export(hr_stack):
     res = _get(hr_stack, "/api/hr/biometric/export?date=2026-08-20", _hr_token(hr_stack))
     assert res.status_code == 200
-    assert hr_stack.captured["download_name"] == "Biometric_Attendance.xlsx"
+    assert hr_stack.captured["download_name"] == "Biometric_Attendance_2026-08-20.xlsx"
     assert hr_stack.captured["bytes"] is not None
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(BytesIO(hr_stack.captured["bytes"]))
+    assert wb.sheetnames == ["Attendance"]
+    ws = wb.active
+    headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    assert headers == [
+        "Employee",
+        "Employee ID",
+        "Date",
+        "Punch In",
+        "Punch Out",
+        "Total Scans",
+        "Status",
+    ]
+    dates = {row[2].value for row in ws.iter_rows(min_row=2) if row[2].value}
+    assert dates == {"2026-08-20"}
+    punch_in = [row[3].value for row in ws.iter_rows(min_row=2) if row[3].value]
+    punch_out = [row[4].value for row in ws.iter_rows(min_row=2) if row[4].value]
+    assert punch_in
+    assert punch_out
+    assert all(":" in str(v) for v in punch_in + punch_out)
+
+
+def test_export_month_one_sheet(hr_stack):
+    res = _get(hr_stack, "/api/hr/biometric/export?month=2026-08", _hr_token(hr_stack))
+    assert res.status_code == 200
+    assert hr_stack.captured["download_name"] == "Biometric_Attendance_2026-08.xlsx"
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(BytesIO(hr_stack.captured["bytes"]))
+    assert wb.sheetnames == ["Attendance"]
+    ws = wb.active
+    dates = {row[2].value for row in ws.iter_rows(min_row=2) if row[2].value}
+    assert "2026-08-20" in dates
+    assert "2026-08-21" in dates

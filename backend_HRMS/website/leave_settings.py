@@ -11,6 +11,7 @@ _DEFAULTS = {
     "block_on_payroll_locked": True,
     "max_regularization_backdate_days": 30,
     "manager_on_behalf_allowed": False,
+    "contract_leave_accrual_default": False,
 }
 
 

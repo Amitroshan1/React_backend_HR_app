@@ -97,6 +97,45 @@ const ACCOUNTS_API_BASE = '/api/accounts';
 const HR_SELECTED_EMPLOYEE_KEY = 'hr_selected_employee';
 const HR_EMPLOYEE_360_TAB_KEY = 'hr_employee_360_tab';
 const HR_SEARCH_RESULTS_PARAM = 'hr_search';
+const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: 'probation', label: 'Probation' },
+  { value: 'on_role', label: 'On Role' },
+  { value: 'contract', label: 'Contract' },
+];
+
+function addCalendarMonthsIso(iso, months) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const n = Number(months) || 0;
+  const monthIndex = m - 1 + n;
+  const year = y + Math.floor(monthIndex / 12);
+  const month = ((monthIndex % 12) + 12) % 12;
+  const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(d, last);
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function durationMonthsFromDates(startIso, endIso) {
+  if (!startIso || !endIso) return '';
+  const start = String(startIso).slice(0, 10);
+  const end = String(endIso).slice(0, 10);
+  for (let n = 1; n <= 60; n += 1) {
+    if (addCalendarMonthsIso(start, n) === end) return String(n);
+  }
+  return '';
+}
+
+function emptySignupEmployment(doj = '') {
+  const duration = '6';
+  const start = doj || '';
+  return {
+    employment_status: 'probation',
+    probation_start_date: start,
+    probation_end_date: start ? addCalendarMonthsIso(start, duration) : '',
+    probation_duration_months: duration,
+  };
+}
 
 function readHrSearchFromUrl() {
   if (typeof window === 'undefined') {
@@ -272,9 +311,9 @@ function hrProfileCompleteness(admin, employee, documents, education, previousEm
   const empFields = [
     { label: 'Designation', val: emp.designation },
     { label: 'Employee ID', val: emp.emp_id || admin?.emp_id },
-    { label: 'Department', val: admin?.circle },
+    { label: 'Circle', val: admin?.circle },
     { label: 'Date of joining', val: admin?.doj },
-    { label: 'Employment type', val: admin?.emp_type },
+    { label: 'Department', val: admin?.emp_type },
   ];
   const empMissing = empFields.filter((f) => !v(f.val));
   if (empMissing.length === 0) completedSections += 1;
@@ -459,9 +498,9 @@ function HrEmployeeProfileView({ employee, onBack, embedded = false }) {
               <div className="hr-profile-grid">
                 {row('Designation', hrProfileVal(emp.designation))}
                 {row('Employee ID', hrProfileVal(emp.emp_id || admin.emp_id))}
-                {row('Department', hrProfileVal(admin.circle))}
+                {row('Circle', hrProfileVal(admin.circle))}
                 {row('Date of joining', formatDateDDMMYYYY(admin.doj, null))}
-                {row('Employment type', hrProfileVal(admin.emp_type))}
+                {row('Department', hrProfileVal(admin.emp_type))}
               </div>
             </div>
 
@@ -1299,6 +1338,10 @@ export const Hr = () => {
     circle: '',
     designation: '',
     password: '',
+    employment_status: 'probation',
+    probation_start_date: '',
+    probation_end_date: '',
+    probation_duration_months: '6',
   });
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [signupSubmitting, setSignupSubmitting] = useState(false);
@@ -1332,6 +1375,12 @@ export const Hr = () => {
       emp_type: employeeData.emp_type || '',
       circle: employeeData.circle || '',
       designation: employeeData.designation || '',
+      employment_status: employeeData.employment_status || 'probation',
+      probation_start_date: (employeeData.probation_start_date || '').slice(0, 10),
+      probation_end_date: (employeeData.probation_end_date || '').slice(0, 10),
+      probation_duration_months: employeeData.probation_duration_months != null
+        ? String(employeeData.probation_duration_months)
+        : '6',
     };
     setSignupEditOriginal(snapshot);
     setCircleEffectiveFrom(new Date().toISOString().slice(0, 10));
@@ -1358,7 +1407,19 @@ export const Hr = () => {
       emp_type: signupData.emp_type || '',
       circle: signupData.circle || '',
       designation: signupData.designation || '',
+      employment_status: signupData.employment_status || 'probation',
+      probation_start_date: (signupData.probation_start_date || signupData.doj || '').slice(0, 10),
+      probation_end_date: (signupData.probation_end_date || '').slice(0, 10),
+      probation_duration_months: signupData.probation_duration_months != null
+        ? String(signupData.probation_duration_months)
+        : '6',
     };
+    if (snapshot.employment_status === 'probation' && snapshot.probation_start_date && !snapshot.probation_end_date) {
+      snapshot.probation_end_date = addCalendarMonthsIso(
+        snapshot.probation_start_date,
+        snapshot.probation_duration_months || 6
+      );
+    }
     setSignupEditOriginal(null);
     setSignupEditEmail(null);
     setSignupForm({ ...snapshot, password: '' });
@@ -1385,6 +1446,10 @@ export const Hr = () => {
       ['emp_type', norm(form.emp_type)],
       ['circle', norm(form.circle)],
       ['designation', norm(form.designation)],
+      ['employment_status', norm(form.employment_status)],
+      ['probation_start_date', normDoj(form.probation_start_date)],
+      ['probation_end_date', normDoj(form.probation_end_date)],
+      ['probation_duration_months', norm(form.probation_duration_months)],
     ];
     for (const [key, value] of fields) {
       let prev;
@@ -1404,6 +1469,59 @@ export const Hr = () => {
     if (name === 'mobile') {
       const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
       setSignupForm(prev => ({ ...prev, [name]: digitsOnly }));
+    } else if (name === 'doj') {
+      setSignupForm((prev) => {
+        const next = { ...prev, doj: value };
+        if (next.employment_status === 'probation') {
+          next.probation_start_date = value;
+          next.probation_duration_months = next.probation_duration_months || '6';
+          next.probation_end_date = value
+            ? addCalendarMonthsIso(value, next.probation_duration_months)
+            : '';
+        }
+        return next;
+      });
+    } else if (name === 'employment_status') {
+      setSignupForm((prev) => {
+        const next = { ...prev, employment_status: value };
+        if (value === 'probation') {
+          const start = next.probation_start_date || next.doj;
+          const duration = next.probation_duration_months || '6';
+          next.probation_start_date = start;
+          next.probation_duration_months = duration;
+          next.probation_end_date = start ? addCalendarMonthsIso(start, duration) : '';
+        }
+        return next;
+      });
+    } else if (name === 'probation_duration_months') {
+      setSignupForm((prev) => {
+        const duration = value;
+        const start = prev.probation_start_date || prev.doj;
+        return {
+          ...prev,
+          probation_duration_months: duration,
+          probation_end_date: start && duration ? addCalendarMonthsIso(start, duration) : prev.probation_end_date,
+        };
+      });
+    } else if (name === 'probation_start_date') {
+      setSignupForm((prev) => {
+        const duration = prev.probation_duration_months || '6';
+        return {
+          ...prev,
+          probation_start_date: value,
+          probation_end_date: value ? addCalendarMonthsIso(value, duration) : '',
+        };
+      });
+    } else if (name === 'probation_end_date') {
+      setSignupForm((prev) => {
+        const start = prev.probation_start_date || prev.doj;
+        const derived = durationMonthsFromDates(start, value);
+        return {
+          ...prev,
+          probation_end_date: value,
+          ...(derived ? { probation_duration_months: derived } : {}),
+        };
+      });
     } else {
       setSignupForm(prev => ({ ...prev, [name]: value }));
     }
@@ -1417,8 +1535,8 @@ export const Hr = () => {
     const isUpdate = !!signupEditEmail;
 
     if (!isUpdate) {
-      if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle || !signupForm.designation) {
-        setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Employee Type, Circle, Designation).');
+      if (!user_name?.trim() || !first_name?.trim() || !email?.trim() || !emp_id?.trim() || !mobile?.trim() || !doj || !emp_type || !circle || !signupForm.designation || !signupForm.employment_status) {
+        setSignupError('Please fill in all required fields (UserName, Full Name, Email, Employee ID, Mobile, DOJ, Department, Circle, Designation, Employment Status).');
         return;
       }
       if (mobile.length !== 10) {
@@ -1434,6 +1552,18 @@ export const Hr = () => {
       const emailNorm = (email || '').replace(/\s+/g, '').trim().toLowerCase();
       if (emailNorm && !emailNorm.includes('@')) {
         setSignupError('Please enter a valid email address.');
+        return;
+      }
+    }
+
+    if (signupForm.employment_status === 'probation') {
+      const start = signupForm.probation_start_date || doj;
+      const duration = Number(signupForm.probation_duration_months) || 6;
+      const expectedEnd = start ? addCalendarMonthsIso(start, duration) : '';
+      if (signupForm.probation_end_date && expectedEnd && signupForm.probation_end_date !== expectedEnd) {
+        setSignupError(
+          `Probation end date must equal start date plus duration (${expectedEnd}).`
+        );
         return;
       }
     }
@@ -1532,6 +1662,12 @@ export const Hr = () => {
             emp_type,
             circle,
             designation: (signupForm.designation || '').trim(),
+            employment_status: signupForm.employment_status,
+            ...(signupForm.employment_status === 'probation' ? {
+              probation_start_date: signupForm.probation_start_date || doj,
+              probation_end_date: signupForm.probation_end_date,
+              probation_duration_months: Number(signupForm.probation_duration_months) || 6,
+            } : {}),
             ...(password?.trim() ? { password: password.trim() } : {}),
             ...(signupOfferCtc ? { offer_annual_ctc: Number(signupOfferCtc) } : {}),
             ...(signupCandidateId ? { candidate_id: signupCandidateId } : {}),
@@ -1540,7 +1676,19 @@ export const Hr = () => {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setSignupSuccess(true);
-          setSignupForm({ user_name: '', first_name: '', email: '', emp_id: '', mobile: '', doj: '', emp_type: '', circle: '', designation: '', password: '' });
+          setSignupForm({
+            user_name: '',
+            first_name: '',
+            email: '',
+            emp_id: '',
+            mobile: '',
+            doj: '',
+            emp_type: '',
+            circle: '',
+            designation: '',
+            password: '',
+            ...emptySignupEmployment(''),
+          });
           setSignupOfferCtc(null);
           setSignupCandidateId(null);
           setShowSignupPassword(false);
@@ -2675,9 +2823,9 @@ if (view === 'noc_requests') {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Employee Type {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
+                  <label>Department {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
                   <select name="emp_type" value={signupForm.emp_type} onChange={handleSignupChange}>
-                    <option value="">Select Employee Type</option>
+                    <option value="">Select Department</option>
                     {masterOptions.departments.map((item) => (
                       <option key={item} value={item}>{item}</option>
                     ))}
@@ -2748,6 +2896,41 @@ if (view === 'noc_requests') {
                     required={!isEditMode}
                   />
                 </div>
+                <div className="form-group">
+                  <label>Employment Status {!isEditMode && <span style={{ color: '#b91c1c' }}>*</span>}</label>
+                  <select name="employment_status" value={signupForm.employment_status} onChange={handleSignupChange}>
+                    {EMPLOYMENT_STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {signupForm.employment_status === 'probation' ? (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Probation Start Date</label>
+                    <input name="probation_start_date" type="date" value={signupForm.probation_start_date} onChange={handleSignupChange} />
+                  </div>
+                  <div className="form-group">
+                    <label>Probation End Date</label>
+                    <input name="probation_end_date" type="date" value={signupForm.probation_end_date} onChange={handleSignupChange} />
+                  </div>
+                  <div className="form-group">
+                    <label>Probation Duration (months)</label>
+                    <input
+                      name="probation_duration_months"
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={signupForm.probation_duration_months}
+                      onChange={handleSignupChange}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="form-row">
                 <div className="form-group">
                   <label>Password (optional)</label>
                   <div className="signup-password-wrap">

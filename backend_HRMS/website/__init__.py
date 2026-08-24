@@ -202,6 +202,7 @@ def create_app():
     from .models.monthly_payroll import MonthlyPayroll
     from .models.assessment import AssessmentInvite
     from .models.employee_circle_history import EmployeeCircleHistory
+    from .models.employee_employment_status_history import EmployeeEmploymentStatusHistory  # noqa: F401
     from .models.otp import OTP  # noqa: F401 — register for db.create_all
     from .models.it_models import (
         ITInventoryItem,
@@ -1191,6 +1192,66 @@ def create_app():
         except Exception as e:
             app.logger.warning("assessment table ensure skipped: %s", e)
 
+    def _ensure_admin_employment_status_columns():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "admins"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            additions = [
+                ("employment_status", "VARCHAR(20) NULL"),
+                ("employment_status_effective_from", "DATE NULL"),
+                ("probation_start_date", "DATE NULL"),
+                ("probation_end_date", "DATE NULL"),
+                ("probation_duration_months", "INTEGER NULL"),
+            ]
+            for col, col_type in additions:
+                if col in existing:
+                    continue
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN {col} {col_type}')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column %s.%s", table, col)
+        except Exception as e:
+            app.logger.warning("admins employment_status columns ensure skipped: %s", e)
+
+    def _ensure_employee_employment_status_history_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.employee_employment_status_history import EmployeeEmploymentStatusHistory
+
+            insp = inspect(db.engine)
+            if "employee_employment_status_history" in set(insp.get_table_names()):
+                return
+            EmployeeEmploymentStatusHistory.__table__.create(bind=db.engine, checkfirst=True)
+            app.logger.info("Created table employee_employment_status_history")
+        except Exception as e:
+            app.logger.warning("employee_employment_status_history table ensure skipped: %s", e)
+
+    def _backfill_admin_employment_status():
+        try:
+            from sqlalchemy import inspect
+            from .employment_status import backfill_legacy_employment_status
+
+            insp = inspect(db.engine)
+            if "admins" not in insp.get_table_names():
+                return
+            cols = {c["name"] for c in insp.get_columns("admins")}
+            if "employment_status" not in cols:
+                return
+            n = backfill_legacy_employment_status(commit=True)
+            if n:
+                app.logger.info("Backfilled employment_status for %s employee(s)", n)
+        except Exception as e:
+            app.logger.warning("employment_status backfill skipped: %s", e)
+
     def _ensure_employee_circle_history_table():
         try:
             from sqlalchemy import inspect
@@ -2040,6 +2101,9 @@ def create_app():
             _ensure_otp_login_table()
             _ensure_assessment_tables()
             _ensure_employee_circle_history_table()
+            _ensure_admin_employment_status_columns()
+            _ensure_employee_employment_status_history_table()
+            _backfill_admin_employment_status()
             _ensure_deployed_customers_table()
             _ensure_leave_balance_defaults()
             _ensure_probation_review_columns()

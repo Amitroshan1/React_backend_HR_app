@@ -23,6 +23,10 @@ _COLUMN_ALIASES = {
     "circle": ("circle", "location circle", "office circle"),
     "designation": ("designation", "title", "job title"),
     "password": ("password", "temp password"),
+    "employment_status": ("employment_status", "employment status", "status"),
+    "probation_start_date": ("probation_start_date", "probation start", "probation start date"),
+    "probation_end_date": ("probation_end_date", "probation end", "probation end date"),
+    "probation_duration_months": ("probation_duration_months", "probation duration", "probation months"),
 }
 
 
@@ -242,6 +246,26 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
             audit = AuditLog(action=action, performed_by=hr_email, target_email=admin.email)
             _upsert_employee_designation_for_admin(admin, designation)
             db.session.add(audit)
+            from .employment_status import EmploymentStatusError, apply_employment_fields, resolve_employment_payload
+
+            try:
+                emp_fields = resolve_employment_payload(row, doj=doj, existing=admin, for_create=True)
+            except EmploymentStatusError as emp_err:
+                db.session.rollback()
+                failed += 1
+                errors.append({
+                    "row": row.get("row_number"),
+                    "errors": [str(emp_err)],
+                    "email": email,
+                })
+                continue
+            apply_employment_fields(
+                admin,
+                emp_fields,
+                changed_by=hr_email,
+                notes="CSV import",
+                send_email=False,
+            )
             _sync_probation_after_doj_change(admin)
             db.session.commit()
 
@@ -268,6 +292,6 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
 
 def employee_import_template_csv() -> str:
     return (
-        "email,first_name,user_name,mobile,emp_id,doj,emp_type,circle,designation,password\n"
-        "john.doe@company.com,John Doe,johndoe,9876543210,EMP001,2026-01-15,Permanent,NHQ,Software Engineer,\n"
+        "email,first_name,user_name,mobile,emp_id,doj,emp_type,circle,designation,employment_status,probation_start_date,probation_end_date,probation_duration_months,password\n"
+        "john.doe@company.com,John Doe,johndoe,9876543210,EMP001,2026-01-15,Software Developer,NHQ,Software Engineer,probation,,,6,\n"
     )

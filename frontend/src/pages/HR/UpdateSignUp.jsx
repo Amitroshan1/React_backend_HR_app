@@ -105,6 +105,10 @@ export const UpdateSignUp = ({
           circle: e.circle || '',
           emp_type: e.emp_type || '',
           designation: e.designation || '',
+          employment_status: e.employment_status || 'probation',
+          probation_start_date: e.probation_start_date || '',
+          probation_end_date: e.probation_end_date || '',
+          probation_duration_months: e.probation_duration_months != null ? e.probation_duration_months : 6,
         });
       }
     } catch {
@@ -129,7 +133,7 @@ export const UpdateSignUp = ({
           </div>
           <div className="filter-row">
             <div className="filter-group">
-              <label>Employee Type</label>
+              <label>Department</label>
               <select
                 value={filters.emp_type}
                 onChange={(e) => setFilters((f) => ({ ...f, emp_type: e.target.value }))}

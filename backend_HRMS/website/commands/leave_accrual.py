@@ -16,15 +16,14 @@ from .leave_accrual_schedule import (
     ACCRUAL_TRIGGER_DAY,
     build_yearly_accrual_schedule,
 )
-from ..probation_utils import effective_probation_end_date
+from ..employment_status import (
+    accrual_schedule_anchor_date,
+    is_pl_cl_accrual_eligible,
+)
 
 
 PL_CARRY_FORWARD_CAP = 45.0
 IST_ZONE = ZoneInfo("Asia/Kolkata")
-
-
-def _probation_end_date(admin):
-    return effective_probation_end_date(admin)
 
 
 def _event_exists(admin_id, event_key):
@@ -128,6 +127,7 @@ def _run_leave_accrual_for_date(run_date):
         "pl_days_credited": 0.0,
         "cl_days_credited": 0.0,
         "events_skipped_existing": 0,
+        "skipped_ineligible": 0,
         "skipped_on_probation": 0,
     }
 
@@ -149,9 +149,9 @@ def _run_leave_accrual_for_date(run_date):
         if created_new:
             summary["balances_created"] += 1
 
-        probation_end = _probation_end_date(admin)
-        if probation_end is None or run_date < probation_end:
+        if not is_pl_cl_accrual_eligible(admin, run_date):
             summary["skipped_on_probation"] += 1
+            summary["skipped_ineligible"] += 1
             continue
 
         if should_reset_year:
@@ -168,8 +168,9 @@ def _run_leave_accrual_for_date(run_date):
                 summary["year_resets"] += 1
 
         if should_credit_20th:
+            anchor = accrual_schedule_anchor_date(admin)
             pl_schedule, cl_schedule, _meta = build_yearly_accrual_schedule(
-                probation_end, run_date.year
+                anchor, run_date.year
             )
             month = run_date.month
             _try_credit_variable(
@@ -192,6 +193,53 @@ def _run_leave_accrual_for_date(run_date):
             )
 
     return summary
+
+
+def sync_leave_eligibility_for_admin(admin, run_date=None):
+    """Ensure leave wallet exists after becoming On Role. Does not backfill missed 20ths.
+
+    If today is the accrual trigger day, credit this month if not already logged.
+    """
+    from datetime import datetime as _dt
+
+    if not admin or not is_pl_cl_accrual_eligible(admin, run_date):
+        return False
+    run_date = run_date or _dt.now(IST_ZONE).date()
+    _ensure_leave_balance(admin.id)
+    if run_date.day != ACCRUAL_TRIGGER_DAY:
+        return True
+    leave_balance = LeaveBalance.query.filter_by(admin_id=admin.id).first()
+    if not leave_balance:
+        return True
+    summary = {
+        "events_skipped_existing": 0,
+        "pl_credits": 0,
+        "cl_credits": 0,
+        "pl_days_credited": 0.0,
+        "cl_days_credited": 0.0,
+    }
+    anchor = accrual_schedule_anchor_date(admin)
+    pl_schedule, cl_schedule, _meta = build_yearly_accrual_schedule(anchor, run_date.year)
+    month = run_date.month
+    _try_credit_variable(
+        admin.id,
+        leave_balance,
+        run_date,
+        leave_kind="pl",
+        month=month,
+        amount=pl_schedule.get(month, 0),
+        summary=summary,
+    )
+    _try_credit_variable(
+        admin.id,
+        leave_balance,
+        run_date,
+        leave_kind="cl",
+        month=month,
+        amount=cl_schedule.get(month, 0),
+        summary=summary,
+    )
+    return True
 
 
 def register_leave_accrual_command(app):

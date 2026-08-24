@@ -33,6 +33,13 @@ class Admin(db.Model, UserMixin):
     emp_type = db.Column(db.String(50), nullable=True)
     circle = db.Column(db.String(50), nullable=True)
 
+    # Employment lifecycle (not department — department is emp_type)
+    employment_status = db.Column(db.String(20), nullable=True, index=True)
+    employment_status_effective_from = db.Column(db.Date, nullable=True)
+    probation_start_date = db.Column(db.Date, nullable=True)
+    probation_end_date = db.Column(db.Date, nullable=True)
+    probation_duration_months = db.Column(db.Integer, nullable=True)
+
     password = db.Column(db.String(350), nullable=True)
     password_reset_token = db.Column(db.String(255), nullable=True)
     password_reset_expiry = db.Column(db.DateTime, nullable=True)

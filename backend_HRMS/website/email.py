@@ -1550,6 +1550,95 @@ def update_asset_email(sender_email, recipient_email, first_name):
 
 
 
+def employment_status_email_rows(admin):
+    """HTML table rows for employment status / probation dates."""
+    from .employment_status import (
+        STATUS_PROBATION,
+        employment_status_of,
+        format_status_label,
+    )
+
+    status = employment_status_of(admin)
+    rows = [
+        f"<tr><td><strong>Employment Status</strong></td><td>{format_status_label(status)}</td></tr>"
+    ]
+    if status == STATUS_PROBATION or getattr(admin, "probation_end_date", None):
+        start = getattr(admin, "probation_start_date", None) or "N/A"
+        end = getattr(admin, "probation_end_date", None) or "N/A"
+        months = getattr(admin, "probation_duration_months", None)
+        months_txt = f"{months} month(s)" if months else "N/A"
+        if status == STATUS_PROBATION:
+            rows.append(f"<tr><td><strong>Probation Duration</strong></td><td>{months_txt}</td></tr>")
+            rows.append(f"<tr><td><strong>Probation Start Date</strong></td><td>{start}</td></tr>")
+            rows.append(f"<tr><td><strong>Probation End Date</strong></td><td>{end}</td></tr>")
+    return "\n            ".join(rows)
+
+
+def _fmt_changed_value(value):
+    if value is None or value == "":
+        return "—"
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    from .employment_status import format_status_label, VALID_EMPLOYMENT_STATUSES
+
+    if isinstance(value, str) and value in VALID_EMPLOYMENT_STATUSES:
+        return format_status_label(value)
+    return str(value)
+
+
+def send_employment_status_updated_email(admin, changed_fields, changed_by=None):
+    """Notify employee when HR updates employment status or probation terms."""
+    try:
+        to_email = (getattr(admin, "email", None) or "").strip()
+        if not to_email or not changed_fields:
+            return False
+        emp_name = (getattr(admin, "first_name", None) or "").strip() or to_email
+        change_rows = []
+        labels = {
+            "employment_status": "Employment Status",
+            "employment_status_effective_from": "Status effective from",
+            "probation_start_date": "Probation Start Date",
+            "probation_end_date": "Probation End Date",
+            "probation_duration_months": "Probation Duration (months)",
+        }
+        for key, delta in changed_fields.items():
+            label = labels.get(key, key)
+            old_v = _fmt_changed_value((delta or {}).get("from"))
+            new_v = _fmt_changed_value((delta or {}).get("to"))
+            change_rows.append(
+                f"<tr><td><strong>{label}</strong></td><td>{old_v}</td><td>{new_v}</td></tr>"
+            )
+        actor = html.escape(str(changed_by or "HR"))
+        body = f"""
+        <p>Hi <strong>{html.escape(emp_name)}</strong>,</p>
+        <p>Your employment details have been updated by <strong>{actor}</strong>.</p>
+        <p><strong>Current values</strong></p>
+        <table cellpadding="6" cellspacing="0" border="1">
+            {employment_status_email_rows(admin)}
+        </table>
+        <p><strong>What changed</strong></p>
+        <table cellpadding="6" cellspacing="0" border="1">
+            <tr><th>Field</th><th>Previous</th><th>New</th></tr>
+            {''.join(change_rows)}
+        </table>
+        <p>If you have questions, please contact HR.</p>
+        <p>— HRMS</p>
+        """
+        cc_hr = current_app.config.get("ZEPTO_CC_HR")
+        cc_emails = [cc_hr] if cc_hr else None
+        ok, _msg = send_email_via_zeptomail(
+            sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
+            subject="Employment details updated",
+            body=body,
+            recipient_email=to_email,
+            cc_emails=cc_emails,
+        )
+        return ok
+    except Exception as e:
+        current_app.logger.warning("Employment status update email failed: %s", e)
+        return False
+
+
 def send_welcome_email(admin,data):
     """
     Sends welcome email to newly created employee.
@@ -1574,6 +1663,7 @@ def send_welcome_email(admin,data):
             <tr><td><strong>Department</strong></td><td>{admin.emp_type}</td></tr>
             <tr><td><strong>Circle</strong></td><td>{admin.circle}</td></tr>
             <tr><td><strong>Date of Joining</strong></td><td>{admin.doj}</td></tr>
+            {employment_status_email_rows(admin)}
         </table>
 
         <p>

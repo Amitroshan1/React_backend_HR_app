@@ -54,11 +54,12 @@ export function BiometricAttendance({ onBack }) {
     (p = page, pp = perPage) => {
       const params = new URLSearchParams();
       const date = (filters.date || '').trim();
+      const month = (filters.month || '').trim() || currentMonth();
       const empId = (filters.emp_id || '').trim();
       if (date) {
         params.set('date', date);
-      } else if (filters.month) {
-        params.set('month', filters.month);
+      } else {
+        params.set('month', month);
       }
       if (empId) params.set('emp_id', empId);
       params.set('page', String(p));
@@ -98,7 +99,23 @@ export function BiometricAttendance({ onBack }) {
   }, [fetchRows]);
 
   const handleFilterChange = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
+    setFilters((prev) => {
+      if (key === 'month') {
+        const nextMonth = value || currentMonth();
+        const date = (prev.date || '').trim();
+        const dateInMonth = date && date.startsWith(`${nextMonth}-`);
+        return { ...prev, month: nextMonth, date: dateInMonth ? date : '' };
+      }
+      if (key === 'date') {
+        const nextDate = (value || '').trim();
+        return {
+          ...prev,
+          date: nextDate,
+          month: nextDate ? nextDate.slice(0, 7) : (prev.month || currentMonth()),
+        };
+      }
+      return { ...prev, [key]: value };
+    });
     setPage(1);
   };
 
@@ -112,11 +129,12 @@ export function BiometricAttendance({ onBack }) {
     try {
       const params = new URLSearchParams();
       const date = (filters.date || '').trim();
+      const month = (filters.month || '').trim() || currentMonth();
       const empId = (filters.emp_id || '').trim();
       if (date) {
         params.set('date', date);
-      } else if (filters.month) {
-        params.set('month', filters.month);
+      } else {
+        params.set('month', month);
       }
       if (empId) params.set('emp_id', empId);
       const res = await fetch(`${API_BASE}/export?${params}`, { headers: getAuthHeaders() });
@@ -128,7 +146,9 @@ export function BiometricAttendance({ onBack }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'Biometric_Attendance.xlsx';
+      a.download = date
+        ? `Biometric_Attendance_${date}.xlsx`
+        : `Biometric_Attendance_${month}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -144,7 +164,12 @@ export function BiometricAttendance({ onBack }) {
 
   const closeDetail = () => setDetail(null);
 
-  const hasActiveFilters = ['date', 'emp_id'].some((k) => filters[k]);
+  const selectedMonth = (filters.month || '').trim() || currentMonth();
+  const selectedDate = (filters.date || '').trim();
+  const hasActiveFilters =
+    selectedMonth !== currentMonth() ||
+    Boolean(selectedDate) ||
+    Boolean((filters.emp_id || '').trim());
 
   return (
     <div className="bio-att-page">
@@ -154,7 +179,10 @@ export function BiometricAttendance({ onBack }) {
 
       <div className="bio-att-header">
         <h2>Biometric Attendance</h2>
-        <p>Raw biometric scans from the device. First and last scan of each day are highlighted.</p>
+        <p>
+          Shows the current month by default. Change the month (or pick a date) to load that range.
+          First and last scan of each day are highlighted.
+        </p>
       </div>
 
       {deviceStatus && (
@@ -180,16 +208,15 @@ export function BiometricAttendance({ onBack }) {
           Month
           <input
             type="month"
-            value={filters.month}
-            disabled
-            title="Always shows the current month"
+            value={selectedMonth}
+            onChange={(e) => handleFilterChange('month', e.target.value || currentMonth())}
           />
         </label>
         <label>
           Date
           <input
             type="date"
-            value={filters.date}
+            value={selectedDate}
             onChange={(e) => handleFilterChange('date', e.target.value)}
           />
         </label>
@@ -216,7 +243,7 @@ export function BiometricAttendance({ onBack }) {
           <button
             className="bio-att-clear"
             onClick={() => {
-              setFilters({ ...EMPTY_FILTERS, month: currentMonth() });
+              setFilters({ ...EMPTY_FILTERS, month: currentMonth(), date: '' });
               setPage(1);
             }}
           >
@@ -235,8 +262,8 @@ export function BiometricAttendance({ onBack }) {
               <th>Employee</th>
               <th>Employee ID</th>
               <th>Date</th>
-              <th>First Scan</th>
-              <th>Last Scan</th>
+              <th>Punch In</th>
+              <th>Punch Out</th>
               <th>Total Scans</th>
               <th>Status</th>
             </tr>
