@@ -8,6 +8,7 @@ export const ITPanel = () => {
   const cards = [
     { title: "Assigned Asset", route: "/it/ActiveDevices" },
     { title: "Available Asset", route: "/it/Assets" },
+    { title: "Activity Log", route: "/it/Assets/activity-log" },
     { title: "Return Requests", route: "/it/return-requests" },
     { title: "NOC Request", route: "/it/noc-requests" },
   ];

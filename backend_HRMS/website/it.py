@@ -95,8 +95,8 @@ def _err(message="Bad request", code=400):
 
 def _record_transition_or_err(**kwargs):
     """
-    Record ITAM transition when itam_transitions_v1 is ON.
-    Returns Flask error tuple on validation failure, else None.
+    Append an activity-log transition. Remarks are enforced only when
+    itam_transitions_v1 is ON. Returns Flask error tuple on validation failure.
     """
     from flask import current_app
     from .itam.transition_service import TransitionValidationError, record_transition
@@ -818,19 +818,19 @@ def create_inventory_item():
     db.session.add(item)
     db.session.flush()
 
-    # Optional RECEIVE timeline for qty-managed stock (Accessories / Consumables / Stock).
-    if notes and is_qty_managed:
-        err = _record_transition_or_err(
-            action_code="RECEIVE",
-            remark=notes,
-            actor_admin_id=current_admin.id if current_admin else None,
-            inventory_item_id=item.id,
-            from_status=None,
-            to_status="available",
-        )
-        if err:
-            db.session.rollback()
-            return err
+    receive_remark = notes or f"Added {name} to {inventory_category}"
+    err = _record_transition_or_err(
+        action_code="RECEIVE",
+        remark=receive_remark,
+        actor_admin_id=current_admin.id if current_admin else None,
+        inventory_item_id=item.id,
+        from_status=None,
+        to_status="available",
+        related={"kind": "catalog_create", "inventory_category": inventory_category},
+    )
+    if err:
+        db.session.rollback()
+        return err
 
     db.session.commit()
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory item created", 201)
@@ -2564,6 +2564,27 @@ def create_parcel_import():
         photos_json=data.get("photos") or [],
     )
     db.session.add(row)
+    db.session.flush()
+    actor = _current_admin()
+    import_remark = (
+        f"Parcel import {row.import_code} of {asset_name} "
+        f"(qty {int(row.count or 1)}) from {source}"
+    )
+    err = _record_transition_or_err(
+        action_code="RECEIVE",
+        remark=import_remark,
+        actor_admin_id=actor.id if actor else None,
+        related={
+            "kind": "parcel_import",
+            "parcel_import_id": row.id,
+            "import_code": row.import_code,
+            "source": source,
+            "asset_name": asset_name,
+        },
+    )
+    if err:
+        db.session.rollback()
+        return err
     db.session.commit()
     return _ok({"import": _serialize_parcel_import(row)}, "Parcel import created", 201)
 
@@ -2652,11 +2673,11 @@ def create_parcel_export():
         if not export_item.asset_name:
             continue
         db.session.add(export_item)
-        created_items.append(export_item)
-
+        linked_inventory_id = inventory_item_id
         if asset_unit_id:
             unit = ITAssetUnit.query.get(asset_unit_id)
             if unit:
+                linked_inventory_id = unit.inventory_item_id
                 unit.status = "exported"
                 unit.exported_to = destination
                 unit.exported_at = row.exported_at
@@ -2665,6 +2686,7 @@ def create_parcel_export():
             inventory_export_qty[inventory_item_id] = (
                 inventory_export_qty.get(inventory_item_id, 0) + 1
             )
+        created_items.append((export_item, linked_inventory_id))
 
     if not created_items:
         db.session.rollback()
@@ -2682,6 +2704,31 @@ def create_parcel_export():
             if units == 0:
                 item.available_quantity = max(0, int(item.available_quantity or 0) - qty)
                 item.total_quantity = max(0, int(item.total_quantity or 0) - qty)
+
+    actor = _current_admin()
+    export_remark = f"Parcel export {row.export_code} to {destination}"
+    for export_item, linked_inventory_id in created_items:
+        err = _record_transition_or_err(
+            action_code="EXPORT",
+            remark=export_remark,
+            reason_code="PARCEL_EXPORT",
+            actor_admin_id=actor.id if actor else None,
+            asset_unit_id=export_item.asset_unit_id,
+            inventory_item_id=linked_inventory_id,
+            from_status=None,
+            to_status="exported",
+            related={
+                "kind": "parcel_export",
+                "parcel_export_id": row.id,
+                "export_code": row.export_code,
+                "destination": destination,
+                "asset_name": export_item.asset_name,
+                "inventory_category": inventory_category,
+            },
+        )
+        if err:
+            db.session.rollback()
+            return err
 
     db.session.commit()
     row = ITParcelExport.query.get(row.id)
@@ -2916,6 +2963,160 @@ def unit_timeline_csv(unit_id):
         mimetype="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@it_bp.route("/activity-log", methods=["GET"])
+@jwt_required()
+def it_activity_log():
+    """Org-wide audit log. Always available (not gated on timeline flag)."""
+    from .itam.activity_log_service import query_activity_log
+
+    actions_raw = (request.args.get("action") or request.args.get("actions") or "").strip()
+    actions = [a for a in actions_raw.split(",") if a.strip()] if actions_raw else None
+    actor_raw = request.args.get("actor_id") or request.args.get("actor")
+    actor_id = None
+    if actor_raw:
+        try:
+            actor_id = int(actor_raw)
+        except (TypeError, ValueError):
+            actor_id = None
+    unit_raw = request.args.get("unit_id") or request.args.get("asset_unit_id")
+    unit_id = None
+    if unit_raw:
+        try:
+            unit_id = int(unit_raw)
+        except (TypeError, ValueError):
+            unit_id = None
+    item_raw = request.args.get("inventory_item_id") or request.args.get("item_id")
+    item_id = None
+    if item_raw:
+        try:
+            item_id = int(item_raw)
+        except (TypeError, ValueError):
+            item_id = None
+    result = query_activity_log(
+        scope=request.args.get("scope"),
+        actions=actions,
+        q=request.args.get("q"),
+        date_from=request.args.get("from"),
+        date_to=request.args.get("to"),
+        inventory_category=request.args.get("inventory_category")
+        or request.args.get("category"),
+        actor_admin_id=actor_id,
+        asset_unit_id=unit_id,
+        inventory_item_id=item_id,
+        page=request.args.get("page", 1, type=int),
+        limit=request.args.get("limit", 50, type=int),
+    )
+    return _ok(result)
+
+
+@it_bp.route("/activity-log.csv", methods=["GET"])
+@jwt_required()
+def it_activity_log_csv():
+    from flask import Response
+    from .itam.activity_log_service import activity_log_to_csv, query_activity_log
+
+    actions_raw = (request.args.get("action") or request.args.get("actions") or "").strip()
+    actions = [a for a in actions_raw.split(",") if a.strip()] if actions_raw else None
+    result = query_activity_log(
+        scope=request.args.get("scope"),
+        actions=actions,
+        q=request.args.get("q"),
+        date_from=request.args.get("from"),
+        date_to=request.args.get("to"),
+        inventory_category=request.args.get("inventory_category")
+        or request.args.get("category"),
+        page=1,
+        limit=5000,
+    )
+    csv_text = activity_log_to_csv(result)
+    scope = (request.args.get("scope") or "all").strip() or "all"
+    filename = f"it-activity-log-{scope}.csv"
+    return Response(
+        csv_text,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@it_bp.route("/units/<int:unit_id>/reviews", methods=["GET"])
+@jwt_required()
+def list_unit_reviews(unit_id):
+    from .itam.asset_review_service import list_asset_reviews
+
+    unit = ITAssetUnit.query.get(unit_id)
+    if not unit:
+        return _err("Unit not found", 404)
+    reviews = list_asset_reviews(asset_unit_id=unit.id)
+    return _ok({"reviews": reviews, "count": len(reviews)})
+
+
+@it_bp.route("/units/<int:unit_id>/reviews", methods=["POST"])
+@jwt_required()
+def create_unit_review(unit_id):
+    from .itam.asset_review_service import AssetReviewError, create_asset_review, serialize_review
+
+    unit = ITAssetUnit.query.get(unit_id)
+    if not unit:
+        return _err("Unit not found", 404)
+    actor = _current_admin()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = create_asset_review(
+            asset_unit_id=unit.id,
+            inventory_item_id=unit.inventory_item_id,
+            actor_admin_id=actor.id if actor else None,
+            data=data,
+        )
+        db.session.commit()
+    except AssetReviewError as exc:
+        db.session.rollback()
+        return _err(str(exc), 400)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("create_unit_review")
+        return _err("Could not save review", 500)
+    return _ok({"review": serialize_review(row)}, "Review saved", 201)
+
+
+@it_bp.route("/inventory/items/<int:item_id>/reviews", methods=["GET"])
+@jwt_required()
+def list_inventory_reviews(item_id):
+    from .itam.asset_review_service import list_asset_reviews
+
+    item = ITInventoryItem.query.get(item_id)
+    if not item:
+        return _err("Inventory item not found", 404)
+    reviews = list_asset_reviews(inventory_item_id=item.id)
+    return _ok({"reviews": reviews, "count": len(reviews)})
+
+
+@it_bp.route("/inventory/items/<int:item_id>/reviews", methods=["POST"])
+@jwt_required()
+def create_inventory_review(item_id):
+    from .itam.asset_review_service import AssetReviewError, create_asset_review, serialize_review
+
+    item = ITInventoryItem.query.get(item_id)
+    if not item:
+        return _err("Inventory item not found", 404)
+    actor = _current_admin()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = create_asset_review(
+            inventory_item_id=item.id,
+            actor_admin_id=actor.id if actor else None,
+            data=data,
+        )
+        db.session.commit()
+    except AssetReviewError as exc:
+        db.session.rollback()
+        return _err(str(exc), 400)
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("create_inventory_review")
+        return _err("Could not save review", 500)
+    return _ok({"review": serialize_review(row)}, "Review saved", 201)
 
 
 @it_bp.route("/software/licenses/<int:license_id>/timeline", methods=["GET"])

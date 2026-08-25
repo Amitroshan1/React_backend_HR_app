@@ -1157,6 +1157,28 @@ body {
   color: #fff;
 }
 
+.inv-action-btn--reviews {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+  color: #0f766e;
+}
+
+.inv-action-btn--reviews:hover {
+  background: #0d9488;
+  border-color: #0d9488;
+  color: #ffffff;
+}
+
+.inv-reviews-footer-btn {
+  background: #f0fdfa !important;
+  border-color: #5eead4 !important;
+  color: #0f766e !important;
+}
+
+.inv-reviews-footer-btn:hover {
+  background: #ccfbf1 !important;
+}
+
 .inv-action-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;

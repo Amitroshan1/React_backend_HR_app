@@ -2083,6 +2083,13 @@ export default function AssetsDashboard() {
           <div className="am-topbar-right">
             <div className="am-action-btns">
               <button
+                type="button"
+                className="am-btn-add-emp am-btn-log"
+                onClick={() => navigate("/it/Assets/activity-log")}
+              >
+                Log
+              </button>
+              <button
                 className="am-btn-add-emp"
                 onClick={() => navigate("/it/AssetsPage/AddEmployee")}
               >

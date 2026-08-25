@@ -451,6 +451,7 @@ class ITAssetTransition(db.Model):
     actor_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
     related_json = db.Column(db.JSON, nullable=True)
     attachments_json = db.Column(db.JSON, nullable=True)
+    inventory_category = db.Column(db.String(60), nullable=True, index=True)
 
     occurred_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
@@ -468,5 +469,43 @@ class ITAssetTransition(db.Model):
         "Admin",
         foreign_keys=[actor_admin_id],
         backref=db.backref("it_asset_transitions_acted", lazy="dynamic"),
+    )
+
+
+class ITAssetReview(db.Model):
+    """Append-only device review log. Does not change status, qty, or lifecycle."""
+
+    __tablename__ = "it_asset_reviews"
+
+    id = db.Column(db.Integer, primary_key=True)
+    asset_unit_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_asset_units.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    inventory_item_id = db.Column(
+        db.Integer,
+        db.ForeignKey("it_inventory_items.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    review_text = db.Column(db.Text, nullable=False)
+    condition_grade = db.Column(db.String(10), nullable=True)
+    created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+
+    asset_unit = db.relationship(
+        "ITAssetUnit",
+        backref=db.backref("reviews", lazy="dynamic"),
+    )
+    inventory_item = db.relationship(
+        "ITInventoryItem",
+        backref=db.backref("reviews", lazy="dynamic"),
+    )
+    created_by_admin = db.relationship(
+        "Admin",
+        foreign_keys=[created_by_admin_id],
+        backref=db.backref("it_asset_reviews_created", lazy="dynamic"),
     )
 

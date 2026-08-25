@@ -144,13 +144,15 @@ def test_transitions_disabled_by_default():
     assert transitions_enabled({"itam_transitions_v1": False}) is False
 
 
-def test_record_transition_noop_when_flag_off():
+def test_record_transition_writes_when_flag_off():
     row = record_transition(
         action_code="CHECKOUT",
         remark="",
         config={"itam_transitions_v1": False},
     )
-    assert row is None
+    assert row is not None
+    assert row.action_code == "CHECKOUT"
+    assert row.remark
 
 
 def test_record_transition_requires_remark_when_flag_on():

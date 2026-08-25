@@ -1678,6 +1678,87 @@ export const fetchUnitTimelineAPI = async (
   return _itFetch(`/units/${unitId}/timeline${qs ? `?${qs}` : ""}`);
 };
 
+export const fetchActivityLogAPI = async ({
+  scope = "all",
+  action = "",
+  q = "",
+  from = "",
+  to = "",
+  inventoryCategory = "",
+  page = 1,
+  limit = 50,
+} = {}) => {
+  const params = new URLSearchParams();
+  if (scope) params.set("scope", scope);
+  if (action) params.set("action", action);
+  if (q) params.set("q", q);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (inventoryCategory) params.set("inventory_category", inventoryCategory);
+  if (page) params.set("page", String(page));
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  return _itFetch(`/activity-log${qs ? `?${qs}` : ""}`);
+};
+
+export const downloadActivityLogCsvAPI = async (filters = {}, filenameHint = "activity") => {
+  const params = new URLSearchParams();
+  if (filters.scope) params.set("scope", filters.scope);
+  if (filters.action) params.set("action", filters.action);
+  if (filters.q) params.set("q", filters.q);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.inventoryCategory) params.set("inventory_category", filters.inventoryCategory);
+  const token = localStorage.getItem("token");
+  const qs = params.toString();
+  const res = await fetch(`${IT_API_BASE}/activity-log.csv${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw errorFromApiResponse(res, data);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safe = String(filenameHint || "activity")
+    .replace(/[^\w\-]+/g, "_")
+    .slice(0, 40);
+  a.href = url;
+  a.download = `${safe || "activity"}-log.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
+export const fetchUnitReviewsAPI = async (unitId) =>
+  _itFetch(`/units/${unitId}/reviews`);
+
+export const createUnitReviewAPI = async (unitId, { reviewText, conditionGrade = null } = {}) =>
+  _itFetch(`/units/${unitId}/reviews`, {
+    method: "POST",
+    body: {
+      review_text: reviewText,
+      condition_grade: conditionGrade || null,
+    },
+  });
+
+export const fetchInventoryReviewsAPI = async (itemId) =>
+  _itFetch(`/inventory/items/${itemId}/reviews`);
+
+export const createInventoryReviewAPI = async (itemId, { reviewText, conditionGrade = null } = {}) =>
+  _itFetch(`/inventory/items/${itemId}/reviews`, {
+    method: "POST",
+    body: {
+      review_text: reviewText,
+      condition_grade: conditionGrade || null,
+    },
+  });
+
 /** P2: download timeline CSV for one unit. */
 export const downloadUnitTimelineCsvAPI = async (unitId, assetLabel = "asset") => {
   const token = localStorage.getItem("token");

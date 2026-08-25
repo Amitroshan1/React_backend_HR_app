@@ -48,6 +48,7 @@ import InventoryDashboard from "./pages/IT/InventoryPage/InventoryDashboard";
 import OpenTicket from "./pages/IT/OpenTicketPage/OpenTicket";
 import ActiveDevice from "./pages/IT/ActiveDevicePage/ActiveDevice";
 import AssetsDashboard from "./pages/IT/AssetsPage/AssetsDashboard";
+import ActivityLogPage from "./pages/IT/itam/ActivityLogPage";
 import AddSoftWare from "./pages/IT/AssetsPage/AddSoftWare";
 import AddEmployee from "./pages/IT/AssetsPage/AddEmployee";
 import ITEmployeeDetails from "./pages/IT/EmployeeAssetsDetails";
@@ -170,6 +171,7 @@ export const App = () => {
         { path: "it/inventory/*",                  element: <RequirePanel panel="it"><InventoryDashboard /></RequirePanel> },
         { path: "it/OpenTicket",                   element: <RequirePanel panel="it"><OpenTicket /></RequirePanel> },
         { path: "it/ActiveDevices",                element: <RequirePanel panel="it"><ActiveDevice /></RequirePanel> },
+        { path: "it/Assets/activity-log",          element: <RequirePanel panel="it"><ActivityLogPage defaultScope="it" /></RequirePanel> },
         { path: "it/Assets",                       element: <RequirePanel panel="it"><AssetsDashboard /></RequirePanel> },
         { path: "it/AssetsPage/AddSoftWare",       element: <RequirePanel panel="it"><AddSoftWare /></RequirePanel> },
         { path: "it/AssetsPage/AddEmployee",       element: <RequirePanel panel="it"><AddEmployee /></RequirePanel> },

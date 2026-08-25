@@ -191,6 +191,19 @@
   border-color: #2563eb;
 }
 
+.am-btn-log {
+  background: #fff;
+  color: #0f766e;
+  border: 1px solid #99f6e4;
+  margin-right: 8px;
+}
+
+.am-btn-log:hover {
+  background: #f0fdfa;
+  border-color: #2dd4bf;
+  color: #0f766e;
+}
+
 .am-search-row {
   display: flex;
   gap: 10px;

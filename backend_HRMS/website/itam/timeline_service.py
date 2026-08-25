@@ -42,8 +42,10 @@ def query_transitions(
     date_to: Optional[str] = None,
     page: int = 1,
     limit: int = 50,
+    inventory_category: Optional[str] = None,
+    actor_admin_id: Optional[int] = None,
 ) -> dict[str, Any]:
-    """Paginated timeline for a unit / license / catalog item."""
+    """Paginated timeline for a unit / license / catalog item, or org-wide activity log."""
     page = max(1, int(page or 1))
     limit = max(1, min(200, int(limit or 50)))
 
@@ -54,6 +56,12 @@ def query_transitions(
         query = query.filter(ITAssetTransition.software_license_id == int(software_license_id))
     if inventory_item_id is not None:
         query = query.filter(ITAssetTransition.inventory_item_id == int(inventory_item_id))
+    if inventory_category:
+        query = query.filter(
+            ITAssetTransition.inventory_category == str(inventory_category).strip()
+        )
+    if actor_admin_id is not None:
+        query = query.filter(ITAssetTransition.actor_admin_id == int(actor_admin_id))
 
     if actions:
         codes = [str(a).strip().upper() for a in actions if str(a).strip()]
@@ -69,6 +77,9 @@ def query_transitions(
                 ITAssetTransition.reason_code.ilike(like),
                 ITAssetTransition.action_code.ilike(like),
                 ITAssetTransition.transition_code.ilike(like),
+                ITAssetTransition.inventory_category.ilike(like),
+                ITAssetTransition.from_status.ilike(like),
+                ITAssetTransition.to_status.ilike(like),
             )
         )
 
@@ -174,6 +185,9 @@ def timeline_to_csv(transitions: list[dict]) -> str:
             "transition_code",
             "action_code",
             "action_label",
+            "asset_name",
+            "serial_number",
+            "inventory_category",
             "from_status",
             "to_status",
             "remark",
@@ -191,6 +205,9 @@ def timeline_to_csv(transitions: list[dict]) -> str:
                 t.get("transitionCode") or "",
                 t.get("actionCode") or "",
                 t.get("actionLabel") or "",
+                t.get("assetName") or "",
+                t.get("serialNumber") or "",
+                t.get("inventoryCategory") or "",
                 t.get("fromStatus") or "",
                 t.get("toStatus") or "",
                 t.get("remark") or "",

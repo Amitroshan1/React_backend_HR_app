@@ -33,6 +33,7 @@ import {
 import { useTransitionRemark } from "../itam/TransitionRemarkModal";
 import { actionCodeForStatusChange, remarkPayload } from "../itam/transitionUi";
 import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
+import { AssetReviewsModal } from "../itam/AssetReviewsPanel";
 import { isItamFlagEnabled } from "../../../utils/itamFlags";
 import { unitCustodyLabel, unitStatusLabel } from "../itam/lifecycleUi";
 
@@ -44,6 +45,7 @@ import RemovedITAssets from "./RemovedITAssets";
 import Parcel          from "./Parcel/ParcelDashboard";
 import AddImported     from "./Parcel/AddImportedAssets";
 import ReadyExport     from "./Parcel/ExportedAssets";
+import ActivityLogPage from "../itam/ActivityLogPage";
 import {
   INV_CATEGORIES,
   deletedLogBelongsToInventoryCategory,
@@ -322,6 +324,24 @@ function getUnitsForAsset(inventoryId, assetName, hwType) {
 
   // 3️⃣ Last resort: name only (old data with no hwType stored on unit)
   return all.filter((u) => u.assetName === assetName || u.name === assetName);
+}
+
+function buildReviewTarget(row, preferredUnit = null) {
+  const units = getUnitsForAsset(row?.id, row?.name, row?.hwType);
+  const numbered = units.filter((u) => u?.id != null && Number.isFinite(Number(u.id)));
+  const preferredId = preferredUnit?.id != null ? Number(preferredUnit.id) : null;
+  const unitId =
+    preferredId && numbered.some((u) => Number(u.id) === preferredId)
+      ? preferredId
+      : numbered.length > 0
+        ? Number(numbered[0].id)
+        : null;
+  return {
+    asset: row,
+    units: numbered,
+    unitId,
+    inventoryItemId: unitId == null ? row?.id ?? null : null,
+  };
 }
 
 function inventoryCategoryMatches(assetCategory, filterId) {
@@ -1003,6 +1023,7 @@ function AssetDetailModal({
 }) {
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
   const [detailTab, setDetailTab] = useState("details");
+  const [reviewsOpen, setReviewsOpen] = useState(false);
   const timelineOn = isItamFlagEnabled("itam_timeline_v1");
 
   useEffect(() => {
@@ -1360,11 +1381,25 @@ function AssetDetailModal({
                   <span>{opt.icon}</span> {opt.label}
                 </button>
               ))}
+              <button
+                type="button"
+                className="inv-inline-action-btn inv-reviews-footer-btn"
+                onClick={() => setReviewsOpen(true)}
+              >
+                Reviews
+              </button>
             </div>
             <button className="inv-detail-footer-btn" onClick={onClose}>Close</button>
           </div>
         </div>
       </div>
+
+      {reviewsOpen ? (
+        <AssetReviewsModal
+          target={buildReviewTarget(asset, unit)}
+          onClose={() => setReviewsOpen(false)}
+        />
+      ) : null}
 
     </>
   );
@@ -1776,6 +1811,9 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
           </div>
         ) : null}
         <div className="inv-header-right">
+          <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/activity-log`)}>
+            Log
+          </button>
           <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/parcels`)}>📦 Parcels</button>
           <button
             type="button"
@@ -2016,6 +2054,7 @@ function AssetTable({
   assets,
   filter,
   onViewAsset,
+  onReviews,
   hideAssigned = false,
   assignedColumnLabel = "Assigned",
   inventoryCategory,
@@ -2028,7 +2067,7 @@ function AssetTable({
   const showAssigned  = !hideAssigned && filter !== "Available";
   const showLaptopCode = shouldShowLaptopCodeColumn(assets, inventoryCategory);
   const emptyColSpan  =
-    4 +
+    5 +
     (showLaptopCode ? 1 : 0) +
     (showAvailable ? 1 : 0) +
     (showAssigned ? 1 : 0);
@@ -2045,6 +2084,7 @@ function AssetTable({
             {showAvailable && <th>Available</th>}
             {showAssigned  && <th>{assignedColumnLabel}</th>}
             <th>Action</th>
+            <th>Reviews</th>
           </tr>
         </thead>
         <tbody>
@@ -2095,6 +2135,15 @@ function AssetTable({
                     onOfficeIssue={onOfficeIssue}
                     onOfficeReturn={onOfficeReturn}
                   />
+                </td>
+                <td data-label="Reviews">
+                  <button
+                    type="button"
+                    className="inv-action-btn inv-action-btn--reviews"
+                    onClick={() => onReviews?.(row)}
+                  >
+                    Reviews
+                  </button>
                 </td>
               </tr>
             ))
@@ -2210,6 +2259,7 @@ function TotalAssetsPage({ category }) {
   const [categoryTypeFilter, setCategoryTypeFilter] = useState("All");
   const [subTypeFilter, setSubTypeFilter] = useState("All");
   const [detailAsset,   setDetailAsset]   = useState(null);
+  const [reviewTarget, setReviewTarget] = useState(null);
   const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
   const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
   const [refreshKey,    setRefreshKey]    = useState(0);
@@ -2313,6 +2363,7 @@ function TotalAssetsPage({ category }) {
           assets={filteredAssets}
           filter="All"
           onViewAsset={setDetailAsset}
+          onReviews={(row) => setReviewTarget(buildReviewTarget(row))}
           hideAssigned={hideAssignedColumnForCategory(category)}
           assignedColumnLabel={assignedLabel}
           inventoryCategory={category}
@@ -2337,6 +2388,12 @@ function TotalAssetsPage({ category }) {
             inventoryCategory={category}
           />
         )
+      )}
+      {reviewTarget && (
+        <AssetReviewsModal
+          target={reviewTarget}
+          onClose={() => setReviewTarget(null)}
+        />
       )}
       {officeIssueTarget && (
         <OfficeIssueModal
@@ -2375,6 +2432,7 @@ function OverviewPage({ category }) {
   const [projectNameFilter, setProjectNameFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [detailAsset, setDetailAsset] = useState(null);
+  const [reviewTarget, setReviewTarget] = useState(null);
   const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
   const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
   const [refreshKey,  setRefreshKey]  = useState(0);
@@ -2507,6 +2565,7 @@ function OverviewPage({ category }) {
           assets={assets}
           filter="All"
           onViewAsset={setDetailAsset}
+          onReviews={(row) => setReviewTarget(buildReviewTarget(row))}
           hideAssigned={hideAssignedColumnForCategory(category)}
           assignedColumnLabel={assignedLabel}
           inventoryCategory={category}
@@ -2531,6 +2590,12 @@ function OverviewPage({ category }) {
             inventoryCategory={category}
           />
         )
+      )}
+      {reviewTarget && (
+        <AssetReviewsModal
+          target={reviewTarget}
+          onClose={() => setReviewTarget(null)}
+        />
       )}
       {officeIssueTarget && (
         <OfficeIssueModal
@@ -2596,6 +2661,7 @@ function InventoryRoot() {
 
 const InventoryDashboard = () => (
   <Routes>
+    <Route path="activity-log" element={<ActivityLogPage defaultScope="inventory" />} />
     <Route path="add-assets"   element={<AddNewAssets />} />
     <Route path="parcels"      element={<Parcel />} />
     <Route path="add-import"   element={<AddImported />} />

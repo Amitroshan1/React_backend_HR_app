@@ -219,6 +219,7 @@ def create_app():
         ITParcelExportItem,
         ITParcelImport,
         ITAssetTransition,
+        ITAssetReview,
     )
 
     # ---------------------------
@@ -954,8 +955,36 @@ def create_app():
             if table not in set(insp.get_table_names()):
                 ITAssetTransition.__table__.create(bind=db.engine, checkfirst=True)
                 app.logger.info("Created table it_asset_transitions (ITAM P0 schema)")
+            else:
+                existing = {c["name"] for c in insp.get_columns(table)}
+                if "inventory_category" not in existing:
+                    from sqlalchemy import text
+
+                    dialect = db.engine.dialect.name
+                    coltype = "VARCHAR(60) NULL"
+                    if dialect == "postgresql":
+                        stmt = text(f'ALTER TABLE "{table}" ADD COLUMN inventory_category {coltype}')
+                    else:
+                        stmt = text(f"ALTER TABLE {table} ADD COLUMN inventory_category {coltype}")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column it_asset_transitions.inventory_category")
         except Exception as e:
             app.logger.warning("IT asset transitions table ensure skipped: %s", e)
+
+    def _ensure_it_asset_reviews_table():
+        """Append-only device review log (independent of lifecycle transitions)."""
+        try:
+            from sqlalchemy import inspect
+            from .models.it_models import ITAssetReview
+
+            insp = inspect(db.engine)
+            table = "it_asset_reviews"
+            if table not in set(insp.get_table_names()):
+                ITAssetReview.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table it_asset_reviews")
+        except Exception as e:
+            app.logger.warning("IT asset reviews table ensure skipped: %s", e)
 
     def _ensure_it_asset_lifecycle_columns():
         """P3: dual-write columns on it_asset_units + it_asset_custodies table."""
@@ -2092,6 +2121,7 @@ def create_app():
             _ensure_it_inventory_quantity_assignment_table()
             _ensure_it_office_stock_deployment_table()
             _ensure_it_asset_transitions_table()
+            _ensure_it_asset_reviews_table()
             _ensure_it_asset_lifecycle_columns()
             _fix_it_inventory_category_mismatches()
             _ensure_it_inventory_item_photos_column()

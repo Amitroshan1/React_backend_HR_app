@@ -7,7 +7,7 @@ from typing import Any, Optional
 from .. import db
 from ..datetime_utils import utc_now
 from ..models.it_models import ITAssetTransition
-from .actions import TransitionAction, is_valid_action
+from .actions import ACTION_LABELS, TransitionAction, is_valid_action
 from .flags import is_itam_flag_enabled
 from .remark_policy import validate_remark
 
@@ -82,6 +82,63 @@ def _next_transition_code() -> str:
     return f"{prefix}{n:06d}"
 
 
+def _snapshot_related(
+    related: Optional[dict],
+    *,
+    asset_unit_id: Optional[int] = None,
+    inventory_item_id: Optional[int] = None,
+) -> tuple[Optional[dict], Optional[int], Optional[str]]:
+    """Attach asset name / category so the activity log still reads after deletes."""
+    out = dict(related) if isinstance(related, dict) else {}
+    item_id = int(inventory_item_id) if inventory_item_id is not None else None
+    category = out.get("inventory_category")
+    if isinstance(category, str):
+        category = category.strip() or None
+    else:
+        category = None
+
+    try:
+        from ..models.it_models import ITAssetUnit, ITInventoryItem
+    except Exception:
+        if category:
+            out["inventory_category"] = category
+        return (out or None), item_id, category
+
+    unit = None
+    if asset_unit_id is not None:
+        try:
+            unit = ITAssetUnit.query.get(int(asset_unit_id))
+        except Exception:
+            unit = None
+        if unit:
+            out.setdefault("asset_name", unit.asset_name)
+            if unit.serial_number:
+                out.setdefault("serial_number", unit.serial_number)
+            if unit.unit_code:
+                out.setdefault("unit_code", unit.unit_code)
+            if unit.model:
+                out.setdefault("laptop_code", unit.model)
+            if item_id is None:
+                item_id = unit.inventory_item_id
+
+    item = None
+    if item_id is not None:
+        try:
+            item = ITInventoryItem.query.get(int(item_id))
+        except Exception:
+            item = None
+        if item:
+            out.setdefault("asset_name", item.name)
+            if not category:
+                category = (item.inventory_category or "").strip() or None
+            if item.hw_type:
+                out.setdefault("hw_type", item.hw_type)
+
+    if category:
+        out["inventory_category"] = category
+    return (out or None), item_id, category
+
+
 def record_transition(
     *,
     action_code: str,
@@ -102,48 +159,58 @@ def record_transition(
     require: Optional[bool] = None,
 ) -> Optional[ITAssetTransition]:
     """
-    Append TransitionRecord when required.
+    Append an audit TransitionRecord.
 
-    require=None → follow itam_transitions_v1 flag (ON = enforce+write, OFF = no-op)
-    require=True → always enforce+write (dedicated transitions API)
     require=False → never write
-
-    Caller commits the session. This does not mutate asset state.
+    require=True → always write and enforce remark policy
+    require=None → always write; enforce remarks only when itam_transitions_v1 is ON
     """
-    enabled = transitions_enabled(config)
-    should_write = enabled if require is None else bool(require)
-    if not should_write:
+    if require is False:
         return None
+
+    enforce = transitions_enabled(config) or (require is True)
 
     code = str(action_code or "").strip().upper()
     if not is_valid_action(code):
         raise TransitionValidationError(f"Unknown action_code: {action_code}")
 
-    ok, err = validate_remark(
-        code,
-        remark,
-        reason_code=reason_code,
-        condition_grade=condition_grade,
+    text = (remark or "").strip()
+    if not text:
+        text = ACTION_LABELS.get(code, code)
+
+    if enforce:
+        ok, err = validate_remark(
+            code,
+            text,
+            reason_code=reason_code,
+            condition_grade=condition_grade,
+        )
+        if not ok:
+            raise TransitionValidationError(err or "Invalid remark")
+
+    related_out, item_id, category = _snapshot_related(
+        related,
+        asset_unit_id=asset_unit_id,
+        inventory_item_id=inventory_item_id,
     )
-    if not ok:
-        raise TransitionValidationError(err or "Invalid remark")
 
     row = ITAssetTransition(
         transition_code=_next_transition_code(),
         asset_unit_id=asset_unit_id,
         software_license_id=software_license_id,
-        inventory_item_id=inventory_item_id,
+        inventory_item_id=item_id,
         action_code=code,
         from_status=from_status,
         to_status=to_status,
         from_custody_json=from_custody,
         to_custody_json=to_custody,
-        remark=(remark or "").strip(),
+        remark=text,
         reason_code=(reason_code or "").strip() or None,
         condition_grade=(condition_grade or "").strip() or None,
         actor_admin_id=actor_admin_id,
-        related_json=related or None,
+        related_json=related_out,
         attachments_json=attachments if isinstance(attachments, list) else None,
+        inventory_category=category,
         occurred_at=utc_now(),
     )
     db.session.add(row)
@@ -151,6 +218,7 @@ def record_transition(
 
 
 def serialize_transition(row: ITAssetTransition) -> dict[str, Any]:
+    related = row.related_json if isinstance(row.related_json, dict) else {}
     return {
         "id": row.id,
         "transitionCode": row.transition_code,
@@ -166,6 +234,10 @@ def serialize_transition(row: ITAssetTransition) -> dict[str, Any]:
         "assetUnitId": row.asset_unit_id,
         "softwareLicenseId": row.software_license_id,
         "inventoryItemId": row.inventory_item_id,
+        "inventoryCategory": getattr(row, "inventory_category", None) or related.get("inventory_category"),
+        "assetName": related.get("asset_name"),
+        "serialNumber": related.get("serial_number"),
+        "unitCode": related.get("unit_code"),
         "related": row.related_json,
         "attachments": row.attachments_json or [],
         "occurredAt": row.occurred_at.isoformat() if row.occurred_at else None,
