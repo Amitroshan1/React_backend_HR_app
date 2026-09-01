@@ -19,6 +19,22 @@ import {
 
 const API_BASE_URL = "/api/query";
 
+const isClosedInboxStatus = (status) =>
+  String(status || "").trim().toLowerCase() === "closed";
+
+const sortInboxRows = (rows) =>
+  [...rows].sort((a, b) => {
+    const aClosed = isClosedInboxStatus(a.status);
+    const bClosed = isClosedInboxStatus(b.status);
+    if (aClosed !== bClosed) return aClosed ? 1 : -1;
+    if (Boolean(a.hasUnreadReply) !== Boolean(b.hasUnreadReply)) {
+      return a.hasUnreadReply ? -1 : 1;
+    }
+    const ta = new Date(a.createdAtRaw).getTime() || 0;
+    const tb = new Date(b.createdAtRaw).getTime() || 0;
+    return tb - ta;
+  });
+
 export const DepartmentQueryInbox = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -83,10 +99,12 @@ export const DepartmentQueryInbox = () => {
         headers: { ...getAuthHeaders() },
       });
       setQueries((prev) =>
-        prev.map((q) =>
-          q.id === queryId
-            ? { ...q, hasUnreadReply: false, unreadReplyCount: 0 }
-            : q
+        sortInboxRows(
+          prev.map((q) =>
+            q.id === queryId
+              ? { ...q, hasUnreadReply: false, unreadReplyCount: 0 }
+              : q
+          )
         )
       );
       notifyQueryBadgeRefresh();
@@ -107,14 +125,6 @@ export const DepartmentQueryInbox = () => {
     hasUnreadReply: Boolean(q.has_unread_reply),
     unreadReplyCount: Number(q.unread_reply_count || 0),
   });
-
-  const sortInboxRows = (rows) =>
-    [...rows].sort((a, b) => {
-      if (a.hasUnreadReply !== b.hasUnreadReply) {
-        return a.hasUnreadReply ? -1 : 1;
-      }
-      return new Date(b.createdAtRaw) - new Date(a.createdAtRaw);
-    });
 
   const fetchInbox = async (overrides, options = {}) => {
     const { silent = false } = options;
@@ -214,16 +224,18 @@ export const DepartmentQueryInbox = () => {
       });
 
       setQueries((prev) =>
-        prev.map((q) =>
-          q.id === nextChat.id
-            ? {
-                ...q,
-                status: nextChat.status,
-                title: nextChat.title,
-                hasUnreadReply: false,
-                unreadReplyCount: 0,
-              }
-            : q
+        sortInboxRows(
+          prev.map((q) =>
+            q.id === nextChat.id
+              ? {
+                  ...q,
+                  status: nextChat.status,
+                  title: nextChat.title,
+                  hasUnreadReply: false,
+                  unreadReplyCount: 0,
+                }
+              : q
+          )
         )
       );
 

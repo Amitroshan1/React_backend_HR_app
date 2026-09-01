@@ -187,9 +187,11 @@ export function shouldShowLaptopCodeColumn(assets, inventoryCategory) {
 export function getMobileTabletHardwareFields(baseFields = DEFAULT_HARDWARE_FIELDS) {
   return {
     ...baseFields,
-    make: { label: "Project Name", placeholder: "Enter Project Name" },
+    make: { label: "Model", placeholder: "Enter Model" },
+    model: { label: "Model", placeholder: "Enter Model" },
     projectCode: { label: "Project Code", placeholder: "Enter Project Code" },
     deviceLocation: { label: "Device Location", placeholder: "Enter Device Location" },
+    remarks: { label: "Comment", placeholder: "Optional comment (min 10 chars if filled)" },
   };
 }
 

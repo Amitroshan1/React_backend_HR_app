@@ -1,4 +1,5 @@
 from datetime import datetime
+import uuid
 
 from flask import Blueprint, current_app, jsonify, request, send_file
 from .datetime_utils import utc_now, isoformat_api
@@ -818,19 +819,22 @@ def create_inventory_item():
     db.session.add(item)
     db.session.flush()
 
-    receive_remark = notes or f"Added {name} to {inventory_category}"
-    err = _record_transition_or_err(
-        action_code="RECEIVE",
-        remark=receive_remark,
-        actor_admin_id=current_admin.id if current_admin else None,
-        inventory_item_id=item.id,
-        from_status=None,
-        to_status="available",
-        related={"kind": "catalog_create", "inventory_category": inventory_category},
-    )
-    if err:
-        db.session.rollback()
-        return err
+    from .itam.activity_log_scope import should_log_catalog_receive
+
+    if should_log_catalog_receive(is_qty_managed):
+        receive_remark = notes or f"Added {name} to {inventory_category}"
+        err = _record_transition_or_err(
+            action_code="RECEIVE",
+            remark=receive_remark,
+            actor_admin_id=current_admin.id if current_admin else None,
+            inventory_item_id=item.id,
+            from_status=None,
+            to_status="available",
+            related={"kind": "catalog_create", "inventory_category": inventory_category},
+        )
+        if err:
+            db.session.rollback()
+            return err
 
     db.session.commit()
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory item created", 201)
@@ -901,6 +905,15 @@ def list_units():
     return _ok({"units": payload})
 
 
+def _is_mobile_tablet_hw(hw_type) -> bool:
+    return str(hw_type or "").strip().lower() in ("mobile", "tablet")
+
+
+def _new_asset_unit_code(hw_type=None) -> str:
+    prefix = (str(hw_type or "UNIT").strip() or "UNIT").upper().replace(" ", "")[:10]
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
 @it_bp.route("/units/bulk", methods=["POST"])
 @jwt_required()
 def create_units_bulk():
@@ -917,7 +930,13 @@ def create_units_bulk():
     seen_codes = set()
     dup_in_request = []
     for row in units:
-        unit_code = (row.get("unit_code") or row.get("serial_number") or "").strip()
+        hw_type = row.get("hw_type") or inv.hw_type
+        serial = (row.get("serial_number") or "").strip()
+        if _is_mobile_tablet_hw(hw_type):
+            unit_code = _new_asset_unit_code(hw_type)
+            prepared.append((unit_code, row))
+            continue
+        unit_code = (row.get("unit_code") or serial or "").strip()
         if not unit_code:
             continue
         code_key = unit_code.casefold()
@@ -938,22 +957,24 @@ def create_units_bulk():
     if not prepared:
         return _err("No valid units provided")
 
-    existing = (
-        ITAssetUnit.query.filter(
-            db.func.lower(ITAssetUnit.unit_code).in_([c.casefold() for c, _ in prepared])
+    laptop_codes = [c for c, r in prepared if not _is_mobile_tablet_hw(r.get("hw_type") or inv.hw_type)]
+    if laptop_codes:
+        existing = (
+            ITAssetUnit.query.filter(
+                db.func.lower(ITAssetUnit.unit_code).in_([c.casefold() for c in laptop_codes])
+            )
+            .with_entities(ITAssetUnit.unit_code)
+            .all()
         )
-        .with_entities(ITAssetUnit.unit_code)
-        .all()
-    )
-    if existing:
-        codes = sorted({row[0] for row in existing if row and row[0]})
-        listed = ", ".join(codes[:10])
-        more = f" (+{len(codes) - 10} more)" if len(codes) > 10 else ""
-        return _err(
-            f"Asset unit code(s) already exist: {listed}{more}. "
-            "Use a unique serial / unit code for each device.",
-            409,
-        )
+        if existing:
+            codes = sorted({row[0] for row in existing if row and row[0]})
+            listed = ", ".join(codes[:10])
+            more = f" (+{len(codes) - 10} more)" if len(codes) > 10 else ""
+            return _err(
+                f"Asset unit code(s) already exist: {listed}{more}. "
+                "Use a unique serial / unit code for each device.",
+                409,
+            )
 
     created = []
     for unit_code, row in prepared:
@@ -992,8 +1013,6 @@ def create_units_bulk():
         actor = _current_admin()
         for unit, unit_notes in created:
             remark = unit_notes or batch_notes
-            if not remark:
-                continue
             err = _record_transition_or_err(
                 action_code="RECEIVE",
                 remark=remark,
@@ -1014,7 +1033,7 @@ def create_units_bulk():
 
         if isinstance(e, IntegrityError):
             return _err(
-                "Asset unit code already exists. Use a unique serial / unit code for each device.",
+                "Could not save one or more assets. Please try again.",
                 409,
             )
         raise
@@ -1372,6 +1391,9 @@ def create_software_licenses():
     created = []
     start_date = _parse_date(data.get("subscription_start"))
     end_date = _parse_date(data.get("subscription_end"))
+    batch_notes = (data.get("notes") or data.get("remark") or "").strip() or None
+    if batch_notes and len(batch_notes) > 500:
+        batch_notes = batch_notes[:500]
     for _ in range(quantity):
         lic = ITSoftwareLicense(
             license_code=_next_code("SW", ITSoftwareLicense, "license_code"),
@@ -1384,6 +1406,20 @@ def create_software_licenses():
         db.session.add(lic)
         created.append(lic)
     db.session.flush()
+    actor = _current_admin()
+    for lic in created:
+        err = _record_transition_or_err(
+            action_code="RECEIVE",
+            remark=batch_notes,
+            actor_admin_id=actor.id if actor else None,
+            software_license_id=lic.id,
+            inventory_item_id=inventory_id,
+            from_status=None,
+            to_status=lic.status or "available",
+        )
+        if err:
+            db.session.rollback()
+            return err
     _recalc_inventory_counts(inventory_id)
     db.session.commit()
     return _ok({"licenses": [_serialize_license(i) for i in created]}, "Software licenses created", 201)

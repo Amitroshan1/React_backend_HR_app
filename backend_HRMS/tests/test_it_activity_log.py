@@ -4,7 +4,13 @@ from website.itam.activity_log_scope import (
     INVENTORY_SCOPE_ACTIONS,
     IT_SCOPE_ACTIONS,
     resolve_scope_actions,
+    should_log_catalog_receive,
 )
+
+
+def test_catalog_receive_only_for_qty_managed_stock():
+    assert should_log_catalog_receive(True) is True
+    assert should_log_catalog_receive(False) is False
 
 
 def test_explicit_action_overrides_scope():

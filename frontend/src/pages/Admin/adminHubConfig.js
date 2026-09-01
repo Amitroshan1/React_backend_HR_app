@@ -33,38 +33,6 @@ export const ADMIN_HUB_SECTIONS = [
     ],
   },
   {
-    id: "people",
-    title: "People & HR",
-    subtitle: "Workforce directory, HR operations, and separations",
-    modules: [
-      {
-        id: "employees",
-        title: "Employees",
-        description: "Browse, filter, and open employee records",
-        icon: "👥",
-        route: "/employees",
-        statKey: "total_employees",
-        accent: "blue",
-      },
-      {
-        id: "archive",
-        title: "Employee Archive",
-        description: "Historical records for exited staff",
-        icon: "🗄️",
-        route: "/archive-employees",
-        accent: "slate",
-      },
-      {
-        id: "exit",
-        title: "Exit & Separation",
-        description: "Process employee exits",
-        icon: "🚪",
-        route: "/exit-employees",
-        accent: "rose",
-      },
-    ],
-  },
-  {
     id: "time",
     title: "Time & Leave",
     subtitle: "Leave applications and resignations org-wide",

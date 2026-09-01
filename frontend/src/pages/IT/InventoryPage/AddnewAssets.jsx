@@ -83,10 +83,12 @@ const blankRowForType = (rowType) => {
 const validateRow = (row, rowType, { vehicleMode = false } = {}) => {
   const errors = {};
 
-  if (rowType === "hw" || rowType === "mobile") {
+    if (rowType === "hw" || rowType === "mobile") {
     if (!row.brand.trim())        errors.brand        = "Required";
     if (!row.make.trim())         errors.make         = "Required";
-    if (!row.model.trim())        errors.model        = "Required";
+    if (rowType !== "mobile" && !row.model.trim()) {
+      errors.model = "Required";
+    }
     if (!row.serialNumber.trim()) {
       errors.serialNumber = vehicleMode ? "Registration required" : "Required";
     } else if (vehicleMode) {
@@ -145,13 +147,13 @@ function CellInput({ value, onChange, placeholder, error, className = "", label 
   );
 }
 
-function CellRemarks({ value, onChange, error }) {
+function CellRemarks({ value, onChange, error, label = "Remarks", placeholder = "Optional note (min 10 chars if filled)" }) {
   return (
-    <td data-label="Remarks" className="ana-td-remarks">
+    <td data-label={label} className="ana-td-remarks">
       <textarea
         className={`ana-cell-remarks ${error ? "err" : ""}`}
         value={value || ""}
-        placeholder="Optional note (min 10 chars if filled)"
+        placeholder={placeholder}
         rows={2}
         maxLength={500}
         onChange={onChange}
@@ -510,6 +512,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
             subscriptionStart: row.subscriptionStart,
             subscriptionEnd: row.subscriptionEnd,
             quantity: qty,
+            notes: rowNotes(row),
           });
           totalLicenses += qty;
         }
@@ -833,22 +836,28 @@ function InventoryAssetsForm({ inventoryCategory }) {
                   <tr>
                     <th className="ana-th-idx">#</th>
                     {(rowType === "hw" || rowType === "mobile") && (
-                      <>
-                        <th>{hwFields.brand.label} <span className="req">*</span></th>
-                        <th>{hwFields.make.label} <span className="req">*</span></th>
-                        <th>{hwFields.model.label} <span className="req">*</span></th>
-                        <th>{hwFields.serialNumber.label} <span className="req">*</span></th>
-                        {rowType === "mobile" && (
-                          <>
-                            <th>{hwFields.projectCode.label}</th>
-                            <th>{hwFields.deviceLocation.label}</th>
-                            <th>IMEI 1 <span className="req">*</span></th>
-                            <th>IMEI 2</th>
-                          </>
-                        )}
-                        <th>Photos</th>
-                        <th>Remarks</th>
-                      </>
+                      rowType === "mobile" ? (
+                        <>
+                          <th>{hwFields.projectCode.label}</th>
+                          <th>{hwFields.brand.label} <span className="req">*</span></th>
+                          <th>{hwFields.make.label} <span className="req">*</span></th>
+                          <th>IMEI 1 <span className="req">*</span></th>
+                          <th>IMEI 2</th>
+                          <th>{hwFields.serialNumber.label} <span className="req">*</span></th>
+                          <th>Photos</th>
+                          <th>{hwFields.deviceLocation.label}</th>
+                          <th>{hwFields.remarks?.label || "Comment"}</th>
+                        </>
+                      ) : (
+                        <>
+                          <th>{hwFields.brand.label} <span className="req">*</span></th>
+                          <th>{hwFields.make.label} <span className="req">*</span></th>
+                          <th>{hwFields.model.label} <span className="req">*</span></th>
+                          <th>{hwFields.serialNumber.label} <span className="req">*</span></th>
+                          <th>Photos</th>
+                          <th>Remarks</th>
+                        </>
+                      )
                     )}
                     {rowType === "qty" && (
                       <>
@@ -879,7 +888,52 @@ function InventoryAssetsForm({ inventoryCategory }) {
                       <td className="ana-td-idx" data-label={String(idx + 1)}>{idx + 1}</td>
 
                       {(rowType === "hw" || rowType === "mobile") && (
-                        <>
+                        rowType === "mobile" ? (
+                          <>
+                            <CellInput
+                              label={hwFields.projectCode.label}
+                              value={row.projectCode}
+                              error={row._errors.projectCode}
+                              placeholder={hwFields.projectCode.placeholder}
+                              onChange={(e) => updateRow(row.id, "projectCode", e.target.value)}
+                            />
+                            <CellInput label={hwFields.brand.label} value={row.brand} error={row._errors.brand} placeholder={hwFields.brand.placeholder} onChange={(e) => updateRow(row.id, "brand", e.target.value)} />
+                            <CellInput label={hwFields.make.label} value={row.make} error={row._errors.make} placeholder={hwFields.make.placeholder} onChange={(e) => updateRow(row.id, "make", e.target.value)} />
+                            <CellInput
+                              label="IMEI 1"
+                              value={row.imei1}
+                              error={row._errors.imei1}
+                              placeholder="15 digits"
+                              maxLength={15}
+                              inputMode="numeric"
+                              className="mono"
+                              onChange={(e) =>
+                                updateRow(row.id, "imei1", e.target.value.replace(/\D/g, "").slice(0, 15))
+                              }
+                            />
+                            <CellInput
+                              label="IMEI 2"
+                              value={row.imei2}
+                              error={row._errors.imei2}
+                              placeholder="Optional"
+                              maxLength={15}
+                              inputMode="numeric"
+                              className="mono"
+                              onChange={(e) =>
+                                updateRow(row.id, "imei2", e.target.value.replace(/\D/g, "").slice(0, 15))
+                              }
+                            />
+                            <CellInput
+                              label={hwFields.serialNumber.label}
+                              value={row.serialNumber}
+                              error={row._errors.serialNumber}
+                              placeholder={hwFields.serialNumber.placeholder}
+                              className="mono"
+                              onChange={(e) => updateRow(row.id, "serialNumber", e.target.value)}
+                            />
+                          </>
+                        ) : (
+                          <>
                           <CellInput label={hwFields.brand.label} value={row.brand}  error={row._errors.brand}  placeholder={hwFields.brand.placeholder}  onChange={(e) => updateRow(row.id, "brand",  e.target.value)} />
                           <CellInput label={hwFields.make.label} value={row.make}   error={row._errors.make}   placeholder={hwFields.make.placeholder}   onChange={(e) => updateRow(row.id, "make",   e.target.value)} />
                           <CellInput label={hwFields.model.label} value={row.model}  error={row._errors.model}  placeholder={hwFields.model.placeholder}  onChange={(e) => updateRow(row.id, "model",  e.target.value)} />
@@ -891,49 +945,8 @@ function InventoryAssetsForm({ inventoryCategory }) {
                             className="mono"
                             onChange={(e) => updateRow(row.id, "serialNumber", e.target.value)}
                           />
-                          {rowType === "mobile" && (
-                            <>
-                              <CellInput
-                                label={hwFields.projectCode.label}
-                                value={row.projectCode}
-                                error={row._errors.projectCode}
-                                placeholder={hwFields.projectCode.placeholder}
-                                onChange={(e) => updateRow(row.id, "projectCode", e.target.value)}
-                              />
-                              <CellInput
-                                label={hwFields.deviceLocation.label}
-                                value={row.deviceLocation}
-                                error={row._errors.deviceLocation}
-                                placeholder={hwFields.deviceLocation.placeholder}
-                                onChange={(e) => updateRow(row.id, "deviceLocation", e.target.value)}
-                              />
-                              <CellInput
-                                label="IMEI 1"
-                                value={row.imei1}
-                                error={row._errors.imei1}
-                                placeholder="15 digits"
-                                maxLength={15}
-                                inputMode="numeric"
-                                className="mono"
-                                onChange={(e) =>
-                                  updateRow(row.id, "imei1", e.target.value.replace(/\D/g, "").slice(0, 15))
-                                }
-                              />
-                              <CellInput
-                                label="IMEI 2"
-                                value={row.imei2}
-                                error={row._errors.imei2}
-                                placeholder="Optional"
-                                maxLength={15}
-                                inputMode="numeric"
-                                className="mono"
-                                onChange={(e) =>
-                                  updateRow(row.id, "imei2", e.target.value.replace(/\D/g, "").slice(0, 15))
-                                }
-                              />
-                            </>
-                          )}
-                        </>
+                          </>
+                        )
                       )}
 
                       {rowType === "qty" && (
@@ -979,7 +992,23 @@ function InventoryAssetsForm({ inventoryCategory }) {
                         </td>
                       )}
 
+                      {rowType === "mobile" && (
+                        <CellInput
+                          label={hwFields.deviceLocation.label}
+                          value={row.deviceLocation}
+                          error={row._errors.deviceLocation}
+                          placeholder={hwFields.deviceLocation.placeholder}
+                          onChange={(e) => updateRow(row.id, "deviceLocation", e.target.value)}
+                        />
+                      )}
+
                       <CellRemarks
+                        label={rowType === "mobile" ? (hwFields.remarks?.label || "Comment") : "Remarks"}
+                        placeholder={
+                          rowType === "mobile"
+                            ? (hwFields.remarks?.placeholder || "Optional comment (min 10 chars if filled)")
+                            : "Optional note (min 10 chars if filled)"
+                        }
                         value={row.remarks}
                         error={row._errors.remarks}
                         onChange={(e) => updateRow(row.id, "remarks", e.target.value)}

@@ -407,7 +407,11 @@ function assetMatchesProjectName(asset, projectName) {
   if (!projectName || projectName === "All") return true;
   const needle = projectName.trim().toLowerCase();
   const units = getUnitsForAsset(asset.id, asset.name, asset.hwType);
-  return units.some((u) => (u.make || "").trim().toLowerCase() === needle);
+  return units.some((u) => {
+    const code = (u.projectCode || u.project_code || "").trim().toLowerCase();
+    const legacy = (u.make || "").trim().toLowerCase();
+    return code === needle || (!code && legacy === needle);
+  });
 }
 
 function collectProjectNamesFromAssets(assets) {
@@ -415,8 +419,13 @@ function collectProjectNamesFromAssets(assets) {
   assets.forEach((asset) => {
     if (!isMobileTabletHwType(asset.hwType)) return;
     getUnitsForAsset(asset.id, asset.name, asset.hwType).forEach((unit) => {
-      const label = (unit.make || "").trim();
-      if (label) names.add(label);
+      const code = (unit.projectCode || unit.project_code || "").trim();
+      if (code) {
+        names.add(code);
+        return;
+      }
+      const legacy = (unit.make || "").trim();
+      if (legacy) names.add(legacy);
     });
   });
   return ["All", ...Array.from(names).sort((a, b) => a.localeCompare(b))];
@@ -1070,25 +1079,18 @@ function AssetDetailModal({
       ]
     : isMobileTabletHwType(asset.hwType)
     ? [
-        { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true, highlight: true },
-        { label: hwFields.brand.label, value: brandModel.primary, mono: false, highlight: false },
-        { label: hwFields.make.label, value: unit?.make ?? "—", mono: false, highlight: false },
         { label: hwFields.projectCode.label, value: unit?.projectCode ?? "—", mono: false, highlight: false },
-        { label: hwFields.deviceLocation.label, value: unit?.deviceLocation ?? "—", mono: false, highlight: false },
-        {
-          label: hwFields.model.label,
-          value: brandModel.secondary || unit?.model || "—",
-          mono: false,
-          highlight: false,
-        },
+        { label: hwFields.brand.label, value: unit?.brand ?? brandModel.primary, mono: false, highlight: false },
+        { label: hwFields.make.label, value: unit?.make || unit?.model || "—", mono: false, highlight: false },
+        { label: "IMEI 1", value: unit?.imei1 ?? "—", mono: true, highlight: false },
+        { label: "IMEI 2", value: unit?.imei2 ?? "—", mono: true, highlight: false },
         {
           label: hwFields.serialNumber.label,
           value: unit?.serialNumber ?? "—",
           mono: true,
           highlight: false,
         },
-        { label: "IMEI 1", value: unit?.imei1 ?? "—", mono: true, highlight: false },
-        { label: "IMEI 2", value: unit?.imei2 ?? "—", mono: true, highlight: false },
+        { label: hwFields.deviceLocation.label, value: unit?.deviceLocation ?? "—", mono: false, highlight: false },
       ]
     : [
         { label: "Asset ID", value: unit?.assetId ?? unit?.id ?? "—", mono: true, highlight: true },
@@ -1110,7 +1112,7 @@ function AssetDetailModal({
 
   if (asset?.notes) {
     detailFields.push({
-      label: "Remarks",
+      label: isMobileTabletHwType(asset.hwType) ? "Comment" : "Remarks",
       value: asset.notes,
       mono: false,
       highlight: false,
@@ -2023,7 +2025,7 @@ function ITOverviewFilterBar({
 
       {showProject && (
         <div className="inv-overview-filter-block inv-overview-filter-block--project">
-          <span className="inv-overview-filter-label">Project name</span>
+          <span className="inv-overview-filter-label">Project code</span>
           {projectNameOptions.length > 1 ? (
             <div className="inv-project-filter-row">
               {projectNameOptions.map((name) => (
@@ -2042,7 +2044,7 @@ function ITOverviewFilterBar({
               ))}
             </div>
           ) : (
-            <p className="inv-project-empty-hint">No project names on mobile/tablet units yet.</p>
+            <p className="inv-project-empty-hint">No project codes on mobile/tablet units yet.</p>
           )}
         </div>
       )}

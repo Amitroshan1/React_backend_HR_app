@@ -1125,9 +1125,11 @@ const AddEmployee = () => {
                           <th className="ane-hw-th-check">Select</th>
                           <th>Brand</th>
                           <th>{hwTableFields.make.label}</th>
-                          <th>{hwTableFields.model.label}</th>
+                          {!isMobileTabletHwType(hwType) && <th>{hwTableFields.model.label}</th>}
+                          {isMobileTabletHwType(hwType) && <th>{hwTableFields.projectCode.label}</th>}
                           <th>Serial Number</th>
-                          {hwType === "Mobile" && <th>IMEI 1</th>}
+                          {isMobileTabletHwType(hwType) && <th>IMEI 1</th>}
+                          {isMobileTabletHwType(hwType) && <th>IMEI 2</th>}
                           <th>Asset ID</th><th>Photo</th>
                         </tr>
                       </thead>
@@ -1152,11 +1154,19 @@ const AddEmployee = () => {
                                 />
                               </td>
                               <td><span className="ane-hw-val">{unit.brand || "—"}</span></td>
-                              <td><span className="ane-hw-val">{unit.make  || "—"}</span></td>
-                              <td><span className="ane-hw-val">{unit.model || "—"}</span></td>
+                              <td><span className="ane-hw-val">{unit.make || unit.model || "—"}</span></td>
+                              {!isMobileTabletHwType(hwType) && (
+                                <td><span className="ane-hw-val">{unit.model || "—"}</span></td>
+                              )}
+                              {isMobileTabletHwType(hwType) && (
+                                <td><span className="ane-hw-val">{unit.projectCode || "—"}</span></td>
+                              )}
                               <td><span className="ane-hw-mono">{unit.serialNumber || unit.assetId}</span></td>
-                              {hwType === "Mobile" && (
-                                <td><span className="ane-hw-mono">{unit.imei1 || "—"}</span></td>
+                              {isMobileTabletHwType(hwType) && (
+                                <>
+                                  <td><span className="ane-hw-mono">{unit.imei1 || "—"}</span></td>
+                                  <td><span className="ane-hw-mono">{unit.imei2 || "—"}</span></td>
+                                </>
                               )}
                               <td>
                                 {isSelected ? (

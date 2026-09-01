@@ -40,3 +40,8 @@ def resolve_scope_actions(scope: Optional[str], actions: Optional[list[str]] = N
     if key == "inventory":
         return list(INVENTORY_SCOPE_ACTIONS)
     return None
+
+
+def should_log_catalog_receive(is_qty_managed: bool) -> bool:
+    """Qty-managed stock has no units; hardware/software log RECEIVE per unit/license."""
+    return bool(is_qty_managed)

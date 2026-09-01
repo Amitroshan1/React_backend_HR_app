@@ -54,6 +54,8 @@ const enrichHardware = (asset) => {
     serialNumber: asset.serialNumber || unit.serialNumber || "—",
     imei1:        asset.imei1        || unit.imei1        || null,
     imei2:        asset.imei2        || unit.imei2        || null,
+    projectCode:  asset.projectCode  || unit.projectCode  || unit.project_code || "",
+    deviceLocation: asset.deviceLocation || unit.deviceLocation || unit.device_location || "",
     photos,
   };
 };
@@ -905,30 +907,19 @@ const EmployeeDetails = () => {
                 <p className="hdm-col-title">Hardware Specifications</p>
                 <div className="hdm-detail-list">
                   {[
-                    { label: "Asset ID",      value: hwModal.displayAssetId, mono: true, highlight: true },
+                    { label: hwModalFields?.projectCode?.label || "Project Code", value: hwModal.projectCode, hide: !isMobileTabletHwType(hwModal.hwType) },
                     { label: "Brand",         value: hwModal.brand },
-                    { label: hwModalFields?.make?.label || "Model",   value: hwModal.make  },
-                    { label: hwModalFields?.model?.label || "Asset Code", value: hwModal.model },
+                    { label: hwModalFields?.make?.label || "Model",   value: hwModal.make || hwModal.model },
+                    { label: "IMEI 1", value: hwModal.imei1, mono: true, hide: !isMobileTabletHwType(hwModal.hwType) },
+                    { label: "IMEI 2", value: hwModal.imei2, mono: true, hide: !isMobileTabletHwType(hwModal.hwType) },
                     { label: "Serial Number", value: hwModal.serialNumber, mono: true },
-                  ].map(({ label, value, mono, highlight }) => (
+                    { label: hwModalFields?.deviceLocation?.label || "Device Location", value: hwModal.deviceLocation, hide: !isMobileTabletHwType(hwModal.hwType) },
+                  ].filter((row) => !row.hide).map(({ label, value, mono, highlight }) => (
                     <div key={label} className={`hdm-row ${highlight ? "highlight" : ""}`}>
                       <span className="hdm-row-label">{label}</span>
                       <span className={`hdm-row-value ${mono ? "mono" : ""}`}>{value || "—"}</span>
                     </div>
                   ))}
-                  {hwModal.imei1 && hwModal.imei1 !== "—" && (
-                    <>
-                      <div className="hdm-imei-heading">Mobile IMEI</div>
-                      <div className="hdm-row highlight">
-                        <span className="hdm-row-label">IMEI 1</span>
-                        <span className="hdm-row-value mono">{hwModal.imei1}</span>
-                      </div>
-                      <div className="hdm-row">
-                        <span className="hdm-row-label">IMEI 2</span>
-                        <span className="hdm-row-value mono">{hwModal.imei2 || "—"}</span>
-                      </div>
-                    </>
-                  )}
                 </div>
               </div>
 

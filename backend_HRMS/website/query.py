@@ -8,7 +8,7 @@
 
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from flask_jwt_extended import jwt_required, get_jwt
-from sqlalchemy import extract, func, or_
+from sqlalchemy import case, extract, func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from . import db
 from .models.Admin_models import Admin
@@ -712,7 +712,15 @@ def _load_department_inbox_queries(admin, department):
             )
         )
 
-    queries = q.order_by(effective_created_at.desc(), Query.id.desc()).all()
+    is_closed = case(
+        (func.lower(func.coalesce(Query.status, "")) == "closed", 1),
+        else_=0,
+    )
+    queries = q.order_by(
+        is_closed.asc(),
+        effective_created_at.desc(),
+        Query.id.desc(),
+    ).all()
     queries = [
         row for row in queries
         if _query_belongs_to_inbox(row.department, department)

@@ -1,5 +1,6 @@
 import {
   getInventoryRowForUnit,
+  isMobileTabletHwType,
   resolveInventoryCategory,
 } from "./inventoryCategories";
 import {
@@ -1309,14 +1310,16 @@ export const createHardwareUnitsAPI = async ({
       remark: remark || notes || null,
       units: rows.map((r) => {
         const unitNotes = String(r.remarks || r.notes || "").trim() || null;
+        const mobileTablet = isMobileTabletHwType(hwType);
+        const modelValue = mobileTablet ? (r.make || r.model || "") : r.model;
         return {
-          unit_code: r.serialNumber,
+          unit_code: mobileTablet ? null : r.serialNumber,
           asset_name: assetName,
           category,
           hw_type: hwType,
           brand: r.brand,
           make: r.make,
-          model: r.model,
+          model: modelValue,
           serial_number: r.serialNumber,
           imei1: r.imei1 || null,
           imei2: r.imei2 || null,
@@ -1336,6 +1339,8 @@ export const createSoftwareLicensesAPI = async ({
   subscriptionStart,
   subscriptionEnd,
   quantity,
+  notes = null,
+  remark = null,
 }) =>
   _itFetch("/software/licenses/bulk", {
     method: "POST",
@@ -1345,6 +1350,8 @@ export const createSoftwareLicensesAPI = async ({
       subscription_start: subscriptionStart,
       subscription_end: subscriptionEnd,
       quantity,
+      notes: notes || remark || null,
+      remark: remark || notes || null,
     },
   });
 
