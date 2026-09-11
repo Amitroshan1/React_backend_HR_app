@@ -14,3 +14,8 @@ backend_HRMS/website/static/uploads/**/*.pdf
 backend_HRMS/website/static/uploads/signatures/
 
 migrations/
+
+# Local editor / AI tooling — not needed to run the app
+.abacusai/
+.vscode/
+.github/
