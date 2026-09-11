@@ -10,7 +10,7 @@ import logging
 from flask import Response, current_app, jsonify, request
 
 from . import biometric_bp
-from .service import process_cdata_request
+from .service import handle_getrequest, process_cdata_request
 from .validators import client_ip_from_request
 
 logger = logging.getLogger(__name__)
@@ -113,3 +113,36 @@ def iclock_cdata():
     /cdata.aspx is an alias for devices that append the ASP.NET-style suffix.
     """
     return _iclock_cdata_response()
+
+
+def _iclock_getrequest_response():
+    """
+    Shared ADMS handler for /iclock/getrequest and /iclock/getrequest.aspx.
+    Command poll only — does not ingest attendance.
+    """
+    try:
+        sn = request.args.get("SN") or request.args.get("sn") or ""
+        result = handle_getrequest(
+            serial_number=sn,
+            client_ip=client_ip_from_request(request),
+        )
+        return Response(
+            result.response_body,
+            status=result.http_status,
+            mimetype="text/plain",
+        )
+    except Exception:
+        logger.exception("BIOMETRIC_PROTOCOL_ERROR path=%s", request.path)
+        return Response("OK\n", status=200, mimetype="text/plain")
+
+
+@biometric_bp.route("/getrequest", methods=["GET"])
+@biometric_bp.route("/getrequest.aspx", methods=["GET"])
+def iclock_getrequest():
+    """
+    eSSL / ZKTeco ADMS command poll.
+
+    Devices call this between cdata pushes. With no command queue the reply
+    is the protocol empty-queue body (OK), after SN + client IP checks.
+    """
+    return _iclock_getrequest_response()

@@ -338,6 +338,10 @@ def test_routes_cdata_aspx_alias():
     assert 'route("/cdata"' in text
     assert "_iclock_cdata_response()" in text
     assert text.count("_iclock_cdata_response()") >= 2
+    assert 'route("/getrequest.aspx"' in text
+    assert 'route("/getrequest"' in text
+    assert "_iclock_getrequest_response()" in text
+    assert text.count("_iclock_getrequest_response()") >= 2
 
 
 def test_aspx_operlog_no_attendance(client, bio_stack):
@@ -431,4 +435,53 @@ def test_attlog_sets_last_data_push_at(client, bio_stack):
         assert device.last_seen_at is not None
         assert device.last_data_push_at is not None
         assert device.last_data_push_at == device.last_seen_at
+
+
+def test_getrequest_aspx_empty_queue_updates_last_seen(client, bio_stack):
+    """Known device poll: OK, last_seen touched, no attendance write."""
+    with bio_stack.app.app_context():
+        resp = client.get("/iclock/getrequest.aspx?SN=ERIS001")
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/plain"
+        assert resp.data.decode("utf-8").strip() == "OK"
+        assert _count_logs(bio_stack) == 0
+        device = bio_stack.BiometricDevice.query.filter_by(serial_number="ERIS001").first()
+        assert device.last_seen_at is not None
+        assert device.last_data_push_at is None
+
+
+def test_getrequest_alias_and_rejected_sn(client, bio_stack):
+    with bio_stack.app.app_context():
+        ok = client.get("/iclock/getrequest?SN=ERIS001")
+        assert ok.status_code == 200
+        assert ok.data.decode("utf-8").strip() == "OK"
+
+        rejected = client.get("/iclock/getrequest.aspx?SN=UNKNOWN999")
+        assert rejected.status_code == 200
+        assert rejected.data.decode("utf-8").strip() == "OK"
+        assert bio_stack.BiometricDevice.query.filter_by(serial_number="UNKNOWN999").first() is None
+        assert _count_logs(bio_stack) == 0
+
+        missing = client.get("/iclock/getrequest.aspx")
+        assert missing.status_code == 200
+        assert missing.data.decode("utf-8").strip() == "OK"
+        assert _count_logs(bio_stack) == 0
+
+
+def test_getrequest_ip_denied_does_not_touch_seen(client, bio_stack):
+    with bio_stack.app.app_context():
+        device = bio_stack.BiometricDevice.query.filter_by(serial_number="ERIS001").first()
+        device.allowed_ips = "10.9.9.9"
+        device.last_seen_at = None
+        bio_stack.db.session.commit()
+
+        resp = client.get(
+            "/iclock/getrequest.aspx?SN=ERIS001",
+            headers={"X-Forwarded-For": "192.0.2.10"},
+        )
+        assert resp.status_code == 200
+        assert resp.data.decode("utf-8").strip() == "OK"
+        bio_stack.db.session.refresh(device)
+        assert device.last_seen_at is None
+        assert _count_logs(bio_stack) == 0
 

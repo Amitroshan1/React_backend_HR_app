@@ -345,6 +345,50 @@ def handle_heartbeat(
     )
 
 
+def handle_getrequest(
+    *,
+    serial_number: str,
+    client_ip: str = "",
+) -> IngestResult:
+    """
+    ADMS command poll (/iclock/getrequest).
+
+    No command queue is stored. A registered device is marked seen and answered
+    with the protocol empty-queue body (OK). ATTLOG/OPERLOG are not touched.
+    """
+    device, err = resolve_device(serial_number, client_ip=client_ip)
+    sn = normalize_serial(serial_number)
+    if err or device is None:
+        logger.warning(
+            "BIOMETRIC_GETREQUEST sn=%s status=rejected reason=%s ip=%s",
+            sn,
+            err or "unknown",
+            client_ip,
+        )
+        return IngestResult(
+            response_body="OK\n",
+            http_status=200,
+            command="getrequest",
+            device_sn=sn,
+            notes=[f"rejected:{err or 'unknown_device'}"],
+        )
+
+    touch_device_seen(device)
+    db.session.commit()
+    logger.info(
+        "BIOMETRIC_GETREQUEST sn=%s status=accepted queued=0 ip=%s",
+        device.serial_number,
+        client_ip,
+    )
+    return IngestResult(
+        response_body="OK\n",
+        http_status=200,
+        command="getrequest",
+        device_sn=device.serial_number,
+        notes=["empty_queue"],
+    )
+
+
 def process_cdata_request(
     *,
     method: str,
