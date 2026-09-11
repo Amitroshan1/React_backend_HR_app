@@ -5,8 +5,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
-  FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Key, Clock, Share2, Trash2,
-  Eye, EyeOff, TrendingDown, Inbox, Upload, AlertTriangle, BarChart3, ChevronRight, Briefcase
+  FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Clock, Share2, Trash2,
+  TrendingDown, Inbox, Upload, AlertTriangle, BarChart3, ChevronRight
 } from 'lucide-react';
 import './Hr.css';
 import './HRNocRequests.css';
@@ -73,7 +73,6 @@ const HR_PANEL_VIEWS = [
   'offboarding_dashboard',
   'ex_employee_doc_share',
   'add_dept_circle',
-  'reset_password',
   'leave_accrual_monitor',
   'holiday_calendar',
   'probation_reviews',
@@ -1337,13 +1336,11 @@ export const Hr = () => {
     emp_type: '',
     circle: '',
     designation: '',
-    password: '',
     employment_status: 'probation',
     probation_start_date: '',
     probation_end_date: '',
     probation_duration_months: '6',
   });
-  const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [signupSubmitting, setSignupSubmitting] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -1358,11 +1355,6 @@ export const Hr = () => {
   /** Last Update SignUp search (filters + rows) so returning from edit keeps results without re-searching. */
   const [updateSignupSearchSnapshot, setUpdateSignupSearchSnapshot] = useState(null);
   const [updateSignupListRefreshKey, setUpdateSignupListRefreshKey] = useState(0);
-
-  const [resetPasswordEmail, setResetPasswordEmail] = useState('');
-  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
-  const [resetPasswordMessage, setResetPasswordMessage] = useState('');
-  const [resetPasswordError, setResetPasswordError] = useState('');
 
   const openSignupForEdit = (employeeData) => {
     const snapshot = {
@@ -1387,9 +1379,7 @@ export const Hr = () => {
     setCircleTransferNotes('');
     setSignupForm({
       ...snapshot,
-      password: '',
     });
-    setShowSignupPassword(false);
     setSignupEditEmail(employeeData.email || null);
     setSignupSuccess(false);
     setSignupError('');
@@ -1422,10 +1412,9 @@ export const Hr = () => {
     }
     setSignupEditOriginal(null);
     setSignupEditEmail(null);
-    setSignupForm({ ...snapshot, password: '' });
+    setSignupForm({ ...snapshot });
     setSignupOfferCtc(offerAnnualCtc != null ? String(offerAnnualCtc) : null);
     setSignupCandidateId(candidateId != null ? Number(candidateId) : null);
-    setShowSignupPassword(false);
     setSignupSuccess(false);
     setSignupError('');
     setView('signup');
@@ -1531,7 +1520,7 @@ export const Hr = () => {
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
     setSignupError('');
-    const { user_name, first_name, email, emp_id, mobile, doj, emp_type, circle, password } = signupForm;
+    const { user_name, first_name, email, emp_id, mobile, doj, emp_type, circle } = signupForm;
     const isUpdate = !!signupEditEmail;
 
     if (!isUpdate) {
@@ -1579,9 +1568,6 @@ export const Hr = () => {
         const updateBody = signupEditOriginal
           ? buildEmployeeUpdatePayload(signupForm, signupEditOriginal)
           : {};
-        if (password?.trim()) {
-          updateBody.password = password.trim();
-        }
         if (updateBody.circle) {
           if (!circleEffectiveFrom) {
             setSignupError('Please enter the effective date when the employee started working in the new circle.');
@@ -1594,7 +1580,7 @@ export const Hr = () => {
           }
         }
         if (Object.keys(updateBody).length === 0) {
-          setSignupError('No changes to save. Edit a field or set a new password.');
+          setSignupError('No changes to save.');
           setSignupSubmitting(false);
           return;
         }
@@ -1668,7 +1654,6 @@ export const Hr = () => {
               probation_end_date: signupForm.probation_end_date,
               probation_duration_months: Number(signupForm.probation_duration_months) || 6,
             } : {}),
-            ...(password?.trim() ? { password: password.trim() } : {}),
             ...(signupOfferCtc ? { offer_annual_ctc: Number(signupOfferCtc) } : {}),
             ...(signupCandidateId ? { candidate_id: signupCandidateId } : {}),
           })
@@ -1686,12 +1671,10 @@ export const Hr = () => {
             emp_type: '',
             circle: '',
             designation: '',
-            password: '',
             ...emptySignupEmployment(''),
           });
           setSignupOfferCtc(null);
           setSignupCandidateId(null);
-          setShowSignupPassword(false);
         } else {
           setSignupError(data.message || 'Failed to create account.');
         }
@@ -1824,7 +1807,6 @@ export const Hr = () => {
   const updateOptions = [
     { title: 'Sign Up', icon: UserPlus, description: 'Register a new employee in HRMS' },
     { title: 'Bulk Employee Import', icon: Upload, description: 'Import employees from CSV template' },
-    { title: 'Reset Employee Password', icon: Key, description: 'Send password reset link (1 hour)' },
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
     { title: 'Circle Transfer History', icon: ArrowRightLeft, description: 'View circle changes with effective dates' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
@@ -1834,15 +1816,12 @@ export const Hr = () => {
     { title: 'Assessment Invite', icon: FileCheck, description: 'Send secure 15-minute assessment links and evaluate submissions' },
     { title: 'Update Manager', icon: UserCog, description: 'Change manager assignments' },
     { title: 'Organization Chart', icon: Users, description: 'View L1/L2/L3 reporting hierarchy' },
-    { title: 'Policy Center', icon: FileText, description: 'HR policies and employee acknowledgments' },
-    { title: 'Recruitment (ATS)', icon: Briefcase, description: 'Job requisitions, candidates, offers — includes Sign Up for hires' },
     { title: 'Compensation', icon: BarChart3, description: 'Increment cycles and salary revision approvals' },
     { title: 'Workforce Planning', icon: Users, description: 'Headcount budget vs actual by circle and department' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'Geo Analytics', icon: BarChart3, description: 'Geo monitoring, audit, config tuning, and troubleshooting' },
     { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
-    { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, and attrition analytics' },
-    { title: 'Exit Employee', icon: Users, description: 'Employee Exit Handling' },
+    { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, exit handling, and attrition analytics' },
     { title: 'Ex-Employee Document Sharing', icon: Share2, description: 'Send time-limited document links to former staff' },
     { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
@@ -2350,19 +2329,15 @@ export const Hr = () => {
   else if (title === 'Offboarding Dashboard') {
     setView('offboarding_dashboard');
   }
-  else if (title === 'Exit Employee') { //New Condition For Exit Employee
-  setView('exit_employee');
-}
+  else if (title === 'Exit Employee') {
+    // Hub card removed — keep reachable via Offboarding Dashboard.
+    setView('offboarding_dashboard');
+  }
   else if (title === 'Ex-Employee Document Sharing') {
     setView('ex_employee_doc_share');
   }
   else if (title === 'Add Department And Circle') {
   setView('add_dept_circle');
-}
-else if (title === 'Reset Employee Password') {
-  setResetPasswordMessage('');
-  setResetPasswordError('');
-  setView('reset_password');
 }
 else if (title === 'Leave Accrual Monitor') {
   setView('leave_accrual_monitor');
@@ -2525,12 +2500,17 @@ if (view === 'add_location') {
 if (view === 'geo_analytics') {
   return <GeoAnalytics onBack={() => setView('updates')} />;
 }
-if (view === 'exit_employee') {  //new condition for exit employee
-  return <ExitEmployee onBack={() => setView('updates')} />;
+if (view === 'exit_employee') {
+  return <ExitEmployee onBack={() => setView('offboarding_dashboard')} />;
 }
 
 if (view === 'offboarding_dashboard') {
-  return <OffboardingDashboard onBack={() => setView('updates')} />;
+  return (
+    <OffboardingDashboard
+      onBack={() => setView('updates')}
+      onOpenExitEmployee={() => setView('exit_employee')}
+    />
+  );
 }
 
 if (view === 'add_dept_circle') { //new condition for add department and cir.
@@ -2655,82 +2635,6 @@ if (view === 'noc_requests') {
         employee={selectedEmployeeForAction}
         onBack={goBackToHrSearchForm}
       />
-    );
-  }
-
-  // VIEW: Reset employee password (send link, 1 hour expiry)
-  if (view === 'reset_password') {
-    const handleSendResetLink = async (e) => {
-      e.preventDefault();
-      const email = (resetPasswordEmail || '').trim();
-      if (!email) {
-        setResetPasswordError('Enter employee email.');
-        return;
-      }
-      setResetPasswordError('');
-      setResetPasswordMessage('');
-      setResetPasswordLoading(true);
-      try {
-        const res = await fetch(`${HR_API_BASE}/send-password-reset`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({ employee_email: email }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success) {
-          setResetPasswordMessage(data.message || 'Reset link sent. The link expires in 1 hour.');
-          setResetPasswordEmail('');
-        } else {
-          setResetPasswordError(data.message || 'Failed to send reset link.');
-        }
-      } catch (err) {
-        setResetPasswordError('Network error. Please try again.');
-      } finally {
-        setResetPasswordLoading(false);
-      }
-    };
-    return (
-      <div className="signup-page-container">
-        <div className="signup-content-wrapper">
-          <button type="button" className="btn-back-updates" onClick={() => { setView('updates'); setResetPasswordMessage(''); setResetPasswordError(''); }}>
-            <ArrowLeft size={16} /> Back to Updates
-          </button>
-          <div className="signup-card">
-            <div className="card-header">
-              <h2>Reset employee password</h2>
-              <p>Send a password reset link to the employee&apos;s email. The link is valid for 1 hour. Only that employee can set a new password using the link.</p>
-            </div>
-            {resetPasswordMessage && (
-              <div className="signup-success-msg" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
-                {resetPasswordMessage}
-              </div>
-            )}
-            {resetPasswordError && (
-              <div className="signup-error-msg" style={{ padding: '12px', marginBottom: '16px', background: '#fef2f2', color: '#b91c1c', borderRadius: '8px' }}>
-                {resetPasswordError}
-              </div>
-            )}
-            <form className="signup-form" onSubmit={handleSendResetLink}>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Employee email <span style={{ color: '#b91c1c' }}>*</span></label>
-                  <input
-                    type="email"
-                    placeholder="employee@company.com"
-                    value={resetPasswordEmail}
-                    onChange={(e) => setResetPasswordEmail(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-create-account" disabled={resetPasswordLoading}>
-                  {resetPasswordLoading ? 'Sending…' : 'Send reset link'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
     );
   }
 
@@ -2929,30 +2833,6 @@ if (view === 'noc_requests') {
                   </div>
                 </div>
               ) : null}
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Password (optional)</label>
-                  <div className="signup-password-wrap">
-                    <input
-                      name="password"
-                      type={showSignupPassword ? 'text' : 'password'}
-                      value={signupForm.password}
-                      onChange={handleSignupChange}
-                      autoComplete="new-password"
-                    />
-                    <button
-                      type="button"
-                      className="signup-password-eye"
-                      onClick={() => setShowSignupPassword((v) => !v)}
-                      aria-label={showSignupPassword ? 'Hide password' : 'Show password'}
-                      tabIndex={-1}
-                    >
-                      {showSignupPassword ? <Eye size={20} /> : <EyeOff size={20} />}
-                    </button>
-                  </div>
-                </div>
-              </div>
 
               <div className="form-actions">
                 <button type="submit" className="btn-create-account" disabled={signupSubmitting}>

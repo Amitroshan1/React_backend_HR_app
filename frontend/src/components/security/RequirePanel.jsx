@@ -5,6 +5,7 @@ import {
   canAccessHrPanel,
   canAccessItPanel,
   canViewOwnAssignedAssets,
+  hasFeature,
   isAdminUser,
 } from "../../utils/planFeatures";
 
@@ -75,6 +76,26 @@ export function RequireItOrSelfAssets({ children, fallback = "/dashboard" }) {
   }
 
   if (user && canViewOwnAssignedAssets(user, empId)) {
+    return children;
+  }
+
+  return <Navigate to={fallback} replace />;
+}
+
+/** Day-use Assets: same plan flag as My Assets (any logged-in employee). */
+export function RequireMyAssets({ children, fallback = "/dashboard" }) {
+  const { userData, loadingUser } = useUser();
+  const user = userData?.user;
+
+  if (loadingUser) {
+    return (
+      <div className="full-height-center">
+        <h2 className="loader" />
+      </div>
+    );
+  }
+
+  if (user && (canAccessItPanel(user) || hasFeature("dashboard_my_assets"))) {
     return children;
   }
 

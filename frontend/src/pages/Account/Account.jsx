@@ -185,8 +185,14 @@ function resolveStoredAccountView() {
     return { view: 'main', taxDeclId: null };
   }
 
-  if (['bulkPayroll', 'payrollHistory', 'complianceExports', 'payrollLifecycle'].includes(view) && !hasDeptCircle) {
-    return { view: 'main', taxDeclId: null };
+  if (['bulkPayroll', 'payrollHistory', 'complianceExports', 'payrollLifecycle'].includes(view)) {
+    // Compliance Exports / Payroll Lifecycle menu entries removed; restore to employees list.
+    if (view === 'complianceExports' || view === 'payrollLifecycle') {
+      return { view: hasDeptCircle ? 'employees' : 'main', taxDeclId: null };
+    }
+    if (!hasDeptCircle) {
+      return { view: 'main', taxDeclId: null };
+    }
   }
 
   return { view, taxDeclId: taxDeclId && !Number.isNaN(taxDeclId) ? taxDeclId : null };
@@ -3408,36 +3414,6 @@ export const Account = ()  => {
                           <span className="emp-toolbar-menu__hint">Generate payroll for this department</span>
                         </span>
                       </button>
-                      <button
-                        type="button"
-                        className="emp-toolbar-menu__item emp-toolbar-menu__item--compliance"
-                        role="menuitem"
-                        onClick={() => {
-                          setEmpHeaderMenu(null);
-                          handleOpenComplianceExports();
-                        }}
-                      >
-                        <span className="emp-toolbar-menu__icon"><FileCheck size={16} aria-hidden /></span>
-                        <span className="emp-toolbar-menu__copy">
-                          <span className="emp-toolbar-menu__label">Compliance Exports</span>
-                          <span className="emp-toolbar-menu__hint">Download statutory compliance files</span>
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        className="emp-toolbar-menu__item emp-toolbar-menu__item--lifecycle"
-                        role="menuitem"
-                        onClick={() => {
-                          setEmpHeaderMenu(null);
-                          handleOpenPayrollLifecycle();
-                        }}
-                      >
-                        <span className="emp-toolbar-menu__icon"><Receipt size={16} aria-hidden /></span>
-                        <span className="emp-toolbar-menu__copy">
-                          <span className="emp-toolbar-menu__label">Payroll Lifecycle</span>
-                          <span className="emp-toolbar-menu__hint">F&amp;F, loans, encashment &amp; settlements</span>
-                        </span>
-                      </button>
                     </div>
                   ) : null}
                 </div>
@@ -6509,15 +6485,31 @@ export const Account = ()  => {
     <div className="hr-main-container">
       {currentView === 'main' && renderMainView()}
       {currentView === 'noc_requests' && (
-        <div className="fade-in">
-          <button type="button" className="btn-back" onClick={() => setCurrentView('main')}>
-            <ArrowLeft size={18} /> Back to Dashboard
-          </button>
-          <div className="table-container-card" style={{ marginTop: 16 }}>
-            <div className="card-header-row">
-              <h3 className="section-title">NOC Requests (Accounts)</h3>
+        <div className="fade-in accounts-noc-page">
+          <div className="accounts-noc-shell">
+            <button type="button" className="accounts-noc-back" onClick={() => setCurrentView('main')}>
+              <ArrowLeft size={16} strokeWidth={2.25} aria-hidden />
+              <span>Back to Dashboard</span>
+            </button>
+
+            <header className="accounts-noc-hero">
+              <div className="accounts-noc-hero__main">
+                <h1>
+                  <FileCheck size={22} strokeWidth={2.25} aria-hidden />
+                  NOC Requests
+                </h1>
+                <p>
+                  Separation NOC requests routed to Accounts. Upload clearance documents when status is Pending.
+                </p>
+              </div>
+              <span className="accounts-noc-hero__badge">Accounts Clearance</span>
+            </header>
+
+            <div className="accounts-noc-body">
+              <div className="accounts-noc-panel">
+                <DepartmentNocPanel apiBase="/api/accounts" statusFilter="All" variant="table" />
+              </div>
             </div>
-            <DepartmentNocPanel apiBase="/api/accounts" />
           </div>
         </div>
       )}

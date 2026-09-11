@@ -32,6 +32,12 @@ import { remarkPayload } from "../itam/transitionUi";
 import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
 import { isItamFlagEnabled } from "../../../utils/itamFlags";
 import { unitCustodyLabel, unitStatusLabel } from "../itam/lifecycleUi";
+import {
+  getHwTypesForCategory,
+  getAccessoryTypesForCategory,
+  getConsumableTypesForCategory,
+  subscribeHwTypesChange,
+} from "../inventoryCategories";
 import "./AssetsDashboard.css";
 
 // ─── Persist + notify helpers ─────────────────────────────────────────────────
@@ -203,7 +209,7 @@ function syncEmployee(empId, action, payload) {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CATEGORIES = ["ALL", "Hardware", "Software", "Accessories", "Consumable"];
+const CATEGORIES = ["ALL", "Hardware", "Accessories", "Consumable"];
 
 const CAT_COLOR = {
   Hardware: { bg: "#eff6ff", color: "#3b82f6", border: "#bfdbfe" },
@@ -320,9 +326,8 @@ function buildAvailableData() {
       seen.add(String(a.id));
       if ((a.inventoryCategory || "IT Assets") !== "IT Assets") return false;
       const cat = normCat(a.category);
-      return cat === "Software"
-        ? Number(a.totalQuantity) > 0
-        : Number(a.availableQuantity) > 0;
+      if (cat === "Software") return false;
+      return Number(a.availableQuantity) > 0;
     })
     .map((a) => ({
       id: a.id,
@@ -397,30 +402,11 @@ function buildAssignedData() {
         ? `${u.brand}${u.model ? " " + u.model : ""}`
         : u.assetName || u.name || "—",
       category: normCat(u.category),
+      hwType: u.hwType || null,
       empId,
       empName,
       empPhoto,
       _unit: u,
-    });
-  }
-
-  // Software seats
-  for (const s of (getSoftwareInventory() || []).filter(
-    (s) => s.status === "assigned" && s.assignedTo,
-  )) {
-    if (seen.has(s.id)) continue;
-    seen.add(s.id);
-
-    const { empId, empName, empPhoto } = resolveEmployee(s.assignedTo);
-    result.push({
-      id: s.id,
-      unitId: s.id,
-      name: s.name,
-      category: "Software",
-      empId,
-      empName,
-      empPhoto,
-      _unit: s,
     });
   }
 
@@ -444,6 +430,7 @@ function buildAssignedData() {
         unitId: uid,
         name: displayName,
         category,
+        hwType: a.hwType || null,
         empId: String(empId),
         empName: String(empName),
         empPhoto,
@@ -1096,29 +1083,21 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
   const currentHw = useMemo(() => {
     return (getAssetUnitsFromStorage() || []).filter((u) => {
       if (u.status !== "assigned" || !u.assignedTo) return false;
+      if (normCat(u.category) === "Software") return false;
       const aid = assignedEmpId(u.assignedTo);
       return aid.toUpperCase() === empId.toUpperCase();
     });
   }, [tick, empId, assignedEmpId]);
 
-  const currentSw = useMemo(() => {
-    return (getSoftwareInventory() || []).filter((s) => {
-      if (s.status !== "assigned" || !s.assignedTo) return false;
-      return assignedEmpId(s.assignedTo).toUpperCase() === empId.toUpperCase();
-    });
-  }, [tick, empId, assignedEmpId]);
+  const currentSw = [];
 
   const availableAssets = useMemo(() => {
     const hw = (getAssetUnitsFromStorage() || []).filter(
-      (u) => u.status === "available",
-    );
-    const sw = (getSoftwareInventory() || []).filter(
-      (s) => s.status === "available",
+      (u) => String(u.status || "").toLowerCase() === "available" && normCat(u.category) !== "Software",
     );
     const q = availSearch.trim().toLowerCase();
-    const all = [...hw, ...sw];
-    if (!q) return all;
-    return all.filter((a) => {
+    if (!q) return hw;
+    return hw.filter((a) => {
       const name = (
         a.brand ? `${a.brand} ${a.model || ""}` : a.assetName || a.name || ""
       ).toLowerCase();
@@ -1783,15 +1762,13 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
 
           {/* Category tabs */}
           <div className="ep-tabs">
-            {["All", "Hardware", "Software", "Accessories"].map((t) => {
+            {["All", "Hardware", "Accessories"].map((t) => {
               const count =
                 t === "All"
                   ? totalAssigned
                   : t === "Hardware"
                     ? tabData.Hardware.hw.length
-                    : t === "Software"
-                      ? tabData.Software.sw.length
-                      : tabData.Accessories.hw.length;
+                    : tabData.Accessories.hw.length;
               return (
                 <button
                   key={t}
@@ -1948,6 +1925,8 @@ export default function AssetsDashboard() {
 
   const [mainFilter, setMainFilter] = useState("Available");
   const [catFilter, setCatFilter] = useState("ALL");
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [typeOptions, setTypeOptions] = useState([]);
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState("name-asc");
@@ -1978,6 +1957,24 @@ export default function AssetsDashboard() {
     };
   }, [bumpRefreshKey]);
 
+  /* Type chips match Inventory → IT Assets (Hardware / Accessories / Consumables). */
+  useEffect(() => {
+    const refreshTypes = () => {
+      if (catFilter === "Hardware") {
+        setTypeOptions(["All", ...getHwTypesForCategory("IT Assets")]);
+      } else if (catFilter === "Accessories") {
+        setTypeOptions(["All", ...getAccessoryTypesForCategory("IT Assets")]);
+      } else if (catFilter === "Consumable") {
+        setTypeOptions(["All", ...getConsumableTypesForCategory("IT Assets")]);
+      } else {
+        setTypeOptions([]);
+      }
+    };
+    setTypeFilter("All");
+    refreshTypes();
+    return subscribeHwTypesChange(refreshTypes);
+  }, [catFilter]);
+
   /* eslint-disable react-hooks/exhaustive-deps */
   const availableData = useMemo(() => buildAvailableData(), [refreshKey]);
   const assignedData = useMemo(() => buildAssignedData(), [refreshKey]);
@@ -1990,6 +1987,13 @@ export default function AssetsDashboard() {
 
     if (catFilter !== "ALL") {
       result = result.filter((a) => a.category === catFilter);
+    }
+
+    if (catFilter !== "ALL" && typeFilter !== "All") {
+      const want = String(typeFilter).trim().toLowerCase();
+      result = result.filter(
+        (a) => String(a.hwType || "").trim().toLowerCase() === want,
+      );
     }
 
     const tokens = searchQuery
@@ -2011,7 +2015,23 @@ export default function AssetsDashboard() {
       return cmp;
     });
     return sorted;
-  }, [data, catFilter, searchQuery, sortMode]);
+  }, [data, catFilter, typeFilter, searchQuery, sortMode]);
+
+  const categoryScopedData = useMemo(() => {
+    if (catFilter === "ALL") return data;
+    return data.filter((a) => a.category === catFilter);
+  }, [data, catFilter]);
+
+  const getTypeCount = useCallback(
+    (type) => {
+      if (type === "All") return categoryScopedData.length;
+      const want = String(type).trim().toLowerCase();
+      return categoryScopedData.filter(
+        (a) => String(a.hwType || "").trim().toLowerCase() === want,
+      ).length;
+    },
+    [categoryScopedData],
+  );
 
   const totalAssetCount = useMemo(() => {
     if (mainFilter === "Available") {
@@ -2044,6 +2064,7 @@ export default function AssetsDashboard() {
   const handleMainFilter = useCallback((filter) => {
     setMainFilter(filter);
     setCatFilter("ALL");
+    setTypeFilter("All");
     setSearch("");
     setSearchQuery("");
     setSortMode("name-asc");
@@ -2076,7 +2097,7 @@ export default function AssetsDashboard() {
       <div className="am-container">
         {/* Top bar */}
         <div className="am-topbar">
-          <button type="button" className="am-back-btn" onClick={() => navigate(-1)}>
+          <button type="button" className="am-back-btn" onClick={() => navigate("/it")}>
             ← Back
           </button>
           <h1 className="am-title">Asset Management</h1>
@@ -2167,6 +2188,7 @@ export default function AssetsDashboard() {
           {CATEGORIES.map((cat) => (
             <button
               key={cat}
+              type="button"
               className={`am-cat-btn${catFilter === cat ? " active" : ""}`}
               onClick={() => setCatFilter(cat)}
             >
@@ -2180,6 +2202,32 @@ export default function AssetsDashboard() {
           ))}
         </div>
 
+        {/* Type chips — same lists as Inventory → IT Assets */}
+        {catFilter !== "ALL" && typeOptions.length > 0 && (
+          <div className="am-type-bar" role="group" aria-label={`${catFilter} type`}>
+            <span className="am-type-bar-label">
+              {catFilter === "Hardware"
+                ? "Hardware type"
+                : catFilter === "Accessories"
+                  ? "Accessory type"
+                  : "Consumable type"}
+            </span>
+            <div className="am-type-chips">
+              {typeOptions.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  className={`am-type-btn${typeFilter === type ? " active" : ""}`}
+                  onClick={() => setTypeFilter(type)}
+                >
+                  {type}
+                  <span className="am-cat-count">{getTypeCount(type)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Table card */}
         <div className="am-table-card">
           <div className="am-table-head-bar">
@@ -2192,7 +2240,10 @@ export default function AssetsDashboard() {
                   : "● Assigned Assets"}
               </span>
               {catFilter !== "ALL" && (
-                <span className="am-cat-indicator">{catFilter}</span>
+                <span className="am-cat-indicator">
+                  {catFilter}
+                  {typeFilter !== "All" ? ` · ${typeFilter}` : ""}
+                </span>
               )}
             </div>
             <span className="am-table-count">

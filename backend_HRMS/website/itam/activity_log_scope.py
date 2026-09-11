@@ -6,40 +6,50 @@ from typing import Optional
 
 from .actions import TransitionAction
 
+# Sent when the user asks for an action that does not exist in the current scope.
+NO_MATCH_ACTIONS = ("__NO_MATCH__",)
+
+# Actions this product actually records from IT assignment / return flows.
 IT_SCOPE_ACTIONS = (
     TransitionAction.CHECKOUT.value,
     TransitionAction.CHECKIN.value,
-    TransitionAction.TRANSFER.value,
     TransitionAction.REQUEST_RETURN.value,
     TransitionAction.APPROVE_RETURN.value,
     TransitionAction.REJECT_RETURN.value,
-    TransitionAction.ACK_CUSTODY.value,
 )
 
+# Actions this product actually records from inventory / parcel / repair flows.
 INVENTORY_SCOPE_ACTIONS = (
     TransitionAction.RECEIVE.value,
     TransitionAction.DEPLOY.value,
     TransitionAction.UNDEPLOY.value,
-    TransitionAction.EXPORT.value,
-    TransitionAction.RETIRE.value,
     TransitionAction.MARK_QUARANTINE.value,
     TransitionAction.SEND_REPAIR.value,
     TransitionAction.COMPLETE_REPAIR.value,
-    TransitionAction.LOST.value,
-    TransitionAction.NOTE.value,
+    TransitionAction.EXPORT.value,
+    TransitionAction.RETIRE.value,
 )
 
 
-def resolve_scope_actions(scope: Optional[str], actions: Optional[list[str]] = None) -> Optional[list[str]]:
-    requested = [str(a).strip().upper() for a in (actions or []) if str(a).strip()]
-    if requested:
-        return requested
+def _scope_action_list(scope: Optional[str]) -> Optional[list[str]]:
     key = str(scope or "all").strip().lower()
     if key == "it":
         return list(IT_SCOPE_ACTIONS)
     if key == "inventory":
         return list(INVENTORY_SCOPE_ACTIONS)
     return None
+
+
+def resolve_scope_actions(scope: Optional[str], actions: Optional[list[str]] = None) -> Optional[list[str]]:
+    requested = [str(a).strip().upper() for a in (actions or []) if str(a).strip()]
+    scope_list = _scope_action_list(scope)
+    if requested:
+        if scope_list is None:
+            return requested
+        allowed = set(scope_list)
+        matched = [code for code in requested if code in allowed]
+        return matched if matched else list(NO_MATCH_ACTIONS)
+    return scope_list
 
 
 def should_log_catalog_receive(is_qty_managed: bool) -> bool:

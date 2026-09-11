@@ -137,6 +137,37 @@ def test_timeline_to_csv_empty():
     assert "action_code" in lines[0]
 
 
+def test_timeline_to_xlsx_headers_and_row():
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    buf = _timeline.timeline_to_xlsx(
+        [
+            {
+                "occurredAt": "2026-08-13T10:00:00",
+                "transitionCode": "TRN-1",
+                "actionCode": "CHECKOUT",
+                "actionLabel": "Assigned to employee",
+                "assetName": "Laptop",
+                "serialNumber": "SN-1",
+                "inventoryCategory": "IT Assets",
+                "fromStatus": "available",
+                "toStatus": "assigned",
+                "remark": "Issued laptop for project Alpha",
+                "reasonCode": "",
+                "conditionGrade": "",
+                "actor": {"name": "IT Admin", "empId": "E1"},
+            }
+        ]
+    )
+    wb = load_workbook(BytesIO(buf.getvalue()))
+    ws = wb.active
+    assert ws["D1"].value == "Action"
+    assert ws["D2"].value == "Assigned to employee"
+    assert ws["J2"].value == "Issued laptop for project Alpha"
+    assert ws["M2"].value == "IT Admin"
+
+
 def test_parse_dt_date_and_iso():
     d = _timeline._parse_dt("2026-08-13")
     assert d is not None
@@ -156,6 +187,7 @@ def test_timeline_flag_default_off():
 if __name__ == "__main__":
     test_timeline_to_csv_headers_and_row()
     test_timeline_to_csv_empty()
+    test_timeline_to_xlsx_headers_and_row()
     test_parse_dt_date_and_iso()
     test_timeline_flag_default_off()
     print("test_itam_p2_timeline: OK")

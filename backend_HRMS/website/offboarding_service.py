@@ -215,9 +215,9 @@ def build_exit_checklist(
     else:
         items.append({
             "key": "exit_interview_employee",
-            "severity": "warning",
-            "label": "Employee exit interview feedback not submitted yet",
-            "passed": False,
+            "severity": "info",
+            "label": "Employee exit interview feedback not required",
+            "passed": True,
         })
 
     if hr_interview_completed:

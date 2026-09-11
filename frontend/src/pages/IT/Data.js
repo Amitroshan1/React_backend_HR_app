@@ -1032,7 +1032,7 @@ export function isITApiConflictError(err) {
 }
 
 /** Toast API failures as warnings with the exact issue (never bare Internal Server Error). */
-export function toastITApiFailure(err, fallback) {
+export function toastITApiFailure(err, fallback, options = {}) {
   const isQuota =
     err?.name === "QuotaExceededError" ||
     err?.code === 22 ||
@@ -1041,7 +1041,7 @@ export function toastITApiFailure(err, fallback) {
     console.warn("[IT] Browser storage full; continuing with in-memory cache.", err);
     return "";
   }
-  return notifyApiFailure(err, fallback);
+  return notifyApiFailure(err, fallback, options);
 }
 
 const _toLocalInventory = (item) => {
@@ -1189,26 +1189,51 @@ const _toLocalParcelExport = (r) => ({
 });
 
 export const syncITDataFromAPI = async () => {
-  const [invRes, unitRes, swRes, ticketRes, employeeAssignedRes] = await Promise.all([
+  const results = await Promise.allSettled([
     _itFetch("/inventory/items"),
     _itFetch("/units"),
     _itFetch("/software/licenses"),
     _itFetch("/tickets"),
     _itFetch("/employees/assigned-assets"),
-    syncDeletedLogsFromAPI(),
-    syncRemovedITFromAPI(),
+    syncDeletedLogsFromAPI({ quiet: true }),
+    syncRemovedITFromAPI({ quiet: true }),
   ]);
 
-  const inv = (invRes.items || []).map(_toLocalInventory);
-  const units = (unitRes.units || []).map(_toLocalUnit);
-  const sw = (swRes.licenses || []).map(_toLocalSoftware);
-  const tickets = (ticketRes.tickets || []).map(_toLocalTicket);
+  const [
+    invSettled,
+    unitSettled,
+    swSettled,
+    ticketSettled,
+    employeeSettled,
+  ] = results;
 
-  saveInventoryToStorage(inv);
-  saveAssetUnitsToStorage(units);
-  saveSoftwareInventory(sw);
-  saveTickets(tickets);
+  // Prefer inventory/units failure as the sync error signal.
+  const coreFailure =
+    (invSettled.status === "rejected" && invSettled.reason) ||
+    (unitSettled.status === "rejected" && unitSettled.reason) ||
+    (swSettled.status === "rejected" && swSettled.reason) ||
+    (ticketSettled.status === "rejected" && ticketSettled.reason) ||
+    null;
 
+  if (invSettled.status === "fulfilled") {
+    const inv = (invSettled.value.items || []).map(_toLocalInventory);
+    saveInventoryToStorage(inv);
+  }
+  if (unitSettled.status === "fulfilled") {
+    const units = (unitSettled.value.units || []).map(_toLocalUnit);
+    saveAssetUnitsToStorage(units);
+  }
+  if (swSettled.status === "fulfilled") {
+    const sw = (swSettled.value.licenses || []).map(_toLocalSoftware);
+    saveSoftwareInventory(sw);
+  }
+  if (ticketSettled.status === "fulfilled") {
+    const tickets = (ticketSettled.value.tickets || []).map(_toLocalTicket);
+    saveTickets(tickets);
+  }
+
+  const employeeAssignedRes =
+    employeeSettled.status === "fulfilled" ? employeeSettled.value : null;
   const assignedEmployees = Array.isArray(employeeAssignedRes?.employees)
     ? employeeAssignedRes.employees
     : [];
@@ -1253,6 +1278,8 @@ export const syncITDataFromAPI = async () => {
     saveEmployees(merged);
   }
   notifyInventoryChange();
+
+  if (coreFailure) throw coreFailure;
 };
 
 export const createInventoryItemAPI = async ({
@@ -1612,11 +1639,11 @@ export const createDeletedLogAPI = async (payload) =>
     body: payload,
   });
 
-export const syncDeletedLogsFromAPI = async () => {
+export const syncDeletedLogsFromAPI = async ({ quiet = false } = {}) => {
   const res = await _itFetch("/deleted-logs");
   const rows = (res.logs || []).map(_toLocalDeletedLog);
   _safePersist(DELETED_KEY, rows);
-  notifyInventoryChange();
+  if (!quiet) notifyInventoryChange();
   return rows;
 };
 
@@ -1639,11 +1666,11 @@ const _toLocalRemovedIT = (r) => ({
   flaggedAt: r.removedAt || new Date().toISOString(),
 });
 
-export const syncRemovedITFromAPI = async () => {
+export const syncRemovedITFromAPI = async ({ quiet = false } = {}) => {
   const res = await _itFetch("/removed-assets");
   const rows = (res.removed_assets || []).map(_toLocalRemovedIT);
   saveRemovedITAssets(rows);
-  notifyInventoryChange();
+  if (!quiet) notifyInventoryChange();
   return rows;
 };
 
@@ -1708,7 +1735,7 @@ export const fetchActivityLogAPI = async ({
   return _itFetch(`/activity-log${qs ? `?${qs}` : ""}`);
 };
 
-export const downloadActivityLogCsvAPI = async (filters = {}, filenameHint = "activity") => {
+export const downloadActivityLogExcelAPI = async (filters = {}, filenameHint = "activity") => {
   const params = new URLSearchParams();
   if (filters.scope) params.set("scope", filters.scope);
   if (filters.action) params.set("action", filters.action);
@@ -1718,7 +1745,7 @@ export const downloadActivityLogCsvAPI = async (filters = {}, filenameHint = "ac
   if (filters.inventoryCategory) params.set("inventory_category", filters.inventoryCategory);
   const token = localStorage.getItem("token");
   const qs = params.toString();
-  const res = await fetch(`${IT_API_BASE}/activity-log.csv${qs ? `?${qs}` : ""}`, {
+  const res = await fetch(`${IT_API_BASE}/activity-log.xlsx${qs ? `?${qs}` : ""}`, {
     method: "GET",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -1735,7 +1762,7 @@ export const downloadActivityLogCsvAPI = async (filters = {}, filenameHint = "ac
     .replace(/[^\w\-]+/g, "_")
     .slice(0, 40);
   a.href = url;
-  a.download = `${safe || "activity"}-log.csv`;
+  a.download = `${safe || "activity"}-log.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1766,10 +1793,10 @@ export const createInventoryReviewAPI = async (itemId, { reviewText, conditionGr
     },
   });
 
-/** P2: download timeline CSV for one unit. */
-export const downloadUnitTimelineCsvAPI = async (unitId, assetLabel = "asset") => {
+/** P2: download timeline Excel for one unit. */
+export const downloadUnitTimelineExcelAPI = async (unitId, assetLabel = "asset") => {
   const token = localStorage.getItem("token");
-  const res = await fetch(`${IT_API_BASE}/units/${unitId}/timeline.csv`, {
+  const res = await fetch(`${IT_API_BASE}/units/${unitId}/timeline.xlsx`, {
     method: "GET",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -1786,7 +1813,7 @@ export const downloadUnitTimelineCsvAPI = async (unitId, assetLabel = "asset") =
     .replace(/[^\w\-]+/g, "_")
     .slice(0, 40);
   a.href = url;
-  a.download = `${safe || "asset"}-timeline.csv`;
+  a.download = `${safe || "asset"}-timeline.xlsx`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1921,6 +1948,165 @@ export const completeReturnRequestAPI = async (
       condition_grade: conditionGrade || null,
     },
   });
+
+const DC_BASE = "/daily-checkout";
+
+export const fetchDayUseMeAPI = async () => _itFetch(`${DC_BASE}/me`);
+
+export const uploadDayUseSignatureAPI = async (file) => {
+  const form = new FormData();
+  form.append("signature", file);
+  const res = await fetch(`${IT_API_BASE}${DC_BASE}/signature`, {
+    method: "POST",
+    headers: { ..._tokenHeaders() },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    throw errorFromApiResponse(res, data);
+  }
+  return data;
+};
+
+export const createDayUseRequestAPI = async ({ hwType, notes, items, expectedReturnAt } = {}) =>
+  _itFetch(`${DC_BASE}/requests`, {
+    method: "POST",
+    body: {
+      hw_type: hwType || undefined,
+      notes: notes || undefined,
+      items: items || undefined,
+      expected_return_at: expectedReturnAt || undefined,
+    },
+  });
+
+export const cancelDayUseRequestAPI = async (requestId, reason) =>
+  _itFetch(`${DC_BASE}/requests/${requestId}/cancel`, {
+    method: "POST",
+    body: { reason: reason || null },
+  });
+
+export const returnDayUseRequestAPI = async (requestId) =>
+  _itFetch(`${DC_BASE}/requests/${requestId}/return`, { method: "POST", body: {} });
+
+export const fetchDayUseInboxAPI = async (status) => {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return _itFetch(`${DC_BASE}/inbox${q}`);
+};
+
+export const fetchDayUseRequestAPI = async (requestId) =>
+  _itFetch(`${DC_BASE}/requests/${requestId}`);
+
+export const approveDayUseRequestAPI = async (requestId) =>
+  _itFetch(`${DC_BASE}/requests/${requestId}/approve`, { method: "POST", body: {} });
+
+export const rejectDayUseRequestAPI = async (requestId, reason) =>
+  _itFetch(`${DC_BASE}/requests/${requestId}/reject`, {
+    method: "POST",
+    body: { reason },
+  });
+
+export const fetchDayUseAvailableUnitsAPI = async (hwType, search) => {
+  const params = new URLSearchParams();
+  if (hwType) params.set("hw_type", hwType);
+  if (search) params.set("q", search);
+  const q = params.toString() ? `?${params.toString()}` : "";
+  return _itFetch(`${DC_BASE}/available-units${q}`);
+};
+
+export const assignDayUseUnitAPI = async (requestId, payloadOrUnitId, maybeOpts = {}) => {
+  let payload = payloadOrUnitId;
+  if (typeof payloadOrUnitId === "number" || typeof payloadOrUnitId === "string") {
+    payload = {
+      assetUnitId: Number(payloadOrUnitId),
+      accessoryComments: maybeOpts.accessoryComments,
+      remarks: maybeOpts.remarks,
+      devices: maybeOpts.devices,
+    };
+  }
+  payload = payload || {};
+  return _itFetch(`${DC_BASE}/requests/${requestId}/assign`, {
+    method: "POST",
+    body: {
+      asset_unit_id: payload.assetUnitId || payload.asset_unit_id || undefined,
+      devices: payload.devices || undefined,
+      accessory_comments: payload.accessoryComments || payload.accessory_comments || undefined,
+      remarks: payload.remarks || payload.device_remarks || undefined,
+      device_remarks: payload.remarks || payload.device_remarks || undefined,
+    },
+  });
+};
+
+export const completeDayUseReturnAPI = async (requestId, { conditionIn, remarks, walkUp } = {}) =>
+  _itFetch(`${DC_BASE}/requests/${requestId}/complete-return`, {
+    method: "POST",
+    body: {
+      condition_in: conditionIn || "ok",
+      remarks: remarks || null,
+      walk_up: Boolean(walkUp),
+    },
+  });
+
+export const fetchDayUsePoolUnitsAPI = async () => _itFetch(`${DC_BASE}/pool-units`);
+
+export const setDayUsePoolAPI = async (unitId, enabled) =>
+  _itFetch(`${DC_BASE}/units/${unitId}/daily-pool`, {
+    method: "PATCH",
+    body: { is_daily_pool: Boolean(enabled) },
+  });
+
+export const acknowledgeDayUseAcceptanceAPI = async (requestId) =>
+  _itFetch(`${DC_BASE}/requests/${requestId}/acknowledge`, {
+    method: "POST",
+    body: {},
+  });
+
+export const downloadDayUseDocumentAPI = async (requestId, docType) => {
+  const res = await fetch(
+    `${IT_API_BASE}${DC_BASE}/requests/${requestId}/documents/${encodeURIComponent(docType)}`,
+    { headers: { ..._tokenHeaders() } },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw errorFromApiResponse(res, data);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = _filenameFromDisposition(
+    res.headers.get("Content-Disposition"),
+    docType,
+  );
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+function _filenameFromDisposition(header, docType) {
+  const fallback =
+    String(docType).toLowerCase() === "return_ack" || String(docType).toLowerCase() === "return"
+      ? "return-acknowledgement.pdf"
+      : "acceptance-acknowledgement.pdf";
+  if (!header) return fallback;
+  const utf = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf) {
+    try {
+      return decodeURIComponent(utf[1].trim().replace(/["']/g, ""));
+    } catch {
+      /* use quoted filename */
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(header);
+  if (quoted) return quoted[1];
+  const plain = /filename=([^;]+)/i.exec(header);
+  if (plain) return plain[1].trim().replace(/["']/g, "");
+  return fallback;
+}
+
+/** Acknowledge (generate if needed) then download Acceptance PDF. */
+export const acknowledgeAndDownloadAcceptanceAPI = async (requestId) => {
+  await acknowledgeDayUseAcceptanceAPI(requestId);
+  await downloadDayUseDocumentAPI(requestId, "acceptance");
+};
 
 export const renewSoftwareLicenseAPI = async ({ licenseId, subscriptionEnd }) =>
   _itFetch(`/software/licenses/${licenseId}/renew`, {

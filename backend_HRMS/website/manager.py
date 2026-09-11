@@ -11,7 +11,7 @@ from datetime import date, datetime
 from .datetime_utils import utc_now, isoformat_api
 from . import db
 from .models.Admin_models import Admin, AuditLog
-from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch
+from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch, LEAVE_REASON_MAX_LEN
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .noc_department_service import (
@@ -1452,6 +1452,11 @@ def manager_apply_leave_on_behalf():
         return jsonify({"success": False, "message": "leave_type and reason are required"}), 400
     if len(reason) < 10:
         return jsonify({"success": False, "message": "Reason must be at least 10 characters long"}), 400
+    if len(reason) > LEAVE_REASON_MAX_LEN:
+        return jsonify({
+            "success": False,
+            "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
+        }), 400
 
     try:
         start_date = datetime.strptime(payload.get("start_date"), "%Y-%m-%d").date()
@@ -1481,7 +1486,7 @@ def manager_apply_leave_on_behalf():
             leave_type=leave_type,
             start_date=start_date,
             end_date=end_date,
-            reason=reason[:255],
+            reason=reason,
             status="Pending",
             applied_by_admin_id=manager_admin.id,
             applied_on_behalf=True,

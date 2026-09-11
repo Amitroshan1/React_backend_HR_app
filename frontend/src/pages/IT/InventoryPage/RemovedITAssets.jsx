@@ -31,7 +31,7 @@ import {
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CATEGORIES = ["All", "Hardware", "Software", "Accessories", "Consumables"];
+const CATEGORIES = ["All", "Hardware", "Accessories", "Consumables"];
 
 const CATEGORY_COLORS = {
   Hardware:    { bg: "#eff6ff", text: "#2563eb", dot: "#3b82f6" },
@@ -388,7 +388,9 @@ export default function RemovedITAssets() {
   const [selectedAsset, setSelectedAsset] = useState(null);
 
   const reload = useCallback(() => {
-    setAssets(getRemovedITAssets());
+    setAssets((getRemovedITAssets() || []).filter(
+      (a) => String(a?.category || "").toLowerCase() !== "software",
+    ));
   }, []);
 
   useRefreshOnNavigate(() => {

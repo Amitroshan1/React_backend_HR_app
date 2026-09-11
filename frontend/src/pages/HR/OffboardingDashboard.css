@@ -110,6 +110,29 @@
   min-width: 0;
 }
 
+.ob-dash-exit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid #fecaca;
+  border-radius: var(--ob-radius-sm);
+  background: #fef2f2;
+  cursor: pointer;
+  color: #b91c1c;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.ob-dash-exit-btn:hover {
+  border-color: #f87171;
+  background: #fee2e2;
+  box-shadow: var(--ob-shadow-sm);
+}
+
 .ob-dash-title {
   margin: 0;
   font-size: 1.625rem;

@@ -90,6 +90,12 @@ const SUMMARY_CARDS = [
 
 const FILTER_OPTIONS = ["All", "Available", "Assigned"];
 
+const STATUS_FILTERS = [
+  { id: "All", label: "All", chip: "all" },
+  { id: "Available", label: "Available", chip: "available" },
+  { id: "Assigned", label: "Assigned", chip: "assigned" },
+];
+
 const EDIT_OPTIONS = [
   { key: "repair",     label: "Repair",     icon: "🔧", color: "#d97706", hoverBg: "#fef3c7", bg: "#fffbeb", borderColor: "#d97706" },
   { key: "notWorking", label: "Not Working", icon: "⚠️",  color: "#ef4444", hoverBg: "#fee2e2", bg: "#fef2f2", borderColor: "#ef4444" },
@@ -99,7 +105,6 @@ const EDIT_OPTIONS = [
 const IT_CATEGORY_FILTERS = [
   { id: "All", label: "All", chip: "all" },
   { id: "Hardware", label: "Hardware", chip: "hardware" },
-  { id: "Software", label: "Software", chip: "software" },
   { id: "Accessories", label: "Accessories", chip: "accessories" },
   { id: "Consumables", label: "Consumable", chip: "consumables" },
 ];
@@ -244,10 +249,9 @@ function readLiveCounts(inventoryCategory = null) {
   const inventory = filterInventoryByCategory(readInventory(), inventoryCategory);
   const counts = getInventoryCounts();
 
-  const total = inventory.reduce(
-    (sum, i) => sum + (Number(i.totalQuantity) || 0),
-    0,
-  );
+  const total = inventory
+    .filter((i) => !isSoftware(i))
+    .reduce((sum, i) => sum + (Number(i.totalQuantity) || 0), 0);
   const notWorking = inventory
     .filter((i) => !isSoftware(i))
     .reduce((sum, i) => sum + (Number(i.notWorkingQuantity) || 0), 0);
@@ -299,7 +303,7 @@ function mapInventoryItem(item) {
 }
 
 function getMappedInventory(inventoryCategory = null) {
-  const items = readInventory().map(mapInventoryItem);
+  const items = readInventory().map(mapInventoryItem).filter((i) => !i.isSoftware);
   return inventoryCategory
     ? filterInventoryByCategory(items, inventoryCategory)
     : items;
@@ -431,7 +435,13 @@ function collectProjectNamesFromAssets(assets) {
   return ["All", ...Array.from(names).sort((a, b) => a.localeCompare(b))];
 }
 
-function filterITOverviewAssets(assets, { categoryFilter, hwSubFilter, projectNameFilter, searchQuery }) {
+function filterITOverviewAssets(assets, {
+  categoryFilter,
+  hwSubFilter,
+  projectNameFilter,
+  searchQuery,
+  statusFilter = "All",
+}) {
   const q = searchQuery.trim().toLowerCase();
   return assets
     .filter((a) => inventoryCategoryMatches(a.category, categoryFilter))
@@ -452,7 +462,21 @@ function filterITOverviewAssets(assets, { categoryFilter, hwSubFilter, projectNa
         (a.hwType ?? "").toLowerCase().includes(q) ||
         (a.category ?? "").toLowerCase().includes(q)
       );
+    })
+    .filter((a) => {
+      if (statusFilter === "Available") return Number(a.available) > 0;
+      if (statusFilter === "Assigned") return Number(a.assigned) > 0;
+      return true;
     });
+}
+
+function buildStatusQtyCounts(assets) {
+  const list = assets || [];
+  return {
+    All: list.length,
+    Available: list.filter((a) => Number(a.available) > 0).length,
+    Assigned: list.filter((a) => Number(a.assigned) > 0).length,
+  };
 }
 
 function safeLogDeletedAsset(asset, deletedBy, reason) {
@@ -729,10 +753,11 @@ function UnitPickerModal({ row, onAction, onCancel }) {
   const [selectedUnitId, setSelectedUnitId] = useState(null);
 
   const allUnits = getUnitsForAsset(row.id, row.name, row.hwType);
-  // Only show units that are still available (not yet assigned / in repair / etc.)
-  const availableUnits = allUnits.filter(
-    (u) => !u.status || u.status === "available" || u.status === "Available",
-  );
+  // Only show units that are still available (not assigned / day-use out / repair / etc.)
+  const availableUnits = allUnits.filter((u) => {
+    const s = String(u.status || "available").trim().toLowerCase();
+    return s === "available";
+  });
 
   const selectedUnit = availableUnits.find(
     (u) => (u.assetId ?? u.id) === selectedUnitId,
@@ -1755,6 +1780,7 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
       toastITApiFailure(
           err,
           "Could not sync IT data from the server. Showing cached inventory.",
+          { toastId: "it-sync-fail" },
         );
       update();
     });
@@ -1927,6 +1953,9 @@ function ITOverviewFilterBar({
   onSearchQueryChange,
   categoryCounts,
   subTypeCounts,
+  statusFilter = "All",
+  onStatusFilterChange,
+  statusCounts,
 }) {
   const showHwSub = categoryFilter === "Hardware";
   const showAccSub = categoryFilter === "Accessories";
@@ -1954,45 +1983,70 @@ function ITOverviewFilterBar({
 
   return (
     <div className="inv-overview-filters-inner" aria-label="IT asset filters">
-      <div className="inv-search-wrap inv-search-wrap--overview">
-        <span className="inv-search-icon" aria-hidden>🔍</span>
-        <input
-          className="inv-search-input"
-          type="search"
-          placeholder="Search brand, type…"
-          value={searchQuery}
-          onChange={(e) => onSearchQueryChange(e.target.value)}
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            className="inv-search-clear"
-            onClick={() => onSearchQueryChange("")}
-            aria-label="Clear search"
+      <div className="inv-overview-toolbar">
+        <div className="inv-overview-filter-block inv-overview-filter-block--select">
+          <label className="inv-overview-filter-label" htmlFor="inv-overview-category">
+            Category
+          </label>
+          <select
+            id="inv-overview-category"
+            className="inv-overview-select"
+            value={categoryFilter}
+            onChange={(e) => onCategoryFilterChange(e.target.value)}
+            aria-label="Category"
           >
-            ×
-          </button>
-        )}
-      </div>
+            {IT_CATEGORY_FILTERS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label} ({categoryCounts?.[opt.id] ?? 0})
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <div className="inv-overview-filter-block">
-        <span className="inv-overview-filter-label">Category</span>
-        <div className="inv-category-filter-row" role="group" aria-label="Category">
-          {IT_CATEGORY_FILTERS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              className={
-                categoryFilter === opt.id
-                  ? `inv-cat-filter-chip inv-cat-filter-chip--active inv-cat-filter-chip--${opt.chip}`
-                  : `inv-cat-filter-chip inv-cat-filter-chip--${opt.chip}`
-              }
-              onClick={() => onCategoryFilterChange(opt.id)}
-            >
-              {opt.label}
-              <span className="inv-hw-subfilter-count">{categoryCounts?.[opt.id] ?? 0}</span>
-            </button>
-          ))}
+        <div className="inv-overview-filter-block inv-overview-filter-block--select">
+          <label className="inv-overview-filter-label" htmlFor="inv-overview-status">
+            Status
+          </label>
+          <select
+            id="inv-overview-status"
+            className="inv-overview-select"
+            value={statusFilter}
+            onChange={(e) => onStatusFilterChange?.(e.target.value)}
+            aria-label="Status"
+          >
+            {STATUS_FILTERS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label} ({statusCounts?.[opt.id] ?? 0})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="inv-overview-filter-block inv-overview-filter-block--search">
+          <label className="inv-overview-filter-label" htmlFor="inv-overview-search">
+            Search
+          </label>
+          <div className="inv-search-wrap inv-search-wrap--overview">
+            <span className="inv-search-icon" aria-hidden>🔍</span>
+            <input
+              id="inv-overview-search"
+              className="inv-search-input"
+              type="search"
+              placeholder="Search brand, type…"
+              value={searchQuery}
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="inv-search-clear"
+                onClick={() => onSearchQueryChange("")}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2201,7 +2255,6 @@ function TotalAssetsFilterBar({
           {[
             { id: "All", label: "All", chip: "all" },
             { id: "Hardware", label: "Hardware", chip: "hardware" },
-            { id: "Software", label: "Software", chip: "software" },
             { id: "Accessories", label: "Accessories", chip: "accessories" },
             { id: "Consumables", label: "Consumables", chip: "consumables" },
           ].map((opt) => (
@@ -2289,6 +2342,7 @@ function TotalAssetsPage({ category }) {
         toastITApiFailure(
             err,
             "Could not sync inventory from the server. Showing cached assets.",
+            { toastId: "it-sync-fail" },
           );
         refresh();
       });
@@ -2430,6 +2484,7 @@ function TotalAssetsPage({ category }) {
 function OverviewPage({ category }) {
   const showItFilters = category === "IT Assets";
   const [categoryFilter, setCategoryFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [hwSubFilter, setHwSubFilter] = useState("All");
   const [projectNameFilter, setProjectNameFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -2462,6 +2517,7 @@ function OverviewPage({ category }) {
         toastITApiFailure(
             err,
             "Could not sync inventory from the server. Showing cached overview.",
+            { toastId: "it-sync-fail" },
           );
         refresh();
       });
@@ -2500,15 +2556,40 @@ function OverviewPage({ category }) {
     }
   }, [projectNameOptions, projectNameFilter]);
 
-  const assets = useMemo(() => {
+  const preStatusAssets = useMemo(() => {
     if (!showItFilters) return baseAssets;
     return filterITOverviewAssets(baseAssets, {
       categoryFilter,
       hwSubFilter,
       projectNameFilter,
       searchQuery,
+      statusFilter: "All",
     });
   }, [baseAssets, showItFilters, categoryFilter, hwSubFilter, projectNameFilter, searchQuery]);
+
+  const statusCounts = useMemo(
+    () => buildStatusQtyCounts(preStatusAssets),
+    [preStatusAssets],
+  );
+
+  const assets = useMemo(() => {
+    if (!showItFilters) {
+      if (statusFilter === "Available") {
+        return baseAssets.filter((a) => Number(a.available) > 0);
+      }
+      if (statusFilter === "Assigned") {
+        return baseAssets.filter((a) => Number(a.assigned) > 0);
+      }
+      return baseAssets;
+    }
+    return filterITOverviewAssets(baseAssets, {
+      categoryFilter,
+      hwSubFilter,
+      projectNameFilter,
+      searchQuery,
+      statusFilter,
+    });
+  }, [baseAssets, showItFilters, categoryFilter, hwSubFilter, projectNameFilter, searchQuery, statusFilter]);
 
   const handleCategoryFilterChange = useCallback((next) => {
     setCategoryFilter(next);
@@ -2533,16 +2614,22 @@ function OverviewPage({ category }) {
         recordCount={assets.length}
         filterBadge={
           showItFilters &&
-          (categoryFilter !== "All" || hwSubFilter !== "All" || projectNameFilter !== "All") ? (
+          (categoryFilter !== "All" ||
+            statusFilter !== "All" ||
+            hwSubFilter !== "All" ||
+            projectNameFilter !== "All") ? (
             <span className="inv-table-filter-badge">
               {[
                 categoryFilter !== "All" ? categoryFilter : null,
+                statusFilter !== "All" ? statusFilter : null,
                 hwSubFilter !== "All" ? hwSubFilter : null,
                 projectNameFilter !== "All" ? projectNameFilter : null,
               ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>
+          ) : statusFilter !== "All" ? (
+            <span className="inv-table-filter-badge">{statusFilter}</span>
           ) : null
         }
         filters={
@@ -2559,13 +2646,42 @@ function OverviewPage({ category }) {
               onSearchQueryChange={setSearchQuery}
               categoryCounts={categoryCounts}
               subTypeCounts={subTypeCounts}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              statusCounts={statusCounts}
             />
-          ) : null
+          ) : (
+            <div className="inv-overview-filters-inner" aria-label="Asset status filters">
+              <div className="inv-overview-filter-row-dropdowns">
+                <div className="inv-overview-filter-block inv-overview-filter-block--select">
+                  <label className="inv-overview-filter-label" htmlFor="inv-overview-status-only">
+                    Status
+                  </label>
+                  <select
+                    id="inv-overview-status-only"
+                    className="inv-overview-select"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    aria-label="Status"
+                  >
+                    {STATUS_FILTERS.map((opt) => {
+                      const counts = buildStatusQtyCounts(baseAssets);
+                      return (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label} ({counts?.[opt.id] ?? 0})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )
         }
       >
         <AssetTable
           assets={assets}
-          filter="All"
+          filter={statusFilter}
           onViewAsset={setDetailAsset}
           onReviews={(row) => setReviewTarget(buildReviewTarget(row))}
           hideAssigned={hideAssignedColumnForCategory(category)}

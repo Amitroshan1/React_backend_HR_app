@@ -19,12 +19,11 @@ export function isPayView(view) {
 }
 
 export const HR_MODULE_DISPLAY_NAMES = {
+  'Sign Up': 'Recruitment',
   'Update_SignUp': 'Edit employee profile',
   'Add Department And Circle': 'Departments & circles',
   'Leave Application Updation': 'Leave requests (admin)',
   'Bulk Employee Import': 'Bulk employee import',
-  'Reset Employee Password': 'Reset password',
-  'Recruitment (ATS)': 'Recruitment',
   'Ex-Employee Document Sharing': 'Ex-employee documents',
   'Leave Accrual Monitor': 'Leave accrual monitor',
   'Circle Transfer History': 'Circle transfers',
@@ -33,11 +32,9 @@ export const HR_MODULE_DISPLAY_NAMES = {
   'Assessment Invite': 'Assessment invite',
   'Probation Reviews': 'Probation reviews',
   'NOC Requests': 'NOC requests',
-  'Exit Employee': 'Exit employee',
   'Add Locations': 'Office locations',
   'Geo Analytics': 'Geo monitoring',
   'News Feed': 'News feed',
-  'Policy Center': 'Policy center',
   'Organization Chart': 'Org chart',
   'Update Manager': 'Update manager',
   'Holiday Calendar': 'Holiday calendar',
@@ -81,7 +78,6 @@ export const HR_MODULE_GROUPS = [
     titles: [
       'Sign Up',
       'Bulk Employee Import',
-      'Recruitment (ATS)',
       'Assessment Invite',
       'Probation Reviews',
     ],
@@ -89,14 +85,12 @@ export const HR_MODULE_GROUPS = [
   {
     id: 'people',
     fullLabel: 'Employee records',
-    description: 'Profiles, managers, org structure, transfers, and policies',
+    description: 'Profiles, managers, org structure, and transfers',
     titles: [
       'Update_SignUp',
-      'Reset Employee Password',
       'Update Manager',
       'Organization Chart',
       'Circle Transfer History',
-      'Policy Center',
     ],
   },
   {
@@ -122,11 +116,10 @@ export const HR_MODULE_GROUPS = [
   {
     id: 'exit',
     fullLabel: 'Exit & offboarding',
-    description: 'NOC, separation pipeline, exit processing, and ex-employee docs',
+    description: 'NOC, separation pipeline, exit via offboarding, and ex-employee docs',
     titles: [
       'NOC Requests',
       'Offboarding Dashboard',
-      'Exit Employee',
       'Ex-Employee Document Sharing',
     ],
   },
@@ -147,7 +140,7 @@ export const HR_MODULE_GROUPS = [
 export const HR_DASHBOARD_PINNED_TITLES = [];
 
 const PINNED_GROUP_BY_TITLE = {
-  'Recruitment (ATS)': 'hire',
+  'Sign Up': 'hire',
   'Compensation': 'pay',
   'Offboarding Dashboard': 'exit',
 };

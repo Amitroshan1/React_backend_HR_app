@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { isItamFlagEnabled } from "../../../utils/itamFlags";
-import { fetchUnitTimelineAPI, downloadUnitTimelineCsvAPI } from "../Data";
+import { fetchUnitTimelineAPI, downloadUnitTimelineExcelAPI } from "../Data";
 import "./AssetHistoryTimeline.css";
 
 function formatWhen(iso) {
@@ -56,9 +56,9 @@ export default function AssetHistoryTimeline({
 
   const onExport = async () => {
     try {
-      await downloadUnitTimelineCsvAPI(unitId, assetLabel);
+      await downloadUnitTimelineExcelAPI(unitId, assetLabel);
     } catch (err) {
-      setError(err?.message || "CSV export failed");
+      setError(err?.message || "Excel export failed");
     }
   };
 
@@ -91,7 +91,7 @@ export default function AssetHistoryTimeline({
         </div>
         <div className="itam-hist-header-actions">
           <button type="button" className="itam-hist-btn" onClick={onExport} disabled={!unitId}>
-            Export CSV
+            Export Excel
           </button>
           {onClose ? (
             <button type="button" className="itam-hist-btn ghost" onClick={onClose}>

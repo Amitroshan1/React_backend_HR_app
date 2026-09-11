@@ -1,99 +1,171 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import "../ITMobileShared.css";
+
 .alog-page {
-  max-width: 1280px;
+  min-height: 100vh;
+  background: #f8fafc;
+  color: #334155;
+  font-family: "Inter", sans-serif;
+  padding: 12px 16px 48px;
+}
+
+.alog-container {
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 20px 24px 48px;
-}
-
-.alog-header {
   display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  margin-bottom: 20px;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.alog-header h1 {
-  margin: 0;
-  font-size: 1.45rem;
-  color: #0f172a;
+.alog-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.alog-title-block {
+  flex: 1;
+  min-width: 0;
 }
 
 .alog-kicker {
   margin: 0 0 2px;
-  font-size: 0.72rem;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #64748b;
+  font-weight: 600;
+}
+
+.alog-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.2px;
+}
+
+.alog-total {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.alog-total strong {
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .alog-sub {
-  margin: 4px 0 0;
+  margin: 0;
+  padding: 0 4px;
   color: #64748b;
-  font-size: 0.9rem;
+  font-size: 13px;
 }
 
 .alog-back {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 8px;
-  padding: 8px 12px;
+  padding: 7px 16px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  font: inherit;
-  color: #334155;
+  font-family: inherit;
+  transition: all 0.2s;
   white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.alog-back:hover {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  background: #eff6ff;
 }
 
 .alog-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 12px;
+  gap: 12px;
   align-items: flex-end;
-  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .alog-filters label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
   color: #64748b;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
 .alog-filters select,
 .alog-filters input[type="month"],
 .alog-search input {
-  font: inherit;
+  font-family: inherit;
   text-transform: none;
   font-weight: 500;
+  font-size: 13px;
   color: #0f172a;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  padding: 7px 10px;
+  padding: 8px 10px;
   background: #fff;
   min-width: 160px;
+  min-height: 38px;
+}
+
+.alog-filters select:focus,
+.alog-filters input:focus,
+.alog-search input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .alog-search {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
+  flex: 1 1 220px;
 }
 
 .alog-search input {
-  min-width: 220px;
+  flex: 1;
+  min-width: 180px;
 }
 
 .alog-btn {
-  border: none;
+  border: 1px solid #3b82f6;
   border-radius: 8px;
   padding: 8px 14px;
-  background: #0369a1;
+  background: #3b82f6;
   color: #fff;
-  font: inherit;
+  font-family: inherit;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  min-height: 38px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.alog-btn:hover:not(:disabled) {
+  background: #2563eb;
+  border-color: #2563eb;
 }
 
 .alog-btn:disabled {
@@ -107,15 +179,20 @@
   border: 1px solid #cbd5e1;
 }
 
-.alog-error {
-  color: #b91c1c;
-  margin: 0 0 8px;
+.alog-btn--ghost:hover:not(:disabled) {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  background: #eff6ff;
 }
 
-.alog-count {
-  margin: 0 0 8px;
-  color: #64748b;
-  font-size: 0.88rem;
+.alog-error {
+  color: #b91c1c;
+  margin: 0;
+  font-size: 13px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 
 .alog-table-wrap {
@@ -123,45 +200,54 @@
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
 
 .alog-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 13px;
+  min-width: 920px;
 }
 
 .alog-table th {
   text-align: left;
-  padding: 10px 12px;
+  padding: 11px 14px;
   background: #f8fafc;
   color: #64748b;
-  font-size: 0.72rem;
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
 }
 
 .alog-table td {
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-bottom: 1px solid #f1f5f9;
   vertical-align: top;
   color: #0f172a;
 }
 
+.alog-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
 .alog-empty {
   text-align: center;
   color: #64748b;
-  padding: 28px 12px !important;
+  padding: 40px 16px !important;
+  font-size: 14px;
 }
 
 .alog-action {
   display: inline-block;
-  background: #e0f2fe;
-  color: #075985;
+  background: #eff6ff;
+  color: #1d4ed8;
   border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 0.78rem;
+  padding: 3px 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -171,16 +257,20 @@
   gap: 2px;
 }
 
+.alog-asset strong {
+  font-weight: 600;
+}
+
 .alog-asset span {
-  font-family: ui-monospace, monospace;
-  font-size: 0.78rem;
+  font-family: ui-monospace, "DM Mono", monospace;
+  font-size: 12px;
   color: #64748b;
 }
 
 .alog-status {
   white-space: nowrap;
   color: #475569;
-  font-size: 0.82rem;
+  font-size: 12px;
 }
 
 .alog-remark {
@@ -194,6 +284,60 @@
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-top: 14px;
   color: #64748b;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .alog-page {
+    padding: 10px 12px 32px;
+  }
+
+  .alog-topbar {
+    flex-wrap: wrap;
+  }
+
+  .alog-title {
+    font-size: 18px;
+  }
+
+  .alog-total {
+    width: 100%;
+  }
+
+  .alog-filters {
+    gap: 10px;
+  }
+
+  .alog-filters label,
+  .alog-search {
+    flex: 1 1 100%;
+  }
+
+  .alog-filters select,
+  .alog-filters input[type="month"],
+  .alog-search input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .alog-table-wrap.it-m-scroll--cards {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .alog-table {
+    min-width: 0;
+  }
+
+  .alog-remark {
+    max-width: none;
+    white-space: normal;
+  }
+
+  .alog-status {
+    white-space: normal;
+  }
 }

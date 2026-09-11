@@ -46,8 +46,7 @@ from flask_login import current_user
 from .email import (
     update_asset_email,
     send_asset_assigned_email,
-    send_password_set_email,
-    send_password_reset_email,
+    send_welcome_email,
     send_hr_leave_updation_email,
     send_hr_wfh_updation_email,
     send_assessment_invite_email,
@@ -68,6 +67,7 @@ from .models.attendance import (
     Location,
     WorkFromHomeApplication,
     AttendanceRegularization,
+    LEAVE_REASON_MAX_LEN,
 )
 from .models.news_feed import NewsFeed
 from .models.seperation import Noc, Noc_Upload, Resignation
@@ -139,8 +139,6 @@ def _hr_plan_guard():
         return None
     # Employee self-service endpoints that live on this blueprint
     if "/holidays/user" in path:
-        return None
-    if path.rstrip("/").endswith("/reset-password"):
         return None
 
     try:
@@ -1092,17 +1090,17 @@ def signup_api():
             (Admin.emp_id == emp_id)
         ).first()
 
-        if existing_conflict and existing_conflict.password:
+        if existing_conflict and existing_conflict.is_onboarded():
             conflict_msg = "Email, User name, Mobile or Employee ID already exists. Use different values."
             return jsonify({"success": False, "message": conflict_msg}), 409
 
         admin = Admin.query.filter_by(email=email).first()
 
         # ======================================================
-        # CASE 1: Existing user (partial record, e.g. no password yet)
+        # CASE 1: Existing user (partial record, e.g. email stub)
         # ======================================================
         if admin:
-            if admin.password:
+            if admin.is_onboarded():
                 return jsonify({
                     "success": False,
                     "message": "User already fully registered"
@@ -1143,12 +1141,6 @@ def signup_api():
             else:
                 admin.circle = circle
 
-            # Password logic
-            if data.get("password"):
-                admin.set_password(data["password"])
-            else:
-                send_password_set_email(admin)
-
             action = "UPGRADE_EXISTING_USER"
 
         # ======================================================
@@ -1167,12 +1159,6 @@ def signup_api():
                 is_active=True,
                 is_exited=False
             )
-
-            # Password logic
-            if data.get("password"):
-                admin.set_password(data["password"])
-            else:
-                send_password_set_email(admin)
 
             db.session.add(admin)
             db.session.flush()  # get admin.id
@@ -1273,106 +1259,19 @@ def signup_api():
 @jwt_required()
 @hr_required
 def send_password_reset():
-    """HR sends a password reset link to an employee. Link expires in 1 hour; user sets their own password."""
-    from .rate_limit import client_ip, enforce
-
-    claims = get_jwt() or {}
-    hr_key = (claims.get("email") or client_ip()).strip().lower()
-    blocked = enforce(
-        f"hr-reset:actor:{hr_key}",
-        limit=20,
-        window_seconds=3600,
-        message="Too many password-reset emails sent. Please try again later.",
-    )
-    if blocked:
-        return blocked
-
-    data = request.get_json() or {}
-    employee_email = (data.get("employee_email") or "").strip()
-    if not employee_email:
-        return jsonify({"success": False, "message": "employee_email is required"}), 400
-
-    blocked = enforce(
-        f"hr-reset:target:{employee_email.lower()}",
-        limit=3,
-        window_seconds=3600,
-        message="Too many reset emails for this employee. Please try again later.",
-    )
-    if blocked:
-        return blocked
-
-    admin = Admin.query.filter_by(email=employee_email).first()
-    if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
-    if getattr(admin, "is_exited", False):
-        return jsonify({"success": False, "message": "Cannot reset password for exited employee"}), 400
-    if not getattr(admin, "is_active", True):
-        return jsonify({"success": False, "message": "Employee account is inactive"}), 400
-
-    token = secrets.token_urlsafe(32)
-    admin.password_reset_token = token
-    admin.password_reset_expiry = utc_now() + timedelta(hours=1)
-    db.session.commit()
-
-    if not send_password_reset_email(admin, token):
-        return jsonify({"success": False, "message": "Failed to send email. Please try again."}), 500
-
     return jsonify({
-        "success": True,
-        "message": "Password reset link sent. It expires in 1 hour.",
-    }), 200
+        "success": False,
+        "message": "Password reset is no longer used. Employees sign in with email OTP.",
+    }), 410
 
 
 @hr.route("/reset-password", methods=["POST"])
 @jwt_required()
 def reset_password():
-    """
-    Reset password for the currently authenticated HR/Admin user.
-
-    NOTE: This route is JWT-protected, so we should NOT rely on
-    Flask-Login's current_user (which will be AnonymousUserMixin when
-    no session cookie is present). Instead, resolve the Admin from the
-    JWT claims.
-    """
-    claims = get_jwt()
-    email = claims.get("email")
-    if not email:
-        return jsonify({
-            "success": False,
-            "message": "Invalid token"
-        }), 401
-
-    user = Admin.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({
-            "success": False,
-            "message": "User not found"
-        }), 404
-
-    data = request.get_json() or {}
-
-    password = data.get("password")
-    confirm_password = data.get("confirm_password")
-
-    if not password or not confirm_password:
-        return jsonify({
-            "success": False,
-            "message": "Password and confirm password are required"
-        }), 400
-
-    if password != confirm_password:
-        return jsonify({
-            "success": False,
-            "message": "Passwords do not match"
-        }), 400
-
-    user.set_password(password)
-    db.session.commit()
-
     return jsonify({
-        "success": True,
-        "message": "Password updated successfully"
-    }), 200
+        "success": False,
+        "message": "Account passwords are no longer used. Sign in with email OTP.",
+    }), 410
 
 
 def _profile_field_filled(x) -> bool:
@@ -1481,26 +1380,33 @@ def hr_dashboard_api():
         else:
             one_year_ago = date(today.year - 1, current_month, current_day)
 
+    enabled_filters = _enabled_non_exited_admin_filters()
+
     employees_with_anniversaries = Admin.query.filter(
         db.extract("month", Admin.doj) == current_month,
         db.extract("day", Admin.doj) == current_day,
-        Admin.doj <= one_year_ago
+        Admin.doj <= one_year_ago,
+        *enabled_filters,
     ).all()
 
     # 1️⃣.b Joinings Today (Admin DOJ exactly today, active/non-exited only)
     employees_joining_today = Admin.query.filter(
         Admin.doj == today,
-        *_enabled_non_exited_admin_filters(),
+        *enabled_filters,
     ).all()
 
-    # 2️⃣ Birthdays (Employee DOB)
-    employees_with_birthdays = Employee.query.filter(
-        db.extract("month", Employee.dob) == current_month,
-        db.extract("day", Employee.dob) == current_day
-    ).all()
+    # 2️⃣ Birthdays (Employee DOB) — current employees only
+    employees_with_birthdays = (
+        Employee.query.join(Admin, Employee.admin_id == Admin.id)
+        .filter(
+            db.extract("month", Employee.dob) == current_month,
+            db.extract("day", Employee.dob) == current_day,
+            *enabled_filters,
+        )
+        .all()
+    )
 
     # 3️⃣ Total Employees (enabled only — same rules as /search and /employee/search)
-    enabled_filters = _enabled_non_exited_admin_filters()
     total_employees = Admin.query.filter(*enabled_filters).count()
 
     # 4️⃣ New Joinees (last 30 days, enabled only)
@@ -4265,6 +4171,11 @@ def create_leave_on_behalf_by_hr():
         return jsonify({"success": False, "message": "reason is required"}), 400
     if len(reason) < 10:
         return jsonify({"success": False, "message": "Reason must be at least 10 characters long"}), 400
+    if len(reason) > LEAVE_REASON_MAX_LEN:
+        return jsonify({
+            "success": False,
+            "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
+        }), 400
 
     start_date, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
     if err:
@@ -4698,7 +4609,14 @@ def update_leave_application_by_hr(leave_id):
     leave_obj.end_date = next_end_date
     leave_obj.status = next_status
     if "reason" in payload and str(payload.get("reason") or "").strip():
-        leave_obj.reason = str(payload.get("reason")).strip()
+        next_reason = str(payload.get("reason")).strip()
+        if len(next_reason) > LEAVE_REASON_MAX_LEN:
+            db.session.rollback()
+            return jsonify({
+                "success": False,
+                "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
+            }), 400
+        leave_obj.reason = next_reason
     leave_obj.deducted_days = projection["deducted_days"]
     leave_obj.extra_days = projection["extra_days"]
     leave_obj.requested_deducted_days = projection["requested_deducted_days"]
@@ -4841,7 +4759,13 @@ def update_wfh_application_by_hr(wfh_id):
     wfh_obj.end_date = next_end_date
     wfh_obj.status = next_status
     if "reason" in payload and str(payload.get("reason") or "").strip():
-        wfh_obj.reason = str(payload.get("reason")).strip()
+        next_reason = str(payload.get("reason")).strip()
+        if len(next_reason) > LEAVE_REASON_MAX_LEN:
+            return jsonify({
+                "success": False,
+                "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
+            }), 400
+        wfh_obj.reason = next_reason
 
     try:
         db.session.commit()
@@ -7301,9 +7225,6 @@ def update_employee_api(email_path):
         )
         if is_probation_employment(admin):
             _sync_probation_after_doj_change(admin)
-
-    if data.get("password"):
-        admin.set_password(data["password"])
 
     if "designation" in data:
         proposed_desig = str(data.get("designation") or "").strip()

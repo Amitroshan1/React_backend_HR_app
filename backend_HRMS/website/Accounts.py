@@ -111,6 +111,14 @@ def _accounts_plan_guard():
     if "/tax-declaration" in path:
         return None
 
+    # Employee payroll-slip download. Allowed when Account is in the plan
+    # (essential and enterprise). Basic has no Account module. The handler
+    # still restricts non-Accounts users to their own record.
+    if re.search(r"/payroll/\d+/download$", path):
+        if not has_feature("account_panel"):
+            return plan_forbidden_response("account_panel")
+        return None
+
     try:
         verify_jwt_in_request()
     except Exception:
@@ -4402,7 +4410,7 @@ def download_payroll_slip(payroll_id):
     c.drawCentredString(width / 2, y, "Saffo Solution Technology LLP")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawCentredString(width / 2, y, "203, A Wing, 2nd Floor")
+    c.drawCentredString(width / 2, y, "405, A Wing, 4th Floor")
     y -= 13
     c.drawCentredString(width / 2, y, "Technocity TTC Indl Area, Mhape")
     y -= 13

@@ -141,6 +141,10 @@ export function HRApplyLeaveOnBehalf({
       setFormError('Reason must be at least 10 characters.');
       return;
     }
+    if (reason.length > 255) {
+      setFormError('Reason must be at most 255 characters.');
+      return;
+    }
     if (previewError) {
       setFormError(previewError);
       return;
@@ -301,10 +305,11 @@ export function HRApplyLeaveOnBehalf({
             <textarea
               value={form.reason}
               onChange={(e) => handleFormChange('reason', e.target.value)}
-              placeholder="Why HR is applying this leave (min 10 characters)"
+              placeholder="Why HR is applying this leave (10–255 characters)"
               rows={3}
               required
               minLength={10}
+              maxLength={255}
             />
           </label>
           {formError ? <p className="hr-leave-on-behalf__error">{formError}</p> : null}

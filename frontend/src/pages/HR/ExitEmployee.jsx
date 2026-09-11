@@ -34,7 +34,9 @@ const ExitEmployee = ({onBack}) => {
   const sourceFrom = location.state?.from; // 'archive' or undefined (from HR)
   const { fromAdmin, backLabel, goBack } = useAdminVisitNav({
     fallbackTo: sourceFrom === 'archive' ? '/archive-employees' : '/hr',
-    fallbackLabel: sourceFrom === 'archive' ? 'Back to Archive' : 'Back to Updates',
+    fallbackLabel: sourceFrom === 'archive'
+      ? 'Back to Archive'
+      : (onBack ? 'Back to Offboarding' : 'Back to Updates'),
     onFallback: () => {
       if (onBack) {
         onBack();
@@ -419,7 +421,7 @@ const ExitEmployee = ({onBack}) => {
             onClick={() => goBack({ replace: true })}
           >
             <ArrowLeft size={20} />
-            <span>{fromAdmin ? backLabel : (sourceFrom === 'archive' ? 'Back to Archive' : 'Back to Updates')}</span>
+            <span>{fromAdmin ? backLabel : (sourceFrom === 'archive' ? 'Back to Archive' : (onBack ? 'Back to Offboarding' : 'Back to Updates'))}</span>
           </button>
 
           <button

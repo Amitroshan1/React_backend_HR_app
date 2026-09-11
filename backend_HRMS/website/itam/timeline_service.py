@@ -220,6 +220,73 @@ def timeline_to_csv(transitions: list[dict]) -> str:
     return buf.getvalue()
 
 
+_XLSX_HEADERS = (
+    "When",
+    "Transition code",
+    "Action code",
+    "Action",
+    "Asset",
+    "Serial number",
+    "Category",
+    "From",
+    "To",
+    "Remark",
+    "Reason",
+    "Condition",
+    "By",
+    "Employee ID",
+)
+
+
+def timeline_to_xlsx(transitions: list[dict]) -> io.BytesIO:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Activity log"
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="3B82F6")
+    ws.append(list(_XLSX_HEADERS))
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(vertical="center")
+
+    for t in transitions or []:
+        actor = t.get("actor") or {}
+        ws.append(
+            [
+                t.get("occurredAt") or "",
+                t.get("transitionCode") or "",
+                t.get("actionCode") or "",
+                t.get("actionLabel") or "",
+                t.get("assetName") or "",
+                t.get("serialNumber") or "",
+                t.get("inventoryCategory") or "",
+                t.get("fromStatus") or "",
+                t.get("toStatus") or "",
+                t.get("remark") or "",
+                t.get("reasonCode") or "",
+                t.get("conditionGrade") or "",
+                actor.get("name") or "",
+                actor.get("empId") or "",
+            ]
+        )
+
+    widths = [22, 16, 16, 24, 28, 18, 16, 14, 14, 40, 14, 12, 20, 14]
+    for idx, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+    ws.auto_filter.ref = ws.dimensions
+    ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
 def backfill_from_assignments(*, limit: int = 500, config=None) -> dict[str, int]:
     """
     Seed TransitionRecords from ITAssetAssignment history (best-effort).

@@ -12,6 +12,12 @@ import {
 } from "../../utils/planFeatures";
 import { clearPersistedPanelViews } from "../../hooks/usePersistedView";
 import { clearSensitiveToken } from "../../utils/sensitiveDataAuth";
+import {
+    ACTIVITY_KEY,
+    empTypeFromToken,
+    getIdleTimeoutMs,
+    refreshSessionToken,
+} from "../../utils/sessionTimeout";
 import { AdminReturnBar } from "./AdminReturnBar";
 import { crumbsForAdminPath } from "./AdminBreadcrumb";
 import { isAdminDepartmentPath } from "../../pages/Admin/AdminLayout";
@@ -26,8 +32,8 @@ import { normalizePhotoUrl } from "../../utils/userPhoto";
 import { TransitionRemarkProvider } from "../../pages/IT/itam/TransitionRemarkModal";
 import { syncItamFlagsFromApi } from "../../utils/itamFlags";
 
-const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
-const ACTIVITY_KEY = "lastActivityAt";
+/** How often to re-issue JWT while the user is actively using the app. */
+const SESSION_REFRESH_THROTTLE_MS = 2 * 60 * 1000;
 
 export const AppLayout = () => {
     const navigate = useNavigate();
@@ -176,9 +182,29 @@ export const AppLayout = () => {
             navigate("/");
         };
 
+        const resolveTimeoutMs = () => {
+            const token = localStorage.getItem("token");
+            const empType =
+                userData?.user?.emp_type
+                || userData?.user?.department
+                || empTypeFromToken(token);
+            return getIdleTimeoutMs(empType);
+        };
+
+        let lastRefreshAt = 0;
+
         const markActivity = () => {
             if (!localStorage.getItem("token")) return;
             localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
+            const now = Date.now();
+            if (now - lastRefreshAt >= SESSION_REFRESH_THROTTLE_MS) {
+                lastRefreshAt = now;
+                refreshSessionToken().then((ok) => {
+                    if (!ok && !localStorage.getItem("token")) {
+                        logoutForInactivity();
+                    }
+                });
+            }
         };
 
         const checkInactivity = () => {
@@ -186,13 +212,27 @@ export const AppLayout = () => {
             if (!token) return;
             const raw = localStorage.getItem(ACTIVITY_KEY);
             const lastActivity = Number(raw);
-            if (!raw || Number.isNaN(lastActivity) || Date.now() - lastActivity > INACTIVITY_TIMEOUT_MS) {
+            const timeoutMs = resolveTimeoutMs();
+            if (!raw || Number.isNaN(lastActivity) || Date.now() - lastActivity > timeoutMs) {
                 logoutForInactivity();
             }
         };
 
         // Enforce timeout immediately on refresh/open.
         checkInactivity();
+        // Slide JWT while idle clock is still valid (e.g. after browser refresh).
+        if (localStorage.getItem("token") && localStorage.getItem(ACTIVITY_KEY)) {
+            const raw = localStorage.getItem(ACTIVITY_KEY);
+            const lastActivity = Number(raw);
+            if (raw && !Number.isNaN(lastActivity) && Date.now() - lastActivity <= resolveTimeoutMs()) {
+                lastRefreshAt = Date.now();
+                refreshSessionToken().then((ok) => {
+                    if (!ok && !localStorage.getItem("token")) {
+                        logoutForInactivity();
+                    }
+                });
+            }
+        }
 
         const activityEvents = ["click", "keydown", "mousemove", "scroll", "touchstart"];
         activityEvents.forEach((eventName) => {
@@ -207,7 +247,7 @@ export const AppLayout = () => {
             });
             window.clearInterval(intervalId);
         };
-    }, [navigate]);
+    }, [navigate, userData?.user?.emp_type, userData?.user?.department]);
 
     // Safely get the username and emp_type from admins table data
     // Backend returns: user.name (display name: first_name / user_name / email prefix) and user.emp_type

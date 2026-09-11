@@ -79,7 +79,17 @@ export function getApiErrorMessage(
     "";
 
   if (raw && !isGenericPhrase(raw) && !/^server error \(\d+\)/i.test(raw)) {
-    return raw;
+    // Prefer specific backend text unless it's the generic 5xx copy we generate ourselves.
+    if (raw !== statusFallback(500) && raw !== statusFallback(status)) {
+      return raw;
+    }
+  }
+
+  // Prefer caller fallback over generic "server could not complete…" for 5xx.
+  if (fallback && fallback !== "Something went wrong. Please try again.") {
+    if (!raw || isGenericPhrase(raw) || raw === statusFallback(status) || (status >= 500)) {
+      return fallback;
+    }
   }
 
   if (status) return statusFallback(status);

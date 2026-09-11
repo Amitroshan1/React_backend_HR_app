@@ -145,6 +145,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
       toastITApiFailure(
           err,
           "Could not load removal history from the server. Showing cached records.",
+          { toastId: "it-sync-fail" },
         );
     }
     setRecords(getDeletedAssetsFromStorage());

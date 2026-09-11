@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .activity_log_scope import resolve_scope_actions
-from .timeline_service import query_transitions, timeline_to_csv
+from .timeline_service import query_transitions, timeline_to_csv, timeline_to_xlsx
 
 
 def query_activity_log(
@@ -39,3 +39,7 @@ def query_activity_log(
 
 def activity_log_to_csv(result: dict) -> str:
     return timeline_to_csv(result.get("transitions") or [])
+
+
+def activity_log_to_xlsx(result: dict):
+    return timeline_to_xlsx(result.get("transitions") or [])

@@ -33,7 +33,7 @@ export const INVENTORY_CATEGORY_CONFIG = {
     consumableTypes: ["Pen Drive", "Battery", "Toner", "SIM Card", "Cleaning Kit"],
     mobileTabletHwTypes: ["Mobile", "Tablet"],
     mobileHwType: "Mobile",
-    itemCategories: ["Hardware", "Software", "Accessories", "Consumables"],
+    itemCategories: ["Hardware", "Accessories", "Consumables"],
   },
   "Office Assets": {
     stockMode: true,
@@ -76,6 +76,14 @@ export function keyToInventoryCategory(key) {
 
 export function isValidInventoryCategory(cat) {
   return INV_CATEGORIES.includes(cat);
+}
+
+export function isSoftwareCategory(value) {
+  return String(value || "").trim().toLowerCase() === "software";
+}
+
+export function excludeSoftwareItems(items, categoryKey = "category") {
+  return (items || []).filter((item) => !isSoftwareCategory(item?.[categoryKey]));
 }
 
 /** Filter inventory rows by `inventoryCategory` field. */

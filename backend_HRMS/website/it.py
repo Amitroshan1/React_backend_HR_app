@@ -366,6 +366,7 @@ def _serialize_asset_unit(unit):
         "projectCode": unit.project_code,
         "deviceLocation": unit.device_location,
         "status": unit.status,
+        "isDailyPool": bool(getattr(unit, "is_daily_pool", False)),
         "assignedTo": unit.assigned_to_admin_id,
         "assignedToName": _admin_name(unit.assigned_to_admin),
         "assignedToEmpId": (assigned_admin.emp_id if assigned_admin else None),
@@ -639,8 +640,10 @@ def _recalc_inventory_counts(inventory_id):
         item.repair_quantity = 0
     else:
         item.total_quantity = len(units)
-        item.available_quantity = len([u for u in units if u.status == "available"])
-        item.assigned_quantity = len([u for u in units if u.status == "assigned"])
+        item.available_quantity = len([u for u in units if (u.status or "").lower() == "available"])
+        item.assigned_quantity = len(
+            [u for u in units if (u.status or "").lower() in ("assigned", "daily_out")]
+        )
         item.not_working_quantity = len([u for u in units if u.status in ("not-working", "notWorking")])
         item.repair_quantity = len([u for u in units if u.status == "repair"])
 
@@ -1197,6 +1200,12 @@ def assign_unit():
         return _err("Target admin not found", 404)
     if unit.status == "assigned":
         return _err("Unit is already assigned")
+    if (unit.status or "").lower() == "daily_out":
+        return _err("Unit is on Day-use checkout")
+    from .models.daily_checkout import DailyUnitHold
+
+    if DailyUnitHold.query.get(unit.id):
+        return _err("Unit is on Day-use checkout")
 
     from .itam.transition_service import extract_remark_fields
 
@@ -3001,6 +3010,30 @@ def unit_timeline_csv(unit_id):
     )
 
 
+@it_bp.route("/units/<int:unit_id>/timeline.xlsx", methods=["GET"])
+@jwt_required()
+def unit_timeline_xlsx(unit_id):
+    """Export full timeline Excel for one unit."""
+    from flask import current_app
+    from .itam.timeline_service import query_transitions, timeline_enabled, timeline_to_xlsx
+    from .utility import send_excel_file
+
+    if not timeline_enabled(current_app.config):
+        return _err(
+            "ITAM timeline is disabled. Set ITAM_TIMELINE_V1=1 to enable.",
+            409,
+        )
+
+    unit = ITAssetUnit.query.get(unit_id)
+    if not unit:
+        return _err("Unit not found", 404)
+
+    result = query_transitions(asset_unit_id=unit_id, page=1, limit=5000)
+    buf = timeline_to_xlsx(result.get("transitions") or [])
+    filename = f"asset-{unit.unit_code or unit_id}-timeline.xlsx"
+    return send_excel_file(buf, filename)
+
+
 @it_bp.route("/activity-log", methods=["GET"])
 @jwt_required()
 def it_activity_log():
@@ -3074,6 +3107,31 @@ def it_activity_log_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@it_bp.route("/activity-log.xlsx", methods=["GET"])
+@jwt_required()
+def it_activity_log_xlsx():
+    from .itam.activity_log_service import activity_log_to_xlsx, query_activity_log
+    from .utility import send_excel_file
+
+    actions_raw = (request.args.get("action") or request.args.get("actions") or "").strip()
+    actions = [a for a in actions_raw.split(",") if a.strip()] if actions_raw else None
+    result = query_activity_log(
+        scope=request.args.get("scope"),
+        actions=actions,
+        q=request.args.get("q"),
+        date_from=request.args.get("from"),
+        date_to=request.args.get("to"),
+        inventory_category=request.args.get("inventory_category")
+        or request.args.get("category"),
+        page=1,
+        limit=5000,
+    )
+    buf = activity_log_to_xlsx(result)
+    scope = (request.args.get("scope") or "all").strip() or "all"
+    filename = f"it-activity-log-{scope}.xlsx"
+    return send_excel_file(buf, filename)
 
 
 @it_bp.route("/units/<int:unit_id>/reviews", methods=["GET"])

@@ -828,6 +828,11 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
             }
         }
 
+        if (reason.trim().length > 255) {
+            alert("Reason must be at most 255 characters.");
+            return;
+        }
+
         const finalReason = leaveType === 'Optional Leave' ? reason.trim() : reason;
         
         // Call parent onSubmit (which will handle API call)
@@ -963,6 +968,7 @@ export const ApplyLeaveModal = ({ isOpen, onClose, onSubmit, initialRequests = [
                             className="reason-input"
                             rows="3"
                             required
+                            maxLength={255}
                             readOnly={leaveType === 'Optional Leave'}
                         />
                     </div>

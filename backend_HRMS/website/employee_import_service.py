@@ -10,7 +10,7 @@ from . import db
 from .models.Admin_models import Admin, AuditLog
 from .models.attendance import LeaveBalance
 from .models.emp_detail_models import Employee
-from .email import send_password_set_email, send_welcome_email
+from .email import send_welcome_email
 
 _COLUMN_ALIASES = {
     "email": ("email", "email id", "official email"),
@@ -126,7 +126,7 @@ def preview_employee_import(rows: list[dict]) -> dict:
             existing = Admin.query.filter(
                 (Admin.email == email) | (Admin.emp_id == emp_id)
             ).first()
-            if existing and existing.password:
+            if existing and existing.is_onboarded():
                 row_errors.append("Email or Employee ID already exists")
         if row_errors:
             errors.append({"row": row.get("row_number"), "errors": row_errors, "email": row.get("email")})
@@ -170,7 +170,6 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
         circle = str(row["circle"]).strip()[:50]
         designation = str(row["designation"]).strip()
         doj = datetime.fromisoformat(str(row["doj"]).strip()[:10]).date()
-        password = (row.get("password") or "").strip()
 
         existing_conflict = Admin.query.filter(
             (Admin.email == email)
@@ -178,7 +177,7 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
             | (Admin.mobile == mobile)
             | (Admin.emp_id == emp_id)
         ).first()
-        if existing_conflict and existing_conflict.password:
+        if existing_conflict and existing_conflict.is_onboarded():
             failed += 1
             errors.append({
                 "row": row.get("row_number"),
@@ -190,7 +189,7 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
         try:
             admin = Admin.query.filter_by(email=email).first()
             if admin:
-                if admin.password:
+                if admin.is_onboarded():
                     failed += 1
                     errors.append({"row": row.get("row_number"), "errors": ["User already fully registered"], "email": email})
                     continue
@@ -203,10 +202,6 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
                 admin.circle = circle
                 admin.is_active = True
                 admin.is_exited = False
-                if password:
-                    admin.set_password(password)
-                else:
-                    send_password_set_email(admin)
                 action = "UPGRADE_EXISTING_USER"
             else:
                 admin = Admin(
@@ -221,10 +216,6 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
                     is_active=True,
                     is_exited=False,
                 )
-                if password:
-                    admin.set_password(password)
-                else:
-                    send_password_set_email(admin)
                 db.session.add(admin)
                 db.session.flush()
                 leave_balance = LeaveBalance(
@@ -292,6 +283,6 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
 
 def employee_import_template_csv() -> str:
     return (
-        "email,first_name,user_name,mobile,emp_id,doj,emp_type,circle,designation,employment_status,probation_start_date,probation_end_date,probation_duration_months,password\n"
-        "john.doe@company.com,John Doe,johndoe,9876543210,EMP001,2026-01-15,Software Developer,NHQ,Software Engineer,probation,,,6,\n"
+        "email,first_name,user_name,mobile,emp_id,doj,emp_type,circle,designation,employment_status,probation_start_date,probation_end_date,probation_duration_months\n"
+        "john.doe@company.com,John Doe,johndoe,9876543210,EMP001,2026-01-15,Software Developer,NHQ,Software Engineer,probation,,,6\n"
     )

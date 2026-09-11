@@ -56,7 +56,7 @@ ESSENTIAL_DISABLED = frozenset({
     "hr_ex_employee_docs",
     "query_all_departments",
     # hr_employee_accounts + account_for_client: available to HR and Accounts on all plans
-    "payslip_payroll_history",
+    # payslip_payroll_history: Account is in this plan, so employees can download slips
     "account_payroll",
     "account_ctc_breakup",
     "account_full_employee_view",

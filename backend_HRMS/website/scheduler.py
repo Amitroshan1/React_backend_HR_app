@@ -127,3 +127,24 @@ def run_biometric_day_finalization_job():
         except Exception as e:
             log.exception("scheduler: biometric-day-finalization failed: %s", e)
             db.session.rollback()
+
+
+def run_daily_checkout_job():
+    """Overdue day-use holds, PDF retries, and pending email outbox."""
+    if _app is None:
+        return
+    with _app.app_context():
+        log = _app.logger
+        try:
+            from .daily_checkout.service import flush_outbox, mark_overdue_and_notify, retry_pending_pdfs
+
+            n = mark_overdue_and_notify()
+            if n:
+                log.info("scheduler: day-use marked overdue=%s", n)
+            retry_pending_pdfs()
+            flush_outbox()
+        except Exception as e:
+            log.exception("scheduler: day-use checkout job failed: %s", e)
+            from . import db
+
+            db.session.rollback()

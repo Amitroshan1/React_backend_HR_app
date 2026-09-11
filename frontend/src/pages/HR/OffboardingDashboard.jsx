@@ -15,7 +15,7 @@ const statusClass = (status) => {
   return map[status] || 'ob-dash-status--none';
 };
 
-const OffboardingDashboard = ({ onBack }) => {
+const OffboardingDashboard = ({ onBack, onOpenExitEmployee }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -138,6 +138,12 @@ const OffboardingDashboard = ({ onBack }) => {
             <h1 className="ob-dash-title">Offboarding Dashboard</h1>
             <p className="ob-dash-subtitle">Pipeline, LWD schedule, login grace, and attrition analytics</p>
           </div>
+          {typeof onOpenExitEmployee === 'function' ? (
+            <button type="button" className="ob-dash-exit-btn" onClick={onOpenExitEmployee}>
+              <LogOut size={16} />
+              <span>Exit employee</span>
+            </button>
+          ) : null}
         </div>
 
         {error && <p className="ob-dash-error" role="alert">{error}</p>}

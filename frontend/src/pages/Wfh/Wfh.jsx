@@ -221,6 +221,12 @@ export const Wfh = () => {
     e.preventDefault();
     if (!isFormValid || submitting) return;
 
+    const reason = form.reason.trim();
+    if (reason.length > 255) {
+      setToast({ show: true, message: 'Reason must be at most 255 characters', type: 'error' });
+      return;
+    }
+
     const token = localStorage.getItem('token');
     if (!token) {
       setToast({ show: true, message: 'Please log in to submit WFH request', type: 'error' });
@@ -238,7 +244,7 @@ export const Wfh = () => {
         body: JSON.stringify({
           start_date: form.from,
           end_date: form.to,
-          reason: form.reason.trim()
+          reason
         })
       });
       let json = {};
@@ -344,6 +350,7 @@ export const Wfh = () => {
                 placeholder="Enter reason..."
                 value={form.reason}
                 onChange={e => setForm({...form, reason: e.target.value})}
+                maxLength={255}
               />
             </div>
             <div className="wfh-btn-wrapper">

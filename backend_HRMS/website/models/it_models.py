@@ -57,6 +57,8 @@ class ITAssetUnit(db.Model):
     device_location = db.Column(db.String(200), nullable=True)
 
     status = db.Column(db.String(30), nullable=False, default="available", server_default="available", index=True)
+    # Inventory projection only: IT marks hardware eligible for Day-use Assets.
+    is_daily_pool = db.Column(db.Boolean, nullable=False, default=False, server_default="0", index=True)
     assigned_to_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
     assigned_at = db.Column(db.DateTime, nullable=True)
     asset_tag = db.Column(db.String(80), nullable=True, unique=True)

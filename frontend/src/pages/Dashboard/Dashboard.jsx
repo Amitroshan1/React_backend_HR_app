@@ -8,7 +8,6 @@ import {
   FiSun,
   FiCalendar,
   FiHelpCircle,
-  FiKey,
   FiHome,
   FiClock,
   FiDollarSign,
@@ -1970,16 +1969,6 @@ export const Dashboard = () => {
                                 <FiChevronRight className="arrow" />
                             </NavLink>
                             ) : null}
-                            <NavLink to="/change-password" className="action-card nav-link-card"> 
-                                <div className="action-icon-group">
-                                    <div className="action-icon blue"><div className="action-icon-inner"><FiKey /></div></div>
-                                    <div>
-                                        <h4>Change Password</h4>
-                                        <p>Update your account password</p>
-                                    </div>
-                                </div>
-                                <FiChevronRight className="arrow" />
-                            </NavLink>
                             <NavLink
                                 to="/holiday-calendar"
                                 className="action-card nav-link-card"

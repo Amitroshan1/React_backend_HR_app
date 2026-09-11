@@ -5,8 +5,8 @@
 #https://solviotec.com/api/leave
 
 from flask import Blueprint, request, current_app, jsonify, json, send_file
-from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance, AttendanceRegularization
-from flask_jwt_extended import jwt_required, get_jwt
+from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication, LeaveBalance, AttendanceRegularization, LEAVE_REASON_MAX_LEN
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
 from .models.seperation import Resignation, Noc_Upload, NocDepartmentRequest
@@ -213,6 +213,29 @@ def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_d
 
 def _is_active_resignation_status(status):
     return (status or "").strip().lower() in {"pending", "approved"}
+
+
+def _resolve_admin_from_jwt():
+    """Prefer JWT identity (admin id); fall back to email claim."""
+    admin = None
+    try:
+        identity = get_jwt_identity()
+        if identity is not None:
+            admin = Admin.query.get(int(identity))
+    except (TypeError, ValueError):
+        admin = None
+
+    if admin:
+        return admin
+
+    email = (get_jwt().get("email") or "").strip()
+    if not email:
+        return None
+
+    admin = Admin.query.filter(func.lower(Admin.email) == email.lower()).first()
+    if admin:
+        return admin
+    return Admin.query.filter_by(email=email).first()
 
 
 def _serialize_notice(resignation):
@@ -684,6 +707,11 @@ def apply_leave_api():
             "success": False,
             "message": "Reason must be at least 20 characters long"
         }), 400
+    if len(reason) > LEAVE_REASON_MAX_LEN:
+        return jsonify({
+            "success": False,
+            "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters"
+        }), 400
 
     # -------------------------
     # 🚫 OPTIONAL LEAVE: Max 1 per year (check FIRST, before overlapping check)
@@ -972,6 +1000,13 @@ def submit_wfh():
             "message": "Reason is required"
         }), 400
 
+    reason = reason.strip()
+    if len(reason) > LEAVE_REASON_MAX_LEN:
+        return jsonify({
+            "success": False,
+            "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters"
+        }), 400
+
     try:
         start_d = datetime.strptime(str(start_date).strip(), "%Y-%m-%d").date()
         end_d = datetime.strptime(str(end_date).strip(), "%Y-%m-%d").date()
@@ -1025,7 +1060,7 @@ def submit_wfh():
         admin_id=admin.id,
         start_date=start_d,
         end_date=end_d,
-        reason=reason.strip(),
+        reason=reason,
         status="Pending",
         created_at=datetime.now(pytz.timezone("Asia/Kolkata"))
     )
@@ -1337,8 +1372,7 @@ def get_expense_claims():
 @leave.route("/seperation", methods=["POST"])
 @jwt_required()
 def submit_resignation():
-    email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = _resolve_admin_from_jwt()
 
     if not admin:
         return jsonify({
@@ -1514,12 +1548,7 @@ def submit_noc_request_email():
 @jwt_required()
 def get_resignation_status():
     try:
-        claims = get_jwt()
-        email = claims.get("email")
-        if not email:
-            return jsonify({"success": False, "message": "Invalid token"}), 401
-
-        admin = Admin.query.filter_by(email=email).first()
+        admin = _resolve_admin_from_jwt()
         if not admin:
             return jsonify({
                 "success": False,
@@ -1602,45 +1631,119 @@ def get_resignation_status():
 @leave.route("/seperation/revoke", methods=["POST"])
 @jwt_required()
 def revoke_resignation():
+    """Employee cancels an active resignation (Pending/Approved)."""
     try:
-        claims = get_jwt()
-        email = claims.get("email")
-        if not email:
-            return jsonify({"success": False, "message": "Invalid token"}), 401
-
-        admin = Admin.query.filter_by(email=email).first()
+        admin = _resolve_admin_from_jwt()
         if not admin:
             return jsonify({"success": False, "message": "Employee not found"}), 404
 
-        resignation = Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
+        resignation = (
+            Resignation.query.filter_by(admin_id=admin.id)
+            .order_by(Resignation.id.desc())
+            .first()
+        )
         if not resignation:
             return jsonify({"success": False, "message": "No resignation found"}), 404
 
-        if not _is_active_resignation_status(resignation.status):
+        current_status = (resignation.status or "").strip()
+        if not _is_active_resignation_status(current_status):
             return jsonify({
                 "success": False,
-                "message": f"Cannot revoke when status is {resignation.status}"
+                "message": f"Cannot revoke when status is {current_status or 'unknown'}",
             }), 400
 
+        resignation_id = int(resignation.id)
+
+        # 1) Persist revoke first — never block this on NOC/email side-effects.
         resignation.status = "Revoked"
-        reject_pending_noc_rows_for_resignation(resignation.id)
-        db.session.commit()
-
-        # Best-effort email notification on revoke
         try:
-            send_resignation_revoked_email(admin, resignation)
-        except Exception:
-            current_app.logger.exception("Failed to send resignation revoked email")
+            db.session.commit()
+        except Exception as commit_err:
+            db.session.rollback()
+            current_app.logger.exception(
+                "revoke_resignation primary commit failed id=%s", resignation_id
+            )
+            # Fallback if DB enum/check rejects 'Revoked'.
+            try:
+                from sqlalchemy import text as sa_text
 
-        return jsonify({
+                db.session.execute(
+                    sa_text("UPDATE resignations SET status = :st WHERE id = :id"),
+                    {"st": "Revoked", "id": resignation_id},
+                )
+                db.session.commit()
+            except Exception as raw_err:
+                db.session.rollback()
+                current_app.logger.exception(
+                    "revoke_resignation raw update failed id=%s", resignation_id
+                )
+                return jsonify({
+                    "success": False,
+                    "message": (
+                        "Could not save revoked status. "
+                        f"{commit_err.__class__.__name__}/{raw_err.__class__.__name__}"
+                    ),
+                }), 500
+
+        # 2) Best-effort: cancel pending department NOC lines (separate transaction).
+        try:
+            reject_pending_noc_rows_for_resignation(resignation_id)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception(
+                "reject_pending_noc_rows_for_resignation failed during revoke resignation_id=%s",
+                resignation_id,
+            )
+
+        refreshed = Resignation.query.get(resignation_id)
+
+        response = jsonify({
             "success": True,
             "message": "Resignation revoked successfully",
-            "notice": _serialize_notice(resignation),
-        }), 200
+            "notice": _serialize_notice(refreshed),
+            "resignation": {
+                "id": resignation_id,
+                "status": (refreshed.status if refreshed else "Revoked"),
+                "resignation_date": (
+                    refreshed.resignation_date.isoformat()
+                    if refreshed and refreshed.resignation_date
+                    else None
+                ),
+            },
+        })
+
+        # Email after response is built; never block HTTP (proxy timeouts → empty 500).
+        try:
+            import threading
+
+            app_obj = current_app._get_current_object()
+            admin_id = admin.id
+
+            def _send_revoke_email():
+                with app_obj.app_context():
+                    try:
+                        adm = Admin.query.get(admin_id)
+                        resig = Resignation.query.get(resignation_id)
+                        if adm and resig:
+                            send_resignation_revoked_email(adm, resig)
+                    except Exception:
+                        app_obj.logger.exception(
+                            "Failed to send resignation revoked email (async)"
+                        )
+
+            threading.Thread(target=_send_revoke_email, daemon=True).start()
+        except Exception:
+            current_app.logger.exception("Failed to schedule resignation revoked email")
+
+        return response, 200
     except Exception as e:
         db.session.rollback()
         current_app.logger.exception("revoke_resignation error")
-        return jsonify({"success": False, "message": str(e) or "Failed to revoke resignation"}), 500
+        return jsonify({
+            "success": False,
+            "message": str(e) or "Failed to revoke resignation",
+        }), 500
 
 
 @leave.route("/noc-document", methods=["GET"])

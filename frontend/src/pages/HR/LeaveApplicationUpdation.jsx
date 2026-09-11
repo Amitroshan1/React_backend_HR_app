@@ -263,6 +263,12 @@ export const LeaveApplicationUpdation = ({
     setError("");
     setSuccessMessage("");
     try {
+      const reasonText = String(form.reason || "").trim();
+      if (reasonText && reasonText.length > 255) {
+        setError("Reason must be at most 255 characters.");
+        setSaving(false);
+        return;
+      }
       const isWfh = String(editRow.request_type || "").toLowerCase() === "wfh";
       const editUrl = isWfh
         ? `${API_BASE}/leave-updation/wfh-requests/${editRow.id}`
@@ -554,6 +560,7 @@ export const LeaveApplicationUpdation = ({
                   value={form.reason}
                   onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))}
                   placeholder="Update reason (optional)"
+                  maxLength={255}
                 />
               </div>
               <div className="lau-modal-actions">

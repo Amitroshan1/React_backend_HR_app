@@ -236,6 +236,26 @@ def authorize_upload_access(admin: Admin, rel: str, claims: Optional[dict] = Non
                 return True, "ok"
         return (True, "ok") if privileged else (False, "Access denied")
 
+    if rel.startswith("signatures/"):
+        parts = rel.split("/")
+        if len(parts) >= 2 and parts[1].isdigit():
+            owner_id = int(parts[1])
+            if privileged or admin.id == owner_id:
+                return True, "ok"
+        return False, "Access denied"
+
+    if rel.startswith("daily_checkout/"):
+        parts = rel.split("/")
+        if privileged:
+            return True, "ok"
+        if len(parts) >= 2 and parts[1].isdigit():
+            from .models.daily_checkout import DailyCheckoutRequest
+
+            req = DailyCheckoutRequest.query.get(int(parts[1]))
+            if req and int(req.requester_admin_id) == int(admin.id):
+                return True, "ok"
+        return False, "Access denied"
+
     # --- Profile KYC docs ---
     m_doc = _PROFILE_DOC_RE.match(rel)
     if m_doc:

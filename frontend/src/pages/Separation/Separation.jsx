@@ -103,135 +103,6 @@ const toDateInputValue = (dateStr) => {
                                             );
                                             }
 
-                                            function ExitInterviewSection({ apiBase, onToast }) {
-                                            const [loading, setLoading] = useState(true);
-                                            const [submitting, setSubmitting] = useState(false);
-                                            const [existing, setExisting] = useState(null);
-                                            const [rating, setRating] = useState(0);
-                                            const [wouldRecommend, setWouldRecommend] = useState(true);
-                                            const [feedback, setFeedback] = useState('');
-                                            const [reasonForLeaving, setReasonForLeaving] = useState('');
-
-                                            useEffect(() => {
-                                                const token = localStorage.getItem('token');
-                                                if (!token) {
-                                                    setLoading(false);
-                                                    return;
-                                                }
-                                                (async () => {
-                                                    try {
-                                                        const res = await fetch(`${apiBase}/exit-interview`, {
-                                                            headers: { Authorization: `Bearer ${token}` },
-                                                        });
-                                                        const json = await res.json().catch(() => ({}));
-                                                        if (res.ok && json.success) {
-                                                            setExisting(json.exit_interview);
-                                                            if (json.exit_interview) {
-                                                                setRating(json.exit_interview.overall_rating || 0);
-                                                                setWouldRecommend(Boolean(json.exit_interview.would_recommend));
-                                                                setFeedback(json.exit_interview.feedback || '');
-                                                                setReasonForLeaving(json.exit_interview.reason_for_leaving || '');
-                                                            }
-                                                        }
-                                                    } catch (e) {
-                                                        console.error(e);
-                                                    } finally {
-                                                        setLoading(false);
-                                                    }
-                                                })();
-                                            }, [apiBase]);
-
-                                            const handleSubmit = async () => {
-                                                const token = localStorage.getItem('token');
-                                                if (!token) return;
-                                                if (rating < 1 || rating > 5) {
-                                                    onToast?.({ show: true, message: 'Please select a rating from 1 to 5', type: 'error' });
-                                                    return;
-                                                }
-                                                if ((feedback || '').trim().length < 20) {
-                                                    onToast?.({ show: true, message: 'Feedback must be at least 20 characters', type: 'error' });
-                                                    return;
-                                                }
-                                                setSubmitting(true);
-                                                try {
-                                                    const res = await fetch(`${apiBase}/exit-interview`, {
-                                                        method: 'POST',
-                                                        headers: {
-                                                            Authorization: `Bearer ${token}`,
-                                                            'Content-Type': 'application/json',
-                                                        },
-                                                        body: JSON.stringify({
-                                                            overall_rating: rating,
-                                                            would_recommend: wouldRecommend,
-                                                            feedback: feedback.trim(),
-                                                            reason_for_leaving: reasonForLeaving.trim() || null,
-                                                        }),
-                                                    });
-                                                    const json = await res.json().catch(() => ({}));
-                                                    if (!res.ok || !json.success) {
-                                                        throw new Error(json.message || 'Could not save exit interview');
-                                                    }
-                                                    setExisting(json.exit_interview);
-                                                    onToast?.({ show: true, message: 'Exit interview feedback saved', type: 'success' });
-                                                } catch (e) {
-                                                    onToast?.({ show: true, message: e.message || 'Failed to save exit interview', type: 'error' });
-                                                } finally {
-                                                    setSubmitting(false);
-                                                }
-                                            };
-
-                                            if (loading) {
-                                                return <p className="noc-pending">Loading exit interview…</p>;
-                                            }
-
-                                            return (
-                                                <div className="exit-interview-section">
-                                                    <h4>Exit interview feedback</h4>
-                                                    {existing?.submitted_at && (
-                                                        <p className="noc-available">Submitted on {formatDate(existing.submitted_at)}. You can update your responses below.</p>
-                                                    )}
-                                                    <label>Overall experience (1–5) *</label>
-                                                    <div className="exit-interview-rating">
-                                                        {[1, 2, 3, 4, 5].map((n) => (
-                                                            <button
-                                                                key={n}
-                                                                type="button"
-                                                                className={`exit-interview-star ${rating === n ? 'is-active' : ''}`}
-                                                                onClick={() => setRating(n)}
-                                                            >
-                                                                {n}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                    <label className="exit-interview-check">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={wouldRecommend}
-                                                            onChange={(e) => setWouldRecommend(e.target.checked)}
-                                                        />
-                                                        I would recommend this organization to others
-                                                    </label>
-                                                    <label>Reason for leaving (optional)</label>
-                                                    <input
-                                                        type="text"
-                                                        value={reasonForLeaving}
-                                                        onChange={(e) => setReasonForLeaving(e.target.value)}
-                                                        placeholder="e.g. career growth, relocation"
-                                                    />
-                                                    <label>Your feedback *</label>
-                                                    <textarea
-                                                        rows={4}
-                                                        value={feedback}
-                                                        onChange={(e) => setFeedback(e.target.value)}
-                                                        placeholder="Share your experience (minimum 20 characters)"
-                                                    />
-                                                    <Button variant="primary" onClick={handleSubmit} disabled={submitting}>
-                                                        {submitting ? 'Saving…' : (existing ? 'Update feedback' : 'Submit feedback')}
-                                                    </Button>
-                                                </div>
-                                            );
-                                            }
-
                                             function DownloadRelievingLetterButton({ apiBase }) {
                                             const [downloading, setDownloading] = useState(false);
                                             const handleDownload = async () => {
@@ -347,6 +218,14 @@ const toDateInputValue = (dateStr) => {
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 fetchResignationStatus();
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             });
 
+        useEffect(() => {
+          const onRevoked = () => {
+            fetchResignationStatus(false).then(() => setStep('resignation'));
+          };
+          window.addEventListener('resignation-revoked', onRevoked);
+          return () => window.removeEventListener('resignation-revoked', onRevoked);
+        }, []);
+
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             const handleResignationSubmit = async (data) => {
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 setSubmitting(true);
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 setToast({ show: false, message: '', type: 'success' });
@@ -414,20 +293,30 @@ method: 'POST',
 headers: {
 'Authorization': `Bearer ${token}`,
 'Content-Type': 'application/json'
-}
+},
+body: '{}',
 });
 const text = await res.text();
 let json = {};
 try {
 json = text ? JSON.parse(text) : {};
 } catch (e) {
-throw new Error("The server could not complete this request. Please try again.");
+throw new Error(
+  res.ok
+    ? 'Resignation may have been revoked, but the server returned an empty response. Please refresh.'
+    : 'The server could not complete this request. Please try again.'
+);
 }
-if (!res.ok) {
-throw new Error(json.message || 'Failed to revoke resignation');
+if (!res.ok || !json.success) {
+throw new Error(json.message || json.msg || json.error || 'Failed to revoke resignation');
 }
 setToast({ show: true, message: json.message || 'Resignation revoked successfully', type: 'success' });
+if (json.notice) {
+  setNotice(json.notice);
+}
+window.dispatchEvent(new CustomEvent('resignation-revoked', { detail: json }));
 await fetchResignationStatus(false);
+setStep('resignation');
 } catch (err) {
 setToast({ show: true, message: err.message || 'Failed to revoke resignation', type: 'error' });
 console.error('Error revoking resignation:', err);
@@ -617,11 +506,6 @@ setRevoking(false);
                                                             {employeeOffboarding.can_download_experience_letter && (
                                                                 <DownloadExperienceLetterButton apiBase={API_BASE_URL} />
                                                             )}
-                                                        </div>
-                                                        )}
-                                                        {(resignation || notice?.notice_active || employeeOffboarding?.is_exited) && (
-                                                        <div className="noc-download-section">
-                                                            <ExitInterviewSection apiBase={API_BASE_URL} onToast={setToast} />
                                                         </div>
                                                         )}
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         <div className="noc-download-section">

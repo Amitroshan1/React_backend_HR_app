@@ -494,57 +494,6 @@
   color: var(--sep-text-muted);
 }
 
-.separation-page-wrapper .exit-interview-section label {
-  display: block;
-  margin-top: 0.75rem;
-  margin-bottom: 0.35rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--sep-text-dark);
-}
-
-.separation-page-wrapper .exit-interview-section input[type="text"],
-.separation-page-wrapper .exit-interview-section textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border: 1px solid var(--sep-border);
-  border-radius: 8px;
-  font-size: 0.875rem;
-}
-
-.separation-page-wrapper .exit-interview-rating {
-  display: flex;
-  gap: 8px;
-}
-
-.separation-page-wrapper .exit-interview-star {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid var(--sep-border);
-  background: #fff;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.separation-page-wrapper .exit-interview-star.is-active {
-  background: #dbeafe;
-  border-color: #3b82f6;
-  color: #1d4ed8;
-}
-
-.separation-page-wrapper .exit-interview-check {
-  display: flex !important;
-  align-items: center;
-  gap: 8px;
-  margin-top: 0.75rem;
-}
-
-.separation-page-wrapper .exit-interview-check input {
-  width: auto;
-}
-
 .separation-page-wrapper .dept-noc-status-list {
   list-style: none;
   margin: 0;

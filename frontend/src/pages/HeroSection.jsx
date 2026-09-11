@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
@@ -20,8 +20,6 @@ export const HeroSection = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [animate, setAnimate] = useState(true);
   const [showLogin, setShowLogin] = useState(false);
-  const [resendIn, setResendIn] = useState(0);
-  const resendTimerRef = useRef(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -66,29 +64,6 @@ export const HeroSection = () => {
     }
   }, [location.pathname, navigate]);
 
-  useEffect(() => {
-    if (resendIn <= 0) {
-      if (resendTimerRef.current) {
-        clearInterval(resendTimerRef.current);
-        resendTimerRef.current = null;
-      }
-      return undefined;
-    }
-    resendTimerRef.current = setInterval(() => {
-      setResendIn((s) => (s <= 1 ? 0 : s - 1));
-    }, 1000);
-    return () => {
-      if (resendTimerRef.current) {
-        clearInterval(resendTimerRef.current);
-        resendTimerRef.current = null;
-      }
-    };
-  }, [resendIn > 0]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const startResendCooldown = (seconds = 60) => {
-    setResendIn(seconds);
-  };
-
   const handleRequestOtp = async () => {
     if (isSubmitting) return;
     const value = identifier.replace(/\s+/g, "").trim();
@@ -112,15 +87,11 @@ export const HeroSection = () => {
         setStep("otp");
         setOtp("");
         setInfo(data.message || "OTP sent. Please check your email.");
-        startResendCooldown(data.resend_after || 60);
         toast.success(data.message || "OTP sent");
         return;
       }
 
       setError(data.message || "Unable to send OTP. Please try again.");
-      if (typeof data.retry_after === "number" && data.retry_after > 0) {
-        startResendCooldown(data.retry_after);
-      }
     } catch (err) {
       console.error(err);
       setError("Unable to send OTP. Please try again.");
@@ -277,9 +248,9 @@ export const HeroSection = () => {
                     type="button"
                     className="forgot-btn"
                     onClick={handleRequestOtp}
-                    disabled={isSubmitting || resendIn > 0}
+                    disabled={isSubmitting}
                   >
-                    {resendIn > 0 ? `Resend OTP in ${resendIn}s` : "Resend OTP"}
+                    Resend OTP
                   </button>
                 </div>
                 <button

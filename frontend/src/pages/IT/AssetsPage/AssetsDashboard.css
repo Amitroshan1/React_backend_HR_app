@@ -382,6 +382,65 @@
   color: #0891b2;
 }
 
+/* Type chips (aligned with Inventory → IT Assets subtypes) */
+.am-type-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.am-type-bar-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.am-type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.am-type-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.am-type-btn:hover {
+  border-color: #93c5fd;
+  color: #2563eb;
+  background: #eff6ff;
+}
+.am-type-btn.active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+.am-type-btn.active .am-cat-count {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 /* ══════════════════════════════════════════
    TABLE CARD
 ══════════════════════════════════════════ */
@@ -694,6 +753,13 @@
   }
   .am-cat-btn {
     padding: 6px 12px;
+    font-size: 11px;
+  }
+  .am-type-bar {
+    gap: 8px;
+  }
+  .am-type-btn {
+    padding: 5px 10px;
     font-size: 11px;
   }
 

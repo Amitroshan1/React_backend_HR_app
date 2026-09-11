@@ -1,7 +1,7 @@
 
 import { Dashboard } from "./pages/Dashboard/Dashboard";
 import { HomePage } from "./pages/HomePage";
-import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Outlet, Navigate } from "react-router-dom";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { Attendance } from "./pages/Attendance/Attendance";
 import { Wfh } from "./pages/Wfh/Wfh";
@@ -16,10 +16,9 @@ import { TaxDeclarationHistoryDetail } from "./pages/TaxDeclaration/TaxDeclarati
 import { Leaves } from "./pages/Leaves/Leaves";
 import { CompOffLedger } from "./pages/Leaves/CompOffLedger";
 import { Profile } from "./pages/Profile/components/Profile";
-import ChangePassword from "./pages/Profile/ChangePassword";
 import { AppLayout } from "./components/layout/AppLayout";
 import { SensitiveDataGate } from "./components/security/SensitiveDataGate";
-import { RequirePanel, RequireItOrSelfAssets } from "./components/security/RequirePanel";
+import { RequirePanel, RequireItOrSelfAssets, RequireMyAssets } from "./components/security/RequirePanel";
 import { UserProvider } from "./components/layout/UserContext";
 import { AttendanceEventsProvider } from "./hooks/useAttendanceEvents";
 import { Queries } from "./pages/Query/Queries";
@@ -49,9 +48,11 @@ import OpenTicket from "./pages/IT/OpenTicketPage/OpenTicket";
 import ActiveDevice from "./pages/IT/ActiveDevicePage/ActiveDevice";
 import AssetsDashboard from "./pages/IT/AssetsPage/AssetsDashboard";
 import ActivityLogPage from "./pages/IT/itam/ActivityLogPage";
-import AddSoftWare from "./pages/IT/AssetsPage/AddSoftWare";
 import AddEmployee from "./pages/IT/AssetsPage/AddEmployee";
 import ITEmployeeDetails from "./pages/IT/EmployeeAssetsDetails";
+import DailyAssetsPage from "./pages/IT/DailyAssetsPage";
+import ITDailyCheckoutPage from "./pages/IT/ITDailyCheckoutPage";
+import ITDailyCheckoutAssignPage from "./pages/IT/ITDailyCheckoutAssignPage";
 import ReturnRequests from "./pages/IT/ReturnRequests";
 import ITNocRequests from "./pages/IT/ITNocRequests";
 
@@ -135,7 +136,7 @@ export const App = () => {
         { path: "leaves",                          element: <Leaves /> },
         { path: "leaves/comp-off",                 element: <CompOffLedger /> },
         { path: "profile",                         element: <Profile /> },
-        { path: "change-password",                 element: <ChangePassword /> },
+        { path: "change-password",                 element: <Navigate to="/dashboard" replace /> },
         { path: "queries",                         element: <Queries /> },
         { path: "queries/inbox",                   element: <DepartmentQueryInbox /> },
         { path: "claims",                          element: <Claims /> },
@@ -173,9 +174,12 @@ export const App = () => {
         { path: "it/ActiveDevices",                element: <RequirePanel panel="it"><ActiveDevice /></RequirePanel> },
         { path: "it/Assets/activity-log",          element: <RequirePanel panel="it"><ActivityLogPage defaultScope="it" /></RequirePanel> },
         { path: "it/Assets",                       element: <RequirePanel panel="it"><AssetsDashboard /></RequirePanel> },
-        { path: "it/AssetsPage/AddSoftWare",       element: <RequirePanel panel="it"><AddSoftWare /></RequirePanel> },
+        { path: "it/AssetsPage/AddSoftWare",       element: <Navigate to="/it/inventory/add-assets" replace /> },
         { path: "it/AssetsPage/AddEmployee",       element: <RequirePanel panel="it"><AddEmployee /></RequirePanel> },
         { path: "it/employee/:empId",              element: <RequireItOrSelfAssets><ITEmployeeDetails /></RequireItOrSelfAssets> },
+        { path: "daily-assets",                    element: <RequireMyAssets><DailyAssetsPage /></RequireMyAssets> },
+        { path: "it/daily-checkout",               element: <RequirePanel panel="it"><ITDailyCheckoutPage /></RequirePanel> },
+        { path: "it/daily-checkout/assign/:requestId", element: <RequirePanel panel="it"><ITDailyCheckoutAssignPage /></RequirePanel> },
         { path: "it/return-requests",              element: <RequirePanel panel="it"><ReturnRequests /></RequirePanel> },
         { path: "it/noc-requests",                 element: <RequirePanel panel="it"><ITNocRequests /></RequirePanel> },
 

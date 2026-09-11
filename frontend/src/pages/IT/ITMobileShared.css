@@ -62,7 +62,8 @@
 
   .it-m-scroll--cards td.it-m-empty,
   .it-m-scroll--cards td.rr-empty,
-  .it-m-scroll--cards td.ot-empty {
+  .it-m-scroll--cards td.ot-empty,
+  .it-m-scroll--cards td.da-empty {
     display: block;
     text-align: center;
     padding: 24px;
@@ -71,7 +72,8 @@
 
   .it-m-scroll--cards td.it-m-empty::before,
   .it-m-scroll--cards td.rr-empty::before,
-  .it-m-scroll--cards td.ot-empty::before {
+  .it-m-scroll--cards td.ot-empty::before,
+  .it-m-scroll--cards td.da-empty::before {
     display: none;
   }
 

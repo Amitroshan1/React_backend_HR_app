@@ -187,10 +187,15 @@ const getPageInfo = (pathname, firstName) => {
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
         '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
         '/it': { title: DEPARTMENT_TITLES.it, subtitle: 'System Administration & Support' },
-        '/change-password': { title: 'Change Password', subtitle: '' },
+        '/it/daily-checkout': { title: 'Day-use Assets', subtitle: 'Hardware day-use checkout' },
+        '/daily-assets': { title: 'Day-use Assets', subtitle: 'Request hardware for the day' },
     };
 
     if (pathMap[normalizedPath]) return pathMap[normalizedPath];
+
+    if (normalizedPath.startsWith("/it/employee/")) {
+        return { title: "" };
+    }
 
     if (normalizedPath.startsWith("/it/")) {
         return { title: DEPARTMENT_TITLES.it, subtitle: "System Administration & Support" };
@@ -538,11 +543,25 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         const onVisibility = () => {
             if (document.visibilityState === "visible") fetchNoticeInfo();
         };
+        const onRevoked = (event) => {
+            const notice = event?.detail?.notice;
+            if (notice) {
+                setNoticeInfo({
+                    notice_active: Boolean(notice.notice_active),
+                    days_left: Number(notice.days_left || 0),
+                    can_revoke: Boolean(notice.can_revoke),
+                });
+                return;
+            }
+            fetchNoticeInfo();
+        };
         document.addEventListener("visibilitychange", onVisibility);
+        window.addEventListener("resignation-revoked", onRevoked);
         return () => {
             isMounted = false;
             if (timerId) window.clearInterval(timerId);
             document.removeEventListener("visibilitychange", onVisibility);
+            window.removeEventListener("resignation-revoked", onRevoked);
         };
     }, []);
 
@@ -570,7 +589,10 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
     const handleRevokeNotice = async () => {
         if (revokingNotice) return;
         const token = localStorage.getItem("token");
-        if (!token) return;
+        if (!token) {
+            toast.error("Please login again");
+            return;
+        }
         const ok = window.confirm("Revoke your resignation request?");
         if (!ok) return;
 
@@ -582,10 +604,30 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
                 },
+                body: "{}",
             });
-            const result = await response.json();
+            const text = await response.text();
+            let result = {};
+            try {
+                result = text ? JSON.parse(text) : {};
+            } catch {
+                throw new Error(
+                    response.ok
+                        ? "Resignation may have been revoked, but the server returned an empty response. Please refresh."
+                        : `Unable to revoke resignation (HTTP ${response.status}). Please try again.`
+                );
+            }
+            if (!result || typeof result !== "object" || Array.isArray(result)) {
+                result = {};
+            }
             if (!response.ok || !result.success) {
-                throw new Error(result.message || "Failed to revoke resignation");
+                const apiMsg = result.message || result.msg || result.error;
+                if (response.status === 401) {
+                    throw new Error(apiMsg || "Session expired. Please login again.");
+                }
+                throw new Error(
+                    apiMsg || `Failed to revoke resignation (HTTP ${response.status || "error"})`
+                );
             }
             const notice = result.notice || {};
             setNoticeInfo({
@@ -593,9 +635,13 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                 days_left: Number(notice.days_left || 0),
                 can_revoke: Boolean(notice.can_revoke),
             });
+            toast.success(result.message || "Resignation revoked successfully");
+            window.dispatchEvent(
+                new CustomEvent("resignation-revoked", { detail: result })
+            );
         } catch (error) {
             console.error("Revoke resignation error:", error);
-            window.alert(error.message || "Unable to revoke resignation");
+            toast.error(error.message || "Unable to revoke resignation");
         } finally {
             setRevokingNotice(false);
         }
@@ -615,7 +661,9 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                             <FaHome />
                         </button>
                     )}
-                    <h1 className={`welcome-title ${!isDashboard ? 'page-heading' : ''}`}>{title}</h1>
+                    {title ? (
+                        <h1 className={`welcome-title ${!isDashboard ? 'page-heading' : ''}`}>{title}</h1>
+                    ) : null}
                 </div>
 
                 <div className="header-right">

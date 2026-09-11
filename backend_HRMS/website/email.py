@@ -581,6 +581,7 @@ def send_sensitive_otp_email(admin, otp_code, expires_minutes=5):
 def send_payslip_uploaded_email(admin, month, year):
     """
     Notify employee that payslip is uploaded in HRMS portal.
+    To: employee. BCC: Accounts mailbox + HR (ZEPTO_CC_HR / EMAIL_HR).
     Non-blocking helper; returns (success, message).
     """
     try:
@@ -592,10 +593,19 @@ def send_payslip_uploaded_email(admin, month, year):
         <p>Regards,<br><strong>Accounts Team</strong></p>
         """
 
-        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        employee_email = (admin.email or "").strip().lower()
         cc_emails = []
-        if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
+        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        if accounts_email and accounts_email.strip().lower() != employee_email:
             cc_emails.append(accounts_email.strip())
+
+        raw_hr = (
+            current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or ""
+        ).strip()
+        for part in raw_hr.replace(";", ",").split(","):
+            addr = part.strip()
+            if addr and addr.lower() != employee_email:
+                cc_emails.append(addr)
 
         return send_email_via_zeptomail(
             sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
@@ -1659,7 +1669,7 @@ def send_welcome_email(admin,data):
         <table cellpadding="6" cellspacing="0" border="1">
             <tr><td><strong>Employee ID</strong></td><td>{admin.emp_id}</td></tr>
             <tr><td><strong>Email</strong></td><td>{admin.email}</td></tr>
-            <tr><td><strong>Password</strong></td><td>{data.get("password") or "You will receive a separate email to set your password."}</td></tr>
+            <tr><td><strong>Login</strong></td><td>Use your work email. An OTP will be sent when you sign in.</td></tr>
             <tr><td><strong>Department</strong></td><td>{admin.emp_type}</td></tr>
             <tr><td><strong>Circle</strong></td><td>{admin.circle}</td></tr>
             <tr><td><strong>Date of Joining</strong></td><td>{admin.doj}</td></tr>
@@ -1673,7 +1683,7 @@ def send_welcome_email(admin,data):
             </a>
         </p>
 
-        <p>You can now log in to the HRMS portal and start using the system.</p>
+        <p>You can now sign in to the HRMS portal with your email and a one-time OTP. No password is required.</p>
 
         <p>If you face any issues, please contact HR.</p>
 

@@ -10,6 +10,7 @@ export const ITPanel = () => {
     { title: "Available Asset", route: "/it/Assets" },
     { title: "Activity Log", route: "/it/Assets/activity-log" },
     { title: "Return Requests", route: "/it/return-requests" },
+    { title: "Day-use Assets", route: "/it/daily-checkout" },
     { title: "NOC Request", route: "/it/noc-requests" },
   ];
 

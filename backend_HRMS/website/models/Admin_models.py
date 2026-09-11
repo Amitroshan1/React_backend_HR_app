@@ -145,7 +145,11 @@ class Admin(db.Model, UserMixin):
         cascade="all, delete-orphan",
     )
 
-    # --- Password helpers ---
+    def is_onboarded(self) -> bool:
+        """True when this is a real employee record (OTP login), not an email-only stub."""
+        return bool((self.emp_id or "").strip() or self.password)
+
+    # --- Password helpers (legacy hashes; login is email OTP) ---
     def set_password(self, password):
         self.password = generate_password_hash(password)
 

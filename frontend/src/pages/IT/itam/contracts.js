@@ -46,6 +46,38 @@ export const ACTION_LABELS = Object.freeze({
   ACK_CUSTODY: "Employee acknowledgement",
 });
 
+/** Activity-log filters: only actions this product records (not unused contract codes). */
+export const IT_ACTIVITY_ACTIONS = Object.freeze([
+  TRANSITION_ACTIONS.CHECKOUT,
+  TRANSITION_ACTIONS.CHECKIN,
+  TRANSITION_ACTIONS.REQUEST_RETURN,
+  TRANSITION_ACTIONS.APPROVE_RETURN,
+  TRANSITION_ACTIONS.REJECT_RETURN,
+]);
+
+export const INVENTORY_ACTIVITY_ACTIONS = Object.freeze([
+  TRANSITION_ACTIONS.RECEIVE,
+  TRANSITION_ACTIONS.DEPLOY,
+  TRANSITION_ACTIONS.UNDEPLOY,
+  TRANSITION_ACTIONS.MARK_QUARANTINE,
+  TRANSITION_ACTIONS.SEND_REPAIR,
+  TRANSITION_ACTIONS.COMPLETE_REPAIR,
+  TRANSITION_ACTIONS.EXPORT,
+  TRANSITION_ACTIONS.RETIRE,
+]);
+
+export const ALL_ACTIVITY_ACTIONS = Object.freeze([
+  ...IT_ACTIVITY_ACTIONS,
+  ...INVENTORY_ACTIVITY_ACTIONS,
+]);
+
+export function activityActionsForScope(scope) {
+  const key = String(scope || "all").trim().toLowerCase();
+  if (key === "it") return IT_ACTIVITY_ACTIONS;
+  if (key === "inventory") return INVENTORY_ACTIVITY_ACTIONS;
+  return ALL_ACTIVITY_ACTIONS;
+}
+
 /** @type {Record<string, { minLength: number, reasonCodeRequired: boolean, conditionGradeRequired: boolean }>} */
 export const REMARK_POLICIES = Object.freeze({
   RECEIVE: { minLength: 10, reasonCodeRequired: false, conditionGradeRequired: false },
@@ -127,6 +159,7 @@ export const ITAM_API_PATHS = Object.freeze({
   unitTransition: (unitId) => `/api/it/units/${unitId}/transitions`,
   unitTimeline: (unitId) => `/api/it/units/${unitId}/timeline`,
   unitTimelineCsv: (unitId) => `/api/it/units/${unitId}/timeline.csv`,
+  unitTimelineXlsx: (unitId) => `/api/it/units/${unitId}/timeline.xlsx`,
   backfillAssignmentHistory: "/api/it/itam/backfill-assignment-history",
   backfillLifecycle: "/api/it/itam/backfill-lifecycle",
 });

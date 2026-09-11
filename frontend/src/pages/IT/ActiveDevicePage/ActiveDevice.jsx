@@ -5,7 +5,6 @@ import { toast } from "react-toastify";
 import {
   getEmployees,
   getAssetUnitsFromStorage,
-  getSoftwareInventory,
   toastITApiFailure,
   syncITDataFromAPI
 } from "../Data";
@@ -15,12 +14,11 @@ import "./ActiveDevice.css";
 import { formatDate as fmt } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const ASSET_CATEGORIES = ["Hardware", "Software", "Accessories", "Consumables"];
+const ASSET_CATEGORIES = ["Hardware", "Accessories", "Consumables"];
 const TABS = ["All", ...ASSET_CATEGORIES];
 const CAT_ICONS = {
   All: "📋",
   Hardware: "🖥",
-  Software: "💿",
   Accessories: "🖱",
   Consumables: "🖨",
 };
@@ -94,26 +92,6 @@ function getMergedActiveDevices() {
       };
     });
 
-  // 2. Software licenses assigned to employees
-  const software = (getSoftwareInventory() || [])
-    .filter((s) => s.status === "assigned" && s.assignedTo)
-    .map((s) => {
-      const isObj = typeof s.assignedTo === "object" && s.assignedTo !== null;
-      const empId = isObj ? s.assignedTo.empId || s.assignedTo.id || "—" : String(s.assignedTo || "—");
-      const assignedTo = isObj ? s.assignedTo.name || String(s.assignedTo) : String(s.assignedTo);
-      return {
-        id: `LIC-${s.licenseCode || s.id}`,
-        serialNumber: s.licenseCode || String(s.id || "—"),
-        name: s.name || "Software",
-        category: "Software",
-        assignedTo,
-        assigneePhoto: resolveAssigneePhoto(employees, empId, isObj ? s.assignedTo : null),
-        assignedDate: s.assignedDate || new Date().toISOString(),
-        empId,
-        _unitId: `sw-${s.id}`,
-      };
-    });
-
   // 3. Quantity-based assignments (Accessories / Consumables) from employee assignedAssets.
   // These do not always exist as unit rows, so include them explicitly.
   const quantityAssets = [];
@@ -141,7 +119,7 @@ function getMergedActiveDevices() {
 
   // Deduplicate by unique source key
   const seen = new Set();
-  return [...units, ...software, ...quantityAssets].filter((d) => {
+  return [...units, ...quantityAssets].filter((d) => {
     const key = d._unitId || d.id;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -234,13 +212,11 @@ export default function ActiveDevice({ onBack }) {
   };
 
   const secondColHeader =
-    activeTab === "Software"
-      ? "License Code"
-      : activeTab === "Accessories" || activeTab === "Consumables"
-        ? "Quantity"
-        : activeTab === "All"
-          ? "Serial / License / Qty"
-          : "Serial No.";
+    activeTab === "Accessories" || activeTab === "Consumables"
+      ? "Quantity"
+      : activeTab === "All"
+        ? "Serial / Qty"
+        : "Serial No.";
 
   const tableColSpan = activeTab === "All" ? 7 : 6;
 

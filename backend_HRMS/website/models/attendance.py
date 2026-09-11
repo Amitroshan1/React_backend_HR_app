@@ -144,13 +144,17 @@ class LeaveBalance(db.Model):
 
     
 
+# DB column limit for leave / WFH reason fields (String(255)).
+LEAVE_REASON_MAX_LEN = 255
+
+
 class LeaveApplication(db.Model):
     __tablename__ = 'leave_applications'
 
     id = db.Column(db.Integer, primary_key=True)
     admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
     leave_type = db.Column(db.String(50), nullable=False)
-    reason = db.Column(db.String(255), nullable=False)  
+    reason = db.Column(db.String(LEAVE_REASON_MAX_LEN), nullable=False)  
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)  
     status = db.Column(db.String(20), nullable=False, default='Pending')
@@ -184,7 +188,7 @@ class WorkFromHomeApplication(db.Model):
 
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
-    reason = db.Column(db.String(255), nullable=False)
+    reason = db.Column(db.String(LEAVE_REASON_MAX_LEN), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='Pending')
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)

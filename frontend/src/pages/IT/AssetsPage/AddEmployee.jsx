@@ -44,8 +44,7 @@ const generateAssetId = () =>
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ASSIGN_CATS   = ["Hardware", "Software", "Accessories", "Consumables"];
-const STEPS         = ["Profile", "Assign Assets", "Review"];
+const ASSIGN_CATS   = ["Hardware", "Accessories", "Consumables"];
 const TAB_ICONS     = { Hardware: "🖥️", Software: "💿", Accessories: "🖱️", Consumables: "📦" };
 const HW_TYPE_ICONS = { Laptop: "💻", Mobile: "📱", Desktop: "🖥️", Tablet: "📲", Other: "🔧" };
 
@@ -83,27 +82,6 @@ function getEmployeesSafe() {
   } catch (_) {}
   return [];
 }
-
-// ─── Initials avatar ──────────────────────────────────────────────────────────
-
-const makeInitialsAvatar = (name = "") => {
-  const parts    = name.trim().split(/\s+/).filter(Boolean);
-  const initials =
-    parts.length >= 2
-      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-      : (parts[0]?.[0] || "?").toUpperCase();
-  const canvas     = document.createElement("canvas");
-  canvas.width     = canvas.height = 128;
-  const ctx        = canvas.getContext("2d");
-  ctx.fillStyle    = "#4CAF50";
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle    = "#fff";
-  ctx.font         = "bold 52px Arial, sans-serif";
-  ctx.textAlign    = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(initials, 64, 64);
-  return canvas.toDataURL("image/png");
-};
 
 // ─── SuccessPopup ─────────────────────────────────────────────────────────────
 
@@ -236,18 +214,7 @@ const LookupGate = ({ onFound }) => {
 
   return (
     <div className="ane-lookup-wrap">
-      <div className="ane-lookup-hero">
-        <div className="ane-lookup-icon-ring">
-          <span className="ane-lookup-icon" aria-hidden>🔍</span>
-        </div>
-        <h2 className="ane-lookup-title">Find Employee Profile</h2>
-        <p className="ane-lookup-sub">
-          Search by <strong>first name</strong>, <strong>employee ID</strong>, or <strong>email</strong>.
-          Results update as you type.
-        </p>
-      </div>
-
-      <div className="ane-lookup-field">
+      <div className="ane-lookup-toolbar">
         <div
           className={`ane-lookup-input-wrap${hasError ? " ane-lookup-input-wrap--error" : ""}${loading ? " ane-lookup-input-wrap--loading" : ""}`}
         >
@@ -257,7 +224,7 @@ const LookupGate = ({ onFound }) => {
           <input
             className="ane-lookup-input"
             type="search"
-            placeholder="Name, EMP004, or neha.patel@company.com"
+            placeholder="Search by name, employee ID, or email…"
             value={query}
             onChange={handleQueryChange}
             autoFocus
@@ -286,7 +253,7 @@ const LookupGate = ({ onFound }) => {
           {loading
             ? "Searching employees…"
             : queryReady
-              ? `${results.length} match${results.length === 1 ? "" : "es"} — click a profile to continue`
+              ? `${results.length} match${results.length === 1 ? "" : "es"} — select a profile to continue`
               : "Type at least 2 characters to search"}
         </p>
       </div>
@@ -334,7 +301,7 @@ const LookupGate = ({ onFound }) => {
                   </span>
                 )}
               </div>
-              <span className="ane-lookup-result-arrow" aria-hidden>→</span>
+              <span className="ane-lookup-result-cta">Select</span>
             </button>
           ))}
           {!loading && notFound && (
@@ -345,9 +312,9 @@ const LookupGate = ({ onFound }) => {
         </div>
       )}
 
-      {hints.length > 0 && (
+      {!queryReady && hints.length > 0 && (
         <div className="ane-lookup-hints">
-          <span className="ane-lookup-hint-label">Quick pick:</span>
+          <span className="ane-lookup-hint-label">Suggestions</span>
           {hints.map((h) => (
             <button
               key={h.value}
@@ -365,93 +332,29 @@ const LookupGate = ({ onFound }) => {
         <div className="ane-lookup-already-exists">
           <div className="ane-lookup-already-exists-icon">⚠️</div>
           <div className="ane-lookup-already-exists-content">
-            <strong>Employee Already Active</strong>
+            <strong>Employee already has assets</strong>
             <p>
               <span className="ane-lookup-already-exists-id">{alreadyExists.id}</span>{" "}
               — <em>{alreadyExists.name}</em> already has{" "}
               {(alreadyExists.assignedAssets || []).length} asset(s) assigned.
-              You can assign more assets or go to the <strong>Assets Dashboard</strong> to manage them.
             </p>
             <div className="ane-lookup-already-exists-actions">
               <button
                 className="ane-lookup-btn-assign-more"
                 onClick={() => { setAlreadyExists(null); onFound(alreadyExists); }}
               >
-                ＋ Assign More Assets
+                Assign more assets
               </button>
               <button
                 className="ane-lookup-btn-dashboard"
                 onClick={() => navigate(-1)}
               >
-                Go to Assets Dashboard
+                Back to assets
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-// ─── ProfileSummaryBanner ─────────────────────────────────────────────────────
-
-const ProfileSummaryBanner = ({ profile }) => {
-  // useMemo so the canvas is not recreated on every parent re-render
-  const fallbackAvatar = useMemo(
-    () => makeInitialsAvatar(profile.name),
-    [profile.name],
-  );
-
-  const [imgSrc, setImgSrc] = React.useState(
-    profile.photoFile || profile.photoUrl || fallbackAvatar,
-  );
-
-  React.useEffect(() => {
-    setImgSrc(profile.photoFile || profile.photoUrl || fallbackAvatar);
-  }, [profile.photoFile, profile.photoUrl, fallbackAvatar]);
-
-  const bannerFields = [
-    ["Emp ID",        profile.employeeId, "id"],
-    ["Emp Name",      profile.name],
-    ["Employee Type", profile.type   || "—"],
-    ["Circle",        profile.circle || "—", "circle"],
-  ];
-
-  return (
-    <div className="ane-profile-banner">
-      <div className="ane-profile-banner-top">
-        <div className="ane-profile-banner-left">
-          {bannerFields.map(([label, value, mod]) => (
-            <div
-              key={label}
-              className={`ane-profile-banner-field-box${mod === "circle" ? " ane-profile-banner-field-box--circle" : ""}`}
-            >
-              <span className="ane-profile-banner-field-label">{label}</span>
-              <span className={`ane-profile-banner-field-value${mod === "id" ? " ane-profile-banner-field-value--id" : ""}`}>
-                {value}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="ane-profile-banner-photo-wrap">
-          {imgSrc ? (
-            <img
-              src={imgSrc}
-              alt={profile.name}
-              className="ane-profile-banner-photo"
-              onError={() => setImgSrc(fallbackAvatar)}
-            />
-          ) : (
-            <div className="ane-profile-banner-photo-placeholder">
-              {(profile.name || "?")[0].toUpperCase()}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="ane-profile-banner-email-box">
-        <span className="ane-profile-banner-field-label">Email</span>
-        <span className="ane-profile-banner-field-value">{profile.email || "—"}</span>
-      </div>
     </div>
   );
 };
@@ -602,6 +505,7 @@ const AddEmployee = () => {
     });
     setProfileErrors({});
     setProfileResolved(true);
+    setStep(1);
   }, []);
 
   const handleLookupReset = useCallback(() => {
@@ -763,7 +667,12 @@ const AddEmployee = () => {
     setStep((s) => Math.min(s + 1, 2));
   }, [step, profileResolved, validateProfile, totalAssets]);
 
-  const goBack = useCallback(() => setStep((s) => Math.max(s - 1, 0)), []);
+  const goBack = useCallback(() => {
+    if (step === 1) {
+      handleLookupReset();
+    }
+    setStep((s) => Math.max(s - 1, 0));
+  }, [step, handleLookupReset]);
 
   // ── Submit ─────────────────────────────────────────────────────────────────
 
@@ -1008,60 +917,38 @@ const AddEmployee = () => {
 
   return (
     <div className="ane-page">
-
-      {/* Top bar */}
-      <div className="ane-topbar">
-        <button type="button" className="ane-back-btn" onClick={() => navigate(-1)}>← Back</button>
-        <h1 className="ane-page-title">Add New Employee</h1>
-        <div className="ane-step-pills">
-          {STEPS.map((s, i) => (
-            <div
-              key={s}
-              className={`ane-step-pill${i === step ? " active" : i < step ? " done" : ""}`}
-            >
-              <span className="ane-step-circle">{i < step ? "✓" : i + 1}</span>
-              <span className="ane-step-name">{s}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="ane-body">
-
-        {/* Inline error banner (replaces alert()) */}
+      <div className="ane-page-inner">
         {submitError && (
-          <div className="ane-submit-error">
-            ⚠ {submitError}
+          <div className="ane-submit-error" role="alert">
+            {submitError}
           </div>
         )}
 
         {/* ── STEP 0: Profile ── */}
         {step === 0 && (
-          <div className="ane-card">
+          <section className="ane-card ane-card--profile">
             <div className="ane-card-head">
-              <span className="ane-card-icon">👤</span>
-              <div>
-                <h2>Employee Profile</h2>
-                {!profileResolved && (
-                  <p>Enter Employee ID or Email to auto-fetch the profile.</p>
-                )}
+              <button type="button" className="ane-change-emp-btn ane-card-back-btn" onClick={() => navigate(-1)}>
+                ← Back
+              </button>
+              <div className="ane-card-head-text">
+                <p className="ane-kicker">IT · Asset assignment</p>
+                <h2>Select employee</h2>
+                <p>Find the employee, then assign hardware, accessories, or consumables.</p>
               </div>
             </div>
-            {!profileResolved
-              ? <LookupGate onFound={handleLookupFound} />
-              : <ProfileSummaryBanner profile={profile} onReset={handleLookupReset} />
-            }
-          </div>
+            <LookupGate onFound={handleLookupFound} />
+          </section>
         )}
 
         {/* ── STEP 1: Assign Assets ── */}
         {step === 1 && (
           <div className="ane-card">
             <div className="ane-card-head">
-              <span className="ane-card-icon">📦</span>
-              <div>
-                <h2>Assign Assets</h2>
-                <p>Choose assets to assign to <strong>{profile.name}</strong></p>
+              <div className="ane-card-head-text">
+                <p className="ane-kicker">Step 2 of 3</p>
+                <h2>Assign assets</h2>
+                <p>Choose assets for <strong>{profile.name}</strong></p>
               </div>
             </div>
 
@@ -1430,46 +1317,18 @@ const AddEmployee = () => {
         {step === 2 && (
           <div className="ane-card">
             <div className="ane-card-head">
-              <span className="ane-card-icon">✅</span>
-              <div>
-                <h2>Review &amp; Confirm</h2>
-                <p>Double-check everything before saving</p>
+              <div className="ane-card-head-text">
+                <p className="ane-kicker">Step 3 of 3</p>
+                <h2>Review &amp; confirm</h2>
+                <p>Double-check the employee and selected assets before saving</p>
               </div>
             </div>
 
-            <div className="ane-review-section">
-              <h3 className="ane-review-section-title">👤 Employee Profile</h3>
-              <div className="ane-review-profile">
-                <img
-                  className="ane-review-photo"
-                  src={
-                    profile.photoUrl ||
-                    profile.photoFile ||
-                    `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.name)}&background=4CAF50&color=fff`
-                  }
-                  alt={profile.name}
-                />
-                <div className="ane-review-details">
-                  {[
-                    ["Employee ID", profile.employeeId],
-                    ["Name",        profile.name],
-                    ["Type",        profile.type],
-                    ["Circle",      profile.circle],
-                    ["Email",       profile.email],
-                  ].map(([label, val]) => (
-                    <div key={label} className="ane-review-row">
-                      <span className="ane-review-label">{label}</span>
-                      <span className="ane-review-val">{val || "—"}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
+            <div className="ane-review-body">
             {totalAssets > 0 ? (
               <div className="ane-review-section">
                 <h3 className="ane-review-section-title">
-                  Assets to Assign ({totalAssets})
+                  Assets to Assign <span className="ane-review-count">{totalAssets}</span>
                 </h3>
 
                 {hwCount > 0 && (
@@ -1477,30 +1336,34 @@ const AddEmployee = () => {
                     <div className="ane-review-group-label">
                       <span className="ane-rdot hardware" /> Hardware ({hwCount})
                     </div>
-                    <table className="ane-review-table">
-                      <thead>
-                        <tr>
-                          <th>Asset Name</th>
-                          <th>Brand / Model</th>
-                          <th>Serial Number</th>
-                          <th>Asset ID</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.values(selectedHwUnits).map(({ unit, assetTag }) => (
-                          <tr key={unit.assetId}>
-                            <td><strong>{unit.assetName}</strong></td>
-                            <td>{unit.brand} {unit.model}</td>
-                            <td><span className="ane-review-mono">{unit.serialNumber || unit.assetId}</span></td>
-                            <td>
-                              {assetTag
-                                ? <span className="ane-review-tag">{assetTag}</span>
-                                : <span className="ane-review-missing">Missing!</span>}
-                            </td>
+                    <div className="ane-review-table-wrap">
+                      <table className="ane-review-table">
+                        <thead>
+                          <tr>
+                            <th>Asset Name</th>
+                            <th>Brand / Model</th>
+                            <th>Serial Number</th>
+                            <th>Asset ID</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {Object.values(selectedHwUnits).map(({ unit, assetTag }) => (
+                            <tr key={unit.assetId}>
+                              <td data-label="Asset Name"><strong>{unit.assetName}</strong></td>
+                              <td data-label="Brand / Model">{unit.brand} {unit.model}</td>
+                              <td data-label="Serial Number">
+                                <span className="ane-review-mono">{unit.serialNumber || unit.assetId}</span>
+                              </td>
+                              <td data-label="Asset ID">
+                                {assetTag
+                                  ? <span className="ane-review-tag">{assetTag}</span>
+                                  : <span className="ane-review-missing">Missing!</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
 
@@ -1544,32 +1407,34 @@ const AddEmployee = () => {
                 <span>ℹ</span> No assets selected — employee will be created with no assigned assets.
               </div>
             )}
+            </div>
           </div>
         )}
 
-        {/* Footer */}
-        <div className="ane-footer">
-          <div className="ane-footer-left">
-            {step > 0 && (
-              <button className="ane-btn-back" onClick={goBack}>← Back</button>
-            )}
+        {/* Footer — assign & review only */}
+        {step > 0 && (
+          <div className="ane-footer">
+            <div className="ane-footer-left">
+              {step > 0 && (
+                <button className="ane-btn-back" onClick={goBack}>← Back</button>
+              )}
+            </div>
+            <div className="ane-footer-right">
+              {step < 2 ? (
+                <button className="ane-btn-next" onClick={goNext}>Next →</button>
+              ) : (
+                <button
+                  className="ane-btn-submit"
+                  onClick={handleSubmit}
+                  disabled={saving}
+                  aria-busy={saving}
+                >
+                  {saving ? "⏳ Saving…" : "✅ Save Employee"}
+                </button>
+              )}
+            </div>
           </div>
-          <div className="ane-footer-right">
-            <button className="ane-btn-cancel" onClick={() => navigate(-1)}>Cancel</button>
-            {step < 2 ? (
-              <button className="ane-btn-next" onClick={goNext}>Next →</button>
-            ) : (
-              <button
-                className="ane-btn-submit"
-                onClick={handleSubmit}
-                disabled={saving}
-                aria-busy={saving}
-              >
-                {saving ? "⏳ Saving…" : "✅ Save Employee"}
-              </button>
-            )}
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Success popup */}

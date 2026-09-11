@@ -247,39 +247,15 @@ def form16_summary_download_self():
 
 
 # ===================================================
-# Set password via reset token (public; link from HR reset email, expires in 1 hour)
-# FINAL URL → POST /api/auth/set-password
+# Set password (removed — login is email OTP)
+# ===================================================
 @auth.route("/set-password", methods=["POST"])
 def set_password_by_token():
-    data = request.get_json(silent=True) or {}
-    token = (data.get("token") or "").strip()
-    password = data.get("password")
-    confirm_password = data.get("confirm_password")
-
-    if not token:
-        return jsonify({"success": False, "message": "Token is required"}), 400
-    if not password or not confirm_password:
-        return jsonify({"success": False, "message": "Password and confirm password are required"}), 400
-    if password != confirm_password:
-        return jsonify({"success": False, "message": "Passwords do not match"}), 400
-    if len(password) < 8:
-        return jsonify({"success": False, "message": "Password must be at least 8 characters"}), 400
-
-    admin = Admin.query.filter_by(password_reset_token=token).first()
-    if not admin:
-        return jsonify({"success": False, "message": "Invalid or expired link"}), 400
-    if not admin.password_reset_expiry or admin.password_reset_expiry < utc_now():
-        admin.password_reset_token = None
-        admin.password_reset_expiry = None
-        db.session.commit()
-        return jsonify({"success": False, "message": "This link has expired. Please ask HR to send a new one."}), 400
-
-    admin.set_password(password)
-    admin.password_reset_token = None
-    admin.password_reset_expiry = None
-    db.session.commit()
-
-    return jsonify({"success": True, "message": "Password updated successfully. You can now log in."}), 200
+    return jsonify({
+        "success": False,
+        "message": "Account passwords are no longer used. Please sign in with the OTP sent to your email.",
+        "use_otp": True,
+    }), 410
 
 
 @auth.route("/sensitive/revoke", methods=["POST"])
@@ -294,12 +270,8 @@ def revoke_sensitive_access():
 # ===================================================
 
 OTP_TTL_MINUTES = 5
-OTP_RESEND_SECONDS = 60
+OTP_RESEND_SECONDS = 60  # used by sensitive (payslip/tax) OTP only
 OTP_MAX_ATTEMPTS = 5
-# Anti-bombing / anti-enumeration (in-process; also put nginx limits in front of these routes)
-OTP_IP_LIMIT_PER_HOUR = 60
-OTP_IDENTIFIER_LIMIT_PER_HOUR = 5
-OTP_IDENTIFIER_LIMIT_PER_DAY = 15
 VERIFY_OTP_IP_LIMIT_PER_HOUR = 30
 PINCODE_IP_LIMIT_PER_HOUR = 60
 SENSITIVE_OTP_IP_LIMIT_PER_HOUR = 10
@@ -346,18 +318,22 @@ def _find_admin_for_login(channel: str, value: str):
 
 
 def _issue_login_token(admin):
+    from .session_timeout import session_expires_delta, session_timeout_minutes
+
     access_token = create_access_token(
         identity=str(admin.id),
         additional_claims={
             "email": (admin.email or "").strip(),
             "emp_type": admin.emp_type,
         },
+        expires_delta=session_expires_delta(admin.emp_type),
     )
     from .plan_features import plan_payload
 
     return {
         "success": True,
         "token": access_token,
+        "session_timeout_minutes": session_timeout_minutes(admin.emp_type),
         **plan_payload(),
     }
 
@@ -365,17 +341,7 @@ def _issue_login_token(admin):
 @auth.route("/request-otp", methods=["POST"])
 def request_otp():
     """Send a login OTP to the registered email. Payslip/tax OTP remains at /sensitive/request-otp."""
-    from .rate_limit import client_ip, enforce
     from .offboarding_service import admin_login_allowed
-
-    blocked = enforce(
-        f"login-otp:ip:{client_ip()}",
-        limit=OTP_IP_LIMIT_PER_HOUR,
-        window_seconds=3600,
-        message="Too many OTP requests. Please try again later.",
-    )
-    if blocked:
-        return blocked
 
     data = request.get_json(silent=True) or {}
     identifier = _normalize_login_identifier(data.get("identifier") or data.get("email") or "")
@@ -399,23 +365,6 @@ def request_otp():
             "message": "Phone OTP is coming soon. Please login with your registered email for now.",
         }), 501
 
-    blocked = enforce(
-        f"login-otp:id:{value}",
-        limit=OTP_IDENTIFIER_LIMIT_PER_HOUR,
-        window_seconds=3600,
-        message="Too many OTP requests for this email. Please try again later.",
-    )
-    if blocked:
-        return blocked
-    blocked = enforce(
-        f"login-otp:id-day:{value}",
-        limit=OTP_IDENTIFIER_LIMIT_PER_DAY,
-        window_seconds=86400,
-        message="Daily OTP limit reached for this email. Please try again tomorrow.",
-    )
-    if blocked:
-        return blocked
-
     def _generic_sent(masked_hint=None):
         hint = masked_hint or "your email"
         return jsonify({
@@ -423,7 +372,7 @@ def request_otp():
             "channel": "email",
             "message": f"OTP sent to {hint}. Please check your email for the OTP.",
             "expires_in": OTP_TTL_MINUTES * 60,
-            "resend_after": OTP_RESEND_SECONDS,
+            "resend_after": 0,
         }), 200
 
     admin = _find_admin_for_login("email", value)
@@ -442,21 +391,6 @@ def request_otp():
     if cleaned_email and admin.email != cleaned_email:
         admin.email = cleaned_email
     ident = cleaned_email.lower()
-
-    latest = (
-        OTP.query.filter_by(identifier=ident, channel="email", is_used=False)
-        .order_by(OTP.created_at.desc())
-        .first()
-    )
-    if latest and latest.created_at:
-        elapsed = (utc_now() - latest.created_at).total_seconds()
-        if elapsed < OTP_RESEND_SECONDS:
-            wait = int(OTP_RESEND_SECONDS - elapsed)
-            return jsonify({
-                "success": False,
-                "message": f"Please wait {wait} seconds before requesting another OTP",
-                "retry_after": wait,
-            }), 429
 
     OTP.query.filter_by(identifier=ident, channel="email", is_used=False).update(
         {"is_used": True},
@@ -593,6 +527,30 @@ def verify_otp():
 
     row.is_used = True
     db.session.commit()
+
+    return jsonify(_issue_login_token(admin)), 200
+
+
+@auth.route("/session/refresh", methods=["POST"])
+@jwt_required()
+def refresh_session():
+    """Slide JWT expiry while the client reports activity (idle policy)."""
+    from .offboarding_service import admin_login_allowed
+
+    identity = get_jwt_identity()
+    try:
+        admin_id = int(identity)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid session"}), 401
+
+    admin = Admin.query.get(admin_id)
+    if not admin:
+        return jsonify({"success": False, "message": "Account not found"}), 404
+    if not admin_login_allowed(admin):
+        return jsonify({
+            "success": False,
+            "message": "Your account is inactive. Please contact HR.",
+        }), 403
 
     return jsonify(_issue_login_token(admin)), 200
 
@@ -1165,12 +1123,18 @@ def get_news_feed():
 
     items = []
 
-    # 1. Birthdays (Employee.dob) – same circle
+    current_employee_filters = (
+        or_(Admin.is_exited == False, Admin.is_exited.is_(None)),
+        or_(Admin.is_active == True, Admin.is_active.is_(None)),
+    )
+
+    # 1. Birthdays (Employee.dob) – same circle, current employees only
     if user_circle:
         bday_admins = Admin.query.join(Employee, Admin.id == Employee.admin_id).filter(
             db.func.lower(db.func.coalesce(Admin.circle, "")) == user_circle.lower(),
             db.extract("month", Employee.dob) == current_month,
-            db.extract("day", Employee.dob) == current_day
+            db.extract("day", Employee.dob) == current_day,
+            *current_employee_filters,
         ).all()
         for a in bday_admins:
             emp = Employee.query.filter_by(admin_id=a.id).first()
@@ -1190,7 +1154,8 @@ def get_news_feed():
             db.func.lower(db.func.coalesce(Admin.circle, "")) == user_circle.lower(),
             Admin.doj.isnot(None),
             db.extract("month", Admin.doj) == current_month,
-            db.extract("day", Admin.doj) == current_day
+            db.extract("day", Admin.doj) == current_day,
+            *current_employee_filters,
         ).all()
         for a in anniv_admins:
             years = today.year - a.doj.year if a.doj else 0

@@ -49,13 +49,10 @@ export function notifyApiFailure(err, fallback, options = {}) {
     err,
     fallback || "Something went wrong. Please try again.",
   );
-  // Prefer warning so users see a clear issue, not a scary red "server crash".
-  if (isApiWarningFailure(err) || options.forceWarning) {
-    notifyWarning(message, options);
-  } else {
-    // Unexpected failures still show the exact message (not "Internal Server Error").
-    notifyWarning(message, options);
-  }
+  // Collapse duplicate toasts from parallel inventory sync callers.
+  const toastId =
+    options.toastId || `api-fail:${String(message).slice(0, 120)}`;
+  notifyWarning(message, { ...options, toastId });
   return message;
 }
 

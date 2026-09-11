@@ -1,9 +1,16 @@
+# Python
 backend_HRMS/.venv/
+myenv/
 **/__pycache__/
 *.py[cod]
 
+# Local dependency installs
+node_modules/
+
+# Generated / local data — not application code
 backend_HRMS/uploads/
+backend_HRMS/website/static/uploads/
+backend_HRMS/website/static/uploads/**/*.pdf
+backend_HRMS/website/static/uploads/signatures/
+
 migrations/
-myenv/
-backend_HRMS/website/static/
-backend_HRMS/uploads/

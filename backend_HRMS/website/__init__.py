@@ -35,7 +35,8 @@ def create_app():
 
     # JWT configuration
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret-key")
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 3600  # 1 hour
+    # Default JWT lifetime; login/refresh override via session_timeout by emp_type.
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 900  # 15 minutes
 
     app.config["BASE_URL"] = os.getenv(
         "BASE_URL",
@@ -53,6 +54,8 @@ def create_app():
     app.config["EMAIL_ACCOUNTS"] = os.getenv("EMAIL_ACCOUNTS")
     app.config["EMAIL_IT"] = os.getenv("EMAIL_IT")
     app.config["EMAIL_ADMIN"] = os.getenv("EMAIL_ADMIN")
+    app.config["DAILY_CHECKOUT_RETURN_HOUR"] = os.getenv("DAILY_CHECKOUT_RETURN_HOUR", "18")
+    app.config["DAILY_CHECKOUT_RETURN_MINUTE"] = os.getenv("DAILY_CHECKOUT_RETURN_MINUTE", "0")
     app.config["MANAGER_SELF_APPROVAL_ROLES"] = os.getenv(
         "MANAGER_SELF_APPROVAL_ROLES",
         "manager,hr,human resource,admin",
@@ -125,7 +128,7 @@ def create_app():
         supports_credentials=True,
         allow_headers=["Content-Type", "Authorization"],
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        expose_headers=["Content-Type"],
+        expose_headers=["Content-Type", "Content-Disposition"],
     )
 
     def _add_cors_headers(response):
@@ -141,6 +144,7 @@ def create_app():
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Expose-Headers"] = "Content-Type, Content-Disposition"
         return response
 
     @app.after_request
@@ -160,6 +164,24 @@ def create_app():
     bcrypt.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
+
+    @jwt.unauthorized_loader
+    def _jwt_unauthorized(reason):
+        resp = jsonify(success=False, message=reason or "Authorization required")
+        resp.status_code = 401
+        return resp
+
+    @jwt.invalid_token_loader
+    def _jwt_invalid(reason):
+        resp = jsonify(success=False, message=reason or "Invalid session token")
+        resp.status_code = 401
+        return resp
+
+    @jwt.expired_token_loader
+    def _jwt_expired(_jwt_header, _jwt_payload):
+        resp = jsonify(success=False, message="Session expired. Please login again.")
+        resp.status_code = 401
+        return resp
 
     login_manager.init_app(app)          # ✅ INIT LOGIN MANAGER
     login_manager.login_view = "auth.login"
@@ -221,6 +243,17 @@ def create_app():
         ITAssetTransition,
         ITAssetReview,
     )
+    from .models.daily_checkout import (  # noqa: F401 — register for db.create_all
+        DailyCheckoutAssignment,
+        DailyCheckoutDocument,
+        DailyCheckoutEvent,
+        DailyCheckoutOutbox,
+        DailyCheckoutRequest,
+        DailyCheckoutReturn,
+        DailyEmployeeOpenHold,
+        DailyUnitHold,
+        EmployeeSignature,
+    )
 
     # ---------------------------
     # Flask-Login user loader
@@ -265,6 +298,7 @@ def create_app():
     from .Accounts import Accounts
     from .manager import manager
     from .it import it_bp
+    from .daily_checkout.views import daily_checkout_bp
 
     # from .manager import manager
     from .Admin import admin_bp
@@ -286,6 +320,7 @@ def create_app():
     app.register_blueprint(query, url_prefix="/api/query")
     app.register_blueprint(manager, url_prefix="/api/manager")
     app.register_blueprint(it_bp, url_prefix="/api/it")
+    app.register_blueprint(daily_checkout_bp, url_prefix="/api/it/daily-checkout")
     app.register_blueprint(notifications, url_prefix="/api/notifications")
     app.register_blueprint(performance_api, url_prefix="/api/performance")
     app.register_blueprint(probation_api, url_prefix="/api/probation")
@@ -1119,6 +1154,116 @@ def create_app():
             app.logger.info("Added column %s.deleted_by_name", table)
         except Exception as e:
             app.logger.warning("it_deleted_asset_logs deleted_by_name ensure skipped: %s", e)
+
+    def _ensure_daily_checkout_tables():
+        try:
+            from sqlalchemy import inspect, text
+            from .models.daily_checkout import (
+                DailyCheckoutAssignment,
+                DailyCheckoutDocument,
+                DailyCheckoutEvent,
+                DailyCheckoutOutbox,
+                DailyCheckoutRequest,
+                DailyCheckoutReturn,
+                DailyEmployeeOpenHold,
+                DailyUnitHold,
+                EmployeeSignature,
+            )
+
+            insp = inspect(db.engine)
+            names = set(insp.get_table_names())
+            for model in (
+                EmployeeSignature,
+                DailyCheckoutRequest,
+                DailyEmployeeOpenHold,
+                DailyUnitHold,
+                DailyCheckoutAssignment,
+                DailyCheckoutReturn,
+                DailyCheckoutDocument,
+                DailyCheckoutEvent,
+                DailyCheckoutOutbox,
+            ):
+                if model.__tablename__ not in names:
+                    model.__table__.create(bind=db.engine, checkfirst=True)
+                    app.logger.info("Created table %s", model.__tablename__)
+
+            units = "it_asset_units"
+            if units in set(inspect(db.engine).get_table_names()):
+                existing = {c["name"] for c in inspect(db.engine).get_columns(units)}
+                if "is_daily_pool" not in existing:
+                    dialect = db.engine.dialect.name
+                    col = "TINYINT(1) NOT NULL DEFAULT 0" if dialect == "mysql" else "BOOLEAN NOT NULL DEFAULT FALSE"
+                    stmt = text(f"ALTER TABLE {units} ADD COLUMN is_daily_pool {col}")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column it_asset_units.is_daily_pool")
+
+            req_table = "daily_checkout_requests"
+            if req_table in set(inspect(db.engine).get_table_names()):
+                req_cols = {c["name"] for c in inspect(db.engine).get_columns(req_table)}
+                if "items_json" not in req_cols:
+                    dialect = db.engine.dialect.name
+                    if dialect == "postgresql":
+                        coltype = "JSONB NULL"
+                    elif dialect == "mysql":
+                        coltype = "JSON NULL"
+                    else:
+                        coltype = "TEXT NULL"
+                    stmt = text(f"ALTER TABLE {req_table} ADD COLUMN items_json {coltype}")
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column daily_checkout_requests.items_json")
+
+                asg_table = "daily_checkout_assignments"
+                if asg_table in set(inspect(db.engine).get_table_names()):
+                    asg_cols = {c["name"] for c in inspect(db.engine).get_columns(asg_table)}
+                    if "fulfillment_json" not in asg_cols:
+                        dialect = db.engine.dialect.name
+                        if dialect == "postgresql":
+                            coltype = "JSONB NULL"
+                        elif dialect == "mysql":
+                            coltype = "JSON NULL"
+                        else:
+                            coltype = "TEXT NULL"
+                        stmt = text(f"ALTER TABLE {asg_table} ADD COLUMN fulfillment_json {coltype}")
+                        with db.engine.begin() as conn:
+                            conn.execute(stmt)
+                        app.logger.info("Added column daily_checkout_assignments.fulfillment_json")
+
+            # Allow multiple day-use units per request (drop unique on request_id).
+            holds_table = "daily_unit_holds"
+            if holds_table in set(inspect(db.engine).get_table_names()):
+                dialect = db.engine.dialect.name
+                insp = inspect(db.engine)
+                dropped = False
+                for uq in insp.get_unique_constraints(holds_table) or []:
+                    cols = list(uq.get("column_names") or [])
+                    name = uq.get("name")
+                    if name and cols == ["request_id"]:
+                        with db.engine.begin() as conn:
+                            if dialect == "mysql":
+                                conn.execute(text(f"ALTER TABLE {holds_table} DROP INDEX `{name}`"))
+                            elif dialect == "postgresql":
+                                conn.execute(text(f'ALTER TABLE {holds_table} DROP CONSTRAINT IF EXISTS "{name}"'))
+                            else:
+                                # SQLite cannot drop unique easily; recreate is out of scope.
+                                pass
+                        dropped = True
+                        app.logger.info("Dropped unique constraint %s on %s.request_id", name, holds_table)
+                if not dropped:
+                    for ix in insp.get_indexes(holds_table) or []:
+                        cols = list(ix.get("column_names") or [])
+                        name = ix.get("name")
+                        if name and ix.get("unique") and cols == ["request_id"]:
+                            with db.engine.begin() as conn:
+                                if dialect == "mysql":
+                                    conn.execute(text(f"ALTER TABLE {holds_table} DROP INDEX `{name}`"))
+                                elif dialect == "postgresql":
+                                    conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
+                            app.logger.info("Dropped unique index %s on %s.request_id", name, holds_table)
+                            break
+        except Exception as e:
+            app.logger.warning("Day-use checkout tables ensure skipped: %s", e)
 
     def _ensure_ex_employee_doc_tables():
         try:
@@ -2028,6 +2173,32 @@ def create_app():
         except Exception as e:
             app.logger.warning("employee_archive rehire columns ensure skipped: %s", e)
 
+    def _ensure_resignations_status_varchar():
+        """Ensure resignations.status accepts values like Revoked (not a tight ENUM)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "resignations"
+            if table not in insp.get_table_names():
+                return
+            dialect = db.engine.dialect.name
+            if dialect != "mysql" and dialect != "mariadb":
+                return
+            row = None
+            with db.engine.connect() as conn:
+                row = conn.execute(text("SHOW COLUMNS FROM resignations LIKE 'status'")).fetchone()
+            if not row:
+                return
+            # row: Field, Type, Null, Key, Default, Extra
+            col_type = (row[1] or "").decode() if isinstance(row[1], (bytes, bytearray)) else str(row[1] or "")
+            if "enum" in col_type.lower() or "varchar" not in col_type.lower():
+                with db.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE resignations MODIFY status VARCHAR(32) NULL"))
+                app.logger.info("Widened resignations.status to VARCHAR(32)")
+        except Exception as e:
+            app.logger.warning("resignations.status ensure skipped: %s", e)
+
     def _ensure_exit_interview_table():
         try:
             from sqlalchemy import inspect
@@ -2127,6 +2298,7 @@ def create_app():
             _ensure_it_inventory_item_photos_column()
             _ensure_it_inventory_stock_columns()
             _ensure_it_deleted_log_name_column()
+            _ensure_daily_checkout_tables()
             _ensure_ex_employee_doc_tables()
             _ensure_otp_login_table()
             _ensure_assessment_tables()
@@ -2152,6 +2324,7 @@ def create_app():
             _ensure_admin_exit_login_until_column()
             _ensure_offboarding_reminder_table()
             _ensure_employee_archive_rehire_columns()
+            _ensure_resignations_status_varchar()
             _ensure_exit_interview_table()
             _ensure_comp_off_gain_dedupe_key()
             _cleanup_zero_qty_inventory_rows()
@@ -2208,6 +2381,12 @@ def create_app():
             "trigger": "cron",
             "hour": 20,
             "minute": 0,
+        },
+        {
+            "id": "daily_checkout_jobs",
+            "func": "website.scheduler:run_daily_checkout_job",
+            "trigger": "interval",
+            "minutes": 15,
         },
     ]
     scheduler.init_app(app)

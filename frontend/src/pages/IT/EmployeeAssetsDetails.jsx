@@ -61,7 +61,7 @@ const enrichHardware = (asset) => {
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const TABS = ["All", "Hardware", "Software", "Accessories", "Consumables"];
+const TABS = ["All", "Hardware", "Accessories", "Consumables"];
 const RETURN_STATUS_TABS = ["All", "Pending", "Approved", "Rejected", "Completed"];
 
 const STATUS_CLS = {
@@ -607,7 +607,9 @@ const EmployeeDetails = () => {
 
   useRefreshOnNavigate(loadEmployee, [empId]);
 
-  const allAssets = employee?.assignedAssets || [];
+  const allAssets = (employee?.assignedAssets || []).filter(
+    (a) => String(a.category || "").toLowerCase() !== "software",
+  );
 
   const tabCount = useCallback(
     (tab) =>
@@ -626,7 +628,6 @@ const EmployeeDetails = () => {
   );
 
   const hardwareAssets = useMemo(() => filtered.filter((a) => a.category === "Hardware"),  [filtered]);
-  const softwareAssets = useMemo(() => filtered.filter((a) => a.category === "Software"),  [filtered]);
   const accConAssets   = useMemo(
     () => filtered.filter((a) => a.category === "Accessories" || a.category === "Consumables"),
     [filtered],
@@ -731,19 +732,36 @@ const EmployeeDetails = () => {
     return isMobileTabletHwType(hwModal.hwType) ? getMobileTabletHardwareFields(base) : base;
   }, [hwModal]);
 
-  if (loading)   return <div className="ea-loading">Loading…</div>;
-  if (!employee) return <div className="ea-loading">Employee not found.</div>;
+  if (loading)   return <div className="employee-assets"><div className="ea-loading">Loading…</div></div>;
+  if (!employee) return <div className="employee-assets"><div className="ea-loading">Employee not found.</div></div>;
 
   return (
     <div className="employee-assets">
+      <div className="ea-page-inner">
+      <header className="ea-topbar">
+        <div className="ea-topbar-left">
+          <button type="button" className="btn-back" onClick={() => navigate(isSelfAssetsView ? "/dashboard" : -1)}>
+            ← {isSelfAssetsView ? "Back" : "Back to Active Devices"}
+          </button>
+          <div className="ea-title-block">
+            <p className="ea-kicker">{isSelfAssetsView ? "My workspace" : "IT · Asset Management"}</p>
+            <h1 className="ea-page-title">{isSelfAssetsView ? "My Assets" : "Employee assets"}</h1>
+          </div>
+        </div>
+        <div className="ea-topbar-right">
+          {isSelfAssetsView ? (
+            <button type="button" className="ea-dayuse-btn" onClick={() => navigate("/daily-assets")}>
+              Day-use Assets
+            </button>
+          ) : (
+            <p className="ea-total">
+              <strong>{allAssets.length}</strong> asset{allAssets.length === 1 ? "" : "s"}
+            </p>
+          )}
+        </div>
+      </header>
 
-      <div className="back-button-container">
-        <button type="button" className="btn-back" onClick={() => navigate(isSelfAssetsView ? "/dashboard" : -1)}>
-          ← {isSelfAssetsView ? "Back to Dashboard" : "Back to Active Devices"}
-        </button>
-      </div>
-
-      {/* ── Profile Card ── */}
+      {!isSelfAssetsView ? (
       <div className="employee-details-card">
         <div className="employee-layout">
           <div className="employee-photo-section">
@@ -757,7 +775,10 @@ const EmployeeDetails = () => {
             </div>
           </div>
           <div className="employee-info-section">
-            <h1>{employee.name}</h1>
+            <h2 className="ea-emp-name">{employee.name}</h2>
+            <p className="ea-emp-meta">
+              {[employee.type, employee.circle].filter(Boolean).join(" · ") || "Assigned inventory"}
+            </p>
             <div className="info-grid">
               {[
                 ["Employee ID",  employee.id     ],
@@ -775,6 +796,7 @@ const EmployeeDetails = () => {
           </div>
         </div>
       </div>
+      ) : null}
 
       {/* ── Assets Section ── */}
       <div className="assets-section">
@@ -807,14 +829,6 @@ const EmployeeDetails = () => {
                 />
               </>
             )}
-            {softwareAssets.length > 0 && (
-              <>
-                <div className="ea-section-label">
-                  <span className="ea-section-dot software" /> Software Assets
-                </div>
-                <SoftwareTable assets={softwareAssets} onRemove={openReturnModal} canRequestReturn={canRequestReturn} />
-              </>
-            )}
             {accConAssets.length > 0 && (
               <>
                 <div className="ea-section-label">
@@ -840,9 +854,6 @@ const EmployeeDetails = () => {
             canRequestReturn={canRequestReturn}
             onViewDetails={openHwModal}
           />
-        )}
-        {filterTab === "Software" && (
-          <SoftwareTable assets={filtered} onRemove={openReturnModal} canRequestReturn={canRequestReturn} />
         )}
         {(filterTab === "Accessories" || filterTab === "Consumables") && (
           <NonHardwareTable
@@ -985,6 +996,7 @@ const EmployeeDetails = () => {
         />
       )}
 
+      </div>
     </div>
   );
 };

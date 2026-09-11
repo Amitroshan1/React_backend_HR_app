@@ -19,6 +19,11 @@ import {
 
 const API_BASE_URL = "/api/query";
 
+function currentMonthValue() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 const isClosedInboxStatus = (status) =>
   String(status || "").trim().toLowerCase() === "closed";
 
@@ -46,7 +51,7 @@ export const DepartmentQueryInbox = () => {
   const [isSending, setIsSending] = useState(false);
   const [closingId, setClosingId] = useState(null);
   const [error, setError] = useState("");
-  const [filterMonth, setFilterMonth] = useState("");
+  const [filterMonth, setFilterMonth] = useState(currentMonthValue);
   const [filterCircle, setFilterCircle] = useState("");
   const [circleOptions, setCircleOptions] = useState([]);
   const chatEndRef = useRef(null);
@@ -308,7 +313,7 @@ export const DepartmentQueryInbox = () => {
 
   useRefreshOnNavigate(() => {
     fetchInbox();
-  });
+  }, [filterMonth, filterCircle]);
 
   useEffect(() => {
     if (!parseChatIdFromSearch(location.search)) {
@@ -378,17 +383,18 @@ export const DepartmentQueryInbox = () => {
     };
   }, []);
 
-  const applyFilters = () => {
-    fetchInbox();
-  };
-
   const resetFilters = () => {
-    setFilterMonth("");
+    const month = currentMonthValue();
+    if (filterMonth === month && !filterCircle) {
+      fetchInbox({ month, circle: "" });
+      return;
+    }
+    setFilterMonth(month);
     setFilterCircle("");
-    fetchInbox({ month: "", circle: "" });
   };
 
-  const hasActiveFilters = Boolean(filterMonth || filterCircle);
+  const hasCustomFilters =
+    filterMonth !== currentMonthValue() || Boolean(filterCircle);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -438,9 +444,6 @@ export const DepartmentQueryInbox = () => {
             </select>
           </div>
           <div className="dept-query-filter-actions">
-            <button type="button" className="dept-filter-apply" onClick={applyFilters}>
-              Apply filters
-            </button>
             <button type="button" className="dept-filter-reset" onClick={resetFilters}>
               Reset
             </button>
@@ -470,9 +473,9 @@ export const DepartmentQueryInbox = () => {
               ) : queries.length === 0 ? (
                 <tr>
                   <td colSpan="7" className="dept-empty">
-                    {hasActiveFilters
+                    {hasCustomFilters
                       ? "No queries match your filters."
-                      : "No queries for your department."}
+                      : "No queries for your department this month."}
                   </td>
                 </tr>
               ) : (
