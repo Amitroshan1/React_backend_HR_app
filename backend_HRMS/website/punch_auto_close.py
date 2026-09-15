@@ -15,6 +15,7 @@ from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_agg
 
 SESSION_CAP_SEC = 10 * 3600
 AUTO_CAP_REASON = "Auto punch-out after 10 hr daily cap"
+NHQ_LAST_SCAN_REASON = "Biometric last scan (NHQ, before 8 PM finalization)"
 # Server scheduler close has no live GPS — do not copy punch-in geofence to punch-out.
 AUTO_PUNCH_NO_LIVE_GPS = "auto_punch_out_no_live_gps"
 
@@ -259,6 +260,35 @@ def _skip_same_day_nhq_biometric_auto_close(open_sess, punch):
         return False
 
 
+def _nhq_last_scan_out_at_open_session(open_sess, punch):
+    """
+    When NHQ biometric hits the 10h cap, close at the last scan after clock-in
+    (<= 20:00) instead of the cap time. If no later scan exists, return None
+    so the 20:00 finalizer can run.
+    """
+    if open_sess is None or punch is None or not open_sess.clock_in:
+        return None
+    try:
+        from .biometric.finalization import (
+            cutoff_datetime_for_date,
+            select_last_nhq_scan_on_day,
+        )
+
+        out_log = select_last_nhq_scan_on_day(
+            punch.admin_id,
+            punch.punch_date,
+            after=open_sess.clock_in,
+            before=cutoff_datetime_for_date(punch.punch_date),
+        )
+        if out_log is None or out_log.punch_time is None:
+            return None
+        if out_log.punch_time <= open_sess.clock_in:
+            return None
+        return out_log.punch_time
+    except Exception:
+        return None
+
+
 def _close_overdue_session(open_sess, now=None):
     """Close one open session if it is past the 10h cap. Returns True if closed."""
     now = now or datetime.now()
@@ -267,13 +297,17 @@ def _close_overdue_session(open_sess, now=None):
         return False
 
     punch = Punch.query.get(open_sess.punch_id) if open_sess.punch_id else None
-    if _skip_same_day_nhq_biometric_auto_close(open_sess, punch):
-        return False
-
     if punch and ensure_punch_sessions_backfill(punch):
         db.session.flush()
 
-    out_at = _biometric_preferred_clock_out(open_sess, out_at)
+    if _skip_same_day_nhq_biometric_auto_close(open_sess, punch):
+        nhq_out = _nhq_last_scan_out_at_open_session(open_sess, punch)
+        if nhq_out is None:
+            return False
+        out_at = nhq_out
+        reason = NHQ_LAST_SCAN_REASON
+    else:
+        out_at = _biometric_preferred_clock_out(open_sess, out_at)
 
     close_punch_session(
         open_sess,

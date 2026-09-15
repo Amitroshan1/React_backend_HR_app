@@ -509,6 +509,51 @@ def test_nhq_biometric_skips_10h_auto_close(client, stack):
         assert sess.clock_out is None
 
 
+def test_nhq_biometric_10h_closes_at_last_scan_when_multiple_scans(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        _post(client, _att("2026-08-19 17:00:00"))
+        sess = stack.PunchSession.query.first()
+        now = datetime(2026, 8, 19, 20, 30, 0)
+        assert stack.punch_auto._close_overdue_session(sess, now=now) is True
+        assert sess.clock_out == datetime(2026, 8, 19, 17, 0, 0)
+        assert sess.auto_punched_out is True
+
+
+def test_late_scan_extends_after_8pm_finalization(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        _post(client, _att("2026-08-19 17:00:00"))
+        stack.finalization.finalize_biometric_day(42, DAY)
+        stack.db.session.commit()
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_out == datetime(2026, 8, 19, 17, 0, 0)
+
+        _post(client, _att("2026-08-19 21:30:00"))
+        stack.db.session.commit()
+        res = stack.finalization.extend_nhq_biometric_day(42, DAY)
+        stack.db.session.commit()
+        assert res["extended"] is True
+        assert sess.clock_out == datetime(2026, 8, 19, 21, 30, 0)
+
+
+def test_late_scan_skips_web_closed_session(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        _post(client, _att("2026-08-19 17:00:00"))
+        stack.finalization.finalize_biometric_day(42, DAY)
+        stack.db.session.commit()
+        sess = stack.PunchSession.query.first()
+        sess.closed_by = "web"
+        stack.db.session.commit()
+
+        _post(client, _att("2026-08-19 21:30:00"))
+        stack.db.session.commit()
+        res = stack.finalization.extend_nhq_biometric_day(42, DAY)
+        assert res["skipped"] == "web_closed"
+        assert sess.clock_out == datetime(2026, 8, 19, 17, 0, 0)
+
+
 def test_web_session_still_10h_auto_close(client, stack):
     with stack.app.app_context():
         punch = stack.Punch(admin_id=42, punch_date=DAY)

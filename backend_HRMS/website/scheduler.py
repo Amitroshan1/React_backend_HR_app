@@ -129,6 +129,33 @@ def run_biometric_day_finalization_job():
             db.session.rollback()
 
 
+def run_biometric_late_scan_job():
+    """
+    22:00 IST: extend NHQ biometric punch-out when scans exist after 20:00.
+    Includes catch-up for up to 7 prior days with missed runs.
+    """
+    if _app is None:
+        return
+    with _app.app_context():
+        from . import db
+        from .biometric.finalization import extend_all_nhq_biometric_days
+
+        log = _app.logger
+        try:
+            summary = extend_all_nhq_biometric_days(include_catchup=True)
+            if summary.get("extended_count"):
+                log.info(
+                    "scheduler: biometric late-scan extended=%s skipped=%s errors=%s dates=%s",
+                    summary.get("extended_count"),
+                    summary.get("skipped_count"),
+                    summary.get("error_count"),
+                    summary.get("dates"),
+                )
+        except Exception as e:
+            log.exception("scheduler: biometric-late-scan failed: %s", e)
+            db.session.rollback()
+
+
 def run_daily_checkout_job():
     """Overdue day-use holds, PDF retries, and pending email outbox."""
     if _app is None:

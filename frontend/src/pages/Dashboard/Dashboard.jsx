@@ -495,6 +495,9 @@ export const Dashboard = () => {
     const [extendedHoursModalOpen, setExtendedHoursModalOpen] = useState(false);
     const [extendedHoursReason, setExtendedHoursReason] = useState("");
     const [leaveBalanceModalOpen, setLeaveBalanceModalOpen] = useState(false);
+    const [nhqPunchModalOpen, setNhqPunchModalOpen] = useState(false);
+    const [nhqPunchModalMode, setNhqPunchModalMode] = useState("in");
+    const nhqPunchPendingRef = useRef(null);
     const punchDataRef = useRef({
         sessions: [],
         punch_in: null,
@@ -1336,6 +1339,47 @@ export const Dashboard = () => {
         };
     };
 
+    const isNhqEmployee = useCallback(() => {
+        return (dynamicData.user?.circle || "").trim().toUpperCase() === "NHQ";
+    }, [dynamicData.user?.circle]);
+
+    const getOpenPunchSession = useCallback(() => {
+        const sessions = dynamicData.punch?.sessions || [];
+        return sessions.find((s) => s.is_open) || null;
+    }, [dynamicData.punch?.sessions]);
+
+    const shouldWarnNhqWebPunch = useCallback(
+        (mode, wfhApproved) => {
+            if (!isNhqEmployee()) return false;
+            if (wfhApproved) return false;
+            if (mode === "in") return true;
+            if (mode === "out") {
+                const open = getOpenPunchSession();
+                return (open?.source || "").toLowerCase() === "biometric";
+            }
+            return false;
+        },
+        [isNhqEmployee, getOpenPunchSession],
+    );
+
+    const runWithNhqWarningIfNeeded = (mode, prepared, fn) => {
+        const wfhApproved = !!prepared?.wfhApproved;
+        if (shouldWarnNhqWebPunch(mode, wfhApproved)) {
+            nhqPunchPendingRef.current = fn;
+            setNhqPunchModalMode(mode);
+            setNhqPunchModalOpen(true);
+            return;
+        }
+        fn();
+    };
+
+    const confirmNhqWebPunch = async () => {
+        const fn = nhqPunchPendingRef.current;
+        setNhqPunchModalOpen(false);
+        nhqPunchPendingRef.current = null;
+        if (fn) await fn();
+    };
+
     const onPunchInClick = async () => {
         if (isPunching || punchGps.isBusy || punchHasOpenSession()) return;
         resetPunchTimings();
@@ -1355,7 +1399,9 @@ export const Dashboard = () => {
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchIn("", "", prepared.measurement, { isWfh: !!prepared.wfhApproved });
+        runWithNhqWarningIfNeeded("in", prepared, () =>
+            handlePunchIn("", "", prepared.measurement, { isWfh: !!prepared.wfhApproved }),
+        );
     };
 
     const onPunchOutClick = async () => {
@@ -1373,7 +1419,9 @@ export const Dashboard = () => {
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchOut("", "", prepared.measurement);
+        runWithNhqWarningIfNeeded("out", prepared, () =>
+            handlePunchOut("", "", prepared.measurement),
+        );
     };
 
     const submitRepeatPunchIn = async () => {
@@ -1393,7 +1441,11 @@ export const Dashboard = () => {
                 setGeoReasonModalOpen(true);
                 return;
             }
-            await handlePunchIn("", t, prepared.measurement, { isWfh: !!prepared.wfhApproved });
+            runWithNhqWarningIfNeeded(
+                "in",
+                prepared,
+                () => handlePunchIn("", t, prepared.measurement, { isWfh: !!prepared.wfhApproved }),
+            );
             return;
         }
         const geoTrim = geoReason.trim();
@@ -1403,7 +1455,11 @@ export const Dashboard = () => {
             setGeoReasonModalOpen(true);
             return;
         }
-        await handlePunchIn(geoTrim, t, punchMeasurementRef.current, { isWfh: wfhOk });
+        runWithNhqWarningIfNeeded(
+            "in",
+            { wfhApproved: wfhOk },
+            () => handlePunchIn(geoTrim, t, punchMeasurementRef.current, { isWfh: wfhOk }),
+        );
     };
 
     const submitGeoReasonPunch = async () => {
@@ -1420,7 +1476,11 @@ export const Dashboard = () => {
         }
         punchGps.setPunchState(punchGps.PunchGpsState.READY, "Location verified");
         if (geoReasonMode === "out") {
-            await handlePunchOut(t, "", punchMeasurementRef.current);
+            runWithNhqWarningIfNeeded(
+                "out",
+                { wfhApproved: !!location.wfhApproved },
+                () => handlePunchOut(t, "", punchMeasurementRef.current),
+            );
             return;
         }
         const repeatTrim = repeatPunchReason.trim();
@@ -1428,7 +1488,11 @@ export const Dashboard = () => {
             setRepeatPunchModalOpen(true);
             return;
         }
-        await handlePunchIn(t, repeatTrim, punchMeasurementRef.current);
+        runWithNhqWarningIfNeeded(
+            "in",
+            { wfhApproved: !!location.wfhApproved },
+            () => handlePunchIn(t, repeatTrim, punchMeasurementRef.current),
+        );
     };
 
     const submitExtendedHoursPunchOut = async () => {
@@ -1448,7 +1512,11 @@ export const Dashboard = () => {
                 return;
             }
         }
-        await handlePunchOut("", t, punchMeasurementRef.current);
+        runWithNhqWarningIfNeeded(
+            "out",
+            { wfhApproved: !!location.wfhApproved },
+            () => handlePunchOut("", t, punchMeasurementRef.current),
+        );
     };
     const probation = dynamicData.probation;
     const showProbationCard = probation?.show_on_dashboard;
@@ -2118,6 +2186,57 @@ export const Dashboard = () => {
                             onClick={submitRepeatPunchIn}
                         >
                             {isPunching ? "Submitting…" : "Confirm punch in"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        {nhqPunchModalOpen && (
+            <div
+                className="dashboard-repeat-punch-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="nhq-punch-warning-title"
+                onClick={() => {
+                    if (isPunching || punchBusy) return;
+                    setNhqPunchModalOpen(false);
+                    nhqPunchPendingRef.current = null;
+                }}
+            >
+                <div className="dashboard-repeat-punch-modal" onClick={(e) => e.stopPropagation()}>
+                    <h3 id="nhq-punch-warning-title">
+                        {nhqPunchModalMode === "out"
+                            ? "NHQ — web punch out notice"
+                            : "NHQ — web punch in notice"}
+                    </h3>
+                    <p className="dashboard-repeat-punch-hint">
+                        {nhqPunchModalMode === "out"
+                            ? "You punched in using the office biometric device. Punching out from the web app may not match NHQ attendance policy. You can continue if needed."
+                            : "NHQ employees are expected to mark attendance on the office biometric device unless you have an approved work-from-home day. You can continue with web punch in if needed."}
+                    </p>
+                    <div className="dashboard-repeat-punch-actions">
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn secondary"
+                            disabled={isPunching || punchBusy}
+                            onClick={() => {
+                                setNhqPunchModalOpen(false);
+                                nhqPunchPendingRef.current = null;
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="dashboard-repeat-punch-btn primary"
+                            disabled={isPunching || punchBusy}
+                            onClick={confirmNhqWebPunch}
+                        >
+                            {isPunching || punchBusy
+                                ? "Submitting…"
+                                : nhqPunchModalMode === "out"
+                                    ? "Continue punch out"
+                                    : "Continue punch in"}
                         </button>
                     </div>
                 </div>

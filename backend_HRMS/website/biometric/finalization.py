@@ -26,11 +26,64 @@ CATCHUP_LOOKBACK_DAYS = 7
 
 FINALIZE_HOUR = 20
 FINALIZE_MINUTE = 0
+LATE_SCAN_HOUR = 22
+LATE_SCAN_MINUTE = 0
 
 
 def cutoff_datetime_for_date(punch_date: date) -> datetime:
     """Naive IST wall-clock for 20:00:00 on the attendance date."""
     return datetime.combine(punch_date, time(FINALIZE_HOUR, FINALIZE_MINUTE, 0))
+
+
+def select_last_nhq_scan_on_day(
+    admin_id: int,
+    punch_date: date,
+    *,
+    after: datetime,
+    before: Optional[datetime] = None,
+    include_ignored_day_closed: bool = False,
+) -> Optional[BiometricLog]:
+    """
+    Latest NHQ-device scan on punch_date with after < punch_time <= before.
+    Tie-break: highest biometric_logs.id.
+
+    When include_ignored_day_closed is True, also counts scans stored after the
+    20:00 finalizer (status ignored_day_closed) for the 22:00 extend job.
+    """
+    from .scope import nhq_biometric_serials
+
+    nhq_serials = list(nhq_biometric_serials())
+    if not nhq_serials or after is None:
+        return None
+
+    statuses = ["processed"]
+    if include_ignored_day_closed:
+        statuses.append("ignored_day_closed")
+
+    rows = (
+        BiometricLog.query.filter(
+            BiometricLog.admin_id == admin_id,
+            BiometricLog.status.in_(statuses),
+            BiometricLog.punch_time.isnot(None),
+            BiometricLog.device_serial_number.in_(nhq_serials),
+        )
+        .all()
+    )
+
+    candidates: List[BiometricLog] = []
+    for row in rows:
+        pt = row.punch_time
+        if pt is None or pt.date() != punch_date:
+            continue
+        if pt <= after:
+            continue
+        if before is not None and pt > before:
+            continue
+        candidates.append(row)
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: (r.punch_time, r.id or 0))
 
 
 def select_final_out_log(
@@ -48,37 +101,12 @@ def select_final_out_log(
     if clock_in is None:
         return None
 
-    cutoff = cutoff_datetime_for_date(punch_date)
-    from .scope import nhq_biometric_serials
-
-    nhq_serials = list(nhq_biometric_serials())
-    if not nhq_serials:
-        return None
-
-    rows = (
-        BiometricLog.query.filter(
-            BiometricLog.admin_id == admin_id,
-            BiometricLog.status == "processed",
-            BiometricLog.punch_time.isnot(None),
-            BiometricLog.device_serial_number.in_(nhq_serials),
-        )
-        .all()
+    return select_last_nhq_scan_on_day(
+        admin_id,
+        punch_date,
+        after=clock_in,
+        before=cutoff_datetime_for_date(punch_date),
     )
-
-    candidates: List[BiometricLog] = []
-    for row in rows:
-        pt = row.punch_time
-        if pt is None or pt.date() != punch_date:
-            continue
-        if pt <= clock_in:
-            continue
-        if pt > cutoff:
-            continue
-        candidates.append(row)
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda r: (r.punch_time, r.id or 0))
 
 
 def _open_nhq_biometric_sessions_for_date(punch_date: date) -> List[PunchSession]:
@@ -324,6 +352,217 @@ def finalize_all_nhq_biometric_days(
                 summary["error_count"] += 1
                 logger.exception(
                     "BIOMETRIC_FINALIZE_ERROR admin_id=%s date=%s",
+                    punch.admin_id,
+                    punch_date,
+                )
+
+    return summary
+
+
+def _dates_for_late_scan_run(
+    *,
+    for_date: Optional[date] = None,
+    now_ist: Optional[datetime] = None,
+    include_catchup: bool = True,
+) -> List[date]:
+    """Attendance dates eligible for the 22:00 late-scan punch-out extension."""
+    now = now_ist or datetime.now(IST).replace(tzinfo=None)
+    today = now.date()
+    dates: List[date] = []
+
+    if for_date is not None:
+        if for_date > today:
+            return []
+        if for_date == today and now.time() < time(LATE_SCAN_HOUR, LATE_SCAN_MINUTE, 0):
+            return []
+        return [for_date]
+
+    if now.time() >= time(LATE_SCAN_HOUR, LATE_SCAN_MINUTE, 0):
+        dates.append(today)
+
+    if include_catchup:
+        for offset in range(1, CATCHUP_LOOKBACK_DAYS + 1):
+            dates.append(today - timedelta(days=offset))
+
+    return dates
+
+
+def extend_nhq_biometric_day(
+    admin_id: int,
+    punch_date: date,
+    *,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """
+    After 20:00 finalization, move punch-out forward when a later NHQ scan exists
+    (e.g. employee worked past 8 PM). Does not reopen sessions or overwrite web punch-out.
+    """
+    result: Dict[str, Any] = {
+        "admin_id": admin_id,
+        "punch_date": punch_date.isoformat(),
+        "extended": False,
+        "skipped": None,
+        "clock_out": None,
+        "out_log_id": None,
+    }
+
+    from .scope import _load_admin
+
+    admin = _load_admin(admin_id)
+    if not is_nhq_admin(admin):
+        result["skipped"] = "not_nhq_admin"
+        return result
+
+    punch = Punch.query.filter_by(admin_id=admin_id, punch_date=punch_date).first()
+    if punch is None:
+        result["skipped"] = "no_punch"
+        return result
+
+    open_sess = (
+        PunchSession.query.filter(
+            PunchSession.punch_id == punch.id,
+            PunchSession.clock_out.is_(None),
+        )
+        .first()
+    )
+    if open_sess is not None:
+        result["skipped"] = "open_session"
+        return result
+
+    sessions = (
+        PunchSession.query.filter_by(punch_id=punch.id)
+        .order_by(PunchSession.clock_in.desc())
+        .all()
+    )
+    target = None
+    for sess in sessions:
+        src = (getattr(sess, "source", None) or "").strip().lower()
+        if src == "biometric" and sess.clock_out is not None:
+            target = sess
+            break
+    if target is None:
+        result["skipped"] = "no_closed_biometric_session"
+        return result
+
+    closed_by = (getattr(target, "closed_by", None) or "").strip().lower()
+    if closed_by == "web":
+        result["skipped"] = "web_closed"
+        return result
+
+    cutoff = cutoff_datetime_for_date(punch_date)
+    late_log = select_last_nhq_scan_on_day(
+        admin_id,
+        punch_date,
+        after=cutoff,
+        include_ignored_day_closed=True,
+    )
+    if late_log is None or late_log.punch_time is None:
+        result["skipped"] = "no_late_scan"
+        return result
+
+    late_time = late_log.punch_time
+    if target.clock_out is not None and late_time <= target.clock_out:
+        result["skipped"] = "already_up_to_date"
+        return result
+
+    if dry_run:
+        result["extended"] = True
+        result["out_log_id"] = late_log.id
+        result["clock_out"] = late_time.isoformat()
+        result["dry_run"] = True
+        return result
+
+    target.clock_out = late_time
+    target.auto_punched_out = False
+
+    day_state = BiometricDayState.query.filter_by(
+        admin_id=admin_id,
+        punch_date=punch_date,
+    ).first()
+    if day_state is not None:
+        if day_state.last_scan_at is None or late_time > day_state.last_scan_at:
+            day_state.last_scan_at = late_time
+        if (day_state.status or "").strip() != "finalized":
+            day_state.status = "finalized"
+
+    recompute_punch_aggregate(punch)
+
+    try:
+        from ..attendance_realtime.publisher import queue_attendance_updated
+
+        queue_attendance_updated(
+            employee_admin_id=admin_id,
+            attendance_date=punch_date,
+            punch_session_id=target.id,
+            source="biometric",
+            event_time=late_time,
+        )
+    except Exception:
+        logger.exception("ATTENDANCE_SSE_QUEUE_FAILED late_scan_extend")
+
+    result["extended"] = True
+    result["out_log_id"] = late_log.id
+    result["clock_out"] = late_time.isoformat()
+    logger.info(
+        "BIOMETRIC_LATE_SCAN_EXTENDED admin_id=%s date=%s session_id=%s out=%s log_id=%s",
+        admin_id,
+        punch_date,
+        target.id,
+        late_time.isoformat(),
+        late_log.id,
+    )
+    return result
+
+
+def extend_all_nhq_biometric_days(
+    *,
+    for_date: Optional[date] = None,
+    include_catchup: bool = True,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """22:00 IST batch: extend punch-out for NHQ employees with scans after 20:00."""
+    now_ist = datetime.now(IST).replace(tzinfo=None)
+    dates = _dates_for_late_scan_run(
+        for_date=for_date,
+        now_ist=now_ist,
+        include_catchup=include_catchup,
+    )
+
+    summary: Dict[str, Any] = {
+        "run_at": now_ist.isoformat(),
+        "dates": [d.isoformat() for d in dates],
+        "extended_count": 0,
+        "skipped_count": 0,
+        "error_count": 0,
+        "results": [],
+    }
+
+    seen: set[tuple[int, date]] = set()
+    for punch_date in dates:
+        punches = Punch.query.filter_by(punch_date=punch_date).all()
+        for punch in punches:
+            key = (punch.admin_id, punch_date)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                res = extend_nhq_biometric_day(
+                    punch.admin_id,
+                    punch_date,
+                    dry_run=dry_run,
+                )
+                if not dry_run:
+                    db.session.commit()
+                summary["results"].append(res)
+                if res.get("extended"):
+                    summary["extended_count"] += 1
+                else:
+                    summary["skipped_count"] += 1
+            except Exception:
+                db.session.rollback()
+                summary["error_count"] += 1
+                logger.exception(
+                    "BIOMETRIC_LATE_SCAN_ERROR admin_id=%s date=%s",
                     punch.admin_id,
                     punch_date,
                 )

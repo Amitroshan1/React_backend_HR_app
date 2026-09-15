@@ -2383,6 +2383,13 @@ def create_app():
             "minute": 0,
         },
         {
+            "id": "biometric_late_scan",
+            "func": "website.scheduler:run_biometric_late_scan_job",
+            "trigger": "cron",
+            "hour": 22,
+            "minute": 0,
+        },
+        {
             "id": "daily_checkout_jobs",
             "func": "website.scheduler:run_daily_checkout_job",
             "trigger": "interval",
