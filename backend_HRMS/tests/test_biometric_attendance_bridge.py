@@ -860,6 +860,75 @@ def test_null_source_biometric_location_attaches_not_second_session(client, stac
         assert day.last_scan_at == datetime(2026, 8, 19, 9, 41, 30)
 
 
+def test_repair_duplicate_open_sessions_keeps_earliest(client, stack):
+    """Startup repair: keep 09:32 IN, remove later open duplicate only."""
+    with stack.app.app_context():
+        _setup_admin_10236(stack)
+        today = datetime.now().date()
+        punch = stack.Punch(admin_id=1, punch_date=today)
+        stack.db.session.add(punch)
+        stack.db.session.flush()
+        keep = stack.PunchSession(
+            punch_id=punch.id,
+            clock_in=datetime.combine(today, datetime.strptime("09:32:59", "%H:%M:%S").time()),
+            clock_out=None,
+            source="biometric",
+            is_wfh=False,
+            location_status_in="biometric_device",
+        )
+        dup = stack.PunchSession(
+            punch_id=punch.id,
+            clock_in=datetime.combine(today, datetime.strptime("09:41:30", "%H:%M:%S").time()),
+            clock_out=None,
+            source="biometric",
+            is_wfh=False,
+            location_status_in="biometric_device",
+        )
+        closed = stack.PunchSession(
+            punch_id=punch.id,
+            clock_in=datetime.combine(today, datetime.strptime("07:00:00", "%H:%M:%S").time()),
+            clock_out=datetime.combine(today, datetime.strptime("08:00:00", "%H:%M:%S").time()),
+            source="web",
+            is_wfh=False,
+        )
+        stack.db.session.add_all([keep, dup, closed])
+        stack.db.session.flush()
+        keep_id, dup_id, closed_id = keep.id, dup.id, closed.id
+        stack.db.session.add(
+            stack.BiometricLog(
+                device_serial_number="SN1",
+                device_user_id="10236",
+                punch_time=dup.clock_in,
+                status="processed",
+                idempotency_key=f"dup-log-{dup_id}",
+                punch_session_id=dup_id,
+                admin_id=1,
+            )
+        )
+        stack.db.session.commit()
+
+        summary = stack.punch_auto.repair_duplicate_open_sessions(lookback_days=7)
+        stack.db.session.commit()
+
+        assert summary["sessions_removed"] == 1
+        assert keep_id in summary["kept_ids"]
+        assert dup_id in summary["removed_ids"]
+        assert stack.PunchSession.query.get(keep_id) is not None
+        assert stack.PunchSession.query.get(dup_id) is None
+        assert stack.PunchSession.query.get(closed_id) is not None
+        assert stack.PunchSession.query.get(closed_id).clock_out is not None
+        open_count = stack.PunchSession.query.filter(
+            stack.PunchSession.clock_out.is_(None)
+        ).count()
+        assert open_count == 1
+        log = stack.BiometricLog.query.filter_by(idempotency_key=f"dup-log-{dup_id}").first()
+        assert log.punch_session_id == keep_id
+
+        # Idempotent second run
+        summary2 = stack.punch_auto.repair_duplicate_open_sessions(lookback_days=7)
+        assert summary2["sessions_removed"] == 0
+
+
 def test_stale_open_biometric_does_not_create_second_open_session(client, stack):
     """Cross-day open biometric must close prior before new IN — never two opens."""
     with stack.app.app_context():

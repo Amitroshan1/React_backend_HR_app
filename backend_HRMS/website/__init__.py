@@ -2313,6 +2313,30 @@ def create_app():
             db.session.rollback()
             app.logger.warning("comp_off_gains dedupe_key ensure skipped: %s", e)
 
+    def _repair_duplicate_open_punch_sessions():
+        """
+        On restart: remove same-day duplicate open sessions (keep earliest IN).
+        Idempotent; never deletes a lone open session or any closed session.
+        """
+        try:
+            from .punch_auto_close import repair_duplicate_open_sessions
+
+            summary = repair_duplicate_open_sessions(lookback_days=7)
+            if summary.get("sessions_removed"):
+                db.session.commit()
+                app.logger.info(
+                    "DUPLICATE_OPEN_SESSION_REPAIR punch_rows=%s removed=%s kept=%s removed_ids=%s",
+                    summary.get("punch_rows_fixed"),
+                    summary.get("sessions_removed"),
+                    summary.get("kept_ids"),
+                    summary.get("removed_ids"),
+                )
+            else:
+                db.session.rollback()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.warning("Duplicate open session repair skipped: %s", e)
+
     with app.app_context():
         try:
             _ensure_upload_doc_identity_columns()
@@ -2375,6 +2399,7 @@ def create_app():
             _ensure_exit_interview_table()
             _ensure_comp_off_gain_dedupe_key()
             _cleanup_zero_qty_inventory_rows()
+            _repair_duplicate_open_punch_sessions()
         except Exception as e:
             app.logger.error(
                 "Schema bootstrap failed (app will still start): %s", e, exc_info=True
