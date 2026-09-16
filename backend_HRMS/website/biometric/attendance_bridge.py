@@ -11,7 +11,9 @@ Translates stored biometric_logs into existing attendance using:
 Does NOT call auth.punch_in / auth.punch_out.
 Does NOT apply geo-fence.
 Does NOT interpret device state as IN/OUT.
-Does NOT close sessions on subsequent scans (OUT via web, 20:00 NHQ finalizer, or 10h auto-close for non-NHQ).
+Does NOT close sessions on subsequent scans (OUT via web, 20:00 NHQ finalizer,
+or 10h auto-close for non-NHQ). Same-day reconnect bursts never open a second
+session; cross-day stale opens are closed before a new IN.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ _DONE_STATUSES = frozenset(
     {
         "processed",
         "ignored_open_web_session",
+        "ignored_open_session",
         "unknown_employee",
         "invalid_mapping",
         "ambiguous_employee_mapping",
@@ -80,9 +83,25 @@ def _is_biometric_session(sess) -> bool:
     return _session_source(sess) == SOURCE_BIOMETRIC
 
 
+def _looks_like_biometric_session(sess) -> bool:
+    """
+    True when session is biometric by source, or by device location markers.
+
+    Covers reconnect/race rows where source failed to persist but
+    location_status*_in was set to biometric_device at open.
+    """
+    if _is_biometric_session(sess):
+        return True
+    for attr in ("location_status_in", "location_status"):
+        loc = (getattr(sess, attr, None) or "").strip().lower()
+        if loc == "biometric_device":
+            return True
+    return False
+
+
 def _open_biometric_session_for_day(admin_id: int, punch_date):
     """
-    Open biometric PunchSession scoped to admin + calendar punch_date only.
+    Open PunchSession scoped to admin + calendar punch_date only.
 
     Does not replace open_punch_session_for_admin (web / night-shift global behavior).
     """
@@ -110,6 +129,184 @@ def _session_punch_date(sess) -> Optional[object]:
     return None
 
 
+def _ignore_open_web_session(log: BiometricLog, open_sess, *, detail: Optional[str] = None) -> str:
+    log.status = "ignored_open_web_session"
+    log.punch_session_id = getattr(open_sess, "id", None)
+    log.error_message = (detail or None)
+    if log.error_message:
+        log.error_message = str(log.error_message)[:500]
+    logger.info(
+        "BIOMETRIC_IGNORED_OPEN_WEB admin_id=%s session_id=%s log_id=%s detail=%s",
+        log.admin_id,
+        getattr(open_sess, "id", None),
+        log.id,
+        detail,
+    )
+    return log.status
+
+
+def _ignore_open_prior_session(log: BiometricLog, open_sess, *, detail: str) -> str:
+    """Hard guard: never open a second session while another remains open."""
+    log.status = "ignored_open_session"
+    log.punch_session_id = getattr(open_sess, "id", None)
+    log.error_message = (detail or "open_session_blocks_new_in")[:500]
+    logger.info(
+        "BIOMETRIC_IGNORED_OPEN_SESSION admin_id=%s session_id=%s log_id=%s detail=%s",
+        log.admin_id,
+        getattr(open_sess, "id", None),
+        log.id,
+        detail,
+    )
+    return log.status
+
+
+def _force_close_stale_open_session(open_sess, *, punch_time: datetime) -> bool:
+    """
+    Last-resort close for a prior-day open biometric session so a new calendar
+    day can open IN without leaving two concurrent open sessions.
+
+    Prefer day-state last_scan_at, else NHQ 20:00 cutoff, else clock_in.
+    """
+    if open_sess is None or open_sess.clock_out is not None:
+        return False
+    from ..models.attendance import Punch
+    from ..punch_auto_close import AUTO_PUNCH_NO_LIVE_GPS, close_punch_session
+
+    punch = getattr(open_sess, "punch", None)
+    if punch is None and open_sess.punch_id:
+        punch = Punch.query.get(open_sess.punch_id)
+    if punch is None or not open_sess.clock_in:
+        return False
+
+    out_at = None
+    day = BiometricDayState.query.filter_by(
+        admin_id=punch.admin_id,
+        punch_date=punch.punch_date,
+    ).first()
+    if day and day.last_scan_at and day.last_scan_at > open_sess.clock_in:
+        out_at = day.last_scan_at
+    if out_at is None:
+        try:
+            from .finalization import cutoff_datetime_for_date
+
+            cut = cutoff_datetime_for_date(punch.punch_date)
+            if cut > open_sess.clock_in:
+                out_at = cut
+        except Exception:
+            out_at = None
+    if out_at is None:
+        out_at = open_sess.clock_in
+
+    close_punch_session(
+        open_sess,
+        punch,
+        is_auto=True,
+        location_status_out=AUTO_PUNCH_NO_LIVE_GPS,
+        clock_out_at=out_at,
+        closed_by="system",
+        extended_hours_reason="Stale biometric session closed before new-day punch-in",
+    )
+    db.session.flush()
+    logger.info(
+        "BIOMETRIC_STALE_SESSION_FORCE_CLOSED session_id=%s admin_id=%s out=%s "
+        "triggered_by=%s",
+        open_sess.id,
+        punch.admin_id,
+        out_at.isoformat() if out_at else None,
+        punch_time.isoformat(),
+    )
+    return open_sess.clock_out is not None
+
+
+def _handle_existing_open_session(
+    *,
+    log: BiometricLog,
+    admin_id: int,
+    punch_date,
+    punch_time: datetime,
+) -> Optional[str]:
+    """
+    Enforce at most one open PunchSession per employee.
+
+    Returns a terminal log status when the scan was fully handled
+    (subsequent activity, ignored, etc). Returns None only when it is
+    safe to open a new biometric IN (no open session remains).
+
+    Preserves existing behavior:
+      - open web / legacy-null source → ignored_open_web_session
+      - same-day biometric open → subsequent scan (no new session)
+      - cross-day biometric open → close stale (finalize / 10h / force),
+        then allow new IN only after prior is closed
+    """
+    from ..punch_aggregate import open_punch_session_for_admin
+
+    global_open = open_punch_session_for_admin(admin_id)
+    day_open = _open_biometric_session_for_day(admin_id, punch_date)
+    open_sess = global_open or day_open
+    if open_sess is None:
+        return None
+
+    # Prefer the same-calendar-day open row when both exist (reconnect burst).
+    if (
+        day_open is not None
+        and global_open is not None
+        and getattr(day_open, "id", None) != getattr(global_open, "id", None)
+    ):
+        open_sess = day_open
+
+    if not _looks_like_biometric_session(open_sess):
+        return _ignore_open_web_session(
+            log,
+            open_sess,
+            detail=f"open_session_source={_session_source(open_sess)}",
+        )
+
+    sess_date = _session_punch_date(open_sess)
+    clock_day = open_sess.clock_in.date() if open_sess.clock_in else None
+    same_day = (sess_date == punch_date) or (clock_day == punch_date)
+
+    if same_day:
+        return _process_subsequent_biometric_scan(
+            log=log,
+            admin_id=admin_id,
+            punch_date=punch_date,
+            punch_time=punch_time,
+            open_sess=open_sess,
+        )
+
+    closed = _maybe_close_stale_biometric_session(open_sess, now=punch_time)
+    db.session.flush()
+    if open_sess.clock_out is None:
+        closed = _force_close_stale_open_session(open_sess, punch_time=punch_time)
+    if not closed and open_sess.clock_out is None:
+        # Should be unreachable; refuse second open rather than corrupt attendance.
+        return _ignore_open_prior_session(
+            log,
+            open_sess,
+            detail=f"open_prior_day_session date={sess_date}",
+        )
+
+    # Prior day closed — ensure nothing else is still open before new IN.
+    still_open = open_punch_session_for_admin(admin_id)
+    if still_open is not None:
+        still_date = _session_punch_date(still_open)
+        still_clock_day = still_open.clock_in.date() if still_open.clock_in else None
+        if still_date == punch_date or still_clock_day == punch_date:
+            return _process_subsequent_biometric_scan(
+                log=log,
+                admin_id=admin_id,
+                punch_date=punch_date,
+                punch_time=punch_time,
+                open_sess=still_open,
+            )
+        return _ignore_open_prior_session(
+            log,
+            still_open,
+            detail=f"open_session_remains date={still_date}",
+        )
+    return None
+
+
 def _maybe_close_stale_biometric_session(open_sess, *, now: Optional[datetime] = None) -> bool:
     """
     Close a cross-day stale biometric session.
@@ -117,7 +314,7 @@ def _maybe_close_stale_biometric_session(open_sess, *, now: Optional[datetime] =
     NHQ biometric: finalize using that day's 20:00 IST cutoff (catch-up safe).
     Other biometric: existing 10h cap when overdue.
     """
-    if open_sess is None or not _is_biometric_session(open_sess):
+    if open_sess is None or not _looks_like_biometric_session(open_sess):
         return False
 
     now = now or datetime.now()
@@ -394,10 +591,7 @@ def process_biometric_log(
     assert admin_id is not None
 
     from ..models.attendance import PunchSession
-    from ..punch_aggregate import (
-        open_punch_session_for_admin,
-        recompute_punch_aggregate,
-    )
+    from ..punch_aggregate import recompute_punch_aggregate
     from ..utility import is_on_leave
 
     log.admin_id = admin_id
@@ -423,64 +617,28 @@ def process_biometric_log(
         )
         return log.status
 
-    global_open = open_punch_session_for_admin(admin_id)
+    # Fast path: attach to / respect any existing open session (no new IN).
+    handled = _handle_existing_open_session(
+        log=log,
+        admin_id=admin_id,
+        punch_date=punch_date,
+        punch_time=punch_time,
+    )
+    if handled is not None:
+        return handled
 
-    if global_open is not None and _is_web_session(global_open):
-        log.status = "ignored_open_web_session"
-        log.punch_session_id = global_open.id
-        log.error_message = None
-        logger.info(
-            "BIOMETRIC_IGNORED_OPEN_WEB admin_id=%s session_id=%s log_id=%s",
-            admin_id,
-            global_open.id,
-            log.id,
-        )
-        return log.status
-
-    bio_sess = _open_biometric_session_for_day(admin_id, punch_date)
-    if bio_sess is not None and _is_biometric_session(bio_sess):
-        sess_date = _session_punch_date(bio_sess)
-        if sess_date == punch_date:
-            return _process_subsequent_biometric_scan(
-                log=log,
-                admin_id=admin_id,
-                punch_date=punch_date,
-                punch_time=punch_time,
-                open_sess=bio_sess,
-            )
-
-    if global_open is not None and _is_biometric_session(global_open):
-        stale_date = _session_punch_date(global_open)
-        if stale_date is not None and stale_date != punch_date:
-            _maybe_close_stale_biometric_session(global_open, now=punch_time)
-            db.session.flush()
-        elif stale_date == punch_date:
-            return _process_subsequent_biometric_scan(
-                log=log,
-                admin_id=admin_id,
-                punch_date=punch_date,
-                punch_time=punch_time,
-                open_sess=global_open,
-            )
-
-    if global_open is not None and not _is_biometric_session(global_open):
-        log.status = "ignored_open_web_session"
-        log.punch_session_id = global_open.id
-        log.error_message = f"open_session_source={_session_source(global_open)}"
-        return log.status
-
-    # No open session for this scan date → first biometric scan = IN
+    # Serialize creates on the punch row (reconnect bursts / multi-worker).
     punch = _get_or_create_punch(admin_id, punch_date)
 
-    bio_sess = _open_biometric_session_for_day(admin_id, punch_date)
-    if bio_sess is not None and _is_biometric_session(bio_sess):
-        return _process_subsequent_biometric_scan(
-            log=log,
-            admin_id=admin_id,
-            punch_date=punch_date,
-            punch_time=punch_time,
-            open_sess=bio_sess,
-        )
+    # Re-check under punch lock: another worker may have opened IN first.
+    handled = _handle_existing_open_session(
+        log=log,
+        admin_id=admin_id,
+        punch_date=punch_date,
+        punch_time=punch_time,
+    )
+    if handled is not None:
+        return handled
 
     closed_count = (
         PunchSession.query.filter(
@@ -508,10 +666,48 @@ def process_biometric_log(
     try:
         sess.source = SOURCE_BIOMETRIC
     except Exception:
-        pass
+        logger.exception(
+            "BIOMETRIC_SOURCE_SET_FAILED admin_id=%s punch_id=%s log_id=%s",
+            admin_id,
+            punch.id,
+            log.id,
+        )
 
     db.session.add(sess)
     db.session.flush()
+
+    # Final hard guard: if another open row appeared (reconnect burst), keep the
+    # earliest IN and treat this scan as subsequent activity on that row.
+    from ..models.attendance import Punch
+
+    other_open = (
+        PunchSession.query.join(Punch, PunchSession.punch_id == Punch.id)
+        .filter(
+            Punch.admin_id == admin_id,
+            PunchSession.clock_out.is_(None),
+            PunchSession.id != sess.id,
+        )
+        .order_by(PunchSession.clock_in.asc())
+        .first()
+    )
+    if other_open is not None:
+        db.session.delete(sess)
+        db.session.flush()
+        logger.warning(
+            "BIOMETRIC_DUPLICATE_OPEN_PREVENTED admin_id=%s kept_session=%s "
+            "discarded_clock_in=%s log_id=%s",
+            admin_id,
+            other_open.id,
+            punch_time.isoformat(),
+            log.id,
+        )
+        return _process_subsequent_biometric_scan(
+            log=log,
+            admin_id=admin_id,
+            punch_date=punch_date,
+            punch_time=punch_time,
+            open_sess=other_open,
+        )
 
     _upsert_day_state(
         admin_id=admin_id,

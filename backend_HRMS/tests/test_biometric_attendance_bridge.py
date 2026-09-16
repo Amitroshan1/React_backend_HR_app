@@ -811,6 +811,75 @@ def test_biometric_same_day_subsequent_scan_does_not_create_second_session(clien
         assert day.last_scan_at == datetime(2026, 8, 19, 10, 20, 0)
 
 
+def test_offline_reconnect_burst_single_session(client, stack):
+    """Device offline then dumps several scans at once → one punch-in only."""
+    with stack.app.app_context():
+        _setup_admin_10236(stack)
+        body = "\n".join(
+            [
+                _att_10236("2026-08-19 09:32:59"),
+                _att_10236("2026-08-19 09:33:00"),
+                _att_10236("2026-08-19 09:41:30"),
+                _att_10236("2026-08-19 10:10:22"),
+                _att_10236("2026-08-19 10:10:23"),
+            ]
+        )
+        _post_attlog(client, body)
+        assert stack.PunchSession.query.count() == 1
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_in == datetime(2026, 8, 19, 9, 32, 59)
+        assert sess.clock_out is None
+        day = stack.BiometricDayState.query.first()
+        assert day.last_scan_at == datetime(2026, 8, 19, 10, 10, 23)
+        assert stack.BiometricLog.query.filter_by(status="processed").count() == 5
+
+
+def test_null_source_biometric_location_attaches_not_second_session(client, stack):
+    """Reconnect race: open row missing source but marked biometric_device."""
+    with stack.app.app_context():
+        _setup_admin_10236(stack)
+        punch = stack.Punch(admin_id=1, punch_date=datetime(2026, 8, 19).date())
+        stack.db.session.add(punch)
+        stack.db.session.flush()
+        orphan = stack.PunchSession(
+            punch_id=punch.id,
+            clock_in=datetime(2026, 8, 19, 9, 32, 59),
+            clock_out=None,
+            is_wfh=False,
+            location_status="biometric_device",
+            location_status_in="biometric_device",
+        )
+        # source intentionally left NULL
+        stack.db.session.add(orphan)
+        stack.db.session.commit()
+
+        _post_attlog(client, _att_10236("2026-08-19 09:41:30"))
+        assert stack.PunchSession.query.count() == 1
+        assert stack.PunchSession.query.first().id == orphan.id
+        day = stack.BiometricDayState.query.first()
+        assert day.last_scan_at == datetime(2026, 8, 19, 9, 41, 30)
+
+
+def test_stale_open_biometric_does_not_create_second_open_session(client, stack):
+    """Cross-day open biometric must close prior before new IN — never two opens."""
+    with stack.app.app_context():
+        _setup_admin_10236(stack)
+        _, old = _stale_biometric_session(
+            stack,
+            punch_date=datetime(2026, 8, 17).date(),
+            clock_in=datetime(2026, 8, 17, 9, 0, 0),
+            clock_out=None,
+        )
+        _post_attlog(client, _att_10236("2026-08-19 10:08:03"))
+        open_count = stack.PunchSession.query.filter(
+            stack.PunchSession.clock_out.is_(None)
+        ).count()
+        assert open_count == 1
+        old = stack.PunchSession.query.get(old.id)
+        assert old.clock_out is not None
+        assert stack.PunchSession.query.count() == 2
+
+
 def test_biometric_new_day_after_prior_auto_closed_session(client, stack):
     with stack.app.app_context():
         _setup_admin_10236(stack)

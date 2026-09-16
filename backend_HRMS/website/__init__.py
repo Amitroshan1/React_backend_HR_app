@@ -1231,37 +1231,84 @@ def create_app():
                         app.logger.info("Added column daily_checkout_assignments.fulfillment_json")
 
             # Allow multiple day-use units per request (drop unique on request_id).
+            # MySQL: FK on request_id uses the unique index — add a non-unique index first.
             holds_table = "daily_unit_holds"
-            if holds_table in set(inspect(db.engine).get_table_names()):
+            fk_index_name = "ix_daily_unit_holds_request_id_nu"
+
+            def _migrate_daily_unit_holds_allow_multi_unit():
+                if holds_table not in set(inspect(db.engine).get_table_names()):
+                    return
                 dialect = db.engine.dialect.name
-                insp = inspect(db.engine)
-                dropped = False
-                for uq in insp.get_unique_constraints(holds_table) or []:
+                table_insp = inspect(db.engine)
+                indexes = table_insp.get_indexes(holds_table) or []
+                unique_on_request = []
+                non_unique_on_request = []
+                for ix in indexes:
+                    cols = list(ix.get("column_names") or [])
+                    name = ix.get("name")
+                    if not name or cols != ["request_id"]:
+                        continue
+                    if ix.get("unique"):
+                        unique_on_request.append(name)
+                    else:
+                        non_unique_on_request.append(name)
+                for uq in table_insp.get_unique_constraints(holds_table) or []:
                     cols = list(uq.get("column_names") or [])
                     name = uq.get("name")
-                    if name and cols == ["request_id"]:
+                    if name and cols == ["request_id"] and name not in unique_on_request:
+                        unique_on_request.append(name)
+
+                if not unique_on_request:
+                    if not non_unique_on_request and dialect == "mysql":
                         with db.engine.begin() as conn:
-                            if dialect == "mysql":
-                                conn.execute(text(f"ALTER TABLE {holds_table} DROP INDEX `{name}`"))
-                            elif dialect == "postgresql":
-                                conn.execute(text(f'ALTER TABLE {holds_table} DROP CONSTRAINT IF EXISTS "{name}"'))
-                            else:
-                                # SQLite cannot drop unique easily; recreate is out of scope.
-                                pass
-                        dropped = True
-                        app.logger.info("Dropped unique constraint %s on %s.request_id", name, holds_table)
-                if not dropped:
-                    for ix in insp.get_indexes(holds_table) or []:
-                        cols = list(ix.get("column_names") or [])
-                        name = ix.get("name")
-                        if name and ix.get("unique") and cols == ["request_id"]:
-                            with db.engine.begin() as conn:
-                                if dialect == "mysql":
-                                    conn.execute(text(f"ALTER TABLE {holds_table} DROP INDEX `{name}`"))
-                                elif dialect == "postgresql":
-                                    conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
-                            app.logger.info("Dropped unique index %s on %s.request_id", name, holds_table)
-                            break
+                            conn.execute(
+                                text(
+                                    f"ALTER TABLE {holds_table} ADD INDEX `{fk_index_name}` (`request_id`)"
+                                )
+                            )
+                        app.logger.info(
+                            "Added non-unique index %s on %s.request_id",
+                            fk_index_name,
+                            holds_table,
+                        )
+                    return
+
+                with db.engine.begin() as conn:
+                    if dialect == "mysql":
+                        if not non_unique_on_request:
+                            conn.execute(
+                                text(
+                                    f"ALTER TABLE {holds_table} ADD INDEX `{fk_index_name}` (`request_id`)"
+                                )
+                            )
+                        for name in unique_on_request:
+                            conn.execute(
+                                text(f"ALTER TABLE {holds_table} DROP INDEX `{name}`")
+                            )
+                    elif dialect == "postgresql":
+                        if not non_unique_on_request:
+                            conn.execute(
+                                text(
+                                    f'CREATE INDEX IF NOT EXISTS "{fk_index_name}" '
+                                    f"ON {holds_table} (request_id)"
+                                )
+                            )
+                        for name in unique_on_request:
+                            conn.execute(
+                                text(
+                                    f'ALTER TABLE {holds_table} DROP CONSTRAINT IF EXISTS "{name}"'
+                                )
+                            )
+                            conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
+                    # SQLite: unique drop needs table rebuild; out of scope for prod MySQL.
+
+                app.logger.info(
+                    "Dropped unique on %s.request_id (%s); multi-unit holds enabled",
+                    holds_table,
+                    ", ".join(unique_on_request),
+                )
+
+            _migrate_daily_unit_holds_allow_multi_unit()
         except Exception as e:
             app.logger.warning("Day-use checkout tables ensure skipped: %s", e)
 
