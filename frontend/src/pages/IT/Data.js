@@ -961,32 +961,23 @@ export const notifyInventoryChange = () => {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  IMAGE COMPRESSION HELPER
+//  IMAGE UPLOAD HELPER (original quality — no resize / re-encode)
 // ══════════════════════════════════════════════════════════════════════════════
 
-export const compressImage = (
-  file,
-  { maxWidth = 800, maxHeight = 800, quality = 0.65 } = {},
-) =>
+/**
+ * Read an image file as a data URL without compressing.
+ * Options are accepted for call-site compatibility but ignored.
+ * Returns the same Promise<dataURL> shape used by IT photo flows.
+ */
+export const compressImage = (file, _options = {}) =>
   new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("No file provided"));
+      return;
+    }
     const reader = new FileReader();
     reader.onerror = reject;
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => {
-        let { width, height } = img;
-        const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
-        width = Math.round(width * ratio);
-        height = Math.round(height * ratio);
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.src = e.target.result;
-    };
+    reader.onload = () => resolve(reader.result);
     reader.readAsDataURL(file);
   });
 
