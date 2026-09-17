@@ -1937,12 +1937,12 @@ def punch_in():
             "message": "You are on approved leave today"
         }), 403
 
-    # ❌ WFH not approved
-    if is_wfh and not is_wfh_allowed(employee.id):
-        return jsonify({
-            "success": False,
-            "message": "WFH mode is not approved for today"
-        }), 403
+    # Unapproved WFH: do not block — require a written reason (same as outside geofence).
+    # Only approved WFH may mark the session as is_wfh.
+    wfh_approved = is_wfh_allowed(employee.id)
+    wfh_requested_unapproved = bool(is_wfh) and not wfh_approved
+    if wfh_requested_unapproved:
+        is_wfh = False
 
     existing_open = open_punch_session_for_admin(employee.id)
     if existing_open:
@@ -2007,21 +2007,24 @@ def punch_in():
     zone = geo_result.zone
     location_status = geo_result.location_status
 
-    # Anti punch-in bypass: policy REQUIRE_REASON → WFH or written reason.
-    if geo_result.requires_reason:
-        wfh_ok = is_wfh or is_wfh_allowed(employee.id)
-        if is_wfh and not is_wfh_allowed(employee.id):
-            return jsonify({
-                "success": False,
-                "message": "WFH mode is not approved for today",
-            }), 403
+    # Outside geofence OR unapproved WFH request → approved WFH or written reason.
+    needs_reason = bool(geo_result.requires_reason) or wfh_requested_unapproved
+    if needs_reason:
+        wfh_ok = wfh_approved
         if not wfh_ok and len(geo_reason) < min_reason:
-            return jsonify({
-                "success": False,
-                "message": (
+            if wfh_requested_unapproved and not geo_result.requires_reason:
+                reason_msg = (
+                    f"WFH is not approved for today. "
+                    f"Enter a reason (at least {min_reason} characters) to punch in."
+                )
+            else:
+                reason_msg = (
                     f"You are outside the office geofence. "
                     f"Enter a reason (at least {min_reason} characters) or use approved WFH."
-                ),
+                )
+            return jsonify({
+                "success": False,
+                "message": reason_msg,
                 "requires_geo_reason": True,
                 "zone": zone,
                 "geo_decision": geo_result.geo_decision,
@@ -2037,12 +2040,13 @@ def punch_in():
                     "audit_insert_ms": (geo_result.diagnostics or {}).get("audit_insert_ms"),
                 },
             }), 400
-        if wfh_ok and not is_wfh:
+        # Approved WFH may satisfy outside-geofence without a written reason.
+        if wfh_ok and geo_result.requires_reason:
             is_wfh = True
 
     now = datetime.now()
     stored_repeat = repeat_reason if closed_count > 0 else None
-    if geo_result.requires_reason and geo_reason:
+    if needs_reason and geo_reason:
         geo_note = f"geo: {geo_reason}"
         stored_repeat = f"{stored_repeat} | {geo_note}" if stored_repeat else geo_note
 

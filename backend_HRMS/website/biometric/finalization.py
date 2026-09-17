@@ -445,9 +445,8 @@ def extend_nhq_biometric_day(
         return result
 
     closed_by = (getattr(target, "closed_by", None) or "").strip().lower()
-    if closed_by == "web":
-        result["skipped"] = "web_closed"
-        return result
+    # NHQ biometric last scan has priority over a prior web punch-out.
+    # (Still skip if already up to date below.)
 
     cutoff = cutoff_datetime_for_date(punch_date)
     late_log = select_last_nhq_scan_on_day(
@@ -470,10 +469,22 @@ def extend_nhq_biometric_day(
         result["out_log_id"] = late_log.id
         result["clock_out"] = late_time.isoformat()
         result["dry_run"] = True
+        result["overrode_web"] = closed_by == "web"
         return result
 
     target.clock_out = late_time
     target.auto_punched_out = False
+    try:
+        target.closed_by = "biometric"
+    except Exception:
+        pass
+    if closed_by == "web":
+        try:
+            target.extended_hours_reason = (
+                "NHQ biometric last scan overrides web punch-out"
+            )
+        except Exception:
+            pass
 
     day_state = BiometricDayState.query.filter_by(
         admin_id=admin_id,

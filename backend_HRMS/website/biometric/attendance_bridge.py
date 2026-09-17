@@ -145,6 +145,219 @@ def _ignore_open_web_session(log: BiometricLog, open_sess, *, detail: Optional[s
     return log.status
 
 
+def _nhq_scope_for_log(
+    admin_id: int,
+    log: BiometricLog,
+    *,
+    device_serial: Optional[str] = None,
+) -> bool:
+    from .scope import is_nhq_biometric_scope, _load_admin
+
+    admin = _load_admin(admin_id)
+    serial = device_serial or getattr(log, "device_serial_number", None)
+    return is_nhq_biometric_scope(admin, serial)
+
+
+def _supersede_same_day_open_web_for_nhq(
+    *,
+    log: BiometricLog,
+    admin_id: int,
+    punch_date,
+    punch_time: datetime,
+    open_sess,
+    device_serial: Optional[str] = None,
+) -> Optional[str]:
+    """
+    NHQ hard priority: convert same-day open web session into biometric IN.
+
+    Returns a terminal log status when converted; None if not applicable
+    (caller should keep ignoring open web for non-NHQ).
+    """
+    if open_sess is None or open_sess.clock_out is not None:
+        return None
+    if _looks_like_biometric_session(open_sess):
+        return None
+    if not _nhq_scope_for_log(admin_id, log, device_serial=device_serial):
+        return None
+
+    sess_date = _session_punch_date(open_sess)
+    clock_day = open_sess.clock_in.date() if open_sess.clock_in else None
+    same_day = (sess_date == punch_date) or (clock_day == punch_date)
+    if not same_day:
+        return None
+
+    from ..punch_aggregate import recompute_punch_aggregate
+
+    prev_in = open_sess.clock_in
+    open_sess.clock_in = punch_time
+    try:
+        open_sess.source = SOURCE_BIOMETRIC
+    except Exception:
+        pass
+    open_sess.is_wfh = False
+    open_sess.lat = None
+    open_sess.lon = None
+    open_sess.location_status = "biometric_device"
+    open_sess.location_status_in = "biometric_device"
+    open_sess.location_status_out = None
+    open_sess.repeat_reason = "nhq_biometric_overrides_web"
+    try:
+        open_sess.extended_hours_reason = None
+    except Exception:
+        pass
+
+    punch = getattr(open_sess, "punch", None)
+    if punch is None and open_sess.punch_id:
+        from ..models.attendance import Punch
+
+        punch = Punch.query.get(open_sess.punch_id)
+
+    _upsert_day_state(
+        admin_id=admin_id,
+        punch_date=punch_date,
+        punch_session_id=open_sess.id,
+        scan_at=punch_time,
+    )
+    if punch is not None:
+        recompute_punch_aggregate(punch)
+
+    log.status = "processed"
+    log.punch_session_id = open_sess.id
+    log.error_message = None
+    logger.info(
+        "BIOMETRIC_OVERRIDES_WEB_OPEN admin_id=%s session_id=%s prev_web_in=%s "
+        "bio_in=%s log_id=%s",
+        admin_id,
+        open_sess.id,
+        prev_in.isoformat() if prev_in else None,
+        punch_time.isoformat() if punch_time else None,
+        log.id,
+    )
+    try:
+        from ..attendance_realtime.publisher import queue_attendance_updated
+
+        queue_attendance_updated(
+            employee_admin_id=admin_id,
+            attendance_date=punch_date,
+            punch_session_id=open_sess.id,
+            source="biometric",
+            event_time=punch_time,
+        )
+    except Exception:
+        logger.exception("ATTENDANCE_SSE_QUEUE_FAILED nhq_override_web_in")
+    return log.status
+
+
+def _apply_nhq_scan_to_closed_biometric_out(
+    *,
+    log: BiometricLog,
+    admin_id: int,
+    punch_date,
+    punch_time: datetime,
+    device_serial: Optional[str] = None,
+) -> Optional[str]:
+    """
+    NHQ hard priority: after web (or system) closed a biometric session, a later
+    machine scan still updates punch-out to the last scan (does not open a new IN).
+    """
+    if not _nhq_scope_for_log(admin_id, log, device_serial=device_serial):
+        return None
+
+    from ..models.attendance import Punch, PunchSession
+    from ..punch_aggregate import recompute_punch_aggregate
+
+    punch = Punch.query.filter_by(admin_id=admin_id, punch_date=punch_date).first()
+    if punch is None:
+        return None
+
+    closed_bio = (
+        PunchSession.query.filter(
+            PunchSession.punch_id == punch.id,
+            PunchSession.clock_out.isnot(None),
+        )
+        .order_by(PunchSession.clock_in.desc())
+        .all()
+    )
+    target = next((s for s in closed_bio if _looks_like_biometric_session(s)), None)
+    if target is None or not target.clock_in:
+        return None
+    if punch_time <= target.clock_in:
+        return None
+
+    # Always move OUT forward to last scan (overrides web-closed OUT).
+    if target.clock_out is not None and punch_time <= target.clock_out:
+        # Still record activity on day state / log for idempotent later finalizers.
+        _upsert_day_state(
+            admin_id=admin_id,
+            punch_date=punch_date,
+            punch_session_id=target.id,
+            scan_at=punch_time,
+        )
+        log.status = "processed"
+        log.punch_session_id = target.id
+        log.error_message = "activity_after_out"
+        return log.status
+
+    prev_out = target.clock_out
+    target.clock_out = punch_time
+    target.auto_punched_out = False
+    try:
+        target.closed_by = "biometric"
+    except Exception:
+        pass
+    try:
+        target.extended_hours_reason = "NHQ biometric last scan overrides prior punch-out"
+    except Exception:
+        pass
+
+    state = BiometricDayState.query.filter_by(
+        admin_id=admin_id, punch_date=punch_date
+    ).first()
+    if state is None:
+        state = BiometricDayState(
+            admin_id=admin_id,
+            punch_date=punch_date,
+            punch_session_id=target.id,
+            first_scan_at=target.clock_in,
+            last_scan_at=punch_time,
+            status="open",
+        )
+        db.session.add(state)
+    else:
+        state.punch_session_id = target.id
+        if state.first_scan_at is None or target.clock_in < state.first_scan_at:
+            state.first_scan_at = target.clock_in
+        if state.last_scan_at is None or punch_time > state.last_scan_at:
+            state.last_scan_at = punch_time
+
+    recompute_punch_aggregate(punch)
+    log.status = "processed"
+    log.punch_session_id = target.id
+    log.error_message = None
+    logger.info(
+        "BIOMETRIC_OVERRIDES_WEB_OUT admin_id=%s session_id=%s prev_out=%s "
+        "new_out=%s log_id=%s",
+        admin_id,
+        target.id,
+        prev_out.isoformat() if prev_out else None,
+        punch_time.isoformat(),
+        log.id,
+    )
+    try:
+        from ..attendance_realtime.publisher import queue_attendance_updated
+
+        queue_attendance_updated(
+            employee_admin_id=admin_id,
+            attendance_date=punch_date,
+            punch_session_id=target.id,
+            source="biometric",
+            event_time=punch_time,
+        )
+    except Exception:
+        logger.exception("ATTENDANCE_SSE_QUEUE_FAILED nhq_override_out")
+    return log.status
+
+
 def _ignore_open_prior_session(log: BiometricLog, open_sess, *, detail: str) -> str:
     """Hard guard: never open a second session while another remains open."""
     log.status = "ignored_open_session"
@@ -224,6 +437,7 @@ def _handle_existing_open_session(
     admin_id: int,
     punch_date,
     punch_time: datetime,
+    device_serial: Optional[str] = None,
 ) -> Optional[str]:
     """
     Enforce at most one open PunchSession per employee.
@@ -232,11 +446,14 @@ def _handle_existing_open_session(
     (subsequent activity, ignored, etc). Returns None only when it is
     safe to open a new biometric IN (no open session remains).
 
-    Preserves existing behavior:
+    Preserves existing behavior for non-NHQ:
       - open web / legacy-null source → ignored_open_web_session
       - same-day biometric open → subsequent scan (no new session)
       - cross-day biometric open → close stale (finalize / 10h / force),
         then allow new IN only after prior is closed
+
+    NHQ hard priority:
+      - same-day open web is superseded so biometric IN proceeds
     """
     from ..punch_aggregate import open_punch_session_for_admin
 
@@ -255,6 +472,16 @@ def _handle_existing_open_session(
         open_sess = day_open
 
     if not _looks_like_biometric_session(open_sess):
+        overridden = _supersede_same_day_open_web_for_nhq(
+            log=log,
+            admin_id=admin_id,
+            punch_date=punch_date,
+            punch_time=punch_time,
+            open_sess=open_sess,
+            device_serial=device_serial,
+        )
+        if overridden is not None:
+            return overridden
         return _ignore_open_web_session(
             log,
             open_sess,
@@ -418,6 +645,16 @@ def _process_subsequent_biometric_scan(
         admin_id=admin_id, punch_date=punch_date
     ).first()
     if state is not None and (state.status or "").strip() == "finalized":
+        # NHQ: still allow last-scan OUT bump on the closed biometric session.
+        overridden = _apply_nhq_scan_to_closed_biometric_out(
+            log=log,
+            admin_id=admin_id,
+            punch_date=punch_date,
+            punch_time=punch_time,
+            device_serial=getattr(log, "device_serial_number", None),
+        )
+        if overridden is not None:
+            return overridden
         return _ignore_nhq_closed_day_scan(
             log,
             admin_id=admin_id,
@@ -601,6 +838,15 @@ def process_biometric_log(
     )
 
     if _nhq_day_blocks_new_session(admin_id, punch_date, device_serial):
+        overridden = _apply_nhq_scan_to_closed_biometric_out(
+            log=log,
+            admin_id=admin_id,
+            punch_date=punch_date,
+            punch_time=punch_time,
+            device_serial=device_serial,
+        )
+        if overridden is not None:
+            return overridden
         return _ignore_nhq_closed_day_scan(
             log, admin_id=admin_id, reason="day_closed"
         )
@@ -623,6 +869,7 @@ def process_biometric_log(
         admin_id=admin_id,
         punch_date=punch_date,
         punch_time=punch_time,
+        device_serial=device_serial,
     )
     if handled is not None:
         return handled
@@ -636,6 +883,7 @@ def process_biometric_log(
         admin_id=admin_id,
         punch_date=punch_date,
         punch_time=punch_time,
+        device_serial=device_serial,
     )
     if handled is not None:
         return handled

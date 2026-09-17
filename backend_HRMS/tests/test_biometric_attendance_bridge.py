@@ -84,6 +84,7 @@ def stack():
         email = db.Column(db.String(120), nullable=True)
         emp_id = db.Column(db.String(10), nullable=True)  # unique in prod; not enforced here for ambiguous tests
         first_name = db.Column(db.String(150), nullable=True)
+        circle = db.Column(db.String(50), nullable=True)
         is_active = db.Column(db.Boolean, nullable=True, default=True)
         is_exited = db.Column(db.Boolean, nullable=True, default=False)
         exit_login_until = db.Column(db.Date, nullable=True)
@@ -103,6 +104,17 @@ def stack():
     admin_models = types.ModuleType("website.models.Admin_models")
     admin_models.Admin = Admin
     sys.modules["website.models.Admin_models"] = admin_models
+
+    mgr = types.ModuleType("website.manager_utils")
+
+    def _norm_circle(value):
+        return (value or "").strip().lower()
+
+    def circles_equivalent(a, b):
+        return _norm_circle(a) == _norm_circle(b)
+
+    mgr.circles_equivalent = circles_equivalent
+    sys.modules["website.manager_utils"] = mgr
 
     off = types.ModuleType("website.offboarding_service")
 
@@ -393,6 +405,91 @@ def test_open_web_session_ignored(client, stack):
         assert log.punch_session_id == web.id
 
 
+def test_nhq_biometric_overrides_open_web_same_day(client, stack):
+    """NHQ + NHQ device: open web is deleted; biometric IN proceeds."""
+    with stack.app.app_context():
+        stack.app.config["BIOMETRIC_NHQ_SERIALS"] = ["ERIS001"]
+        admin = stack.Admin.query.get(42)
+        admin.circle = "NHQ"
+        stack.db.session.commit()
+        punch = stack.Punch(admin_id=42, punch_date=datetime(2026, 8, 17).date())
+        stack.db.session.add(punch)
+        stack.db.session.flush()
+        web = stack.PunchSession(
+            punch_id=punch.id,
+            clock_in=datetime(2026, 8, 17, 8, 0, 0),
+            clock_out=None,
+            is_wfh=False,
+            source="web",
+        )
+        stack.db.session.add(web)
+        stack.db.session.commit()
+        web_id = web.id
+
+        # Prove scope sees NHQ + device before ATTLOG
+        from website.biometric.scope import is_nhq_biometric_scope
+
+        assert is_nhq_biometric_scope(admin, "ERIS001") is True
+
+        _post_attlog(client, _att(ts="2026-08-17 09:30:00"))
+        stack.db.session.expire_all()
+        sess = stack.PunchSession.query.get(web_id)
+        assert sess is not None
+        assert (sess.source or "") == "biometric"
+        assert sess.clock_in == datetime(2026, 8, 17, 9, 30, 0)
+        assert sess.clock_out is None
+        assert stack.PunchSession.query.count() == 1
+        log = stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first()
+        assert log.status == "processed"
+        assert log.punch_session_id == sess.id
+
+
+def test_nhq_biometric_overrides_web_punch_out(client, stack):
+    """Later NHQ scan moves OUT past a prior web punch-out."""
+    with stack.app.app_context():
+        stack.app.config["BIOMETRIC_NHQ_SERIALS"] = ["ERIS001"]
+        admin = stack.Admin.query.get(42)
+        admin.circle = "NHQ"
+        stack.db.session.commit()
+
+        _post_attlog(client, _att(ts="2026-08-17 09:30:00"))
+        sess = stack.PunchSession.query.first()
+        punch = stack.Punch.query.first()
+        stack.punch_auto.close_punch_session(
+            sess,
+            punch,
+            is_auto=False,
+            now=datetime(2026, 8, 17, 17, 0, 0),
+            clock_out_at=datetime(2026, 8, 17, 17, 0, 0),
+            closed_by="web",
+        )
+        stack.db.session.commit()
+        assert sess.clock_out == datetime(2026, 8, 17, 17, 0, 0)
+
+        _post_attlog(client, _att(ts="2026-08-17 18:00:00"))
+        stack.db.session.refresh(sess)
+        assert sess.clock_out == datetime(2026, 8, 17, 18, 0, 0)
+        assert (sess.closed_by or "") == "biometric"
+        log = stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first()
+        assert log.status == "processed"
+
+
+def test_auto_close_uses_last_scan_when_present(client, stack):
+    with stack.app.app_context():
+        _post_attlog(client, _att())
+        _post_attlog(client, _att(ts="2026-08-17 18:00:00"))
+        sess = stack.PunchSession.query.first()
+        now = datetime(2026, 8, 17, 19, 5, 0)
+        closed = stack.punch_auto._close_overdue_session(sess, now=now)
+        assert closed is True
+        stack.db.session.commit()
+        assert sess.clock_out == datetime(2026, 8, 17, 18, 0, 0)
+        assert (sess.closed_by or "") == "system"
+        assert "last scan" in (sess.extended_hours_reason or "").lower()
+        day = stack.BiometricDayState.query.first()
+        assert day.status == "auto_closed"
+
+
 def test_biometric_in_then_web_close(client, stack):
     with stack.app.app_context():
         _post_attlog(client, _att())
@@ -452,21 +549,6 @@ def test_offline_delayed_timestamp_uses_event_time(client, stack):
         assert sess is not None
         assert sess.clock_in.replace(microsecond=0) == old.replace(microsecond=0)
         assert stack.Punch.query.first().punch_date == old.date()
-
-
-def test_auto_close_uses_last_scan_when_present(client, stack):
-    with stack.app.app_context():
-        _post_attlog(client, _att())
-        _post_attlog(client, _att(ts="2026-08-17 18:00:00"))
-        sess = stack.PunchSession.query.first()
-        now = datetime(2026, 8, 17, 19, 5, 0)
-        closed = stack.punch_auto._close_overdue_session(sess, now=now)
-        assert closed is True
-        stack.db.session.commit()
-        assert sess.clock_out == datetime(2026, 8, 17, 18, 0, 0)
-        assert (sess.closed_by or "") == "system"
-        day = stack.BiometricDayState.query.first()
-        assert day.status == "auto_closed"
 
 
 def test_auto_close_single_scan_uses_10h_cap(client, stack):

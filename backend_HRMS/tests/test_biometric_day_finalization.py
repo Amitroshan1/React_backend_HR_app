@@ -432,8 +432,10 @@ def test_scan_after_web_out_does_not_reopen(client, stack):
         _post(client, _att("2026-08-19 19:00:00"))
         assert stack.PunchSession.query.count() == 1
         log = stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first()
-        assert log.status == "ignored_day_closed"
-        assert sess.clock_out == datetime(2026, 8, 19, 18, 0, 0)
+        # NHQ last scan overrides web OUT; does not open a second session.
+        assert log.status == "processed"
+        assert sess.clock_out == datetime(2026, 8, 19, 19, 0, 0)
+        assert (sess.closed_by or "") == "biometric"
 
 
 def test_post_finalization_scan_does_not_reopen(client, stack):
@@ -443,13 +445,12 @@ def test_post_finalization_scan_does_not_reopen(client, stack):
         stack.finalization.finalize_biometric_day(42, DAY)
         stack.db.session.commit()
         sess = stack.PunchSession.query.first()
-        out_before = sess.clock_out
         _post(client, _att("2026-08-19 21:00:00"))
         stack.db.session.commit()
         assert stack.PunchSession.query.count() == 1
-        assert sess.clock_out == out_before
-        assert stack.BiometricDayState.query.first().status == "finalized"
-        assert stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first().status == "ignored_day_closed"
+        # Later scan bumps OUT; still a single session (no second IN).
+        assert sess.clock_out == datetime(2026, 8, 19, 21, 0, 0)
+        assert stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first().status == "processed"
 
 
 def test_finalize_idempotent(client, stack):
@@ -518,6 +519,7 @@ def test_nhq_biometric_10h_closes_at_last_scan_when_multiple_scans(client, stack
         assert stack.punch_auto._close_overdue_session(sess, now=now) is True
         assert sess.clock_out == datetime(2026, 8, 19, 17, 0, 0)
         assert sess.auto_punched_out is True
+        assert "last scan" in (sess.extended_hours_reason or "").lower()
 
 
 def test_late_scan_extends_after_8pm_finalization(client, stack):
@@ -529,7 +531,18 @@ def test_late_scan_extends_after_8pm_finalization(client, stack):
         sess = stack.PunchSession.query.first()
         assert sess.clock_out == datetime(2026, 8, 19, 17, 0, 0)
 
-        _post(client, _att("2026-08-19 21:30:00"))
+        # Insert a late scan without running live OUT override (simulates delayed job).
+        log = stack.BiometricLog(
+            device_serial_number=NHQ_SN,
+            device_user_id=PIN,
+            punch_time=datetime(2026, 8, 19, 21, 30, 0),
+            status="ignored_day_closed",
+            idempotency_key="late-scan-extend-1",
+            admin_id=42,
+            punch_session_id=sess.id,
+            error_message="day_finalized",
+        )
+        stack.db.session.add(log)
         stack.db.session.commit()
         res = stack.finalization.extend_nhq_biometric_day(42, DAY)
         stack.db.session.commit()
@@ -547,11 +560,24 @@ def test_late_scan_skips_web_closed_session(client, stack):
         sess.closed_by = "web"
         stack.db.session.commit()
 
-        _post(client, _att("2026-08-19 21:30:00"))
+        log = stack.BiometricLog(
+            device_serial_number=NHQ_SN,
+            device_user_id=PIN,
+            punch_time=datetime(2026, 8, 19, 21, 30, 0),
+            status="ignored_day_closed",
+            idempotency_key="late-scan-web-1",
+            admin_id=42,
+            punch_session_id=sess.id,
+            error_message="day_finalized",
+        )
+        stack.db.session.add(log)
         stack.db.session.commit()
         res = stack.finalization.extend_nhq_biometric_day(42, DAY)
-        assert res["skipped"] == "web_closed"
-        assert sess.clock_out == datetime(2026, 8, 19, 17, 0, 0)
+        stack.db.session.commit()
+        # NHQ biometric last scan overrides prior web punch-out.
+        assert res["extended"] is True
+        assert sess.clock_out == datetime(2026, 8, 19, 21, 30, 0)
+        assert (sess.closed_by or "") == "biometric"
 
 
 def test_web_session_still_10h_auto_close(client, stack):
@@ -570,6 +596,52 @@ def test_web_session_still_10h_auto_close(client, stack):
         now = datetime(2026, 8, 19, 19, 0, 0)
         assert stack.punch_auto._close_overdue_session(sess, now=now) is True
         assert sess.clock_out is not None
+
+
+def test_nhq_web_open_auto_close_prefers_biometric_last_scan(client, stack):
+    """NHQ web open + machine scans that day → OUT at last scan, not 10h wall."""
+    with stack.app.app_context():
+        punch = stack.Punch(admin_id=42, punch_date=DAY)
+        stack.db.session.add(punch)
+        stack.db.session.flush()
+        sess = stack.PunchSession(
+            punch_id=punch.id,
+            clock_in=datetime(2026, 8, 19, 8, 0, 0),
+            clock_out=None,
+            source="web",
+        )
+        stack.db.session.add(sess)
+        stack.db.session.flush()
+        stack.db.session.add(
+            stack.BiometricDayState(
+                admin_id=42,
+                punch_date=DAY,
+                punch_session_id=sess.id,
+                first_scan_at=datetime(2026, 8, 19, 9, 0, 0),
+                last_scan_at=datetime(2026, 8, 19, 16, 30, 0),
+                status="open",
+            )
+        )
+        stack.db.session.add(
+            stack.BiometricLog(
+                device_serial_number=NHQ_SN,
+                device_user_id=PIN,
+                punch_time=datetime(2026, 8, 19, 16, 30, 0),
+                status="processed",
+                admin_id=42,
+                punch_session_id=sess.id,
+                idempotency_key="nhq-web-last-scan-auto-close",
+            )
+        )
+        stack.db.session.commit()
+        # 10h wall from 08:00 is 18:00; prefer last scan 16:30.
+        now = datetime(2026, 8, 19, 19, 0, 0)
+        assert stack.punch_auto._close_overdue_session(sess, now=now) is True
+        assert sess.clock_out == datetime(2026, 8, 19, 16, 30, 0)
+        assert (sess.source or "") == "web"
+        assert "last scan" in (sess.extended_hours_reason or "").lower()
+        day = stack.BiometricDayState.query.first()
+        assert day.status == "auto_closed"
 
 
 def test_session_auto_close_deadline_null_for_nhq_biometric(client, stack):

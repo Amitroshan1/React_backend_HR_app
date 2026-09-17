@@ -15,7 +15,8 @@ from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_agg
 
 SESSION_CAP_SEC = 10 * 3600
 AUTO_CAP_REASON = "Auto punch-out after 10 hr daily cap"
-NHQ_LAST_SCAN_REASON = "Biometric last scan (NHQ, before 8 PM finalization)"
+NHQ_LAST_SCAN_REASON = "Biometric last scan (NHQ priority over 10 hr cap)"
+BIOMETRIC_LAST_SCAN_REASON = "Biometric last scan (priority over 10 hr cap)"
 # Server scheduler close has no live GPS — do not copy punch-in geofence to punch-out.
 AUTO_PUNCH_NO_LIVE_GPS = "auto_punch_out_no_live_gps"
 
@@ -215,13 +216,17 @@ def _biometric_preferred_clock_out(open_sess, cap_at):
     For biometric-sourced open sessions, prefer last_scan_at when it is after clock_in
     (activity after IN). Still never exceed the 10h cap deadline.
 
-    If the only scan is clock_in itself, fall back to normal cap_at (existing 10h rule).
+    Returns (clock_out_at, used_last_scan: bool).
+    If the only scan is clock_in itself, fall back to normal cap_at.
     """
     if not open_sess or not cap_at:
-        return cap_at
+        return cap_at, False
     src = (getattr(open_sess, "source", None) or "").strip().lower()
-    if src != "biometric":
-        return cap_at
+    loc_in = (getattr(open_sess, "location_status_in", None) or "").strip().lower()
+    loc = (getattr(open_sess, "location_status", None) or "").strip().lower()
+    is_bio = src == "biometric" or loc_in == "biometric_device" or loc == "biometric_device"
+    if not is_bio:
+        return cap_at, False
     try:
         from .biometric.models import BiometricDayState
 
@@ -229,21 +234,21 @@ def _biometric_preferred_clock_out(open_sess, cap_at):
         if punch is None and open_sess.punch_id:
             punch = Punch.query.get(open_sess.punch_id)
         if not punch or not open_sess.clock_in:
-            return cap_at
+            return cap_at, False
         day = BiometricDayState.query.filter_by(
             admin_id=punch.admin_id,
             punch_date=punch.punch_date,
         ).first()
         if not day or not day.last_scan_at:
-            return cap_at
+            return cap_at, False
         if day.last_scan_at > open_sess.clock_in:
             preferred = day.last_scan_at
             if preferred > cap_at:
-                return cap_at
-            return preferred
+                return cap_at, False
+            return preferred, True
     except Exception:
-        return cap_at
-    return cap_at
+        return cap_at, False
+    return cap_at, False
 
 
 def _skip_same_day_nhq_biometric_auto_close(open_sess, punch):
@@ -265,6 +270,8 @@ def _nhq_last_scan_out_at_open_session(open_sess, punch):
     When NHQ biometric hits the 10h cap, close at the last scan after clock-in
     (<= 20:00) instead of the cap time. If no later scan exists, return None
     so the 20:00 finalizer can run.
+
+    Prefers biometric_logs, then biometric_day_state.last_scan_at.
     """
     if open_sess is None or punch is None or not open_sess.clock_in:
         return None
@@ -273,20 +280,62 @@ def _nhq_last_scan_out_at_open_session(open_sess, punch):
             cutoff_datetime_for_date,
             select_last_nhq_scan_on_day,
         )
+        from .biometric.models import BiometricDayState
 
+        cutoff = cutoff_datetime_for_date(punch.punch_date)
         out_log = select_last_nhq_scan_on_day(
             punch.admin_id,
             punch.punch_date,
             after=open_sess.clock_in,
-            before=cutoff_datetime_for_date(punch.punch_date),
+            before=cutoff,
         )
-        if out_log is None or out_log.punch_time is None:
-            return None
-        if out_log.punch_time <= open_sess.clock_in:
-            return None
-        return out_log.punch_time
+        if out_log is not None and out_log.punch_time is not None:
+            if out_log.punch_time > open_sess.clock_in:
+                return out_log.punch_time
+
+        day = BiometricDayState.query.filter_by(
+            admin_id=punch.admin_id,
+            punch_date=punch.punch_date,
+        ).first()
+        if (
+            day
+            and day.last_scan_at
+            and day.last_scan_at > open_sess.clock_in
+            and day.last_scan_at <= cutoff
+        ):
+            return day.last_scan_at
+        return None
     except Exception:
         return None
+
+
+def _nhq_prefer_last_scan_over_cap(open_sess, punch, cap_at):
+    """
+    NHQ admin + biometric activity that day: prefer last scan over 10h wall time
+    for any open session (including web). Never exceeds cap_at.
+
+    Returns (clock_out_at, used_last_scan: bool).
+    """
+    if not open_sess or not punch or not cap_at or not open_sess.clock_in:
+        return cap_at, False
+    try:
+        from .biometric.scope import is_nhq_admin, _load_admin
+
+        admin = _load_admin(punch.admin_id)
+        if not is_nhq_admin(admin):
+            return cap_at, False
+
+        preferred = _nhq_last_scan_out_at_open_session(open_sess, punch)
+        if preferred is None:
+            return cap_at, False
+        if preferred <= open_sess.clock_in:
+            return cap_at, False
+        # Prefer last scan when it is at or before the 10h cap (earlier OUT).
+        if preferred > cap_at:
+            return cap_at, False
+        return preferred, True
+    except Exception:
+        return cap_at, False
 
 
 def _close_overdue_session(open_sess, now=None):
@@ -301,13 +350,21 @@ def _close_overdue_session(open_sess, now=None):
         db.session.flush()
 
     if _skip_same_day_nhq_biometric_auto_close(open_sess, punch):
+        # NHQ biometric same-day: last scan wins over 10h; no later scan → wait for 8 PM.
         nhq_out = _nhq_last_scan_out_at_open_session(open_sess, punch)
         if nhq_out is None:
             return False
         out_at = nhq_out
         reason = NHQ_LAST_SCAN_REASON
     else:
-        out_at = _biometric_preferred_clock_out(open_sess, out_at)
+        out_at, used_last = _biometric_preferred_clock_out(open_sess, out_at)
+        if used_last:
+            reason = BIOMETRIC_LAST_SCAN_REASON
+        else:
+            # NHQ web (or other) open session with machine scans that day.
+            out_at, used_nhq = _nhq_prefer_last_scan_over_cap(open_sess, punch, out_at)
+            if used_nhq:
+                reason = NHQ_LAST_SCAN_REASON
 
     close_punch_session(
         open_sess,
@@ -324,7 +381,9 @@ def _close_overdue_session(open_sess, now=None):
     # Mark biometric day state if present
     try:
         src = (getattr(open_sess, "source", None) or "").strip().lower()
-        if src == "biometric" and punch:
+        if punch and (
+            src == "biometric" or reason in (NHQ_LAST_SCAN_REASON, BIOMETRIC_LAST_SCAN_REASON)
+        ):
             from .biometric.models import BiometricDayState
 
             day = BiometricDayState.query.filter_by(
