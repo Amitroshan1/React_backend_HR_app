@@ -90,6 +90,14 @@ export function BiometricAttendanceDetail({ row, onClose }) {
                     <span>User ID: {s.device_user_id}</span>
                     <span>Verify: {s.verification_mode || '—'}</span>
                     <span>Status: {s.status}</span>
+                    <span className="bio-att-scan-attendance">
+                      {s.attendance_label ||
+                        (s.punch_session_id
+                          ? 'Applied to punch'
+                          : s.mapped
+                            ? 'Scanned — not applied to punch'
+                            : 'Unmapped — not in attendance')}
+                    </span>
                   </div>
                 </div>
               );

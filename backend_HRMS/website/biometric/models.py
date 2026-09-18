@@ -74,11 +74,14 @@ class BiometricLog(db.Model):
     status = db.Column(db.String(64), nullable=False, default="received", index=True)
     # received | processed | ignored | ignored_open_web_session | duplicate | failed
     # | unknown_employee | unknown_device | invalid_mapping | ambiguous_employee_mapping
-    # | employee_inactive
+    # | employee_inactive | unmapped_permanent
     error_message = db.Column(db.String(500), nullable=True)
     idempotency_key = db.Column(db.String(128), unique=True, nullable=False, index=True)
     punch_session_id = db.Column(db.Integer, nullable=True)
     admin_id = db.Column(db.Integer, nullable=True, index=True)
+    # Smart reprocess for mapping failures (unknown_employee / invalid_mapping / …).
+    reprocess_attempts = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    last_reprocess_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 

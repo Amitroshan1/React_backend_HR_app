@@ -763,3 +763,144 @@ def test_scope_requires_both_nhq_admin_and_device(client, stack):
         assert stack.scope.is_nhq_biometric_scope(admin, NHQ_SN) is False
         admin.circle = "NHQ"
         assert stack.scope.is_nhq_biometric_scope(admin, OTHER_SN) is False
+
+
+def test_last_scan_sync_window_hours(client, stack):
+    fin = stack.finalization
+    assert fin.in_nhq_last_scan_sync_window(datetime(2026, 8, 19, 17, 59, 59)) is False
+    assert fin.in_nhq_last_scan_sync_window(datetime(2026, 8, 19, 18, 0, 0)) is True
+    assert fin.in_nhq_last_scan_sync_window(datetime(2026, 8, 19, 20, 30, 0)) is True
+    assert fin.in_nhq_last_scan_sync_window(datetime(2026, 8, 19, 20, 59, 59)) is True
+    assert fin.in_nhq_last_scan_sync_window(datetime(2026, 8, 19, 21, 0, 0)) is False
+
+
+def test_sync_all_skips_outside_window(client, stack):
+    with stack.app.app_context():
+        summary = stack.finalization.sync_all_nhq_biometric_last_scans(
+            now_ist=datetime(2026, 8, 19, 12, 0, 0),
+            include_catchup=False,
+        )
+        assert summary["skipped"] == "outside_sync_window"
+        assert summary["synced_count"] == 0
+
+
+def test_option_a_sync_closes_open_before_8pm(client, stack):
+    """From 18:00 window: open NHQ bio session closes at last scan (not waiting for 20:00)."""
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        _post(client, _att("2026-08-19 17:30:00"))
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_out is None
+
+        res = stack.finalization.sync_nhq_biometric_last_scan_day(42, DAY)
+        stack.db.session.commit()
+        assert res["synced"] is True
+        assert res["action"] == "close"
+        assert sess.clock_out == datetime(2026, 8, 19, 17, 30, 0)
+        assert (sess.closed_by or "") == "biometric"
+        assert stack.BiometricDayState.query.first().status == "finalized"
+
+
+def test_option_a_sync_bumps_closed_out_on_later_scan(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        _post(client, _att("2026-08-19 17:00:00"))
+        res1 = stack.finalization.sync_nhq_biometric_last_scan_day(42, DAY)
+        stack.db.session.commit()
+        assert res1["synced"] is True
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_out == datetime(2026, 8, 19, 17, 0, 0)
+
+        stack.db.session.add(
+            stack.BiometricLog(
+                device_serial_number=NHQ_SN,
+                device_user_id=PIN,
+                punch_time=datetime(2026, 8, 19, 19, 15, 0),
+                status="ignored_day_closed",
+                idempotency_key="opt-a-bump-1",
+                admin_id=42,
+                punch_session_id=sess.id,
+                error_message="day_closed",
+            )
+        )
+        stack.db.session.commit()
+        res2 = stack.finalization.sync_nhq_biometric_last_scan_day(42, DAY)
+        stack.db.session.commit()
+        assert res2["synced"] is True
+        assert res2["action"] == "bump"
+        assert sess.clock_out == datetime(2026, 8, 19, 19, 15, 0)
+
+
+def test_option_a_batch_runs_inside_window(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        _post(client, _att("2026-08-19 18:10:00"))
+        summary = stack.finalization.sync_all_nhq_biometric_last_scans(
+            now_ist=datetime(2026, 8, 19, 18, 30, 0),
+            include_catchup=False,
+        )
+        stack.db.session.commit()
+        assert summary.get("skipped") is None
+        assert summary["synced_count"] >= 1
+        assert stack.PunchSession.query.first().clock_out == datetime(
+            2026, 8, 19, 18, 10, 0
+        )
+
+
+def test_scheduler_config_uses_5s_last_scan_sync_not_8_and_10pm():
+    text = (_WEB / "__init__.py").read_text(encoding="utf-8")
+    assert "biometric_last_scan_sync" in text
+    assert "run_biometric_last_scan_sync_job" in text
+    assert '"seconds": 5' in text or "'seconds': 5" in text
+    assert "biometric_last_scan_catchup_evening" in text
+    assert "biometric_last_scan_catchup_morning" in text
+    assert "run_biometric_last_scan_catchup_job" in text
+    assert "biometric_day_finalization" not in text
+    assert "biometric_late_scan" not in text
+    sched = (_WEB / "scheduler.py").read_text(encoding="utf-8")
+    assert "run_biometric_last_scan_sync_job" in sched
+    assert "run_biometric_last_scan_catchup_job" in sched
+    assert "run_biometric_day_finalization_job" not in sched
+    assert "run_biometric_late_scan_job" not in sched
+
+
+def test_single_scan_out_disabled_by_default_in_sync(client, stack):
+    """Continuous 18–21 sync still waits for a later scan (no early zero-hour close)."""
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        res = stack.finalization.sync_nhq_biometric_last_scan_day(42, DAY)
+        stack.db.session.commit()
+        assert res["skipped"] == "no_later_scan"
+        assert stack.PunchSession.query.first().clock_out is None
+
+
+def test_fix1_single_scan_out_when_allowed(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        res = stack.finalization.sync_nhq_biometric_last_scan_day(
+            42, DAY, allow_single_scan_out=True
+        )
+        stack.db.session.commit()
+        assert res["synced"] is True
+        assert res["action"] == "close_single_scan"
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_out == datetime(2026, 8, 19, 9, 0, 0)
+        assert (sess.closed_by or "") == "biometric"
+        assert stack.BiometricDayState.query.first().status == "finalized"
+
+
+def test_fix2_catchup_force_closes_single_scan_outside_window(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        summary = stack.finalization.sync_all_nhq_biometric_last_scans(
+            now_ist=datetime(2026, 8, 19, 21, 5, 0),
+            include_catchup=False,
+            force=True,
+            allow_single_scan_out=True,
+        )
+        stack.db.session.commit()
+        assert summary.get("skipped") is None
+        assert summary["synced_count"] >= 1
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_out == datetime(2026, 8, 19, 9, 0, 0)
+        assert any(r.get("action") == "close_single_scan" for r in summary["results"])

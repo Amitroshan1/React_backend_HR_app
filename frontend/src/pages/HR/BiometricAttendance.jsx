@@ -297,8 +297,21 @@ export function BiometricAttendance({ onBack }) {
                   </td>
                   <td>{Array.isArray(r.total_scans) ? r.total_scans.length : r.scan_count}</td>
                   <td>
-                    <span className={r.mapped ? 'bio-att-badge mapped' : 'bio-att-badge unmapped'}>
-                      {r.mapped ? 'Mapped' : 'Unmapped'}
+                    <span
+                      className={
+                        r.attendance_status === 'applied_to_punch'
+                          ? 'bio-att-badge mapped'
+                          : r.attendance_status === 'not_applied_to_punch'
+                            ? 'bio-att-badge not-applied'
+                            : 'bio-att-badge unmapped'
+                      }
+                      title={r.attendance_label || ''}
+                    >
+                      {r.attendance_status === 'applied_to_punch'
+                        ? 'Applied to punch'
+                        : r.attendance_status === 'not_applied_to_punch'
+                          ? 'Not applied to punch'
+                          : 'Unmapped'}
                     </span>
                   </td>
                 </tr>

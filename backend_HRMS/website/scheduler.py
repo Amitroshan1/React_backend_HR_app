@@ -102,57 +102,101 @@ def run_auto_punch_out_job():
             db.session.rollback()
 
 
-def run_biometric_day_finalization_job():
+def run_biometric_last_scan_sync_job():
     """
-    20:00 IST: finalize NHQ biometric open sessions (latest scan <= 20:00).
-    Includes catch-up for up to 7 prior days with missed finalization.
+    Every 5s during 18:00–21:00 IST: keep NHQ biometric OUT = latest device scan.
+    Replaces the former 20:00 finalize + 22:00 late-scan cron jobs (option A).
+    Outside the window the sync returns immediately.
+    Does not close single-scan days (waits for catch-up at 21:05 / morning).
     """
     if _app is None:
         return
     with _app.app_context():
         from . import db
-        from .biometric.finalization import finalize_all_nhq_biometric_days
+        from .biometric.finalization import sync_all_nhq_biometric_last_scans
 
         log = _app.logger
         try:
-            summary = finalize_all_nhq_biometric_days(include_catchup=True)
-            if summary.get("finalized_count"):
+            summary = sync_all_nhq_biometric_last_scans(include_catchup=True)
+            if summary.get("skipped") == "outside_sync_window":
+                return
+            if summary.get("synced_count"):
                 log.info(
-                    "scheduler: biometric day finalization finalized=%s skipped=%s errors=%s dates=%s",
-                    summary.get("finalized_count"),
+                    "scheduler: biometric last-scan sync synced=%s skipped=%s "
+                    "errors=%s dates=%s",
+                    summary.get("synced_count"),
                     summary.get("skipped_count"),
                     summary.get("error_count"),
                     summary.get("dates"),
                 )
         except Exception as e:
-            log.exception("scheduler: biometric-day-finalization failed: %s", e)
+            log.exception("scheduler: biometric-last-scan-sync failed: %s", e)
             db.session.rollback()
 
 
-def run_biometric_late_scan_job():
+def run_biometric_last_scan_catchup_job():
     """
-    22:00 IST: extend NHQ biometric punch-out when scans exist after 20:00.
-    Includes catch-up for up to 7 prior days with missed runs.
+    Fix #2: force NHQ last-scan sync outside the 5s window.
+    Runs after 21:00 and in the morning so stale opens (including single-scan
+    days — fix #1) still get punch-out.
     """
     if _app is None:
         return
     with _app.app_context():
         from . import db
-        from .biometric.finalization import extend_all_nhq_biometric_days
+        from .biometric.finalization import sync_all_nhq_biometric_last_scans
 
         log = _app.logger
         try:
-            summary = extend_all_nhq_biometric_days(include_catchup=True)
-            if summary.get("extended_count"):
+            summary = sync_all_nhq_biometric_last_scans(
+                include_catchup=True,
+                force=True,
+                allow_single_scan_out=True,
+            )
+            if summary.get("synced_count") or summary.get("error_count"):
                 log.info(
-                    "scheduler: biometric late-scan extended=%s skipped=%s errors=%s dates=%s",
-                    summary.get("extended_count"),
+                    "scheduler: biometric last-scan catch-up synced=%s skipped=%s "
+                    "errors=%s dates=%s",
+                    summary.get("synced_count"),
                     summary.get("skipped_count"),
                     summary.get("error_count"),
                     summary.get("dates"),
                 )
         except Exception as e:
-            log.exception("scheduler: biometric-late-scan failed: %s", e)
+            log.exception("scheduler: biometric-last-scan-catchup failed: %s", e)
+            db.session.rollback()
+
+
+def run_biometric_mapping_reprocess_job():
+    """
+    Daily: retry mapping-failure biometric logs after emp_id / map fixes.
+    Exhausted ghost PINs become unmapped_permanent (no invented punch).
+    """
+    if _app is None:
+        return
+    with _app.app_context():
+        from . import db
+        from .biometric.reprocess import reprocess_mapping_failure_logs
+
+        log = _app.logger
+        try:
+            summary = reprocess_mapping_failure_logs()
+            if (
+                summary.get("resolved_count")
+                or summary.get("exhausted_count")
+                or summary.get("error_count")
+            ):
+                log.info(
+                    "scheduler: biometric mapping reprocess resolved=%s still=%s "
+                    "exhausted=%s errors=%s candidates=%s",
+                    summary.get("resolved_count"),
+                    summary.get("still_unmapped_count"),
+                    summary.get("exhausted_count"),
+                    summary.get("error_count"),
+                    summary.get("candidate_count"),
+                )
+        except Exception as e:
+            log.exception("scheduler: biometric-mapping-reprocess failed: %s", e)
             db.session.rollback()
 
 

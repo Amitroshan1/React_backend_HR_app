@@ -384,6 +384,7 @@ def test_unknown_mapping_no_attendance(client, stack):
 
 
 def test_open_web_session_ignored(client, stack):
+    """Fix #5: same-day open web is converted to biometric (no longer ignored)."""
     with stack.app.app_context():
         punch = stack.Punch(admin_id=42, punch_date=datetime(2026, 8, 17).date())
         stack.db.session.add(punch)
@@ -397,12 +398,17 @@ def test_open_web_session_ignored(client, stack):
         web.source = "web"
         stack.db.session.add(web)
         stack.db.session.commit()
+        web_id = web.id
 
         _post_attlog(client, _att(ts="2026-08-17 12:00:00"))
+        stack.db.session.expire_all()
         assert stack.PunchSession.query.count() == 1
+        sess = stack.PunchSession.query.get(web_id)
+        assert (sess.source or "") == "biometric"
+        assert sess.clock_in == datetime(2026, 8, 17, 8, 0, 0)
         log = stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first()
-        assert log.status == "ignored_open_web_session"
-        assert log.punch_session_id == web.id
+        assert log.status == "processed"
+        assert log.punch_session_id == web_id
 
 
 def test_nhq_biometric_overrides_open_web_same_day(client, stack):
@@ -436,7 +442,8 @@ def test_nhq_biometric_overrides_open_web_same_day(client, stack):
         sess = stack.PunchSession.query.get(web_id)
         assert sess is not None
         assert (sess.source or "") == "biometric"
-        assert sess.clock_in == datetime(2026, 8, 17, 9, 30, 0)
+        # Earliest of web 08:00 and scan 09:30
+        assert sess.clock_in == datetime(2026, 8, 17, 8, 0, 0)
         assert sess.clock_out is None
         assert stack.PunchSession.query.count() == 1
         log = stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first()
@@ -575,9 +582,36 @@ def test_null_source_treated_as_web(client, stack):
         )
         stack.db.session.add(legacy)
         stack.db.session.commit()
+        legacy_id = legacy.id
         _post_attlog(client, _att(ts="2026-08-17 10:00:00"))
+        stack.db.session.expire_all()
         assert stack.PunchSession.query.count() == 1
-        assert stack.BiometricLog.query.first().status == "ignored_open_web_session"
+        sess = stack.PunchSession.query.get(legacy_id)
+        assert (sess.source or "") == "biometric"
+        assert stack.BiometricLog.query.first().status == "processed"
+
+
+def test_fix6_out_of_order_scan_rewinds_clock_in(client, stack):
+    """Later-arriving earlier punch_time rewinds biometric clock_in."""
+    with stack.app.app_context():
+        _post_attlog(client, _att(ts="2026-08-17 10:00:00"))
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_in == datetime(2026, 8, 17, 10, 0, 0)
+        _post_attlog(client, _att(ts="2026-08-17 08:15:00"))
+        stack.db.session.expire_all()
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_in == datetime(2026, 8, 17, 8, 15, 0)
+        assert stack.PunchSession.query.count() == 1
+        day = stack.BiometricDayState.query.first()
+        assert day.first_scan_at == datetime(2026, 8, 17, 8, 15, 0)
+        assert day.last_scan_at == datetime(2026, 8, 17, 10, 0, 0)
+        late_log = (
+            stack.BiometricLog.query.filter_by(
+                punch_time=datetime(2026, 8, 17, 8, 15, 0)
+            ).first()
+        )
+        assert late_log.status == "processed"
+        assert late_log.error_message == "clock_in_rewound"
 
 
 def test_bridge_does_not_call_auth_punch_routes():
@@ -1138,7 +1172,7 @@ def test_offline_buffer_out_of_order_dates(client, stack):
 
 
 def test_web_open_session_biometric_behavior(client, stack):
-    """Open web session blocks biometric; web session stays open."""
+    """Fix #5: open web session is superseded by biometric on same day."""
     with stack.app.app_context():
         punch = stack.Punch(admin_id=42, punch_date=datetime(2026, 8, 19).date())
         stack.db.session.add(punch)
@@ -1159,6 +1193,8 @@ def test_web_open_session_biometric_behavior(client, stack):
         assert stack.PunchSession.query.count() == 1
         web = stack.PunchSession.query.get(web_id)
         assert web.clock_out is None
+        assert (web.source or "") == "biometric"
+        assert web.clock_in == datetime(2026, 8, 19, 8, 0, 0)
         log = stack.BiometricLog.query.first()
-        assert log.status == "ignored_open_web_session"
+        assert log.status == "processed"
         assert log.punch_session_id == web_id

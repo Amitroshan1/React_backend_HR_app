@@ -733,6 +733,51 @@ def create_app():
         except Exception as e:
             app.logger.warning("biometric_devices.last_data_push_at migration skipped: %s", e)
 
+    def _ensure_biometric_log_reprocess_columns():
+        """Additive reprocess_attempts / last_reprocess_at on biometric_logs."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "biometric_logs"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            with db.engine.begin() as conn:
+                if "reprocess_attempts" not in existing:
+                    if dialect == "postgresql":
+                        conn.execute(
+                            text(
+                                f'ALTER TABLE "{table}" ADD COLUMN reprocess_attempts '
+                                "INTEGER NOT NULL DEFAULT 0"
+                            )
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} ADD COLUMN reprocess_attempts "
+                                "INTEGER NOT NULL DEFAULT 0"
+                            )
+                        )
+                if "last_reprocess_at" not in existing:
+                    if dialect == "postgresql":
+                        conn.execute(
+                            text(
+                                f'ALTER TABLE "{table}" ADD COLUMN last_reprocess_at TIMESTAMP NULL'
+                            )
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} ADD COLUMN last_reprocess_at DATETIME NULL"
+                            )
+                        )
+            if "reprocess_attempts" not in existing or "last_reprocess_at" not in existing:
+                app.logger.info("Added biometric_logs reprocess columns")
+        except Exception as e:
+            app.logger.warning("biometric_logs reprocess columns migration skipped: %s", e)
+
     def _ensure_attendance_realtime_events_table():
         """Phase 3D SSE outbox — additive; never writes Punch / PunchSession."""
         try:
@@ -2356,6 +2401,7 @@ def create_app():
             _ensure_biometric_attendance_day_backfill()
             _ensure_biometric_employee_map_emp_id()
             _ensure_biometric_device_last_data_push_at()
+            _ensure_biometric_log_reprocess_columns()
             _ensure_attendance_realtime_events_table()
             _ensure_biometric_hr_indexes()
             _ensure_it_return_request_table()
@@ -2423,6 +2469,8 @@ def create_app():
     register_biometric_finalize_command(app)
     from .commands.biometric_attendance_day import register_biometric_attendance_day_command
     register_biometric_attendance_day_command(app)
+    from .commands.biometric_reprocess import register_biometric_reprocess_command
+    register_biometric_reprocess_command(app)
 
     # ---------------------------
     # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention
@@ -2448,18 +2496,36 @@ def create_app():
             "minutes": 2,
         },
         {
-            "id": "biometric_day_finalization",
-            "func": "website.scheduler:run_biometric_day_finalization_job",
-            "trigger": "cron",
-            "hour": 20,
-            "minute": 0,
+            # Option A: 18:00–21:00 IST every 5s — OUT tracks latest NHQ scan.
+            # Job no-ops outside the window (checked inside sync).
+            "id": "biometric_last_scan_sync",
+            "func": "website.scheduler:run_biometric_last_scan_sync_job",
+            "trigger": "interval",
+            "seconds": 5,
         },
         {
-            "id": "biometric_late_scan",
-            "func": "website.scheduler:run_biometric_late_scan_job",
+            # Fix #2: after sync window — force catch-up + single-scan OUT (fix #1).
+            "id": "biometric_last_scan_catchup_evening",
+            "func": "website.scheduler:run_biometric_last_scan_catchup_job",
             "trigger": "cron",
-            "hour": 22,
-            "minute": 0,
+            "hour": 21,
+            "minute": 5,
+        },
+        {
+            # Fix #2: morning catch-up for any missed evening run / stale opens.
+            "id": "biometric_last_scan_catchup_morning",
+            "func": "website.scheduler:run_biometric_last_scan_catchup_job",
+            "trigger": "cron",
+            "hour": 6,
+            "minute": 10,
+        },
+        {
+            # Smart reprocess: retry mapping failures; exhaust ghost PINs.
+            "id": "biometric_mapping_reprocess",
+            "func": "website.scheduler:run_biometric_mapping_reprocess_job",
+            "trigger": "cron",
+            "hour": 6,
+            "minute": 20,
         },
         {
             "id": "daily_checkout_jobs",

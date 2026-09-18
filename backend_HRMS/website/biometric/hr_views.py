@@ -50,8 +50,81 @@ biometric_hr_bp = Blueprint("biometric_hr", __name__)
 # - unknown_device: device rejected (device_manager.py)
 _INVALID_SCAN_STATUSES = frozenset({"failed", "duplicate", "unknown_device"})
 
+_MAPPING_FAIL_STATUSES = frozenset(
+    {
+        "unknown_employee",
+        "invalid_mapping",
+        "ambiguous_employee_mapping",
+        "unmapped_permanent",
+    }
+)
+
 DEFAULT_PER_PAGE = 25
 MAX_PER_PAGE = 200
+
+
+def _attendance_label_for_day(*, admin_id, punch_date) -> dict:
+    """
+    Clarify machine scans vs My Attendance punch:
+      applied_to_punch | unmapped | not_applied_to_punch
+
+    Uses biometric_logs.punch_session_id (not Punch model) so HR reporting
+    stays isolated from attendance ORM relationships.
+    """
+    if admin_id is None or punch_date is None:
+        return {
+            "attendance_status": "unmapped",
+            "attendance_label": "Unmapped — not in attendance",
+        }
+    start = datetime.combine(punch_date, datetime.min.time())
+    end = datetime.combine(punch_date, datetime.max.time())
+    linked = (
+        BiometricLog.query.filter(
+            BiometricLog.admin_id == admin_id,
+            BiometricLog.punch_session_id.isnot(None),
+            BiometricLog.punch_time >= start,
+            BiometricLog.punch_time <= end,
+        )
+        .limit(1)
+        .first()
+    )
+    if linked is not None:
+        return {
+            "attendance_status": "applied_to_punch",
+            "attendance_label": "Applied to punch",
+        }
+    return {
+        "attendance_status": "not_applied_to_punch",
+        "attendance_label": "Scanned — not applied to punch",
+    }
+
+
+def _attendance_label_for_scan(log: BiometricLog) -> dict:
+    status = (log.status or "").strip()
+    if log.punch_session_id:
+        return {
+            "attendance_status": "applied_to_punch",
+            "attendance_label": "Applied to punch",
+        }
+    if status in _MAPPING_FAIL_STATUSES or log.admin_id is None:
+        if status == "unmapped_permanent":
+            return {
+                "attendance_status": "unmapped",
+                "attendance_label": "Unmapped (permanent) — no employee match",
+            }
+        return {
+            "attendance_status": "unmapped",
+            "attendance_label": "Unmapped — not in attendance",
+        }
+    if status.startswith("ignored") or status == "ignored":
+        return {
+            "attendance_status": "not_applied_to_punch",
+            "attendance_label": f"Scanned — not applied ({status})",
+        }
+    return {
+        "attendance_status": "not_applied_to_punch",
+        "attendance_label": "Scanned — not applied to punch",
+    }
 
 
 def hr_required(fn):
@@ -210,6 +283,9 @@ def _base_day_query(args, start, end):
 def _serialize_day_row(row: BiometricAttendanceDay, admin: Optional[Admin]) -> dict:
     mapped = row.admin_id is not None
     scans = row.total_scans if isinstance(row.total_scans, list) else []
+    link = _attendance_label_for_day(
+        admin_id=row.admin_id, punch_date=row.attendance_date
+    )
     return {
         "admin_id": row.admin_id,
         "emp_id": admin.emp_id if admin else None,
@@ -223,6 +299,8 @@ def _serialize_day_row(row: BiometricAttendanceDay, admin: Optional[Admin]) -> d
         "scan_count": _scan_count(row),
         "total_scans": scans,
         "mapped": mapped,
+        "attendance_status": link["attendance_status"],
+        "attendance_label": link["attendance_label"],
     }
 
 
@@ -319,6 +397,7 @@ def biometric_summary():
 
 
 def _serialize_scan(log: BiometricLog) -> dict:
+    link = _attendance_label_for_scan(log)
     return {
         "id": log.id,
         "punch_time": log.punch_time.strftime("%Y-%m-%d %H:%M:%S") if log.punch_time else None,
@@ -328,6 +407,9 @@ def _serialize_scan(log: BiometricLog) -> dict:
         "status": log.status,
         "admin_id": log.admin_id,
         "mapped": log.admin_id is not None,
+        "punch_session_id": log.punch_session_id,
+        "attendance_status": link["attendance_status"],
+        "attendance_label": link["attendance_label"],
     }
 
 
