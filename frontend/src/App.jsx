@@ -170,6 +170,7 @@ export const App = () => {
 
         // IT Sub-routes
         { path: "it/inventory/*",                  element: <RequirePanel panel="it"><InventoryDashboard /></RequirePanel> },
+        { path: "it/parcels/*",                    element: <Navigate to="/it/inventory/parcels" replace /> },
         { path: "it/OpenTicket",                   element: <RequirePanel panel="it"><OpenTicket /></RequirePanel> },
         { path: "it/ActiveDevices",                element: <RequirePanel panel="it"><ActiveDevice /></RequirePanel> },
         { path: "it/Assets/activity-log",          element: <RequirePanel panel="it"><ActivityLogPage defaultScope="it" /></RequirePanel> },

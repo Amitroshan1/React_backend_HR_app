@@ -10,7 +10,7 @@ from typing import Any, Optional
 from .. import db
 from ..models.Admin_models import Admin
 from ..models.it_models import ITAssetAssignment, ITAssetTransition
-from .actions import ACTION_LABELS
+from .actions import ACTION_LABELS, TransitionAction
 from .flags import is_itam_flag_enabled
 from .transition_service import record_transition, serialize_transition
 
@@ -44,6 +44,8 @@ def query_transitions(
     limit: int = 50,
     inventory_category: Optional[str] = None,
     actor_admin_id: Optional[int] = None,
+    parcel_only: bool = False,
+    exclude_parcel: bool = False,
 ) -> dict[str, Any]:
     """Paginated timeline for a unit / license / catalog item, or org-wide activity log."""
     page = max(1, int(page or 1))
@@ -67,6 +69,35 @@ def query_transitions(
         codes = [str(a).strip().upper() for a in actions if str(a).strip()]
         if codes:
             query = query.filter(ITAssetTransition.action_code.in_(codes))
+
+    if parcel_only:
+        # Parcel Log: exports + parcel imports only (exclude normal stock RECEIVE).
+        query = query.filter(
+            db.or_(
+                ITAssetTransition.action_code == TransitionAction.EXPORT.value,
+                ITAssetTransition.reason_code == "PARCEL_EXPORT",
+                ITAssetTransition.remark.ilike("Parcel import%"),
+                ITAssetTransition.remark.ilike("Parcel export%"),
+            )
+        )
+    elif exclude_parcel:
+        # Inventory / IT activity logs must not include parcel import/export events.
+        query = query.filter(ITAssetTransition.action_code != TransitionAction.EXPORT.value)
+        query = query.filter(
+            db.or_(
+                ITAssetTransition.reason_code.is_(None),
+                ITAssetTransition.reason_code != "PARCEL_EXPORT",
+            )
+        )
+        query = query.filter(
+            db.or_(
+                ITAssetTransition.remark.is_(None),
+                db.and_(
+                    ~ITAssetTransition.remark.ilike("Parcel import%"),
+                    ~ITAssetTransition.remark.ilike("Parcel export%"),
+                ),
+            )
+        )
 
     needle = (q or "").strip()
     if needle:
@@ -113,10 +144,36 @@ def query_transitions(
             }
 
     transitions = []
+    unit_ids = {r.asset_unit_id for r in rows if r.asset_unit_id}
+    units_by_id = {}
+    if unit_ids:
+        from ..models.it_models import ITAssetUnit
+
+        for unit in ITAssetUnit.query.filter(ITAssetUnit.id.in_(list(unit_ids))).all():
+            units_by_id[unit.id] = unit
+
     for row in rows:
         item = serialize_transition(row)
         item["actionLabel"] = ACTION_LABELS.get(row.action_code, row.action_code)
         item["actor"] = actors.get(row.actor_admin_id)
+        # Backfill device identity from live unit when older snapshots omitted fields.
+        unit = units_by_id.get(row.asset_unit_id) if row.asset_unit_id else None
+        if unit:
+            item["assetName"] = item.get("assetName") or unit.asset_name
+            item["serialNumber"] = item.get("serialNumber") or unit.serial_number
+            item["unitCode"] = item.get("unitCode") or unit.unit_code
+            item["brand"] = item.get("brand") or unit.brand
+            item["make"] = item.get("make") or unit.make
+            item["model"] = item.get("model") or unit.model
+            item["laptopCode"] = item.get("laptopCode") or unit.model or unit.unit_code
+            item["hwType"] = item.get("hwType") or unit.hw_type
+            item["imei1"] = item.get("imei1") or unit.imei1
+            item["imei2"] = item.get("imei2") or unit.imei2
+            item["imei"] = item.get("imei") or unit.imei1 or unit.imei2
+            item["projectCode"] = item.get("projectCode") or getattr(unit, "project_code", None)
+            item["deviceLocation"] = item.get("deviceLocation") or getattr(
+                unit, "device_location", None
+            )
         transitions.append(item)
 
     latest = transitions[0] if transitions and page == 1 and not actions and not needle else None
@@ -186,7 +243,14 @@ def timeline_to_csv(transitions: list[dict]) -> str:
             "action_code",
             "action_label",
             "asset_name",
+            "hw_type",
+            "brand",
+            "model",
+            "device_code",
+            "imei",
             "serial_number",
+            "device_location",
+            "project_code",
             "inventory_category",
             "from_status",
             "to_status",
@@ -206,7 +270,14 @@ def timeline_to_csv(transitions: list[dict]) -> str:
                 t.get("actionCode") or "",
                 t.get("actionLabel") or "",
                 t.get("assetName") or "",
+                t.get("hwType") or "",
+                t.get("brand") or "",
+                t.get("model") or t.get("make") or "",
+                t.get("laptopCode") or t.get("unitCode") or "",
+                t.get("imei") or t.get("imei1") or t.get("imei2") or "",
                 t.get("serialNumber") or "",
+                t.get("deviceLocation") or "",
+                t.get("projectCode") or "",
                 t.get("inventoryCategory") or "",
                 t.get("fromStatus") or "",
                 t.get("toStatus") or "",
@@ -226,7 +297,14 @@ _XLSX_HEADERS = (
     "Action code",
     "Action",
     "Asset",
+    "Type",
+    "Brand",
+    "Model",
+    "Device code",
+    "IMEI",
     "Serial number",
+    "Location",
+    "Project",
     "Category",
     "From",
     "To",
@@ -263,7 +341,14 @@ def timeline_to_xlsx(transitions: list[dict]) -> io.BytesIO:
                 t.get("actionCode") or "",
                 t.get("actionLabel") or "",
                 t.get("assetName") or "",
+                t.get("hwType") or "",
+                t.get("brand") or "",
+                t.get("model") or t.get("make") or "",
+                t.get("laptopCode") or t.get("unitCode") or "",
+                t.get("imei") or t.get("imei1") or t.get("imei2") or "",
                 t.get("serialNumber") or "",
+                t.get("deviceLocation") or "",
+                t.get("projectCode") or "",
                 t.get("inventoryCategory") or "",
                 t.get("fromStatus") or "",
                 t.get("toStatus") or "",
@@ -275,7 +360,9 @@ def timeline_to_xlsx(transitions: list[dict]) -> io.BytesIO:
             ]
         )
 
-    widths = [22, 16, 16, 24, 28, 18, 16, 14, 14, 40, 14, 12, 20, 14]
+    widths = [
+        22, 16, 14, 22, 22, 12, 14, 14, 16, 18, 16, 16, 14, 14, 12, 12, 36, 12, 12, 18, 12,
+    ]
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
     ws.auto_filter.ref = ws.dimensions

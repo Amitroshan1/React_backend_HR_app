@@ -1,6 +1,6 @@
 // InventoryDashboard.jsx
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Routes, Route, useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
@@ -1842,7 +1842,9 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
           <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/activity-log`)}>
             Log
           </button>
-          <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/parcels`)}>📦 Parcels</button>
+          <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/parcels`)}>
+            📦 Parcels
+          </button>
           <button
             type="button"
             className="inv-btn-primary"
@@ -2782,6 +2784,7 @@ const InventoryDashboard = () => (
     <Route path="activity-log" element={<ActivityLogPage defaultScope="inventory" />} />
     <Route path="add-assets"   element={<AddNewAssets />} />
     <Route path="parcels"      element={<Parcel />} />
+    <Route path="parcel-log"   element={<Navigate to="/it/inventory/parcels?tab=log" replace />} />
     <Route path="add-import"   element={<AddImported />} />
     <Route path="ready-export" element={<ReadyExport />} />
     <Route path="/*"           element={<InventoryRoot />} />

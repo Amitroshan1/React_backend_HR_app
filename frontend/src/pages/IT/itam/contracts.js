@@ -62,19 +62,26 @@ export const INVENTORY_ACTIVITY_ACTIONS = Object.freeze([
   TRANSITION_ACTIONS.MARK_QUARANTINE,
   TRANSITION_ACTIONS.SEND_REPAIR,
   TRANSITION_ACTIONS.COMPLETE_REPAIR,
-  TRANSITION_ACTIONS.EXPORT,
   TRANSITION_ACTIONS.RETIRE,
+]);
+
+/** Parcel Log — import (RECEIVE) + export only; server filters to parcel events. */
+export const PARCEL_ACTIVITY_ACTIONS = Object.freeze([
+  TRANSITION_ACTIONS.RECEIVE,
+  TRANSITION_ACTIONS.EXPORT,
 ]);
 
 export const ALL_ACTIVITY_ACTIONS = Object.freeze([
   ...IT_ACTIVITY_ACTIONS,
   ...INVENTORY_ACTIVITY_ACTIONS,
+  TRANSITION_ACTIONS.EXPORT,
 ]);
 
 export function activityActionsForScope(scope) {
   const key = String(scope || "all").trim().toLowerCase();
   if (key === "it") return IT_ACTIVITY_ACTIONS;
   if (key === "inventory") return INVENTORY_ACTIVITY_ACTIONS;
+  if (key === "parcel") return PARCEL_ACTIVITY_ACTIONS;
   return ALL_ACTIVITY_ACTIONS;
 }
 

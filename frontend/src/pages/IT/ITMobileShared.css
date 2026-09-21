@@ -136,3 +136,68 @@
     width: 100%;
   }
 }
+
+/* ══════════════════════════════════════════
+   View / detail modals — sit below app navbar
+══════════════════════════════════════════ */
+:root {
+  --it-modal-header-offset: var(--header-height, 80px);
+  --it-modal-z: 2200;
+}
+
+.adp-overlay,
+.ep-overlay,
+.ep-modal-backdrop,
+.asd-detail-backdrop {
+  position: fixed !important;
+  top: var(--it-modal-header-offset) !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  /* Do NOT use inset here — it resets top/right/bottom/left */
+  z-index: var(--it-modal-z) !important;
+  display: flex !important;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12px 16px 20px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.adp-panel,
+.adp-panel--wide,
+.asd-detail-panel {
+  max-height: calc(100dvh - var(--it-modal-header-offset) - 32px) !important;
+  margin-top: 0;
+  margin-bottom: auto;
+}
+
+.ep-panel {
+  max-height: calc(100dvh - var(--it-modal-header-offset) - 32px) !important;
+  margin-top: 0;
+  margin-bottom: auto;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --it-modal-header-offset: var(--header-height, 84px);
+  }
+
+  .adp-overlay,
+  .ep-overlay,
+  .ep-modal-backdrop,
+  .asd-detail-backdrop {
+    padding: 10px 12px 16px;
+    align-items: flex-start;
+  }
+
+  .adp-panel,
+  .adp-panel--wide,
+  .ep-panel,
+  .asd-detail-panel {
+    max-height: calc(100dvh - var(--it-modal-header-offset) - 24px) !important;
+    width: 100%;
+  }
+}

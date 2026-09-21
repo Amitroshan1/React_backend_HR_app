@@ -294,13 +294,19 @@ def _inventory_id_from_export_slot(value):
 
 def _resolve_parcel_export_item_ids(it):
     """Map export payload row to real asset_unit_id and optional inventory_item_id."""
-    raw_uid = it.get("asset_unit_id")
-    if raw_uid is None:
-        raw_uid = it.get("id")
-    asset_unit_id = _coerce_optional_int(raw_uid)
+    raw_unit = it.get("asset_unit_id")
+    # Prefer explicit unit id only. Do not treat inventory slot tokens (inv-slot-*) as unit ids.
+    if raw_unit is None:
+        candidate = it.get("id")
+        if _coerce_optional_int(candidate) is not None:
+            raw_unit = candidate
+    asset_unit_id = _existing_fk_id(ITAssetUnit, raw_unit)
+
     inventory_item_id = _coerce_optional_int(it.get("inventory_item_id"))
     if inventory_item_id is None:
-        inventory_item_id = _inventory_id_from_export_slot(raw_uid)
+        inventory_item_id = _inventory_id_from_export_slot(it.get("id"))
+    if inventory_item_id is not None and ITInventoryItem.query.get(inventory_item_id) is None:
+        inventory_item_id = None
     return asset_unit_id, inventory_item_id
 
 
@@ -535,15 +541,57 @@ def _serialize_return_request(r):
 
 
 def _next_code(prefix, model, field_name):
-    latest = model.query.order_by(model.id.desc()).first()
+    """Allocate next code without loading wide JSON columns (e.g. parcel photos)."""
+    code_col = getattr(model, field_name)
+    latest = (
+        db.session.query(model.id, code_col)
+        .order_by(model.id.desc())
+        .first()
+    )
     if not latest:
         return f"{prefix}-0001"
-    current = getattr(latest, field_name, "") or ""
+    latest_id, current = latest[0], (latest[1] or "")
     try:
-        n = int(current.split("-")[-1]) + 1
+        n = int(str(current).split("-")[-1]) + 1
     except Exception:
-        n = latest.id + 1
+        n = int(latest_id) + 1
     return f"{prefix}-{str(n).zfill(4)}"
+
+
+def _paginate_parcel_rows(model, *, page, per_page):
+    """
+    Page by primary key id only, then load full rows.
+
+    Parcel tables store base64 photos in JSON columns; ORDER BY on the full
+    row triggers MySQL "Out of sort memory" (errno 1038). Sorting bare ids
+    avoids that while preserving newest-first order.
+    """
+    total = db.session.query(db.func.count(model.id)).scalar() or 0
+    pages = max(1, (int(total) + per_page - 1) // per_page) if total else 1
+    page = min(max(1, page), pages)
+    id_rows = (
+        db.session.query(model.id)
+        .order_by(model.id.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+    ids = [int(r[0]) for r in id_rows]
+    if not ids:
+        items = []
+    else:
+        found = model.query.filter(model.id.in_(ids)).all()
+        by_id = {row.id: row for row in found}
+        items = [by_id[i] for i in ids if i in by_id]
+    return {
+        "items": items,
+        "page": page,
+        "per_page": per_page,
+        "total": int(total),
+        "pages": pages,
+        "has_next": page < pages,
+        "has_prev": page > 1,
+    }
 
 
 def _serialize_emp_assets(emp):
@@ -2563,24 +2611,21 @@ def list_parcel_imports():
     except (TypeError, ValueError):
         page = 1
     try:
-        per_page = int(request.args.get("per_page", 200) or 200)
+        per_page = int(request.args.get("per_page", 50) or 50)
     except (TypeError, ValueError):
-        per_page = 200
-    per_page = min(max(per_page, 1), 500)
+        per_page = 50
+    per_page = min(max(per_page, 1), 100)
 
-    query = ITParcelImport.query.order_by(
-        ITParcelImport.received_at.desc(), ITParcelImport.id.desc()
-    )
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    pagination = _paginate_parcel_rows(ITParcelImport, page=page, per_page=per_page)
     return _ok(
         {
-            "imports": [_serialize_parcel_import(r) for r in pagination.items],
-            "page": page,
-            "per_page": per_page,
-            "total": pagination.total,
-            "pages": pagination.pages,
-            "has_next": pagination.has_next,
-            "has_prev": pagination.has_prev,
+            "imports": [_serialize_parcel_import(r) for r in pagination["items"]],
+            "page": pagination["page"],
+            "per_page": pagination["per_page"],
+            "total": pagination["total"],
+            "pages": pagination["pages"],
+            "has_next": pagination["has_next"],
+            "has_prev": pagination["has_prev"],
         }
     )
 
@@ -2630,7 +2675,11 @@ def create_parcel_import():
     if err:
         db.session.rollback()
         return err
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return _err(f"Could not save parcel import: {exc}", 500)
     return _ok({"import": _serialize_parcel_import(row)}, "Parcel import created", 201)
 
 
@@ -2643,24 +2692,21 @@ def list_parcel_exports():
     except (TypeError, ValueError):
         page = 1
     try:
-        per_page = int(request.args.get("per_page", 200) or 200)
+        per_page = int(request.args.get("per_page", 50) or 50)
     except (TypeError, ValueError):
-        per_page = 200
-    per_page = min(max(per_page, 1), 500)
+        per_page = 50
+    per_page = min(max(per_page, 1), 100)
 
-    query = ITParcelExport.query.order_by(
-        ITParcelExport.exported_at.desc(), ITParcelExport.id.desc()
-    )
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    pagination = _paginate_parcel_rows(ITParcelExport, page=page, per_page=per_page)
     return _ok(
         {
-            "exports": [_serialize_parcel_export(r) for r in pagination.items],
-            "page": page,
-            "per_page": per_page,
-            "total": pagination.total,
-            "pages": pagination.pages,
-            "has_next": pagination.has_next,
-            "has_prev": pagination.has_prev,
+            "exports": [_serialize_parcel_export(r) for r in pagination["items"]],
+            "page": pagination["page"],
+            "per_page": pagination["per_page"],
+            "total": pagination["total"],
+            "pages": pagination["pages"],
+            "has_next": pagination["has_next"],
+            "has_prev": pagination["has_prev"],
         }
     )
 
@@ -2752,6 +2798,8 @@ def create_parcel_export():
 
     actor = _current_admin()
     export_remark = f"Parcel export {row.export_code} to {destination}"
+    if len(export_remark.strip()) < 20:
+        export_remark = f"{export_remark} — shipment recorded for parcel log"
     for export_item, linked_inventory_id in created_items:
         err = _record_transition_or_err(
             action_code="EXPORT",
@@ -2775,7 +2823,11 @@ def create_parcel_export():
             db.session.rollback()
             return err
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return _err(f"Could not save parcel export: {exc}", 500)
     row = ITParcelExport.query.get(row.id)
     return _ok({"export": _serialize_parcel_export(row)}, "Parcel export created", 201)
 

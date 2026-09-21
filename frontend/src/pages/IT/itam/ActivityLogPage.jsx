@@ -31,9 +31,60 @@ function formatWhen(iso) {
   }
 }
 
-export default function ActivityLogPage({ defaultScope = "inventory" }) {
+function isMobileTabletType(hwType) {
+  const t = String(hwType || "").trim().toLowerCase();
+  return t === "mobile" || t === "tablet";
+}
+
+function isLaptopLikeType(hwType) {
+  const t = String(hwType || "").trim().toLowerCase();
+  return t === "laptop" || t === "desktop";
+}
+
+/** Compact device identity lines for the activity Asset cell. */
+function deviceDetailLines(row) {
+  const lines = [];
+  const hw = String(row?.hwType || "").trim();
+  if (hw) lines.push({ label: "Type", value: hw });
+
+  const brand = String(row?.brand || "").trim();
+  const make = String(row?.make || "").trim();
+  const model = String(row?.model || "").trim();
+  if (isMobileTabletType(hw)) {
+    const phoneModel = make || model;
+    if (brand && phoneModel) lines.push({ label: "Model", value: `${brand} · ${phoneModel}` });
+    else if (brand || phoneModel) lines.push({ label: "Model", value: brand || phoneModel });
+    const imei = String(row?.imei || row?.imei1 || row?.imei2 || "").trim();
+    if (imei) lines.push({ label: "IMEI", value: imei });
+    const project = String(row?.projectCode || "").trim();
+    if (project) lines.push({ label: "Project", value: project });
+  } else if (isLaptopLikeType(hw)) {
+    if (brand && make) lines.push({ label: "Brand / Make", value: `${brand} · ${make}` });
+    else if (brand || make) lines.push({ label: "Brand", value: brand || make });
+    const code = String(row?.laptopCode || row?.unitCode || "").trim();
+    if (code) lines.push({ label: hw === "Desktop" ? "Desktop Code" : "Laptop Code", value: code });
+  } else {
+    if (brand && (make || model)) {
+      lines.push({ label: "Brand / Model", value: `${brand} · ${make || model}` });
+    } else if (brand || make || model) {
+      lines.push({ label: "Brand / Model", value: brand || make || model });
+    }
+    const code = String(row?.laptopCode || row?.unitCode || "").trim();
+    if (code) lines.push({ label: "Code", value: code });
+  }
+
+  const serial = String(row?.serialNumber || "").trim();
+  if (serial) lines.push({ label: "Serial", value: serial });
+  const location = String(row?.deviceLocation || "").trim();
+  if (location) lines.push({ label: "Location", value: location });
+  return lines;
+}
+
+export default function ActivityLogPage({ defaultScope = "inventory", embedded = false }) {
   const navigate = useNavigate();
   const isInventory = defaultScope === "inventory";
+  const isParcel = defaultScope === "parcel";
+  const lockScope = isParcel || embedded;
   const backTo = isInventory ? "/it/inventory" : "/it";
 
   const [scope, setScope] = useState(defaultScope);
@@ -49,6 +100,10 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
 
+  useEffect(() => {
+    setScope(defaultScope);
+  }, [defaultScope]);
+
   const actionOptions = useMemo(() => activityActionsForScope(scope), [scope]);
 
   const range = useMemo(() => monthRange(month), [month]);
@@ -60,11 +115,12 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
       q: qApplied,
       from: range.from,
       to: range.to,
-      inventoryCategory: isInventory || scope === "inventory" ? category : "",
+      inventoryCategory:
+        !isParcel && (isInventory || scope === "inventory") ? category : "",
       page,
       limit: 50,
     }),
-    [scope, action, qApplied, range.from, range.to, category, page, isInventory],
+    [scope, action, qApplied, range.from, range.to, category, page, isInventory, isParcel],
   );
 
   const load = useCallback(async () => {
@@ -98,48 +154,80 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
     }
   };
 
-  return (
-    <div className="alog-page">
-      <div className="alog-container">
-        <header className="alog-topbar">
-          <button type="button" className="alog-back" onClick={() => navigate(backTo)}>
-            ← Back
-          </button>
-          <div className="alog-title-block">
-            <p className="alog-kicker">{isInventory ? "Inventory" : "IT · Asset Management"}</p>
-            <h1 className="alog-title">Activity log</h1>
-          </div>
-          <p className="alog-total">
-            {loading ? "Loading…" : (
-              <>
-                <strong>{pagination.total || 0}</strong> event{(pagination.total || 0) === 1 ? "" : "s"}
-              </>
-            )}
-          </p>
-        </header>
+  const kicker = isParcel
+    ? "Parcels"
+    : isInventory
+      ? "Inventory"
+      : "IT · Asset Management";
+  const title = isParcel ? "Parcel activity log" : "Activity log";
+  const subtitle = isParcel
+    ? "Import and export movements only — stock and IT assignment events are excluded."
+    : isInventory
+      ? "Inventory stock movements for audit — add, assign, repair, remove. Parcel import/export is in Parcel Log."
+      : "Every recorded movement for audit — add, assign, repair, remove.";
+  const emptyHint = isParcel
+    ? "No parcel import/export events in this range."
+    : isInventory
+      ? "No inventory movements in this range. Parcel import/export events are listed under Parcels → Parcel Log."
+      : "No movements in this range. New inventory and IT actions are logged automatically.";
 
-        <p className="alog-sub">Every recorded movement for audit — add, assign, repair, parcel, remove.</p>
+  return (
+    <div className={`alog-page${embedded ? " alog-page--embedded" : ""}`}>
+      <div className="alog-container">
+        {!embedded ? (
+          <header className="alog-topbar">
+            <button type="button" className="alog-back" onClick={() => navigate(backTo)}>
+              ← Back
+            </button>
+            <div className="alog-title-block">
+              <p className="alog-kicker">{kicker}</p>
+              <h1 className="alog-title">{title}</h1>
+            </div>
+            <p className="alog-total">
+              {loading ? "Loading…" : (
+                <>
+                  <strong>{pagination.total || 0}</strong> event{(pagination.total || 0) === 1 ? "" : "s"}
+                </>
+              )}
+            </p>
+          </header>
+        ) : (
+          <div className="alog-embedded-meta">
+            <p className="alog-sub alog-sub--tight">{subtitle}</p>
+            <p className="alog-total">
+              {loading ? "Loading…" : (
+                <>
+                  <strong>{pagination.total || 0}</strong> event{(pagination.total || 0) === 1 ? "" : "s"}
+                </>
+              )}
+            </p>
+          </div>
+        )}
+
+        {!embedded ? <p className="alog-sub">{subtitle}</p> : null}
 
         <div className="alog-filters">
-          <label>
-            Scope
-            <select
-              value={scope}
-              onChange={(e) => {
-                const nextScope = e.target.value;
-                const nextActions = activityActionsForScope(nextScope);
-                setPage(1);
-                setScope(nextScope);
-                if (action && !nextActions.includes(action)) {
-                  setAction("");
-                }
-              }}
-            >
-              <option value="inventory">Inventory movements</option>
-              <option value="it">IT assignments / returns</option>
-              <option value="all">All activity</option>
-            </select>
-          </label>
+          {!lockScope ? (
+            <label>
+              Scope
+              <select
+                value={scope}
+                onChange={(e) => {
+                  const nextScope = e.target.value;
+                  const nextActions = activityActionsForScope(nextScope);
+                  setPage(1);
+                  setScope(nextScope);
+                  if (action && !nextActions.includes(action)) {
+                    setAction("");
+                  }
+                }}
+              >
+                <option value="inventory">Inventory movements</option>
+                <option value="it">IT assignments / returns</option>
+                <option value="all">All activity</option>
+              </select>
+            </label>
+          ) : null}
           <label>
             Month
             <input
@@ -168,7 +256,7 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
               ))}
             </select>
           </label>
-          {(scope === "inventory" || scope === "all") && (
+          {!isParcel && (scope === "inventory" || scope === "all") ? (
             <label>
               Category
               <select
@@ -186,11 +274,15 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
                 ))}
               </select>
             </label>
-          )}
+          ) : null}
           <div className="alog-search">
             <input
               type="search"
-              placeholder="Search remark, action, serial…"
+              placeholder={
+                isParcel
+                  ? "Search parcel code, destination, remark…"
+                  : "Search remark, action, serial…"
+              }
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
@@ -228,6 +320,7 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
                 <th>When</th>
                 <th>Action</th>
                 <th>Asset</th>
+                <th>Device details</th>
                 <th>Category</th>
                 <th>From → To</th>
                 <th>By</th>
@@ -237,12 +330,14 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
             <tbody>
               {!loading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="alog-empty it-m-empty">
-                    No movements in this range. New inventory and IT actions are logged automatically.
+                  <td colSpan={8} className="alog-empty it-m-empty">
+                    {emptyHint}
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
+                rows.map((row) => {
+                  const details = deviceDetailLines(row);
+                  return (
                   <tr key={row.id || row.transitionCode}>
                     <td data-label="When">{formatWhen(row.occurredAt)}</td>
                     <td data-label="Action">
@@ -251,10 +346,22 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
                     <td data-label="Asset">
                       <div className="alog-asset">
                         <strong>{row.assetName || "—"}</strong>
-                        {row.serialNumber || row.unitCode ? (
-                          <span>{row.serialNumber || row.unitCode}</span>
-                        ) : null}
+                        {row.hwType ? <span className="alog-hw-type">{row.hwType}</span> : null}
                       </div>
+                    </td>
+                    <td data-label="Device details">
+                      {details.length ? (
+                        <div className="alog-device-details">
+                          {details.map((d) => (
+                            <div key={`${d.label}-${d.value}`} className="alog-device-line">
+                              <span className="alog-device-label">{d.label}</span>
+                              <span className="alog-device-value" title={d.value}>{d.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="alog-muted">—</span>
+                      )}
                     </td>
                     <td data-label="Category">{row.inventoryCategory || "—"}</td>
                     <td className="alog-status" data-label="From → To">
@@ -265,7 +372,8 @@ export default function ActivityLogPage({ defaultScope = "inventory" }) {
                       {row.remark || "—"}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

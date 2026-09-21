@@ -250,7 +250,22 @@ export default function AddImportedAssets() {
 
     try {
       await createParcelImportsAPI(newEntries);
-      await syncParcelsFromAPI();
+      try {
+        await syncParcelsFromAPI();
+      } catch (syncErr) {
+        // Save already succeeded; listing sync can fail on large photo payloads.
+        console.warn("[AddImportedAssets] Sync after save failed:", syncErr);
+        try {
+          const existing = JSON.parse(localStorage.getItem("pcl_imported") || "[]");
+          localStorage.setItem(
+            "pcl_imported",
+            JSON.stringify([...newEntries, ...(Array.isArray(existing) ? existing : [])]),
+          );
+          window.dispatchEvent(new Event("inventory-updated"));
+        } catch {
+          /* ignore local cache merge errors */
+        }
+      }
 
       showToast(`✅ ${newEntries.length} import record${newEntries.length !== 1 ? "s" : ""} saved!`);
       setRows([createBlankRow()]);

@@ -1539,30 +1539,39 @@ export const createParcelExportAPI = async ({
       exported_by_admin_id: exportedByAdminId,
       inventory_category: String(inventoryCategory || "").trim() || null,
       photos,
-      assets: assets.map((a) => ({
-        asset_unit_id:
-          a._source === "unit" || a.asset_unit_id != null
-            ? Number(a.asset_unit_id ?? a.id) || null
-            : null,
-        inventory_item_id: a.inventoryId != null ? Number(a.inventoryId) : null,
-        id: a.id,
-        assetName: a.assetName,
-        serialNo: a.serialNo,
-        brand: a.brand,
-        make: a.make,
-        model: a.model,
-        individualPhoto: a.individualPhoto || null,
-      })),
+      assets: assets.map((a) => {
+        const isUnit = a._source === "unit" || a.asset_unit_id != null;
+        const unitId = isUnit ? Number(a.asset_unit_id ?? a.id) : null;
+        return {
+          asset_unit_id: Number.isFinite(unitId) && unitId > 0 ? unitId : null,
+          inventory_item_id:
+            a.inventoryId != null && Number.isFinite(Number(a.inventoryId))
+              ? Number(a.inventoryId)
+              : null,
+          assetName: a.assetName,
+          serialNo: a.serialNo,
+          brand: a.brand,
+          make: a.make,
+          model: a.model,
+          individualPhoto: a.individualPhoto || null,
+          // Only forward synthetic slot ids for inventory qty rows (never as unit FK).
+          ...(isUnit
+            ? { id: a.id }
+            : { id: `inv-slot-${a.inventoryId ?? "0"}-0` }),
+        };
+      }),
     },
   });
 
 async function _fetchAllParcelPages(path, listKey) {
-  const perPage = 200;
+  // Keep page size modest — parcel rows may include base64 photos.
+  const perPage = 50;
   let page = 1;
   let hasNext = true;
   const allRows = [];
+  const maxPages = 40; // hard cap to avoid runaway sync
 
-  while (hasNext) {
+  while (hasNext && page <= maxPages) {
     const res = await _itFetch(`${path}?page=${page}&per_page=${perPage}`);
     const chunk = Array.isArray(res?.[listKey]) ? res[listKey] : [];
     allRows.push(...chunk);

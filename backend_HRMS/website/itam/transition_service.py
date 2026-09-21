@@ -116,8 +116,24 @@ def _snapshot_related(
                 out.setdefault("serial_number", unit.serial_number)
             if unit.unit_code:
                 out.setdefault("unit_code", unit.unit_code)
+            if unit.brand:
+                out.setdefault("brand", unit.brand)
+            if unit.make:
+                out.setdefault("make", unit.make)
             if unit.model:
+                out.setdefault("model", unit.model)
+                # Laptop / device code is stored on unit.model in this product.
                 out.setdefault("laptop_code", unit.model)
+            if unit.hw_type:
+                out.setdefault("hw_type", unit.hw_type)
+            if unit.imei1:
+                out.setdefault("imei1", unit.imei1)
+            if unit.imei2:
+                out.setdefault("imei2", unit.imei2)
+            if getattr(unit, "project_code", None):
+                out.setdefault("project_code", unit.project_code)
+            if getattr(unit, "device_location", None):
+                out.setdefault("device_location", unit.device_location)
             if item_id is None:
                 item_id = unit.inventory_item_id
 
@@ -219,6 +235,14 @@ def record_transition(
 
 def serialize_transition(row: ITAssetTransition) -> dict[str, Any]:
     related = row.related_json if isinstance(row.related_json, dict) else {}
+    imei1 = (related.get("imei1") or "").strip() or None
+    imei2 = (related.get("imei2") or "").strip() or None
+    imei = imei1 or imei2
+    brand = (related.get("brand") or "").strip() or None
+    make = (related.get("make") or "").strip() or None
+    model = (related.get("model") or "").strip() or None
+    laptop_code = (related.get("laptop_code") or model or "").strip() or None
+    hw_type = (related.get("hw_type") or "").strip() or None
     return {
         "id": row.id,
         "transitionCode": row.transition_code,
@@ -238,6 +262,16 @@ def serialize_transition(row: ITAssetTransition) -> dict[str, Any]:
         "assetName": related.get("asset_name"),
         "serialNumber": related.get("serial_number"),
         "unitCode": related.get("unit_code"),
+        "brand": brand,
+        "make": make,
+        "model": model,
+        "laptopCode": laptop_code,
+        "hwType": hw_type,
+        "imei1": imei1,
+        "imei2": imei2,
+        "imei": imei,
+        "projectCode": (related.get("project_code") or "").strip() or None,
+        "deviceLocation": (related.get("device_location") or "").strip() or None,
         "related": row.related_json,
         "attachments": row.attachments_json or [],
         "occurredAt": row.occurred_at.isoformat() if row.occurred_at else None,

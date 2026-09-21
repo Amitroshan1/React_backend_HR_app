@@ -22,7 +22,11 @@ def query_activity_log(
     page: int = 1,
     limit: int = 50,
 ) -> dict:
+    scope_key = str(scope or "").strip().lower()
     resolved = resolve_scope_actions(scope, actions)
+    parcel_only = scope_key == "parcel"
+    # Parcel import/export belongs only in Parcel Log — never Inventory or IT scopes.
+    exclude_parcel = scope_key in ("inventory", "it")
     return query_transitions(
         actions=resolved,
         q=q,
@@ -34,6 +38,8 @@ def query_activity_log(
         inventory_item_id=inventory_item_id,
         page=page,
         limit=limit,
+        parcel_only=parcel_only,
+        exclude_parcel=exclude_parcel,
     )
 
 

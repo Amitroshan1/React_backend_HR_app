@@ -18,7 +18,8 @@ IT_SCOPE_ACTIONS = (
     TransitionAction.REJECT_RETURN.value,
 )
 
-# Actions this product actually records from inventory / parcel / repair flows.
+# Actions this product actually records from inventory / repair flows.
+# Parcel import/export tracking lives in Parcel Log (scope=parcel).
 INVENTORY_SCOPE_ACTIONS = (
     TransitionAction.RECEIVE.value,
     TransitionAction.DEPLOY.value,
@@ -26,8 +27,13 @@ INVENTORY_SCOPE_ACTIONS = (
     TransitionAction.MARK_QUARANTINE.value,
     TransitionAction.SEND_REPAIR.value,
     TransitionAction.COMPLETE_REPAIR.value,
-    TransitionAction.EXPORT.value,
     TransitionAction.RETIRE.value,
+)
+
+# Parcel Log only — EXPORT + parcel RECEIVE (filtered further by related/remark).
+PARCEL_SCOPE_ACTIONS = (
+    TransitionAction.RECEIVE.value,
+    TransitionAction.EXPORT.value,
 )
 
 
@@ -37,6 +43,8 @@ def _scope_action_list(scope: Optional[str]) -> Optional[list[str]]:
         return list(IT_SCOPE_ACTIONS)
     if key == "inventory":
         return list(INVENTORY_SCOPE_ACTIONS)
+    if key == "parcel":
+        return list(PARCEL_SCOPE_ACTIONS)
     return None
 
 

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
-import { toast } from "react-toastify";
 import {
   getEmployees,
   getAssetUnitsFromStorage,
@@ -10,8 +10,16 @@ import {
 } from "../Data";
 import { UserAvatar } from "../../../components/UserAvatar";
 import { getUserPhotoUrl } from "../../../utils/userPhoto";
+import ClickableImage from "../../../components/ClickableImage";
 import "./ActiveDevice.css";
 import { formatDate as fmt } from "../../../utils/dateFormat";
+import {
+  getAssetCodeField,
+  getHardwareFields,
+  getMobileTabletHardwareFields,
+  isLaptopHardwareRow,
+  isMobileTabletHwType,
+} from "../inventoryCategories";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ASSET_CATEGORIES = ["Hardware", "Accessories", "Consumables"];
@@ -28,6 +36,248 @@ const normCat = (c) => {
   if (c === "Consumable") return "Consumables";
   return c;
 };
+
+/** Laptop Code is stored on unit.model (form label); fall back to unit_code. */
+function resolveLaptopCode(unit) {
+  const fromModel = String(unit?.model || "").trim();
+  if (fromModel && fromModel !== "—") return fromModel;
+  const fromCode = String(unit?.unitCode || unit?.unit_code || unit?.assetId || "").trim();
+  return fromCode && fromCode !== "—" ? fromCode : "";
+}
+
+/** Prefer IMEI 1, else IMEI 2. */
+function resolveImei(unit) {
+  const imei1 = String(unit?.imei1 || "").trim();
+  if (imei1) return imei1;
+  const imei2 = String(unit?.imei2 || "").trim();
+  return imei2 || "";
+}
+
+function findEmployeeById(empId) {
+  if (!empId || empId === "—") return null;
+  const key = String(empId).toUpperCase();
+  return (
+    (getEmployees() || []).find(
+      (e) => String(e.empId || e.id || "").toUpperCase() === key,
+    ) || null
+  );
+}
+
+function buildDeviceDetailRows(asset) {
+  const cat = String(asset?.category || "").trim().toLowerCase();
+  const hwType = asset?.hwType || null;
+  const mobileTablet = isMobileTabletHwType(hwType);
+  const baseFields = getHardwareFields("IT Assets", "Hardware", hwType);
+  const hwFields = mobileTablet
+    ? getMobileTabletHardwareFields(baseFields)
+    : baseFields;
+  const codeField = getAssetCodeField(hwType || "Laptop");
+
+  if (cat === "accessories" || cat === "consumables") {
+    return [
+      { label: "Asset ID", value: asset.id, mono: true },
+      { label: "Category", value: asset.category },
+      { label: "Quantity", value: asset.serialNumber },
+      { label: "Asset Name", value: asset.name },
+      { label: "Assigned Date", value: fmt(asset.assignedDate) },
+    ];
+  }
+
+  const rows = [
+    { label: "Asset ID", value: asset.id, mono: true },
+    { label: "Category", value: asset.category },
+    ...(hwType ? [{ label: "Type", value: hwType }] : []),
+    { label: hwFields.brand?.label || "Brand", value: asset.brand },
+    {
+      label: hwFields.make?.label || "Make",
+      value: asset.make || (mobileTablet ? asset.model : ""),
+    },
+  ];
+
+  if (isLaptopHardwareRow(asset) || (!mobileTablet && hwType)) {
+    rows.push({
+      label: codeField.label,
+      value: asset.laptopCode || asset.model,
+      mono: true,
+    });
+  }
+
+  rows.push({
+    label: hwFields.serialNumber?.label || "Serial Number",
+    value: asset.serialNumber,
+    mono: true,
+  });
+
+  if (mobileTablet) {
+    rows.push(
+      { label: "IMEI 1", value: asset.imei1, mono: true },
+      { label: "IMEI 2", value: asset.imei2, mono: true },
+      {
+        label: hwFields.projectCode?.label || "Project Code",
+        value: asset.projectCode,
+      },
+      {
+        label: hwFields.deviceLocation?.label || "Device Location",
+        value: asset.deviceLocation,
+      },
+    );
+  }
+
+  rows.push({ label: "Assigned Date", value: fmt(asset.assignedDate) });
+  rows.push({ label: "Status", value: asset.status || "Assigned" });
+  return rows;
+}
+
+function buildAssigneeDetailRows(employee) {
+  return [
+    { label: "Email", value: employee?.email },
+    { label: "Type", value: employee?.type },
+    { label: "Circle", value: employee?.circle },
+    { label: "Department", value: employee?.department || employee?.dept },
+    { label: "Designation", value: employee?.designation || employee?.role },
+    { label: "Phone", value: employee?.phone || employee?.mobile },
+  ].filter((row) => row.value && String(row.value).trim() && String(row.value) !== "—");
+}
+
+function AssignmentDetailModal({ asset, employee, onClose }) {
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const photos = Array.isArray(asset?.photos) ? asset.photos.filter(Boolean) : [];
+  const deviceRows = buildDeviceDetailRows(asset);
+  const userRows = buildAssigneeDetailRows(employee);
+  const photo = getUserPhotoUrl(employee) || asset?.assigneePhoto || "";
+
+  return createPortal(
+    <div
+      className="asd-detail-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="presentation"
+    >
+      <div
+        className="asd-detail-panel"
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="asd-detail-title"
+      >
+        <div className="asd-detail-header">
+          <div>
+            <p className="asd-detail-kicker">Assignment Details</p>
+            <h2 id="asd-detail-title" className="asd-detail-title">
+              {asset?.name || "Asset"}
+            </h2>
+            <div className="asd-detail-badges">
+              <span className="asd-cat-pill">{asset?.category || "—"}</span>
+              {asset?.hwType ? (
+                <span className="asd-detail-badge">{asset.hwType}</span>
+              ) : null}
+              <span className="asd-detail-badge asd-detail-badge--status">
+                {asset?.status || "Assigned"}
+              </span>
+            </div>
+          </div>
+          <button type="button" className="asd-detail-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+
+        <div className="asd-detail-body">
+          <section className="asd-detail-section">
+            <h3 className="asd-detail-section-title">Device</h3>
+            <div className="asd-detail-list">
+              {deviceRows.map(({ label, value, mono }) => (
+                <div key={label} className="asd-detail-row">
+                  <span className="asd-detail-label">{label}</span>
+                  <span className={`asd-detail-value${mono ? " mono" : ""}`}>
+                    {value && String(value).trim() ? value : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {photos.length > 0 ? (
+              <div className="asd-detail-photos">
+                <ClickableImage
+                  src={photos[photoIdx]}
+                  alt={asset?.name || "Asset"}
+                  className="asd-detail-photo-main"
+                />
+                {photos.length > 1 ? (
+                  <div className="asd-detail-photo-nav">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPhotoIdx((i) => (i - 1 + photos.length) % photos.length)
+                      }
+                    >
+                      ‹
+                    </button>
+                    <span>
+                      {photoIdx + 1} / {photos.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoIdx((i) => (i + 1) % photos.length)}
+                    >
+                      ›
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="asd-detail-section">
+            <h3 className="asd-detail-section-title">Assigned To</h3>
+            <div className="asd-detail-user-card">
+              <UserAvatar
+                name={employee?.name || asset?.assignedTo || "—"}
+                photo={photo}
+                className="asd-detail-user-avatar"
+                as="span"
+                alt={employee?.name || asset?.assignedTo || ""}
+              />
+              <div>
+                <p className="asd-detail-user-name">
+                  {employee?.name || asset?.assignedTo || "—"}
+                </p>
+                <p className="asd-detail-user-id">
+                  {employee?.empId || employee?.id || asset?.empId || "—"}
+                </p>
+              </div>
+            </div>
+            <div className="asd-detail-list">
+              {userRows.length === 0 ? (
+                <div className="asd-detail-row">
+                  <span className="asd-detail-label">Employee ID</span>
+                  <span className="asd-detail-value mono">
+                    {employee?.empId || employee?.id || asset?.empId || "—"}
+                  </span>
+                </div>
+              ) : (
+                userRows.map(({ label, value, mono }) => (
+                  <div key={label} className="asd-detail-row">
+                    <span className="asd-detail-label">{label}</span>
+                    <span className={`asd-detail-value${mono ? " mono" : ""}`}>
+                      {value}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="asd-detail-footer">
+          <button type="button" className="asd-detail-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 // ─── Build merged active-device list (localStorage only) ─────────────────────
 function resolveAssigneePhoto(employees, empId, assignedToObj) {
@@ -77,11 +327,30 @@ function getMergedActiveDevices() {
           ? u.serialNumber      // only use if it differs from assetId
           : u.serialNumber || "—";
 
+      const hwType = u.hwType || null;
+      const photos =
+        Array.isArray(u.assignmentPhotos) && u.assignmentPhotos.length
+          ? u.assignmentPhotos
+          : Array.isArray(u.photos)
+            ? u.photos
+            : [];
       return {
         id: assetId,
         serialNumber,
         name: u.assetName || u.name || "—",
         category: normCat(u.category),
+        hwType,
+        brand: u.brand || "",
+        make: u.make || "",
+        model: u.model || "",
+        laptopCode: resolveLaptopCode(u),
+        imei: resolveImei(u),
+        imei1: u.imei1 || null,
+        imei2: u.imei2 || null,
+        projectCode: u.projectCode || u.project_code || "",
+        deviceLocation: u.deviceLocation || u.device_location || "",
+        status: u.status || "Assigned",
+        photos,
         assignedTo,
         assigneePhoto: resolveAssigneePhoto(employees, empId, isObj ? u.assignedTo : null),
         assignedDate:
@@ -108,6 +377,8 @@ function getMergedActiveDevices() {
         serialNumber: qty > 1 ? `Qty ${qty}` : "Qty 1",
         name: qty > 1 ? `${baseName} (x${qty})` : baseName,
         category: cat,
+        status: "Assigned",
+        photos: [],
         assignedTo,
         assigneePhoto: getUserPhotoUrl(emp),
         assignedDate: a.assignedDate || new Date().toISOString(),
@@ -135,6 +406,7 @@ export default function ActiveDevice({ onBack }) {
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [detailView, setDetailView] = useState(null);
 
   const syncDevices = useCallback(() => {
     syncITDataFromAPI()
@@ -178,32 +450,58 @@ export default function ActiveDevice({ onBack }) {
   };
 
   const handleView = (empId, assetRow) => {
-    if (!empId || empId === "—") {
-      alert("No employee ID is linked to this asset.");
-      return;
+    if (!assetRow) return;
+
+    // Prefer live unit data when this row maps to a real hardware unit.
+    let enriched = { ...assetRow };
+    const unitId = assetRow._unitId;
+    if (unitId != null && !String(unitId).startsWith("inv-")) {
+      const unit = (getAssetUnitsFromStorage() || []).find(
+        (u) => String(u.id) === String(unitId),
+      );
+      if (unit) {
+        const photos =
+          Array.isArray(unit.assignmentPhotos) && unit.assignmentPhotos.length
+            ? unit.assignmentPhotos
+            : Array.isArray(unit.photos)
+              ? unit.photos
+              : [];
+        enriched = {
+          ...enriched,
+          brand: unit.brand || enriched.brand || "",
+          make: unit.make || enriched.make || "",
+          model: unit.model || enriched.model || "",
+          laptopCode: resolveLaptopCode(unit) || enriched.laptopCode,
+          imei: resolveImei(unit) || enriched.imei,
+          imei1: unit.imei1 || enriched.imei1 || null,
+          imei2: unit.imei2 || enriched.imei2 || null,
+          projectCode:
+            unit.projectCode || unit.project_code || enriched.projectCode || "",
+          deviceLocation:
+            unit.deviceLocation ||
+            unit.device_location ||
+            enriched.deviceLocation ||
+            "",
+          hwType: unit.hwType || enriched.hwType,
+          status: unit.status || enriched.status || "Assigned",
+          serialNumber: unit.serialNumber || enriched.serialNumber,
+          photos,
+        };
+      }
     }
 
-    let employee = getEmployees().find(
-      (e) => (e.id || e.empId || "").toUpperCase() === empId.toUpperCase(),
-    );
+    const employee =
+      findEmployeeById(empId) ||
+      (empId && empId !== "—"
+        ? {
+            empId,
+            id: empId,
+            name: assetRow.assignedTo,
+            photo: assetRow.assigneePhoto || "",
+          }
+        : null);
 
-    if (!employee && assetRow) {
-      employee = {
-        id: empId,
-        empId,
-        name: assetRow.assignedTo,
-        type: "—",
-        circle: "—",
-        email: "—",
-        photo: "",
-        activated: true,
-        assignedAssets: [],
-      };
-    }
-
-    navigate(`/it/employee/${empId}`, {
-      state: { employee: employee || null },
-    });
+    setDetailView({ asset: enriched, employee });
   };
 
   const handleBack = () => {
@@ -218,9 +516,25 @@ export default function ActiveDevice({ onBack }) {
         ? "Serial / Qty"
         : "Serial No.";
 
-  const tableColSpan = activeTab === "All" ? 7 : 6;
+  // Extra identity columns only on All / Hardware (do not affect Accessories/Consumables).
+  const showDeviceCodeCols = activeTab === "All" || activeTab === "Hardware";
+  const showLaptopCodeCol =
+    showDeviceCodeCols && filtered.some((a) => isLaptopHardwareRow(a));
+  const showImeiCol =
+    showDeviceCodeCols &&
+    filtered.some(
+      (a) =>
+        String(a?.category || "").trim().toLowerCase() === "hardware" &&
+        isMobileTabletHwType(a?.hwType),
+    );
+
+  const tableColSpan =
+    (activeTab === "All" ? 7 : 6) +
+    (showLaptopCodeCol ? 1 : 0) +
+    (showImeiCol ? 1 : 0);
 
   return (
+    <>
     <div className="asd-page">
       <div className="asd-container">
         {/* ── Top Bar ── */}
@@ -295,6 +609,8 @@ export default function ActiveDevice({ onBack }) {
                   <th>Asset ID</th>
                   {activeTab === "All" && <th>Category</th>}
                   <th>{secondColHeader}</th>
+                  {showLaptopCodeCol && <th>Laptop Code</th>}
+                  {showImeiCol && <th>IMEI</th>}
                   <th>Asset Name</th>
                   <th>Assigned To</th>
                   <th>Assigned Date</th>
@@ -336,6 +652,27 @@ export default function ActiveDevice({ onBack }) {
                       <td data-label="Serial">
                         <span className="asd-asset-id">{asset.serialNumber}</span>
                       </td>
+                      {showLaptopCodeCol && (
+                        <td data-label="Laptop Code">
+                          <span className="asd-asset-id">
+                            {isLaptopHardwareRow(asset)
+                              ? asset.laptopCode || "—"
+                              : "—"}
+                          </span>
+                        </td>
+                      )}
+                      {showImeiCol && (
+                        <td data-label="IMEI">
+                          <span className="asd-asset-id">
+                            {String(asset?.category || "")
+                              .trim()
+                              .toLowerCase() === "hardware" &&
+                            isMobileTabletHwType(asset?.hwType)
+                              ? asset.imei || "—"
+                              : "—"}
+                          </span>
+                        </td>
+                      )}
                       <td className="asd-asset-name" data-label="Asset Name">{asset.name}</td>
                       <td data-label="Assignee">
                         <div className="asd-assignee">
@@ -361,7 +698,7 @@ export default function ActiveDevice({ onBack }) {
                         <button
                           className="asd-view-btn"
                           onClick={() => handleView(asset.empId, asset)}
-                          title={`View ${asset.assignedTo}'s profile`}
+                          title="View assignment details"
                         >
                           View
                         </button>
@@ -375,6 +712,14 @@ export default function ActiveDevice({ onBack }) {
         </div>
       </div>
     </div>
+    {detailView ? (
+      <AssignmentDetailModal
+        asset={detailView.asset}
+        employee={detailView.employee}
+        onClose={() => setDetailView(null)}
+      />
+    ) : null}
+    </>
   );
 }
 

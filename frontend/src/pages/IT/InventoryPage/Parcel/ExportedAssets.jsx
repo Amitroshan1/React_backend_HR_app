@@ -19,6 +19,8 @@ import {
   formatParcelBrandModel,
   getParcelAssetDisplayName,
   isTransportInventoryCategory,
+  isMobileTabletHwType,
+  getAssetCodeField,
 } from "../../inventoryCategories";
 import "./ExportedAssets.css";
 import { formatDate } from "../../../../utils/dateFormat";
@@ -34,7 +36,50 @@ const ASSET_CATEGORIES = [
 const BACK_PATH = "/it/inventory/parcels";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const todayStr = () => formatDate(new Date());
+/** Laptop / device code lives on unit.model; fall back to unit / asset id. */
+function resolveLaptopCode(unit) {
+  const fromModel = String(unit?.model || "").trim();
+  if (fromModel && fromModel !== "—") return fromModel;
+  const fromCode = String(unit?.unitCode || unit?.unit_code || unit?.assetId || "").trim();
+  return fromCode && fromCode !== "—" ? fromCode : "";
+}
+
+function resolveImei(unit) {
+  const imei1 = String(unit?.imei1 || "").trim();
+  if (imei1) return imei1;
+  const imei2 = String(unit?.imei2 || "").trim();
+  return imei2 || "";
+}
+
+/**
+ * Brand · model for the export table.
+ * For IT Hardware, `model` is usually the device code (Laptop Code) — show make instead.
+ */
+function formatExportBrandModel(asset, inventoryCategory) {
+  if (isTransportInventoryCategory(inventoryCategory)) {
+    return formatParcelBrandModel(asset, inventoryCategory);
+  }
+  const brand = String(asset?.brand || "").trim();
+  const make = String(asset?.make || "").trim();
+  const model = String(asset?.model || "").trim();
+  const hw = String(asset?.hwType || "").trim().toLowerCase();
+  const itemCat = String(asset?.itemCategory || "").trim().toLowerCase();
+
+  // Laptop/Desktop: brand · make (code is a separate column)
+  if (itemCat === "hardware" && (hw === "laptop" || hw === "desktop")) {
+    if (brand && make) return `${brand} · ${make}`;
+    return brand || make || "—";
+  }
+  // Mobile/Tablet: brand · make (make stores phone model)
+  if (isMobileTabletHwType(asset?.hwType)) {
+    if (brand && make) return `${brand} · ${make}`;
+    if (brand && model) return `${brand} · ${model}`;
+    return brand || make || model || "—";
+  }
+  if (brand && make) return `${brand} · ${make}`;
+  if (brand && model) return `${brand} · ${model}`;
+  return brand || make || model || "—";
+}
 
 /** Derive a representative emoji from hwType or assetName. */
 function getEmoji(unit) {
@@ -76,28 +121,48 @@ function getAvailableAssetsFromStorage() {
       units.map((u) => String(u.inventoryId)).filter(Boolean)
     );
 
-    const categoryByInvId = {};
+    const invById = {};
     inventory.forEach((inv) => {
-      categoryByInvId[String(inv.id)] = inv.inventoryCategory || "IT Assets";
+      invById[String(inv.id)] = inv;
     });
 
     const fromUnits = units
-      .filter((u) => u.status === "available")
-      .map((u) => ({
-        _source:      "unit",
-        id:           u.id,
-        inventoryId:  u.inventoryId || null,
-        assetName:    u.assetName || u.name || "Unknown",
-        category:     categoryByInvId[String(u.inventoryId)] || u.inventoryCategory || "IT Assets",
-        serialNo:     u.serialNumber || u.serialNo || "—",
-        emoji:        getEmoji(u),
-        hwType:       u.hwType       || "",
-        brand:        u.brand        || "",
-        make:         u.make         || "",
-        model:        u.model        || "",
-        purchaseDate: u.purchaseDate || null,
-      }));
+      .filter((u) => String(u.status || "").toLowerCase() === "available")
+      .map((u) => {
+        const inv = invById[String(u.inventoryId)] || null;
+        const inventoryCategory =
+          inv?.inventoryCategory || u.inventoryCategory || "IT Assets";
+        const itemCategory = u.category || inv?.category || "Hardware";
+        const hwType = u.hwType || inv?.hwType || "";
+        return {
+          _source: "unit",
+          id: u.id,
+          asset_unit_id: u.id,
+          inventoryId: u.inventoryId || null,
+          assetName: u.assetName || u.name || inv?.name || "Unknown",
+          category: inventoryCategory,
+          itemCategory,
+          serialNo: u.serialNumber || u.serialNo || "—",
+          emoji: getEmoji({ hwType, assetName: u.assetName || u.name }),
+          hwType,
+          brand: u.brand || "",
+          make: u.make || "",
+          model: u.model || "",
+          laptopCode: resolveLaptopCode(u),
+          imei: resolveImei(u),
+          imei1: u.imei1 || "",
+          imei2: u.imei2 || "",
+          unitCode: u.assetId || u.unitCode || "",
+          projectCode: u.projectCode || "",
+          purchaseDate: u.purchaseDate || inv?.purchaseDate || null,
+          photos: u.photos || [],
+          availableQty: 1,
+          exportQty: 1,
+          _bulk: false,
+        };
+      });
 
+    // Qty-managed stock with no units — one bulk row (not one row per piece)
     const fromInventory = inventory
       .filter(
         (inv) =>
@@ -105,28 +170,64 @@ function getAvailableAssetsFromStorage() {
           !inventoryIdsWithUnits.has(String(inv.id)) &&
           (Number(inv.availableQuantity) || 0) > 0
       )
-      .flatMap((inv) => {
+      .map((inv) => {
         const qty = Number(inv.availableQuantity) || 0;
-        return Array.from({ length: qty }, (_, i) => ({
-          _source:      "inventory",
-          id:           `inv-slot-${inv.id}-${i}`,
-          inventoryId:  inv.id,
-          assetName:    inv.name || "Unknown",
-          category:     inv.inventoryCategory || "IT Assets",
-          serialNo:     "—",
-          emoji:        getEmoji({ hwType: inv.hwType, assetName: inv.name }),
-          hwType:       inv.hwType  || "",
-          brand:        inv.brand   || "",
-          make:         inv.make    || "",
-          model:        inv.model   || "",
+        const inventoryCategory = inv.inventoryCategory || "IT Assets";
+        return {
+          _source: "inventory",
+          _bulk: true,
+          id: `inv-bulk-${inv.id}`,
+          inventoryId: inv.id,
+          assetName: inv.name || "Unknown",
+          category: inventoryCategory,
+          itemCategory: inv.category || "Stock",
+          serialNo: "—",
+          emoji: getEmoji({ hwType: inv.hwType, assetName: inv.name }),
+          hwType: inv.hwType || "",
+          brand: inv.brand || "",
+          make: inv.make || "",
+          model: inv.model || "",
+          laptopCode: "",
+          imei: "",
+          imei1: "",
+          imei2: "",
+          unitCode: "",
+          projectCode: "",
           purchaseDate: inv.purchaseDate || null,
-        }));
+          photos: inv.photos || [],
+          availableQty: qty,
+          exportQty: qty,
+        };
       });
 
     return [...fromUnits, ...fromInventory];
   } catch {
     return [];
   }
+}
+
+/** Expand selected rows into API payload lines (bulk stock → N inventory lines). */
+function expandAssetsForExport(selectedAssets) {
+  const lines = [];
+  selectedAssets.forEach((a) => {
+    if (a._source === "unit") {
+      lines.push(a);
+      return;
+    }
+    const qty = Math.max(1, Math.min(
+      Number(a.exportQty) || Number(a.availableQty) || 1,
+      Number(a.availableQty) || 1,
+    ));
+    for (let i = 0; i < qty; i += 1) {
+      lines.push({
+        ...a,
+        id: `inv-slot-${a.inventoryId}-${i}`,
+        _bulk: false,
+        exportQty: 1,
+      });
+    }
+  });
+  return lines;
 }
 
 /** Update assetUnits + inventory cache after an export. */
@@ -150,7 +251,15 @@ function commitExport(selectedAssets, destination) {
     selectedAssets.forEach((a) => {
       if (!a.inventoryId) return;
       const key = String(a.inventoryId);
-      countByInvId[key] = (countByInvId[key] || 0) + 1;
+      if (a._source === "unit") {
+        countByInvId[key] = (countByInvId[key] || 0) + 1;
+        return;
+      }
+      const qty = Math.max(1, Math.min(
+        Number(a.exportQty) || Number(a.availableQty) || 1,
+        Number(a.availableQty) || 1,
+      ));
+      countByInvId[key] = (countByInvId[key] || 0) + qty;
     });
 
     const unitInvIds = new Set(
@@ -216,6 +325,9 @@ function ParcelPhotoStrip({ photos, onRemove }) {
 }
 
 function ModalAssetRow({ asset, individualPhoto }) {
+  const qty = asset._bulk
+    ? Math.max(1, Number(asset.exportQty) || Number(asset.availableQty) || 1)
+    : 1;
   return (
     <div className="re-modal-asset-row">
       <div className="re-modal-asset-thumb">
@@ -233,8 +345,11 @@ function ModalAssetRow({ asset, individualPhoto }) {
       <div className="re-modal-asset-info">
         <span className="re-modal-asset-name">
           {getParcelAssetDisplayName(asset, asset.category)}
+          {qty > 1 ? ` × ${qty}` : ""}
         </span>
-        <span className="re-modal-asset-sn">{asset.serialNo}</span>
+        <span className="re-modal-asset-sn">
+          {asset._bulk ? `Bulk stock · ${qty} pcs` : asset.serialNo}
+        </span>
       </div>
       {individualPhoto && <span className="re-modal-indiv-badge">📷 Photo</span>}
     </div>
@@ -249,6 +364,15 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
   const [exportedByError,  setExportedByError]  = useState("");
   const [idNo,             setIdNo]             = useState("");
   const [parcelPhotos,     setParcelPhotos]     = useState([]);
+  const pieceCount = selectedAssets.reduce((sum, a) => {
+    if (a._bulk) {
+      return sum + Math.max(1, Math.min(
+        Number(a.exportQty) || Number(a.availableQty) || 1,
+        Number(a.availableQty) || 1,
+      ));
+    }
+    return sum + 1;
+  }, 0);
   const handlePhotoUpload = useCallback(async (files) => {
     if (!files?.length) return;
     try {
@@ -279,7 +403,10 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
           <div>
             <h3 className="re-modal-title">Export Assets</h3>
             <p className="re-modal-sub">
-              {selectedAssets.length} asset{selectedAssets.length !== 1 ? "s" : ""} ready to ship
+              {pieceCount} piece{pieceCount !== 1 ? "s" : ""} ready to ship
+              {selectedAssets.length !== pieceCount
+                ? ` (${selectedAssets.length} line${selectedAssets.length !== 1 ? "s" : ""})`
+                : ""}
             </p>
           </div>
           <button
@@ -295,15 +422,17 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
 
         <div className="re-modal-body">
           {/* Asset summary list */}
-          <div className="re-modal-section-label">Assets in this parcel</div>
-          <div className="re-modal-assets-list">
-            {selectedAssets.map((a) => (
-              <ModalAssetRow
-                key={a.id}
-                asset={a}
-                individualPhoto={individualPhotos[a.id]}
-              />
-            ))}
+          <div className="re-modal-assets-block">
+            <div className="re-modal-section-label">Assets in this parcel</div>
+            <div className="re-modal-assets-list">
+              {selectedAssets.map((a) => (
+                <ModalAssetRow
+                  key={a.id}
+                  asset={a}
+                  individualPhoto={individualPhotos[a.id]}
+                />
+              ))}
+            </div>
           </div>
 
           {/* Destination */}
@@ -436,6 +565,13 @@ export default function ReadyForExport() {
     setAllAssets(getAvailableAssetsFromStorage());
   }, []);
 
+  const setExportQty = useCallback((assetId, nextQty, maxQty) => {
+    const capped = Math.max(1, Math.min(Number(nextQty) || 1, Number(maxQty) || 1));
+    setAllAssets((prev) =>
+      prev.map((a) => (a.id === assetId ? { ...a, exportQty: capped } : a)),
+    );
+  }, []);
+
   const bootstrapExportAssets = useCallback(async () => {
     try {
       await syncITDataFromAPI();
@@ -472,24 +608,80 @@ export default function ReadyForExport() {
     const inCategory = allAssets.filter((a) => a.category === activeCat);
     if (!search.trim()) return inCategory;
     const query = search.toLowerCase();
-    return inCategory.filter(
-      (a) =>
-        a.assetName.toLowerCase().includes(query) ||
-        a.serialNo.toLowerCase().includes(query)  ||
-        (a.brand || "").toLowerCase().includes(query) ||
-        (a.make || "").toLowerCase().includes(query) ||
-        (a.model || "").toLowerCase().includes(query)
+    return inCategory.filter((a) =>
+      [
+        a.assetName,
+        a.serialNo,
+        a.brand,
+        a.make,
+        a.model,
+        a.laptopCode,
+        a.imei,
+        a.imei1,
+        a.imei2,
+        a.hwType,
+        a.unitCode,
+        a.projectCode,
+      ]
+        .map((v) => String(v || "").toLowerCase())
+        .some((v) => v.includes(query)),
     );
   }, [allAssets, activeCat, search]);
+
+  const showLaptopCodeCol = useMemo(
+    () =>
+      activeCat === "IT Assets" &&
+      filteredAssets.some(
+        (a) =>
+          String(a.itemCategory || "").toLowerCase() === "hardware" &&
+          String(a.hwType || "").toLowerCase() === "laptop",
+      ),
+    [filteredAssets, activeCat],
+  );
+
+  const showImeiCol = useMemo(
+    () =>
+      activeCat === "IT Assets" &&
+      filteredAssets.some((a) => isMobileTabletHwType(a.hwType)),
+    [filteredAssets, activeCat],
+  );
+
+  const codeColumnLabel = useMemo(() => {
+    const laptop = filteredAssets.find(
+      (a) => String(a.hwType || "").toLowerCase() === "laptop",
+    );
+    return getAssetCodeField(laptop?.hwType || "Laptop").label;
+  }, [filteredAssets]);
+
+  const serialColumnLabel = isTransportInventoryCategory(activeCat)
+    ? "Registration No."
+    : "Serial No";
 
   const selectedAssets = useMemo(
     () => allAssets.filter((a) => selectedIds.has(a.id)),
     [allAssets, selectedIds]
   );
 
+  const selectedPieceCount = useMemo(
+    () =>
+      selectedAssets.reduce((sum, a) => {
+        if (a._bulk) {
+          return sum + Math.max(1, Math.min(
+            Number(a.exportQty) || Number(a.availableQty) || 1,
+            Number(a.availableQty) || 1,
+          ));
+        }
+        return sum + 1;
+      }, 0),
+    [selectedAssets],
+  );
+
   const allVisibleSelected =
     filteredAssets.length > 0 && filteredAssets.every((a) => selectedIds.has(a.id));
   const hasSelection = selectedIds.size > 0;
+
+  const tableColCount =
+    8 + (showLaptopCodeCol ? 1 : 0) + (showImeiCol ? 1 : 0) + (hasSelection ? 1 : 0);
 
   const toggleRow = useCallback((id) => {
     setSelectedIds((prev) => {
@@ -529,15 +721,18 @@ export default function ReadyForExport() {
   const handleSend = useCallback(
     async (destination, parcelPhotos, idNo, exportedBy) => {
       try {
+        const exportLines = expandAssetsForExport(selectedAssets);
         await createParcelExportAPI({
           destination,
           idNo,
           exportedBy,
           inventoryCategory: activeCat,
           photos: parcelPhotos,
-          assets: selectedAssets.map((a) => ({
+          assets: exportLines.map((a) => ({
             ...a,
-            individualPhoto: individualPhotos[a.id] || null,
+            individualPhoto: individualPhotos[a.id] || individualPhotos[
+              a._source === "inventory" ? `inv-bulk-${a.inventoryId}` : a.id
+            ] || null,
           })),
         });
         await syncParcelsFromAPI();
@@ -549,7 +744,7 @@ export default function ReadyForExport() {
         loadAssets();
 
         showToast(
-          `✅ ${selectedAssets.length} asset${selectedAssets.length !== 1 ? "s" : ""} exported to "${destination}"`
+          `✅ ${exportLines.length} asset${exportLines.length !== 1 ? "s" : ""} exported to "${destination}"`
         );
       } catch (e) {
         console.error("[ReadyForExport] Export failed:", e);
@@ -592,7 +787,7 @@ export default function ReadyForExport() {
           <span className="re-search-icon" aria-hidden>⌕</span>
           <input
             className="re-search-input"
-            placeholder="Search by name, serial number, brand or model..."
+            placeholder="Search by name, serial, brand, model, laptop code or IMEI..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search assets"
@@ -605,11 +800,18 @@ export default function ReadyForExport() {
         </div>
         <div className="re-action-area">
           {hasSelection && (
-            <span className="re-selected-count">{selectedIds.size} selected</span>
+            <span className="re-selected-count">
+              {selectedIds.size} selected
+              {selectedPieceCount !== selectedIds.size
+                ? ` · ${selectedPieceCount} pcs`
+                : ""}
+            </span>
           )}
           {hasSelection && (
             <button type="button" className="re-btn-export-all" onClick={() => setShowModal(true)}>
-              {selectedIds.size === 1 ? "✈ Export" : `✈ Export All (${selectedIds.size})`}
+              {selectedPieceCount === 1
+                ? "✈ Export"
+                : `✈ Export (${selectedPieceCount})`}
             </button>
           )}
         </div>
@@ -617,9 +819,9 @@ export default function ReadyForExport() {
 
       <div className="re-card">
         <div className="re-card-head">
-          <span className="re-card-title">{activeCat} — Available Assets</span>
+          <span className="re-card-title">{activeCat} — Available for export</span>
           <span className="re-row-count">
-            {filteredAssets.length} asset{filteredAssets.length !== 1 ? "s" : ""}
+            {filteredAssets.length} line{filteredAssets.length !== 1 ? "s" : ""}
           </span>
         </div>
 
@@ -639,9 +841,15 @@ export default function ReadyForExport() {
                 <th className="re-th-sticky">
                   {isTransportInventoryCategory(activeCat) ? "Owner Name" : "Assets Name"}
                 </th>
+                <th className="re-th-sticky">Type</th>
                 <th className="re-th-sticky">Brand / Model</th>
-                <th className="re-th-sticky">Current Date</th>
-                <th className="re-th-sticky">Serial No</th>
+                {showLaptopCodeCol && (
+                  <th className="re-th-sticky">{codeColumnLabel}</th>
+                )}
+                {showImeiCol && <th className="re-th-sticky">IMEI</th>}
+                <th className="re-th-sticky">Qty</th>
+                <th className="re-th-sticky">{serialColumnLabel}</th>
+                <th className="re-th-sticky">Purchase Date</th>
                 <th className="re-th-sticky">Photo</th>
                 {hasSelection && <th className="re-th-sticky">Action</th>}
               </tr>
@@ -649,7 +857,7 @@ export default function ReadyForExport() {
             <tbody>
               {filteredAssets.length === 0 ? (
                 <tr>
-                  <td colSpan={hasSelection ? 7 : 6} className="re-empty">
+                  <td colSpan={tableColCount} className="re-empty">
                     {allAssets.length === 0
                       ? "No assets found. Add assets via the inventory to see them here."
                       : "No available assets in this category."}
@@ -658,6 +866,11 @@ export default function ReadyForExport() {
               ) : (
                 filteredAssets.map((asset, i) => {
                   const isSelected = selectedIds.has(asset.id);
+                  const isLaptopHw =
+                    String(asset.itemCategory || "").toLowerCase() === "hardware" &&
+                    String(asset.hwType || "").toLowerCase() === "laptop";
+                  const isMobileHw = isMobileTabletHwType(asset.hwType);
+                  const isBulk = Boolean(asset._bulk);
                   return (
                     <tr
                       key={asset.id}
@@ -675,17 +888,77 @@ export default function ReadyForExport() {
                       </td>
                       <td className="re-td-name">
                         <span className="re-asset-emoji" aria-hidden>{asset.emoji}</span>
-                        {getParcelAssetDisplayName(asset, activeCat)}
+                        <span className="re-asset-name-text">
+                          {getParcelAssetDisplayName(asset, activeCat)}
+                        </span>
+                        {isBulk ? (
+                          <span className="re-bulk-chip">Bulk</span>
+                        ) : null}
+                      </td>
+                      <td className="re-td-type">
+                        {asset.hwType ? (
+                          <span className="re-type-chip">{asset.hwType}</span>
+                        ) : (
+                          <span className="re-muted">—</span>
+                        )}
                       </td>
                       <td className="re-td-brand">
-                        {formatParcelBrandModel(asset, activeCat)}
+                        {formatExportBrandModel(asset, activeCat)}
                       </td>
-                      <td className="re-td-date">{todayStr()}</td>
-                      <td><span className="re-serial-chip">{asset.serialNo}</span></td>
+                      {showLaptopCodeCol && (
+                        <td className="re-td-code" data-label={codeColumnLabel}>
+                          {isLaptopHw && asset.laptopCode ? (
+                            <span className="re-code-chip">{asset.laptopCode}</span>
+                          ) : (
+                            <span className="re-muted">—</span>
+                          )}
+                        </td>
+                      )}
+                      {showImeiCol && (
+                        <td className="re-td-imei" data-label="IMEI">
+                          {isMobileHw && asset.imei ? (
+                            <span className="re-code-chip">{asset.imei}</span>
+                          ) : (
+                            <span className="re-muted">—</span>
+                          )}
+                        </td>
+                      )}
+                      <td
+                        className="re-td-qty"
+                        data-label="Qty"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {isBulk ? (
+                          <input
+                            type="number"
+                            className="re-qty-input"
+                            min={1}
+                            max={asset.availableQty || 1}
+                            value={asset.exportQty ?? asset.availableQty ?? 1}
+                            onChange={(e) =>
+                              setExportQty(asset.id, e.target.value, asset.availableQty)
+                            }
+                            aria-label={`Export quantity for ${asset.assetName}`}
+                          />
+                        ) : (
+                          <span className="re-qty-chip">1</span>
+                        )}
+                        {isBulk ? (
+                          <span className="re-qty-avail">/ {asset.availableQty}</span>
+                        ) : null}
+                      </td>
+                      <td>
+                        <span className="re-serial-chip">
+                          {isBulk ? "—" : (asset.serialNo || "—")}
+                        </span>
+                      </td>
+                      <td className="re-td-date">
+                        {asset.purchaseDate ? formatDate(asset.purchaseDate) : "—"}
+                      </td>
                       <td className="re-td-photo" onClick={(e) => e.stopPropagation()}>
                         <AssetPhotoCell
                           asset={asset}
-                          photo={individualPhotos[asset.id]}
+                          photo={individualPhotos[asset.id] || asset.photos?.[0] || null}
                           onUpload={handleIndividualPhoto}
                         />
                       </td>

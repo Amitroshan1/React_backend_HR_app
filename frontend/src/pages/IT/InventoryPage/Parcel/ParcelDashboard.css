@@ -57,11 +57,44 @@
 
 .pcl-topbar-right {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 .pcl-title-block {
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+.pcl-view-switch {
+  display: inline-flex;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+.pcl-view-btn {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pcl-view-btn:hover {
+  color: #0f172a;
+}
+.pcl-view-btn.active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
 }
 .pcl-title {
   font-size: 20px;
@@ -74,6 +107,26 @@
   font-size: 12px;
   color: #64748b;
   margin: 0;
+}
+.pcl-kind-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.pcl-kind-chip--imported {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+}
+.pcl-kind-chip--exported {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
 }
 
 /* ══════════════════════════════════════════

@@ -3,6 +3,7 @@
 from website.itam.activity_log_scope import (
     INVENTORY_SCOPE_ACTIONS,
     IT_SCOPE_ACTIONS,
+    PARCEL_SCOPE_ACTIONS,
     resolve_scope_actions,
     should_log_catalog_receive,
 )
@@ -22,13 +23,26 @@ def test_explicit_action_outside_scope_matches_nothing():
     assert resolve_scope_actions("inventory", ["CHECKOUT"]) == ["__NO_MATCH__"]
 
 
-def test_inventory_scope_includes_receive_and_export():
+def test_inventory_scope_includes_receive_not_export():
+    """Parcel EXPORT is tracked in Parcel Log, not inventory activity log."""
     actions = resolve_scope_actions("inventory")
     assert "RECEIVE" in actions
-    assert "EXPORT" in actions
+    assert "EXPORT" not in actions
     assert "CHECKOUT" not in actions
     assert "LOST" not in actions
     assert "NOTE" not in actions
+    assert set(actions) == set(INVENTORY_SCOPE_ACTIONS)
+
+
+def test_parcel_scope_is_receive_and_export_only():
+    actions = resolve_scope_actions("parcel")
+    assert set(actions) == set(PARCEL_SCOPE_ACTIONS)
+    assert "RECEIVE" in actions
+    assert "EXPORT" in actions
+    assert "CHECKOUT" not in actions
+    assert "DEPLOY" not in actions
+    assert resolve_scope_actions("parcel", ["EXPORT"]) == ["EXPORT"]
+    assert resolve_scope_actions("parcel", ["CHECKOUT"]) == ["__NO_MATCH__"]
 
 
 def test_it_scope_includes_checkout_not_receive():

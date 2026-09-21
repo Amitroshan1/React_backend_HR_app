@@ -1789,8 +1789,125 @@
 
 
 
-.ane-success-overlay { position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:2000; }
-.ane-success-box { background:#fff;border-radius:18px;padding:40px 48px;max-width:420px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.25); }
+.ane-success-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.ane-success-box {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 36px 40px 32px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.ane-success-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  line-height: 1;
+  margin-bottom: 18px;
+}
+
+.ane-success-title {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.ane-success-sub {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #475569;
+  max-width: 320px;
+}
+
+.ane-success-sub strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.ane-success-count {
+  margin: 0 0 24px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ane-success-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 280px;
+  min-height: 44px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.25);
+  transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.ane-success-btn:hover {
+  background: #1d4ed8;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.ane-success-btn:active {
+  transform: translateY(1px);
+}
+
+.ane-success-btn:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .ane-success-box {
+    padding: 28px 20px 24px;
+  }
+
+  .ane-success-title {
+    font-size: 20px;
+  }
+
+  .ane-success-btn {
+    max-width: none;
+  }
+}
+
 .ane-submit-error {
   margin: 0;
   padding: 12px 14px;

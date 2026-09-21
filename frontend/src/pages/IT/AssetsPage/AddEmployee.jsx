@@ -86,17 +86,17 @@ function getEmployeesSafe() {
 // ─── SuccessPopup ─────────────────────────────────────────────────────────────
 
 const SuccessPopup = ({ employeeName, totalAssets, onClose }) => (
-  <div className="ane-success-overlay">
+  <div className="ane-success-overlay" role="dialog" aria-modal="true" aria-labelledby="ane-success-title">
     <div className="ane-success-box">
-      <div className="ane-success-icon-wrap">✅</div>
-      <h2 className="ane-success-title">Employee Saved!</h2>
+      <div className="ane-success-icon-wrap" aria-hidden>✓</div>
+      <h2 id="ane-success-title" className="ane-success-title">Employee Saved!</h2>
       <p className="ane-success-sub">
         <strong>{employeeName}</strong> has been added successfully.
       </p>
       <p className="ane-success-count">
         {totalAssets} asset{totalAssets !== 1 ? "s" : ""} assigned
       </p>
-      <button className="ane-success-btn" onClick={onClose}>
+      <button type="button" className="ane-success-btn" onClick={onClose}>
         Go to Assets Dashboard →
       </button>
     </div>

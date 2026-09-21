@@ -1,6 +1,6 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../../hooks/useRefreshOnNavigate";
 import ClickableImage from "../../../../components/ClickableImage";
@@ -10,6 +10,7 @@ import {
   formatParcelBrandModel,
   getParcelAssetDisplayName,
 } from "../../inventoryCategories";
+import ActivityLogPage from "../../itam/ActivityLogPage";
 import "./ParcelDashboard.css";
 import { formatDate } from "../../../../utils/dateFormat";
 
@@ -266,6 +267,9 @@ function ImportDetailsModal({ asset, onClose }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Parcel() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("tab") === "log" ? "log" : "parcels";
+  const isLog = view === "log";
 
   const [importedData, setImportedData] = useState([]);
   const [exportedData, setExportedData] = useState([]);
@@ -277,6 +281,22 @@ export default function Parcel() {
   const [detailAsset,   setDetailAsset]   = useState(null);
   const [importDetail,  setImportDetail]  = useState(null);
   const [photoPreview,  setPhotoPreview]  = useState(null);
+
+  useEffect(() => {
+    if (isLog) return;
+    setActiveTab("imported");
+    setExportCategory("All");
+    setSearch("");
+    setPage(1);
+  }, [isLog]);
+
+  const setView = useCallback(
+    (next) => {
+      if (next === "log") setSearchParams({ tab: "log" });
+      else setSearchParams({});
+    },
+    [setSearchParams],
+  );
 
   // ── Data loading ───────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -305,7 +325,7 @@ export default function Parcel() {
   }, [loadData]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
-  const rawData = activeTab === "imported" ? importedData : exportedData;
+  const rawData = activeTab === "exported" ? exportedData : importedData;
 
   const exportCountByCategory = useMemo(() => {
     const counts = Object.fromEntries(
@@ -376,10 +396,39 @@ export default function Parcel() {
         <div className="pcl-topbar-right">
           <div className="pcl-title-block">
             <h1 className="pcl-title">Parcels</h1>
+            <p className="pcl-subtitle">
+              {isLog
+                ? "Activity log for parcel import and export only"
+                : "Add imports and prepare assets for export"}
+            </p>
+          </div>
+          <div className="pcl-view-switch" role="tablist" aria-label="Parcels sections">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!isLog}
+              className={`pcl-view-btn${!isLog ? " active" : ""}`}
+              onClick={() => setView("parcels")}
+            >
+              Parcels
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isLog}
+              className={`pcl-view-btn${isLog ? " active" : ""}`}
+              onClick={() => setView("log")}
+            >
+              Parcel Log
+            </button>
           </div>
         </div>
       </div>
 
+      {isLog ? (
+        <ActivityLogPage defaultScope="parcel" embedded />
+      ) : (
+        <>
       {/* Tab + Action Row */}
       <div className="pcl-tab-action-row">
         <div className="pcl-tabs">
@@ -446,7 +495,7 @@ export default function Parcel() {
             placeholder={`Search ${activeTab} parcels...`}
             value={search}
             onChange={handleSearchChange}
-            aria-label={`Search ${activeTab} parcels`}
+            aria-label="Search parcels"
           />
           {search && (
             <button
@@ -472,10 +521,11 @@ export default function Parcel() {
               <tr>
                 <th className="pcl-th-sticky">Assets Name</th>
                 <th className="pcl-th-sticky">Count</th>
-                <th className="pcl-th-sticky">{activeTab === "imported" ? "From" : "To"}</th>
+                <th className="pcl-th-sticky">
+                  {activeTab === "imported" ? "From" : "To"}
+                </th>
                 <th className="pcl-th-sticky">Date</th>
                 <th className="pcl-th-sticky">ID No</th>
-                {/* Tracking column — label swaps per tab */}
                 <th className="pcl-th-sticky">
                   {activeTab === "imported" ? "Received By" : "Exported By"}
                 </th>
@@ -497,8 +547,11 @@ export default function Parcel() {
                   </td>
                 </tr>
               ) : (
-                paginated.map((row) => (
-                  <tr key={row.id} className="pcl-row">
+                paginated.map((row) => {
+                  const handledBy =
+                    activeTab === "imported" ? row.receivedBy : row.exportedBy;
+                  return (
+                  <tr key={`${activeTab}-${row.id}`} className="pcl-row">
                     <td className="pcl-asset-name">{row.assetName}</td>
                     <td>
                       <span className="pcl-count-badge">{row.count}</span>
@@ -514,16 +567,10 @@ export default function Parcel() {
                         <span className="pcl-id-chip pcl-id-chip--system">{row.id}</span>
                       )}
                     </td>
-                    {/* Received By / Exported By cell */}
                     <td className="pcl-tracked-by">
-                      {activeTab === "imported"
-                        ? (row.receivedBy
-                            ? <span className="pcl-tracked-by-chip">{row.receivedBy}</span>
-                            : <span className="pcl-no-photos">—</span>)
-                        : (row.exportedBy
-                            ? <span className="pcl-tracked-by-chip">{row.exportedBy}</span>
-                            : <span className="pcl-no-photos">—</span>)
-                      }
+                      {handledBy
+                        ? <span className="pcl-tracked-by-chip">{handledBy}</span>
+                        : <span className="pcl-no-photos">—</span>}
                     </td>
                     <td>
                       <button
@@ -552,7 +599,8 @@ export default function Parcel() {
                       )}
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -590,6 +638,8 @@ export default function Parcel() {
         title={photoPreview?.title}
         onClose={() => setPhotoPreview(null)}
       />
+        </>
+      )}
     </div>
   );
 }

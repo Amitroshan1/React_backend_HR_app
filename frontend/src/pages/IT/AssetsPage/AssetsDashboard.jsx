@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import ClickableImage from "../../../components/ClickableImage";
@@ -33,9 +34,14 @@ import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
 import { isItamFlagEnabled } from "../../../utils/itamFlags";
 import { unitCustodyLabel, unitStatusLabel } from "../itam/lifecycleUi";
 import {
+  getAssetCodeField,
   getHwTypesForCategory,
   getAccessoryTypesForCategory,
   getConsumableTypesForCategory,
+  getHardwareFields,
+  getMobileTabletHardwareFields,
+  isLaptopHardwareRow,
+  isMobileTabletHwType,
   subscribeHwTypesChange,
 } from "../inventoryCategories";
 import "./AssetsDashboard.css";
@@ -297,8 +303,273 @@ function assetSearchBlob(a) {
     a.vendor,
     a.version,
     a.licenseKey,
+    a.laptopCode,
+    a.imei,
   ];
   return parts.map((p) => String(p ?? "").toLowerCase()).join(" ");
+}
+
+/** Laptop Code lives on unit.model (form label); fall back to unit_code / assetId. */
+function resolveLaptopCode(unit) {
+  const fromModel = String(unit?.model || "").trim();
+  if (fromModel && fromModel !== "—") return fromModel;
+  const fromCode = String(
+    unit?.unitCode || unit?.unit_code || unit?.assetId || "",
+  ).trim();
+  return fromCode && fromCode !== "—" ? fromCode : "";
+}
+
+/** Prefer IMEI 1, else IMEI 2. */
+function resolveImei(unit) {
+  const imei1 = String(unit?.imei1 || "").trim();
+  if (imei1) return imei1;
+  const imei2 = String(unit?.imei2 || "").trim();
+  return imei2 || "";
+}
+
+function getAvailableUnitsForInventory(inventoryId, assetName, hwType) {
+  const all = getAssetUnitsFromStorage() || [];
+  const avail = all.filter(
+    (u) => String(u.status || "").toLowerCase() === "available",
+  );
+  const byId = avail.filter(
+    (u) => String(u.inventoryId) === String(inventoryId),
+  );
+  if (byId.length > 0) return byId;
+  if (hwType) {
+    const byNameAndType = avail.filter(
+      (u) =>
+        (u.assetName === assetName || u.name === assetName) &&
+        String(u.hwType || "").toLowerCase() === String(hwType).toLowerCase(),
+    );
+    if (byNameAndType.length > 0) return byNameAndType;
+  }
+  return avail.filter((u) => u.assetName === assetName || u.name === assetName);
+}
+
+function resolveAvailableIdentityFields(inventoryItem) {
+  const units = getAvailableUnitsForInventory(
+    inventoryItem.id,
+    inventoryItem.name,
+    inventoryItem.hwType,
+  );
+  let laptopCode = "";
+  let imei = "";
+  for (const u of units) {
+    if (!laptopCode) laptopCode = resolveLaptopCode(u);
+    if (!imei) imei = resolveImei(u);
+    if (laptopCode && imei) break;
+  }
+  return { laptopCode, imei };
+}
+
+function resolveAssigneeFromUnit(unit) {
+  const assignedTo = unit?.assignedTo;
+  if (!assignedTo) return null;
+
+  let empId = "—";
+  let empName = "—";
+  let empPhoto = "";
+  let adminId = null;
+
+  if (isAssignedToObject(assignedTo)) {
+    adminId = assignedTo.adminId || assignedTo.id || null;
+    empId = assignedTo.empId || "—";
+    empName = assignedTo.name || "—";
+    empPhoto = getUserPhotoUrl(assignedTo);
+  } else {
+    empId = String(assignedTo);
+    if (/^\d+$/.test(empId)) adminId = empId;
+  }
+
+  const match = (getEmployees() || []).find((x) => {
+    const xEmpId = (x.id || x.empId || "").toUpperCase();
+    const xAdminId = String(x.adminId || x.id || "");
+    if (empId !== "—" && xEmpId === empId.toUpperCase()) return true;
+    if (adminId != null && xAdminId === String(adminId)) return true;
+    return false;
+  });
+  if (match) {
+    empId = match.empId || match.id || empId;
+    empName = match.name || empName;
+    empPhoto = getUserPhotoUrl(match) || empPhoto;
+    return {
+      empId,
+      empName,
+      empPhoto,
+      email: match.email || "",
+      type: match.type || "",
+      circle: match.circle || "",
+      department: match.department || match.dept || "",
+      phone: match.phone || match.mobile || "",
+    };
+  }
+  return { empId, empName, empPhoto, email: "", type: "", circle: "", department: "", phone: "" };
+}
+
+function buildHardwareUnitDetailRows(unit, itemHwType) {
+  const hwType = unit?.hwType || itemHwType || null;
+  const mobileTablet = isMobileTabletHwType(hwType);
+  const baseFields = getHardwareFields("IT Assets", "Hardware", hwType);
+  const hwFields = mobileTablet
+    ? getMobileTabletHardwareFields(baseFields)
+    : baseFields;
+  const codeField = getAssetCodeField(hwType || "Laptop");
+  const isLaptop =
+    String(unit?.category || "Hardware").trim().toLowerCase() === "hardware" &&
+    String(hwType || "").trim().toLowerCase() === "laptop";
+
+  const rows = [
+    { label: "Asset Tag / ID", value: unit?.assetTag || unit?.assetId || unit?.id, mono: true },
+    { label: "Type", value: hwType },
+    { label: hwFields.brand?.label || "Brand", value: unit?.brand },
+    {
+      label: hwFields.make?.label || "Make",
+      value: unit?.make || (mobileTablet ? unit?.model : ""),
+    },
+  ];
+
+  if (isLaptop || (!mobileTablet && hwType)) {
+    rows.push({
+      label: codeField.label,
+      value: resolveLaptopCode(unit) || unit?.model,
+      mono: true,
+    });
+  }
+
+  rows.push({
+    label: hwFields.serialNumber?.label || "Serial Number",
+    value: unit?.serialNumber,
+    mono: true,
+  });
+
+  if (mobileTablet) {
+    rows.push(
+      { label: "IMEI 1", value: unit?.imei1, mono: true },
+      { label: "IMEI 2", value: unit?.imei2, mono: true },
+      {
+        label: hwFields.projectCode?.label || "Project Code",
+        value: unit?.projectCode || unit?.project_code,
+      },
+      {
+        label: hwFields.deviceLocation?.label || "Device Location",
+        value: unit?.deviceLocation || unit?.device_location,
+      },
+    );
+  }
+
+  rows.push({ label: "Status", value: unit?.status });
+  if (unit?.assignedDate) {
+    rows.push({ label: "Assigned Date", value: fmt(unit.assignedDate) });
+  }
+  return rows.filter(
+    (r) => r.value != null && String(r.value).trim() !== "" && String(r.value) !== "—",
+  );
+}
+
+function HardwareUnitDetailCard({ unit, itemHwType }) {
+  const rows = buildHardwareUnitDetailRows(unit, itemHwType);
+  const assignee = unit?.status === "assigned" ? resolveAssigneeFromUnit(unit) : null;
+  const photos =
+    unit?.status === "assigned" && Array.isArray(unit.assignmentPhotos) && unit.assignmentPhotos.length
+      ? unit.assignmentPhotos
+      : Array.isArray(unit?.photos)
+        ? unit.photos
+        : [];
+  const sc = STATUS_COLOR[unit?.status] || STATUS_COLOR.available;
+
+  return (
+    <div className="adp-unit-card">
+      <div className="adp-unit-card-head">
+        <div>
+          <p className="adp-unit-card-title">
+            {unit?.brand
+              ? `${unit.brand}${unit.model ? ` ${unit.model}` : ""}`.trim()
+              : unit?.assetName || unit?.name || "Unit"}
+          </p>
+          <div className="adp-unit-card-badges">
+            {(unit?.hwType || itemHwType) && (
+              <span className="adp-badge adp-badge-blue">
+                {unit?.hwType || itemHwType}
+              </span>
+            )}
+            <span
+              className="adp-status-badge"
+              style={{
+                background: sc.bg,
+                color: sc.color,
+                border: `1px solid ${sc.border}`,
+              }}
+            >
+              {unit?.status || "—"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="adp-detail-list">
+        {rows.map(({ label, value, mono }) => (
+          <div key={label} className="adp-detail-row">
+            <span className="adp-detail-label">{label}</span>
+            <span className={`adp-detail-value${mono ? " mono" : ""}`}>
+              {value || "—"}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {assignee ? (
+        <div className="adp-assignee-block">
+          <p className="adp-section-label">Assigned To</p>
+          <div className="adp-assignee-row">
+            <UserAvatar
+              name={assignee.empName}
+              photo={assignee.empPhoto}
+              className="adp-assignee-avatar"
+              as="span"
+              alt={assignee.empName}
+            />
+            <div>
+              <p className="adp-assignee-name">{assignee.empName}</p>
+              <p className="adp-assignee-id">{assignee.empId}</p>
+            </div>
+          </div>
+          <div className="adp-detail-list">
+            {[
+              { label: "Email", value: assignee.email },
+              { label: "Type", value: assignee.type },
+              { label: "Circle", value: assignee.circle },
+              { label: "Department", value: assignee.department },
+              { label: "Phone", value: assignee.phone },
+            ]
+              .filter((r) => r.value)
+              .map(({ label, value }) => (
+                <div key={label} className="adp-detail-row">
+                  <span className="adp-detail-label">{label}</span>
+                  <span className="adp-detail-value">{value}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
+      {photos.length > 0 ? (
+        <div className="adp-photo-section">
+          <p className="adp-photo-title">Photos ({photos.length})</p>
+          <div className="adp-photo-grid">
+            {photos.map((src, i) => (
+              <ClickableImage
+                key={`${unit?.id || "u"}-${i}`}
+                src={src}
+                alt={`unit-${i + 1}`}
+                className="adp-photo-thumb"
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function compareAssetRows(a, b, sortMode) {
@@ -329,21 +600,26 @@ function buildAvailableData() {
       if (cat === "Software") return false;
       return Number(a.availableQuantity) > 0;
     })
-    .map((a) => ({
-      id: a.id,
-      name: a.name || "",
-      hwType: a.hwType || null,
-      category: normCat(a.category),
-      photos: Array.isArray(a.photos) ? a.photos : [],
-      availableQty: Number(a.availableQuantity) || 0,
-      assignedQty: Number(a.assignedQuantity) || 0,
-      totalQty: Number(a.totalQuantity) || 0,
-      licenseKey: a.licenseKey || a.license_key || null,
-      version: a.version || null,
-      vendor: a.vendor || null,
-      expiryDate: a.expiryDate || a.expiry_date || a.subscriptionEnd || null,
-      seats: a.seats || a.totalSeats || Number(a.totalQuantity) || null,
-    }));
+    .map((a) => {
+      const { laptopCode, imei } = resolveAvailableIdentityFields(a);
+      return {
+        id: a.id,
+        name: a.name || "",
+        hwType: a.hwType || null,
+        category: normCat(a.category),
+        photos: Array.isArray(a.photos) ? a.photos : [],
+        availableQty: Number(a.availableQuantity) || 0,
+        assignedQty: Number(a.assignedQuantity) || 0,
+        totalQty: Number(a.totalQuantity) || 0,
+        licenseKey: a.licenseKey || a.license_key || null,
+        version: a.version || null,
+        vendor: a.vendor || null,
+        expiryDate: a.expiryDate || a.expiry_date || a.subscriptionEnd || null,
+        seats: a.seats || a.totalSeats || Number(a.totalQuantity) || null,
+        laptopCode,
+        imei,
+      };
+    });
 }
 
 function buildAssignedData() {
@@ -530,28 +806,111 @@ function AvailableDetailPanel({ item, onClose }) {
 
   const tabs = ["Available", "Assigned"];
 
-  return (
-    <>
-      <div className="adp-overlay" onClick={onClose}>
-        <div className="adp-panel" onClick={(e) => e.stopPropagation()}>
-          <div className="adp-hdr">
-            <div>
-              <p className="adp-title">{item.name}</p>
-              <div className="adp-badges">
-                {item.hwType && (
-                  <span className="adp-badge adp-badge-blue">
-                    {item.hwType}
-                  </span>
-                )}
-                {isSoftware && (
-                  <span className="adp-badge adp-badge-green">💿 Software</span>
-                )}
-              </div>
+  const inventorySummaryRows = [
+    { label: "Asset Name", value: item.name || invRow?.name },
+    { label: "Category", value: item.category },
+    { label: "Type", value: item.hwType || invRow?.hwType },
+    {
+      label: "Available Qty",
+      value: item.availableQty ?? invRow?.availableQuantity,
+    },
+    {
+      label: "Assigned Qty",
+      value: item.assignedQty ?? invRow?.assignedQuantity,
+    },
+    {
+      label: "Total Qty",
+      value: item.totalQty ?? invRow?.totalQuantity,
+    },
+    { label: "Vendor", value: item.vendor || invRow?.vendor },
+    { label: "Location", value: invRow?.location },
+    { label: "Notes", value: invRow?.notes },
+  ];
+
+  if (
+    isLaptopHardwareRow({
+      category: item.category,
+      hwType: item.hwType || invRow?.hwType,
+    })
+  ) {
+    inventorySummaryRows.push({
+      label: "Laptop Code",
+      value: item.laptopCode || resolveAvailableIdentityFields(item).laptopCode,
+      mono: true,
+    });
+  }
+  if (
+    String(item.category || "").trim().toLowerCase() === "hardware" &&
+    isMobileTabletHwType(item.hwType || invRow?.hwType)
+  ) {
+    inventorySummaryRows.push({
+      label: "IMEI",
+      value: item.imei || resolveAvailableIdentityFields(item).imei,
+      mono: true,
+    });
+  }
+
+  const summaryVisible = inventorySummaryRows.filter(
+    (r) => r.value != null && String(r.value).trim() !== "" && String(r.value) !== "—",
+  );
+
+  return createPortal(
+    <div
+      className="adp-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="adp-panel adp-panel--wide" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="adp-hdr">
+          <div>
+            <p className="adp-title">{item.name}</p>
+            <div className="adp-badges">
+              <span className="adp-badge">{item.category}</span>
+              {item.hwType && (
+                <span className="adp-badge adp-badge-blue">
+                  {item.hwType}
+                </span>
+              )}
+              {isSoftware && (
+                <span className="adp-badge adp-badge-green">💿 Software</span>
+              )}
             </div>
-            <button className="adp-close" onClick={onClose} aria-label="Close">
-              ✕
-            </button>
           </div>
+          <button className="adp-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        <div className="adp-body">
+          <section className="adp-summary-card">
+            <p className="adp-section-label">Asset Overview</p>
+            <div className="adp-detail-list">
+              {summaryVisible.map(({ label, value, mono }) => (
+                <div key={label} className="adp-detail-row">
+                  <span className="adp-detail-label">{label}</span>
+                  <span className={`adp-detail-value${mono ? " mono" : ""}`}>
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {itemPhotos.length > 0 && (
+              <div className="adp-photo-section">
+                <p className="adp-photo-title">Photos ({itemPhotos.length})</p>
+                <div className="adp-photo-grid">
+                  {itemPhotos.map((src, i) => (
+                    <ClickableImage
+                      key={i}
+                      src={src}
+                      alt={`asset-${i + 1}`}
+                      className="adp-photo-thumb"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
 
           <div className="adp-tabs">
             {tabs.map((t) => (
@@ -565,254 +924,186 @@ function AvailableDetailPanel({ item, onClose }) {
             ))}
           </div>
 
-          <div className="adp-body">
-            {isBulkItem ? (
-              <>
-                {itemPhotos.length > 0 && (
-                  <div className="adp-photo-section">
-                    <p className="adp-photo-title">Photos ({itemPhotos.length})</p>
-                    <div className="adp-photo-grid">
-                      {itemPhotos.map((src, i) => (
-                        <ClickableImage
-                          key={i}
-                          src={src}
-                          alt={`asset-${i + 1}`}
-                          className="adp-photo-thumb"
-                        />
-                      ))}
-                    </div>
+          {isBulkItem ? (
+            <>
+              {tab === "Available" ? (
+                <div className="adp-bulk-summary">
+                  <p className="adp-bulk-count">{bulkAvailable}</p>
+                  <p className="adp-bulk-label">available to assign</p>
+                  <p className="adp-bulk-hint">
+                    Quantity-based {String(item.category || "item").toLowerCase()} — full stock
+                    details are shown above.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="adp-bulk-summary adp-bulk-summary--assigned">
+                    <p className="adp-bulk-count">{bulkAssigned}</p>
+                    <p className="adp-bulk-label">assigned</p>
                   </div>
-                )}
-
-                {tab === "Available" ? (
-                  <div className="adp-bulk-summary">
-                    <p className="adp-bulk-count">{bulkAvailable}</p>
-                    <p className="adp-bulk-label">available to assign</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="adp-bulk-summary adp-bulk-summary--assigned">
-                      <p className="adp-bulk-count">{bulkAssigned}</p>
-                      <p className="adp-bulk-label">assigned</p>
-                    </div>
-                    {isSoftware && swAssigned.length > 0 ? (
-                      <table className="adp-table">
-                        <thead>
-                          <tr>
-                            <th>License ID</th>
-                            <th>Status</th>
-                            <th>Start</th>
-                            <th>Expiry</th>
-                            <th>Assigned To</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {swAssigned.map((s) => {
-                            const days = daysLeft(
-                              s.subscriptionEnd || s.licenseExpiry,
-                            );
-                            const expired = days !== null && days < 0;
-                            const warn = !expired && days !== null && days <= 30;
-                            return (
-                              <tr key={s.id}>
-                                <td className="adp-mono">{s.id}</td>
-                                <td>
-                                  <span
-                                    className="adp-status-badge"
-                                    style={
-                                      expired
-                                        ? {
-                                            background: "#fef2f2",
-                                            color: "#ef4444",
-                                            border: "1px solid #fecaca",
-                                          }
-                                        : warn
-                                          ? {
-                                              background: "#fffbeb",
-                                              color: "#f59e0b",
-                                              border: "1px solid #fde68a",
-                                            }
-                                          : {
-                                              background: "#f0fdf4",
-                                              color: "#16a34a",
-                                              border: "1px solid #bbf7d0",
-                                            }
-                                    }
-                                  >
-                                    {expired
-                                      ? "Expired"
+                  {isSoftware && swAssigned.length > 0 ? (
+                    <table className="adp-table">
+                      <thead>
+                        <tr>
+                          <th>License ID</th>
+                          <th>Status</th>
+                          <th>Start</th>
+                          <th>Expiry</th>
+                          <th>Assigned To</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {swAssigned.map((s) => {
+                          const days = daysLeft(
+                            s.subscriptionEnd || s.licenseExpiry,
+                          );
+                          const expired = days !== null && days < 0;
+                          const warn = !expired && days !== null && days <= 30;
+                          return (
+                            <tr key={s.id}>
+                              <td className="adp-mono">{s.id}</td>
+                              <td>
+                                <span
+                                  className="adp-status-badge"
+                                  style={
+                                    expired
+                                      ? {
+                                          background: "#fef2f2",
+                                          color: "#ef4444",
+                                          border: "1px solid #fecaca",
+                                        }
                                       : warn
-                                        ? "Expiring Soon"
-                                        : s.status}
-                                  </span>
-                                </td>
-                                <td>{fmt(s.subscriptionStart)}</td>
-                                <td>{fmt(s.subscriptionEnd || s.licenseExpiry)}</td>
-                                <td>{formatAssignedToLabel(s.assignedTo)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    ) : bulkAssignees.length > 0 ? (
-                      <table className="adp-table">
-                        <thead>
-                          <tr>
-                            <th>Employee ID</th>
-                            <th>Employee Name</th>
-                            <th>Qty</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {bulkAssignees.map((row) => (
-                            <tr key={row.key}>
-                              <td className="adp-mono">{row.empId}</td>
-                              <td>{row.empName}</td>
-                              <td>{row.quantity}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <div className="adp-empty">No assignments yet.</div>
-                    )}
-                  </>
-                )}
-              </>
-            ) : visibleItems.length === 0 ? (
-              <div className="adp-empty">
-                No {tab.toLowerCase()} units found.
-              </div>
-            ) : isSoftware ? (
-              <table className="adp-table">
-                <thead>
-                  <tr>
-                    <th>License ID</th>
-                    <th>Status</th>
-                    <th>Start</th>
-                    <th>Expiry</th>
-                    <th>Assigned To</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleItems.map((s) => {
-                    const days = daysLeft(s.subscriptionEnd || s.licenseExpiry);
-                    const expired = days !== null && days < 0;
-                    const warn = !expired && days !== null && days <= 30;
-                    return (
-                      <tr key={s.id}>
-                        <td className="adp-mono">{s.id}</td>
-                        <td>
-                          <span
-                            className="adp-status-badge"
-                            style={
-                              expired
-                                ? {
-                                    background: "#fef2f2",
-                                    color: "#ef4444",
-                                    border: "1px solid #fecaca",
+                                        ? {
+                                            background: "#fffbeb",
+                                            color: "#f59e0b",
+                                            border: "1px solid #fde68a",
+                                          }
+                                        : {
+                                            background: "#f0fdf4",
+                                            color: "#16a34a",
+                                            border: "1px solid #bbf7d0",
+                                          }
                                   }
-                                : warn
-                                  ? {
-                                      background: "#fffbeb",
-                                      color: "#f59e0b",
-                                      border: "1px solid #fde68a",
-                                    }
-                                  : {
-                                      background: "#f0fdf4",
-                                      color: "#16a34a",
-                                      border: "1px solid #bbf7d0",
-                                    }
-                            }
-                          >
-                            {expired
-                              ? "Expired"
+                                >
+                                  {expired
+                                    ? "Expired"
+                                    : warn
+                                      ? "Expiring Soon"
+                                      : s.status}
+                                </span>
+                              </td>
+                              <td>{fmt(s.subscriptionStart)}</td>
+                              <td>{fmt(s.subscriptionEnd || s.licenseExpiry)}</td>
+                              <td>{formatAssignedToLabel(s.assignedTo)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : bulkAssignees.length > 0 ? (
+                    <table className="adp-table">
+                      <thead>
+                        <tr>
+                          <th>Employee ID</th>
+                          <th>Employee Name</th>
+                          <th>Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bulkAssignees.map((row) => (
+                          <tr key={row.key}>
+                            <td className="adp-mono">{row.empId}</td>
+                            <td>{row.empName}</td>
+                            <td>{row.quantity}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="adp-empty">No assignments yet.</div>
+                  )}
+                </>
+              )}
+            </>
+          ) : visibleItems.length === 0 ? (
+            <div className="adp-empty">
+              No {tab.toLowerCase()} units found.
+            </div>
+          ) : isSoftware ? (
+            <table className="adp-table">
+              <thead>
+                <tr>
+                  <th>License ID</th>
+                  <th>Status</th>
+                  <th>Start</th>
+                  <th>Expiry</th>
+                  <th>Assigned To</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleItems.map((s) => {
+                  const days = daysLeft(s.subscriptionEnd || s.licenseExpiry);
+                  const expired = days !== null && days < 0;
+                  const warn = !expired && days !== null && days <= 30;
+                  return (
+                    <tr key={s.id}>
+                      <td className="adp-mono">{s.id}</td>
+                      <td>
+                        <span
+                          className="adp-status-badge"
+                          style={
+                            expired
+                              ? {
+                                  background: "#fef2f2",
+                                  color: "#ef4444",
+                                  border: "1px solid #fecaca",
+                                }
                               : warn
-                                ? "Expiring Soon"
-                                : s.status}
-                          </span>
-                        </td>
-                        <td>{fmt(s.subscriptionStart)}</td>
-                        <td>{fmt(s.subscriptionEnd || s.licenseExpiry)}</td>
-                        <td>{formatAssignedToLabel(s.assignedTo)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              <table
-                className="adp-table"
-                style={{ tableLayout: "fixed", width: "100%" }}
-              >
-                <thead>
-                  <tr>
-                    <th style={{ width: "30%" }}>Brand / Model</th>
-                    <th style={{ width: "25%" }}>Serial No.</th>
-                    <th style={{ width: "20%" }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleItems.map((u) => {
-                    const sc = STATUS_COLOR[u.status] || STATUS_COLOR.available;
-                    const brandModel = u.brand
-                      ? `${u.brand}${u.model ? " " + u.model : ""}`.trim()
-                      : u.assetName || u.name || "—";
-                    const rawSerial = String(u.serialNumber || "—");
-                    const displaySerial =
-                      rawSerial.length > 14
-                        ? rawSerial.slice(0, 14) + "…"
-                        : rawSerial;
-                    return (
-                      <tr key={u.id}>
-                        <td
-                          title={brandModel}
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            fontSize: "13px",
-                            fontWeight: "600",
-                            color: "#1e293b",
-                          }}
+                                ? {
+                                    background: "#fffbeb",
+                                    color: "#f59e0b",
+                                    border: "1px solid #fde68a",
+                                  }
+                                : {
+                                    background: "#f0fdf4",
+                                    color: "#16a34a",
+                                    border: "1px solid #bbf7d0",
+                                  }
+                          }
                         >
-                          {brandModel}
-                        </td>
-                        <td
-                          title={rawSerial}
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            fontFamily: "monospace",
-                            fontSize: "12px",
-                            color: "#334155",
-                          }}
-                        >
-                          {displaySerial}
-                        </td>
-                        <td>
-                          <span
-                            className="adp-status-badge"
-                            style={{
-                              background: sc.bg,
-                              color: sc.color,
-                              border: `1px solid ${sc.border}`,
-                            }}
-                          >
-                            {u.status}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+                          {expired
+                            ? "Expired"
+                            : warn
+                              ? "Expiring Soon"
+                              : s.status}
+                        </span>
+                      </td>
+                      <td>{fmt(s.subscriptionStart)}</td>
+                      <td>{fmt(s.subscriptionEnd || s.licenseExpiry)}</td>
+                      <td>{formatAssignedToLabel(s.assignedTo)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div className="adp-unit-list">
+              <p className="adp-section-label">
+                {tab} units ({visibleItems.length})
+              </p>
+              {visibleItems.map((u) => (
+                <HardwareUnitDetailCard
+                  key={u.id}
+                  unit={u}
+                  itemHwType={item.hwType}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
-    </>
+    </div>,
+    document.body,
   );
 }
 
@@ -1928,7 +2219,6 @@ export default function AssetsDashboard() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [typeOptions, setTypeOptions] = useState([]);
   const [search, setSearch] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState("name-asc");
   const [detailItem, setDetailItem] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -1996,7 +2286,7 @@ export default function AssetsDashboard() {
       );
     }
 
-    const tokens = searchQuery
+    const tokens = search
       .trim()
       .toLowerCase()
       .split(/\s+/)
@@ -2015,7 +2305,7 @@ export default function AssetsDashboard() {
       return cmp;
     });
     return sorted;
-  }, [data, catFilter, typeFilter, searchQuery, sortMode]);
+  }, [data, catFilter, typeFilter, search, sortMode]);
 
   const categoryScopedData = useMemo(() => {
     if (catFilter === "ALL") return data;
@@ -2032,6 +2322,20 @@ export default function AssetsDashboard() {
     },
     [categoryScopedData],
   );
+
+  // Extra identity columns on Available table only (Hardware Laptop / Mobile / Tablet).
+  const showLaptopCodeCol =
+    mainFilter === "Available" &&
+    filtered.some((a) => isLaptopHardwareRow(a));
+  const showImeiCol =
+    mainFilter === "Available" &&
+    filtered.some(
+      (a) =>
+        String(a?.category || "").trim().toLowerCase() === "hardware" &&
+        isMobileTabletHwType(a?.hwType),
+    );
+  const availableColSpan =
+    5 + (showLaptopCodeCol ? 1 : 0) + (showImeiCol ? 1 : 0);
 
   const totalAssetCount = useMemo(() => {
     if (mainFilter === "Available") {
@@ -2052,21 +2356,11 @@ export default function AssetsDashboard() {
     }
   }, [filtered, mainFilter]);
 
-  const handleSearch = useCallback(() => setSearchQuery(search), [search]);
-
-  const handleKeyDown = useCallback(
-    (e) => {
-      if (e.key === "Enter") setSearchQuery(search);
-    },
-    [search],
-  );
-
   const handleMainFilter = useCallback((filter) => {
     setMainFilter(filter);
     setCatFilter("ALL");
     setTypeFilter("All");
     setSearch("");
-    setSearchQuery("");
     setSortMode("name-asc");
     setDetailItem(null);
   }, []);
@@ -2146,24 +2440,19 @@ export default function AssetsDashboard() {
                 placeholder="Search assets…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={handleKeyDown}
+                aria-label="Search assets"
               />
               {search && (
                 <button
+                  type="button"
                   className="am-search-clear"
-                  onClick={() => {
-                    setSearch("");
-                    setSearchQuery("");
-                  }}
+                  onClick={() => setSearch("")}
                   aria-label="Clear search"
                 >
                   ×
                 </button>
               )}
             </div>
-            <button className="am-search-btn" onClick={handleSearch}>
-              Search
-            </button>
             <div className="am-sort-inline">
               <label htmlFor="am-sort-select" className="am-sort-label">
                 Sort
@@ -2258,6 +2547,8 @@ export default function AssetsDashboard() {
                   <tr>
                     <th>Assets Name</th>
                     <th>Category</th>
+                    {showLaptopCodeCol && <th>Laptop Code</th>}
+                    {showImeiCol && <th>IMEI</th>}
                     <th>Available Qty</th>
                     <th>Assigned</th>
                     <th>Details</th>
@@ -2266,7 +2557,7 @@ export default function AssetsDashboard() {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="am-empty">
+                      <td colSpan={availableColSpan} className="am-empty">
                         No assets found
                       </td>
                     </tr>
@@ -2300,6 +2591,27 @@ export default function AssetsDashboard() {
                               {a.category}
                             </span>
                           </td>
+                          {showLaptopCodeCol && (
+                            <td data-label="Laptop Code">
+                              <span className="am-emp-id">
+                                {isLaptopHardwareRow(a)
+                                  ? a.laptopCode || "—"
+                                  : "—"}
+                              </span>
+                            </td>
+                          )}
+                          {showImeiCol && (
+                            <td data-label="IMEI">
+                              <span className="am-emp-id">
+                                {String(a?.category || "")
+                                  .trim()
+                                  .toLowerCase() === "hardware" &&
+                                isMobileTabletHwType(a?.hwType)
+                                  ? a.imei || "—"
+                                  : "—"}
+                              </span>
+                            </td>
+                          )}
                           <td data-label="Available">
                             {a.category === "Software" ? (
                               <span className="am-sw-qty">
