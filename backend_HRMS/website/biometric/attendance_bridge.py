@@ -100,6 +100,101 @@ def _looks_like_biometric_session(sess) -> bool:
     return False
 
 
+def _earliest_machine_scan_at(admin_id: int, punch_date) -> Optional[datetime]:
+    """
+    Earliest device punch_time for this employee on the attendance calendar day.
+
+    Includes ignored / not-applied logs that still carry a real machine time so
+    Check In follows the machine first scan, not only the first applied scan.
+    """
+    if not admin_id or punch_date is None:
+        return None
+    start = datetime.combine(punch_date, datetime.min.time())
+    end = datetime.combine(punch_date, datetime.max.time())
+    row = (
+        BiometricLog.query.filter(
+            BiometricLog.admin_id == admin_id,
+            BiometricLog.punch_time.isnot(None),
+            BiometricLog.punch_time >= start,
+            BiometricLog.punch_time <= end,
+        )
+        .order_by(BiometricLog.punch_time.asc(), BiometricLog.id.asc())
+        .first()
+    )
+    return row.punch_time if row else None
+
+
+def _reconcile_clock_in_to_earliest_scan(
+    open_sess,
+    admin_id: int,
+    punch_date,
+    *,
+    candidate: Optional[datetime] = None,
+) -> bool:
+    """
+    Force open-session clock_in to the earliest machine scan that day.
+
+    Returns True when clock_in was moved earlier.
+    """
+    if open_sess is None or getattr(open_sess, "clock_out", None) is not None:
+        return False
+
+    earliest = _earliest_machine_scan_at(admin_id, punch_date)
+    if candidate is not None:
+        earliest = candidate if earliest is None else min(earliest, candidate)
+    if earliest is None:
+        return False
+
+    prev = open_sess.clock_in
+    if prev is not None and earliest >= prev:
+        return False
+
+    open_sess.clock_in = earliest
+    punch = getattr(open_sess, "punch", None)
+    if punch is None and open_sess.punch_id:
+        from ..models.attendance import Punch
+
+        punch = Punch.query.get(open_sess.punch_id)
+    if punch is not None:
+        from ..punch_aggregate import recompute_punch_aggregate
+
+        recompute_punch_aggregate(punch)
+    _upsert_day_state(
+        admin_id=admin_id,
+        punch_date=punch_date,
+        punch_session_id=open_sess.id,
+        scan_at=earliest,
+    )
+    logger.info(
+        "BIOMETRIC_CLOCK_IN_EARLIEST_SCAN admin_id=%s session_id=%s prev_in=%s "
+        "new_in=%s",
+        admin_id,
+        getattr(open_sess, "id", None),
+        prev.isoformat() if prev else None,
+        earliest.isoformat(),
+    )
+    return True
+
+
+def reconcile_open_biometric_clock_in_for_admin(admin_id: int) -> bool:
+    """
+    Dashboard / repair hook: rewind open biometric clock_in to machine first scan.
+    """
+    if not admin_id:
+        return False
+    from ..punch_aggregate import open_punch_session_for_admin
+
+    open_sess = open_punch_session_for_admin(admin_id)
+    if open_sess is None or not _looks_like_biometric_session(open_sess):
+        return False
+    punch_date = _session_punch_date(open_sess)
+    if punch_date is None and open_sess.clock_in:
+        punch_date = open_sess.clock_in.date()
+    if punch_date is None:
+        return False
+    return _reconcile_clock_in_to_earliest_scan(open_sess, admin_id, punch_date)
+
+
 def _open_biometric_session_for_day(admin_id: int, punch_date):
     """
     Open PunchSession scoped to admin + calendar punch_date only.
@@ -216,6 +311,11 @@ def _supersede_same_day_open_web(
         from ..models.attendance import Punch
 
         punch = Punch.query.get(open_sess.punch_id)
+
+    # Prefer machine first scan that day over web IN / this scan alone.
+    _reconcile_clock_in_to_earliest_scan(
+        open_sess, admin_id, punch_date, candidate=punch_time
+    )
 
     _upsert_day_state(
         admin_id=admin_id,
@@ -691,34 +791,9 @@ def _process_subsequent_biometric_scan(
         )
 
     day_key = punch_date
-    rewound = False
-    if (
-        open_sess.clock_in is not None
-        and punch_time is not None
-        and punch_time < open_sess.clock_in
-    ):
-        # Fix #6: offline / out-of-order dump — earliest scan becomes clock_in.
-        prev_in = open_sess.clock_in
-        open_sess.clock_in = punch_time
-        rewound = True
-        punch = getattr(open_sess, "punch", None)
-        if punch is None and open_sess.punch_id:
-            from ..models.attendance import Punch
-
-            punch = Punch.query.get(open_sess.punch_id)
-        if punch is not None:
-            from ..punch_aggregate import recompute_punch_aggregate
-
-            recompute_punch_aggregate(punch)
-        logger.info(
-            "BIOMETRIC_CLOCK_IN_REWIND admin_id=%s session_id=%s prev_in=%s "
-            "new_in=%s log_id=%s",
-            admin_id,
-            open_sess.id,
-            prev_in.isoformat(),
-            punch_time.isoformat(),
-            log.id,
-        )
+    rewound = _reconcile_clock_in_to_earliest_scan(
+        open_sess, admin_id, punch_date, candidate=punch_time
+    )
 
     _upsert_day_state(
         admin_id=admin_id,
@@ -958,9 +1033,15 @@ def process_biometric_log(
         log.error_message = "max_sessions_per_day"
         return log.status
 
+    # Prefer earliest machine scan that day (covers earlier ignored/not-applied rows).
+    clock_in_at = punch_time
+    earliest = _earliest_machine_scan_at(admin_id, punch_date)
+    if earliest is not None:
+        clock_in_at = min(earliest, punch_time)
+
     sess = PunchSession(
         punch_id=punch.id,
-        clock_in=punch_time,
+        clock_in=clock_in_at,
         clock_out=None,
         repeat_reason="biometric" if closed_count > 0 else None,
         is_wfh=False,
@@ -1020,17 +1101,21 @@ def process_biometric_log(
         admin_id=admin_id,
         punch_date=punch_date,
         punch_session_id=sess.id,
-        scan_at=punch_time,
+        scan_at=clock_in_at,
     )
     recompute_punch_aggregate(punch)
 
     log.status = "processed"
     log.punch_session_id = sess.id
-    log.error_message = None
+    log.error_message = (
+        "clock_in_from_earlier_scan" if clock_in_at < punch_time else None
+    )
     logger.info(
-        "BIOMETRIC_SESSION_OPENED admin_id=%s session_id=%s clock_in=%s log_id=%s",
+        "BIOMETRIC_SESSION_OPENED admin_id=%s session_id=%s clock_in=%s "
+        "scan_at=%s log_id=%s",
         admin_id,
         sess.id,
+        clock_in_at.isoformat(),
         punch_time.isoformat(),
         log.id,
     )

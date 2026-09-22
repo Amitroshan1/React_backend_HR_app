@@ -614,6 +614,62 @@ def test_fix6_out_of_order_scan_rewinds_clock_in(client, stack):
         assert late_log.error_message == "clock_in_rewound"
 
 
+def test_open_uses_earlier_ignored_machine_scan_as_clock_in(client, stack):
+    """
+    Machine first scan ignored (e.g. prior open day) must still drive Check In
+    when a later scan successfully opens today's session.
+    """
+    with stack.app.app_context():
+        stack.db.session.add(
+            stack.BiometricLog(
+                device_serial_number="ERIS001",
+                device_user_id=PIN,
+                punch_time=datetime(2026, 8, 17, 11, 59, 0),
+                status="ignored_open_session",
+                error_message="open_prior_day_session",
+                idempotency_key="seed-early-1159",
+                admin_id=42,
+            )
+        )
+        stack.db.session.commit()
+        _post_attlog(client, _att(ts="2026-08-17 12:16:00"))
+        stack.db.session.expire_all()
+        sess = stack.PunchSession.query.first()
+        assert sess is not None
+        assert sess.clock_in == datetime(2026, 8, 17, 11, 59, 0)
+        assert stack.Punch.query.first().punch_in == datetime(2026, 8, 17, 11, 59, 0)
+        opened = stack.BiometricLog.query.filter_by(
+            punch_time=datetime(2026, 8, 17, 12, 16, 0)
+        ).first()
+        assert opened.status == "processed"
+        assert opened.error_message == "clock_in_from_earlier_scan"
+
+
+def test_repair_rewinds_open_clock_in_to_earliest_scan(client, stack):
+    """Homepage repair aligns open biometric IN with machine first scan."""
+    with stack.app.app_context():
+        _post_attlog(client, _att(ts="2026-08-17 12:16:00"))
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_in == datetime(2026, 8, 17, 12, 16, 0)
+        stack.db.session.add(
+            stack.BiometricLog(
+                device_serial_number="ERIS001",
+                device_user_id=PIN,
+                punch_time=datetime(2026, 8, 17, 11, 59, 0),
+                status="ignored_open_session",
+                error_message="open_prior_day_session",
+                idempotency_key="seed-late-insert-1159",
+                admin_id=42,
+            )
+        )
+        stack.db.session.commit()
+        changed = stack.punch_auto.repair_attendance_integrity_for_admin(42)
+        assert changed is True
+        stack.db.session.expire_all()
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_in == datetime(2026, 8, 17, 11, 59, 0)
+
+
 def test_bridge_does_not_call_auth_punch_routes():
     text = (_BIO / "attendance_bridge.py").read_text(encoding="utf-8")
     assert "from ..auth import" not in text

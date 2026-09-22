@@ -502,6 +502,16 @@ def repair_attendance_integrity_for_admin(admin_id):
         for punch in punches:
             if repair_overlong_sessions_for_punch(punch):
                 changed = True
+        # Align open biometric Check In with machine first scan that day.
+        try:
+            from .biometric.attendance_bridge import (
+                reconcile_open_biometric_clock_in_for_admin,
+            )
+
+            if reconcile_open_biometric_clock_in_for_admin(admin_id):
+                changed = True
+        except Exception:
+            pass
         # Overdue cap close: scheduler (no live GPS) or dashboard client punch-out with GPS.
         if changed:
             db.session.commit()
