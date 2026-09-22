@@ -69,6 +69,7 @@ from .punch_auto_close import (
     close_punch_session,
     evaluate_auto_close,
     repair_attendance_integrity_for_admin,
+    session_auto_close_deadline,
     validate_manual_punch_out_extended_reason,
 )
 from . import tax_declaration_service as tax_decl
@@ -2216,10 +2217,21 @@ def punch_out():
             ext_trim = (data.get("extended_hours_reason") or "").strip()
             ext_reason = ext_trim or None
             should_cap, cap_reason, cap_at = evaluate_auto_close(open_sess, now)
-            if should_cap:
-                clock_out_at = cap_at
-                if not ext_reason:
-                    ext_reason = cap_reason or AUTO_CAP_REASON
+            if not should_cap:
+                # Never honour a client auto punch-out unless the 10h cap is actually due.
+                # (Prevents 1–2s sessions when the UI fires early / with a stale deadline.)
+                deadline = session_auto_close_deadline(open_sess)
+                return jsonify({
+                    "success": False,
+                    "message": "10-hour work cap has not been reached yet.",
+                    "cap_not_due": True,
+                    "session_auto_close_at": (
+                        isoformat_punch_clock(deadline) if deadline else None
+                    ),
+                }), 409
+            clock_out_at = cap_at
+            if not ext_reason:
+                ext_reason = cap_reason or AUTO_CAP_REASON
         else:
             ext_trim = (data.get("extended_hours_reason") or "").strip()
             if len(ext_trim) >= 3:

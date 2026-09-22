@@ -1,11 +1,12 @@
 """
-Server-side auto punch-out: close open PunchSession when daily work on that punch hits 10 hours.
+Server-side auto punch-out: close open PunchSession when work on the current block hits 10 hours.
 
-- Sums closed sessions on the same punch_date row (since last auto punch-out) plus the open segment.
-- After auto punch-out, a new punch-in starts a fresh 10h block (repeat reason required).
+- Cap is per open segment: closed work before the latest punch-out does not carry over.
+- After any punch-out (manual or auto), a new punch-in starts a fresh 10h block (repeat reason required).
 - Single night session: full 10h from punch-in (punch-out may be the next calendar day).
 - clock_out is stored at the cap deadline (punch_in + remaining cap), even if the job runs late.
 - Scheduler runs every 2 minutes; homepage load also closes overdue sessions for the user.
+- Client auto_system_punch_out must only close when evaluate_auto_close says the cap is due.
 """
 from datetime import datetime, timedelta
 
@@ -21,76 +22,42 @@ BIOMETRIC_LAST_SCAN_REASON = "Biometric last scan (priority over 10 hr cap)"
 AUTO_PUNCH_NO_LIVE_GPS = "auto_punch_out_no_live_gps"
 
 
-def _last_auto_close_at_on_punch(punch_id):
-    """Latest clock_out among auto-closed segments on this punch (cap resets after this)."""
-    if not punch_id:
-        return None
-    last = None
-    rows = PunchSession.query.filter(
-        PunchSession.punch_id == punch_id,
-        PunchSession.clock_out.isnot(None),
-        PunchSession.auto_punched_out.is_(True),
-    ).all()
-    for s in rows:
-        if s.clock_out and (last is None or s.clock_out > last):
-            last = s.clock_out
-    return last
-
-
 def closed_seconds_for_cap(punch_id, open_sess):
     """
     Closed work counted toward the 10h cap for this open segment.
-    Sums closed sessions on the punch; after an auto punch-out, only sessions
-    closed after that time count (so a new punch-in can start a fresh 10h block).
+
+    Each punch-in starts a fresh 10h block from that segment's clock_in. Prior
+    closed sessions on the punch (manual or auto) do not reduce remaining time,
+    which avoids immediate auto punch-out after re-punch-in.
     """
-    if not punch_id:
-        return 0
-    cap_reset_after = _last_auto_close_at_on_punch(punch_id)
-    total = 0
-    rows = PunchSession.query.filter(
-        PunchSession.punch_id == punch_id,
-        PunchSession.clock_out.isnot(None),
-    ).all()
-    for s in rows:
-        if not s.clock_in or not s.clock_out:
-            continue
-        if cap_reset_after and s.clock_out <= cap_reset_after:
-            continue
-        if open_sess and open_sess.id and s.id == open_sess.id:
-            continue
-        total += int((s.clock_out - s.clock_in).total_seconds())
-    return max(0, total)
+    # Prior closed work intentionally ignored while a segment is open.
+    return 0
 
 
 def daily_work_seconds(open_sess, now=None):
-    """Closed sessions on punch + elapsed time on this open segment."""
+    """Elapsed time on this open segment (cap is per open session, not cumulative)."""
     now = now or datetime.now()
     if not open_sess or not open_sess.clock_in:
         return 0
-    closed = closed_seconds_for_cap(open_sess.punch_id, open_sess)
     open_secs = int((now - open_sess.clock_in).total_seconds())
-    return closed + max(0, open_secs)
+    return max(0, open_secs)
 
 
 def auto_close_deadline(open_sess):
-    """Datetime when the open segment reaches the 10h daily cap."""
+    """Datetime when the open segment reaches the 10h session cap."""
     cin = open_sess.clock_in if open_sess else None
     if not cin:
         return None
-    closed = closed_seconds_for_cap(open_sess.punch_id, open_sess)
-    remaining = max(0, SESSION_CAP_SEC - closed)
-    return cin + timedelta(seconds=remaining)
+    return cin + timedelta(seconds=SESSION_CAP_SEC)
 
 
 def capped_daily_work_seconds(open_sess, now=None):
-    """Daily work for display/eligibility, never exceeding SESSION_CAP_SEC."""
+    """Open-segment work for display/eligibility, never exceeding SESSION_CAP_SEC."""
     now = now or datetime.now()
     if not open_sess or not open_sess.clock_in:
         return 0
-    closed = closed_seconds_for_cap(open_sess.punch_id, open_sess)
-    remaining = max(0, SESSION_CAP_SEC - closed)
     open_secs = int((now - open_sess.clock_in).total_seconds())
-    return min(SESSION_CAP_SEC, closed + min(max(0, open_secs), remaining))
+    return min(SESSION_CAP_SEC, max(0, open_secs))
 
 
 def session_auto_close_deadline(open_sess, now=None):
@@ -452,25 +419,11 @@ def _has_valid_extended_reason(sess):
     return len(reason) >= 3 and reason != AUTO_CAP_REASON
 
 
-def _closed_seconds_before_session(punch_id, session, sessions_ordered):
-    """Closed cap time from earlier segments in the same 10h block before `session`."""
-    cap_reset_after = _last_auto_close_at_on_punch(punch_id)
-    total = 0
-    for s in sessions_ordered:
-        if s.id == session.id:
-            break
-        if not s.clock_in or not s.clock_out:
-            continue
-        if cap_reset_after and s.clock_out <= cap_reset_after:
-            continue
-        total += int((s.clock_out - s.clock_in).total_seconds())
-    return max(0, total)
-
-
 def repair_overlong_sessions_for_punch(punch):
     """
-    Cap closed sessions that exceed the 10h block (e.g. late auto-close stored midnight).
-    Skips sessions with a valid manual extended-hours reason.
+    Cap closed sessions that exceed 10h from their own clock_in
+    (e.g. late auto-close stored midnight). Skips sessions with a valid
+    manual extended-hours reason.
     """
     if not punch or not punch.id:
         return False
@@ -485,9 +438,7 @@ def repair_overlong_sessions_for_punch(punch):
             continue
         if _has_valid_extended_reason(sess):
             continue
-        closed_before = _closed_seconds_before_session(punch.id, sess, sessions)
-        remaining = max(0, SESSION_CAP_SEC - closed_before)
-        max_out = sess.clock_in + timedelta(seconds=remaining)
+        max_out = sess.clock_in + timedelta(seconds=SESSION_CAP_SEC)
         if sess.clock_out > max_out:
             sess.clock_out = max_out
             sess.auto_punched_out = True

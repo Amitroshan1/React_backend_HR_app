@@ -508,6 +508,7 @@ export const Dashboard = () => {
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
     const newsFeedListRef = useRef(null);
     const autoCapPunchOutRef = useRef(false);
+    const autoCapRefusedIsoRef = useRef(null);
     const resetPunchTimings = () => {
         punchTimingRef.current = { t0: (typeof performance !== "undefined" ? performance.now() : Date.now()) };
     };
@@ -668,6 +669,13 @@ export const Dashboard = () => {
                 return;
             }
             const msg = String(result.message || "");
+            if (result.cap_not_due === true) {
+                // Server refused — cap not due. Refresh deadline; do not retry same stale fire.
+                autoCapRefusedIsoRef.current = capIso || result.session_auto_close_at || "";
+                await fetchDashboardData(false);
+                autoCapPunchOutRef.current = false;
+                return;
+            }
             if (msg.toLowerCase().includes("no active punch")) {
                 await fetchDashboardData(false);
                 return;
@@ -688,7 +696,10 @@ export const Dashboard = () => {
             dynamicData.punch.has_open_session ??
             !!(dynamicData.punch.punch_in && !dynamicData.punch.punch_out);
         if (!open || loading) {
-            if (!open) autoCapPunchOutRef.current = false;
+            if (!open) {
+                autoCapPunchOutRef.current = false;
+                autoCapRefusedIsoRef.current = null;
+            }
             return undefined;
         }
         const sessions = Array.isArray(dynamicData.punch.sessions)
@@ -698,12 +709,25 @@ export const Dashboard = () => {
         if (openSeg?.is_nhq_biometric === true) {
             return undefined;
         }
+        const cinMs = parseIsoToMs(openSeg?.clock_in);
         const capMs = parseIsoToMs(openSeg?.session_auto_close_at);
-        if (!Number.isFinite(capMs)) return undefined;
+        if (!Number.isFinite(capMs) || !Number.isFinite(cinMs)) return undefined;
+
+        // Never client-fire when deadline is at/before clock-in (0 remaining) or
+        // remaining is under 1 minute — those are stale/exhausted deadlines.
+        const remainingMs = capMs - cinMs;
+        if (remainingMs < 60_000) {
+            return undefined;
+        }
+
+        const capIso = openSeg.session_auto_close_at;
+        if (autoCapRefusedIsoRef.current && autoCapRefusedIsoRef.current === capIso) {
+            return undefined;
+        }
 
         const fire = () => {
             if (Date.now() >= capMs) {
-                runAutoCapPunchOut(openSeg.session_auto_close_at);
+                runAutoCapPunchOut(capIso);
             }
         };
 
