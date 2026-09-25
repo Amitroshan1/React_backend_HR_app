@@ -131,12 +131,12 @@ export const ADMIN_HUB_SECTIONS = [
 export const ADMIN_PLATFORM_SECTION = {
   id: "platform",
   title: "Platform & Deployment",
-  subtitle: "Multi-tenant customers and deployment tooling",
+  subtitle: "Register companies on shared-DB SaaS (tenant_id)",
   modules: [
     {
       id: "customers",
       title: "Customers",
-      description: "Manage deployed company instances",
+      description: "Register company + plan → creates tenant in shared database",
       icon: "🏗️",
       route: "/admin/customers",
       accent: "blue",
@@ -144,7 +144,7 @@ export const ADMIN_PLATFORM_SECTION = {
     {
       id: "deployment-guide",
       title: "Deployment Guide",
-      description: "Server and database setup steps",
+      description: "Checklist and env keys (legacy silo docs archived)",
       icon: "🚀",
       route: "/admin/deployment-guide",
       accent: "teal",

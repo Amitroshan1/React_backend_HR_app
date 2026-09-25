@@ -76,6 +76,10 @@ def create_app():
     app.config["SHOW_DEPLOYMENT_GUIDE"] = os.getenv("SHOW_DEPLOYMENT_GUIDE", "0").strip() in (
         "1", "true", "yes", "on",
     )
+    # Legacy silo (DB-per-company) provision — off by default; shared-DB SaaS is primary.
+    app.config["SILO_PROVISION_LEGACY"] = os.getenv("SILO_PROVISION_LEGACY", "0").strip() in (
+        "1", "true", "yes", "on",
+    )
 
     _raw_plan = os.getenv("CUSTOMER_PLAN", "essential").strip().lower()
     app.config["CUSTOMER_PLAN"] = (
@@ -190,6 +194,8 @@ def create_app():
     # Import Models
     # ---------------------------
     from .models.Admin_models import Admin
+    from .models.tenant import Tenant  # noqa: F401 — register for db.create_all
+    from .models.deployed_customer import DeployedCustomer  # noqa: F401 — register for db.create_all
     from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch, PunchSession, Location
     from .models.geo_punch_attempt import GeoPunchAttempt  # noqa: F401 — register for db.create_all
     from .biometric.models import (  # noqa: F401 — register for db.create_all
@@ -1533,16 +1539,130 @@ def create_app():
 
     def _ensure_deployed_customers_table():
         try:
-            from sqlalchemy import inspect
+            from sqlalchemy import inspect, text
             from .models.deployed_customer import DeployedCustomer
 
             insp = inspect(db.engine)
-            if "deployed_customers" in set(insp.get_table_names()):
+            tables = set(insp.get_table_names())
+            if "deployed_customers" not in tables:
+                DeployedCustomer.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table deployed_customers")
                 return
-            DeployedCustomer.__table__.create(bind=db.engine, checkfirst=True)
-            app.logger.info("Created table deployed_customers")
+
+            # Phase 1: slug column for subdomain / DB naming.
+            existing = {c["name"] for c in insp.get_columns("deployed_customers")}
+            dialect = db.engine.dialect.name
+            if "slug" not in existing:
+                if dialect == "sqlite":
+                    stmt = text(
+                        'ALTER TABLE "deployed_customers" '
+                        "ADD COLUMN slug VARCHAR(64) NULL"
+                    )
+                else:
+                    stmt = text(
+                        "ALTER TABLE deployed_customers "
+                        "ADD COLUMN slug VARCHAR(64) NULL"
+                    )
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added deployed_customers.slug")
         except Exception as e:
             app.logger.warning("deployed_customers table ensure skipped: %s", e)
+
+    def _ensure_tenants_table():
+        """Shared-DB SaaS: tenants registry + seed default tenant id=1."""
+        try:
+            from sqlalchemy import inspect, text
+            from .models.tenant import Tenant
+            from .datetime_utils import utc_now
+
+            insp = inspect(db.engine)
+            if "tenants" not in set(insp.get_table_names()):
+                Tenant.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table tenants")
+
+            # Seed default tenant (existing deployment → tenant 1).
+            with db.engine.begin() as conn:
+                row = conn.execute(
+                    text("SELECT id FROM tenants WHERE id = 1")
+                ).fetchone()
+                if row is None:
+                    now = utc_now()
+                    dialect = db.engine.dialect.name
+                    if dialect == "sqlite":
+                        conn.execute(
+                            text(
+                                "INSERT INTO tenants "
+                                "(id, name, slug, plan, status, contact_email, notes, "
+                                "created_at, updated_at) "
+                                "VALUES (1, :name, :slug, :plan, :status, NULL, NULL, "
+                                ":created_at, :updated_at)"
+                            ),
+                            {
+                                "name": "Default",
+                                "slug": "default",
+                                "plan": app.config.get("CUSTOMER_PLAN") or "essential",
+                                "status": "active",
+                                "created_at": now,
+                                "updated_at": now,
+                            },
+                        )
+                    else:
+                        conn.execute(
+                            text(
+                                "INSERT INTO tenants "
+                                "(id, name, slug, plan, status, contact_email, notes, "
+                                "created_at, updated_at) "
+                                "VALUES (1, :name, :slug, :plan, :status, NULL, NULL, "
+                                ":created_at, :updated_at)"
+                            ),
+                            {
+                                "name": "Default",
+                                "slug": "default",
+                                "plan": app.config.get("CUSTOMER_PLAN") or "essential",
+                                "status": "active",
+                                "created_at": now,
+                                "updated_at": now,
+                            },
+                        )
+                    app.logger.info("Seeded default tenant id=1")
+        except Exception as e:
+            app.logger.warning("tenants table ensure/seed skipped: %s", e)
+
+    def _ensure_admin_tenant_id_column():
+        """Add admins.tenant_id and backfill to default tenant (1)."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "admins"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            if "tenant_id" not in existing:
+                if dialect == "postgresql":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN tenant_id INTEGER NULL')
+                elif dialect == "sqlite":
+                    stmt = text(f'ALTER TABLE "{table}" ADD COLUMN tenant_id INTEGER NULL')
+                else:
+                    stmt = text(f"ALTER TABLE {table} ADD COLUMN tenant_id INTEGER NULL")
+                with db.engine.begin() as conn:
+                    conn.execute(stmt)
+                app.logger.info("Added column admins.tenant_id")
+
+            with db.engine.begin() as conn:
+                result = conn.execute(
+                    text(
+                        "UPDATE admins SET tenant_id = 1 "
+                        "WHERE tenant_id IS NULL"
+                    )
+                )
+                n = result.rowcount if result.rowcount is not None else 0
+                if n:
+                    app.logger.info("Backfilled admins.tenant_id=1 for %s row(s)", n)
+        except Exception as e:
+            app.logger.warning("admins.tenant_id ensure/backfill skipped: %s", e)
 
     def _ensure_leave_balance_defaults():
         """Align leave_balances total/used columns with model (DEFAULT 0, no data change)."""
@@ -2424,6 +2544,8 @@ def create_app():
             _ensure_employee_employment_status_history_table()
             _backfill_admin_employment_status()
             _ensure_deployed_customers_table()
+            _ensure_tenants_table()
+            _ensure_admin_tenant_id_column()
             _ensure_leave_balance_defaults()
             _ensure_probation_review_columns()
             _ensure_employee_tax_declarations_table()

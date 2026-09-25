@@ -23,6 +23,13 @@ from .models.deployed_customer import (
     DeployedCustomer,
     PLAN_ORDER,
     PLAN_LABELS,
+    STATUS_ORDER,
+    STATUS_LABELS,
+    normalize_plan,
+    normalize_status,
+    slugify_company,
+    suggest_database_name,
+    status_can_transition,
 )
 
 
@@ -836,10 +843,11 @@ def _customers_access_denied():
 
 
 def _parse_plan(value):
-    plan = _norm(value or "")
-    if plan not in PLAN_ORDER:
-        return None
-    return plan
+    return normalize_plan(value)
+
+
+def _parse_status(value):
+    return normalize_status(value)
 
 
 def _parse_date(value):
@@ -852,8 +860,101 @@ def _parse_date(value):
         return None
 
 
+def _unique_slug(desired: str, *, exclude_id=None) -> str:
+    """Ensure slug is unique on vendor master; append -2, -3, … if needed."""
+    base = slugify_company(desired) if desired else "company"
+    # Prefer underscore slug already from slugify; keep as-is.
+    candidate = base[:64]
+    n = 2
+    while True:
+        q = DeployedCustomer.query.filter_by(slug=candidate)
+        if exclude_id is not None:
+            q = q.filter(DeployedCustomer.id != exclude_id)
+        if q.first() is None:
+            return candidate
+        suffix = f"_{n}"
+        candidate = f"{base[: max(1, 64 - len(suffix))]}{suffix}"
+        n += 1
+
+
+def _silo_provision_legacy_enabled():
+    """DB-per-company provision is retired; only with SILO_PROVISION_LEGACY=1."""
+    return bool(current_app.config.get("SILO_PROVISION_LEGACY"))
+
+
+def _unique_tenant_slug(desired: str, *, exclude_id=None) -> str:
+    from .models.tenant import Tenant, slugify_tenant
+
+    base = slugify_tenant(desired) if desired else "company"
+    candidate = base[:64]
+    n = 2
+    while True:
+        q = Tenant.query.filter_by(slug=candidate)
+        if exclude_id is not None:
+            q = q.filter(Tenant.id != exclude_id)
+        if q.first() is None:
+            return candidate
+        suffix = f"_{n}"
+        candidate = f"{base[: max(1, 64 - len(suffix))]}{suffix}"
+        n += 1
+
+
+def _sync_tenant_from_customer(row, *, create=False):
+    """
+    Bridge: DeployedCustomer create/update → Tenant (shared-DB source of truth).
+    Returns the Tenant row (created or updated).
+    """
+    from .models.tenant import Tenant, normalize_tenant_plan, normalize_tenant_status
+    from .datetime_utils import utc_now
+
+    slug = (row.slug or "").strip() or _unique_tenant_slug(row.company_name)
+    plan = normalize_tenant_plan(row.plan) or "essential"
+    status = normalize_tenant_status(row.status) or "active"
+
+    tenant = Tenant.query.filter_by(slug=slug).first()
+    if tenant is None and not create:
+        # Match by name if slug drifted
+        tenant = Tenant.query.filter_by(name=row.company_name).first()
+
+    if tenant is None:
+        # Avoid colliding with seeded default slug
+        if slug == "default" and Tenant.query.get(1) is not None:
+            slug = _unique_tenant_slug(row.company_name or "company")
+        tenant = Tenant(
+            name=row.company_name,
+            slug=slug,
+            plan=plan,
+            status=status,
+            contact_email=row.contact_email,
+            notes=row.notes,
+        )
+        db.session.add(tenant)
+    else:
+        tenant.name = row.company_name or tenant.name
+        if row.slug and row.slug != tenant.slug:
+            tenant.slug = _unique_tenant_slug(row.slug, exclude_id=tenant.id)
+        tenant.plan = plan
+        tenant.status = status
+        if row.contact_email is not None:
+            tenant.contact_email = row.contact_email
+        if row.notes is not None:
+            tenant.notes = row.notes
+        tenant.updated_at = utc_now()
+    return tenant
+
+
+def _registry_meta():
+    from .deployment_guide_data import DEPLOYMENT_GUIDE
+
+    plans = DEPLOYMENT_GUIDE.get("plans") or [
+        {"id": k, "label": v, "notes": ""} for k, v in PLAN_LABELS.items()
+    ]
+    statuses = [{"id": s, "label": STATUS_LABELS[s]} for s in STATUS_ORDER]
+    return plans, statuses
+
+
 # --------------------------------------------------
-# Deployed customers (vendor master instance only)
+# Deployed customers (vendor master) — shared-DB SaaS bridge
 # --------------------------------------------------
 @admin_bp.route("/customers", methods=["GET"])
 @jwt_required()
@@ -866,14 +967,21 @@ def list_deployed_customers():
             DeployedCustomer.company_name.asc()
         ).all()
     )
-    from .deployment_guide_data import DEPLOYMENT_GUIDE
-    plans = DEPLOYMENT_GUIDE.get("plans") or [
-        {"id": k, "label": v, "notes": ""} for k, v in PLAN_LABELS.items()
-    ]
+    plans, statuses = _registry_meta()
+    counts = {s: 0 for s in STATUS_ORDER}
+    for r in rows:
+        key = normalize_status(r.status) or "provisioning"
+        counts[key] = counts.get(key, 0) + 1
     return jsonify({
         "success": True,
         "customers": [r.to_dict() for r in rows],
         "plans": plans,
+        "statuses": statuses,
+        "counts": counts,
+        "phase": 1,
+        "phase_label": "Shared-DB SaaS — register company (creates tenant row)",
+        "architecture": "shared_db",
+        "silo_provision_legacy": _silo_provision_legacy_enabled(),
     }), 200
 
 
@@ -881,35 +989,94 @@ def list_deployed_customers():
 @jwt_required()
 @_admin_required
 def create_deployed_customer():
+    """
+    Platform admin: register company + plan.
+    Creates a Tenant row in the shared DB (primary path). DeployedCustomer is a UI bridge.
+    """
     if not _can_view_deployment_guide():
         return _customers_access_denied()
     data = request.get_json(silent=True) or {}
     company_name = (data.get("company_name") or "").strip()
     if not company_name:
         return jsonify({"success": False, "message": "Company name is required"}), 400
+    if len(company_name) > 200:
+        return jsonify({"success": False, "message": "Company name is too long"}), 400
+
     plan = _parse_plan(data.get("plan"))
     if not plan:
         return jsonify({
             "success": False,
             "message": "Plan must be basic, essential, or enterprise",
         }), 400
+
+    status_raw = data.get("status")
+    if status_raw is None or str(status_raw).strip() == "":
+        # Shared-DB: no silo DB to wait for — default active
+        status = "active"
+    else:
+        status = _parse_status(status_raw)
+        if not status:
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Status must be provisioning, active, suspended, or cancelled"
+                ),
+            }), 400
+
+    slug_in = (data.get("slug") or "").strip().lower()
+    slug = _unique_slug(slug_in or company_name)
+
+    db_name = (data.get("database_name") or "").strip() or None
+    # Shared-DB: database_name is informational only (legacy field)
+    if not db_name and _silo_provision_legacy_enabled():
+        db_name = suggest_database_name(company_name, slug=slug)
+
+    contact = (data.get("contact_email") or "").strip() or None
+    if contact and "@" not in contact:
+        return jsonify({"success": False, "message": "Invalid contact email"}), 400
+
     row = DeployedCustomer(
         company_name=company_name,
+        slug=slug,
         plan=plan,
         app_url=(data.get("app_url") or "").strip() or None,
-        database_name=(data.get("database_name") or "").strip() or None,
-        contact_email=(data.get("contact_email") or "").strip() or None,
+        database_name=db_name,
+        contact_email=contact,
         notes=(data.get("notes") or "").strip() or None,
-        status=(data.get("status") or "active").strip() or "active",
+        status=status,
         go_live_date=_parse_date(data.get("go_live_date")),
     )
     db.session.add(row)
+    db.session.flush()
+    tenant = _sync_tenant_from_customer(row, create=True)
     db.session.commit()
+    payload = row.to_dict()
+    payload["tenant_id"] = tenant.id
     return jsonify({
         "success": True,
-        "message": "Customer added",
-        "customer": row.to_dict(),
+        "message": "Company registered (tenant created in shared database)",
+        "customer": payload,
+        "tenant": tenant.to_dict(),
     }), 201
+
+
+@admin_bp.route("/customers/<int:customer_id>", methods=["GET"])
+@jwt_required()
+@_admin_required
+def get_deployed_customer(customer_id):
+    if not _can_view_deployment_guide():
+        return _customers_access_denied()
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    plans, statuses = _registry_meta()
+    return jsonify({
+        "success": True,
+        "customer": row.to_dict(),
+        "plans": plans,
+        "statuses": statuses,
+        "silo_provision_legacy": _silo_provision_legacy_enabled(),
+    }), 200
 
 
 @admin_bp.route("/customers/<int:customer_id>", methods=["PATCH"])
@@ -933,6 +1100,7 @@ def update_deployed_customer(customer_id):
         current = (row.plan or "basic").lower()
         if current not in PLAN_ORDER:
             current = "basic"
+        # Allow same plan; upgrades only for higher tiers (no silent downgrade).
         if new_plan not in row.upgrade_options() and new_plan != current:
             return jsonify({
                 "success": False,
@@ -944,22 +1112,138 @@ def update_deployed_customer(customer_id):
         name = (data.get("company_name") or "").strip()
         if name:
             row.company_name = name
+
+    if "slug" in data:
+        slug_in = (data.get("slug") or "").strip().lower()
+        if slug_in:
+            row.slug = _unique_slug(slug_in, exclude_id=row.id)
+
     if "app_url" in data:
         row.app_url = (data.get("app_url") or "").strip() or None
     if "database_name" in data:
         row.database_name = (data.get("database_name") or "").strip() or None
     if "contact_email" in data:
-        row.contact_email = (data.get("contact_email") or "").strip() or None
+        contact = (data.get("contact_email") or "").strip() or None
+        if contact and "@" not in contact:
+            return jsonify({"success": False, "message": "Invalid contact email"}), 400
+        row.contact_email = contact
     if "notes" in data:
         row.notes = (data.get("notes") or "").strip() or None
+
     if "status" in data:
-        row.status = (data.get("status") or row.status).strip() or row.status
+        new_status = _parse_status(data.get("status"))
+        if not new_status:
+            return jsonify({
+                "success": False,
+                "message": (
+                    "Status must be provisioning, active, suspended, or cancelled"
+                ),
+            }), 400
+        if not status_can_transition(row.status, new_status):
+            return jsonify({
+                "success": False,
+                "message": (
+                    f"Cannot change status from {row.status} to {new_status}"
+                ),
+            }), 400
+        row.status = new_status
+
     if "go_live_date" in data:
         row.go_live_date = _parse_date(data.get("go_live_date"))
 
+    tenant = _sync_tenant_from_customer(row)
     db.session.commit()
+    payload = row.to_dict()
+    payload["tenant_id"] = tenant.id if tenant else None
     return jsonify({
         "success": True,
         "message": "Customer updated",
-        "customer": row.to_dict(),
+        "customer": payload,
+        "tenant": tenant.to_dict() if tenant else None,
     }), 200
+
+
+@admin_bp.route("/customers/<int:customer_id>/env-template", methods=["GET"])
+@jwt_required()
+@_admin_required
+def customer_env_template(customer_id):
+    """Legacy silo: download generated .env (requires SILO_PROVISION_LEGACY=1)."""
+    if not _can_view_deployment_guide():
+        return _customers_access_denied()
+    if not _silo_provision_legacy_enabled():
+        return jsonify({
+            "success": False,
+            "message": (
+                "Silo .env templates are retired. Shared-DB SaaS uses one app/.env. "
+                "Set SILO_PROVISION_LEGACY=1 only for legacy dedicated-hosting."
+            ),
+            "architecture": "shared_db",
+        }), 403
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+    from .customer_provisioning import env_template_only
+
+    return jsonify(env_template_only(row)), 200
+
+
+@admin_bp.route("/customers/<int:customer_id>/provision", methods=["POST"])
+@jwt_required()
+@_admin_required
+def provision_deployed_customer(customer_id):
+    """
+    Legacy silo provision (DB-per-company). Disabled unless SILO_PROVISION_LEGACY=1.
+
+    Primary path is shared-DB: register company → Tenant row (no MySQL CREATE).
+    """
+    if not _can_view_deployment_guide():
+        return _customers_access_denied()
+    if not _silo_provision_legacy_enabled():
+        return jsonify({
+            "success": False,
+            "message": (
+                "Silo provisioning is retired. New companies use shared-DB multi-tenancy "
+                "(one database, tenant_id). Set SILO_PROVISION_LEGACY=1 only for "
+                "legacy dedicated-hosting exceptions. See docs/SHARED_DB_MULTI_TENANCY.md"
+            ),
+            "architecture": "shared_db",
+        }), 403
+    row = DeployedCustomer.query.get(customer_id)
+    if not row:
+        return jsonify({"success": False, "message": "Customer not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    from .customer_provisioning import ProvisionError, provision_customer, provision_enabled
+
+    if not provision_enabled():
+        return jsonify({
+            "success": False,
+            "message": "Set PROVISION_ENABLED=1 on the vendor master to allow provisioning",
+        }), 403
+
+    def _flag(key, default=True):
+        if key not in data:
+            return default
+        return bool(data.get(key))
+
+    try:
+        result = provision_customer(
+            row,
+            create_database=_flag("create_database", True),
+            create_schema=_flag("create_schema", True),
+            seed_admin=_flag("seed_admin", True),
+            create_uploads=_flag("create_uploads", True),
+            mark_active=_flag("mark_active", False),
+            admin_email=(data.get("admin_email") or "").strip() or None,
+            admin_name=(data.get("admin_name") or "").strip() or None,
+            dry_run=data.get("dry_run"),
+        )
+        return jsonify(result), 200
+    except ProvisionError as e:
+        return jsonify({"success": False, "message": e.message}), e.status_code
+    except Exception as e:
+        current_app.logger.exception("PROVISION_FAILED customer_id=%s", customer_id)
+        return jsonify({
+            "success": False,
+            "message": f"Provisioning failed: {e}",
+        }), 500

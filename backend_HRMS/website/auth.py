@@ -320,12 +320,15 @@ def _find_admin_for_login(channel: str, value: str):
 
 def _issue_login_token(admin):
     from .session_timeout import session_expires_delta, session_timeout_minutes
+    from .tenant_context import tenant_id_for_admin
 
+    tenant_id = tenant_id_for_admin(admin)
     access_token = create_access_token(
         identity=str(admin.id),
         additional_claims={
             "email": (admin.email or "").strip(),
             "emp_type": admin.emp_type,
+            "tenant_id": tenant_id,
         },
         expires_delta=session_expires_delta(admin.emp_type),
     )
@@ -335,7 +338,8 @@ def _issue_login_token(admin):
         "success": True,
         "token": access_token,
         "session_timeout_minutes": session_timeout_minutes(admin.emp_type),
-        **plan_payload(),
+        "tenant_id": tenant_id,
+        **plan_payload(tenant_id=tenant_id),
     }
 
 

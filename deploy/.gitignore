@@ -1,0 +1,19 @@
+# Ignore runtime customer trees and secrets under deploy/
+deploy/artifacts/**
+!deploy/artifacts/.gitkeep
+!deploy/artifacts/README.md
+
+deploy/uploads/**
+!deploy/uploads/.gitkeep
+!deploy/uploads/README.md
+
+# Full customer app copies (if created under deploy/customers/{slug}/)
+deploy/customers/*
+!deploy/customers/README.md
+!deploy/customers/_template/
+deploy/customers/_template/**
+!deploy/customers/_template/README.md
+
+# Never commit env files dropped into deploy/
+deploy/**/.env
+deploy/**/*.env

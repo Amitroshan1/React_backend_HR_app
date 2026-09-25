@@ -13,29 +13,69 @@ const PLAN_BADGE_CLASS = {
   enterprise: 'cust-plan--enterprise',
 };
 
+const emptyAddForm = () => ({
+  company_name: '',
+  slug: '',
+  plan: 'essential',
+  status: 'active',
+  app_url: '',
+  database_name: '',
+  contact_email: '',
+  go_live_date: '',
+  notes: '',
+});
+
+function slugifyLocal(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 48);
+}
+
+function suggestDb(name, slug) {
+  const base = (slug || slugifyLocal(name) || 'company').slice(0, 48);
+  return `hrms_${base}`.slice(0, 64);
+}
+
 export default function AdminCustomers() {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [statuses, setStatuses] = useState([]);
+  const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
   const [showAdd, setShowAdd] = useState(false);
+  const [showEdit, setShowEdit] = useState(null);
   const [showUpgrade, setShowUpgrade] = useState(null);
+  const [showProvision, setShowProvision] = useState(null);
+  const [provisionResult, setProvisionResult] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [dbAuto, setDbAuto] = useState(true);
+  const [siloProvisionLegacy, setSiloProvisionLegacy] = useState(false);
+  const [phaseLabel, setPhaseLabel] = useState(
+    'Shared-DB SaaS — register company (creates tenant row)'
+  );
 
-  const [addForm, setAddForm] = useState({
-    company_name: '',
-    plan: 'essential',
-    app_url: '',
-    database_name: '',
-    contact_email: '',
-    go_live_date: '',
-    notes: '',
-  });
-
+  const [addForm, setAddForm] = useState(emptyAddForm);
+  const [editForm, setEditForm] = useState(null);
   const [upgradePlan, setUpgradePlan] = useState('');
+  const [provisionOpts, setProvisionOpts] = useState({
+    create_database: true,
+    create_schema: true,
+    seed_admin: true,
+    create_uploads: true,
+    mark_active: false,
+    dry_run: false,
+    admin_email: '',
+    admin_name: '',
+  });
 
   const token = () => localStorage.getItem('token');
   const headers = () => ({
@@ -60,6 +100,10 @@ export default function AdminCustomers() {
       }
       setCustomers(data.customers || []);
       setPlans(data.plans || []);
+      setStatuses(data.statuses || []);
+      setCounts(data.counts || {});
+      setSiloProvisionLegacy(!!data.silo_provision_legacy);
+      if (data.phase_label) setPhaseLabel(data.phase_label);
     } catch (err) {
       setError(err.message || 'Failed to load customers');
     } finally {
@@ -72,28 +116,29 @@ export default function AdminCustomers() {
   });
 
   const stats = useMemo(() => {
-    const active = customers.filter((c) => (c.status || '').toLowerCase() === 'active').length;
-    const enterprise = customers.filter((c) => (c.plan || '').toLowerCase() === 'enterprise').length;
     return {
       total: customers.length,
-      active,
-      enterprise,
+      provisioning: counts.provisioning ?? customers.filter((c) => c.status === 'provisioning').length,
+      active: counts.active ?? customers.filter((c) => c.status === 'active').length,
+      suspended: counts.suspended ?? customers.filter((c) => c.status === 'suspended').length,
     };
-  }, [customers]);
+  }, [customers, counts]);
 
   const openAdd = () => {
-    setAddForm({
-      company_name: '',
-      plan: 'essential',
-      app_url: '',
-      database_name: '',
-      contact_email: '',
-      go_live_date: '',
-      notes: '',
-    });
+    setAddForm(emptyAddForm());
+    setDbAuto(true);
     setShowAdd(true);
     setMessage('');
     setError('');
+  };
+
+  const onAddCompanyName = (value) => {
+    setAddForm((f) => {
+      const slug = slugifyLocal(value);
+      const next = { ...f, company_name: value, slug };
+      if (dbAuto) next.database_name = suggestDb(value, slug);
+      return next;
+    });
   };
 
   const submitAdd = async (e) => {
@@ -112,23 +157,80 @@ export default function AdminCustomers() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Failed to add customer');
+        throw new Error(data.message || 'Failed to register company');
       }
       setShowAdd(false);
-      setMessage(`Added ${data.customer?.company_name || 'customer'}`);
+      const tid = data.tenant?.id;
+      setMessage(
+        `Registered ${data.customer?.company_name || 'company'} (${data.customer?.plan_label})` +
+          (tid ? ` — tenant #${tid}` : '')
+      );
       await loadCustomers();
-      if (window.confirm('Open deployment checklist for this customer?')) {
-        navigate('/admin/deployment-guide', {
-          state: {
-            customerName: data.customer?.company_name,
-            customerPlan: data.customer?.plan,
-            customerUrl: data.customer?.app_url,
-            customerDb: data.customer?.database_name,
-          },
-        });
-      }
     } catch (err) {
-      setError(err.message || 'Failed to add customer');
+      setError(err.message || 'Failed to register company');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEdit = (customer) => {
+    setShowEdit(customer);
+    setEditForm({
+      company_name: customer.company_name || '',
+      slug: customer.slug || '',
+      app_url: customer.app_url || '',
+      database_name: customer.database_name || '',
+      contact_email: customer.contact_email || '',
+      go_live_date: customer.go_live_date || '',
+      notes: customer.notes || '',
+      status: customer.status || 'provisioning',
+    });
+    setError('');
+  };
+
+  const submitEdit = async (e) => {
+    e.preventDefault();
+    if (!showEdit || !editForm) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_CUSTOMERS}/${showEdit.id}`, {
+        method: 'PATCH',
+        headers: headers(),
+        body: JSON.stringify(editForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Update failed');
+      }
+      setShowEdit(null);
+      setEditForm(null);
+      setMessage(`Updated ${data.customer?.company_name}`);
+      await loadCustomers();
+    } catch (err) {
+      setError(err.message || 'Update failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const patchStatus = async (customer, status) => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_CUSTOMERS}/${customer.id}`, {
+        method: 'PATCH',
+        headers: headers(),
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Status update failed');
+      }
+      setMessage(`${data.customer?.company_name} → ${data.customer?.status_label}`);
+      await loadCustomers();
+    } catch (err) {
+      setError(err.message || 'Status update failed');
     } finally {
       setSaving(false);
     }
@@ -140,6 +242,97 @@ export default function AdminCustomers() {
     setShowUpgrade(customer);
     setUpgradePlan(opts[0]?.id || '');
     setError('');
+  };
+
+  const downloadTextFile = (filename, content) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'customer.env';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const openProvision = (customer) => {
+    setShowProvision(customer);
+    setProvisionResult(null);
+    setProvisionOpts({
+      create_database: true,
+      create_schema: true,
+      seed_admin: true,
+      create_uploads: true,
+      mark_active: false,
+      dry_run: false,
+      admin_email: customer.contact_email || '',
+      admin_name: '',
+    });
+    setError('');
+  };
+
+  const downloadEnvOnly = async (customer) => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_CUSTOMERS}/${customer.id}/env-template`, {
+        headers: headers(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to generate .env');
+      }
+      downloadTextFile(data.env_filename || `${customer.slug || 'customer'}.env`, data.env_file || '');
+      setMessage(`Downloaded .env for ${customer.company_name}`);
+    } catch (err) {
+      setError(err.message || 'Failed to generate .env');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitProvision = async (e) => {
+    e.preventDefault();
+    if (!showProvision) return;
+    if (provisionOpts.seed_admin && !String(provisionOpts.admin_email || '').trim()) {
+      setError('Admin email is required to seed the company Super Admin');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const body = {
+        create_database: !!provisionOpts.create_database,
+        create_schema: !!provisionOpts.create_schema,
+        seed_admin: !!provisionOpts.seed_admin,
+        create_uploads: !!provisionOpts.create_uploads,
+        mark_active: !!provisionOpts.mark_active,
+        admin_email: provisionOpts.admin_email || undefined,
+        admin_name: provisionOpts.admin_name || undefined,
+      };
+      if (provisionOpts.dry_run) body.dry_run = true;
+      const res = await fetch(`${API_CUSTOMERS}/${showProvision.id}/provision`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Provisioning failed');
+      }
+      setProvisionResult(data);
+      setMessage(
+        data.dry_run
+          ? `Dry-run complete for ${data.customer?.company_name}`
+          : `Provisioned ${data.customer?.company_name}`
+      );
+      await loadCustomers();
+    } catch (err) {
+      setError(err.message || 'Provisioning failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const submitUpgrade = async (e) => {
@@ -169,15 +362,16 @@ export default function AdminCustomers() {
     }
   };
 
+  const canGo = (customer, status) =>
+    (customer.allowed_next_statuses || []).some((s) => s.id === status);
+
   return (
     <div className="cust-page">
       <div className="cust-shell">
         <header className="cust-hero">
           <div className="cust-hero__main">
-            <h1>Customer deployments</h1>
-            <p>
-              Companies on separate server &amp; database — plan and upgrades
-            </p>
+            <h1>Customer registry</h1>
+            <p>{phaseLabel}</p>
             <div className="cust-hero__meta">
               <button
                 type="button"
@@ -189,32 +383,36 @@ export default function AdminCustomers() {
             </div>
           </div>
           <div className="cust-hero__aside">
-            <span className="cust-hero__badge">Platform</span>
+            <span className="cust-hero__badge">Super Admin</span>
             <button type="button" className="cust-add-btn" onClick={openAdd}>
-              + Add new customer
+              + Register company
             </button>
           </div>
         </header>
 
         {!loading && customers.length > 0 && (
-          <div className="cust-stats">
+          <div className="cust-stats cust-stats--4">
             <div className="cust-stat">
-              <span className="cust-stat__label">Customers</span>
+              <span className="cust-stat__label">Companies</span>
               <strong>{stats.total}</strong>
+            </div>
+            <div className="cust-stat">
+              <span className="cust-stat__label">Provisioning</span>
+              <strong>{stats.provisioning}</strong>
             </div>
             <div className="cust-stat">
               <span className="cust-stat__label">Active</span>
               <strong>{stats.active}</strong>
             </div>
             <div className="cust-stat">
-              <span className="cust-stat__label">Enterprise</span>
-              <strong>{stats.enterprise}</strong>
+              <span className="cust-stat__label">Suspended</span>
+              <strong>{stats.suspended}</strong>
             </div>
           </div>
         )}
 
         {message && <p className="cust-message">{message}</p>}
-        {error && !showAdd && !showUpgrade && (
+        {error && !showAdd && !showUpgrade && !showEdit && !showProvision && (
           <p className="cust-error" role="alert">
             {error}
           </p>
@@ -222,19 +420,22 @@ export default function AdminCustomers() {
 
         {loading ? (
           <div className="cust-panel">
-            <p className="cust-panel__empty">Loading customers…</p>
+            <p className="cust-panel__empty">Loading registry…</p>
           </div>
         ) : customers.length === 0 ? (
           <div className="cust-empty">
             <span className="cust-empty__icon" aria-hidden>🏗️</span>
-            <h2>No customers yet</h2>
-            <p>Add a company instance to track plan, URL, and go-live.</p>
+            <h2>No companies registered</h2>
+            <p>
+              Register a company and choose Basic / Essential / Enterprise.
+              This creates a tenant row in the shared database (no separate MySQL DB).
+            </p>
             <button
               type="button"
               className="cust-add-btn cust-add-btn--inline"
               onClick={openAdd}
             >
-              Add your first customer
+              Register your first company
             </button>
           </div>
         ) : (
@@ -255,7 +456,12 @@ export default function AdminCustomers() {
                 <tbody>
                   {customers.map((c) => (
                     <tr key={c.id}>
-                      <td className="cust-table__name">{c.company_name}</td>
+                      <td className="cust-table__name">
+                        <div>{c.company_name}</div>
+                        {c.slug ? (
+                          <div className="cust-mono cust-slug">{c.slug}</div>
+                        ) : null}
+                      </td>
                       <td>
                         <span
                           className={`cust-plan ${PLAN_BADGE_CLASS[c.plan] || ''}`}
@@ -276,21 +482,69 @@ export default function AdminCustomers() {
                       <td>{formatDate(c.go_live_date)}</td>
                       <td>
                         <span className={`cust-status cust-status--${c.status}`}>
-                          {c.status}
+                          {c.status_label || c.status}
                         </span>
                       </td>
                       <td className="cust-table__actions">
+                        <button
+                          type="button"
+                          className="cust-action-btn"
+                          onClick={() => openEdit(c)}
+                          disabled={saving}
+                        >
+                          Edit
+                        </button>
+                        {siloProvisionLegacy && c.status !== 'cancelled' && (
+                          <button
+                            type="button"
+                            className="cust-action-btn cust-action-btn--provision"
+                            onClick={() => openProvision(c)}
+                            disabled={saving}
+                          >
+                            Provision
+                          </button>
+                        )}
+                        {siloProvisionLegacy && (
+                          <button
+                            type="button"
+                            className="cust-action-btn"
+                            onClick={() => downloadEnvOnly(c)}
+                            disabled={saving}
+                            title="Download .env template (legacy silo)"
+                          >
+                            .env
+                          </button>
+                        )}
+                        {canGo(c, 'active') && (
+                          <button
+                            type="button"
+                            className="cust-action-btn cust-action-btn--ok"
+                            onClick={() => patchStatus(c, 'active')}
+                            disabled={saving}
+                          >
+                            Activate
+                          </button>
+                        )}
+                        {canGo(c, 'suspended') && (
+                          <button
+                            type="button"
+                            className="cust-action-btn cust-action-btn--warn"
+                            onClick={() => patchStatus(c, 'suspended')}
+                            disabled={saving}
+                          >
+                            Suspend
+                          </button>
+                        )}
                         {c.can_upgrade_to?.length > 0 ? (
                           <button
                             type="button"
                             className="cust-upgrade-btn"
                             onClick={() => openUpgrade(c)}
+                            disabled={saving}
                           >
                             Upgrade
                           </button>
-                        ) : (
-                          <span className="cust-muted">Max plan</span>
-                        )}
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -304,32 +558,81 @@ export default function AdminCustomers() {
       {showAdd && (
         <div className="cust-modal-backdrop" role="presentation">
           <div className="cust-modal" role="dialog" aria-labelledby="cust-add-title">
-            <h2 id="cust-add-title">Add new customer</h2>
+            <h2 id="cust-add-title">Register company</h2>
+            <p className="cust-modal-lead">
+              Creates a <strong>tenant</strong> in the shared HRMS database
+              (same app URL for all companies). Default status is Active.
+            </p>
             <form onSubmit={submitAdd} className="cust-form">
               <label>
                 Company name *
                 <input
                   value={addForm.company_name}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, company_name: e.target.value }))
-                  }
+                  onChange={(e) => onAddCompanyName(e.target.value)}
                   required
                   placeholder="Acme Corp"
                 />
               </label>
               <label>
-                Plan *
+                Slug
+                <input
+                  value={addForm.slug}
+                  onChange={(e) => {
+                    const slug = slugifyLocal(e.target.value);
+                    setAddForm((f) => ({
+                      ...f,
+                      slug,
+                      database_name: dbAuto ? suggestDb(f.company_name, slug) : f.database_name,
+                    }));
+                  }}
+                  placeholder="acme_corp"
+                />
+              </label>
+              <label>
+                Subscription plan *
                 <select
                   value={addForm.plan}
                   onChange={(e) =>
                     setAddForm((f) => ({ ...f, plan: e.target.value }))
                   }
                 >
-                  {plans.map((p) => (
+                  {(plans.length
+                    ? plans
+                    : [
+                        { id: 'basic', label: 'Basic' },
+                        { id: 'essential', label: 'Essential' },
+                        { id: 'enterprise', label: 'Enterprise' },
+                      ]
+                  ).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.label}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label>
+                Initial status
+                <select
+                  value={addForm.status}
+                  onChange={(e) =>
+                    setAddForm((f) => ({ ...f, status: e.target.value }))
+                  }
+                >
+                  {(statuses.length
+                    ? statuses
+                    : [
+                        { id: 'provisioning', label: 'Provisioning' },
+                        { id: 'active', label: 'Active' },
+                      ]
+                  )
+                    .filter((s) =>
+                      ['provisioning', 'active'].includes(s.id)
+                    )
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
                 </select>
               </label>
               <label>
@@ -347,10 +650,11 @@ export default function AdminCustomers() {
                 Database name
                 <input
                   value={addForm.database_name}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, database_name: e.target.value }))
-                  }
-                  placeholder="hrms_acme"
+                  onChange={(e) => {
+                    setDbAuto(false);
+                    setAddForm((f) => ({ ...f, database_name: e.target.value }));
+                  }}
+                  placeholder="hrms_acme_corp"
                 />
               </label>
               <label>
@@ -398,7 +702,127 @@ export default function AdminCustomers() {
                   className="cust-btn cust-btn--primary"
                   disabled={saving}
                 >
-                  {saving ? 'Saving…' : 'Add customer'}
+                  {saving ? 'Saving…' : 'Register company'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showEdit && editForm && (
+        <div className="cust-modal-backdrop" role="presentation">
+          <div className="cust-modal" role="dialog" aria-labelledby="cust-edit-title">
+            <h2 id="cust-edit-title">Edit company</h2>
+            <form onSubmit={submitEdit} className="cust-form">
+              <label>
+                Company name *
+                <input
+                  value={editForm.company_name}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, company_name: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label>
+                Slug
+                <input
+                  value={editForm.slug}
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      slug: slugifyLocal(e.target.value),
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                Status
+                <select
+                  value={editForm.status}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, status: e.target.value }))
+                  }
+                >
+                  <option value={showEdit.status}>
+                    {showEdit.status_label || showEdit.status}
+                  </option>
+                  {(showEdit.allowed_next_statuses || []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Login URL
+                <input
+                  type="url"
+                  value={editForm.app_url}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, app_url: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Database name
+                <input
+                  value={editForm.database_name}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, database_name: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Contact email
+                <input
+                  type="email"
+                  value={editForm.contact_email}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, contact_email: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Go-live date
+                <input
+                  type="date"
+                  value={editForm.go_live_date || ''}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, go_live_date: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                Notes
+                <textarea
+                  rows={2}
+                  value={editForm.notes}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, notes: e.target.value }))
+                  }
+                />
+              </label>
+              {error && <p className="cust-error">{error}</p>}
+              <div className="cust-modal-actions">
+                <button
+                  type="button"
+                  className="cust-btn cust-btn--ghost"
+                  onClick={() => {
+                    setShowEdit(null);
+                    setEditForm(null);
+                  }}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="cust-btn cust-btn--primary"
+                  disabled={saving}
+                >
+                  {saving ? 'Saving…' : 'Save changes'}
                 </button>
               </div>
             </form>
@@ -451,6 +875,213 @@ export default function AdminCustomers() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showProvision && !provisionResult && (
+        <div className="cust-modal-backdrop" role="presentation">
+          <div className="cust-modal" role="dialog" aria-labelledby="cust-prov-title">
+            <h2 id="cust-prov-title">Provision company</h2>
+            <p className="cust-modal-lead">
+              Phase 2 for <strong>{showProvision.company_name}</strong>
+              {showProvision.database_name
+                ? ` → DB \`${showProvision.database_name}\``
+                : ''}
+              . Live MySQL create needs <code>PROVISION_MYSQL_*</code> on the
+              vendor master; otherwise this runs as a dry-run.
+            </p>
+            <form onSubmit={submitProvision} className="cust-form">
+              <label className="cust-check">
+                <input
+                  type="checkbox"
+                  checked={provisionOpts.create_database}
+                  onChange={(e) =>
+                    setProvisionOpts((o) => ({
+                      ...o,
+                      create_database: e.target.checked,
+                    }))
+                  }
+                />
+                Create database
+              </label>
+              <label className="cust-check">
+                <input
+                  type="checkbox"
+                  checked={provisionOpts.create_schema}
+                  onChange={(e) =>
+                    setProvisionOpts((o) => ({
+                      ...o,
+                      create_schema: e.target.checked,
+                    }))
+                  }
+                />
+                Apply HRMS schema
+              </label>
+              <label className="cust-check">
+                <input
+                  type="checkbox"
+                  checked={provisionOpts.seed_admin}
+                  onChange={(e) =>
+                    setProvisionOpts((o) => ({
+                      ...o,
+                      seed_admin: e.target.checked,
+                    }))
+                  }
+                />
+                Seed company Super Admin
+              </label>
+              <label className="cust-check">
+                <input
+                  type="checkbox"
+                  checked={provisionOpts.create_uploads}
+                  onChange={(e) =>
+                    setProvisionOpts((o) => ({
+                      ...o,
+                      create_uploads: e.target.checked,
+                    }))
+                  }
+                />
+                Create uploads folder
+              </label>
+              <label className="cust-check">
+                <input
+                  type="checkbox"
+                  checked={provisionOpts.mark_active}
+                  onChange={(e) =>
+                    setProvisionOpts((o) => ({
+                      ...o,
+                      mark_active: e.target.checked,
+                    }))
+                  }
+                />
+                Mark Active when done (live only)
+              </label>
+              <label className="cust-check">
+                <input
+                  type="checkbox"
+                  checked={provisionOpts.dry_run}
+                  onChange={(e) =>
+                    setProvisionOpts((o) => ({
+                      ...o,
+                      dry_run: e.target.checked,
+                    }))
+                  }
+                />
+                Force dry-run (no MySQL writes)
+              </label>
+              {provisionOpts.seed_admin && (
+                <>
+                  <label>
+                    Admin email *
+                    <input
+                      type="email"
+                      required
+                      value={provisionOpts.admin_email}
+                      onChange={(e) =>
+                        setProvisionOpts((o) => ({
+                          ...o,
+                          admin_email: e.target.value,
+                        }))
+                      }
+                      placeholder="admin@acme.com"
+                    />
+                  </label>
+                  <label>
+                    Admin display name
+                    <input
+                      value={provisionOpts.admin_name}
+                      onChange={(e) =>
+                        setProvisionOpts((o) => ({
+                          ...o,
+                          admin_name: e.target.value,
+                        }))
+                      }
+                      placeholder="Acme Admin"
+                    />
+                  </label>
+                </>
+              )}
+              {error && <p className="cust-error">{error}</p>}
+              <div className="cust-modal-actions">
+                <button
+                  type="button"
+                  className="cust-btn cust-btn--ghost"
+                  onClick={() => setShowProvision(null)}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="cust-btn cust-btn--primary"
+                  disabled={saving}
+                >
+                  {saving ? 'Provisioning…' : 'Run provision'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showProvision && provisionResult && (
+        <div className="cust-modal-backdrop" role="presentation">
+          <div className="cust-modal cust-modal--wide" role="dialog" aria-labelledby="cust-prov-result">
+            <h2 id="cust-prov-result">
+              {provisionResult.dry_run ? 'Dry-run result' : 'Provision result'}
+            </h2>
+            <p className="cust-modal-lead">{provisionResult.message}</p>
+            <ul className="cust-steps">
+              {(provisionResult.steps || []).map((s) => (
+                <li key={s.id} className={s.ok ? 'cust-steps__ok' : 'cust-steps__bad'}>
+                  <strong>{s.id}</strong>
+                  {s.dry_run ? ' (dry-run) — ' : ' — '}
+                  {s.message}
+                </li>
+              ))}
+            </ul>
+            {provisionResult.seed_admin?.password && (
+              <div className="cust-seed-box">
+                <p>
+                  <strong>Seed Super Admin</strong> (copy now — shown once)
+                </p>
+                <p className="cust-mono">
+                  {provisionResult.seed_admin.email} / {provisionResult.seed_admin.password}
+                </p>
+              </div>
+            )}
+            <ol className="cust-next">
+              {(provisionResult.next_steps || []).map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ol>
+            <div className="cust-modal-actions">
+              <button
+                type="button"
+                className="cust-btn cust-btn--ghost"
+                onClick={() => {
+                  setShowProvision(null);
+                  setProvisionResult(null);
+                }}
+              >
+                Close
+              </button>
+              {provisionResult.env_file && (
+                <button
+                  type="button"
+                  className="cust-btn cust-btn--primary"
+                  onClick={() =>
+                    downloadTextFile(
+                      provisionResult.env_filename || 'customer.env',
+                      provisionResult.env_file
+                    )
+                  }
+                >
+                  Download .env
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

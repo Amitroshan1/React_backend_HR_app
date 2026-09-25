@@ -98,6 +98,12 @@ DEPLOYMENT_GUIDE = {
         {"key": "CORS_ORIGINS", "hint": "https://hr.customer.com"},
         {"key": "SHOW_DEPLOYMENT_GUIDE", "hint": "0 on customer servers; 1 on vendor master only"},
         {"key": "CUSTOMER_PLAN", "hint": "basic | essential | enterprise — must match sold plan"},
+        {"key": "PROVISION_ENABLED", "hint": "Master only: 1 to allow Phase 2 Provision button"},
+        {"key": "PROVISION_MYSQL_HOST", "hint": "Master only: MySQL host for CREATE DATABASE"},
+        {"key": "PROVISION_MYSQL_USER", "hint": "Master only: MySQL user with CREATE privilege"},
+        {"key": "PROVISION_MYSQL_PASSWORD", "hint": "Master only: MySQL password"},
+        {"key": "PROVISION_UPLOADS_ROOT", "hint": "Master only: base folder for per-slug uploads"},
+        {"key": "PROVISION_BASE_DOMAIN", "hint": "Master only: suggest https://{slug}.domain"},
     ],
     "plans": [
         {"id": "basic", "label": "Basic", "notes": "Core HR, attendance, leave"},

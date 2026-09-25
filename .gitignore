@@ -4,6 +4,11 @@ myenv/
 **/__pycache__/
 *.py[cod]
 
+# Secrets / local env
+backend_HRMS/.env
+backend_HRMS/.env.*
+!.env.example
+
 # Local dependency installs
 node_modules/
 
@@ -12,6 +17,17 @@ backend_HRMS/uploads/
 backend_HRMS/website/static/uploads/
 backend_HRMS/website/static/uploads/**/*.pdf
 backend_HRMS/website/static/uploads/signatures/
+
+# Silo deploy runtime (see deploy/README.md)
+deploy/artifacts/**
+!deploy/artifacts/.gitkeep
+!deploy/artifacts/README.md
+deploy/uploads/**
+!deploy/uploads/.gitkeep
+!deploy/uploads/README.md
+deploy/customers/*
+!deploy/customers/README.md
+!deploy/customers/_template/
 
 migrations/
 

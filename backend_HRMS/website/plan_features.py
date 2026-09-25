@@ -1,4 +1,10 @@
-"""Subscription plan → feature flags (per customer server via CUSTOMER_PLAN in .env)."""
+"""Subscription plan → feature flags.
+
+Resolution order (Phase 1+ shared-DB):
+  1. `tenants.plan` when tenant_id is known
+  2. `CUSTOMER_PLAN` in .env (legacy / single-tenant fallback)
+  3. essential
+"""
 from functools import wraps
 from typing import Optional
 
@@ -90,7 +96,19 @@ QUERY_DEPARTMENT_CANONICAL = (
 )
 
 
-def get_plan() -> str:
+def get_plan(tenant_id: Optional[int] = None) -> str:
+    """Resolve subscription plan: tenant.plan (if set) → CUSTOMER_PLAN env → essential."""
+    if tenant_id is not None:
+        try:
+            from .models.tenant import Tenant
+
+            t = Tenant.query.get(int(tenant_id))
+            if t and (t.plan or "").strip():
+                p = t.plan.strip().lower()
+                if p in CUSTOMER_PLANS:
+                    return p
+        except Exception:
+            pass
     p = (current_app.config.get("CUSTOMER_PLAN") or "essential").strip().lower()
     return p if p in CUSTOMER_PLANS else "essential"
 
@@ -314,8 +332,8 @@ def filter_query_departments(departments: list[str]) -> list[str]:
     return ["Human Resource"]
 
 
-def plan_payload() -> dict:
-    plan = get_plan()
+def plan_payload(tenant_id: Optional[int] = None) -> dict:
+    plan = get_plan(tenant_id=tenant_id)
     return {
         "plan": plan,
         "plan_label": PLAN_LABELS.get(plan, plan.title()),

@@ -1,116 +1,82 @@
-# New customer deployment checklist
+# New customer onboarding (shared-DB SaaS)
 
-One **dedicated instance** per customer company (separate server, database, and environment). Same codebase as Solviotec; different configuration only.
+**Primary architecture:** one app, one database, row isolation via `tenant_id`.  
+See [SHARED_DB_MULTI_TENANCY.md](./SHARED_DB_MULTI_TENANCY.md) for the design freeze and phase plan.
 
-## Before you start
-
-- [ ] Customer name and plan agreed (Basic / Essential / Enterprise)
-- [ ] Domain or subdomain decided (e.g. `hr.acme.com`)
-- [ ] Server or VPS provisioned (Linux recommended)
-- [ ] MySQL database created (empty)
-- [ ] SSL certificate planned (Let's Encrypt or customer cert)
+> **Legacy:** database-per-company (`hrms_*` provision) is retired as the default path.  
+> Enable only with `SILO_PROVISION_LEGACY=1` for dedicated-hosting exceptions. See § Legacy silo below.
 
 ---
 
-## 1. Server preparation
+## Shared-DB — register a company (Phase 1+)
 
-- [ ] Install: Python 3.11+, Node 18+ (build frontend), MySQL, Nginx, Git
-- [ ] Create app user (e.g. `hrms`) and deploy directory (e.g. `/var/www/hrms`)
-- [ ] Clone or copy the **same repository** tag/release used for production
-- [ ] Open firewall: 80, 443 (and 22 for SSH only from trusted IPs)
+On the platform instance (`SHOW_DEPLOYMENT_GUIDE=1`):
 
----
+1. Open **Admin → Customers**
+2. **Register company** (name + subscription plan)
+3. Backend creates a **`tenants`** row (and keeps `deployed_customers` as a UI bridge)
+4. Status defaults to **Active** (no separate MySQL DB to wait for)
+5. Later phases: seed first tenant admin, scope all business tables by `tenant_id`
 
-## 2. Database
+Same login URL for all companies. Isolation is `admins.tenant_id` + JWT `tenant_id` claim (Phase 1 foundation).
 
-- [ ] Create database: `hrms_acme` (unique per customer)
-- [ ] Create DB user with access only to that database
-- [ ] Run migrations / schema setup on **this** database only
-- [ ] Verify no connection string points to another customer's DB
+### Platform env (shared app)
 
----
+```env
+SHOW_DEPLOYMENT_GUIDE=1
+CUSTOMER_PLAN=essential
+# Optional fallback when a tenant has no plan set; prefer tenants.plan
+```
 
-## 3. Backend environment (`.env` in `backend_HRMS/`)
-
-Copy from your master template and set **customer-specific** values:
-
-| Variable | Example | Notes |
-|----------|---------|--------|
-| `DATABASE_URI` | `mysql+pymysql://user:pass@localhost/hrms_acme` | Unique per customer |
-| `SECRET_KEY` | (new random string) | **Never reuse** across customers |
-| `JWT_SECRET_KEY` | (new random string) | **Never reuse** |
-| `BASE_URL` | `https://hr.acme.com` | Customer login URL |
-| `CORS_ORIGINS` | `https://hr.acme.com` | Match frontend origin |
-| `EMAIL_HR` / `EMAIL_IT` / etc. | Customer addresses | Per-company mail routing |
-| `ZEPTO_*` | Customer or shared mail API | As per contract |
-| `UPLOADS_ROOT` | `/var/www/hrms/uploads` | Isolated folder on this server |
-| `SHOW_DEPLOYMENT_GUIDE` | `0` | **Off** on customer instances (vendor only) |
-
-- [ ] Create Python venv, `pip install -r requirements.txt`
-- [ ] Test: `flask run` or gunicorn binds locally
-- [ ] Configure gunicorn/systemd service for backend
+Do **not** set `SILO_PROVISION_LEGACY` unless you intentionally need a separate DB.
 
 ---
 
-## 4. Frontend build
+## Legacy silo (optional — not primary)
 
-- [ ] In `frontend/`: `npm install` && `npm run build`
-- [ ] Serve `dist/` via Nginx (or copy to static path)
-- [ ] Nginx proxies `/api/*` to backend (e.g. port 5000)
-- [ ] Force HTTPS redirect
+Only when a customer must run on a dedicated DB/host:
 
----
+```env
+SILO_PROVISION_LEGACY=1
+PROVISION_ENABLED=1
+PROVISION_MYSQL_HOST=localhost
+PROVISION_MYSQL_PORT=3306
+PROVISION_MYSQL_USER=root
+PROVISION_MYSQL_PASSWORD=********
+PROVISION_UPLOADS_ROOT=/var/hrms/uploads
+PROVISION_ARTIFACTS_DIR=/var/hrms/artifacts
+PROVISION_BASE_DOMAIN=yourdomain.com
+```
 
-## 5. First-time application setup
+Then **Admin → Customers → Provision** (and `.env` download) reappear. Without MySQL admin credentials, provision runs as dry-run (artifacts only).
 
-- [ ] Start backend; confirm health (login page loads)
-- [ ] Log in as vendor-created **first HR / Super Admin** (or use existing seed user)
-- [ ] HR: Add **departments** and **circles** (master data) for this company
-- [ ] HR: Add **holiday calendar** for current year
-- [ ] HR: Create first employees or import process
-- [ ] Send password-set emails from HR module
-- [ ] Smoke test: punch, leave apply, payslip path (per plan)
+### Local silo folders (this repo)
 
----
-
-## 6. Plan-specific features (configure later in code or env)
-
-| Plan | Typical limits (define in contract) |
-|------|-------------------------------------|
-| Basic | Core HR, attendance, leave |
-| Essential | + Payroll, IT module, performance |
-| Enterprise | + Custom domain, SLA, dedicated support |
-
-Document enabled modules in your internal runbook for this customer.
+See `deploy/` — reserved for dedicated-hosting layouts; not required for shared-DB SaaS.
 
 ---
 
-## 7. Handover to customer
+## Checklist (shared-DB)
 
-- [ ] Send login URL and admin credentials (secure channel)
-- [ ] Short user guide / training date
-- [ ] Support contact and escalation
-- [ ] Backup schedule documented (daily DB dump minimum)
+- [ ] Platform instance running with `SHOW_DEPLOYMENT_GUIDE=1`
+- [ ] Company registered → `tenants` row exists
+- [ ] Existing users still login (backfilled `admins.tenant_id=1`)
+- [ ] New JWTs include `tenant_id` claim
+- [ ] Plan shown matches `tenants.plan` (or `CUSTOMER_PLAN` fallback)
 
----
+## Checklist (legacy silo only)
 
-## 8. Ongoing operations (your team)
-
-- [ ] Add instance to **release checklist** (deploy same version to all servers)
-- [ ] Monitor disk (uploads), DB size, SSL expiry
-- [ ] Keep list of instances: name, URL, DB name, plan, go-live date
-
----
-
-## Rollback
-
-- [ ] DB backup taken **before** each production deploy
-- [ ] Previous release tag noted in change log
+- [ ] `SILO_PROVISION_LEGACY=1` and `PROVISION_ENABLED=1`
+- [ ] Server/VPS if not sharing master MySQL
+- [ ] `POST /api/admin/customers/:id/provision` completed
+- [ ] Customer `.env` with unique secrets and `SHOW_DEPLOYMENT_GUIDE=0`
+- [ ] DNS / reverse proxy for customer URL
 
 ---
 
-## Do not
+## Related docs
 
-- Do not point multiple customers at one database
-- Do not copy production `.env` between servers without changing secrets
-- Do not enable `SHOW_DEPLOYMENT_GUIDE` on customer-facing instances
+| Doc | Purpose |
+|-----|---------|
+| [SHARED_DB_MULTI_TENANCY.md](./SHARED_DB_MULTI_TENANCY.md) | Design freeze + phase roadmap |
+| `deploy/README.md` | Legacy folder layout for dedicated hosts |

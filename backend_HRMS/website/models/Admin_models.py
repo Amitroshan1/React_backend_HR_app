@@ -24,6 +24,9 @@ class Admin(db.Model, UserMixin):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
 
+    # Shared-DB SaaS: company isolation (Phase 1). Default tenant id=1 after backfill.
+    tenant_id = db.Column(db.Integer, db.ForeignKey("tenants.id"), nullable=True, index=True)
+
     email = db.Column(db.String(120), unique=True, nullable=True)
     first_name = db.Column(db.String(150), nullable=True)
     user_name = db.Column(db.String(120), unique=True, nullable=True)

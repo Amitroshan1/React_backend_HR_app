@@ -1474,9 +1474,16 @@ export const Dashboard = () => {
         }
         const geoTrim = geoReason.trim();
         const wfhOk = !!location.wfhApproved;
-        if (!wfhOk && (geo.requiresReason || !location.isInRange) && geoTrim.length < 10) {
+        const needsGeoReason = !wfhOk && (geo.requiresReason || !location.isInRange);
+        if (needsGeoReason && geoTrim.length < 10) {
             setGeoReasonMode("in");
             setGeoReasonModalOpen(true);
+            return;
+        }
+        setRepeatPunchModalOpen(false);
+        // Outside + valid reason already collected — complete punch (skip NHQ stack).
+        if (needsGeoReason && geoTrim.length >= 10) {
+            await handlePunchIn(geoTrim, t, punchMeasurementRef.current, { isWfh: wfhOk });
             return;
         }
         runWithNhqWarningIfNeeded(
@@ -1499,12 +1506,13 @@ export const Dashboard = () => {
             if (!prepared) return;
         }
         punchGps.setPunchState(punchGps.PunchGpsState.READY, "Location verified");
+
+        // Close this modal first. NHQ biometric warning used to open underneath and
+        // leave Confirm looking dead — a valid outside reason completes the punch.
+        setGeoReasonModalOpen(false);
+
         if (geoReasonMode === "out") {
-            runWithNhqWarningIfNeeded(
-                "out",
-                { wfhApproved: !!location.wfhApproved },
-                () => handlePunchOut(t, "", punchMeasurementRef.current),
-            );
+            await handlePunchOut(t, "", punchMeasurementRef.current);
             return;
         }
         const repeatTrim = repeatPunchReason.trim();
@@ -1512,11 +1520,8 @@ export const Dashboard = () => {
             setRepeatPunchModalOpen(true);
             return;
         }
-        runWithNhqWarningIfNeeded(
-            "in",
-            { wfhApproved: !!location.wfhApproved },
-            () => handlePunchIn(t, repeatTrim, punchMeasurementRef.current),
-        );
+        // Outside + written reason: punch immediately (do not stack NHQ notice).
+        await handlePunchIn(t, repeatTrim, punchMeasurementRef.current);
     };
 
     const submitExtendedHoursPunchOut = async () => {
