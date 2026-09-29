@@ -318,6 +318,9 @@ def test_finalize_selects_latest_scan(client, stack):
         sess = stack.PunchSession.query.first()
         assert sess.clock_out == datetime(2026, 8, 19, 17, 30, 0)
         assert (sess.closed_by or "") == "biometric"
+        assert sess.location_status_out == "biometric_device"
+        assert sess.location_status == "biometric_device"
+        assert (sess.location_status_in or "") == "biometric_device"
         assert stack.BiometricDayState.query.first().status == "finalized"
 
 
@@ -798,6 +801,9 @@ def test_option_a_sync_closes_open_before_8pm(client, stack):
         assert res["action"] == "close"
         assert sess.clock_out == datetime(2026, 8, 19, 17, 30, 0)
         assert (sess.closed_by or "") == "biometric"
+        assert sess.location_status_out == "biometric_device"
+        assert sess.location_status == "biometric_device"
+        assert sess.location_status_out != "auto_punch_out_no_live_gps"
         assert stack.BiometricDayState.query.first().status == "finalized"
 
 
@@ -829,6 +835,8 @@ def test_option_a_sync_bumps_closed_out_on_later_scan(client, stack):
         assert res2["synced"] is True
         assert res2["action"] == "bump"
         assert sess.clock_out == datetime(2026, 8, 19, 19, 15, 0)
+        assert sess.location_status_out == "biometric_device"
+        assert sess.location_status == "biometric_device"
 
 
 def test_option_a_batch_runs_inside_window(client, stack):

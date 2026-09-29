@@ -230,6 +230,7 @@ def test_ten_scan_scenario(hr_stack):
     assert row["scan_count"] == 11, row
     assert row["first_scan"] == "2026-08-20 09:03:16"
     assert row["last_scan"] == "2026-08-20 14:36:28"
+    assert row["punch_out"] is None
     assert isinstance(row["total_scans"], list)
     assert len(row["total_scans"]) == 11
     assert row["employee_name"] == "Amit Kumar"
@@ -267,6 +268,7 @@ def test_unmapped_pin_visible(hr_stack):
     assert row["employee_name"] is None
     assert row["first_scan"] == "2026-08-20 14:36:28"
     assert row["last_scan"] == "2026-08-20 14:36:28"
+    assert row["punch_out"] is None
 
 
 def test_unmapped_detail(hr_stack):
@@ -450,18 +452,94 @@ def test_export(hr_stack):
         "Employee",
         "Employee ID",
         "Date",
-        "Punch In",
+        "First Scan",
+        "Last Scan",
         "Punch Out",
         "Total Scans",
         "Status",
     ]
     dates = {row[2].value for row in ws.iter_rows(min_row=2) if row[2].value}
     assert dates == {"2026-08-20"}
-    punch_in = [row[3].value for row in ws.iter_rows(min_row=2) if row[3].value]
-    punch_out = [row[4].value for row in ws.iter_rows(min_row=2) if row[4].value]
-    assert punch_in
-    assert punch_out
-    assert all(":" in str(v) for v in punch_in + punch_out)
+    first_scans = [row[3].value for row in ws.iter_rows(min_row=2) if row[3].value]
+    last_scans = [row[4].value for row in ws.iter_rows(min_row=2) if row[4].value]
+    punch_outs = [row[5].value for row in ws.iter_rows(min_row=2) if row[5].value]
+    assert first_scans
+    assert last_scans
+    assert punch_outs == []
+    assert all(":" in str(v) for v in first_scans + last_scans)
+
+
+def test_punch_out_is_closed_session_not_last_scan(hr_stack):
+    """Open session stays blank; closed session uses clock_out, not last scan."""
+    from sqlalchemy import text
+
+    admin_id = hr_stack.admin_ids["a1"]
+    with hr_stack.app.app_context():
+        hr_stack.db.session.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS punch ("
+                "id INTEGER PRIMARY KEY, admin_id INTEGER NOT NULL, "
+                "punch_date DATE NOT NULL, punch_out DATETIME)"
+            )
+        )
+        hr_stack.db.session.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS punch_sessions ("
+                "id INTEGER PRIMARY KEY, punch_id INTEGER NOT NULL, "
+                "clock_out DATETIME)"
+            )
+        )
+        hr_stack.db.session.execute(
+            text(
+                "INSERT INTO punch (id, admin_id, punch_date, punch_out) "
+                "VALUES (1, :aid, '2026-08-20', NULL)"
+            ),
+            {"aid": admin_id},
+        )
+        hr_stack.db.session.execute(
+            text(
+                "INSERT INTO punch_sessions (id, punch_id, clock_out) "
+                "VALUES (1, 1, NULL)"
+            )
+        )
+        hr_stack.db.session.commit()
+
+    path = f"/api/hr/biometric/summary?date=2026-08-20&admin_id={admin_id}"
+    try:
+        row = next(
+            r
+            for r in _get(hr_stack, path, _hr_token(hr_stack)).get_json()["rows"]
+            if r["emp_id"] == "10236"
+        )
+        assert row["last_scan"] == "2026-08-20 14:36:28"
+        assert row["punch_out"] is None
+
+        with hr_stack.app.app_context():
+            hr_stack.db.session.execute(
+                text(
+                    "UPDATE punch_sessions SET clock_out = '2026-08-20 18:05:00' "
+                    "WHERE id = 1"
+                )
+            )
+            hr_stack.db.session.execute(
+                text(
+                    "UPDATE punch SET punch_out = '2026-08-20 18:05:00' WHERE id = 1"
+                )
+            )
+            hr_stack.db.session.commit()
+
+        row = next(
+            r
+            for r in _get(hr_stack, path, _hr_token(hr_stack)).get_json()["rows"]
+            if r["emp_id"] == "10236"
+        )
+        assert row["punch_out"] == "2026-08-20 18:05:00"
+        assert row["last_scan"] == "2026-08-20 14:36:28"
+    finally:
+        with hr_stack.app.app_context():
+            hr_stack.db.session.execute(text("DELETE FROM punch_sessions"))
+            hr_stack.db.session.execute(text("DELETE FROM punch"))
+            hr_stack.db.session.commit()
 
 
 def test_export_month_one_sheet(hr_stack):

@@ -21,11 +21,14 @@ from .. import db
 from ..datetime_utils import IST
 from ..models.attendance import Punch, PunchSession
 from ..punch_aggregate import recompute_punch_aggregate
-from ..punch_auto_close import AUTO_PUNCH_NO_LIVE_GPS, close_punch_session
+from ..punch_auto_close import close_punch_session
 from .models import BiometricDayState, BiometricLog
 from .scope import is_nhq_admin, is_nhq_biometric_device_serial, is_nhq_biometric_open_session
 
 logger = logging.getLogger(__name__)
+
+# Punch-out location when clock_out comes from a device scan (not the GPS-less 10h job).
+BIOMETRIC_DEVICE_LOCATION = "biometric_device"
 
 # How many prior calendar days catch-up considers (missed sync window / restart).
 CATCHUP_LOOKBACK_DAYS = 7
@@ -45,6 +48,17 @@ def in_nhq_last_scan_sync_window(now_ist: Optional[datetime] = None) -> bool:
     """True when IST wall clock is in [18:00, 21:00)."""
     now = now_ist or datetime.now(IST).replace(tzinfo=None)
     return SYNC_WINDOW_START <= now.time() < SYNC_WINDOW_END
+
+
+def _stamp_biometric_out_location(target) -> None:
+    """Mark punch-out as the biometric device. Does not touch punch-in location."""
+    if target is None:
+        return
+    try:
+        target.location_status_out = BIOMETRIC_DEVICE_LOCATION
+        target.location_status = BIOMETRIC_DEVICE_LOCATION
+    except Exception:
+        pass
 
 
 def cutoff_datetime_for_date(punch_date: date) -> datetime:
@@ -235,11 +249,12 @@ def finalize_biometric_day(
         open_sess,
         punch,
         is_auto=False,
-        location_status_out=AUTO_PUNCH_NO_LIVE_GPS,
+        location_status_out=BIOMETRIC_DEVICE_LOCATION,
         clock_out_at=out_time,
         closed_by="biometric",
     )
     open_sess.auto_punched_out = False
+    _stamp_biometric_out_location(open_sess)
 
     if day_state is None:
         day_state = BiometricDayState(
@@ -491,6 +506,7 @@ def extend_nhq_biometric_day(
 
     target.clock_out = late_time
     target.auto_punched_out = False
+    _stamp_biometric_out_location(target)
     try:
         target.closed_by = "biometric"
     except Exception:
@@ -645,14 +661,16 @@ def _apply_last_scan_out(
             target,
             punch,
             is_auto=False,
-            location_status_out=AUTO_PUNCH_NO_LIVE_GPS,
+            location_status_out=BIOMETRIC_DEVICE_LOCATION,
             clock_out_at=out_time,
             closed_by="biometric",
         )
         target.auto_punched_out = False
+        _stamp_biometric_out_location(target)
     else:
         target.clock_out = out_time
         target.auto_punched_out = False
+        _stamp_biometric_out_location(target)
         try:
             target.closed_by = "biometric"
         except Exception:

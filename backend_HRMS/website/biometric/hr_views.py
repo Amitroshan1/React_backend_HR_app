@@ -25,9 +25,10 @@ service.py operlog branch), so they are naturally excluded.
 from __future__ import annotations
 
 import calendar
+import logging
 from datetime import date, datetime
 from functools import wraps
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt, jwt_required
@@ -43,6 +44,7 @@ from .models import BiometricAttendanceDay, BiometricDevice, BiometricLog
 from .day_rollup import rebuild_attendance_days_from_logs
 
 biometric_hr_bp = Blueprint("biometric_hr", __name__)
+logger = logging.getLogger(__name__)
 
 # Statuses that are NOT a real employee/unmapped scan for reporting purposes.
 # - failed: malformed / invalid timestamp / bad user id (service.py)
@@ -229,6 +231,104 @@ def _fmt_dt(dt) -> Optional[str]:
     return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else None
 
 
+def _as_date(value) -> Optional[date]:
+    if value is None or isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _as_datetime(value) -> Optional[datetime]:
+    if value is None or isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+        try:
+            return datetime.strptime(text[:26], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _closed_punch_out_map(
+    admin_ids: Set[int], dates: Set[date]
+) -> Dict[Tuple[int, date], Optional[datetime]]:
+    """
+    Attendance punch-out for (admin_id, punch_date).
+
+    None while any session that day is still open, so a later device scan
+    is not reported as punch-out before the evening close.
+
+    Reads punch tables with SQL so this reporting module does not import the
+    attendance ORM (that mapper is not present in isolated HR tests).
+    """
+    if not admin_ids or not dates:
+        return {}
+    try:
+        from sqlalchemy import bindparam, inspect, text
+
+        insp = inspect(db.engine)
+        if not insp.has_table("punch") or not insp.has_table("punch_sessions"):
+            return {}
+
+        punch_rows = db.session.execute(
+            text(
+                "SELECT id, admin_id, punch_date, punch_out FROM punch "
+                "WHERE admin_id IN :admin_ids AND punch_date IN :dates"
+            ).bindparams(
+                bindparam("admin_ids", expanding=True),
+                bindparam("dates", expanding=True),
+            ),
+            {"admin_ids": list(admin_ids), "dates": list(dates)},
+        ).fetchall()
+        if not punch_rows:
+            return {}
+
+        punch_ids = [row[0] for row in punch_rows if row[0] is not None]
+        session_rows = []
+        if punch_ids:
+            session_rows = db.session.execute(
+                text(
+                    "SELECT punch_id, clock_out FROM punch_sessions "
+                    "WHERE punch_id IN :punch_ids"
+                ).bindparams(bindparam("punch_ids", expanding=True)),
+                {"punch_ids": punch_ids},
+            ).fetchall()
+
+        by_punch: Dict[int, list] = {}
+        for punch_id, clock_out in session_rows:
+            by_punch.setdefault(punch_id, []).append(clock_out)
+
+        out: Dict[Tuple[int, date], Optional[datetime]] = {}
+        for punch_id, admin_id, punch_date, punch_out in punch_rows:
+            day = _as_date(punch_date)
+            if not admin_id or day is None:
+                continue
+            segs = by_punch.get(punch_id) or []
+            if segs and any(c is None for c in segs):
+                out[(int(admin_id), day)] = None
+                continue
+            closed = [_as_datetime(c) for c in segs]
+            closed = [c for c in closed if c is not None]
+            if closed:
+                out[(int(admin_id), day)] = max(closed)
+            else:
+                out[(int(admin_id), day)] = _as_datetime(punch_out)
+        return out
+    except Exception:
+        logger.debug("BIOMETRIC_HR_PUNCH_OUT_LOOKUP_SKIPPED", exc_info=True)
+        return {}
+
+
 def _pin_dates_for_device(device_sn: str, start, end):
     """DB-only helper: (device_user_id, date) pairs that have logs on this device."""
     q = BiometricLog.query.filter(
@@ -296,6 +396,7 @@ def _serialize_day_row(row: BiometricAttendanceDay, admin: Optional[Admin]) -> d
         "date": row.attendance_date.isoformat() if row.attendance_date else None,
         "first_scan": _fmt_dt(row.first_scan),
         "last_scan": _fmt_dt(row.last_scan),
+        "punch_out": None,
         "scan_count": _scan_count(row),
         "total_scans": scans,
         "mapped": mapped,
@@ -341,7 +442,7 @@ def _summary_rows(args, start, end):
         for a in Admin.query.filter(Admin.id.in_(admin_ids)).all():
             admins[a.id] = a
 
-    out = []
+    kept = []
     for r in rows:
         a = admins.get(r.admin_id) if r.admin_id else None
         if emp_id:
@@ -349,7 +450,20 @@ def _summary_rows(args, start, end):
             mapped_id = (a.emp_id if a else None) or ""
             if emp_id not in (mapped_id, pin):
                 continue
-        out.append(_serialize_day_row(r, a))
+        kept.append((r, a))
+
+    punch_outs = _closed_punch_out_map(
+        {r.admin_id for r, _a in kept if r.admin_id},
+        {r.attendance_date for r, _a in kept if r.admin_id and r.attendance_date},
+    )
+    out = []
+    for r, a in kept:
+        payload = _serialize_day_row(r, a)
+        if r.admin_id and r.attendance_date:
+            payload["punch_out"] = _fmt_dt(
+                punch_outs.get((r.admin_id, r.attendance_date))
+            )
+        out.append(payload)
     return out
 
 
@@ -553,7 +667,8 @@ def biometric_export():
             "Employee",
             "Employee ID",
             "Date",
-            "Punch In",
+            "First Scan",
+            "Last Scan",
             "Punch Out",
             "Total Scans",
             "Status",
@@ -567,6 +682,7 @@ def biometric_export():
                 r["date"] or "",
                 _time_only(r.get("first_scan")),
                 _time_only(r.get("last_scan")),
+                _time_only(r.get("punch_out")),
                 r["scan_count"],
                 "Mapped" if r["mapped"] else "Unmapped",
             ]

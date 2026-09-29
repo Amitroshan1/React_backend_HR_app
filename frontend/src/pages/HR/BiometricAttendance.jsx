@@ -262,7 +262,8 @@ export function BiometricAttendance({ onBack }) {
               <th>Employee</th>
               <th>Employee ID</th>
               <th>Date</th>
-              <th>Punch In</th>
+              <th>First Scan</th>
+              <th>Last Scan</th>
               <th>Punch Out</th>
               <th>Total Scans</th>
               <th>Status</th>
@@ -271,14 +272,14 @@ export function BiometricAttendance({ onBack }) {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="bio-att-muted">
+                <td colSpan={8} className="bio-att-muted">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="bio-att-muted">
+                <td colSpan={8} className="bio-att-muted">
                   No biometric data found.
                 </td>
               </tr>
@@ -290,11 +291,12 @@ export function BiometricAttendance({ onBack }) {
                   <td>{r.emp_id || r.device_user_id || '—'}</td>
                   <td>{formatDate(r.date)}</td>
                   <td className="bio-att-scan-highlight">
-                    <Star size={12} /> {r.first_scan ? r.first_scan.slice(11) : '—'}
+                    <Star size={12} /> {r.first_scan ? r.first_scan.slice(11, 19) : '—'}
                   </td>
                   <td className="bio-att-scan-highlight">
-                    <Star size={12} /> {r.last_scan ? r.last_scan.slice(11) : '—'}
+                    <Star size={12} /> {r.last_scan ? r.last_scan.slice(11, 19) : '—'}
                   </td>
+                  <td>{r.punch_out ? r.punch_out.slice(11, 19) : '—'}</td>
                   <td>{Array.isArray(r.total_scans) ? r.total_scans.length : r.scan_count}</td>
                   <td>
                     <span

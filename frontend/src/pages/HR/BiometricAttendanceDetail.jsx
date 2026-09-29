@@ -49,6 +49,9 @@ export function BiometricAttendanceDetail({ row, onClose }) {
               {row.emp_id || row.device_user_id || '—'} · {formatDate(row.date)} · {row.scan_count}{' '}
               scan(s)
             </p>
+            <p>
+              Punch out: {row.punch_out ? row.punch_out.slice(11, 19) : '—'}
+            </p>
           </div>
           <button className="bio-att-close" onClick={onClose}>
             <X size={18} />

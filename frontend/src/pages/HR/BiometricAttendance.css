@@ -43,7 +43,7 @@
 .bio-att-count { margin-left: auto; color: #64748b; font-size: 0.8125rem; }
 .bio-att-error { color: #b91c1c; margin-bottom: 10px; }
 .bio-att-table-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
-.bio-att-table { width: 100%; border-collapse: collapse; min-width: 900px; font-size: 0.875rem; }
+.bio-att-table { width: 100%; border-collapse: collapse; min-width: 1040px; font-size: 0.875rem; }
 .bio-att-table th, .bio-att-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: left; vertical-align: top; }
 .bio-att-table th { background: #f8fafc; font-size: 0.7rem; text-transform: uppercase; color: #64748b; }
 .bio-att-table tbody tr { cursor: pointer; }
