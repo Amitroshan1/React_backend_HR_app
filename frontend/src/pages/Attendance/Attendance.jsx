@@ -267,6 +267,7 @@ import { FiArrowRight, FiDownload, FiChevronDown, FiCalendar, FiRefreshCw } from
 
 import './Attendance.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDateDDMMYYYY } from '../../utils/dateFormat';
 
 const API_BASE_URL = "/api/leave";
 
@@ -300,12 +301,17 @@ const formatTimeFromTimedelta = (tdStr) => {
 const formatHours = (tdStr) => {
     if (!tdStr) return '0h';
     const s = String(tdStr).trim().replace(/^-/, '');
+    let days = 0;
+    const dayMatch = s.match(/(\d+)\s+days?/);
+    if (dayMatch) days = parseInt(dayMatch[1], 10);
     const m = s.match(/(\d+):(\d{2})(?::(\d{2}))?/);
     if (!m) return String(tdStr);
-    const [, h, min] = m;
-    const total = parseInt(h, 10) * 60 + parseInt(min, 10);
-    if (total >= 60) return `${Math.floor(total / 60)}h`;
-    if (total > 0) return `${total}m`;
+    const total = (parseInt(m[1], 10) + days * 24) * 60 + parseInt(m[2], 10);
+    const hours = Math.floor(total / 60);
+    const minutes = total % 60;
+    if (hours > 0 && minutes > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+    if (hours > 0) return `${hours}h`;
+    if (minutes > 0) return `${minutes}m`;
     return '0h';
 };
 
@@ -412,7 +418,9 @@ const MonthYearSelector = ({ currentMonth, currentYear, setMonth, setYear }) => 
 
 
 // --- Calendar Day Cell Component ---
-const CalendarDayCell = ({ day, status, isFuture, details = {} }) => {
+const CalendarDayCell = ({ day, status, isFuture, date, details = {} }) => {
+    const [tip, setTip] = useState(null);
+
     if (status === 'empty' || day == null) {
         return <div className="calendar-day-cell status-empty" />;
     }
@@ -445,9 +453,30 @@ const CalendarDayCell = ({ day, status, isFuture, details = {} }) => {
     const workHoursText = showWorkHours ? formatCalendarWorkHours(details.work_hours) : '';
     const showStatusLabel = status !== 'Week';
     const showInlineStatusAndHours = showStatusLabel && showWorkHours;
+    const hasPunch = Boolean(details?.punch_in || details?.punch_out);
+    const dateLabel = date ? formatDateDDMMYYYY(date) : String(day);
+
+    const showTip = (event) => {
+        if (!hasPunch) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        const width = 196;
+        let left = rect.left;
+        if (left + width > window.innerWidth - 8) {
+            left = Math.max(8, window.innerWidth - width - 8);
+        }
+        let top = rect.bottom + 6;
+        if (top + 96 > window.innerHeight) {
+            top = Math.max(8, rect.top - 96);
+        }
+        setTip({ top, left });
+    };
 
     return (
-        <div className={`calendar-day-cell ${finalClassName}`}>
+        <div
+            className={`calendar-day-cell ${finalClassName}`}
+            onMouseEnter={showTip}
+            onMouseLeave={() => setTip(null)}
+        >
             <span className="day-number">{day}</span>
             {showInlineStatusAndHours ? (
                 <div className="day-status-row">
@@ -463,6 +492,14 @@ const CalendarDayCell = ({ day, status, isFuture, details = {} }) => {
                         <span className="day-work-hours">{workHoursText}</span>
                     )}
                 </>
+            )}
+            {tip && (
+                <div className="day-hover-card" style={{ top: tip.top, left: tip.left }}>
+                    <div className="day-hover-date">{dateLabel}</div>
+                    <div>Punch in: {formatTimeFromTimedelta(details.punch_in)}</div>
+                    <div>Punch out: {details.punch_out ? formatTimeFromTimedelta(details.punch_out) : '—'}</div>
+                    <div>Total: {details.work_hours ? formatCalendarWorkHours(details.work_hours) : '—'}</div>
+                </div>
             )}
         </div>
     );
@@ -514,6 +551,7 @@ export const Attendance = () => {
           // For future dates with ABSENT status, keep as 'Abs' but mark as future
           paddedCalendar.push({
             day: item.day,
+            date: item.date,
             status: status,
             isFuture: isFuture && item.status === 'ABSENT',
             details: item.details || {},
@@ -711,6 +749,7 @@ export const Attendance = () => {
                             <CalendarDayCell 
                                 key={`calendar-day-${index}-${item.day || 'empty'}`}
                                 day={item.day}
+                                date={item.date}
                                 status={item.status}
                                 isFuture={item.isFuture || false}
                                 details={item.details || {}}

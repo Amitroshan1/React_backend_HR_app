@@ -21,7 +21,9 @@ from .attendance_engine import (
     load_attendance_month_context,
     build_month_calendar,
     calculate_credited_working_days,
+    punch_work_seconds,
 )
+from .punch_aggregate import seconds_to_hms_str
 from . import db
 from .noc_department_service import reject_pending_noc_rows_for_resignation, NOC_DEPT_LABELS, _effective_noc_row_status
 from flask import jsonify
@@ -439,16 +441,8 @@ def _attendance_summary_impl():
     punch_out_seconds = []
 
     for p in punches:
-        if p.punch_date.weekday() == 6:  # skip Sundays
-            continue
-
         if p.punch_in and p.punch_out:
-            if p.today_work:
-                try:
-                    h, m, s = map(int, str(p.today_work).split(":"))
-                    total_work_seconds += h * 3600 + m * 60 + s
-                except Exception:
-                    pass
+            total_work_seconds += punch_work_seconds(p)
 
             def _to_seconds(dt):
                 if dt is None:
@@ -476,6 +470,7 @@ def _attendance_summary_impl():
     expected_work_hours = total_weekdays * 9
     expected_work_seconds = expected_work_hours * 3600
     difference_seconds = total_work_seconds - expected_work_seconds
+    difference_sign = "-" if difference_seconds < 0 else ""
 
     return jsonify({
         "success": True,
@@ -485,9 +480,9 @@ def _attendance_summary_impl():
         "unpaid_leave_days": round(unpaid_leave_days, 1),
         "average_punch_in": avg_punch_in,
         "average_punch_out": avg_punch_out,
-        "actual_work_hours": str(timedelta(seconds=total_work_seconds)),
+        "actual_work_hours": seconds_to_hms_str(total_work_seconds),
         "expected_work_hours": f"{expected_work_hours}:00:00",
-        "difference": str(timedelta(seconds=difference_seconds)),
+        "difference": difference_sign + seconds_to_hms_str(abs(difference_seconds)),
         "calendar": calendar_data
     }), 200
 

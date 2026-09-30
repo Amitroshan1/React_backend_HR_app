@@ -559,6 +559,25 @@
   font-weight: 700;
 }
 
+.day-hover-card {
+  position: fixed;
+  z-index: 50;
+  width: 196px;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  pointer-events: none;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.28);
+}
+
+.day-hover-date {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
 /* Calendar cell status colors */
 .calendar-day-cell.status-present { background-color: #ecfdf5; border-color: #a7f3d0; }
 .calendar-day-cell.status-present .day-status-label { color: #065f46; }
