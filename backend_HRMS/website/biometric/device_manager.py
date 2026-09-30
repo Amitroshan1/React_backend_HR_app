@@ -153,6 +153,9 @@ def build_options_response(serial_number: str) -> str:
     """
     Protocol text returned for GET options=all / registry handshake.
     Compatible with common ZKTeco / eSSL ADMS clients.
+
+    TimeZone is minutes east of GMT. 330 is IST (+5:30). A value of 5.5 is
+    read as 5 on these devices, which sets the clock 30 minutes early.
     """
     sn = normalize_serial(serial_number)
     lines = [
@@ -165,7 +168,7 @@ def build_options_response(serial_number: str) -> str:
         "TransTimes=00:00;14:00",
         "TransInterval=1",
         "TransFlag=TransData AttLog\tOpLog\tAttPhoto",
-        "TimeZone=5.5",
+        "TimeZone=330",
         "Realtime=1",
         "Encrypt=0",
     ]

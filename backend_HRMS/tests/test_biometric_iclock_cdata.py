@@ -283,6 +283,8 @@ def test_options_handshake(client, bio_stack):
         text = resp.data.decode("utf-8")
         assert "GET OPTION FROM:" in text
         assert "ATTLOGStamp" in text
+        assert "TimeZone=330" in text
+        assert "TimeZone=5.5" not in text
         device = bio_stack.BiometricDevice.query.filter_by(serial_number="ERIS001").first()
         assert device.last_seen_at is not None
         assert _count_logs(bio_stack) == 0
