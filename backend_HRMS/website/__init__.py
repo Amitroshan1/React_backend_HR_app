@@ -452,6 +452,34 @@ def create_app():
         except Exception as e:
             app.logger.warning("location.grace migration skipped: %s", e)
 
+    def _ensure_location_name_length():
+        """Allow a full street address as the office location name."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "location"
+            if table not in insp.get_table_names():
+                return
+            col = next((c for c in insp.get_columns(table) if c["name"] == "name"), None)
+            if col is None:
+                return
+            length = getattr(col.get("type"), "length", None)
+            if length is not None and length >= 255:
+                return
+            dialect = db.engine.dialect.name
+            if dialect == "sqlite":
+                return
+            if dialect == "postgresql":
+                stmt = text(f'ALTER TABLE "{table}" ALTER COLUMN name TYPE VARCHAR(255)')
+            else:
+                stmt = text(f"ALTER TABLE {table} MODIFY COLUMN name VARCHAR(255) NOT NULL")
+            with db.engine.begin() as conn:
+                conn.execute(stmt)
+            app.logger.info("Widened %s.name to VARCHAR(255)", table)
+        except Exception as e:
+            app.logger.warning("location.name length migration skipped: %s", e)
+
     def _ensure_geo_punch_attempts_table():
         """Create geo_punch_attempts audit table for Geo Analytics (additive)."""
         try:
@@ -2510,6 +2538,7 @@ def create_app():
             _ensure_expense_line_item_rejection_reason()
             _ensure_punch_session_auto_punched_out()
             _ensure_location_grace_column()
+            _ensure_location_name_length()
             _ensure_geo_punch_attempts_table()
             _ensure_geo_analytics_indexes()
             _ensure_geo_config_tables()

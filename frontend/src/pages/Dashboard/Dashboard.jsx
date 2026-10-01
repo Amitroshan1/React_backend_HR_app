@@ -878,6 +878,7 @@ export const Dashboard = () => {
         let IDLE_CB_TIMEOUT = dc.idleCallbackTimeoutMs;
 
         const lastCheckRef = { ts: 0 };
+        let locationCheckInFlight = false;
         let pollTimer = null;
         let alive = true;
 
@@ -900,6 +901,7 @@ export const Dashboard = () => {
             const lon = position.coords.longitude;
             const accuracyM = Number(position.coords.accuracy);
             lastCheckRef.ts = Date.now();
+            locationCheckInFlight = false;
             const locationData = await validateLocationRange(
                 lat,
                 lon,
@@ -947,6 +949,7 @@ export const Dashboard = () => {
         };
 
         const onError = (err) => {
+            locationCheckInFlight = false;
             if (!alive) return;
             console.warn(`Geolocation Error: ${err.code} - ${err.message}`);
             trustedLocationRef.current = null;
@@ -970,7 +973,9 @@ export const Dashboard = () => {
                 }
                 return;
             }
+            if (locationCheckInFlight) return;
             if (Date.now() - lastCheckRef.ts < MIN_RECHECK_MS) return;
+            locationCheckInFlight = true;
             navigator.geolocation.getCurrentPosition(
                 applyPosition,
                 onError,

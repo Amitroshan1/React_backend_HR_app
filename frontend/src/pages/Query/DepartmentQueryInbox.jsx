@@ -339,20 +339,18 @@ export const DepartmentQueryInbox = () => {
     const poll = () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       openChatRef.current?.({ id: chatId }, { silent: true, skipUrl: true });
-      fetchInbox(undefined, { silent: true });
     };
     const intervalId = window.setInterval(poll, QUERY_CHAT_POLL_MS);
     return () => window.clearInterval(intervalId);
   }, [activeChat?.id]);
 
   useEffect(() => {
-    if (activeChat?.id) return undefined;
     const intervalId = window.setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       fetchInbox(undefined, { silent: true });
     }, QUERY_INBOX_POLL_MS);
     return () => window.clearInterval(intervalId);
-  }, [activeChat?.id, filterMonth, filterCircle]);
+  }, [filterMonth, filterCircle]);
 
   useEffect(() => {
     const chatId = parseChatIdFromSearch(location.search);

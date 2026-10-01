@@ -40,7 +40,7 @@ from .datetime_utils import utc_now, isoformat_api
 from zoneinfo import ZoneInfo
 import calendar
 from sqlalchemy import and_, or_, func, func, func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError, OperationalError, StatementError
 from sqlalchemy.orm import joinedload
 from flask_login import current_user
 from .email import (
@@ -6657,6 +6657,45 @@ def update_asset_api(asset_id):
 # --------------------------------------------------
 # LOCATIONS (Office / Punch-in radius)
 # --------------------------------------------------
+def _parse_location_coordinate(value):
+    """Decimal degrees, or degrees/minutes/seconds such as 28° 24' 32\" N."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    text_value = str(value).strip()
+    if not text_value:
+        return 0.0
+    try:
+        return float(text_value)
+    except (TypeError, ValueError):
+        pass
+    match = re.match(
+        r"""^\s*
+        ([+-]?\d+(?:\.\d+)?)
+        (?:\s*[°º]\s*(\d+(?:\.\d+)?)?)?
+        (?:\s*['\u2032]\s*(\d+(?:\.\d+)?)?)?
+        (?:\s*(?:["\u2033])\s*)?
+        \s*([NnSsEeWw])?
+        \s*$
+        """,
+        text_value,
+        re.VERBOSE,
+    )
+    if not match:
+        raise ValueError("invalid coordinate")
+    degrees = float(match.group(1))
+    minutes = float(match.group(2) or 0)
+    seconds = float(match.group(3) or 0)
+    decimal = abs(degrees) + minutes / 60.0 + seconds / 3600.0
+    if degrees < 0:
+        decimal = -decimal
+    hemisphere = (match.group(4) or "").upper()
+    if hemisphere in ("S", "W"):
+        decimal = -abs(decimal)
+    return decimal
+
+
 @hr.route("/locations", methods=["GET"])
 @jwt_required()
 @hr_required
@@ -6691,9 +6730,11 @@ def create_location():
 
     if not name:
         return jsonify({"success": False, "message": "Location name is required"}), 400
+    if len(name) > 255:
+        return jsonify({"success": False, "message": "Location name must be 255 characters or fewer"}), 400
     try:
-        lat_f = float(lat) if lat is not None else 0.0
-        lng_f = float(lng) if lng is not None else 0.0
+        lat_f = _parse_location_coordinate(lat)
+        lng_f = _parse_location_coordinate(lng)
         radius_f = float(radius) if radius is not None else 100.0
         grace_f = float(grace) if grace is not None else 25.0
     except (TypeError, ValueError):
@@ -6706,7 +6747,15 @@ def create_location():
 
     loc = Location(name=name, latitude=lat_f, longitude=lng_f, radius=radius_f, grace=grace_f)
     db.session.add(loc)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except (DataError, OperationalError, StatementError, IntegrityError):
+        db.session.rollback()
+        current_app.logger.exception("create_location failed")
+        return jsonify({
+            "success": False,
+            "message": "Could not save this location. Use a shorter name, or restart the server so the location table can be updated.",
+        }), 400
     return jsonify({
         "success": True,
         "message": "Location added successfully",

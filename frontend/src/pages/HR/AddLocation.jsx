@@ -5,6 +5,25 @@ import './AddLocation.css';
 
 const HR_API_BASE = '/api/HumanResource';
 
+const parseCoordinate = (raw) => {
+  const text = String(raw || '').trim();
+  if (!text) return 0;
+  const decimal = Number(text);
+  if (Number.isFinite(decimal) && !/[°º'′"″]/.test(text)) return decimal;
+  const match = text.match(
+    /^\s*([+-]?\d+(?:\.\d+)?)(?:\s*[°º]\s*(\d+(?:\.\d+)?)?)?(?:\s*['′]\s*(\d+(?:\.\d+)?)?)?(?:\s*["″]\s*)?\s*([NnSsEeWw])?\s*$/
+  );
+  if (!match) return null;
+  const degrees = parseFloat(match[1]);
+  const minutes = parseFloat(match[2] || '0');
+  const seconds = parseFloat(match[3] || '0');
+  let value = Math.abs(degrees) + minutes / 60 + seconds / 3600;
+  if (degrees < 0) value = -value;
+  const hemisphere = (match[4] || '').toUpperCase();
+  if (hemisphere === 'S' || hemisphere === 'W') value = -Math.abs(value);
+  return Number.isFinite(value) ? value : null;
+};
+
 export const AddLocation = ({ onBack }) => {
   const [form, setForm] = useState({ name: '', latitude: '', longitude: '', radius: '100', grace: '25' });
   const [locations, setLocations] = useState([]);
@@ -55,6 +74,16 @@ export const AddLocation = ({ onBack }) => {
       setError('Location name is required');
       return;
     }
+    if (name.length > 255) {
+      setError('Location name must be 255 characters or fewer');
+      return;
+    }
+    const latitude = parseCoordinate(form.latitude);
+    const longitude = parseCoordinate(form.longitude);
+    if (latitude == null || longitude == null) {
+      setError('Enter latitude and longitude as decimals or degrees, for example 28.4089 or 28° 24\' 32" N');
+      return;
+    }
     setError('');
     setSuccess('');
     setSubmitLoading(true);
@@ -64,8 +93,8 @@ export const AddLocation = ({ onBack }) => {
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           name: name,
-          latitude: form.latitude ? parseFloat(form.latitude) : 0,
-          longitude: form.longitude ? parseFloat(form.longitude) : 0,
+          latitude,
+          longitude,
           radius: form.radius ? parseFloat(form.radius) : 100,
           grace: form.grace !== '' && form.grace != null ? parseFloat(form.grace) : 25,
         }),

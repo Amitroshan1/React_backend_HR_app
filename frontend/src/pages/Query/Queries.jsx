@@ -800,20 +800,18 @@ export const Queries = () => {
     const poll = () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       openChatRef.current?.({ id: chatId }, { silent: true, skipUrl: true });
-      fetchMyQueries({ silent: true });
     };
     const intervalId = window.setInterval(poll, QUERY_CHAT_POLL_MS);
     return () => window.clearInterval(intervalId);
   }, [activeChat?.id]);
 
   useEffect(() => {
-    if (activeChat?.id) return undefined;
     const intervalId = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       fetchMyQueries({ silent: true });
     }, QUERY_INBOX_POLL_MS);
     return () => window.clearInterval(intervalId);
-  }, [activeChat?.id]);
+  }, []);
 
   useEffect(() => {
     const chatId = parseChatIdFromSearch(location.search);

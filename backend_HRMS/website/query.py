@@ -9,7 +9,7 @@
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from flask_jwt_extended import jwt_required, get_jwt
 from sqlalchemy import case, extract, func, or_
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, noload, selectinload
 from . import db
 from .models.Admin_models import Admin
 from .models.query import Query, QueryReply
@@ -23,6 +23,7 @@ from .datetime_utils import isoformat_api, utc_now
 import json
 import os
 import re
+import time
 import uuid
 
 
@@ -37,6 +38,11 @@ def _query_list_effective_created_at(q):
     """List views need a stable created time; legacy rows may have NULL queries.created_at."""
     if getattr(q, "created_at", None):
         return q.created_at
+    from sqlalchemy import inspect as sa_inspect
+
+    # Do not lazy-load replies on the inbox list. The repair fills NULL created_at.
+    if "replies" in sa_inspect(q).unloaded:
+        return None
     reps = [
         r.created_at
         for r in (getattr(q, "replies", None) or [])
@@ -45,11 +51,21 @@ def _query_list_effective_created_at(q):
     return min(reps) if reps else None
 
 
+_query_repair_at = 0.0
+_QUERY_REPAIR_INTERVAL_SEC = 15 * 60
+
+
 def _repair_query_created_at_from_history():
     """Repair legacy query timestamps from existing historical events, never from current time."""
+    global _query_repair_at
+    now = time.monotonic()
+    if now - _query_repair_at < _QUERY_REPAIR_INTERVAL_SEC:
+        return
+    _query_repair_at = now
     try:
         rows = (
             Query.query.options(selectinload(Query.replies))
+            .filter(Query.created_at.is_(None))
             .all()
         )
         if not rows:
@@ -675,7 +691,7 @@ def _load_department_inbox_queries(admin, department):
     """Queries for one department inbox, with canonical post-filter."""
     _repair_query_created_at_from_history()
 
-    q = Query.query.options(joinedload(Query.admin), selectinload(Query.replies)).filter(
+    q = Query.query.options(joinedload(Query.admin), noload(Query.replies)).filter(
         _query_department_sql_filter(department)
     )
 

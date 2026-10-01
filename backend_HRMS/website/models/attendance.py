@@ -69,7 +69,7 @@ class Location(db.Model):
     __tablename__ = "location"
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
     radius = db.Column(db.Float, default=100)

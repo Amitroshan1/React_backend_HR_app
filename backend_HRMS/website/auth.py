@@ -781,6 +781,28 @@ def employee_homepage():
         }), 500
 
 
+_homepage_attendance_repair_at = {}
+_HOMEPAGE_REPAIR_INTERVAL_SEC = 10 * 60
+
+
+def _repair_attendance_for_homepage(admin_id):
+    """Run attendance repair at most once per 10 minutes per employee on this process.
+
+    The 2-minute scheduler still closes overdue punch-outs. Dashboard refresh
+    should not scan every past punch row.
+    """
+    now = time.monotonic()
+    last = _homepage_attendance_repair_at.get(admin_id)
+    if last is not None and now - last < _HOMEPAGE_REPAIR_INTERVAL_SEC:
+        return
+    _homepage_attendance_repair_at[admin_id] = now
+    try:
+        repair_attendance_integrity_for_admin(admin_id)
+    except Exception:
+        _homepage_attendance_repair_at.pop(admin_id, None)
+        raise
+
+
 def _employee_homepage_impl():
     from .plan_features import plan_payload
 
@@ -821,7 +843,7 @@ def _employee_homepage_impl():
     punch_row_for_detail = None
 
     try:
-        repair_attendance_integrity_for_admin(admin.id)
+        _repair_attendance_for_homepage(admin.id)
     except Exception:
         db.session.rollback()
 
