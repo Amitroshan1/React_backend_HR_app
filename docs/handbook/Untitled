@@ -1,0 +1,89 @@
+HRMS Developer Handbook — Index
+This folder is the developer handbook for the Solviotec / React HRMS monorepo.
+Each module doc is written for engineers who need to understand, change, and safely extend the system.
+
+How to use: read 01-ARCHITECTURE first, then follow modules in order (or jump via the table below).
+
+Status legend
+Status	Meaning
+Done	Full handbook page exists
+Next	Recommended next write
+Planned	Outline locked; not written yet
+Module catalog
+#	Document	Status	Primary backend	Primary frontend
+00	INDEX (this file)	Done	—	—
+01	Architecture	Done	website/__init__.py, app.py	App.jsx, Vite
+02	Auth & session	Done	auth.py (login/OTP/JWT)	HeroSection, AppLayout, session utils
+03	Dashboard, punch & geo	Done	auth punch + geo_* + punch_auto_close	Dashboard.jsx
+04	Leave, WFH & Comp-off	Done	leave_attendence.py, compoff_utils	Leaves/, Wfh/
+05	Manager approvals	Done	manager.py, manager_utils	Manager/
+06	HR core	Done	Human_resource.py (+ geo analytics)	HR/
+07	Attendance engine & regularization	Done	attendance_engine.py, leave/HR regularization	Attendance/, HR regularization
+08	Biometric	Done	biometric/, /iclock	HR Biometric pages
+09	Accounts, payroll & CTC	Done	Accounts.py + payroll services	Account/, Payslip
+10	Tax declaration	Done	tax_* on auth + Accounts	TaxDeclaration/
+11	Claims / expenses	Done	leave/Accounts/manager (+ Admin list)	Claims/, Manager, Account
+12	Queries	Done	query.py	Query/, IT OpenTicket, Admin
+13	Performance & probation	Done	performance_api, probation_api	Performance + Manager + HR
+14	IT / ITAM / parcels / day-use	Done	it.py, daily_checkout/, itam/	IT/
+15	Notifications & files	Done	notifications.py, files.py, secure_file_service	Headers, secureFileUrl
+16	Admin, platform & tenancy	Done	Admin.py, tenant_*	Admin/
+17	Schedulers & background jobs	Done	scheduler.py, __init__ APScheduler	— (CLI / ops)
+18	Plans, features & env	Done	plan_features.py	RequirePanel, planFeatures.js
+ZZ	Glossary	Done	—	—
+Related docs (do not duplicate)
+Topic	Location
+Shared-DB multi-tenancy design	../SHARED_DB_MULTI_TENANCY.md
+New customer / onboarding	../NEW_CUSTOMER_DEPLOYMENT.md
+Deployment env keys	../DEPLOYMENT_GUIDE_ENV.md
+Attendance SSE / nginx	../ATTENDANCE_SSE.md
+ITAM P0–P3	../itam/
+Deploy folder layout	../../deploy/README.md
+Template every module doc follows
+Purpose
+Roles who can access
+Key tables / models
+Business rules & edge cases
+API catalog (method, path, auth, body, responses, errors)
+Main flows (sequences)
+Frontend routes & which APIs they call
+Jobs / schedulers (if any)
+Config / .env
+How to change safely
+Related modules
+Writing order (agreed)
+We write one module at a time. After each doc, review before starting the next.
+
+Architecture (done)
+Auth & session (done)
+Dashboard / punch / geo (done)
+Leave / WFH / Comp-off (done)
+Manager approvals (done)
+HR core (done)
+Attendance engine (done)
+Biometric (done)
+Accounts, payroll & CTC (done)
+Tax declaration (done)
+Claims / expenses (done)
+Queries (done)
+Performance & probation (done)
+IT / ITAM / parcels / day-use (done)
+Notifications & files (done)
+Admin, platform & tenancy (done)
+Schedulers & background jobs (done)
+Plans, features & env (done)
+ZZ. Glossary (done)
+Catalog complete (modules 01–18 + glossary).
+
+Repo map (one glance)
+React_backend_HR_app/
+├── backend_HRMS/          Flask API (create_app, blueprints, models)
+│   ├── app.py             Dev entry: create_app() + run
+│   ├── website/           Package: routes, services, models
+│   ├── tests/             pytest
+│   └── .env               Local secrets (not committed)
+├── frontend/              React 19 + Vite SPA
+│   └── src/pages/         Role panels & employee screens
+├── docs/                  Ops + design docs
+│   └── handbook/          ← developer handbook (this folder)
+└── deploy/                Optional legacy silo layout
