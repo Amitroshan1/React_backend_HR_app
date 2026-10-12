@@ -115,6 +115,7 @@ def stack():
         return admin is not None and getattr(admin, "is_active", True) is not False
 
     off.admin_login_allowed = admin_login_allowed
+    off.employee_login_allowed = admin_login_allowed
     sys.modules["website.offboarding_service"] = off
 
     class Punch(db.Model):
@@ -652,6 +653,98 @@ def test_session_auto_close_deadline_null_for_nhq_biometric(client, stack):
         _post(client, _att("2026-08-19 09:00:00"))
         sess = stack.PunchSession.query.first()
         assert stack.punch_auto.session_auto_close_deadline(sess) is None
+
+
+def test_biometric_session_not_auto_closed_before_6pm(client, stack):
+    """IN 07:30, last scan 16:00: 10h cap at 17:30 must not close; 18:00 sync sets OUT=16:00."""
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 07:30:00"))
+        _post(client, _att("2026-08-19 16:00:00"))
+        sess = stack.PunchSession.query.first()
+        now = datetime(2026, 8, 19, 17, 45, 0)
+        should_close, _, _ = stack.punch_auto.evaluate_auto_close(sess, now)
+        assert should_close is False
+        assert stack.punch_auto._close_overdue_session(sess, now=now) is False
+        assert sess.clock_out is None
+
+        res = stack.finalization.sync_nhq_biometric_last_scan_day(42, DAY)
+        stack.db.session.commit()
+        assert res["action"] == "close"
+        assert sess.clock_out == datetime(2026, 8, 19, 16, 0, 0)
+
+
+def test_non_nhq_biometric_not_auto_closed_before_6pm(client, stack):
+    with stack.app.app_context():
+        stack.Admin.query.first().circle = "HNQ"
+        stack.db.session.commit()
+        _post(client, _att("2026-08-19 07:00:00"))
+        _post(client, _att("2026-08-19 13:00:00"))
+        sess = stack.PunchSession.query.first()
+        assert stack.punch_auto.session_auto_close_deadline(sess) == datetime(
+            2026, 8, 19, 18, 0, 0
+        )
+        assert (
+            stack.punch_auto._close_overdue_session(
+                sess, now=datetime(2026, 8, 19, 17, 30, 0)
+            )
+            is False
+        )
+        assert sess.clock_out is None
+        assert (
+            stack.punch_auto._close_overdue_session(
+                sess, now=datetime(2026, 8, 19, 18, 5, 0)
+            )
+            is True
+        )
+        assert sess.clock_out == datetime(2026, 8, 19, 13, 0, 0)
+
+
+def test_last_scan_after_6pm_moves_out_forward(client, stack):
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        _post(client, _att("2026-08-19 13:00:00"))
+        _post(client, _att("2026-08-19 16:00:00"))
+        sess = stack.PunchSession.query.first()
+        assert sess.clock_out is None
+
+        stack.finalization.sync_nhq_biometric_last_scan_day(42, DAY)
+        stack.db.session.commit()
+        assert sess.clock_out == datetime(2026, 8, 19, 16, 0, 0)
+
+        _post(client, _att("2026-08-19 18:40:00"))
+        assert stack.PunchSession.query.count() == 1
+        assert sess.clock_out == datetime(2026, 8, 19, 18, 40, 0)
+
+
+def test_scan_on_closed_session_deferred_before_6pm(client, stack, monkeypatch):
+    """Daytime scan after a web OUT is recorded only; the 18:00 sync applies it."""
+    with stack.app.app_context():
+        _post(client, _att("2026-08-19 09:00:00"))
+        sess = stack.PunchSession.query.first()
+        punch = stack.Punch.query.first()
+        stack.punch_auto.close_punch_session(
+            sess,
+            punch,
+            is_auto=False,
+            clock_out_at=datetime(2026, 8, 19, 14, 0, 0),
+            closed_by="web",
+        )
+        stack.db.session.commit()
+
+        monkeypatch.setattr(
+            stack.punch_auto, "before_biometric_out_window", lambda punch, now: True
+        )
+        _post(client, _att("2026-08-19 15:00:00"))
+        log = stack.BiometricLog.query.order_by(stack.BiometricLog.id.desc()).first()
+        assert log.status == "processed"
+        assert log.error_message == "out_deferred_until_18"
+        assert sess.clock_out == datetime(2026, 8, 19, 14, 0, 0)
+
+        monkeypatch.undo()
+        res = stack.finalization.sync_nhq_biometric_last_scan_day(42, DAY)
+        stack.db.session.commit()
+        assert res["action"] == "bump"
+        assert sess.clock_out == datetime(2026, 8, 19, 15, 0, 0)
 
 
 def test_serialize_includes_source_and_nhq_flag(client, stack):

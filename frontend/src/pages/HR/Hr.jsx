@@ -18,7 +18,7 @@ import { AddLocation } from './AddLocation';
 import { GeoAnalytics } from './GeoAnalytics';
 import ExitEmployee from './ExitEmployee';
 import OffboardingDashboard from './OffboardingDashboard';
-import AddDeptCircle from './AddDeptCircle';
+import HrAdminRequest from './HrAdminRequest';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
@@ -45,6 +45,7 @@ import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { SearchableDesignationSelect } from '../../components/SearchableDesignationSelect';
 import EmployeeIdentityDocsPanel from '../../components/EmployeeIdentityDocsPanel';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
@@ -72,7 +73,6 @@ const HR_PANEL_VIEWS = [
   'exit_employee',
   'offboarding_dashboard',
   'ex_employee_doc_share',
-  'add_dept_circle',
   'leave_accrual_monitor',
   'holiday_calendar',
   'probation_reviews',
@@ -1344,6 +1344,7 @@ export const Hr = () => {
   const [signupSubmitting, setSignupSubmitting] = useState(false);
   const [signupError, setSignupError] = useState('');
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [signupSuccessMessage, setSignupSuccessMessage] = useState('');
   const [signupOfferCtc, setSignupOfferCtc] = useState(null);
   const [signupCandidateId, setSignupCandidateId] = useState(null);
   const [signupEditEmail, setSignupEditEmail] = useState(null); // when set, signup form is in "update" mode
@@ -1563,6 +1564,7 @@ export const Hr = () => {
       return;
     }
     setSignupSubmitting(true);
+    setSignupSuccessMessage('');
     try {
       if (signupEditEmail) {
         const updateBody = signupEditOriginal
@@ -1596,6 +1598,8 @@ export const Hr = () => {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setSignupSuccess(true);
+          setSignupSuccessMessage(data.message || '');
+          const pendingFields = new Set(data.pending_fields || []);
           const updatedEmail = (updateBody.email || signupEditEmail || '').toLowerCase();
           if (updateBody.email) {
             setSignupEditEmail(updateBody.email);
@@ -1604,8 +1608,12 @@ export const Hr = () => {
           setUpdateSignupSearchSnapshot((prev) => {
             if (!prev?.employees?.length || !signupEditEmail) return prev;
             const norm = (v) => (v ?? '').toString().trim().toLowerCase();
-            const newCircle = norm(signupForm.circle);
-            const newEmpType = norm(signupForm.emp_type);
+            const newCircle = pendingFields.has('circle')
+              ? norm(signupEditOriginal?.circle)
+              : norm(signupForm.circle);
+            const newEmpType = pendingFields.has('emp_type')
+              ? norm(signupEditOriginal?.emp_type)
+              : norm(signupForm.emp_type);
             const filterCircle = norm(prev.filters?.circle);
             const filterEmpType = norm(prev.filters?.emp_type);
             const stillInSearchFilters = newCircle === filterCircle && newEmpType === filterEmpType;
@@ -1661,6 +1669,7 @@ export const Hr = () => {
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
           setSignupSuccess(true);
+          setSignupSuccessMessage(data.message || '');
           setSignupForm({
             user_name: '',
             first_name: '',
@@ -1808,6 +1817,7 @@ export const Hr = () => {
     { title: 'Sign Up', icon: UserPlus, description: 'Register a new employee in HRMS' },
     { title: 'Bulk Employee Import', icon: Upload, description: 'Import employees from CSV template' },
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
+    { title: 'Request to Admin', icon: Inbox, description: 'Write a request for Admin to review, such as a new department or circle' },
     { title: 'Circle Transfer History', icon: ArrowRightLeft, description: 'View circle changes with effective dates' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
@@ -1823,7 +1833,6 @@ export const Hr = () => {
     { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
     { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, exit handling, and attrition analytics' },
     { title: 'Ex-Employee Document Sharing', icon: Share2, description: 'Send time-limited document links to former staff' },
-    { title: 'Add Department And Circle', icon: MapPin, description: 'Add departments and circles Types' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
     { title: 'Probation Reviews', icon: UserCheck, description: 'Review manager feedback and record probation decisions' },
     { title: 'Holiday Calendar', icon: FileText, description: 'View yearly holiday list' },
@@ -1832,7 +1841,6 @@ export const Hr = () => {
 
   const isUpdateOptionAllowed = (title) => {
     if (title === 'Assessment Invite') return hasFeature('hr_assessment_invite');
-    if (title === 'Add Department And Circle') return hasFeature('hr_add_dept_circle');
     if (title === 'Ex-Employee Document Sharing') return hasFeature('hr_ex_employee_docs');
     return true;
   };
@@ -2099,90 +2107,105 @@ export const Hr = () => {
     }
   };
 
-  useEffect(() => {
+  const fetchDashboard = useCallback(async () => {
     const token = localStorage.getItem('token');
     if (!token) {
       setDashboardLoading(false);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${HR_API_BASE}/dashboard`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!res.ok) {
-          if (!cancelled) setDashboardError('Failed to load dashboard');
-          return;
-        }
-        const data = await res.json();
-        if (cancelled || !data.success) return;
-        setCounts({
-          total_employees: 0,
-          enabled_employees: 0,
-          new_joinees_last_30_days: 0,
-          today_punch_in_count: 0,
-          exits_this_month: 0,
-          probations_ending_30_days: 0,
-          profile_completion_pct: 0,
-          pending_noc_count: 0,
-          inbox_total: 0,
-          ...(data.counts || {}),
-        });
-        setBirthdays(data.birthdays || []);
-        setAnniversaries(data.anniversaries || []);
-        setDashboardError(null);
-        // Fetch inbox total for dashboard card
-        try {
-          const inboxRes = await fetch(`${HR_API_BASE}/inbox`, { headers: { Authorization: `Bearer ${token}` } });
-          const inboxData = await inboxRes.json();
-          if (!cancelled && inboxRes.ok && inboxData.success) {
-            setCounts((prev) => ({ ...prev, inbox_total: inboxData.summary?.total ?? 0 }));
-          }
-        } catch {
-          /* optional */
-        }
-      } catch (err) {
-        if (!cancelled) setDashboardError('Failed to load dashboard');
-      } finally {
-        if (!cancelled) setDashboardLoading(false);
+    setDashboardLoading(true);
+    try {
+      const res = await fetch(`${HR_API_BASE}/dashboard`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setDashboardError('Failed to load dashboard');
+        return;
       }
-    })();
-    return () => { cancelled = true; };
+      const data = await res.json();
+      if (!data.success) return;
+      setCounts({
+        total_employees: 0,
+        enabled_employees: 0,
+        new_joinees_last_30_days: 0,
+        today_punch_in_count: 0,
+        exits_this_month: 0,
+        probations_ending_30_days: 0,
+        profile_completion_pct: 0,
+        pending_noc_count: 0,
+        inbox_total: 0,
+        ...(data.counts || {}),
+      });
+      setBirthdays(data.birthdays || []);
+      setAnniversaries(data.anniversaries || []);
+      setDashboardError(null);
+      try {
+        const inboxRes = await fetch(`${HR_API_BASE}/inbox`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const inboxData = await inboxRes.json();
+        if (inboxRes.ok && inboxData.success) {
+          setCounts((prev) => ({ ...prev, inbox_total: inboxData.summary?.total ?? 0 }));
+        }
+      } catch {
+        /* optional */
+      }
+    } catch (err) {
+      setDashboardError('Failed to load dashboard');
+    } finally {
+      setDashboardLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
+  const fetchMasterOptions = useCallback(async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
-    let cancelled = false;
-    (async () => {
-      setMasterLoading(true);
-      try {
-        const res = await fetch(`${HR_API_BASE}/master/options`, {
-          headers: { Authorization: `Bearer ${token}` }
+    setMasterLoading(true);
+    try {
+      const res = await fetch(`${HR_API_BASE}/master/options`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        const departments = data.departments || [];
+        const circles = data.circles || [];
+        setMasterOptions({ departments, circles });
+        setSelectedEmployeeType((prev) => {
+          if (prev && departments.includes(prev)) return prev;
+          return departments[0] || '';
         });
-        const data = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok && data.success) {
-          const departments = data.departments || [];
-          const circles = data.circles || [];
-          setMasterOptions({ departments, circles });
-          setSelectedEmployeeType((prev) => prev || departments[0] || '');
-          setSelectedCircle((prev) => prev || circles[0] || '');
-          setSignupForm((prev) => ({
+        setSelectedCircle((prev) => {
+          if (prev && circles.includes(prev)) return prev;
+          return circles[0] || '';
+        });
+        // Refresh dropdown source of truth; only fix empty/invalid form picks
+        // so an in-progress Sign Up is not wiped on soft navigation.
+        setSignupForm((prev) => {
+          const empValid = prev.emp_type && departments.includes(prev.emp_type);
+          const circleValid = prev.circle && circles.includes(prev.circle);
+          if (empValid && circleValid) return prev;
+          return {
             ...prev,
-            emp_type: prev.emp_type || departments[0] || '',
-            circle: prev.circle || circles[0] || '',
-          }));
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        if (!cancelled) setMasterLoading(false);
+            emp_type: empValid ? prev.emp_type : departments[0] || '',
+            circle: circleValid ? prev.circle : circles[0] || '',
+          };
+        });
       }
-    })();
-    return () => { cancelled = true; };
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setMasterLoading(false);
+    }
   }, []);
-// }
+
+  // Soft-navigate between HR views (and route revisit) must load fresh data —
+  // master lists used by Sign Up / ATS / filters, and hub counts on Updates.
+  useRefreshOnNavigate(fetchMasterOptions, [view]);
+  useRefreshOnNavigate(() => {
+    if (view === 'updates' || view === 'main') {
+      fetchDashboard();
+    }
+  }, [view]);
   
   
      //Added by me 
@@ -2284,6 +2307,9 @@ export const Hr = () => {
       setUpdateSignupSearchSnapshot(null);
       setView('update_signup');
     }
+    else if (title === 'Request to Admin') {
+      setView('admin_request');
+    }
     else if (title === 'Circle Transfer History') {
       setView('circle_transfer_history');
     }
@@ -2336,9 +2362,6 @@ export const Hr = () => {
   else if (title === 'Ex-Employee Document Sharing') {
     setView('ex_employee_doc_share');
   }
-  else if (title === 'Add Department And Circle') {
-  setView('add_dept_circle');
-}
 else if (title === 'Leave Accrual Monitor') {
   setView('leave_accrual_monitor');
 }
@@ -2381,6 +2404,10 @@ if (view === 'ex_employee_doc_share') {
 
   if (view === 'bulk_employee_import') {
     return <BulkEmployeeImport onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'admin_request') {
+    return <HrAdminRequest onBack={() => setView('updates')} />;
   }
 
   if (view === 'org_chart') {
@@ -2511,10 +2538,6 @@ if (view === 'offboarding_dashboard') {
       onOpenExitEmployee={() => setView('exit_employee')}
     />
   );
-}
-
-if (view === 'add_dept_circle') { //new condition for add department and cir.
-  return <AddDeptCircle onBack={() => setView('updates')} />;
 }
 
 if (view === 'leave_accrual_monitor') {
@@ -2671,11 +2694,14 @@ if (view === 'noc_requests') {
           <div className="signup-card">
             <div className="card-header">
               <h2>{isEditMode ? 'Update Employee Details' : 'Create New Employee Account'}</h2>
-              <p>{isEditMode ? 'Change only the fields you need; other details stay as they are.' : 'Fill in the details to register a new employee'}</p>
+              <p>{isEditMode ? 'Department, circle, designation, and employment status go to Admin for approval. Other fields save immediately.' : 'This signup goes to Admin for approval. The employee can sign in only after it is approved.'}</p>
             </div>
             {signupSuccess && (
               <div className="signup-success-msg" style={{ padding: '12px', marginBottom: '16px', background: '#dcfce7', color: '#166534', borderRadius: '8px' }}>
-                {isEditMode ? 'Employee details updated successfully.' : 'Employee onboarded successfully. You can create another or go back.'}
+                {signupSuccessMessage
+                  || (isEditMode
+                    ? 'Employee details updated successfully.'
+                    : 'Employee onboarded successfully. You can create another or go back.')}
               </div>
             )} 
             {signupError && (

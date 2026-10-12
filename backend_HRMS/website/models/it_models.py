@@ -4,11 +4,26 @@ from .. import db
 from ..datetime_utils import utc_now
 
 
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
+def _tenant_column():
+    return db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
+
+
 class ITInventoryItem(db.Model):
     __tablename__ = "it_inventory_items"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "inventory_code", name="uq_it_inventory_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    inventory_code = db.Column(db.String(30), unique=True, nullable=False, index=True)
+    # Units, licenses, quantity assignments and location deployments inherit this tenant.
+    tenant_id = _tenant_column()
+    inventory_code = db.Column(db.String(30), nullable=False, index=True)
 
     name = db.Column(db.String(150), nullable=False, index=True)
     category = db.Column(db.String(40), nullable=False, index=True)  # Hardware/Software/Accessories/Consumables
@@ -38,9 +53,14 @@ class ITInventoryItem(db.Model):
 
 class ITAssetUnit(db.Model):
     __tablename__ = "it_asset_units"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "unit_code", name="uq_it_unit_tenant_code"),
+        db.UniqueConstraint("tenant_id", "asset_tag", name="uq_it_unit_tenant_tag"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    unit_code = db.Column(db.String(60), unique=True, nullable=False, index=True)  # maps old assetId / serial identity
+    tenant_id = _tenant_column()
+    unit_code = db.Column(db.String(60), nullable=False, index=True)  # maps old assetId / serial identity
 
     inventory_item_id = db.Column(db.Integer, db.ForeignKey("it_inventory_items.id", ondelete="CASCADE"), nullable=False, index=True)
     asset_name = db.Column(db.String(150), nullable=False)
@@ -61,7 +81,7 @@ class ITAssetUnit(db.Model):
     is_daily_pool = db.Column(db.Boolean, nullable=False, default=False, server_default="0", index=True)
     assigned_to_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
     assigned_at = db.Column(db.DateTime, nullable=True)
-    asset_tag = db.Column(db.String(80), nullable=True, unique=True)
+    asset_tag = db.Column(db.String(80), nullable=True, index=True)
 
     # P3 dual-write (populated when itam_lifecycle_v1 ON). Legacy `status` remains source for old filters.
     lifecycle_status = db.Column(db.String(40), nullable=True, index=True)
@@ -86,9 +106,13 @@ class ITAssetUnit(db.Model):
 
 class ITSoftwareLicense(db.Model):
     __tablename__ = "it_software_licenses"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "license_code", name="uq_it_license_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    license_code = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    tenant_id = _tenant_column()
+    license_code = db.Column(db.String(80), nullable=False, index=True)
 
     inventory_item_id = db.Column(db.Integer, db.ForeignKey("it_inventory_items.id", ondelete="CASCADE"), nullable=False, index=True)
     name = db.Column(db.String(150), nullable=False, index=True)
@@ -225,8 +249,12 @@ class ITSupportTicket(db.Model):
 
 class ITRemovedAsset(db.Model):
     __tablename__ = "it_removed_assets"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "removed_code", name="uq_it_removed_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = _tenant_column()
     removed_code = db.Column(db.String(60), unique=True, nullable=False, index=True)
 
     asset_unit_id = db.Column(db.Integer, db.ForeignKey("it_asset_units.id"), nullable=True, index=True)
@@ -250,9 +278,13 @@ class ITRemovedAsset(db.Model):
 
 class ITDeletedAssetLog(db.Model):
     __tablename__ = "it_deleted_asset_logs"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "delete_code", name="uq_it_deleted_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    delete_code = db.Column(db.String(60), unique=True, nullable=False, index=True)
+    tenant_id = _tenant_column()
+    delete_code = db.Column(db.String(60), nullable=False, index=True)
 
     asset_unit_id = db.Column(db.Integer, db.ForeignKey("it_asset_units.id"), nullable=True, index=True)
     inventory_item_id = db.Column(db.Integer, db.ForeignKey("it_inventory_items.id"), nullable=True, index=True)
@@ -273,9 +305,13 @@ class ITDeletedAssetLog(db.Model):
 
 class ITParcelExport(db.Model):
     __tablename__ = "it_parcel_exports"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "export_code", name="uq_it_export_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    export_code = db.Column(db.String(60), unique=True, nullable=False, index=True)
+    tenant_id = _tenant_column()
+    export_code = db.Column(db.String(60), nullable=False, index=True)
 
     destination = db.Column(db.String(180), nullable=False)
     id_no = db.Column(db.String(80), nullable=True, index=True)
@@ -311,9 +347,13 @@ class ITParcelExportItem(db.Model):
 
 class ITParcelImport(db.Model):
     __tablename__ = "it_parcel_imports"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "import_code", name="uq_it_import_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    import_code = db.Column(db.String(60), unique=True, nullable=False, index=True)
+    tenant_id = _tenant_column()
+    import_code = db.Column(db.String(60), nullable=False, index=True)
 
     source = db.Column(db.String(180), nullable=False)
     asset_name = db.Column(db.String(150), nullable=False)
@@ -331,9 +371,13 @@ class ITParcelImport(db.Model):
 
 class ITAssetReturnRequest(db.Model):
     __tablename__ = "it_asset_return_requests"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "request_code", name="uq_it_return_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    request_code = db.Column(db.String(60), unique=True, nullable=False, index=True)
+    tenant_id = _tenant_column()
+    request_code = db.Column(db.String(60), nullable=False, index=True)
 
     requester_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=False, index=True)
     requester_emp_id = db.Column(db.String(30), nullable=True, index=True)
@@ -420,9 +464,13 @@ class ITAssetTransition(db.Model):
     """
 
     __tablename__ = "it_asset_transitions"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "transition_code", name="uq_it_transition_tenant_code"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    transition_code = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    tenant_id = _tenant_column()
+    transition_code = db.Column(db.String(40), nullable=False, index=True)
 
     asset_unit_id = db.Column(
         db.Integer, db.ForeignKey("it_asset_units.id", ondelete="SET NULL"), nullable=True, index=True

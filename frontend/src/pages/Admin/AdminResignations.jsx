@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import './AdminList.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
+import { matchesListQuery } from './adminListQuery';
 
 const API = '/api/admin/resignations';
 
@@ -9,6 +10,7 @@ const AdminResignations = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('All');
+  const [query, setQuery] = useState('');
 
   useRefreshOnNavigate(() => {
     const token = localStorage.getItem('token');
@@ -27,12 +29,34 @@ const AdminResignations = () => {
       .catch(() => setLoading(false));
   }, [status]);
 
+  const visible = useMemo(
+    () => requests.filter((row) => matchesListQuery(query, [
+      row.employee_name,
+      row.employee_email,
+      row.emp_id,
+      row.circle,
+      row.reason,
+    ])),
+    [query, requests],
+  );
+
   return (
     <div className="admin-list-container">
       <div className="admin-list-header">
-        <h1>Resignations</h1>
+        <div>
+          <h1>Resignations</h1>
+          <p className="admin-list-copy">Separation notices for this company.</p>
+        </div>
       </div>
       <div className="admin-list-filters">
+        <label className="admin-list-search">
+          <span>Search</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Name, ID, circle, reason"
+          />
+        </label>
         <div className="status-buttons">
           {['All', 'Pending', 'Approved', 'Rejected'].map((s) => (
             <button
@@ -63,7 +87,7 @@ const AdminResignations = () => {
               </tr>
             </thead>
             <tbody>
-              {requests.map((r) => (
+              {visible.map((r) => (
                 <tr key={r.id}>
                   <td>{r.employee_name || r.employee_email || '—'}</td>
                   <td>{r.emp_id || '—'}</td>
@@ -78,8 +102,10 @@ const AdminResignations = () => {
           </table>
         )}
       </div>
-      {!loading && requests.length === 0 && (
-        <p className="admin-list-empty">No resignations found.</p>
+      {!loading && visible.length === 0 && (
+        <p className="admin-list-empty">
+          {requests.length === 0 ? 'No resignations found.' : 'No resignations match that search.'}
+        </p>
       )}
     </div>
   );

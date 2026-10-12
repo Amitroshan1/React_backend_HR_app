@@ -3,6 +3,7 @@ from .models.signup import Signup
 from website.models.Admin_models import Admin
 from datetime import datetime
 from website.datetime_utils import utc_now
+from website.tenant_context import DEFAULT_TENANT_ID
 
 def migrate_signup_to_admin():
     app = create_app()
@@ -64,6 +65,7 @@ def migrate_signup_to_admin():
             # ------------------------------------------------
             else:
                 admin = Admin(
+                    tenant_id=DEFAULT_TENANT_ID,
                     email=s.email,
                     first_name=getattr(s, "first_name", None),
                     emp_id=getattr(s, "emp_id", None),

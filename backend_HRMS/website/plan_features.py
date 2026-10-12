@@ -1,14 +1,14 @@
 """Subscription plan → feature flags.
 
 Resolution order (Phase 1+ shared-DB):
-  1. `tenants.plan` when tenant_id is known
-  2. `CUSTOMER_PLAN` in .env (legacy / single-tenant fallback)
+  1. `tenants.plan` for the explicit tenant_id, else the tenant in the request's login JWT
+  2. `CUSTOMER_PLAN` in .env (no JWT: public routes, schedulers, CLI)
   3. essential
 """
 from functools import wraps
 from typing import Optional
 
-from flask import current_app, jsonify
+from flask import current_app, has_request_context, jsonify, request
 
 CUSTOMER_PLANS = ("basic", "essential", "enterprise")
 
@@ -96,19 +96,70 @@ QUERY_DEPARTMENT_CANONICAL = (
 )
 
 
-def get_plan(tenant_id: Optional[int] = None) -> str:
-    """Resolve subscription plan: tenant.plan (if set) → CUSTOMER_PLAN env → essential."""
-    if tenant_id is not None:
-        try:
-            from .models.tenant import Tenant
+_NO_TENANT = object()
 
-            t = Tenant.query.get(int(tenant_id))
-            if t and (t.plan or "").strip():
-                p = t.plan.strip().lower()
-                if p in CUSTOMER_PLANS:
-                    return p
-        except Exception:
-            pass
+
+def _request_cache() -> dict:
+    # Stored on the request, not `g`: an app context can outlive several requests.
+    if not has_request_context():
+        return {}
+    return request.environ.setdefault("hrms.plan_cache", {})
+
+
+def _request_tenant_id() -> Optional[int]:
+    """Tenant from the request's login JWT (verified here if the route has not done it yet)."""
+    if not has_request_context():
+        return None
+    cache = _request_cache()
+    cached = cache.get("tenant_id", _NO_TENANT)
+    if cached is not _NO_TENANT:
+        return cached
+    tid = None
+    try:
+        from flask_jwt_extended import get_jwt, verify_jwt_in_request
+
+        verify_jwt_in_request(optional=True)
+        claims = get_jwt() or {}
+        raw = claims.get("tenant_id")
+        if not claims.get("token_type") and raw not in (None, ""):
+            tid = int(raw)
+    except Exception:
+        tid = None
+    cache["tenant_id"] = tid
+    return tid
+
+
+def _tenant_plan(tenant_id: int) -> Optional[str]:
+    cache = _request_cache().setdefault("plans", {})
+    if tenant_id in cache:
+        return cache[tenant_id]
+    plan = None
+    try:
+        from .models.tenant import Tenant
+
+        t = Tenant.query.get(int(tenant_id))
+        if t and (t.plan or "").strip():
+            p = t.plan.strip().lower()
+            if p in CUSTOMER_PLANS:
+                plan = p
+    except Exception:
+        plan = None
+    cache[tenant_id] = plan
+    return plan
+
+
+def get_plan(tenant_id: Optional[int] = None) -> str:
+    """Resolve subscription plan: tenant.plan → CUSTOMER_PLAN env → essential."""
+    if tenant_id is None:
+        from .tenant_context import scoped_tenant_id
+
+        tenant_id = scoped_tenant_id()
+    if tenant_id is None:
+        tenant_id = _request_tenant_id()
+    if tenant_id is not None:
+        plan = _tenant_plan(tenant_id)
+        if plan:
+            return plan
     p = (current_app.config.get("CUSTOMER_PLAN") or "essential").strip().lower()
     return p if p in CUSTOMER_PLANS else "essential"
 

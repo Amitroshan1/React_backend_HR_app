@@ -267,6 +267,13 @@ def parse_iso_date(raw: Any, field_name: str) -> tuple[Optional[date], Optional[
 
 def admin_login_allowed(admin) -> bool:
     """Whether the employee may authenticate (login / session restore)."""
+    from .tenant_context import tenant_id_for_admin, tenant_is_accessible
+
+    return employee_login_allowed(admin) and tenant_is_accessible(tenant_id_for_admin(admin))
+
+
+def employee_login_allowed(admin) -> bool:
+    """Employee-level eligibility only (active / exit window), ignoring tenant status."""
     if admin is None:
         return False
     if getattr(admin, "is_active", True) is False:
@@ -321,14 +328,18 @@ def create_auto_fnf_draft_on_exit(
     )
 
 
-def run_lwd_deactivation_job(run_date: Optional[date] = None) -> int:
-    """Deactivate login for exited employees whose scheduled LWD has passed."""
+def run_lwd_deactivation_job(
+    run_date: Optional[date] = None, *, tenant_id: Optional[int] = None
+) -> int:
+    """Deactivate login for exited employees whose scheduled LWD has passed (all tenants when tenant_id is None)."""
     from . import db
     from .models.Admin_models import Admin, AuditLog
+    from .tenant_jobs import admin_scope
 
     today = run_date or date.today()
     rows = (
-        Admin.query.filter(Admin.is_exited.is_(True))
+        Admin.query.filter(admin_scope(tenant_id))
+        .filter(Admin.is_exited.is_(True))
         .filter(Admin.exit_login_until.isnot(None))
         .filter(Admin.exit_login_until < today)
         .all()
@@ -363,16 +374,22 @@ def _admin_display_name(admin) -> str:
 NOC_SLA_DAYS = 5
 
 
-def get_noc_sla_overdue_items(run_date: Optional[date] = None) -> list[dict]:
-    """Department NOC requests pending longer than NOC_SLA_DAYS."""
+def get_noc_sla_overdue_items(
+    run_date: Optional[date] = None, *, tenant_id: Optional[int] = None
+) -> list[dict]:
+    """Department NOC requests pending longer than NOC_SLA_DAYS (all tenants when tenant_id is None)."""
     from datetime import time as dt_time
     from . import db
     from .models.seperation import NocDepartmentRequest
+    from .tenant_context import tenant_admin_ids
 
     today = run_date or date.today()
     cutoff = datetime.combine(today - timedelta(days=NOC_SLA_DAYS), dt_time.max)
+    q = NocDepartmentRequest.query
+    if tenant_id is not None:
+        q = q.filter(NocDepartmentRequest.admin_id.in_(tenant_admin_ids(tenant_id)))
     rows = (
-        NocDepartmentRequest.query.filter(
+        q.filter(
             db.func.lower(db.func.coalesce(NocDepartmentRequest.status, "")) == "pending"
         )
         .filter(NocDepartmentRequest.requested_at.isnot(None))
@@ -405,18 +422,21 @@ def get_noc_sla_overdue_items(run_date: Optional[date] = None) -> list[dict]:
     return out
 
 
-def build_exit_analytics(*, months: int = 12) -> dict:
+def build_exit_analytics(*, months: int = 12, tenant_id: Optional[int] = None) -> dict:
+    """Exit analytics for one tenant, or all tenants when tenant_id is None."""
     from . import db
     from .models.Admin_models import Admin, EmployeeExitHistory
+    from .tenant_context import admin_tenant_clause
 
     cutoff = date.today() - timedelta(days=max(1, months) * 31)
-    rows = (
+    q = (
         db.session.query(EmployeeExitHistory, Admin)
         .join(Admin, Admin.id == EmployeeExitHistory.admin_id)
         .filter(EmployeeExitHistory.exit_date >= cutoff)
-        .order_by(EmployeeExitHistory.exit_date.asc())
-        .all()
     )
+    if tenant_id is not None:
+        q = q.filter(admin_tenant_clause(tenant_id))
+    rows = q.order_by(EmployeeExitHistory.exit_date.asc()).all()
 
     by_month: dict[str, int] = {}
     by_type: dict[str, int] = {}
@@ -447,15 +467,17 @@ def build_exit_analytics(*, months: int = 12) -> dict:
     }
 
 
-def build_offboarding_dashboard() -> dict:
+def build_offboarding_dashboard(*, tenant_id: int) -> dict:
     from . import db
     from .models.Admin_models import Admin, EmployeeExitHistory
+    from .tenant_context import admin_tenant_clause
 
     today = date.today()
     week_end = today + timedelta(days=7)
+    in_tenant = admin_tenant_clause(tenant_id)
 
     active_rows = (
-        Admin.query.filter(db.func.coalesce(Admin.is_exited, False) == False)
+        Admin.query.filter(in_tenant, db.func.coalesce(Admin.is_exited, False) == False)
         .order_by(Admin.first_name.asc(), Admin.id.asc())
         .all()
     )
@@ -497,7 +519,7 @@ def build_offboarding_dashboard() -> dict:
         )
 
     grace_rows = (
-        Admin.query.filter(Admin.is_exited.is_(True))
+        Admin.query.filter(in_tenant, Admin.is_exited.is_(True))
         .filter(Admin.exit_login_until.isnot(None))
         .filter(Admin.exit_login_until >= today)
         .order_by(Admin.exit_login_until.asc())
@@ -529,6 +551,7 @@ def build_offboarding_dashboard() -> dict:
         db.session.query(EmployeeExitHistory, Admin)
         .join(lwd_subq, lwd_subq.c.max_id == EmployeeExitHistory.id)
         .join(Admin, Admin.id == EmployeeExitHistory.admin_id)
+        .filter(in_tenant)
         .filter(EmployeeExitHistory.last_working_day.isnot(None))
         .filter(EmployeeExitHistory.last_working_day >= today)
         .filter(EmployeeExitHistory.last_working_day <= week_end)
@@ -551,8 +574,8 @@ def build_offboarding_dashboard() -> dict:
         for hist, admin in lwd_rows
     ]
 
-    analytics = build_exit_analytics(months=12)
-    sla_items = get_noc_sla_overdue_items(today)
+    analytics = build_exit_analytics(months=12, tenant_id=tenant_id)
+    sla_items = get_noc_sla_overdue_items(today, tenant_id=tenant_id)
 
     return {
         "summary": {
@@ -858,11 +881,14 @@ def send_relieving_letter_doc_share_on_exit(
     if not pdf_bytes:
         return None
 
+    from .tenant_context import tenant_id_for_admin
+
     display_name = f"Relieving-Letter-{(admin.emp_id or admin.id)}.pdf"
     ok, _msg, payload = create_ex_employee_doc_share_and_email(
         recipient_email=recipient,
         files=[(display_name, pdf_bytes)],
         created_by_admin_id=created_by_admin_id,
+        tenant_id=tenant_id_for_admin(admin),
     )
     return payload if ok else None
 
@@ -872,12 +898,14 @@ def build_manager_team_offboarding(manager_admin) -> list[dict]:
     from . import db
     from .models.Admin_models import Admin
     from .manager_utils import is_manager_in_contact, resolve_manager_contact_for_employee
+    from .tenant_context import tenant_admin_query, tenant_id_for_admin
 
     if not manager_admin:
         return []
 
     rows = (
-        Admin.query.filter(db.func.coalesce(Admin.is_exited, False) == False)
+        tenant_admin_query(tenant_id_for_admin(manager_admin))
+        .filter(db.func.coalesce(Admin.is_exited, False) == False)
         .order_by(Admin.first_name.asc(), Admin.id.asc())
         .all()
     )
@@ -927,6 +955,25 @@ def complete_resignation_on_exit(admin_id: int) -> None:
         resignation.status = "Completed"
 
 
+def validate_employee_exit(admin, *, exit_type: str, force_override: bool, force_override_reason: str):
+    """Checklist rules shared by the HR request and the Admin approval."""
+    if getattr(admin, "is_exited", False):
+        return False, "Employee already marked as exited", None
+
+    checklist_payload = build_offboarding_payload_for_admin(admin, exit_type=exit_type)
+    checklist = checklist_payload.get("checklist") or []
+    hard_blockers = checklist_hard_blockers(checklist)
+
+    if hard_blockers and not force_override:
+        return False, "Exit blocked. Complete NOC clearances or use force override with reason.", checklist_payload
+
+    if force_override:
+        reason = (force_override_reason or "").strip()
+        if len(reason) < 10:
+            return False, "Force override requires a reason of at least 10 characters", checklist_payload
+    return True, "", checklist_payload
+
+
 def execute_employee_exit(
     admin,
     *,
@@ -945,23 +992,16 @@ def execute_employee_exit(
     Returns (success, message, payload_or_none).
     """
     from . import db
-    from .models.Admin_models import AuditLog, EmployeeExitHistory, Admin
-    from .email import send_employee_exit_confirmation_email
+    from .models.Admin_models import AuditLog, EmployeeExitHistory
 
-    if getattr(admin, "is_exited", False):
-        return False, "Employee already marked as exited", None
-
-    checklist_payload = build_offboarding_payload_for_admin(admin, exit_type=exit_type)
-    checklist = checklist_payload.get("checklist") or []
-    hard_blockers = checklist_hard_blockers(checklist)
-
-    if hard_blockers and not force_override:
-        return False, "Exit blocked. Complete NOC clearances or use force override with reason.", checklist_payload
-
-    if force_override:
-        reason = (force_override_reason or "").strip()
-        if len(reason) < 10:
-            return False, "Force override requires a reason of at least 10 characters", checklist_payload
+    ok, message, checklist_payload = validate_employee_exit(
+        admin,
+        exit_type=exit_type,
+        force_override=force_override,
+        force_override_reason=force_override_reason,
+    )
+    if not ok:
+        return False, message, checklist_payload
 
     today = date.today()
     deferred_login = last_working_day > today
@@ -1016,10 +1056,31 @@ def execute_employee_exit(
     except Exception:
         pass
 
+    return True, "Employee marked as exited successfully", {
+        "employee_id": admin.id,
+        "login_deferred_until": last_working_day.isoformat() if deferred_login else None,
+        "deferred_login": deferred_login,
+        "hr_email": hr_email,
+        "exit_type": exit_type,
+        "last_working_day": last_working_day,
+        "exit_reason": exit_reason,
+        "offboarding": build_offboarding_payload_for_admin(admin),
+    }
+
+
+def send_exit_employee_notifications(admin, *, exit_type, last_working_day, exit_reason, hr_email, deferred_login):
+    """Send relieving letter and exit confirmation after the exit has been saved."""
+    from .email import send_employee_exit_confirmation_email
+    from .tenant_context import tenant_admin_query, tenant_id_for_admin
+
     doc_share_payload = None
     try:
         created_by_id = None
-        hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+        hr_admin = (
+            tenant_admin_query(tenant_id_for_admin(admin)).filter_by(email=hr_email).first()
+            if hr_email
+            else None
+        )
         if hr_admin:
             created_by_id = hr_admin.id
         doc_share_payload = send_relieving_letter_doc_share_on_exit(
@@ -1027,7 +1088,7 @@ def execute_employee_exit(
             created_by_admin_id=created_by_id,
         )
     except Exception:
-        pass
+        doc_share_payload = None
 
     try:
         send_employee_exit_confirmation_email(
@@ -1036,14 +1097,7 @@ def execute_employee_exit(
             last_working_day=last_working_day,
             exit_reason=exit_reason,
             login_deferred=deferred_login,
-            doc_link=(doc_share_payload or {}).get("doc_link"),
+            doc_link=(doc_share_payload or {}).get("doc_link") if isinstance(doc_share_payload, dict) else None,
         )
     except Exception:
         pass
-
-    return True, "Employee marked as exited successfully", {
-        "employee_id": admin.id,
-        "login_deferred_until": last_working_day.isoformat() if deferred_login else None,
-        "relieving_letter_shared": bool(doc_share_payload),
-        "offboarding": build_offboarding_payload_for_admin(admin),
-    }

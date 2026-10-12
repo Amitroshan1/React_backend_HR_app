@@ -23,6 +23,7 @@ from flask import current_app, jsonify, request, send_file
 from flask_jwt_extended import decode_token, verify_jwt_in_request, get_jwt
 
 from .models.Admin_models import Admin
+from .tenant_context import current_admin
 
 # Profile photo filenames: profile_{admin_id}_{emp_slug}.ext
 _PROFILE_PHOTO_RE = re.compile(r"^profile_(\d+)_", re.IGNORECASE)
@@ -142,17 +143,7 @@ def _admin_from_jwt() -> Tuple[Optional[Admin], Optional[dict], Optional[tuple]]
     except Exception:
         return None, None, (jsonify({"success": False, "message": "Unauthorized"}), 401)
     claims = get_jwt() or {}
-    email = (claims.get("email") or "").strip()
-    admin = Admin.query.filter_by(email=email).first() if email else None
-    if not admin:
-        # fallback: identity as admin id
-        try:
-            from flask_jwt_extended import get_jwt_identity
-
-            aid = int(get_jwt_identity())
-            admin = Admin.query.get(aid)
-        except Exception:
-            admin = None
+    admin = current_admin()
     if not admin:
         return None, claims, (jsonify({"success": False, "message": "Unauthorized user"}), 401)
     return admin, claims, None
@@ -164,15 +155,7 @@ def try_admin_from_optional_jwt() -> Tuple[Optional[Admin], Optional[dict]]:
         claims = get_jwt() or {}
         if not claims:
             return None, None
-        email = (claims.get("email") or "").strip()
-        if email:
-            admin = Admin.query.filter_by(email=email).first()
-            if admin:
-                return admin, claims
-        from flask_jwt_extended import get_jwt_identity
-
-        aid = int(get_jwt_identity())
-        return Admin.query.get(aid), claims
+        return current_admin(), claims
     except Exception:
         return None, None
 
@@ -186,6 +169,15 @@ def authorize_upload_access(admin: Admin, rel: str, claims: Optional[dict] = Non
     if not rel:
         return False, "Invalid path"
 
+    from .upload_tenancy import split_tenant_rel, upload_in_admin_tenant
+
+    # Company boundary first: privileged roles only see their own tenant's files.
+    if not upload_in_admin_tenant(admin, rel):
+        return False, "Access denied"
+    # Folder rules match the path inside the tenant folder; rows store the full path.
+    full_rel = rel
+    _, rel = split_tenant_rel(rel)
+
     privileged = is_privileged_admin(admin, claims)
 
     # --- Payslips / Form16 / Tax (mirror Accounts.serve_uploaded_file) ---
@@ -193,7 +185,7 @@ def authorize_upload_access(admin: Admin, rel: str, claims: Optional[dict] = Non
         from .models.news_feed import PaySlip
         from .sensitive_data_auth import require_sensitive_for_employee
 
-        payslip = PaySlip.query.filter_by(file_path=rel).first()
+        payslip = PaySlip.query.filter_by(file_path=full_rel).first()
         if not payslip:
             # Allow privileged browse of orphan files; deny others
             return (True, "ok") if privileged else (False, "Payslip not found")
@@ -208,7 +200,7 @@ def authorize_upload_access(admin: Admin, rel: str, claims: Optional[dict] = Non
         from .models.news_feed import Form16
         from .sensitive_data_auth import require_sensitive_for_employee
 
-        row = Form16.query.filter_by(file_path=rel).first()
+        row = Form16.query.filter_by(file_path=full_rel).first()
         if row:
             if not privileged and row.admin_id != admin.id:
                 return False, "Access denied"

@@ -11,6 +11,14 @@ from datetime import date, datetime
 from .datetime_utils import utc_now, isoformat_api
 from . import db
 from .models.Admin_models import Admin, AuditLog
+from .tenant_context import (
+    current_admin,
+    get_admin_in_tenant,
+    tenant_admin_ids,
+    tenant_admin_query,
+    tenant_id_for_admin,
+    tenant_manager_contacts,
+)
 from .models.attendance import LeaveApplication, WorkFromHomeApplication, Punch, LEAVE_REASON_MAX_LEN
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
@@ -41,19 +49,7 @@ def _serialize_date(value):
 
 
 def _get_current_admin():
-    claims = get_jwt() or {}
-    email = claims.get("email")
-    if email:
-        admin = Admin.query.filter_by(email=email).first()
-        if admin:
-            return admin
-    try:
-        aid = int(get_jwt_identity()) if get_jwt_identity() is not None else None
-    except (TypeError, ValueError):
-        aid = None
-    if aid is not None:
-        return Admin.query.get(aid)
-    return None
+    return current_admin()
 
 
 def _get_contact_for_target(target_admin):
@@ -62,9 +58,23 @@ def _get_contact_for_target(target_admin):
     return resolve_manager_contact_for_employee(target_admin)
 
 
+def _tenant_ids(viewer_admin):
+    """SELECT of Admin ids in the viewer's tenant, for ``Model.admin_id.in_(...)``."""
+    return tenant_admin_ids(tenant_id_for_admin(viewer_admin))
+
+
+def _other_tenant(viewer_admin, record_admin):
+    """True when the record's employee belongs to another tenant (report it as not found)."""
+    return record_admin is not None and tenant_id_for_admin(record_admin) != tenant_id_for_admin(
+        viewer_admin
+    )
+
+
 def _is_manager_for_target(approver_admin, target_admin):
     """True if approver is L1/L2/L3 in target's ManagerContact."""
     if not approver_admin or not target_admin:
+        return False
+    if tenant_id_for_admin(approver_admin) != tenant_id_for_admin(target_admin):
         return False
     if approver_admin.id == target_admin.id:
         return _self_approval_allowed_for_admin(approver_admin)
@@ -113,7 +123,8 @@ def _append_self_approval_audit_if_needed(*, approver, target, entity_name, enti
 
 def _team_member_admin_ids(manager_admin):
     rows = (
-        Admin.query.filter(func.coalesce(Admin.is_exited, False) == False)
+        tenant_admin_query(tenant_id_for_admin(manager_admin))
+        .filter(func.coalesce(Admin.is_exited, False) == False)
         .order_by(Admin.first_name.asc(), Admin.id.asc())
         .all()
     )
@@ -234,7 +245,7 @@ def manager_profile():
 
     # Assigned manager scopes from ManagerContact where current user is L1/L2/L3.
     contacts = (
-        ManagerContact.query.filter(
+        tenant_manager_contacts(tenant_id_for_admin(admin)).filter(
             or_(
                 ManagerContact.l1_admin_id == admin.id,
                 ManagerContact.l2_admin_id == admin.id,
@@ -315,7 +326,7 @@ def list_leave_requests():
         return err
 
     status = (request.args.get("status") or "Pending").strip()
-    query = LeaveApplication.query
+    query = LeaveApplication.query.filter(LeaveApplication.admin_id.in_(_tenant_ids(admin)))
     if status.lower() != "all":
         query = query.filter(LeaveApplication.status == status)
 
@@ -402,7 +413,7 @@ def act_on_leave_request(leave_id):
         return payload_err
 
     leave_obj = LeaveApplication.query.get(leave_id)
-    if not leave_obj:
+    if not leave_obj or _other_tenant(approver, leave_obj.admin):
         return jsonify({"success": False, "message": "Leave request not found"}), 404
     if not _is_manager_for_target(approver, leave_obj.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
@@ -499,7 +510,9 @@ def list_wfh_requests():
         return err
 
     status = (request.args.get("status") or "Pending").strip()
-    query = WorkFromHomeApplication.query
+    query = WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id.in_(_tenant_ids(admin))
+    )
     if status.lower() != "all":
         query = query.filter(WorkFromHomeApplication.status == status)
 
@@ -537,7 +550,7 @@ def act_on_wfh_request(wfh_id):
         return payload_err
 
     wfh_obj = WorkFromHomeApplication.query.get(wfh_id)
-    if not wfh_obj:
+    if not wfh_obj or _other_tenant(approver, wfh_obj.admin):
         return jsonify({"success": False, "message": "WFH request not found"}), 404
     if not _is_manager_for_target(approver, wfh_obj.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
@@ -631,7 +644,11 @@ def list_claim_requests():
         return err
 
     requested_status = (request.args.get("status") or "Pending").strip()
-    rows = ExpenseClaimHeader.query.order_by(ExpenseClaimHeader.id.desc()).all()
+    rows = (
+        ExpenseClaimHeader.query.filter(ExpenseClaimHeader.admin_id.in_(_tenant_ids(admin)))
+        .order_by(ExpenseClaimHeader.id.desc())
+        .all()
+    )
 
     items = []
     for row in rows:
@@ -655,7 +672,7 @@ def get_claim_request(claim_id):
         return err
 
     claim = ExpenseClaimHeader.query.get(claim_id)
-    if not claim:
+    if not claim or _other_tenant(admin, claim.admin):
         return jsonify({"success": False, "message": "Claim request not found"}), 404
     if not _is_manager_for_target(admin, claim.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
@@ -676,7 +693,7 @@ def serve_claim_line_file(claim_id, line_item_id):
         return err
 
     claim = ExpenseClaimHeader.query.get(claim_id)
-    if not claim:
+    if not claim or _other_tenant(admin, claim.admin):
         return jsonify({"success": False, "message": "Claim request not found"}), 404
     if not _is_manager_for_target(admin, claim.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
@@ -718,7 +735,7 @@ def act_on_claim_request(claim_id):
         return payload_err
 
     claim = ExpenseClaimHeader.query.get(claim_id)
-    if not claim:
+    if not claim or _other_tenant(approver, claim.admin):
         return jsonify({"success": False, "message": "Claim request not found"}), 404
     if not _is_manager_for_target(approver, claim.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
@@ -754,7 +771,7 @@ def list_resignation_requests():
         return err
 
     status = (request.args.get("status") or "Pending").strip()
-    query = Resignation.query
+    query = Resignation.query.filter(Resignation.admin_id.in_(_tenant_ids(admin)))
     if status.lower() != "all":
         query = query.filter(Resignation.status == status)
 
@@ -791,7 +808,7 @@ def act_on_resignation_request(resignation_id):
         return payload_err
 
     resignation = Resignation.query.get(resignation_id)
-    if not resignation:
+    if not resignation or _other_tenant(approver, resignation.admin):
         return jsonify({"success": False, "message": "Resignation request not found"}), 404
     if not _is_manager_for_target(approver, resignation.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
@@ -944,7 +961,8 @@ def list_team_members():
     from .manager_utils import circles_equivalent, emp_types_equivalent
 
     rows = (
-        Admin.query.filter(func.coalesce(Admin.is_exited, False) == False)
+        tenant_admin_query(tenant_id_for_admin(manager_admin))
+        .filter(func.coalesce(Admin.is_exited, False) == False)
         .order_by(Admin.first_name.asc(), Admin.id.asc())
         .all()
     )
@@ -1124,16 +1142,19 @@ def sprint_performance():
         elif s == "rejected":
             overdue += 1
 
-    for row in LeaveApplication.query.all():
+    in_tenant = _tenant_ids(manager_admin)
+    for row in LeaveApplication.query.filter(LeaveApplication.admin_id.in_(in_tenant)).all():
         if _is_manager_for_target(manager_admin, row.admin):
             _tally(row.status)
-    for row in WorkFromHomeApplication.query.all():
+    for row in WorkFromHomeApplication.query.filter(
+        WorkFromHomeApplication.admin_id.in_(in_tenant)
+    ).all():
         if _is_manager_for_target(manager_admin, row.admin):
             _tally(row.status)
-    for row in Resignation.query.all():
+    for row in Resignation.query.filter(Resignation.admin_id.in_(in_tenant)).all():
         if _is_manager_for_target(manager_admin, row.admin):
             _tally(row.status)
-    for row in ExpenseClaimHeader.query.all():
+    for row in ExpenseClaimHeader.query.filter(ExpenseClaimHeader.admin_id.in_(in_tenant)).all():
         if _is_manager_for_target(manager_admin, row.admin):
             line_items = ExpenseLineItem.query.filter_by(claim_id=row.id).all()
             _tally(_claim_status(line_items))
@@ -1210,7 +1231,10 @@ def _list_manager_probation_reviews(manager_admin, status_filter="pending"):
             db.session.rollback()
 
     rows = (
-        ProbationReview.query.filter(ProbationReview.reminder_sent_at.isnot(None))
+        ProbationReview.query.filter(
+            ProbationReview.reminder_sent_at.isnot(None),
+            ProbationReview.admin_id.in_(_tenant_ids(manager_admin)),
+        )
         .order_by(ProbationReview.probation_end_date.asc(), ProbationReview.id.asc())
         .all()
     )
@@ -1219,7 +1243,7 @@ def _list_manager_probation_reviews(manager_admin, status_filter="pending"):
     submitted_total = 0
     run_date = date.today()
     for pr in rows:
-        target = Admin.query.get(pr.admin_id)
+        target = get_admin_in_tenant(pr.admin_id, tenant_id_for_admin(manager_admin))
         if not target or not _is_manager_for_target(manager_admin, target):
             continue
 
@@ -1313,7 +1337,8 @@ def submit_probation_review():
         return jsonify({"success": False, "message": "Invalid manager_recommendation"}), 400
 
     pr = ProbationReview.query.get(review_id)
-    if not pr:
+    target = get_admin_in_tenant(pr.admin_id, tenant_id_for_admin(admin)) if pr else None
+    if not pr or not target:
         return jsonify({"success": False, "message": "Probation review not found"}), 404
     current_status = infer_status_from_row(pr)
     if current_status in TERMINAL_STATUSES:
@@ -1321,9 +1346,6 @@ def submit_probation_review():
     if pr.reviewed_at or current_status == STATUS_MANAGER_SUBMITTED:
         return jsonify({"success": False, "message": "Review already submitted"}), 400
 
-    target = Admin.query.get(pr.admin_id)
-    if not target:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
     if not _is_manager_for_target(admin, target):
         return jsonify({"success": False, "message": "You are not the manager for this employee"}), 403
     if not is_probation_review_row_active(pr, target, date.today()):
@@ -1410,7 +1432,7 @@ def manager_compensation_band_hint():
     target_id = request.args.get("admin_id", type=int)
     if not target_id:
         return jsonify({"success": False, "message": "admin_id is required"}), 400
-    target = Admin.query.get(target_id)
+    target = get_admin_in_tenant(target_id, tenant_id_for_admin(admin))
     if not target:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     if not _is_manager_for_target(admin, target):
@@ -1474,7 +1496,7 @@ def manager_apply_leave_on_behalf():
             "message": "Managers can apply leave only for today or future dates. Contact HR for backdated leave.",
         }), 400
 
-    target = Admin.query.get(admin_id)
+    target = get_admin_in_tenant(admin_id, tenant_id_for_admin(manager_admin))
     if not target:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     if not _is_manager_for_target(manager_admin, target):

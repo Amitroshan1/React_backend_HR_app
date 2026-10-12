@@ -4,9 +4,28 @@ import { ArrowLeft, FileText } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
 import { fetchAuthenticatedObjectUrl, toAuthContentUrl } from '../../../utils/secureFileUrl';
 import { fetchAndOpenAuthenticatedFile } from '../../../utils/openBlobFile';
-import './Archive.css';
+import '../offboarding-ui.css';
 
 const HR_API_BASE = '/api/HumanResource';
+
+function shown(value) {
+  if (value == null || value === '') return '—';
+  const text = String(value);
+  return /^\d{4}-\d{2}-\d{2}/.test(text) ? (formatDateDDMMYYYY(text) || text) : text;
+}
+
+function Facts({ items }) {
+  return (
+    <dl className="obx-facts">
+      {items.filter(Boolean).map((item) => (
+        <div key={item.label} className={item.wide ? 'obx-facts-wide' : undefined}>
+          <dt>{item.label}</dt>
+          <dd>{item.node || shown(item.value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 function SecureArchiveThumb({ path, alt }) {
   const [src, setSrc] = useState('');
@@ -171,208 +190,223 @@ const ArchiveEmployeeDetails = () => {
   const exitHistory = employee?.exit_history || [];
 
   return (
-    <div className="archive-container">
-      <div className="archive-wrapper">
-        <div className="archive-header">
-          <button
-            type="button"
-            className="btn-back-updates"
-            onClick={() => navigate('/archive-employees')}
-          >
-            <ArrowLeft size={20} />
-            <span>Back to Archive</span>
-          </button>
-        </div>
-
-        <div className="title-section">
-          <h1 className="page-title">Archived Employee Details</h1>
-          <p className="page-subtitle">
-            {basic.name || 'Employee'} {employment.emp_id ? `(${employment.emp_id})` : ''}
-          </p>
-        </div>
-
-        {error && <p className="archive-error">{error}</p>}
-        {loading && !error && <p className="archive-error">Loading...</p>}
-
-        {!loading && !error && (
-          <div className="archive-details-grid">
-            <div className="archive-detail-card archive-detail-card--offboarding">
-              <h3>Offboarding</h3>
-              <p><strong>F&amp;F status:</strong> {employee?.fnf_status || 'none'}</p>
-              {employee?.fnf?.net_payable != null && (
-                <p><strong>Net payable:</strong> ₹{Number(employee.fnf.net_payable).toLocaleString('en-IN')}</p>
-              )}
-              {employee?.fnf?.settlement_id && (
-                <p><strong>Settlement ID:</strong> {employee.fnf.settlement_id}</p>
-              )}
-              {rehirePolicy && (
-                <>
-                  <p>
-                    <strong>Rehire:</strong>{' '}
-                    {rehirePolicy.can_rejoin_now ? 'Eligible now' : 'Blocked'}
-                  </p>
-                  {!rehirePolicy.can_rejoin_now && rehirePolicy.rehire_block_reason && (
-                    <p className="archive-detail-muted">{rehirePolicy.rehire_block_reason}</p>
-                  )}
-                  {rehirePolicy.rehire_cooldown_until && (
-                    <p><strong>Cooldown until:</strong> {formatDateDDMMYYYY(rehirePolicy.rehire_cooldown_until)}</p>
-                  )}
-                </>
-              )}
-              <div className="archive-detail-doc-actions">
-                <button type="button" className="archive-letter-btn" onClick={() => downloadPdf('relieving')}>
-                  <FileText size={14} />
-                  Relieving letter
-                </button>
-                <button type="button" className="archive-letter-btn" onClick={() => downloadPdf('experience')}>
-                  <FileText size={14} />
-                  Experience letter
-                </button>
-              </div>
-            </div>
-
-            <div className="archive-detail-card">
-              <h3>Exit interview</h3>
-              {exitInterview?.submitted_at ? (
-                <>
-                  <p><strong>Employee rating:</strong> {exitInterview.overall_rating || '—'}/5</p>
-                  <p><strong>Would recommend:</strong> {exitInterview.would_recommend ? 'Yes' : 'No'}</p>
-                  {exitInterview.feedback && <p className="archive-detail-quote">{exitInterview.feedback}</p>}
-                </>
-              ) : (
-                <p className="archive-detail-muted">No employee feedback submitted.</p>
-              )}
-              <hr />
-              <label className="archive-modal__check">
-                <input
-                  type="checkbox"
-                  checked={hrForm.hr_interview_completed}
-                  onChange={(e) => setHrForm((f) => ({ ...f, hr_interview_completed: e.target.checked }))}
-                />
-                HR interview completed
-              </label>
-              <label className="archive-modal__label">Interview date</label>
-              <input
-                type="date"
-                className="archive-modal__input"
-                value={hrForm.hr_interview_date}
-                onChange={(e) => setHrForm((f) => ({ ...f, hr_interview_date: e.target.value }))}
-              />
-              <label className="archive-modal__label">HR notes</label>
-              <textarea
-                className="archive-modal__textarea"
-                rows={2}
-                value={hrForm.hr_notes}
-                onChange={(e) => setHrForm((f) => ({ ...f, hr_notes: e.target.value }))}
-              />
-              <button type="button" className="archive-rejoin-btn" onClick={saveHrInterview} disabled={hrInterviewSaving}>
-                {hrInterviewSaving ? 'Saving…' : 'Save HR interview'}
+    <section className="obx">
+        <header className="obx-hero">
+          <div>
+            <button type="button" className="obx-back" onClick={() => navigate('/archive-employees')}>
+              <ArrowLeft size={16} />
+              Back to Archive
+            </button>
+            <h1>{basic.name || 'Archived employee'}</h1>
+            <p className="obx-muted">
+              {[employment.emp_id, employment.circle, employment.emp_type].filter(Boolean).join(' · ') || 'Exit record'}
+            </p>
+          </div>
+          {!loading && !error ? (
+            <div className="obx-actions">
+              <button type="button" className="obx-btn" onClick={() => downloadPdf('relieving')}>
+                <FileText size={14} /> Relieving letter
+              </button>
+              <button type="button" className="obx-btn" onClick={() => downloadPdf('experience')}>
+                <FileText size={14} /> Experience letter
               </button>
             </div>
+          ) : null}
+        </header>
 
-            {exitHistory.length > 0 && (
-              <div className="archive-detail-card">
-                <h3>Exit history</h3>
-                <ul className="archive-history-list archive-history-list--compact">
+        {error ? <p className="obx-alert">{error}</p> : null}
+        {loading && !error ? <p className="obx-loading">Loading archive record…</p> : null}
+
+        {!loading && !error && (
+          <div className="obx-cards">
+            <div className="obx-card">
+              <h2>Settlement</h2>
+              <Facts items={[
+                {
+                  label: 'F&F status',
+                  value: employee?.fnf_status || 'none',
+                  node: <span className="obx-pill">{employee?.fnf_status || 'none'}</span>,
+                },
+                {
+                  label: 'Net payable',
+                  value: employee?.fnf?.net_payable != null
+                    ? `₹${Number(employee.fnf.net_payable).toLocaleString('en-IN')}`
+                    : '—',
+                },
+                { label: 'Settlement ID', value: employee?.fnf?.settlement_id },
+                rehirePolicy ? {
+                  label: 'Rehire',
+                  value: rehirePolicy.can_rejoin_now ? 'Eligible' : 'Blocked',
+                  node: (
+                    <span className={`obx-pill ${rehirePolicy.can_rejoin_now ? 'obx-pill--ok' : 'obx-pill--bad'}`}>
+                      {rehirePolicy.can_rejoin_now ? 'Eligible' : 'Blocked'}
+                    </span>
+                  ),
+                } : null,
+                rehirePolicy?.rehire_cooldown_until ? {
+                  label: 'Cooldown until',
+                  value: rehirePolicy.rehire_cooldown_until,
+                } : null,
+                rehirePolicy && !rehirePolicy.can_rejoin_now && rehirePolicy.rehire_block_reason
+                  && !/cooldown/i.test(rehirePolicy.rehire_block_reason) ? {
+                    label: 'Block reason',
+                    value: rehirePolicy.rehire_block_reason,
+                    wide: true,
+                  } : null,
+              ]} />
+            </div>
+
+            <div className="obx-card">
+              <h2>Exit interview</h2>
+              {exitInterview?.submitted_at ? (
+                <>
+                  <Facts items={[
+                    { label: 'Employee rating', value: `${exitInterview.overall_rating || '—'}/5` },
+                    { label: 'Would recommend', value: exitInterview.would_recommend ? 'Yes' : 'No' },
+                  ]} />
+                  {exitInterview.feedback ? <p className="obx-quote">{exitInterview.feedback}</p> : null}
+                </>
+              ) : (
+                <p className="obx-muted">No employee feedback submitted.</p>
+              )}
+              <form className="obx-form" onSubmit={(event) => { event.preventDefault(); saveHrInterview(); }}>
+                <label className="obx-check-row">
+                  <input
+                    type="checkbox"
+                    checked={hrForm.hr_interview_completed}
+                    onChange={(e) => setHrForm((f) => ({ ...f, hr_interview_completed: e.target.checked }))}
+                  />
+                  HR interview completed
+                </label>
+                <div className="obx-span">
+                  <label htmlFor="detail-interview-date">Interview date</label>
+                  <input
+                    id="detail-interview-date"
+                    type="date"
+                    value={hrForm.hr_interview_date}
+                    onChange={(e) => setHrForm((f) => ({ ...f, hr_interview_date: e.target.value }))}
+                  />
+                </div>
+                <div className="obx-span">
+                  <label htmlFor="detail-interview-notes">HR notes</label>
+                  <textarea
+                    id="detail-interview-notes"
+                    rows={3}
+                    value={hrForm.hr_notes}
+                    onChange={(e) => setHrForm((f) => ({ ...f, hr_notes: e.target.value }))}
+                  />
+                </div>
+                <button type="submit" className="obx-btn obx-btn--primary" disabled={hrInterviewSaving}>
+                  {hrInterviewSaving ? 'Saving…' : 'Save HR interview'}
+                </button>
+              </form>
+            </div>
+
+            <div className="obx-card">
+              <h2>Profile</h2>
+              <Facts items={[
+                { label: 'Name', value: basic.name },
+                { label: 'Username', value: basic.username },
+                { label: 'Email', value: basic.email, wide: true },
+                { label: 'Mobile', value: basic.mobile },
+              ]} />
+            </div>
+
+            <div className="obx-card">
+              <h2>Employment</h2>
+              <Facts items={[
+                { label: 'Employee ID', value: employment.emp_id },
+                { label: 'Date of joining', value: employment.doj },
+                { label: 'Circle', value: employment.circle },
+                { label: 'Department', value: employment.emp_type },
+              ]} />
+            </div>
+
+            <div className="obx-card obx-card--wide">
+              <h2>Exit</h2>
+              <Facts items={[
+                { label: 'Exit date', value: exitInfo.exit_date },
+                { label: 'Exit type', value: exitInfo.exit_type },
+                { label: 'Reason', value: exitInfo.exit_reason, wide: true },
+              ]} />
+              {exitHistory.length > 0 ? (
+                <ul className="obx-history">
                   {exitHistory.map((row) => (
-                    <li key={row.id} className="archive-history-item">
+                    <li key={row.id}>
                       <div>
                         <strong>{row.exit_type || 'Exit'}</strong>
-                        <span>LWD: {formatDateDDMMYYYY(row.last_working_day || row.exit_date)}</span>
+                        <span>Last working day {formatDateDDMMYYYY(row.last_working_day || row.exit_date)}</span>
                       </div>
                       <small>{row.created_by || '—'}</small>
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
-
-            <div className="archive-detail-card">
-              <h3>Profile</h3>
-              <p><strong>Name:</strong> {basic.name || '—'}</p>
-              <p><strong>Email:</strong> {basic.email || '—'}</p>
-              <p><strong>Mobile:</strong> {basic.mobile || '—'}</p>
-              <p><strong>Username:</strong> {basic.username || '—'}</p>
+              ) : null}
             </div>
 
-            <div className="archive-detail-card">
-              <h3>Employment & Exit</h3>
-              <p><strong>Employee ID:</strong> {employment.emp_id || '—'}</p>
-              <p><strong>Circle:</strong> {employment.circle || '—'}</p>
-              <p><strong>Type:</strong> {employment.emp_type || '—'}</p>
-              <p><strong>Date of Joining:</strong> {employment.doj || '—'}</p>
-              <hr />
-              <p><strong>Exit Date:</strong> {exitInfo.exit_date || '—'}</p>
-              <p><strong>Exit Type:</strong> {exitInfo.exit_type || '—'}</p>
-              <p><strong>Exit Reason:</strong> {exitInfo.exit_reason || '—'}</p>
-            </div>
-
-            <div className="archive-detail-card">
-              <h3>Previous Company</h3>
+            <div className="obx-card">
+              <h2>Previous company</h2>
               {Array.isArray(previous) && previous.length > 0 ? (
                 previous.map((pc, i) => (
-                  <div key={i} className="archive-detail-subitem">
-                    <p><strong>{pc.companyName || '—'}</strong></p>
-                    <p>{pc.designation || '—'}</p>
-                    <p>
-                      {pc.doj || ''} {pc.dateOfLeaving ? `→ ${pc.dateOfLeaving}` : ''}{' '}
-                      {pc.experienceYears ? `(${pc.experienceYears} yrs)` : ''}
-                    </p>
+                  <div key={i} className="obx-doc">
+                    <Facts items={[
+                      { label: 'Company', value: pc.companyName },
+                      { label: 'Designation', value: pc.designation },
+                      { label: 'From', value: pc.doj },
+                      { label: 'To', value: pc.dateOfLeaving },
+                      pc.experienceYears ? { label: 'Experience', value: `${pc.experienceYears} yrs` } : null,
+                    ]} />
                   </div>
                 ))
               ) : (
-                <p>No previous-company records found.</p>
+                <p className="obx-muted">No previous company on file.</p>
               )}
             </div>
 
-            <div className="archive-detail-card">
-              <h3>Documents</h3>
-              {Array.isArray(documents) && documents.length > 0 ? (
-                documents.map((d, i) => {
-                  const hasFile = Boolean(d.file);
-                  const isImage =
-                    d.file && /\.(png|jpe?g|gif|webp)$/i.test(d.file || '');
-
-                  return (
-                    <div key={i} className="archive-detail-subitem">
-                      <p>
-                        <strong>{d.doc_type || 'Document'}:</strong>{' '}
-                        {hasFile ? (
-                          <button type="button" className="doc-link" onClick={() => openArchiveDoc(d.file)}>
-                            View file
-                          </button>
-                        ) : (
-                          'Not uploaded'
-                        )}
-                      </p>
-                      {hasFile && isImage && (
-                        <SecureArchiveThumb path={d.file} alt={d.doc_type || 'Document'} />
-                      )}
-                    </div>
-                  );
-                })
-              ) : (
-                <p>No documents found.</p>
-              )}
-            </div>
-
-            <div className="archive-detail-card">
-              <h3>Education</h3>
+            <div className="obx-card">
+              <h2>Education</h2>
               {Array.isArray(education) && education.length > 0 ? (
-                education.map((e, i) => (
-                  <div key={i} className="archive-detail-subitem">
-                    <p><strong>{e.degree || '—'}</strong> – {e.institute || '—'}</p>
-                    <p>Year: {e.year || '—'}</p>
+                education.map((row, i) => (
+                  <div key={i} className="obx-doc">
+                    <Facts items={[
+                      { label: 'Degree', value: row.degree },
+                      { label: 'Year', value: row.year },
+                      { label: 'Institute', value: row.institute, wide: true },
+                    ]} />
                   </div>
                 ))
               ) : (
-                <p>No education records found.</p>
+                <p className="obx-muted">No education on file.</p>
+              )}
+            </div>
+
+            <div className="obx-card obx-card--wide">
+              <h2>Documents</h2>
+              {Array.isArray(documents) && documents.length > 0 ? (
+                <div className="obx-docs">
+                  {documents.map((d, i) => {
+                    const hasFile = Boolean(d.file);
+                    const isImage = d.file && /\.(png|jpe?g|gif|webp)$/i.test(d.file || '');
+                    return (
+                      <div key={i} className="obx-doc-tile">
+                        <span>{d.doc_type || 'Document'}</span>
+                        {hasFile ? (
+                          <button type="button" className="obx-link" onClick={() => openArchiveDoc(d.file)}>View file</button>
+                        ) : (
+                          <em>Not uploaded</em>
+                        )}
+                        {hasFile && isImage ? <SecureArchiveThumb path={d.file} alt={d.doc_type || 'Document'} /> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="obx-muted">No documents on file.</p>
               )}
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </section>
   );
 };
 

@@ -277,7 +277,9 @@ def build_form16_summary(admin_id: int, financial_year: str | None = None) -> di
     chapter_via = build_chapter_via_schedule(projection.get("deductions"))
 
     from . import tds_settings as tds_cfg
-    employer = tds_cfg.employer_details()
+    from .tenant_context import tenant_id_for_admin
+
+    employer = tds_cfg.employer_details(tenant_id_for_admin(admin))
 
     emp_name = (admin.first_name or admin.user_name or "Employee").strip()
     emp_no = (admin.emp_id or "").strip() or "-"

@@ -11,23 +11,15 @@ from .secure_file_service import (
     send_resolved_upload,
     verify_signature,
 )
+from .tenant_context import current_admin
+from .upload_tenancy import split_tenant_rel
 
 files_bp = Blueprint("files", __name__)
 
 
 def _current_admin():
     claims = get_jwt() or {}
-    email = (claims.get("email") or "").strip()
-    if email:
-        admin = Admin.query.filter_by(email=email).first()
-        if admin:
-            return admin, claims
-    try:
-        from flask_jwt_extended import get_jwt_identity
-
-        return Admin.query.get(int(get_jwt_identity())), claims
-    except Exception:
-        return None, claims
+    return current_admin(), claims
 
 
 @files_bp.route("/signed/<path:relative_path>", methods=["GET"])
@@ -53,23 +45,24 @@ def serve_content_file(relative_path):
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
     rel = normalize_upload_rel(relative_path)
+    _, inner = split_tenant_rel(rel)
 
     # Sensitive OTP for own payslip/form16/tax (parity with Accounts.serve_uploaded_file)
-    if rel.startswith(("payslips/", "form16/", "tax_declarations/")):
+    if inner.startswith(("payslips/", "form16/", "tax_declarations/")):
         from .sensitive_data_auth import require_sensitive_for_employee
         from .models.news_feed import PaySlip, Form16
 
         target_id = admin.id
-        if rel.startswith("payslips/"):
+        if inner.startswith("payslips/"):
             row = PaySlip.query.filter_by(file_path=rel).first()
             if row:
                 target_id = row.admin_id
-        elif rel.startswith("form16/"):
+        elif inner.startswith("form16/"):
             row = Form16.query.filter_by(file_path=rel).first()
             if row:
                 target_id = row.admin_id
-        elif rel.startswith("tax_declarations/"):
-            parts = rel.split("/")
+        elif inner.startswith("tax_declarations/"):
+            parts = inner.split("/")
             if len(parts) >= 2 and parts[1].isdigit():
                 target_id = None
                 from .models.employee_tax_declaration import EmployeeTaxDeclaration

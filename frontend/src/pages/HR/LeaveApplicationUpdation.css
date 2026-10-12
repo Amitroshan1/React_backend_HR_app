@@ -362,6 +362,68 @@
   margin-bottom: 14px;
 }
 
+.lau-policy-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lau-policy-panel__body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lau-policy-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.lau-policy-panel__grid input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  font-size: 0.875rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.lau-policy-panel__checks {
+  display: grid;
+  gap: 8px;
+}
+
+.lau-policy-panel__check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+.lau-policy-panel__check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--lau-accent);
+}
+
+.lau-policy-panel__success {
+  color: #15803d;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.lau-policy-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .lau-on-behalf-panel h3 {
   margin: 0 0 4px;
   color: #1e293b;

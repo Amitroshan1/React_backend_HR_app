@@ -409,11 +409,17 @@ def generate_document(request_id, doc_type, actor=None, *, force=False):
     c.save()
     pdf_bytes = buf.getvalue()
 
-    rel_dir = f"daily_checkout/{row.id}"
-    os.makedirs(os.path.join(_uploads_root(), "daily_checkout", str(row.id)), exist_ok=True)
+    from ..tenant_context import tenant_id_for_admin
+    from ..upload_tenancy import tenant_upload_path
+
     fname = "acceptance.pdf" if is_acceptance else "return_ack.pdf"
-    rel = f"{rel_dir}/{fname}"
-    with open(_abs(rel), "wb") as fh:
+    # The requester's company owns the copy, also when IT regenerates it.
+    abs_path, rel = tenant_upload_path(
+        _uploads_root(),
+        f"daily_checkout/{row.id}/{fname}",
+        tenant_id_for_admin(db.session.get(Admin, row.requester_admin_id)),
+    )
+    with open(abs_path, "wb") as fh:
         fh.write(pdf_bytes)
 
     if existing:

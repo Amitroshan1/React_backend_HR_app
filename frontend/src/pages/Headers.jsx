@@ -126,7 +126,7 @@ import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountP
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
 import { clearSensitiveToken } from "../utils/sensitiveDataAuth";
 import { DEPARTMENT_TITLES, getPanelLinkLabel } from "../utils/departmentLabels";
-import { isAdminDepartmentPath } from "./Admin/AdminLayout";
+import { isAdminDepartmentPath } from "./Admin/adminVisit";
 
 const getPageInfo = (pathname, firstName) => {
     const normalizedPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";

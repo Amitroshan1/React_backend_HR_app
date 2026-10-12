@@ -11,6 +11,8 @@ class BiometricDevice(db.Model):
     __tablename__ = "biometric_devices"
 
     id = db.Column(db.Integer, primary_key=True)
+    # Owning company; NULL = default tenant. Punches from this device only match its employees.
+    tenant_id = db.Column(db.Integer, nullable=True, index=True)
     serial_number = db.Column(db.String(64), unique=True, nullable=False, index=True)
     name = db.Column(db.String(120), nullable=True)
     # Comma-separated IPs or CIDR-like strings; empty/null = no IP restriction
@@ -124,6 +126,8 @@ class BiometricAttendanceDay(db.Model):
     __tablename__ = "biometric_attendance_day"
 
     id = db.Column(db.Integer, primary_key=True)
+    # Tenant of the device that produced the scans; always set (NULLs would bypass the unique key).
+    tenant_id = db.Column(db.Integer, nullable=True, index=True)
     admin_id = db.Column(db.Integer, nullable=True, index=True)
     device_user_id = db.Column(db.String(64), nullable=False, index=True)
     attendance_date = db.Column(db.Date, nullable=False, index=True)
@@ -137,7 +141,7 @@ class BiometricAttendanceDay(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint(
-            "device_user_id", "attendance_date", name="uq_bio_att_day_pin_date"
+            "tenant_id", "device_user_id", "attendance_date", name="uq_bio_att_day_tenant_pin_date"
         ),
         db.Index("ix_bio_att_day_admin_date", "admin_id", "attendance_date"),
         db.Index("ix_bio_att_day_date", "attendance_date"),

@@ -6,7 +6,11 @@ from sqlalchemy import or_, func
 from . import db
 from .models.Admin_models import Admin
 from .models.headcount_budget import HeadcountBudget
-from .models.recruitment import JobRequisition
+from .tenant_context import admin_tenant_clause, get_current_tenant_id, tenant_column_clause
+
+
+def _budget_query():
+    return HeadcountBudget.query.filter(tenant_column_clause(HeadcountBudget.tenant_id))
 
 
 def _enabled_filters():
@@ -18,7 +22,7 @@ def _enabled_filters():
 
 def list_budgets(*, fiscal_year: str) -> list[dict]:
     rows = (
-        HeadcountBudget.query.filter(HeadcountBudget.fiscal_year == fiscal_year)
+        _budget_query().filter(HeadcountBudget.fiscal_year == fiscal_year)
         .order_by(HeadcountBudget.circle.asc(), HeadcountBudget.emp_type.asc())
         .all()
     )
@@ -31,11 +35,12 @@ def upsert_budget(data: dict, *, created_by: str) -> HeadcountBudget:
     emp_type = (data.get("emp_type") or "").strip()
     if not fiscal_year or not circle or not emp_type:
         raise ValueError("fiscal_year, circle, and emp_type are required")
-    row = HeadcountBudget.query.filter_by(
+    row = _budget_query().filter_by(
         fiscal_year=fiscal_year, circle=circle, emp_type=emp_type
     ).first()
     if not row:
         row = HeadcountBudget(
+            tenant_id=get_current_tenant_id(),
             fiscal_year=fiscal_year,
             circle=circle,
             emp_type=emp_type,
@@ -51,7 +56,7 @@ def upsert_budget(data: dict, *, created_by: str) -> HeadcountBudget:
 def build_workforce_plan(*, fiscal_year: str) -> dict:
     actual_rows = (
         db.session.query(Admin.circle, Admin.emp_type, func.count(Admin.id))
-        .filter(*_enabled_filters())
+        .filter(admin_tenant_clause(), *_enabled_filters())
         .group_by(Admin.circle, Admin.emp_type)
         .all()
     )
@@ -60,12 +65,13 @@ def build_workforce_plan(*, fiscal_year: str) -> dict:
         key = (circle or "Unassigned", emp_type or "Unassigned")
         actual_map[key] = count
 
-    budgets = HeadcountBudget.query.filter_by(fiscal_year=fiscal_year).all()
+    budgets = _budget_query().filter_by(fiscal_year=fiscal_year).all()
     budget_map = {(b.circle, b.emp_type): b for b in budgets}
 
-    open_reqs = (
-        JobRequisition.query.filter(JobRequisition.status == "open").all()
-    )
+    from .ats_service import requisition_query
+    from .models.recruitment import JobRequisition
+
+    open_reqs = requisition_query().filter(JobRequisition.status == "open").all()
     open_map = {}
     for req in open_reqs:
         key = (req.circle or "Unassigned", req.emp_type or "Unassigned")

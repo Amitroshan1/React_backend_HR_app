@@ -34,6 +34,18 @@ from .employment_status import (
     is_probation_employment,
 )
 from .models.Admin_models import Admin, EmployeeArchive, AuditLog, EmployeeExitHistory
+from .company_mailbox import company_mailbox
+from .tenant_context import (
+    admin_id_in_tenant,
+    admin_tenant_clause,
+    current_admin,
+    get_admin_in_tenant,
+    get_current_tenant_id,
+    tenant_admin_ids,
+    tenant_admin_query,
+    tenant_column_clause,
+    tenant_id_for_admin,
+)
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
 from .datetime_utils import utc_now, isoformat_api
@@ -76,7 +88,6 @@ from .offboarding_service import (
     EXIT_TYPES,
     build_offboarding_dashboard,
     build_offboarding_payload_for_admin,
-    execute_employee_exit,
     parse_exit_type,
     parse_iso_date,
 )
@@ -85,6 +96,8 @@ from .experience_letter_service import generate_experience_letter_pdf
 from .models.master_data import MasterData
 from .models.leave_accrual_log import LeaveAccrualLog
 from .models.holiday_calendar import HolidayCalendar
+from .ats_service import assessment_invite_query
+from .master_data_tenancy import holiday_query, location_query, master_query, policy_query, tenant_for_admin_id
 from werkzeug.security import generate_password_hash
 import os
 import shutil
@@ -183,8 +196,9 @@ def _hr_session_geo_out(sess):
 
 
 def _enabled_non_exited_admin_filters():
-    """Enabled employees: not exited and not explicitly disabled (is_active=False)."""
+    """Enabled employees of the caller's tenant: not exited, not disabled (is_active=False)."""
     return (
+        admin_tenant_clause(),
         or_(Admin.is_exited == False, Admin.is_exited.is_(None)),
         or_(Admin.is_active == True, Admin.is_active.is_(None)),
     )
@@ -204,10 +218,6 @@ def _hr_punch_location_in_out(punch):
 
 def _hash_ex_employee_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-
-
-def _ex_employee_uploads_base_dir():
-    return os.path.join(current_app.root_path, "static", "uploads", "ex_employee_docs")
 
 
 def _abs_path_from_rel(rel: str):
@@ -230,8 +240,10 @@ def _delete_ex_share_and_files(share: ExEmployeeDocShare):
     """Remove DB rows and stored files for a share."""
     sid = share.id
     file_rows = ExEmployeeDocFile.query.filter_by(share_id=sid).all()
+    share_dirs = set()
     for f in file_rows:
         path = _abs_path_from_rel(f.stored_rel_path)
+        share_dirs.add(os.path.dirname(path))
         try:
             if os.path.isfile(path):
                 os.remove(path)
@@ -242,12 +254,12 @@ def _delete_ex_share_and_files(share: ExEmployeeDocShare):
     if fresh:
         db.session.delete(fresh)
     db.session.commit()
-    try:
-        d = os.path.join(_ex_employee_uploads_base_dir(), str(sid))
-        if os.path.isdir(d) and not os.listdir(d):
-            os.rmdir(d)
-    except OSError:
-        pass
+    for d in share_dirs:
+        try:
+            if os.path.isdir(d) and not os.listdir(d):
+                os.rmdir(d)
+        except OSError:
+            pass
 
 
 from functools import wraps
@@ -337,7 +349,7 @@ def list_profile_designations():
     defaults = sorted(ALLOWED_PROFILE_DESIGNATIONS)
     rows = (
         db.session.query(Employee.designation)
-        .filter(Employee.designation.isnot(None))
+        .filter(Employee.designation.isnot(None), Employee.admin_id.in_(tenant_admin_ids()))
         .distinct()
         .all()
     )
@@ -526,7 +538,7 @@ def _master_type_or_400(raw_type):
 
 def _get_master_values(master_type):
     rows = (
-        MasterData.query.filter_by(master_type=master_type, is_active=True)
+        master_query().filter_by(master_type=master_type, is_active=True)
         .order_by(MasterData.name.asc())
         .all()
     )
@@ -538,7 +550,7 @@ def _is_allowed_master_value(master_type, value):
     if not val:
         return False
     count = (
-        MasterData.query.filter(
+        master_query().filter(
             MasterData.master_type == master_type,
             MasterData.is_active.is_(True),
             db.func.lower(MasterData.name) == val.lower(),
@@ -573,19 +585,21 @@ def _serialize_holiday(row, sr_no=None):
     }
 
 
-def _seed_holidays_for_year(year, overwrite=False):
-    existing = HolidayCalendar.query.filter(HolidayCalendar.year == year).all()
+def _seed_holidays_for_year(year, overwrite=False, tenant_id=None):
+    tid = tenant_id if tenant_id is not None else get_current_tenant_id()
+    existing = holiday_query(tid).filter(HolidayCalendar.year == year).all()
     if existing and not overwrite:
         return existing
 
     if overwrite and existing:
-        HolidayCalendar.query.filter(HolidayCalendar.year == year).delete(synchronize_session=False)
+        holiday_query(tid).filter(HolidayCalendar.year == year).delete(synchronize_session=False)
         db.session.flush()
 
     rows = []
     for item in HOLIDAY_DATE_TEMPLATES:
         rows.append(
             HolidayCalendar(
+                tenant_id=tid,
                 year=year,
                 holiday_name=item["holiday_name"],
                 holiday_date=date(year, item["month"], item["day"]),
@@ -608,7 +622,7 @@ def list_holidays_for_year():
 
     auto_seed = str(request.args.get("auto_seed", "1")).strip() != "0"
     rows = (
-        HolidayCalendar.query.filter(
+        holiday_query().filter(
             HolidayCalendar.year == year,
             HolidayCalendar.is_active.is_(True),
         )
@@ -618,7 +632,7 @@ def list_holidays_for_year():
     if not rows and auto_seed:
         _seed_holidays_for_year(year, overwrite=False)
         rows = (
-            HolidayCalendar.query.filter(
+            holiday_query().filter(
                 HolidayCalendar.year == year,
                 HolidayCalendar.is_active.is_(True),
             )
@@ -641,7 +655,7 @@ def list_holidays_for_user_view():
     from .models.Admin_models import Admin
     claims = get_jwt()
     email = (claims.get("email") or "").strip()
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin or (admin.circle or "").strip().upper() != "NHQ":
         return jsonify({"success": False, "message": "Holiday calendar is restricted to NHQ users"}), 403
 
@@ -651,7 +665,7 @@ def list_holidays_for_user_view():
 
     auto_seed = str(request.args.get("auto_seed", "1")).strip() != "0"
     rows = (
-        HolidayCalendar.query.filter(
+        holiday_query().filter(
             HolidayCalendar.year == year,
             HolidayCalendar.is_active.is_(True),
         )
@@ -661,7 +675,7 @@ def list_holidays_for_user_view():
     if not rows and auto_seed:
         _seed_holidays_for_year(year, overwrite=False)
         rows = (
-            HolidayCalendar.query.filter(
+            holiday_query().filter(
                 HolidayCalendar.year == year,
                 HolidayCalendar.is_active.is_(True),
             )
@@ -690,7 +704,7 @@ def seed_holidays_for_year():
     overwrite = bool(data.get("overwrite", False))
     _seed_holidays_for_year(year, overwrite=overwrite)
     rows = (
-        HolidayCalendar.query.filter(
+        holiday_query().filter(
             HolidayCalendar.year == year,
             HolidayCalendar.is_active.is_(True),
         )
@@ -737,7 +751,7 @@ def create_holiday():
 
     is_optional = bool(data.get("is_optional", False))
 
-    existing = HolidayCalendar.query.filter(
+    existing = holiday_query().filter(
         HolidayCalendar.year == year,
         db.func.lower(HolidayCalendar.holiday_name) == holiday_name.lower(),
     ).first()
@@ -763,6 +777,7 @@ def create_holiday():
         ), 200
 
     row = HolidayCalendar(
+        tenant_id=get_current_tenant_id(),
         year=year,
         holiday_name=holiday_name[:120],
         holiday_date=parsed_date,
@@ -794,7 +809,7 @@ def create_holiday():
 @jwt_required()
 @hr_required
 def update_holiday(holiday_id):
-    row = HolidayCalendar.query.get(holiday_id)
+    row = holiday_query().filter(HolidayCalendar.id == holiday_id).first()
     if not row:
         return jsonify({"success": False, "message": "Holiday not found"}), 404
 
@@ -804,7 +819,7 @@ def update_holiday(holiday_id):
         holiday_name = str(data.get("holiday_name") or "").strip()
         if not holiday_name:
             return jsonify({"success": False, "message": "holiday_name cannot be empty"}), 400
-        dup = HolidayCalendar.query.filter(
+        dup = holiday_query().filter(
             HolidayCalendar.year == row.year,
             HolidayCalendar.id != row.id,
             HolidayCalendar.is_active.is_(True),
@@ -843,7 +858,7 @@ def update_holiday(holiday_id):
 @jwt_required()
 @hr_required
 def delete_holiday(holiday_id):
-    row = HolidayCalendar.query.get(holiday_id)
+    row = holiday_query().filter(HolidayCalendar.id == holiday_id).first()
     if not row:
         return jsonify({"success": False, "message": "Holiday not found"}), 404
     if not row.is_active:
@@ -883,7 +898,7 @@ def list_master_data(master_type):
         return jsonify({"success": False, "message": "Invalid master type"}), 400
 
     rows = (
-        MasterData.query.filter_by(master_type=parsed_type, is_active=True)
+        master_query().filter_by(master_type=parsed_type, is_active=True)
         .order_by(MasterData.name.asc())
         .all()
     )
@@ -918,7 +933,7 @@ def create_master_data(master_type):
                 "message": "Admin cannot be added as a department. This value is reserved for system administrators.",
             }), 400
 
-    existing = MasterData.query.filter(
+    existing = master_query().filter(
         MasterData.master_type == parsed_type,
         db.func.lower(MasterData.name) == name.lower(),
     ).first()
@@ -938,7 +953,7 @@ def create_master_data(master_type):
             }
         ), 200
 
-    row = MasterData(master_type=parsed_type, name=name, is_active=True)
+    row = MasterData(tenant_id=get_current_tenant_id(), master_type=parsed_type, name=name, is_active=True)
     db.session.add(row)
     db.session.commit()
     return jsonify(
@@ -958,13 +973,13 @@ def delete_master_data(master_type, item_id):
     if not parsed_type:
         return jsonify({"success": False, "message": "Invalid master type"}), 400
 
-    row = MasterData.query.filter_by(id=item_id, master_type=parsed_type, is_active=True).first()
+    row = master_query().filter_by(id=item_id, master_type=parsed_type, is_active=True).first()
     if not row:
         return jsonify({"success": False, "message": "Item not found"}), 404
 
     if parsed_type == MASTER_TYPE_DEPARTMENT:
         in_use = (
-            Admin.query.filter(
+            tenant_admin_query().filter(
                 *_enabled_non_exited_admin_filters(),
                 db.func.lower(db.func.coalesce(Admin.emp_type, "")) == row.name.lower(),
             ).count()
@@ -974,7 +989,7 @@ def delete_master_data(master_type, item_id):
         # Only active employees block circle removal; exited staff keep circle on their
         # Admin row so Archive search/filter still works after the master value is retired.
         in_use = (
-            Admin.query.filter(
+            tenant_admin_query().filter(
                 *_enabled_non_exited_admin_filters(),
                 db.func.lower(db.func.coalesce(Admin.circle, "")) == row.name.lower(),
             ).count()
@@ -1081,9 +1096,68 @@ def signup_api():
     except EmploymentStatusError as emp_err:
         return jsonify({"success": False, "message": str(emp_err)}), 400
 
+    from .employee_profile_change_service import signup_identifier_conflict, stage_signup_request
+
+    hr_tenant_id = get_current_tenant_id()
+    conflict = signup_identifier_conflict(
+        hr_tenant_id,
+        email=email,
+        user_name=user_name,
+        mobile=mobile,
+        emp_id=emp_id,
+    )
+    if conflict:
+        return jsonify({"success": False, "message": conflict}), 409
+
+    stage_signup_request({
+        "email": email,
+        "first_name": first_name,
+        "user_name": user_name,
+        "mobile": mobile,
+        "emp_id": emp_id,
+        "doj": doj.isoformat(),
+        "emp_type": emp_type,
+        "circle": circle,
+        "designation": designation,
+        "employment_status": data.get("employment_status"),
+        "probation_start_date": data.get("probation_start_date"),
+        "probation_end_date": data.get("probation_end_date"),
+        "probation_duration_months": data.get("probation_duration_months"),
+        "offer_annual_ctc": offer_ctc_raw,
+        "candidate_id": data.get("candidate_id"),
+        "circle_effective_from": data.get("circle_effective_from"),
+        "circle_transfer_notes": data.get("circle_transfer_notes"),
+    })
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "pending_approval": True,
+        "message": (
+            "Signup sent for Admin approval. The employee account is created, "
+            "and they can sign in, only after an Admin approves it."
+        ),
+    }), 201
+
+
+def materialize_employee_signup(data, performed_by):
+    """Create the employee from an approved signup payload. Caller commits and sends mail."""
+    email = re.sub(r"\s+", "", str(data["email"])).strip().lower()
+    first_name = str(data["first_name"]).strip()[:150]
+    user_name = str(data["user_name"]).strip()[:120]
+    mobile = str(data["mobile"]).strip().replace(" ", "")[:15]
+    emp_id = str(data["emp_id"]).strip()[:10]
+    emp_type = str(data["emp_type"]).strip()[:50]
+    circle = str(data["circle"]).strip()[:50]
+    designation = str(data.get("designation") or "").strip()
+    doj = datetime.fromisoformat(str(data["doj"]).strip()[:10]).date()
+    offer_ctc_raw = data.get("offer_annual_ctc") or data.get("annual_ctc")
+    hr_email = performed_by
+    hr_tenant_id = get_current_tenant_id()
+    employment_fields = resolve_employment_payload(data, doj=doj, for_create=True)
     try:
-        # Pre-check for duplicate identifiers to avoid raw IntegrityError messages
-        existing_conflict = Admin.query.filter(
+        tenant_admins = tenant_admin_query(hr_tenant_id)
+
+        existing_conflict = tenant_admins.filter(
             (Admin.email == email) |
             (Admin.user_name == user_name) |
             (Admin.mobile == mobile) |
@@ -1091,22 +1165,20 @@ def signup_api():
         ).first()
 
         if existing_conflict and existing_conflict.is_onboarded():
-            conflict_msg = "Email, User name, Mobile or Employee ID already exists. Use different values."
-            return jsonify({"success": False, "message": conflict_msg}), 409
+            raise ValueError("Email, User name, Mobile or Employee ID already exists. Use different values.")
 
-        admin = Admin.query.filter_by(email=email).first()
+        admin = tenant_admins.filter(Admin.email == email).first()
 
         # ======================================================
         # CASE 1: Existing user (partial record, e.g. email stub)
         # ======================================================
         if admin:
             if admin.is_onboarded():
-                return jsonify({
-                    "success": False,
-                    "message": "User already fully registered"
-                }), 409
+                raise ValueError("User already fully registered")
 
             # Upgrade existing user
+            if admin.tenant_id is None:
+                admin.tenant_id = hr_tenant_id
             admin.first_name = first_name
             admin.user_name = user_name
             admin.mobile = mobile
@@ -1125,10 +1197,7 @@ def signup_api():
                         else (admin.doj or date.today())
                     )
                 except (ValueError, TypeError):
-                    return jsonify({
-                        "success": False,
-                        "message": "Invalid circle_effective_from (YYYY-MM-DD)",
-                    }), 400
+                    raise ValueError("Invalid circle_effective_from (YYYY-MM-DD)")
                 ok, err = _apply_circle_transfer(
                     admin,
                     circle,
@@ -1137,7 +1206,7 @@ def signup_api():
                     data.get("circle_transfer_notes"),
                 )
                 if not ok:
-                    return jsonify({"success": False, "message": err}), 400
+                    raise ValueError(err or "Could not apply the circle.")
             else:
                 admin.circle = circle
 
@@ -1148,6 +1217,7 @@ def signup_api():
         # ======================================================
         else:
             admin = Admin(
+                tenant_id=hr_tenant_id,
                 email=email,
                 first_name=first_name,
                 user_name=user_name,
@@ -1215,44 +1285,24 @@ def signup_api():
                     offer_annual_ctc=offer_ctc,
                 )
             except (TypeError, ValueError) as hire_err:
-                db.session.rollback()
-                return jsonify({"success": False, "message": f"Invalid candidate_id: {hire_err}"}), 400
+                raise ValueError(f"Invalid candidate_id: {hire_err}") from hire_err
 
-        db.session.commit()
+        return admin
 
-        try:
-            send_welcome_email(admin, data)
-        except Exception as mail_err:
-            current_app.logger.warning(f"Welcome email failed (employee still created): {mail_err}")
-
-        return jsonify({
-            "success": True,
-            "message": "Employee onboarded successfully",
-            "employee_id": admin.id,
-            "action": action,
-            "hire": hire_meta or None,
-        }), 201
-
-    except IntegrityError:
-        db.session.rollback()
-        # Duplicate key from DB: return friendly message instead of 500
-        return jsonify({
-            "success": False,
-            "message": "Email, User name, Mobile or Employee ID already exists. Use different values."
-        }), 409
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.exception("Signup error")
-        err_msg = str(e)
+    except IntegrityError as exc:
+        raise ValueError(
+            "Email, User name, Mobile or Employee ID already exists. Use different values."
+        ) from exc
+    except ValueError:
+        raise
+    except Exception as exc:
+        current_app.logger.exception("Approved signup create failed")
+        err_msg = str(exc)
         if "Duplicate" in err_msg or "unique" in err_msg.lower() or "1062" in err_msg:
-            return jsonify({
-                "success": False,
-                "message": "Email, User name, Mobile or Employee ID already exists. Use different values."
-            }), 409
-        return jsonify({
-            "success": False,
-            "message": err_msg or "Unable to onboard employee"
-        }), 500
+            raise ValueError(
+                "Email, User name, Mobile or Employee ID already exists. Use different values."
+            ) from exc
+        raise ValueError(err_msg or "Unable to onboard employee") from exc
 
 
 @hr.route("/send-password-reset", methods=["POST"])
@@ -1462,6 +1512,7 @@ def hr_dashboard_api():
     # Phase 1 dashboard KPIs
     month_start = today.replace(day=1)
     exits_this_month = EmployeeExitHistory.query.filter(
+        EmployeeExitHistory.admin_id.in_(tenant_admin_ids()),
         EmployeeExitHistory.exit_date >= month_start,
         EmployeeExitHistory.exit_date <= today,
     ).count()
@@ -1491,6 +1542,7 @@ def hr_dashboard_api():
 
     pending_noc_count = (
         NocDepartmentRequest.query.filter(
+            NocDepartmentRequest.admin_id.in_(tenant_admin_ids()),
             db.func.lower(db.func.coalesce(NocDepartmentRequest.department_key, "")) == "hr",
             db.func.lower(db.func.coalesce(NocDepartmentRequest.status, "")) == "pending",
         ).count()
@@ -1520,7 +1572,7 @@ def hr_dashboard_api():
 @hr_required
 def hr_inbox_api():
     """Unified HR work queue — probation, NOC, exits, leave."""
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     from .hr_inbox_service import build_hr_inbox
@@ -1558,7 +1610,7 @@ def employee_import_preview():
         return jsonify({"success": False, "message": "CSV file is required"}), 400
     try:
         rows, _ = parse_employee_csv(file.read())
-        result = preview_employee_import(rows)
+        result = preview_employee_import(rows, tenant_id=get_current_tenant_id())
         return jsonify({"success": True, **result}), 200
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
@@ -1576,14 +1628,15 @@ def employee_import_commit():
     hr_email = get_jwt().get("email") or ""
     try:
         rows, _ = parse_employee_csv(file.read())
-        preview = preview_employee_import(rows)
+        tenant_id = get_current_tenant_id()
+        preview = preview_employee_import(rows, tenant_id=tenant_id)
         if preview.get("error_count"):
             return jsonify({
                 "success": False,
                 "message": "Fix validation errors before import",
                 "preview": preview,
             }), 400
-        result = commit_employee_import(rows, hr_email=hr_email)
+        result = commit_employee_import(rows, hr_email=hr_email, tenant_id=tenant_id)
         return jsonify({"success": True, **result}), 200
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
@@ -1618,7 +1671,7 @@ def list_active_employees():
         db.session.query(Admin, Resignation)
         .outerjoin(latest_resignation_subq, latest_resignation_subq.c.admin_id == Admin.id)
         .outerjoin(Resignation, Resignation.id == latest_resignation_subq.c.max_id)
-        .filter(db.func.coalesce(Admin.is_exited, False) == False)
+        .filter(admin_tenant_clause(), db.func.coalesce(Admin.is_exited, False) == False)
     )
 
     if emp_type:
@@ -1690,7 +1743,10 @@ def get_employee_exit_checklist(admin_id):
 @hr_required
 def offboarding_dashboard():
     """HR offboarding pipeline, LWD this week, login grace, and attrition analytics."""
-    return jsonify({"success": True, **build_offboarding_dashboard()}    ), 200
+    return jsonify({
+        "success": True,
+        **build_offboarding_dashboard(tenant_id=get_current_tenant_id()),
+    }), 200
 
 
 @hr.route("/offboarding/analytics/export", methods=["GET"])
@@ -1705,14 +1761,14 @@ def export_offboarding_analytics():
     from .offboarding_export_service import generate_analytics_csv, generate_analytics_pdf
 
     if fmt == "pdf":
-        buf = generate_analytics_pdf(months=months)
+        buf = generate_analytics_pdf(months=months, tenant_id=get_current_tenant_id())
         return send_file(
             buf,
             mimetype="application/pdf",
             as_attachment=True,
             download_name=f"offboarding-analytics-{months}m.pdf",
         )
-    buf = generate_analytics_csv(months=months)
+    buf = generate_analytics_csv(months=months, tenant_id=get_current_tenant_id())
     return send_file(
         buf,
         mimetype="text/csv",
@@ -1872,7 +1928,7 @@ def hr_org_chart_api():
 
     circle = (request.args.get("circle") or "").strip() or None
     emp_type = (request.args.get("emp_type") or "").strip() or None
-    payload = build_org_chart(circle=circle, emp_type=emp_type)
+    payload = build_org_chart(tenant_id=get_current_tenant_id(), circle=circle, emp_type=emp_type)
     return jsonify({"success": True, **payload}), 200
 
 
@@ -1884,7 +1940,7 @@ def hr_org_chart_export():
 
     circle = (request.args.get("circle") or "").strip() or None
     emp_type = (request.args.get("emp_type") or "").strip() or None
-    payload = build_org_chart(circle=circle, emp_type=emp_type)
+    payload = build_org_chart(tenant_id=get_current_tenant_id(), circle=circle, emp_type=emp_type)
     csv_text = org_chart_to_csv(payload.get("employees") or [])
     from flask import Response
     return Response(
@@ -1925,10 +1981,13 @@ def hr_ats_public_offer_accept():
 @hr_required
 def hr_ats_hire_progress(candidate_id):
     from .hire_service import hire_progress_for_candidate
+    from .ats_service import ATSNotFound
 
     try:
         payload = hire_progress_for_candidate(candidate_id)
         return jsonify({"success": True, **payload}), 200
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -1961,12 +2020,14 @@ def hr_create_policy():
 @jwt_required()
 @hr_required
 def hr_update_policy(policy_id):
-    from .policy_service import policy_ack_stats, update_policy
+    from .policy_service import PolicyNotFound, policy_ack_stats, update_policy
 
     try:
         row = update_policy(policy_id, request.get_json(silent=True) or {})
         stats = policy_ack_stats(row.id)
         return jsonify({"success": True, "policy": {**row.to_dict(), **stats}}), 200
+    except PolicyNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2013,11 +2074,13 @@ def hr_ats_create_requisition():
 @jwt_required()
 @hr_required
 def hr_ats_update_requisition(req_id):
-    from .ats_service import update_requisition
+    from .ats_service import ATSNotFound, update_requisition
 
     try:
         row = update_requisition(req_id, request.get_json(silent=True) or {})
         return jsonify({"success": True, "requisition": row.to_dict()}), 200
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2040,11 +2103,13 @@ def hr_ats_list_candidates():
 @jwt_required()
 @hr_required
 def hr_ats_create_candidate():
-    from .ats_service import create_candidate
+    from .ats_service import ATSNotFound, create_candidate
 
     try:
         row = create_candidate(request.get_json(silent=True) or {})
         return jsonify({"success": True, "candidate": row.to_dict()}), 201
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2053,12 +2118,14 @@ def hr_ats_create_candidate():
 @jwt_required()
 @hr_required
 def hr_ats_update_candidate_stage(candidate_id):
-    from .ats_service import update_candidate_stage
+    from .ats_service import ATSNotFound, update_candidate_stage
 
     data = request.get_json(silent=True) or {}
     try:
         row = update_candidate_stage(candidate_id, data.get("stage") or "", notes=data.get("notes"))
         return jsonify({"success": True, "candidate": row.to_dict()}), 200
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2067,12 +2134,14 @@ def hr_ats_update_candidate_stage(candidate_id):
 @jwt_required()
 @hr_required
 def hr_ats_send_assessment(candidate_id):
-    from .ats_service import send_candidate_assessment
+    from .ats_service import ATSNotFound, send_candidate_assessment
 
     data = request.get_json(silent=True) or {}
     try:
         payload = send_candidate_assessment(candidate_id, department=data.get("department"))
         return jsonify({"success": True, **payload}), 200
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2081,11 +2150,13 @@ def hr_ats_send_assessment(candidate_id):
 @jwt_required()
 @hr_required
 def hr_ats_upsert_offer(candidate_id):
-    from .ats_service import create_or_update_offer
+    from .ats_service import ATSNotFound, create_or_update_offer
 
     try:
         offer = create_or_update_offer(candidate_id, request.get_json(silent=True) or {})
         return jsonify({"success": True, "offer": offer.to_dict()}), 200
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2094,10 +2165,12 @@ def hr_ats_upsert_offer(candidate_id):
 @jwt_required()
 @hr_required
 def hr_ats_signup_payload(candidate_id):
-    from .ats_service import candidate_signup_payload
+    from .ats_service import ATSNotFound, candidate_signup_payload
 
     try:
         return jsonify({"success": True, **candidate_signup_payload(candidate_id)}), 200
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2136,7 +2209,11 @@ def hr_compensation_list_proposals():
     status = (request.args.get("status") or "pending").strip()
     revision_type = (request.args.get("revision_type") or "all").strip()
     admin_id = request.args.get("admin_id", type=int)
-    proposals = list_proposals(status=status, revision_type=revision_type)
+    proposals = list_proposals(
+        tenant_id=get_current_tenant_id(),
+        status=status,
+        revision_type=revision_type,
+    )
     if admin_id:
         proposals = [p for p in proposals if p.get("admin_id") == admin_id]
     return jsonify({"success": True, "proposals": proposals}), 200
@@ -2148,7 +2225,7 @@ def hr_compensation_list_proposals():
 def hr_compensation_approve_proposal(proposal_id):
     from .compensation_service import hr_approve_proposal
 
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     data = request.get_json(silent=True) or {}
@@ -2165,7 +2242,7 @@ def hr_compensation_approve_proposal(proposal_id):
 def hr_compensation_reject_proposal(proposal_id):
     from .compensation_service import hr_reject_proposal
 
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     data = request.get_json(silent=True) or {}
@@ -2250,20 +2327,27 @@ def hr_compensation_upsert_band():
 @jwt_required()
 @hr_required
 def hr_upload_policy_file(policy_id):
-    from .policy_service import save_policy_file
+    from .policy_service import PolicyNotFound, get_policy_for_hr, save_policy_file
 
+    from .upload_tenancy import tenant_upload_path
+
+    try:
+        policy = get_policy_for_hr(policy_id)
+    except PolicyNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     file = request.files.get("file")
     if not file or not file.filename:
         return jsonify({"success": False, "message": "PDF file is required"}), 400
     if not (file.filename or "").lower().endswith(".pdf"):
         return jsonify({"success": False, "message": "Only PDF files are supported"}), 400
 
-    upload_dir = os.path.join(current_app.root_path, "static", "uploads", "policies")
-    os.makedirs(upload_dir, exist_ok=True)
     filename = secure_filename(f"policy_{policy_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}")
-    abs_path = os.path.join(upload_dir, filename)
+    abs_path, rel_path = tenant_upload_path(
+        os.path.join(current_app.root_path, "static", "uploads"),
+        f"policies/{filename}",
+        policy.tenant_id or get_current_tenant_id(),
+    )
     file.save(abs_path)
-    rel_path = f"policies/{filename}"
     try:
         row = save_policy_file(policy_id, rel_path=rel_path)
         return jsonify({"success": True, "policy": row.to_dict()}), 200
@@ -2276,6 +2360,7 @@ def hr_upload_policy_file(policy_id):
 @hr_required
 def hr_ats_offer_letter_pdf(candidate_id):
     from .offer_letter_service import generate_offer_letter_pdf, build_offer_letter_payload
+    from .ats_service import ATSNotFound
 
     try:
         payload = build_offer_letter_payload(candidate_id)
@@ -2288,6 +2373,8 @@ def hr_ats_offer_letter_pdf(candidate_id):
             as_attachment=True,
             download_name=f"offer-letter-{safe}.pdf",
         )
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2296,11 +2383,13 @@ def hr_ats_offer_letter_pdf(candidate_id):
 @jwt_required()
 @hr_required
 def hr_ats_send_offer_email(candidate_id):
-    from .ats_service import send_candidate_offer_email
+    from .ats_service import ATSNotFound, send_candidate_offer_email
 
     try:
         payload = send_candidate_offer_email(candidate_id)
         return jsonify({"success": True, **payload}), 200
+    except ATSNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
@@ -2376,7 +2465,7 @@ def mark_employee_exit():
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "notice_shortfall_days must be a number"}), 400
 
-    admin = Admin.query.filter_by(email=email).first()
+    admin = tenant_admin_query().filter_by(email=email).first()
     if not admin:
         return jsonify({
             "success": False,
@@ -2389,34 +2478,48 @@ def mark_employee_exit():
         if res and res.resignation_date:
             resignation_date = res.resignation_date
 
-    try:
-        hr_email = get_jwt().get("email")
-        ok, message, payload = execute_employee_exit(
-            admin,
-            exit_type=exit_type,
-            exit_date=exit_date,
-            last_working_day=last_working_day,
-            exit_reason=exit_reason,
-            notice_shortfall_days=notice_shortfall_days,
-            resignation_date=resignation_date,
-            hr_email=hr_email,
-            force_override=force_override,
-            force_override_reason=force_override_reason,
-        )
-        if not ok:
-            status = 409 if payload else 400
-            body = {"success": False, "message": message}
-            if payload:
-                body["offboarding"] = payload
-            return jsonify(body), status
+    from .employee_profile_change_service import pending_request_message, stage_action_request
+    from .offboarding_service import validate_employee_exit
 
+    ok, message, payload = validate_employee_exit(
+        admin,
+        exit_type=exit_type,
+        force_override=force_override,
+        force_override_reason=force_override_reason,
+    )
+    if not ok:
+        status = 409 if payload else 400
+        body = {"success": False, "message": message}
+        if payload:
+            body["offboarding"] = payload
+        return jsonify(body), status
+
+    blocked = pending_request_message(admin)
+    if blocked:
+        return jsonify({"success": False, "message": blocked}), 400
+
+    try:
+        stage_action_request(
+            admin,
+            "exit",
+            {},
+            {
+                "exit_type": exit_type,
+                "exit_reason": exit_reason,
+                "exit_date": exit_date.isoformat(),
+                "last_working_day": last_working_day.isoformat(),
+                "resignation_date": resignation_date.isoformat() if resignation_date else None,
+                "notice_shortfall_days": notice_shortfall_days,
+                "force_override": force_override,
+                "force_override_reason": force_override_reason,
+            },
+        )
         db.session.commit()
         return jsonify({
             "success": True,
-            "message": message,
-            **(payload or {}),
+            "pending_approval": True,
+            "message": "Exit sent for Admin approval. The employee stays active until an Admin approves it.",
         }), 200
-
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Exit error: {e}")
@@ -2432,10 +2535,10 @@ def mark_employee_exit():
 @hr_required
 def rejoin_archived_employee(admin_id):
     """
-    Restore an exited employee to active status. Profile/related data unchanged;
-    EmployeeExitHistory rows are kept for audit. Clears latest exit fields on Admin.
+    Ask Admin to restore an exited employee. Profile data and exit history stay
+    unchanged until the request is approved.
     """
-    admin = Admin.query.get(admin_id)
+    admin = tenant_admin_query().filter_by(id=admin_id).first()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     if not getattr(admin, "is_exited", None):
@@ -2446,6 +2549,7 @@ def rejoin_archived_employee(admin_id):
             }
         ), 409
 
+    from .employee_profile_change_service import pending_request_message, stage_action_request
     from .exit_interview_service import serialize_rehire_policy
 
     policy = serialize_rehire_policy(admin_id)
@@ -2458,27 +2562,18 @@ def rejoin_archived_employee(admin_id):
             }
         ), 409
 
-    try:
-        hr_email = get_jwt().get("email")
-        admin.is_exited = False
-        admin.is_active = True
-        admin.exit_date = None
-        admin.exit_type = None
-        admin.exit_reason = None
-        admin.exit_login_until = None
+    blocked = pending_request_message(admin)
+    if blocked:
+        return jsonify({"success": False, "message": blocked}), 400
 
-        db.session.add(
-            AuditLog(
-                action="EMPLOYEE_REJOINED",
-                performed_by=hr_email,
-                target_email=admin.email,
-            )
-        )
+    try:
+        stage_action_request(admin, "rehire", {}, {"action": "rehire"})
         db.session.commit()
         return jsonify(
             {
                 "success": True,
-                "message": "Employee restored as active. All profile data is preserved; past exit history remains for audit.",
+                "pending_approval": True,
+                "message": "Rehire sent for Admin approval. The employee stays exited until an Admin approves it.",
                 "admin_id": admin.id,
             }
         ), 200
@@ -2512,7 +2607,7 @@ def employee_archive_list():
             db.session.query(Admin, EmployeeExitHistory)
             .outerjoin(latest_exit_id_subq, latest_exit_id_subq.c.admin_id == Admin.id)
             .outerjoin(EmployeeExitHistory, EmployeeExitHistory.id == latest_exit_id_subq.c.max_id)
-            .filter(Admin.is_exited == True)
+            .filter(admin_tenant_clause(), Admin.is_exited == True)
             .order_by(
                 db.case(
                     (db.func.coalesce(EmployeeExitHistory.exit_date, Admin.exit_date).is_(None), 1),
@@ -2798,7 +2893,7 @@ def search_employees():
         }), 400
 
     admins = (
-        Admin.query.filter_by(circle=circle, emp_type=emp_type)
+        tenant_admin_query().filter_by(circle=circle, emp_type=emp_type)
         .filter(db.func.coalesce(Admin.is_exited, False) == False)
         .filter(db.func.coalesce(Admin.is_active, True) == True)
         .all()
@@ -2894,6 +2989,39 @@ def serialize(queryset):
     return [item.to_dict() for item in queryset]
 
 
+@hr.route("/family/<int:family_id>/photo", methods=["POST"])
+@jwt_required()
+def upload_family_photo(family_id):
+    """Save a family-member photo under tenants/{employee company}/family/."""
+    from .plan_features import can_access_hr_operations
+    from .tenant_context import tenant_id_for_admin
+    from .upload_tenancy import tenant_upload_path
+
+    row = db.session.get(FamilyDetails, family_id)
+    owner = get_admin_in_tenant(row.admin_id) if row else None
+    caller = current_admin()
+    if not row or not owner or not caller:
+        return jsonify({"success": False, "message": "Family member not found"}), 404
+    if caller.id != owner.id and not can_access_hr_operations(get_jwt()):
+        return jsonify({"success": False, "message": "HR access required"}), 403
+    photo = request.files.get("photo")
+    if not photo or not photo.filename:
+        return jsonify({"success": False, "message": "photo is required"}), 400
+    ext = os.path.splitext(secure_filename(photo.filename))[1].lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        return jsonify({"success": False, "message": "Photo must be a JPG, PNG, WEBP, or GIF"}), 400
+    name = f"family/{row.id}_{uuid.uuid4().hex[:12]}{ext}"
+    abs_path, key = tenant_upload_path(
+        os.path.join(current_app.root_path, "static", "uploads"),
+        name,
+        tenant_id_for_admin(owner),
+    )
+    photo.save(abs_path)
+    row.photo_filename = key
+    db.session.commit()
+    return jsonify({"success": True, "photo_filename": key}), 200
+
+
 @hr.route("/display-details", methods=["GET"])
 @jwt_required()
 @hr_required
@@ -2909,7 +3037,7 @@ def display_details_api():
             "message": "user_id and detail_type are required"
         }), 400
 
-    admin = Admin.query.get(user_id)
+    admin = get_admin_in_tenant(user_id)
     if not admin:
         return jsonify({
             "success": False,
@@ -3438,7 +3566,9 @@ def hr_replace_employee_punch_sessions(admin_id):
 @jwt_required()
 @hr_required
 def get_employee(emp_id):
-    emp = Employee.query.filter_by(emp_id=emp_id).first()
+    emp = Employee.query.filter(
+        Employee.emp_id == emp_id, Employee.admin_id.in_(tenant_admin_ids())
+    ).first()
     if not emp:
         return jsonify({
             "success": False,
@@ -3454,7 +3584,9 @@ def get_employee(emp_id):
 @jwt_required()
 @hr_required
 def update_employee_api(emp_id):
-    emp = Employee.query.filter_by(emp_id=emp_id).first()
+    emp = Employee.query.filter(
+        Employee.emp_id == emp_id, Employee.admin_id.in_(tenant_admin_ids())
+    ).first()
     if not emp:
         return jsonify({
             "success": False,
@@ -3490,11 +3622,13 @@ def update_employee_api(emp_id):
             emp_slug = secure_filename(str(
                 (admin_for_photo.emp_id if admin_for_photo else None) or emp.emp_id or aid
             ))
-            stored = secure_filename(f"profile_{aid}_{emp_slug}_{_uuid.uuid4().hex[:12]}.{ext or 'jpg'}")
-            upload_dir = os.path.join(current_app.static_folder, "uploads")
-            os.makedirs(upload_dir, exist_ok=True)
+            from .upload_tenancy import tenant_upload_path
 
-            photo_path = os.path.join(upload_dir, stored)
+            photo_path, stored = tenant_upload_path(
+                os.path.join(current_app.static_folder, "uploads"),
+                secure_filename(f"profile_{aid}_{emp_slug}_{_uuid.uuid4().hex[:12]}.{ext or 'jpg'}"),
+                tenant_id_for_admin(admin_for_photo) if admin_for_photo else get_current_tenant_id(),
+            )
             photo.save(photo_path)
 
             emp.photo_filename = stored
@@ -3772,6 +3906,7 @@ def _compute_leave_projection(*, admin, leave_balance, leave_type, start_date, e
         emp_type=getattr(admin, "emp_type", None) or "",
         start_date=start_date,
         end_date=end_date,
+        tenant_id=tenant_id_for_admin(admin),
     )
     leave_days = float(working_days) + float(sandwich_days)
     deducted_days = 0.0
@@ -3929,7 +4064,7 @@ def _validate_optional_leave_on_behalf(admin_id, start_date, end_date):
         )
     if start_date != end_date:
         return "Optional Leave can only be applied for one day"
-    if not _optional_holiday_on_date(start_date):
+    if not _optional_holiday_on_date(start_date, tenant_id=tenant_for_admin_id(admin_id)):
         return "Selected date is not an optional holiday in the company calendar"
     return None
 
@@ -4025,6 +4160,19 @@ def get_leave_updation_policy():
     }), 200
 
 
+@hr.route("/leave-updation/policy", methods=["PUT"])
+@jwt_required()
+@hr_required
+def update_leave_updation_policy():
+    """Save the company's leave policy (backdate limits, payroll lock, manager on behalf)."""
+    admin = current_admin()
+    try:
+        leave_cfg.save_leave_settings(request.get_json(silent=True) or {}, admin_id=admin.id if admin else None)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    return get_leave_updation_policy()
+
+
 @hr.route("/leave-updation/requests/preview", methods=["POST"])
 @jwt_required()
 @hr_required
@@ -4037,6 +4185,8 @@ def preview_leave_on_behalf_by_hr():
         admin_id = int(admin_id)
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     leave_type = (payload.get("leave_type") or "").strip()
     if not leave_type:
@@ -4113,7 +4263,9 @@ def list_leave_updation_requests():
     rows_out = []
 
     if request_type in ("all", "leave"):
-        q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id)
+        q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id).filter(
+            admin_tenant_clause()
+        )
         if status != "all":
             q = q.filter(db.func.lower(LeaveApplication.status) == status)
         if circle:
@@ -4126,7 +4278,9 @@ def list_leave_updation_requests():
         rows_out.extend(_serialize_leave_updation_row(r) for r in leave_rows)
 
     if request_type in ("all", "wfh"):
-        q_wfh = WorkFromHomeApplication.query.join(Admin, WorkFromHomeApplication.admin_id == Admin.id)
+        q_wfh = WorkFromHomeApplication.query.join(
+            Admin, WorkFromHomeApplication.admin_id == Admin.id
+        ).filter(admin_tenant_clause())
         if status != "all":
             q_wfh = q_wfh.filter(db.func.lower(WorkFromHomeApplication.status) == status)
         if circle:
@@ -4162,6 +4316,8 @@ def create_leave_on_behalf_by_hr():
         admin_id = int(admin_id)
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     leave_type = (payload.get("leave_type") or "").strip()
     reason = (payload.get("reason") or "").strip()
@@ -4208,7 +4364,7 @@ def create_leave_on_behalf_by_hr():
         return jsonify({"success": False, "message": "Leave balance not configured for employee"}), 400
 
     hr_email = (get_jwt() or {}).get("email")
-    hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+    hr_admin = current_admin()
 
     if leave_type == "Optional Leave":
         opt_err = _validate_optional_leave_on_behalf(admin_id, start_date, end_date)
@@ -4355,7 +4511,9 @@ def list_attendance_regularizations():
     circle = (request.args.get("circle") or "").strip()
     emp_type = (request.args.get("emp_type") or "").strip()
 
-    q = AttendanceRegularization.query.join(Admin, AttendanceRegularization.admin_id == Admin.id)
+    q = AttendanceRegularization.query.join(
+        Admin, AttendanceRegularization.admin_id == Admin.id
+    ).filter(admin_tenant_clause())
     if status != "all":
         q = q.filter(db.func.lower(AttendanceRegularization.status) == status)
     if circle:
@@ -4379,7 +4537,7 @@ def list_attendance_regularizations():
 @hr_required
 def review_attendance_regularization(reg_id):
     row = AttendanceRegularization.query.get(reg_id)
-    if not row:
+    if not row or not admin_id_in_tenant(row.admin_id):
         return jsonify({"success": False, "message": "Regularization request not found"}), 404
     if (row.status or "") != "Pending":
         return jsonify({"success": False, "message": "Only pending requests can be reviewed"}), 409
@@ -4395,7 +4553,7 @@ def review_attendance_regularization(reg_id):
 
     hr_comment = (payload.get("hr_comment") or payload.get("comment") or "").strip()
     hr_email = (get_jwt() or {}).get("email")
-    hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+    hr_admin = current_admin()
 
     if next_status == "Rejected":
         row.status = "Rejected"
@@ -4494,6 +4652,7 @@ def leave_proxy_report():
     q = (
         LeaveApplication.query.filter(LeaveApplication.applied_on_behalf.is_(True))
         .join(Admin, LeaveApplication.admin_id == Admin.id)
+        .filter(admin_tenant_clause())
     )
     if circle:
         q = q.filter(Admin.circle == circle)
@@ -4542,7 +4701,7 @@ def leave_proxy_report():
 @hr_required
 def update_leave_application_by_hr(leave_id):
     leave_obj = LeaveApplication.query.get(leave_id)
-    if not leave_obj:
+    if not leave_obj or not admin_id_in_tenant(leave_obj.admin_id):
         return jsonify({"success": False, "message": "Leave request not found"}), 404
 
     payload = request.get_json(silent=True) or {}
@@ -4636,7 +4795,7 @@ def update_leave_application_by_hr(leave_id):
 
     try:
         hr_email = (get_jwt() or {}).get("email")
-        hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+        hr_admin = current_admin()
         send_hr_leave_updation_email(
             leave_obj=leave_obj,
             hr_admin=hr_admin,
@@ -4697,7 +4856,7 @@ def update_leave_application_by_hr(leave_id):
 @hr_required
 def get_leave_updation_audit(leave_id):
     leave_obj = LeaveApplication.query.get(leave_id)
-    if not leave_obj:
+    if not leave_obj or not admin_id_in_tenant(leave_obj.admin_id):
         return jsonify({"success": False, "message": "Leave request not found"}), 404
 
     pattern = f"LEAVE_UPDATION|leave_id={leave_id}|%"
@@ -4725,7 +4884,7 @@ def get_leave_updation_audit(leave_id):
 @hr_required
 def update_wfh_application_by_hr(wfh_id):
     wfh_obj = WorkFromHomeApplication.query.get(wfh_id)
-    if not wfh_obj:
+    if not wfh_obj or not admin_id_in_tenant(wfh_obj.admin_id):
         return jsonify({"success": False, "message": "WFH request not found"}), 404
 
     payload = request.get_json(silent=True) or {}
@@ -4775,7 +4934,7 @@ def update_wfh_application_by_hr(wfh_id):
 
     try:
         hr_email = (get_jwt() or {}).get("email")
-        hr_admin = Admin.query.filter_by(email=hr_email).first() if hr_email else None
+        hr_admin = current_admin()
         send_hr_wfh_updation_email(
             wfh_obj=wfh_obj,
             hr_admin=hr_admin,
@@ -4822,7 +4981,7 @@ def update_wfh_application_by_hr(wfh_id):
 @hr_required
 def get_wfh_updation_audit(wfh_id):
     wfh_obj = WorkFromHomeApplication.query.get(wfh_id)
-    if not wfh_obj:
+    if not wfh_obj or not admin_id_in_tenant(wfh_obj.admin_id):
         return jsonify({"success": False, "message": "WFH request not found"}), 404
 
     pattern = f"WFH_UPDATION|wfh_id={wfh_id}|%"
@@ -5066,6 +5225,17 @@ def _assessment_integrity_summary(invite):
     }
 
 
+def _assessment_media_rel(invite_id, folder, filename):
+    """``tenants/{invite company}/{folder}/{filename}`` (candidate routes carry no company login)."""
+    from .models.assessment import AssessmentInvite
+    from .tenant_context import DEFAULT_TENANT_ID
+    from .upload_tenancy import tenant_upload_rel
+
+    invite = db.session.get(AssessmentInvite, int(invite_id))
+    tenant_id = (invite.tenant_id if invite else None) or DEFAULT_TENANT_ID
+    return tenant_upload_rel(f"{folder}/{filename}", tenant_id)
+
+
 def _assessment_save_selfie(invite_id, selfie_data_url):
     if not selfie_data_url or not isinstance(selfie_data_url, str):
         return None, "Selfie image is required."
@@ -5080,13 +5250,12 @@ def _assessment_save_selfie(invite_id, selfie_data_url):
     uploads_root = current_app.config.get("UPLOAD_FOLDER")
     if not uploads_root:
         uploads_root = os.path.join(current_app.root_path, "static", "uploads")
-    target_dir = os.path.join(uploads_root, "assessment_selfies")
-    os.makedirs(target_dir, exist_ok=True)
-    filename = f"assessment_{invite_id}_{uuid.uuid4().hex}.jpg"
-    path = os.path.join(target_dir, filename)
+    rel = _assessment_media_rel(invite_id, "assessment_selfies", f"assessment_{invite_id}_{uuid.uuid4().hex}.jpg")
+    path = os.path.join(uploads_root, *rel.split("/"))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(raw)
-    return f"assessment_selfies/{filename}", None
+    return rel, None
 
 
 ASSESSMENT_RECORDING_MAX_BYTES = 800 * 1024 * 1024  # 800 MB — long tests; tune server/proxy if needed
@@ -5195,19 +5364,20 @@ def _assessment_save_recording_file(invite_id, file_storage):
     except OSError as e:
         current_app.logger.exception("assessment recording: uploads root unavailable")
         return None, f"Server cannot store recordings: {e}"
-    target_dir = os.path.join(uploads_root, "assessment_recordings")
-    try:
-        os.makedirs(target_dir, exist_ok=True)
-    except OSError as e:
-        current_app.logger.exception("assessment recording: cannot create directory")
-        return None, f"Server cannot store recordings: {e}"
     raw_name = getattr(file_storage, "filename", None) or "session.webm"
     safe_base = secure_filename(raw_name) or "recording.webm"
     lower = safe_base.lower()
     if not lower.endswith((".webm", ".mp4", ".mkv")):
         safe_base = f"{safe_base}.webm"
-    filename = f"assessment_{invite_id}_{uuid.uuid4().hex}_{safe_base}"
-    abs_path = os.path.join(target_dir, filename)
+    rel = _assessment_media_rel(
+        invite_id, "assessment_recordings", f"assessment_{invite_id}_{uuid.uuid4().hex}_{safe_base}"
+    )
+    abs_path = os.path.join(uploads_root, *rel.split("/"))
+    try:
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    except OSError as e:
+        current_app.logger.exception("assessment recording: cannot create directory")
+        return None, f"Server cannot store recordings: {e}"
     try:
         file_storage.save(abs_path)
     except OSError as e:
@@ -5229,7 +5399,7 @@ def _assessment_save_recording_file(invite_id, file_storage):
         except OSError:
             pass
         return None, "Recording file is empty or invalid."
-    return f"assessment_recordings/{filename}", None
+    return rel, None
 
 
 def _assessment_save_recording_chunk(invite_id, seq, file_storage):
@@ -5342,14 +5512,14 @@ def _assessment_finalize_recording_chunks(invite_id):
             return None, f"Missing recording chunk at sequence {expected}."
         expected += 1
 
-    target_dir = os.path.join(uploads_root, "assessment_recordings")
+    rel = _assessment_media_rel(
+        invite_id, "assessment_recordings", f"assessment_{invite_id}_{uuid.uuid4().hex}_session.webm"
+    )
+    abs_out = os.path.join(uploads_root, *rel.split("/"))
     try:
-        os.makedirs(target_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(abs_out), exist_ok=True)
     except OSError as e:
         return None, f"Server cannot store recordings: {e}"
-
-    filename = f"assessment_{invite_id}_{uuid.uuid4().hex}_session.webm"
-    abs_out = os.path.join(target_dir, filename)
     total = 0
     try:
         with open(abs_out, "wb") as out:
@@ -5383,7 +5553,7 @@ def _assessment_finalize_recording_chunks(invite_id):
 
     # Cleanup chunk parts after successful merge.
     _assessment_remove_chunks_dir(uploads_root, invite_id)
-    return f"assessment_recordings/{filename}", None
+    return rel, None
 
 
 def _assessment_auto_score(answers):
@@ -5590,6 +5760,7 @@ def create_assessment_invite():
     raw_token = secrets.token_urlsafe(48)
     token_hash = _assessment_hash_token(raw_token)
     invite = AssessmentInvite(
+        tenant_id=get_current_tenant_id(),
         full_name=full_name,
         department=department,
         candidate_email=candidate_email,
@@ -5609,8 +5780,8 @@ def create_assessment_invite():
         valid_minutes=ASSESSMENT_LINK_TTL_MINUTES,
         cc_emails=[
             (get_jwt() or {}).get("email"),
-            current_app.config.get("ZEPTO_CC_HR"),
-            current_app.config.get("EMAIL_HR"),
+            company_mailbox("ZEPTO_CC_HR"),
+            company_mailbox("EMAIL_HR"),
         ],
     )
     if not mail_ok:
@@ -5651,7 +5822,7 @@ def create_assessment_invite():
 @hr_required
 def list_assessment_invites():
     rows = (
-        AssessmentInvite.query.order_by(AssessmentInvite.created_at.desc(), AssessmentInvite.id.desc())
+        assessment_invite_query().order_by(AssessmentInvite.created_at.desc(), AssessmentInvite.id.desc())
         .limit(500)
         .all()
     )
@@ -5684,7 +5855,7 @@ def list_assessment_invites():
 @jwt_required()
 @hr_required
 def get_assessment_invite_detail(invite_id):
-    invite = AssessmentInvite.query.get(invite_id)
+    invite = assessment_invite_query().filter(AssessmentInvite.id == invite_id).first()
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
     answers = dict(_assessment_load_answers(invite))
@@ -5736,7 +5907,7 @@ def get_assessment_invite_detail(invite_id):
 @hr_required
 def email_assessment_hr_report(invite_id):
     """Email HR: Arithmetic + English proficiency table and Section 2 (Q26–62) Q&A for this invite."""
-    invite = AssessmentInvite.query.get(invite_id)
+    invite = assessment_invite_query().filter(AssessmentInvite.id == invite_id).first()
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
     if invite.status not in ("submitted", "disqualified", "evaluated"):
@@ -5782,7 +5953,7 @@ def get_assessment_invite_recording(invite_id):
     Sets ``recording_first_viewed_at`` on first successful open; removes the file after
     ``ASSESSMENT_RECORDING_HR_RETENTION_DAYS`` from that moment (enforced here and by daily purge).
     """
-    invite = AssessmentInvite.query.get(invite_id)
+    invite = assessment_invite_query().filter(AssessmentInvite.id == invite_id).first()
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
     rel = (getattr(invite, "recording_path", None) or "").strip()
@@ -5825,7 +5996,7 @@ def get_assessment_invite_recording(invite_id):
 @hr_required
 def get_assessment_invite_selfie(invite_id):
     """HR-only: pre-test verification photo saved when the candidate started the test."""
-    invite = AssessmentInvite.query.get(invite_id)
+    invite = assessment_invite_query().filter(AssessmentInvite.id == invite_id).first()
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
     rel = (getattr(invite, "selfie_path", None) or "").strip()
@@ -5853,7 +6024,7 @@ def get_assessment_invite_selfie(invite_id):
 @jwt_required()
 @hr_required
 def delete_assessment_invite(invite_id):
-    invite = AssessmentInvite.query.get(invite_id)
+    invite = assessment_invite_query().filter(AssessmentInvite.id == invite_id).first()
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
 
@@ -5884,7 +6055,7 @@ def delete_assessment_invite(invite_id):
 @jwt_required()
 @hr_required
 def evaluate_assessment_invite(invite_id):
-    invite = AssessmentInvite.query.get(invite_id)
+    invite = assessment_invite_query().filter(AssessmentInvite.id == invite_id).first()
     if not invite:
         return jsonify({"success": False, "message": "Invite not found"}), 404
     if invite.status not in ("submitted", "disqualified"):
@@ -6274,10 +6445,13 @@ def add_news_feed_api():
     if "file" in request.files:
         file = request.files["file"]
         if file and file.filename:
-            filename = secure_filename(file.filename)
+            import uuid as _uuid
+            from .upload_tenancy import tenant_upload_rel
+
+            filename = tenant_upload_rel(f"news/{_uuid.uuid4().hex[:12]}/{secure_filename(file.filename)}")
             upload_dir = current_app.config.get("UPLOAD_FOLDER") or os.path.join(current_app.static_folder or "static", "uploads")
-            os.makedirs(upload_dir, exist_ok=True)
-            abs_file_path = os.path.join(upload_dir, filename)
+            abs_file_path = os.path.join(upload_dir, *filename.split("/"))
+            os.makedirs(os.path.dirname(abs_file_path), exist_ok=True)
             file.save(abs_file_path)
 
     news_feed = NewsFeed(
@@ -6335,7 +6509,9 @@ def list_news_feed_history():
         circle = request.args.get("circle")
         emp_type = request.args.get("emp_type")
 
-        q = NewsFeed.query.order_by(NewsFeed.created_at.desc())
+        q = NewsFeed.query.filter(tenant_column_clause(NewsFeed.tenant_id)).order_by(
+            NewsFeed.created_at.desc()
+        )
 
         if circle and circle.lower() != "all":
             q = q.filter(NewsFeed.circle == circle)
@@ -6373,7 +6549,9 @@ def list_news_feed_history():
 @hr_required
 def delete_news_feed(post_id):
     """Delete a news feed post (HR only)."""
-    post = NewsFeed.query.get(post_id)
+    post = NewsFeed.query.filter(
+        NewsFeed.id == post_id, tenant_column_clause(NewsFeed.tenant_id)
+    ).first()
     if not post:
         return jsonify({"success": False, "message": "News feed post not found"}), 404
 
@@ -6400,7 +6578,7 @@ def search_employee_api_for_asset():
         }), 400
 
     # Admin is the source of truth
-    admin = Admin.query.filter_by(emp_id=emp_id, is_exited=False).first()
+    admin = tenant_admin_query().filter_by(emp_id=emp_id, is_exited=False).first()
 
     if not admin:
         return jsonify({
@@ -6516,7 +6694,7 @@ def assign_asset():
             "message": "admin_id and asset name are required"
         }), 400
 
-    admin = Admin.query.get(admin_id)
+    admin = get_admin_in_tenant(admin_id)
     if not admin:
         return jsonify({
             "success": False,
@@ -6529,9 +6707,11 @@ def assign_asset():
     uploaded_files = request.files.getlist("images")
     image_paths = []
 
-    upload_base = f"assets/{admin.emp_id}"
+    from .upload_tenancy import tenant_upload_rel
+
+    upload_base = tenant_upload_rel(f"assets/{admin.id}", tenant_id_for_admin(admin))
     upload_dir = os.path.join(
-        current_app.root_path, "static", "uploads", upload_base
+        current_app.root_path, "static", "uploads", *upload_base.split("/")
     )
     os.makedirs(upload_dir, exist_ok=True)
 
@@ -6581,7 +6761,7 @@ def assign_asset():
 @hr_required
 def update_asset_api(asset_id):
     asset = Asset.query.get(asset_id)
-    if not asset:
+    if not asset or not admin_id_in_tenant(asset.admin_id):
         return jsonify({
             "success": False,
             "message": "Asset not found"
@@ -6596,11 +6776,13 @@ def update_asset_api(asset_id):
     # Handle new images
     # -------------------------
     if "images" in request.files:
-        upload_base = f"assets/{asset.admin.emp_id}"
+        from .upload_tenancy import tenant_upload_rel
+
+        upload_base = tenant_upload_rel(f"assets/{asset.admin_id}", tenant_id_for_admin(asset.admin))
         upload_dir = os.path.join(
             current_app.root_path,
             "static", "uploads",
-            upload_base
+            *upload_base.split("/")
         )
         os.makedirs(upload_dir, exist_ok=True)
 
@@ -6700,7 +6882,7 @@ def _parse_location_coordinate(value):
 @jwt_required()
 @hr_required
 def list_locations():
-    locations = Location.query.all()
+    locations = location_query().all()
     return jsonify({
         "success": True,
         "locations": [
@@ -6745,7 +6927,9 @@ def create_location():
     if grace_f < 0:
         return jsonify({"success": False, "message": "Grace cannot be negative"}), 400
 
-    loc = Location(name=name, latitude=lat_f, longitude=lng_f, radius=radius_f, grace=grace_f)
+    loc = Location(
+        tenant_id=get_current_tenant_id(), name=name, latitude=lat_f, longitude=lng_f, radius=radius_f, grace=grace_f
+    )
     db.session.add(loc)
     try:
         db.session.commit()
@@ -6774,7 +6958,7 @@ def create_location():
 @jwt_required()
 @hr_required
 def delete_location(loc_id):
-    loc = Location.query.get(loc_id)
+    loc = location_query().filter(Location.id == loc_id).first()
     if not loc:
         return jsonify({"success": False, "message": "Location not found"}), 404
     db.session.delete(loc)
@@ -6793,6 +6977,7 @@ def list_noc():
     """Return employees who submitted resignation (separation form). HR sees them and takes NOC action."""
     resignations = (
         Resignation.query.join(Admin, Resignation.admin_id == Admin.id)
+        .filter(admin_tenant_clause())
         .order_by(Resignation.applied_on.desc())
         .all()
     )
@@ -6832,7 +7017,7 @@ def create_noc():
     noc_date_str = data.get("noc_date")
     if not admin_id:
         return jsonify({"success": False, "message": "admin_id is required"}), 400
-    admin = Admin.query.get(admin_id)
+    admin = get_admin_in_tenant(admin_id)
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     existing = Noc.query.filter_by(admin_id=admin_id).first()
@@ -6860,7 +7045,10 @@ def create_noc():
 @hr_required
 def leave_accrual_summary():
     """Quick monitoring endpoint for latest leave accrual runs."""
-    latest_run_date = db.session.query(db.func.max(LeaveAccrualLog.run_date)).scalar()
+    in_tenant = LeaveAccrualLog.admin_id.in_(tenant_admin_ids())
+    latest_run_date = (
+        db.session.query(db.func.max(LeaveAccrualLog.run_date)).filter(in_tenant).scalar()
+    )
     if not latest_run_date:
         return jsonify(
             {
@@ -6883,19 +7071,20 @@ def leave_accrual_summary():
     def _run_stats_for_date(run_date):
         events_total = (
             db.session.query(db.func.count(LeaveAccrualLog.id))
-            .filter(LeaveAccrualLog.run_date == run_date)
+            .filter(in_tenant, LeaveAccrualLog.run_date == run_date)
             .scalar()
             or 0
         )
         admins_affected = (
             db.session.query(db.func.count(db.distinct(LeaveAccrualLog.admin_id)))
-            .filter(LeaveAccrualLog.run_date == run_date)
+            .filter(in_tenant, LeaveAccrualLog.run_date == run_date)
             .scalar()
             or 0
         )
         pl_credits = (
             db.session.query(db.func.count(LeaveAccrualLog.id))
             .filter(
+                in_tenant,
                 LeaveAccrualLog.run_date == run_date,
                 LeaveAccrualLog.event_key.like("PL%"),
             )
@@ -6905,6 +7094,7 @@ def leave_accrual_summary():
         cl_credits = (
             db.session.query(db.func.count(LeaveAccrualLog.id))
             .filter(
+                in_tenant,
                 LeaveAccrualLog.run_date == run_date,
                 LeaveAccrualLog.event_key.like("CL%"),
             )
@@ -6914,6 +7104,7 @@ def leave_accrual_summary():
         year_resets = (
             db.session.query(db.func.count(LeaveAccrualLog.id))
             .filter(
+                in_tenant,
                 LeaveAccrualLog.run_date == run_date,
                 LeaveAccrualLog.event_key.like("YEAR_RESET%"),
             )
@@ -6931,6 +7122,7 @@ def leave_accrual_summary():
 
     recent_run_dates = (
         db.session.query(LeaveAccrualLog.run_date)
+        .filter(in_tenant)
         .distinct()
         .order_by(LeaveAccrualLog.run_date.desc())
         .limit(run_limit)
@@ -6956,7 +7148,7 @@ def upload_noc():
     admin_id = request.form.get("admin_id")
     if not admin_id:
         return jsonify({"success": False, "message": "admin_id is required"}), 400
-    admin = Admin.query.get(admin_id)
+    admin = get_admin_in_tenant(admin_id)
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     file = request.files.get("file")
@@ -6971,12 +7163,15 @@ def upload_noc():
         db.session.flush()
     claims = get_jwt()
     emp_type = claims.get("emp_type") or "Human Resource"
-    upload_dir = os.path.join(current_app.root_path, "static", "uploads", "noc")
-    os.makedirs(upload_dir, exist_ok=True)
+    from .upload_tenancy import tenant_upload_path
+
     filename = secure_filename(f"{admin.emp_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}")
-    file_path = os.path.join(upload_dir, filename)
+    file_path, rel_path = tenant_upload_path(
+        os.path.join(current_app.root_path, "static", "uploads"),
+        f"noc/{filename}",
+        tenant_id_for_admin(admin),
+    )
     file.save(file_path)
-    rel_path = f"noc/{filename}"
     noc_upload = Noc_Upload(admin_id=admin_id, file_path=rel_path, emp_type_uploader=emp_type)
     db.session.add(noc_upload)
     noc.status = "Uploaded"
@@ -6989,7 +7184,7 @@ def upload_noc():
 @hr_required
 def hr_list_noc_department_requests():
     """HR panel — only Human Resource department_key rows."""
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     status_raw = (request.args.get("status") or "All").strip()
@@ -7001,7 +7196,7 @@ def hr_list_noc_department_requests():
 @jwt_required()
 @hr_required
 def hr_upload_noc_department_document(req_id):
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     file = request.files.get("file")
@@ -7014,7 +7209,7 @@ def hr_upload_noc_department_document(req_id):
 @jwt_required()
 @hr_required
 def hr_download_noc_department_document(req_id):
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     out = download_noc_document("hr", admin, req_id)
@@ -7043,6 +7238,7 @@ def search_employee_api():
 
     employees = (
         Admin.query.filter(
+            admin_tenant_clause(),
             Admin.emp_type == emp_type,
             Admin.circle == circle,
             # Treat NULL as legacy-active/non-exited; exclude explicitly inactive or exited employees.
@@ -7084,7 +7280,7 @@ def search_employee_api():
 def get_employee_api(email_path):
     """Get Admin (employee) by email. Uses path so URL-encoded @ and dots are preserved."""
     email = unquote(email_path).strip()
-    admin = Admin.query.filter(
+    admin = tenant_admin_query().filter(
         Admin.email == email,
         # Treat NULL as not-exited (older rows may have NULL in is_exited)
         or_(Admin.is_exited == False, Admin.is_exited.is_(None))
@@ -7121,7 +7317,7 @@ def get_employee_api(email_path):
 def update_employee_api(email_path):
     """Update Admin (employee) by email."""
     email = re.sub(r"\s+", "", unquote(email_path)).strip().lower()
-    admin = Admin.query.filter(
+    admin = tenant_admin_query().filter(
         func.lower(func.replace(func.trim(Admin.email), " ", "")) == email,
         # Treat NULL as not-exited (older rows may have NULL in is_exited)
         or_(Admin.is_exited == False, Admin.is_exited.is_(None))
@@ -7134,7 +7330,16 @@ def update_employee_api(email_path):
         }), 404
 
     data = request.get_json() or {}
-    if not data:
+    from .employee_profile_change_service import (
+        prepare_profile_change,
+        stage_profile_change,
+        update_result_message,
+    )
+
+    data, pending_changes, pending_error = prepare_profile_change(admin, data)
+    if pending_error:
+        return jsonify({"success": False, "message": pending_error}), 400
+    if not data and not pending_changes:
         return jsonify({
             "success": False,
             "message": "No fields to update"
@@ -7149,7 +7354,7 @@ def update_employee_api(email_path):
             }), 400
         current = re.sub(r"\s+", "", (admin.email or "")).strip().lower()
         if new_email != current:
-            conflict = Admin.query.filter(
+            conflict = tenant_admin_query(tenant_id_for_admin(admin)).filter(
                 func.lower(func.replace(func.trim(Admin.email), " ", "")) == new_email,
                 Admin.id != admin.id,
             ).first()
@@ -7285,12 +7490,58 @@ def update_employee_api(email_path):
         if proposed_desig:
             _upsert_employee_designation_for_admin(admin, proposed_desig)
 
+    if pending_changes:
+        stage_profile_change(admin, pending_changes)
+
     db.session.commit()
 
+    message, pending_fields = update_result_message(pending_changes)
+    if data and pending_changes:
+        labels = message.split(". ", 1)[-1]
+        message = f"Saved the other details. {labels}"
     return jsonify({
         "success": True,
-        "message": "Employee record updated successfully"
+        "message": message,
+        "pending_approval": bool(pending_changes),
+        "pending_fields": pending_fields,
     }), 200
+
+
+@hr.route("/admin-requests", methods=["POST"])
+@jwt_required()
+@hr_required
+def create_admin_request():
+    """HR writes a request that Admin reviews. It does not change employee data."""
+    from .employee_profile_change_service import stage_general_request
+
+    data = request.get_json(silent=True) or {}
+    try:
+        stage_general_request(data.get("subject"), data.get("details"))
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("HR admin request failed")
+        return jsonify({"success": False, "message": "Could not send this request."}), 500
+    return jsonify({
+        "success": True,
+        "pending_approval": True,
+        "message": "Request sent to Admin. It stays pending until an Admin approves or rejects it.",
+    }), 201
+
+
+@hr.route("/employee-change-requests", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_employee_change_requests():
+    """HR history of profile changes sent for Admin approval."""
+    from .employee_profile_change_service import list_change_requests, request_tenant_id
+
+    status = (request.args.get("status") or "all").strip()
+    rows = list_change_requests(request_tenant_id(), status)
+    return jsonify({"success": True, "requests": rows, "count": len(rows)}), 200
 
 
 @hr.route("/circle-transfers", methods=["GET"])
@@ -7303,7 +7554,9 @@ def list_circle_transfers():
     from_eff = (request.args.get("effective_from") or "").strip()
     to_eff = (request.args.get("effective_to") or "").strip()
 
-    query = EmployeeCircleHistory.query.options(joinedload(EmployeeCircleHistory.admin))
+    query = EmployeeCircleHistory.query.options(joinedload(EmployeeCircleHistory.admin)).filter(
+        EmployeeCircleHistory.admin_id.in_(tenant_admin_ids())
+    )
     needs_admin_join = bool(q) or (circle and circle.lower() != "all")
     if needs_admin_join:
         query = query.join(Admin, EmployeeCircleHistory.admin_id == Admin.id)
@@ -7347,7 +7600,7 @@ def list_circle_transfers():
 @hr_required
 def get_employee_circle_history(email_path):
     email = unquote(email_path).strip()
-    admin = Admin.query.filter(
+    admin = tenant_admin_query().filter(
         Admin.email == email,
         or_(Admin.is_exited == False, Admin.is_exited.is_(None)),
     ).first()
@@ -7432,8 +7685,10 @@ def send_ex_employee_documents():
     db.session.add(share)
     db.session.flush()
 
-    upload_root = _ex_employee_uploads_base_dir()
-    share_dir = os.path.join(upload_root, str(share.id))
+    from .upload_tenancy import tenant_upload_rel
+
+    share_rel = tenant_upload_rel(f"ex_employee_docs/{share.id}", get_current_tenant_id())
+    share_dir = _abs_path_from_rel(share_rel)
     os.makedirs(share_dir, exist_ok=True)
 
     try:
@@ -7442,7 +7697,7 @@ def send_ex_employee_documents():
                 raise ValueError("Empty file upload")
             orig_name = secure_filename(file_storage.filename) or f"file_{idx + 1}"
             disk_name = f"{uuid.uuid4().hex}_{orig_name}"
-            rel_path = os.path.join("ex_employee_docs", str(share.id), disk_name).replace("\\", "/")
+            rel_path = f"{share_rel}/{disk_name}"
             abs_path = os.path.join(share_dir, disk_name)
             file_storage.save(abs_path)
             db.session.add(
@@ -7594,7 +7849,8 @@ def ex_employee_documents_history():
 
     now = utc_now()
     shares = (
-        ExEmployeeDocShare.query.order_by(ExEmployeeDocShare.created_at.desc(), ExEmployeeDocShare.id.desc())
+        ExEmployeeDocShare.query.filter(ExEmployeeDocShare.created_by_admin_id.in_(tenant_admin_ids()))
+        .order_by(ExEmployeeDocShare.created_at.desc(), ExEmployeeDocShare.id.desc())
         .limit(limit)
         .all()
     )

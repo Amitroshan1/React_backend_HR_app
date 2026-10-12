@@ -5,16 +5,14 @@ from . import db
 from .models.Admin_models import Admin
 from .models.notification import Notification
 from .datetime_utils import isoformat_api
+from .tenant_context import current_admin
 
 
 notifications = Blueprint("notifications", __name__)
 
 
 def _current_admin():
-    email = get_jwt().get("email")
-    if not email:
-        return None
-    return Admin.query.filter_by(email=email).first()
+    return current_admin()
 
 
 @notifications.route("/", methods=["GET"])

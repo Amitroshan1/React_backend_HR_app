@@ -21,7 +21,7 @@ export function isPayView(view) {
 export const HR_MODULE_DISPLAY_NAMES = {
   'Sign Up': 'Recruitment',
   'Update_SignUp': 'Edit employee profile',
-  'Add Department And Circle': 'Departments & circles',
+  'Request to Admin': 'Request to Admin',
   'Leave Application Updation': 'Leave requests (admin)',
   'Bulk Employee Import': 'Bulk employee import',
   'Ex-Employee Document Sharing': 'Ex-employee documents',
@@ -88,6 +88,7 @@ export const HR_MODULE_GROUPS = [
     description: 'Profiles, managers, org structure, and transfers',
     titles: [
       'Update_SignUp',
+      'Request to Admin',
       'Update Manager',
       'Organization Chart',
       'Circle Transfer History',
@@ -126,9 +127,8 @@ export const HR_MODULE_GROUPS = [
   {
     id: 'admin',
     fullLabel: 'Admin & setup',
-    description: 'Master data, locations, geo monitoring, and company announcements',
+    description: 'Office locations, geo monitoring, and company announcements',
     titles: [
-      'Add Department And Circle',
       'Add Locations',
       'Geo Analytics',
       'News Feed',

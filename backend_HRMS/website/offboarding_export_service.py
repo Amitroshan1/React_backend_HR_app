@@ -13,14 +13,16 @@ from .pdf_watermark import install_page_watermark
 from .offboarding_service import build_exit_analytics
 
 
-def build_exit_detail_rows(*, months: int = 12) -> list[dict]:
+def build_exit_detail_rows(*, months: int = 12, tenant_id: int) -> list[dict]:
     from . import db
     from .models.Admin_models import Admin, EmployeeExitHistory
+    from .tenant_context import admin_tenant_clause
 
     cutoff = date.today() - timedelta(days=max(1, months) * 31)
     rows = (
         db.session.query(EmployeeExitHistory, Admin)
         .join(Admin, Admin.id == EmployeeExitHistory.admin_id)
+        .filter(admin_tenant_clause(tenant_id))
         .filter(EmployeeExitHistory.exit_date >= cutoff)
         .order_by(EmployeeExitHistory.exit_date.desc(), EmployeeExitHistory.id.desc())
         .all()
@@ -44,8 +46,8 @@ def build_exit_detail_rows(*, months: int = 12) -> list[dict]:
     return out
 
 
-def generate_analytics_csv(*, months: int = 12) -> BytesIO:
-    rows = build_exit_detail_rows(months=months)
+def generate_analytics_csv(*, months: int = 12, tenant_id: int) -> BytesIO:
+    rows = build_exit_detail_rows(months=months, tenant_id=tenant_id)
     buf = StringIO()
     writer = csv.DictWriter(
         buf,
@@ -70,9 +72,9 @@ def generate_analytics_csv(*, months: int = 12) -> BytesIO:
     return out
 
 
-def generate_analytics_pdf(*, months: int = 12) -> BytesIO:
-    analytics = build_exit_analytics(months=months)
-    rows = build_exit_detail_rows(months=months)
+def generate_analytics_pdf(*, months: int = 12, tenant_id: int) -> BytesIO:
+    analytics = build_exit_analytics(months=months, tenant_id=tenant_id)
+    rows = build_exit_detail_rows(months=months, tenant_id=tenant_id)
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4

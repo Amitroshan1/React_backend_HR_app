@@ -7,6 +7,7 @@ from . import db
 from .datetime_utils import utc_now, isoformat_api
 from .models.Admin_models import Admin
 from .models.probation import ProbationReview
+from .tenant_context import current_admin
 from .email import send_probation_hr_decision_email, send_probation_employee_decision_email
 from .probation_utils import (
     HR_DECISIONS,
@@ -33,10 +34,7 @@ def _norm(value):
 
 
 def _current_admin():
-    email = get_jwt().get("email")
-    if not email:
-        return None
-    return Admin.query.filter_by(email=email).first()
+    return current_admin()
 
 
 def _serialize_date(value):

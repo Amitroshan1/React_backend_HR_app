@@ -18,13 +18,20 @@ from .geo_fence_config import get_geo_fence_config
 from .geo_mode_orchestrator import get_engine_mode
 from .models.Admin_models import Admin
 from .models.geo_engine_comparison import GeoEngineComparison
+from .tenant_context import admin_owned_clause
+
+
+def _in_range(start: datetime, end: datetime) -> tuple:
+    """Comparisons in [start, end] of the caller's company (rows without an employee: company 1)."""
+    return (
+        GeoEngineComparison.created_at >= start,
+        GeoEngineComparison.created_at <= end,
+        admin_owned_clause(GeoEngineComparison.admin_id),
+    )
 
 
 def _q(start: datetime, end: datetime):
-    return GeoEngineComparison.query.filter(
-        GeoEngineComparison.created_at >= start,
-        GeoEngineComparison.created_at <= end,
-    )
+    return GeoEngineComparison.query.filter(*_in_range(start, end))
 
 
 def build_comparison_summary(start: datetime, end: datetime) -> dict[str, Any]:
@@ -64,8 +71,7 @@ def build_comparison_summary(start: datetime, end: datetime) -> dict[str, Any]:
             func.avg(GeoEngineComparison.execution_time_v2_ms),
         )
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
         )
         .one()
     )
@@ -73,8 +79,7 @@ def build_comparison_summary(start: datetime, end: datetime) -> dict[str, Any]:
     legacy_rows = (
         db.session.query(GeoEngineComparison.legacy_decision, func.count(GeoEngineComparison.id))
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
         )
         .group_by(GeoEngineComparison.legacy_decision)
         .all()
@@ -82,8 +87,7 @@ def build_comparison_summary(start: datetime, end: datetime) -> dict[str, Any]:
     v2_rows = (
         db.session.query(GeoEngineComparison.v2_decision, func.count(GeoEngineComparison.id))
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
         )
         .group_by(GeoEngineComparison.v2_decision)
         .all()
@@ -94,8 +98,7 @@ def build_comparison_summary(start: datetime, end: datetime) -> dict[str, Any]:
         float(x)
         for (x,) in db.session.query(GeoEngineComparison.execution_time_legacy_ms)
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
             GeoEngineComparison.execution_time_legacy_ms.isnot(None),
         )
         .order_by(GeoEngineComparison.execution_time_legacy_ms)
@@ -106,8 +109,7 @@ def build_comparison_summary(start: datetime, end: datetime) -> dict[str, Any]:
         float(x)
         for (x,) in db.session.query(GeoEngineComparison.execution_time_v2_ms)
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
             GeoEngineComparison.execution_time_v2_ms.isnot(None),
         )
         .order_by(GeoEngineComparison.execution_time_v2_ms)
@@ -128,8 +130,7 @@ def build_comparison_summary(start: datetime, end: datetime) -> dict[str, Any]:
             func.sum(case((GeoEngineComparison.decision_match.is_(True), 1), else_=0)),
         )
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
         )
         .group_by(func.date(GeoEngineComparison.created_at))
         .order_by(func.date(GeoEngineComparison.created_at))
@@ -288,8 +289,7 @@ def build_office_comparison(start: datetime, end: datetime) -> dict[str, Any]:
             func.sum(case((GeoEngineComparison.v2_decision == "OUTSIDE", 1), else_=0)).label("v2_out"),
         )
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
         )
         .group_by(func.coalesce(GeoEngineComparison.office_name, "Unknown"))
         .order_by(func.count(GeoEngineComparison.id).desc())
@@ -327,8 +327,7 @@ def build_rollout_status(start: datetime, end: datetime) -> dict[str, Any]:
             func.count(GeoEngineComparison.id),
         )
         .filter(
-            GeoEngineComparison.created_at >= start,
-            GeoEngineComparison.created_at <= end,
+            *_in_range(start, end),
             GeoEngineComparison.difference_category.isnot(None),
         )
         .group_by(GeoEngineComparison.difference_category)

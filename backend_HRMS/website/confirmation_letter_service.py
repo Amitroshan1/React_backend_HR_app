@@ -39,7 +39,9 @@ def build_confirmation_letter_payload(admin_id: int) -> dict:
         raise ValueError("Confirmation letter is available only after HR confirms probation")
 
     employee = Employee.query.filter_by(admin_id=admin_id).first()
-    employer = tds_cfg.employer_details()
+    from .tenant_context import tenant_id_for_admin
+
+    employer = tds_cfg.employer_details(tenant_id_for_admin(admin))
     emp_name = (
         (employee.name if employee else None)
         or admin.first_name

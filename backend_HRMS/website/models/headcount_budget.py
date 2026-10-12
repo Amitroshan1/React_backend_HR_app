@@ -5,13 +5,22 @@ from .. import db
 from ..datetime_utils import isoformat_api, utc_now
 
 
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
 class HeadcountBudget(db.Model):
     __tablename__ = "headcount_budgets"
     __table_args__ = (
-        db.UniqueConstraint("fiscal_year", "circle", "emp_type", name="uq_headcount_budget_year_circle_dept"),
+        db.UniqueConstraint(
+            "tenant_id", "fiscal_year", "circle", "emp_type", name="uq_headcount_budget_tenant_year_circle_dept"
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     fiscal_year = db.Column(db.String(20), nullable=False, index=True)
     circle = db.Column(db.String(80), nullable=False, index=True)
     emp_type = db.Column(db.String(80), nullable=False, index=True)

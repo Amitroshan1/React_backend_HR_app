@@ -28,6 +28,8 @@ import { Separation } from "./pages/Separation/Separation";
 import { Hr } from "./pages/HR/Hr";
 import { Account } from "./pages/Account/Account";
 import Admin from "./pages/Admin/Admin";
+import AdminAnalytics from "./pages/Admin/AdminAnalytics";
+import AdminCrm from "./pages/Admin/AdminCrm";
 import AdminLayout from "./pages/Admin/AdminLayout";
 import { Manager } from "./pages/Manager/Manager";
 import { ITPanel } from "./pages/IT/ITPanel";
@@ -66,6 +68,11 @@ import AdminClaims from "./pages/Admin/AdminClaims";
 import AdminResignations from "./pages/Admin/AdminResignations";
 import AdminDeploymentGuide from "./pages/Admin/AdminDeploymentGuide";
 import AdminCustomers from "./pages/Admin/AdminCustomers";
+import AdminRegisterCompany from "./pages/Admin/AdminRegisterCompany";
+import AdminMailboxes from "./pages/Admin/AdminMailboxes";
+import AdminDepartments from "./pages/Admin/AdminDepartments";
+import AdminRequests from "./pages/Admin/AdminRequests";
+import EmployeeChangeRequests from "./pages/Admin/EmployeeChangeRequests";
 
 import SetPassword from "./pages/SetPassword";
 import { ExEmployeeDocumentsPublic } from "./pages/HR/ExEmployeeDocumentsPublic";
@@ -155,12 +162,19 @@ export const App = () => {
           element: <RequirePanel panel="admin"><AdminLayout /></RequirePanel>,
           children: [
             { index: true, element: <Admin /> },
+            { path: "analytics", element: <AdminAnalytics /> },
+            { path: "crm", element: <AdminCrm /> },
+            { path: "customers/register", element: <AdminRegisterCompany /> },
             { path: "customers", element: <AdminCustomers /> },
+            { path: "mailboxes", element: <AdminMailboxes /> },
             { path: "deployment-guide", element: <AdminDeploymentGuide /> },
             { path: "leaves", element: <AdminLeaves /> },
             { path: "queries", element: <AdminQueries /> },
             { path: "claims", element: <AdminClaims /> },
             { path: "resignations", element: <AdminResignations /> },
+            { path: "requests", element: <AdminRequests /> },
+            { path: "employee-changes", element: <EmployeeChangeRequests mode="admin" /> },
+            { path: "departments", element: <AdminDepartments /> },
           ],
         },
         { path: "manager",                         element: <RequirePanel panel="manager"><Manager /></RequirePanel> },
@@ -185,7 +199,13 @@ export const App = () => {
         { path: "it/noc-requests",                 element: <RequirePanel panel="it"><ITNocRequests /></RequirePanel> },
 
         // Admin Employee Management
-        { path: "employees",                       element: <RequirePanel panel="admin"><Employee /></RequirePanel> },
+        {
+          path: "employees",
+          element: <RequirePanel panel="admin"><AdminLayout /></RequirePanel>,
+          children: [
+            { index: true, element: <Employee /> },
+          ],
+        },
         { path: "employee/:id",                    element: <RequirePanel panel="admin"><AdminEmployeeDetails /></RequirePanel> },
         { path: "employee/:id/punches",            element: <RequirePanel panel="admin"><AdminEmployeePunches /></RequirePanel> },
       ],

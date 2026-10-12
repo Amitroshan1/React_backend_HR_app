@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
 import { setPlanContext } from "../utils/planFeatures";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
+import { SESSION_ENDED_KEY, TENANT_SUSPENDED_CODE } from "../utils/sessionTimeout";
 
 import "./style/HeroSection.css";
 
@@ -14,7 +15,9 @@ export const HeroSection = () => {
 
   const [identifier, setIdentifier] = useState("");
   const [otp, setOtp] = useState("");
-  const [step, setStep] = useState("identifier"); // identifier | otp
+  const [step, setStep] = useState("identifier"); // identifier | otp | tenant
+  const [selectionToken, setSelectionToken] = useState("");
+  const [tenantChoices, setTenantChoices] = useState([]);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,11 +33,15 @@ export const HeroSection = () => {
   }, []);
 
   useEffect(() => {
-    const wasExpired = localStorage.getItem("sessionExpired");
+    const wasExpired = localStorage.getItem(SESSION_ENDED_KEY);
     if (wasExpired === "1") {
       setShowLogin(true);
       setError("Session expired due to inactivity. Please login again.");
-      localStorage.removeItem("sessionExpired");
+      localStorage.removeItem(SESSION_ENDED_KEY);
+    } else if (wasExpired === TENANT_SUSPENDED_CODE) {
+      setShowLogin(true);
+      setError("Your company's account is suspended. Please contact your administrator.");
+      localStorage.removeItem(SESSION_ENDED_KEY);
     }
   }, []);
 
@@ -120,14 +127,15 @@ export const HeroSection = () => {
       const data = await res.json().catch(() => ({}));
 
       if (data.success && data.token) {
-        clearLoginNotificationsFlag();
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("lastActivityAt", String(Date.now()));
-        setPlanContext(data.plan, data.features);
-        await refreshUserData({ force: true });
-        toast.success("Login successful!");
-        navigate("/dashboard", { replace: true });
-        setError("");
+        await completeLogin(data);
+        return;
+      }
+
+      if (data.success && data.requires_tenant_selection) {
+        setSelectionToken(data.selection_token || "");
+        setTenantChoices(data.tenants || []);
+        setInfo(data.message || "Select the company you want to sign in to.");
+        setStep("tenant");
         return;
       }
 
@@ -140,9 +148,51 @@ export const HeroSection = () => {
     }
   };
 
+  const completeLogin = async (data) => {
+    clearLoginNotificationsFlag();
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("lastActivityAt", String(Date.now()));
+    setPlanContext(data.plan, data.features);
+    await refreshUserData({ force: true });
+    toast.success("Login successful!");
+    navigate("/dashboard", { replace: true });
+    setError("");
+  };
+
+  const handleSelectTenant = async (tenantId) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/auth/select-tenant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selection_token: selectionToken, tenant_id: tenantId }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (data.success && data.token) {
+        await completeLogin(data);
+        return;
+      }
+
+      if (res.status === 401) {
+        handleChangeIdentifier();
+      }
+      setError(data.message || "Unable to sign in to this company. Please try again.");
+    } catch (err) {
+      console.error(err);
+      setError("Unable to sign in to this company. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleEnterPress = (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
+    if (step === "tenant") return;
     if (step === "otp") {
       handleVerifyOtp();
     } else {
@@ -153,6 +203,8 @@ export const HeroSection = () => {
   const handleChangeIdentifier = () => {
     setStep("identifier");
     setOtp("");
+    setSelectionToken("");
+    setTenantChoices([]);
     setError("");
     setInfo("");
   };
@@ -221,7 +273,7 @@ export const HeroSection = () => {
                   {isSubmitting ? "Sending OTP..." : "Send OTP"}
                 </button>
               </>
-            ) : (
+            ) : step === "otp" ? (
               <>
                 <p className="login-info">{info || "Enter the OTP sent to your email."}</p>
                 <input
@@ -260,6 +312,35 @@ export const HeroSection = () => {
                 >
                   {isSubmitting ? "Verifying..." : "Verify & Login"}
                 </button>
+              </>
+            ) : (
+              <>
+                <p className="login-info">{info || "Select the company you want to sign in to."}</p>
+                <div className="login-tenant-list" role="list">
+                  {tenantChoices.map((t) => (
+                    <button
+                      key={t.tenant_id}
+                      type="button"
+                      role="listitem"
+                      className="login-tenant-option"
+                      onClick={() => handleSelectTenant(t.tenant_id)}
+                      disabled={isSubmitting}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+                {error && <p className="login-error">{error}</p>}
+                <div className="forgot-wrap">
+                  <button
+                    type="button"
+                    className="forgot-btn"
+                    onClick={handleChangeIdentifier}
+                    disabled={isSubmitting}
+                  >
+                    Use a different email
+                  </button>
+                </div>
               </>
             )}
           </div>

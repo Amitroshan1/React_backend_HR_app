@@ -167,6 +167,7 @@ def test_biometric_attendance_day_unique_and_columns(bio_schema_stack):
         cols = {c["name"] for c in inspect(db.engine).get_columns("biometric_attendance_day")}
         assert {
             "id",
+            "tenant_id",
             "admin_id",
             "device_user_id",
             "attendance_date",
@@ -177,4 +178,8 @@ def test_biometric_attendance_day_unique_and_columns(bio_schema_stack):
             "updated_at",
         } <= cols
         uniques = inspect(db.engine).get_unique_constraints("biometric_attendance_day")
-        assert any(u.get("name") == "uq_bio_att_day_pin_date" for u in uniques)
+        assert any(
+            u.get("name") == "uq_bio_att_day_tenant_pin_date"
+            and u.get("column_names") == ["tenant_id", "device_user_id", "attendance_date"]
+            for u in uniques
+        )

@@ -4,10 +4,15 @@ from __future__ import annotations
 from . import db
 from .models.merit_matrix import MeritMatrixEntry, RATING_OPTIONS
 from .models.compensation_band import CompensationBand
+from .tenant_context import get_current_tenant_id, tenant_column_clause
+
+
+def entry_query(tenant_id=None):
+    return MeritMatrixEntry.query.filter(tenant_column_clause(MeritMatrixEntry.tenant_id, tenant_id))
 
 
 def list_entries(*, circle: str | None = None, emp_type: str | None = None) -> list[dict]:
-    q = MeritMatrixEntry.query.order_by(
+    q = entry_query().order_by(
         MeritMatrixEntry.circle.asc(),
         MeritMatrixEntry.emp_type.asc(),
         MeritMatrixEntry.rating.asc(),
@@ -32,9 +37,11 @@ def upsert_entry(data: dict, *, created_by: str) -> MeritMatrixEntry:
     if pct_max < pct_min:
         raise ValueError("increment_pct_max must be >= increment_pct_min")
 
-    row = MeritMatrixEntry.query.filter_by(circle=circle, emp_type=emp_type, rating=rating).first()
+    row = entry_query().filter_by(circle=circle, emp_type=emp_type, rating=rating).first()
     if not row:
-        row = MeritMatrixEntry(circle=circle, emp_type=emp_type, rating=rating, created_by=created_by)
+        row = MeritMatrixEntry(
+            tenant_id=get_current_tenant_id(), circle=circle, emp_type=emp_type, rating=rating, created_by=created_by
+        )
         db.session.add(row)
     row.increment_pct_min = pct_min
     row.increment_pct_max = pct_max
@@ -43,8 +50,10 @@ def upsert_entry(data: dict, *, created_by: str) -> MeritMatrixEntry:
     return row
 
 
-def entry_for_position(*, circle: str, emp_type: str, rating: str) -> MeritMatrixEntry | None:
-    return MeritMatrixEntry.query.filter_by(
+def entry_for_position(
+    *, circle: str, emp_type: str, rating: str, tenant_id: int | None = None
+) -> MeritMatrixEntry | None:
+    return entry_query(tenant_id).filter_by(
         circle=(circle or "").strip(),
         emp_type=(emp_type or "").strip(),
         rating=(rating or "").strip(),
@@ -58,14 +67,15 @@ def suggest_ctc_range(
     grade: str,
     current_annual_ctc: float | None,
     rating: str = "Good",
+    tenant_id: int | None = None,
 ) -> dict | None:
     """Return suggested min/max CTC from band mid and merit % range."""
+    from .compensation_band_service import band_for_position
+
     if not current_annual_ctc:
         return None
-    band = CompensationBand.query.filter_by(circle=circle.strip(), emp_type=emp_type.strip(), grade=(grade or "General").strip()).first()
-    if not band:
-        band = CompensationBand.query.filter_by(circle=circle.strip(), emp_type=emp_type.strip(), grade="General").first()
-    entry = entry_for_position(circle=circle, emp_type=emp_type, rating=rating)
+    band = band_for_position(circle=circle, emp_type=emp_type, grade=grade, tenant_id=tenant_id)
+    entry = entry_for_position(circle=circle, emp_type=emp_type, rating=rating, tenant_id=tenant_id)
     if not entry:
         return None
     base = float(current_annual_ctc)

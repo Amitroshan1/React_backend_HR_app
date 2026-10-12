@@ -16,6 +16,7 @@ import {
   syncITDataFromAPI
 } from "./Data";
 import ClickableImage from "../../components/ClickableImage";
+import { isInventoryImage } from "./InventoryPage/inventoryFileUpload";
 import { UserAvatar } from "../../components/UserAvatar";
 import { openFirstImageInNewTab } from "../../utils/openImageInNewTab";
 import "./EmployeeAssetsDetails.css";
@@ -444,7 +445,7 @@ const ReturnRequestModal = ({ entry, onClose, onSubmit, submitting }) => {
             <div className="ea-rr-previews">
               {photos.map((src, i) => (
                 <div key={i} className="ea-rr-preview-wrap">
-                  {String(src).startsWith("data:image/") ? (
+                  {isInventoryImage(src) ? (
                     <ClickableImage src={src} alt={`upload-${i + 1}`} className="ea-rr-preview" />
                   ) : (
                     <span className="ea-rr-file-tag">File {i + 1}</span>

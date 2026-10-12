@@ -20,7 +20,7 @@ import {
 } from "../../utils/sessionTimeout";
 import { AdminReturnBar } from "./AdminReturnBar";
 import { crumbsForAdminPath } from "./AdminBreadcrumb";
-import { isAdminDepartmentPath } from "../../pages/Admin/AdminLayout";
+import { isAdminDepartmentPath } from "../../pages/Admin/adminVisit";
 import { Headers } from "../../pages/Headers"; // Adjust path as needed
 import { useUser } from "./UserContext"; // Import the hook
 import { AppFooter } from "./AppFooter";
@@ -292,32 +292,31 @@ export const AppLayout = () => {
     });
     const pathLower = (location.pathname || "").toLowerCase();
     const isInventoryPage = pathLower.startsWith("/it/inventory");
-    const isAdminShell = pathLower.startsWith("/admin");
-    const isAdminHubHome = pathLower === "/admin" || pathLower === "/admin/";
+    const isEmployeesDirectory = pathLower === "/employees" || pathLower.startsWith("/employees/");
+    const isAdminShell = pathLower.startsWith("/admin") || isEmployeesDirectory;
     const adminDeptVisit =
         typeof sessionStorage !== "undefined"
         && sessionStorage.getItem("adminDeptVisit") === "1";
-    const hasCrumb = Boolean(crumbsForAdminPath(location.pathname));
+    const hasCrumb = Boolean(crumbsForAdminPath(location.pathname, location.search));
     // Department workspaces (when entered from Admin) + Admin Management subpages
     const showAdminReturnBar =
         isAdminUser(headerUser)
         && hasCrumb
-        && (
-            (adminDeptVisit && !isAdminShell && isAdminDepartmentPath(location.pathname))
-            || (isAdminShell && !isAdminHubHome)
-        );
+        && !isAdminShell
+        && adminDeptVisit
+        && isAdminDepartmentPath(location.pathname);
 
     return (
         <div className="main-layout app-layout">
             {/* The Header now gets the username and full user object from the centralized context */}
             <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
-            <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}${isInventoryPage && showAdminReturnBar ? " content-area--inventory-admin" : ""}`}>
+            <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}${isInventoryPage && showAdminReturnBar ? " content-area--inventory-admin" : ""}${isAdminShell ? " content-area--admin-shell" : ""}`}>
                 <AdminReturnBar visible={showAdminReturnBar} />
                 <TransitionRemarkProvider>
                     <Outlet />
                 </TransitionRemarkProvider>
-                <AppFooter />
+                {!isAdminShell && <AppFooter />}
             </div>
         </div>
     );

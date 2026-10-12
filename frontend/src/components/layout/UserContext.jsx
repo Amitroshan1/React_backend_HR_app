@@ -1,6 +1,7 @@
 import { createContext, useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react'
 import { setPlanContext, clearPlanContext } from '../../utils/planFeatures';
 import { clearSensitiveToken } from '../../utils/sensitiveDataAuth';
+import { noteSessionEnded } from '../../utils/sessionTimeout';
 
 const API_BASE_URL = "/api/auth";
 /** Skip refetching homepage shell data if fetched within this window. */
@@ -52,6 +53,7 @@ export const UserProvider = ({ children }) => {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (response.status === 401) {
+                    await noteSessionEnded(response);
                     localStorage.removeItem('token');
                     localStorage.removeItem('lastActivityAt');
                     clearSensitiveToken();

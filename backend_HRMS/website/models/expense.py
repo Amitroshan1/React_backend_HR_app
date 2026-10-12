@@ -31,7 +31,7 @@ class ExpenseLineItem(db.Model):
     purpose = db.Column(db.Text, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     currency = db.Column(db.String(10), nullable=False)
-    Attach_file = db.Column(db.String(100), nullable=True)
+    Attach_file = db.Column(db.String(300), nullable=True)
     status = db.Column(db.String(20), default='Pending')  # Added status field
     rejection_reason = db.Column(db.Text, nullable=True)
 

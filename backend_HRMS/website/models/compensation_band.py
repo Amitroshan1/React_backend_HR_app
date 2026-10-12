@@ -5,18 +5,26 @@ from .. import db
 from ..datetime_utils import isoformat_api, utc_now
 
 
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
 class CompensationBand(db.Model):
     __tablename__ = "compensation_bands"
     __table_args__ = (
         db.UniqueConstraint(
+            "tenant_id",
             "circle",
             "emp_type",
             "grade",
-            name="uq_comp_band_circle_dept_grade",
+            name="uq_comp_band_tenant_circle_dept_grade",
         ),
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     circle = db.Column(db.String(80), nullable=False, index=True)
     emp_type = db.Column(db.String(80), nullable=False, index=True)
     grade = db.Column(db.String(80), nullable=False, default="General", index=True)

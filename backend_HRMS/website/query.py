@@ -8,10 +8,20 @@
 
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from flask_jwt_extended import jwt_required, get_jwt
+from functools import wraps
 from sqlalchemy import case, extract, func, or_
 from sqlalchemy.orm import joinedload, noload, selectinload
 from . import db
 from .models.Admin_models import Admin
+from .tenant_context import (
+    admin_id_in_tenant,
+    current_admin,
+    get_current_tenant_id,
+    tenant_admin_ids,
+    tenant_admin_query,
+    tenant_id_for_admin,
+    tenant_manager_contacts,
+)
 from .models.query import Query, QueryReply
 from .models.notification import Notification
 from .email import notify_query_event, send_query_closed_email
@@ -111,7 +121,15 @@ def _repair_query_created_at_from_history():
         current_app.logger.exception("query created_at repair skipped")
 
 
-UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads', 'queries'))
+UPLOADS_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'uploads'))
+# Legacy (pre-tenancy) attachments; new ones live in tenants/{id}/queries/ under UPLOADS_BASE.
+UPLOAD_DIR = os.path.join(UPLOADS_BASE, 'queries')
+
+
+def _query_upload_dir(tenant_id):
+    from .upload_tenancy import tenant_upload_rel
+
+    return os.path.join(UPLOADS_BASE, *tenant_upload_rel('queries', tenant_id).split('/'))
 
 
 def _parse_query_attachments(photo_field):
@@ -257,11 +275,21 @@ def _can_access_inbox_department(admin, emp_type, inbox_department):
     return False
 
 
-def _department_recipients(department, exclude_admin_id=None):
-    """Staff whose emp_type matches the query department (for notifications)."""
+def _tenant_queries(tenant_id=None):
+    """Queries raised by employees of one tenant (default: the caller's)."""
+    return Query.query.filter(Query.admin_id.in_(tenant_admin_ids(tenant_id)))
+
+
+def _get_tenant_query(query_id):
+    """Query by id, or None when missing or raised in another tenant."""
+    return _tenant_queries().filter(Query.id == query_id).first()
+
+
+def _department_recipients(department, exclude_admin_id=None, tenant_id=None):
+    """Staff of one tenant whose emp_type matches the query department (for notifications)."""
     dept_options = _department_variants(department)
     filters = [func.lower(func.coalesce(Admin.emp_type, "")) == val for val in dept_options]
-    q = Admin.query.filter(or_(*filters))
+    q = tenant_admin_query(tenant_id).filter(or_(*filters))
     q = q.filter(or_(Admin.is_exited == False, Admin.is_exited.is_(None)))
     if exclude_admin_id:
         q = q.filter(Admin.id != exclude_admin_id)
@@ -278,7 +306,7 @@ def count_new_queries_for_department_staff(emp_type, admin=None):
     department = _resolve_department_for_inbox(admin, emp_type) if admin else _emp_type_to_department(emp_type)
     if not department:
         return 0
-    return Query.query.filter(
+    return _tenant_queries(tenant_id_for_admin(admin) if admin else None).filter(
         func.lower(func.coalesce(Query.status, "")) == "new",
         _query_department_sql_filter(department),
     ).count()
@@ -288,7 +316,7 @@ def count_department_query_unread(admin_id, emp_type=None):
     """Unread query notifications for department inbox badge (new queries + employee replies)."""
     if not admin_id:
         return 0
-    admin = Admin.query.get(admin_id)
+    admin = db.session.get(Admin, admin_id)
     if not admin:
         return 0
     if _resolve_department_for_inbox(admin, emp_type) is None:
@@ -411,6 +439,8 @@ def _can_access_query(admin, emp_type, query_obj):
         return False
     if query_obj.admin_id == admin.id:
         return True
+    if not admin_id_in_tenant(query_obj.admin_id, tenant_id_for_admin(admin)):
+        return False
 
     department = _resolve_department_for_inbox(admin, emp_type)
     if not department:
@@ -458,7 +488,7 @@ def create_query_api():
     claims = get_jwt()
     email = claims.get("email")
 
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
 
@@ -545,7 +575,8 @@ def create_query_api():
     saved_files = []
 
     if files:
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        upload_dir = _query_upload_dir(tenant_id_for_admin(admin))
+        os.makedirs(upload_dir, exist_ok=True)
         for file in files:
             if not file or not file.filename:
                 continue
@@ -560,7 +591,7 @@ def create_query_api():
 
             safe_name = secure_filename(file.filename)
             unique_name = f"{uuid.uuid4().hex}_{safe_name}"
-            file.save(os.path.join(UPLOAD_DIR, unique_name))
+            file.save(os.path.join(upload_dir, unique_name))
             saved_files.append(unique_name)
 
     photo_json = json.dumps(saved_files) if saved_files else None
@@ -615,7 +646,7 @@ def create_query_api():
 @jwt_required()
 def my_queries():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
     _repair_query_created_at_from_history()
@@ -766,7 +797,7 @@ def department_queries():
         emp_type = claims.get("emp_type")
 
         email = get_jwt().get("email")
-        admin = Admin.query.filter_by(email=email).first()
+        admin = current_admin()
         if not admin:
             return jsonify({"success": False, "message": "User not found"}), 404
 
@@ -798,7 +829,7 @@ def it_department_queries():
         claims = get_jwt()
         emp_type = claims.get("emp_type")
         email = claims.get("email")
-        admin = Admin.query.filter_by(email=email).first()
+        admin = current_admin()
         if not admin:
             return jsonify({"success": False, "message": "User not found"}), 404
 
@@ -819,11 +850,11 @@ def mark_query_notifications_read(query_id):
     claims = get_jwt()
     email = claims.get("email")
     emp_type = claims.get("emp_type")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
 
-    query_obj = Query.query.get(query_id)
+    query_obj = _get_tenant_query(query_id)
     if not query_obj:
         return jsonify({"success": False, "message": "Query not found"}), 404
     if not _can_access_query(admin, emp_type, query_obj):
@@ -857,8 +888,10 @@ def query_details(query_id):
     claims = get_jwt()
     email = claims.get("email")
     emp_type = claims.get("emp_type")
-    admin = Admin.query.filter_by(email=email).first()
-    query_obj = Query.query.get_or_404(query_id)
+    admin = current_admin()
+    query_obj = _get_tenant_query(query_id)
+    if not query_obj:
+        return jsonify({"success": False, "message": "Query not found"}), 404
     if not _can_access_query(admin, emp_type, query_obj):
         return jsonify({"success": False, "message": "Unauthorized"}), 403
 
@@ -914,11 +947,11 @@ def download_query_file(query_id, filename):
     claims = get_jwt()
     email = claims.get("email")
     emp_type = claims.get("emp_type")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
 
-    query_obj = Query.query.get(query_id)
+    query_obj = _get_tenant_query(query_id)
     if not query_obj:
         return jsonify({"success": False, "message": "Query not found"}), 404
     if not _can_access_query(admin, emp_type, query_obj):
@@ -932,15 +965,23 @@ def download_query_file(query_id, filename):
     if stored not in allowed:
         return jsonify({"success": False, "message": "File not found"}), 404
 
-    file_path = os.path.join(UPLOAD_DIR, stored)
-    if not os.path.isfile(file_path):
+    owner = db.session.get(Admin, query_obj.admin_id)
+    upload_dir = next(
+        (
+            d for d in (_query_upload_dir(tenant_id_for_admin(owner)), UPLOAD_DIR)
+            if os.path.isfile(os.path.join(d, stored))
+        ),
+        None,
+    )
+    if upload_dir is None:
         return jsonify({"success": False, "message": "File not found"}), 404
+    file_path = os.path.join(upload_dir, stored)
 
     try:
         from .pdf_watermark import is_pdf_download, send_download_file
         if is_pdf_download(stored):
             return send_download_file(path=file_path, download_name=stored, as_attachment=False)
-        return send_from_directory(UPLOAD_DIR, stored, as_attachment=False)
+        return send_from_directory(upload_dir, stored, as_attachment=False)
     except Exception:
         current_app.logger.exception("download_query_file failed for %s", stored)
         return jsonify({"success": False, "message": "Unable to open file"}), 500
@@ -954,8 +995,10 @@ def reply_query(query_id):
     email = claims.get("email")
     emp_type = claims.get("emp_type")
 
-    admin = Admin.query.filter_by(email=email).first()
-    query_obj = Query.query.get_or_404(query_id)
+    admin = current_admin()
+    query_obj = _get_tenant_query(query_id)
+    if not query_obj:
+        return jsonify({"success": False, "message": "Query not found"}), 404
     if not _can_access_query(admin, emp_type, query_obj):
         return jsonify({"success": False, "message": "Unauthorized"}), 403
 
@@ -1016,11 +1059,13 @@ def close_query_api(query_id):
     claims = get_jwt()
     emp_type = claims.get("emp_type")
     closed_by_email = claims.get("email")
-    closed_by_admin = Admin.query.filter_by(email=closed_by_email).first()
-    query_obj = Query.query.get_or_404(query_id)
+    closed_by_admin = current_admin()
+    query_obj = _get_tenant_query(query_id)
 
     if not closed_by_admin:
         return jsonify({"success": False, "message": "User not found"}), 404
+    if not query_obj:
+        return jsonify({"success": False, "message": "Query not found"}), 404
 
     if query_obj.status == "Closed":
         return jsonify({"success": True, "message": "Query already closed"}), 200
@@ -1065,17 +1110,33 @@ def close_query_api(query_id):
     }), 200
 
 
+def _manager_setup_required(fn):
+    """HR, company admin, or someone already set as L1/L2/L3. Not every employee."""
+
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        from .manager_utils import user_has_manager_access
+        from .plan_features import can_access_hr_operations
+
+        if not can_access_hr_operations(get_jwt()) and not user_has_manager_access(current_admin()):
+            return jsonify({"success": False, "message": "Manager or HR access required"}), 403
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
 
 
 
 @query.route("/api/managers/employees", methods=["GET"])
 @jwt_required()
+@_manager_setup_required
 def list_employees_for_manager_picker():
     """List active employees for L1/L2/L3 typeahead. Returns empty when q is empty; when q is set, returns up to 50 matches."""
     search = (request.args.get("q") or "").strip().lower()
     if not search:
         return jsonify({"success": True, "employees": []}), 200
-    q = Admin.query.filter_by(is_active=True, is_exited=False).filter(
+    q = tenant_admin_query().filter_by(is_active=True, is_exited=False).filter(
         db.or_(
             func.lower(func.coalesce(Admin.first_name, "")).contains(search),
             func.lower(func.coalesce(Admin.email, "")).contains(search),
@@ -1100,6 +1161,7 @@ def list_employees_for_manager_picker():
 
 @query.route("/api/managers/search", methods=["GET"])
 @jwt_required()
+@_manager_setup_required
 def search_managers_api():
 
     circle = request.args.get("circle")
@@ -1110,19 +1172,19 @@ def search_managers_api():
 
     if circle and emp_type:
         if identifier:
-            admins = Admin.query.filter(
+            admins = tenant_admin_query().filter(
                 Admin.circle == circle,
                 Admin.emp_type == emp_type,
                 (Admin.email == identifier) | (Admin.emp_id == identifier)
             ).all()
         else:
-            admins = Admin.query.filter_by(
+            admins = tenant_admin_query().filter_by(
                 circle=circle,
                 emp_type=emp_type
             ).all()
 
     elif identifier:
-        admins = Admin.query.filter(
+        admins = tenant_admin_query().filter(
             (Admin.email == identifier) | (Admin.emp_id == identifier)
         ).all()
 
@@ -1151,6 +1213,7 @@ def search_managers_api():
 
 @query.route("/api/managers/contact", methods=["GET"])
 @jwt_required()
+@_manager_setup_required
 def get_manager_contact_api():
     """Get manager contact for circle + emp_type (+ optional user_email).
     Tries employee-specific row first; if not found, falls back to group-level (user_email null/empty)
@@ -1171,14 +1234,14 @@ def get_manager_contact_api():
 
     # 1) Try employee-specific row (exact user_email)
     if user_email_param:
-        contact = ManagerContact.query.filter(
+        contact = tenant_manager_contacts().filter(
             func.lower(ManagerContact.circle_name) == circle_lower,
             func.lower(ManagerContact.user_type) == emp_type_lower,
             ManagerContact.user_email == user_email_param
         ).first()
     # 2) Fall back to group-level (user_email null or '') so form shows existing L1/L2/L3
     if not contact:
-        contact = ManagerContact.query.filter(
+        contact = tenant_manager_contacts().filter(
             func.lower(ManagerContact.circle_name) == circle_lower,
             func.lower(ManagerContact.user_type) == emp_type_lower,
             (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
@@ -1214,6 +1277,7 @@ def get_manager_contact_api():
 
 @query.route("/api/managers/contact", methods=["POST"])
 @jwt_required()
+@_manager_setup_required
 def upsert_manager_contact_api():
     """Upsert manager contact. Uses case-insensitive lookup so we update existing row
     even if case differs; normalizes circle_name/user_type for new rows."""
@@ -1240,30 +1304,37 @@ def upsert_manager_contact_api():
         return jsonify({"success": False, "message": "L1 and L3 must be different people"}), 400
     if ids[1] and ids[2] and ids[1] == ids[2]:
         return jsonify({"success": False, "message": "L2 and L3 must be different people"}), 400
+    if any(aid and not admin_id_in_tenant(aid) for aid in ids):
+        return jsonify({"success": False, "message": "Manager not found"}), 404
 
     circle_lower = circle.lower()
     emp_type_lower = emp_type.lower()
+    tenant_id = get_current_tenant_id()
     contact = None
 
     if user_email:
         # Employee-specific: find or create row for this email
-        contact = ManagerContact.query.filter(
+        contact = tenant_manager_contacts().filter(
             func.lower(ManagerContact.circle_name) == circle_lower,
             func.lower(ManagerContact.user_type) == emp_type_lower,
             ManagerContact.user_email == user_email
         ).first()
         if not contact:
-            contact = ManagerContact(circle_name=circle, user_type=emp_type, user_email=user_email)
+            contact = ManagerContact(
+                tenant_id=tenant_id, circle_name=circle, user_type=emp_type, user_email=user_email
+            )
             db.session.add(contact)
     else:
         # Group-level: find or create row with user_email null/empty
-        contact = ManagerContact.query.filter(
+        contact = tenant_manager_contacts().filter(
             func.lower(ManagerContact.circle_name) == circle_lower,
             func.lower(ManagerContact.user_type) == emp_type_lower,
             (ManagerContact.user_email.is_(None)) | (ManagerContact.user_email == "")
         ).first()
         if not contact:
-            contact = ManagerContact(circle_name=circle, user_type=emp_type, user_email=None)
+            contact = ManagerContact(
+                tenant_id=tenant_id, circle_name=circle, user_type=emp_type, user_email=None
+            )
             db.session.add(contact)
 
     for level in ("l1", "l2", "l3"):

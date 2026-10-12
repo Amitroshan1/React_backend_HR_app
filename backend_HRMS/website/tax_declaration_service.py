@@ -16,6 +16,12 @@ from . import db
 from .commands.tds_logic import financial_year_for_date, load_tax_rules, normalize_regime
 from .datetime_utils import isoformat_api, utc_now
 from .models.Admin_models import Admin
+from .tenant_context import (
+    admin_id_in_tenant,
+    current_admin,
+    tenant_admin_ids,
+    tenant_id_for_admin,
+)
 from .models.ctc_breakup import CTCBreakup
 from .models.emp_detail_models import Employee
 from .models.employee_accounts import EmployeeAccounts
@@ -272,7 +278,9 @@ def _build_financial_year_list(
         y = start - offset
         years.add(f"{y}-{y + 1}")
 
-    return sorted(years, key=lambda fy: int(fy.split("-")[0]), reverse=True)
+    # A stored year that is not "2024-2025" must not crash the dropdown.
+    years = {fy for fy in years if fy[:4].isdigit() and "-" in fy and fy.split("-", 1)[0].isdigit()}
+    return sorted(years, key=lambda fy: int(fy.split("-", 1)[0]), reverse=True)
 
 
 @jwt_required()
@@ -282,7 +290,7 @@ def list_tax_declaration_financial_years():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -295,7 +303,12 @@ def list_tax_declaration_financial_years():
 
     extra: set[str] = set()
     if _accounts_reviewer(viewer):
-        rows = db.session.query(EmployeeTaxDeclaration.financial_year).distinct().all()
+        rows = (
+            db.session.query(EmployeeTaxDeclaration.financial_year)
+            .filter(EmployeeTaxDeclaration.admin_id.in_(tenant_admin_ids()))
+            .distinct()
+            .all()
+        )
         for (fy,) in rows:
             if fy:
                 extra.add(_fy_display(fy))
@@ -318,6 +331,15 @@ def list_tax_declaration_financial_years():
         "financial_years": financial_years,
         "years_back": years_back,
     }), 200
+
+
+def _declaration_in_tenant_or_404(decl_id: int) -> EmployeeTaxDeclaration:
+    from werkzeug.exceptions import NotFound
+
+    row = db.session.get(EmployeeTaxDeclaration, decl_id)
+    if not row or not admin_id_in_tenant(row.admin_id):
+        raise NotFound()
+    return row
 
 
 def tax_declaration_for_admin(admin_id, financial_year):
@@ -731,13 +753,17 @@ def _tds_basis_from_row(row: EmployeeTaxDeclaration | None) -> str | None:
     return _tds_basis_from_status(row.status)
 
 
-def backfill_tax_regime_from_approved_declarations() -> dict:
+def backfill_tax_regime_from_approved_declarations(*, tenant_id: int | None = None) -> dict:
     """
     One-time sync: copy tax_regime from approved declarations into EmployeeAccounts.
     Uses the latest updated declaration per employee when multiple FY rows exist.
+    ``tenant_id=None`` covers every company.
     """
+    q = EmployeeTaxDeclaration.query.filter_by(status="approved")
+    if tenant_id is not None:
+        q = q.filter(EmployeeTaxDeclaration.admin_id.in_(tenant_admin_ids(tenant_id)))
     rows = (
-        EmployeeTaxDeclaration.query.filter_by(status="approved")
+        q
         .order_by(
             EmployeeTaxDeclaration.admin_id.asc(),
             EmployeeTaxDeclaration.updated_at.desc(),
@@ -776,10 +802,12 @@ def backfill_tax_regime_from_approved_declarations() -> dict:
 @jwt_required()
 def backfill_tax_regime_route():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
-    result = backfill_tax_regime_from_approved_declarations()
+    from .tenant_context import tenant_id_for_admin
+
+    result = backfill_tax_regime_from_approved_declarations(tenant_id=tenant_id_for_admin(viewer))
     return jsonify({"success": True, **result}), 200
 
 
@@ -835,12 +863,14 @@ def _record_history(row, action, from_status, to_status, actor_id, comment=None)
     )
 
 
-def _declaration_upload_dir(declaration_id: int) -> tuple[str, str]:
-    rel = os.path.join("tax_declarations", str(declaration_id))
+def _declaration_upload_dir(declaration_id: int, tenant_id: int) -> tuple[str, str]:
+    from .upload_tenancy import tenant_upload_rel
+
+    rel = tenant_upload_rel(f"tax_declarations/{declaration_id}", tenant_id)
     root = current_app.config.get("UPLOADS_ROOT") or os.path.join(
         current_app.root_path, "static", "uploads"
     )
-    abs_dir = os.path.join(root, rel)
+    abs_dir = os.path.join(root, *rel.split("/"))
     os.makedirs(abs_dir, exist_ok=True)
     return rel, abs_dir
 
@@ -851,7 +881,7 @@ def get_tax_declaration_form_schema():
     if blocked:
         return blocked
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     blocked = _require_employee_sensitive(viewer)
@@ -877,7 +907,7 @@ def get_tax_declaration_self():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -917,7 +947,7 @@ def save_tax_declaration_self():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1061,7 +1091,7 @@ def upload_tax_declaration_document():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1117,7 +1147,7 @@ def upload_tax_declaration_document():
                     pass
             db.session.delete(old)
 
-    rel_dir, abs_dir = _declaration_upload_dir(row.id)
+    rel_dir, abs_dir = _declaration_upload_dir(row.id, tenant_id_for_admin(viewer))
     stored = f"{uuid.uuid4().hex}_{secure_filename(upload.filename)}"
     upload.save(os.path.join(abs_dir, stored))
 
@@ -1144,7 +1174,7 @@ def delete_tax_declaration_document(doc_id: int):
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1177,13 +1207,15 @@ def delete_tax_declaration_document(doc_id: int):
 @jwt_required()
 def list_tax_declarations_review():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
     status = (request.args.get("status") or "submitted").strip().lower()
     fy = request.args.get("financial_year")
-    q = EmployeeTaxDeclaration.query
+    q = EmployeeTaxDeclaration.query.filter(
+        EmployeeTaxDeclaration.admin_id.in_(tenant_admin_ids())
+    )
     if status and status != "all":
         q = q.filter(EmployeeTaxDeclaration.status == status)
     if fy:
@@ -1207,7 +1239,7 @@ def list_tax_declarations_review():
 @jwt_required()
 def review_tax_declaration(decl_id: int):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
@@ -1216,7 +1248,7 @@ def review_tax_declaration(decl_id: int):
     if action not in ("approve", "reject"):
         return jsonify({"success": False, "message": "action must be approve or reject"}), 400
 
-    row = EmployeeTaxDeclaration.query.get_or_404(decl_id)
+    row = _declaration_in_tenant_or_404(decl_id)
     if row.status != "submitted":
         return jsonify({"success": False, "message": "Only submitted declarations can be reviewed."}), 400
 
@@ -1264,7 +1296,7 @@ def _count_amend_unlocks(row: EmployeeTaxDeclaration) -> int:
 def amend_tax_declaration(decl_id: int):
     """Unlock an approved declaration so the employee can edit and resubmit."""
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
@@ -1276,7 +1308,7 @@ def amend_tax_declaration(decl_id: int):
             "message": "Reason is required to unlock a declaration for amendment.",
         }), 400
 
-    row = EmployeeTaxDeclaration.query.get_or_404(decl_id)
+    row = _declaration_in_tenant_or_404(decl_id)
     if (row.status or "").lower() != "approved":
         return jsonify({
             "success": False,
@@ -1345,7 +1377,7 @@ def list_tax_declaration_self_history():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1378,11 +1410,11 @@ def list_tax_declaration_self_history():
 @jwt_required()
 def get_tax_declaration_detail(decl_id: int):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized"}), 401
 
-    row = EmployeeTaxDeclaration.query.get_or_404(decl_id)
+    row = _declaration_in_tenant_or_404(decl_id)
     if row.admin_id != viewer.id and not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
@@ -1544,7 +1576,7 @@ def get_final_proof_self():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1581,7 +1613,7 @@ def save_final_proof_self():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1656,7 +1688,7 @@ def save_final_proof_self():
 @jwt_required()
 def review_final_proof(decl_id: int):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
@@ -1665,7 +1697,7 @@ def review_final_proof(decl_id: int):
     if action not in ("approve", "reject"):
         return jsonify({"success": False, "message": "action must be approve or reject"}), 400
 
-    row = EmployeeTaxDeclaration.query.get_or_404(decl_id)
+    row = _declaration_in_tenant_or_404(decl_id)
     if (row.status or "").lower() != "approved":
         return jsonify({"success": False, "message": "Declaration must be approved first."}), 400
     if (row.final_proof_status or "").lower() != "submitted":
@@ -1707,7 +1739,7 @@ def review_final_proof(decl_id: int):
 @jwt_required()
 def set_tax_regime_override_route(admin_id: int):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
@@ -1734,7 +1766,7 @@ def set_tax_regime_override_route(admin_id: int):
 @jwt_required()
 def clear_tax_regime_override_route(admin_id: int):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
@@ -1756,7 +1788,7 @@ def get_declaration_deadline_route():
         return blocked
 
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if viewer:
         blocked = _require_employee_sensitive(viewer)
         if blocked:
@@ -1772,7 +1804,7 @@ def get_declaration_deadline_route():
 @jwt_required()
 def update_declaration_deadline_route():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer or not _accounts_reviewer(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 

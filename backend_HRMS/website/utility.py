@@ -791,7 +791,9 @@ def calculate_weekend_continuous_absence_penalty(admin_id: int, emp_type: str, y
         return 0
 
     # Holidays (needed for Optional Leave tracking)
-    holiday_rows = HolidayCalendar.query.filter(
+    from .master_data_tenancy import holiday_query, tenant_for_admin_id
+
+    holiday_rows = holiday_query(tenant_for_admin_id(admin_id)).filter(
         HolidayCalendar.year == year,
         HolidayCalendar.is_active.is_(True),
         HolidayCalendar.holiday_date.between(start_date, end_date),
@@ -1597,7 +1599,10 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     month_end = date(year, month, num_days)
 
     # Mandatory and optional holidays for this month (aligned with attendance calendar)
-    all_holidays = HolidayCalendar.query.filter(
+    from .master_data_tenancy import holiday_query
+    from .tenant_context import tenant_id_for_admin
+
+    all_holidays = holiday_query(tenant_id_for_admin(admins[0]) if admins else None).filter(
         HolidayCalendar.year == year,
         HolidayCalendar.holiday_date >= month_start,
         HolidayCalendar.holiday_date <= month_end,

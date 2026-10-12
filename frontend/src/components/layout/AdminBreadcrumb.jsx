@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { clearAdminDepartmentVisit } from '../../pages/Admin/AdminLayout';
+import { clearAdminDepartmentVisit } from '../../pages/Admin/adminVisit';
 import './AdminBreadcrumb.css';
 
 /**
@@ -20,7 +20,9 @@ export function AdminBreadcrumb({ items = [], className = '' }) {
           return (
             <li key={key} className="admin-crumb__item">
               {index > 0 ? (
-                <span className="admin-crumb__sep" aria-hidden="true">/</span>
+                <span className="admin-crumb__sep" aria-hidden="true">
+                  ›
+                </span>
               ) : null}
               {isLast || (!item.to && !item.onClick) ? (
                 <span className="admin-crumb__current" aria-current={isLast ? 'page' : undefined}>
@@ -60,8 +62,11 @@ export function commandCenterCrumbItem() {
 }
 
 /** Build crumbs for common Admin Management department/list routes. */
-export function crumbsForAdminPath(pathname) {
+export function crumbsForAdminPath(pathname, search = '') {
   const p = (pathname || '').toLowerCase();
+  const registerCompany =
+    p.startsWith('/admin/customers/register') ||
+    new URLSearchParams(search).get('register') === '1';
 
   if (p.startsWith('/employee/')) {
     return null; // page owns its own crumb with employee name
@@ -71,6 +76,23 @@ export function crumbsForAdminPath(pathname) {
     return [commandCenterCrumbItem(), { label: 'Employees' }];
   }
 
+  if (p.startsWith('/admin/departments')) {
+    return [
+      commandCenterCrumbItem(),
+      { label: 'Request & Approval', to: '/admin/requests' },
+      { label: 'Departments & circles' },
+    ];
+  }
+  if (p.startsWith('/admin/employee-changes')) {
+    return [
+      commandCenterCrumbItem(),
+      { label: 'Request & Approval', to: '/admin/requests' },
+      { label: 'Requests for approval' },
+    ];
+  }
+  if (p.startsWith('/admin/requests')) {
+    return [commandCenterCrumbItem(), { label: 'Request & Approval' }];
+  }
   if (p.startsWith('/admin/leaves')) {
     return [commandCenterCrumbItem(), { label: 'Leave applications' }];
   }
@@ -83,7 +105,20 @@ export function crumbsForAdminPath(pathname) {
   if (p.startsWith('/admin/resignations')) {
     return [commandCenterCrumbItem(), { label: 'Resignations' }];
   }
+  if (p.startsWith('/admin/mailboxes')) {
+    return [commandCenterCrumbItem(), { label: 'Company mailboxes' }];
+  }
+  if (p.startsWith('/admin/analytics')) {
+    return [commandCenterCrumbItem(), { label: 'Platform Analytics' }];
+  }
   if (p.startsWith('/admin/customers')) {
+    if (registerCompany) {
+      return [
+        commandCenterCrumbItem(),
+        { label: 'Customers', to: '/admin/customers' },
+        { label: 'Register company' },
+      ];
+    }
     return [commandCenterCrumbItem(), { label: 'Customers' }];
   }
   if (p.startsWith('/admin/deployment-guide')) {
@@ -119,6 +154,9 @@ export function crumbsForAdminPath(pathname) {
   if (p.startsWith('/manager')) {
     return [commandCenterCrumbItem(), { label: 'Manager panel' }];
   }
+  if (p.startsWith('/profile')) {
+    return [commandCenterCrumbItem(), { label: 'My Profile' }];
+  }
 
   return null;
 }
@@ -126,5 +164,5 @@ export function crumbsForAdminPath(pathname) {
 /** Hook-friendly helper using current location. */
 export function useAdminPathCrumbs() {
   const location = useLocation();
-  return crumbsForAdminPath(location.pathname);
+  return crumbsForAdminPath(location.pathname, location.search);
 }

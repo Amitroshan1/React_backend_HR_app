@@ -21,6 +21,8 @@ from .models.Admin_models import Admin
 from .models.attendance import Location
 from .models.geo_config_change import GeoConfigChange, GeoConfigOverride
 from .models.geo_punch_attempt import GeoPunchAttempt
+from .master_data_tenancy import location_query
+from .tenant_context import admin_owned_clause, get_admin_in_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +83,17 @@ def resolve_date_range(
     return datetime.combine(today, datetime.min.time()), now
 
 
-def _base_query(start: datetime, end: datetime):
-    return GeoPunchAttempt.query.filter(
+def _in_range(start: datetime, end: datetime) -> tuple:
+    """Attempts in [start, end] of the caller's company (attempts without an employee: company 1)."""
+    return (
         GeoPunchAttempt.created_at >= start,
         GeoPunchAttempt.created_at <= end,
+        admin_owned_clause(GeoPunchAttempt.admin_id),
     )
+
+
+def _base_query(start: datetime, end: datetime):
+    return GeoPunchAttempt.query.filter(*_in_range(start, end))
 
 
 def _pct(part: int, total: int) -> float:
@@ -120,7 +128,7 @@ def build_summary(start: datetime, end: datetime) -> dict[str, Any]:
 
     decision_rows = (
         db.session.query(GeoPunchAttempt.geo_decision, func.count(GeoPunchAttempt.id))
-        .filter(GeoPunchAttempt.created_at >= start, GeoPunchAttempt.created_at <= end)
+        .filter(*_in_range(start, end))
         .group_by(GeoPunchAttempt.geo_decision)
         .all()
     )
@@ -131,7 +139,7 @@ def build_summary(start: datetime, end: datetime) -> dict[str, Any]:
 
     policy_rows = (
         db.session.query(GeoPunchAttempt.policy_action, func.count(GeoPunchAttempt.id))
-        .filter(GeoPunchAttempt.created_at >= start, GeoPunchAttempt.created_at <= end)
+        .filter(*_in_range(start, end))
         .group_by(GeoPunchAttempt.policy_action)
         .all()
     )
@@ -144,7 +152,7 @@ def build_summary(start: datetime, end: datetime) -> dict[str, Any]:
             func.avg(GeoPunchAttempt.acquisition_ms),
             func.avg(GeoPunchAttempt.retry_count),
         )
-        .filter(GeoPunchAttempt.created_at >= start, GeoPunchAttempt.created_at <= end)
+        .filter(*_in_range(start, end))
         .one()
     )
 
@@ -213,7 +221,7 @@ def build_breakdown(start: datetime, end: datetime, dimension: str) -> dict[str,
             case((GeoPunchAttempt.policy_action == "REQUIRE_REASON", 1), else_=0)
         ).label("require_reason"),
         func.sum(case((GeoPunchAttempt.network_match.is_(True), 1), else_=0)).label("net_match"),
-    ).filter(GeoPunchAttempt.created_at >= start, GeoPunchAttempt.created_at <= end)
+    ).filter(*_in_range(start, end))
 
     if needs_admin:
         q = q.outerjoin(Admin, Admin.id == GeoPunchAttempt.admin_id)
@@ -265,8 +273,7 @@ def build_office_health(start: datetime, end: datetime) -> dict[str, Any]:
                 func.count(GeoPunchAttempt.id),
             )
             .filter(
-                GeoPunchAttempt.created_at >= start,
-                GeoPunchAttempt.created_at <= end,
+                *_in_range(start, end),
                 or_(
                     GeoPunchAttempt.office_name == label,
                     and_(label == "Unknown office", GeoPunchAttempt.office_name.is_(None)),
@@ -431,12 +438,19 @@ def export_audit_csv(args: dict[str, Any], limit: int = 10000) -> str:
 
 
 def explain_attempt(attempt_id: str) -> Optional[dict[str, Any]]:
-    row = GeoPunchAttempt.query.filter_by(attempt_id=str(attempt_id).strip()).first()
+    row = GeoPunchAttempt.query.filter(
+        GeoPunchAttempt.attempt_id == str(attempt_id).strip(),
+        admin_owned_clause(GeoPunchAttempt.admin_id),
+    ).first()
     if not row:
         return None
-    admin = Admin.query.get(row.admin_id) if row.admin_id else None
+    admin = get_admin_in_tenant(row.admin_id) if row.admin_id else None
     cfg = get_geo_fence_config()
-    office = Location.query.get(row.office_id) if row.office_id else None
+    office = (
+        location_query().filter(Location.id == row.office_id).first()
+        if row.office_id
+        else None
+    )
 
     distance = row.distance_m
     radius = row.radius_m
@@ -558,7 +572,7 @@ def build_monitoring(start: datetime, end: datetime) -> dict[str, Any]:
             func.avg(GeoPunchAttempt.acquisition_ms),
             func.avg(GeoPunchAttempt.retry_count),
         )
-        .filter(GeoPunchAttempt.created_at >= start, GeoPunchAttempt.created_at <= end)
+        .filter(*_in_range(start, end))
         .one()
     )
     timeout_n = (
@@ -593,7 +607,7 @@ def build_monitoring(start: datetime, end: datetime) -> dict[str, Any]:
             extract("hour", GeoPunchAttempt.created_at).label("h"),
             func.count(GeoPunchAttempt.id),
         )
-        .filter(GeoPunchAttempt.created_at >= start, GeoPunchAttempt.created_at <= end)
+        .filter(*_in_range(start, end))
         .group_by(
             extract("year", GeoPunchAttempt.created_at),
             extract("month", GeoPunchAttempt.created_at),
@@ -622,13 +636,13 @@ def build_monitoring(start: datetime, end: datetime) -> dict[str, Any]:
             func.date(GeoPunchAttempt.created_at),
             func.count(GeoPunchAttempt.id),
         )
-        .filter(GeoPunchAttempt.created_at >= start, GeoPunchAttempt.created_at <= end)
+        .filter(*_in_range(start, end))
         .group_by(func.date(GeoPunchAttempt.created_at))
         .order_by(func.date(GeoPunchAttempt.created_at))
         .all()
     )
 
-    offices = Location.query.count()
+    offices = location_query().count()
 
     return {
         "daily_punch_volume": total,
@@ -822,8 +836,7 @@ def build_security(start: datetime, end: datetime) -> dict[str, Any]:
             func.count(GeoPunchAttempt.id).label("n"),
         )
         .filter(
-            GeoPunchAttempt.created_at >= start,
-            GeoPunchAttempt.created_at <= end,
+            *_in_range(start, end),
             GeoPunchAttempt.geo_decision == "OUTSIDE",
         )
         .group_by(GeoPunchAttempt.admin_id)
@@ -848,8 +861,7 @@ def build_security(start: datetime, end: datetime) -> dict[str, Any]:
     low_signal_repeat = (
         db.session.query(GeoPunchAttempt.admin_id, func.count(GeoPunchAttempt.id))
         .filter(
-            GeoPunchAttempt.created_at >= start,
-            GeoPunchAttempt.created_at <= end,
+            *_in_range(start, end),
             GeoPunchAttempt.geo_decision == "LOW_SIGNAL",
         )
         .group_by(GeoPunchAttempt.admin_id)
@@ -862,8 +874,7 @@ def build_security(start: datetime, end: datetime) -> dict[str, Any]:
     reason_heavy = (
         db.session.query(GeoPunchAttempt.admin_id, func.count(GeoPunchAttempt.id))
         .filter(
-            GeoPunchAttempt.created_at >= start,
-            GeoPunchAttempt.created_at <= end,
+            *_in_range(start, end),
             GeoPunchAttempt.policy_action == "REQUIRE_REASON",
         )
         .group_by(GeoPunchAttempt.admin_id)
@@ -877,8 +888,7 @@ def build_security(start: datetime, end: datetime) -> dict[str, Any]:
     # Approximate via large distance_m swings is hard without consecutive join — flag large distance with INSIDE claim rare.
     jumps = (
         GeoPunchAttempt.query.filter(
-            GeoPunchAttempt.created_at >= start,
-            GeoPunchAttempt.created_at <= end,
+            *_in_range(start, end),
             GeoPunchAttempt.distance_m.isnot(None),
             GeoPunchAttempt.distance_m > 5000,
             GeoPunchAttempt.accuracy_m.isnot(None),

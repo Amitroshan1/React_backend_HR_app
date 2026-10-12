@@ -203,7 +203,9 @@ def load_attendance_month_context(
         WorkFromHomeApplication.end_date >= first_day,
     ).all()
 
-    holidays = HolidayCalendar.query.filter(
+    from .master_data_tenancy import holiday_query, tenant_for_admin_id
+
+    holidays = holiday_query(tenant_for_admin_id(admin_id)).filter(
         HolidayCalendar.year == year,
         HolidayCalendar.is_active.is_(True),
         HolidayCalendar.holiday_date.between(first_day, last_day),

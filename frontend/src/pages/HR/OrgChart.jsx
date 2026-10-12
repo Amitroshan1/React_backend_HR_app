@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, RefreshCw, Users, Download } from 'lucide-react';
+import { ArrowLeft, Download, RefreshCw } from 'lucide-react';
 import './OrgChart.css';
-import './OffboardingDashboard.css';
 
 const HR_API_BASE = '/api/HumanResource';
 
@@ -9,78 +8,95 @@ function isUnassignedName(name) {
   return !name || String(name).trim().toLowerCase() === 'unassigned';
 }
 
-function OrgTreeL1({ node }) {
-  const name = node.manager?.name || 'L1';
-  const unassigned = isUnassignedName(name);
+function personMeta(person) {
+  const parts = [person?.emp_id, person?.designation].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function ChartBranch({ level, name, meta, count, unassigned, children }) {
+  const hasKids = Array.isArray(children) && children.length > 0;
   return (
-    <div className={`org-tree-l1${unassigned ? ' org-tree-l1--unassigned' : ''}`}>
-      <div className="org-tree-l1-head">
-        <div className="org-tree-level-title">
-          <span className="org-tree-level-badge org-tree-level-badge--l1">L1</span>
-          <strong>{name}</strong>
-        </div>
-        <span className="org-tree-count-pill">
-          {node.report_count} report{node.report_count === 1 ? '' : 's'}
-        </span>
-      </div>
-      <ul className="org-tree-reports">
-        {(node.reports || []).map((rep) => (
-          <li key={rep.admin_id}>
-            <span className="org-tree-avatar" aria-hidden>
-              {(rep.name || '?').trim().charAt(0).toUpperCase()}
-            </span>
-            <div className="org-tree-person">
-              <span className="org-tree-emp">{rep.name}</span>
-              <span className="org-tree-meta">{rep.emp_id || '—'} · {rep.designation || '—'}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <li>
+      <article className={`orgx-node orgx-node--${level}${unassigned ? ' is-unassigned' : ''}`}>
+        <span className="orgx-node__level">{level === 'emp' ? 'Employee' : level.toUpperCase()}</span>
+        <strong>{name}</strong>
+        {meta ? <span className="orgx-node__meta">{meta}</span> : null}
+        {count ? <span className="orgx-node__count">{count}</span> : null}
+      </article>
+      {hasKids ? <ul>{children}</ul> : null}
+    </li>
   );
 }
 
-function OrgTreeL2({ node }) {
-  const name = node.manager?.name || 'L2';
-  const unassigned = isUnassignedName(name);
-  return (
-    <div className={`org-tree-l2${unassigned ? ' org-tree-l2--unassigned' : ''}`}>
-      <div className="org-tree-l2-head">
-        <div className="org-tree-level-title">
-          <span className="org-tree-level-badge org-tree-level-badge--l2">L2</span>
-          <strong>{name}</strong>
-        </div>
-      </div>
-      <div className="org-tree-l2-children">
-        {(node.children || []).map((child) => (
-          <OrgTreeL1 key={child.manager?.admin_id ?? `l1-${child.report_count}`} node={child} />
-        ))}
-      </div>
-    </div>
-  );
+function reportCountLabel(count, noun) {
+  if (!count) return '';
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
-function OrgTreeL3({ node }) {
-  const name = node.manager?.name || 'L3';
-  const unassigned = isUnassignedName(name);
-  return (
-    <div className={`org-tree-l3${unassigned ? ' org-tree-l3--unassigned' : ''}`}>
-      <div className="org-tree-l3-head">
-        <div className="org-tree-level-title">
-          <span className="org-tree-level-badge org-tree-level-badge--l3">L3</span>
-          <strong>{name}</strong>
-        </div>
-        <span className="org-tree-count-pill org-tree-count-pill--on-dark">
-          {node.report_count} in hierarchy
-        </span>
-      </div>
-      <div className="org-tree-l3-children">
-        {(node.children || []).map((child) => (
-          <OrgTreeL2 key={child.manager?.admin_id ?? `l2-${child.report_count}`} node={child} />
+function buildForest(treeMultilevel, tree) {
+  if (treeMultilevel.length > 0) {
+    return treeMultilevel.map((l3, l3Index) => (
+      <ChartBranch
+        key={`l3-${l3.manager?.admin_id ?? 'none'}-${l3Index}`}
+        level="l3"
+        name={l3.manager?.name || 'L3'}
+        meta={isUnassignedName(l3.manager?.name) ? 'No L3 assigned' : (l3.manager?.email || '')}
+        count={reportCountLabel(l3.report_count, 'person')}
+        unassigned={isUnassignedName(l3.manager?.name)}
+      >
+        {(l3.children || []).map((l2, l2Index) => (
+          <ChartBranch
+            key={`l2-${l2.manager?.admin_id ?? 'none'}-${l3Index}-${l2Index}`}
+            level="l2"
+            name={l2.manager?.name || 'L2'}
+            meta={isUnassignedName(l2.manager?.name) ? 'No L2 assigned' : (l2.manager?.email || '')}
+            count={reportCountLabel(l2.report_count, 'person')}
+            unassigned={isUnassignedName(l2.manager?.name)}
+          >
+            {(l2.children || []).map((l1, l1Index) => (
+              <ChartBranch
+                key={`l1-${l1.manager?.admin_id ?? 'none'}-${l3Index}-${l2Index}-${l1Index}`}
+                level="l1"
+                name={l1.manager?.name || 'L1'}
+                meta={isUnassignedName(l1.manager?.name) ? 'No L1 assigned' : (l1.manager?.email || '')}
+                count={reportCountLabel(l1.report_count, 'report')}
+                unassigned={isUnassignedName(l1.manager?.name)}
+              >
+                {(l1.reports || []).map((rep) => (
+                  <ChartBranch
+                    key={`emp-${rep.admin_id}`}
+                    level="emp"
+                    name={rep.name || 'Employee'}
+                    meta={personMeta(rep) || rep.email || ''}
+                  />
+                ))}
+              </ChartBranch>
+            ))}
+          </ChartBranch>
         ))}
-      </div>
-    </div>
-  );
+      </ChartBranch>
+    ));
+  }
+
+  return tree.map((node, index) => (
+    <ChartBranch
+      key={`root-${node.manager?.admin_id ?? 'none'}-${index}`}
+      level="l1"
+      name={node.manager?.name || 'Unassigned'}
+      meta={node.manager?.email || ''}
+      count={reportCountLabel(node.report_count, 'report')}
+      unassigned={isUnassignedName(node.manager?.name)}
+    >
+      {(node.reports || []).map((rep) => (
+        <ChartBranch
+          key={`emp-${rep.admin_id}`}
+          level="emp"
+          name={rep.name || 'Employee'}
+          meta={personMeta(rep) || rep.email || ''}
+        />
+      ))}
+    </ChartBranch>
+  ));
 }
 
 export const OrgChart = ({ onBack, circleOptions = [], empTypeOptions = [] }) => {
@@ -114,10 +130,14 @@ export const OrgChart = ({ onBack, circleOptions = [], empTypeOptions = [] }) =>
       } else {
         setError(data.message || 'Failed to load org chart');
         setEmployees([]);
+        setTree([]);
+        setTreeMultilevel([]);
       }
     } catch {
       setError('Network error');
       setEmployees([]);
+      setTree([]);
+      setTreeMultilevel([]);
     } finally {
       setLoading(false);
     }
@@ -161,115 +181,120 @@ export const OrgChart = ({ onBack, circleOptions = [], empTypeOptions = [] }) =>
     return Array.from(map.values());
   }, [employees]);
 
+  const forest = useMemo(
+    () => buildForest(treeMultilevel, tree),
+    [treeMultilevel, tree],
+  );
+
   return (
-    <div className="ob-dash-container">
-      <div className="ob-dash-wrapper hr-updates-shell">
-        <div className="hr-updates-header">
-          <button type="button" className="btn-back-updates" onClick={onBack}>
-            <ArrowLeft size={16} /> Back to Updates
+    <div className="orgx">
+      <button type="button" className="orgx-back" onClick={onBack}>
+        <ArrowLeft size={16} />
+        Back
+      </button>
+      <header className="orgx-head">
+        <div>
+          <h1>Organization chart</h1>
+          <p>Reporting lines from L3 down to each employee. Scroll sideways when a branch is wide.</p>
+        </div>
+        <div className="orgx-head__actions">
+          <button type="button" className="orgx-btn orgx-btn--ghost" onClick={load} disabled={loading}>
+            <RefreshCw size={15} />
+            Refresh
           </button>
-          <div className="hr-updates-header__title">
-            <h2><Users size={22} /> Organization Chart</h2>
-            <p>Reporting hierarchy (L1 / L2 / L3) by circle and department.</p>
-          </div>
-          <button type="button" className="hr-updates-refresh" onClick={load} disabled={loading}>
-            <RefreshCw size={16} /> Refresh
-          </button>
-          <button type="button" className="hr-updates-secondary" onClick={exportCsv} disabled={loading || employees.length === 0}>
-            <Download size={16} /> Export CSV
+          <button type="button" className="orgx-btn" onClick={exportCsv} disabled={loading || employees.length === 0}>
+            <Download size={15} />
+            Export CSV
           </button>
         </div>
+      </header>
 
-        <div className="org-chart-filters">
-          <label>
-            Circle
-            <select value={circle} onChange={(e) => setCircle(e.target.value)}>
-              <option value="">All circles</option>
-              {circleOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-          <label>
-            Department
-            <select value={empType} onChange={(e) => setEmpType(e.target.value)}>
-              <option value="">All departments</option>
-              {empTypeOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </label>
-          <div className="org-chart-view-toggle" role="group" aria-label="View mode">
-            <button type="button" className={viewMode === 'tree' ? 'is-active' : ''} onClick={() => setViewMode('tree')}>Tree</button>
-            <button type="button" className={viewMode === 'table' ? 'is-active' : ''} onClick={() => setViewMode('table')}>Table</button>
-          </div>
-        </div>
-
-        {error ? <p className="hr-updates-error">{error}</p> : null}
-        {loading ? <p className="hr-updates-loading">Loading org chart…</p> : null}
-
-        {!loading && employees.length === 0 ? (
-          <p className="hr-updates-empty">No employees match these filters.</p>
-        ) : null}
-
-        {!loading && viewMode === 'tree' && (treeMultilevel.length > 0 || tree.length > 0) ? (
-          <div className="org-chart-tree-wrap">
-            {treeMultilevel.length > 0 ? (
-              treeMultilevel.map((node) => (
-                <OrgTreeL3 key={node.manager?.admin_id ?? 'root'} node={node} />
-              ))
-            ) : (
-              tree.map((node) => (
-                <div key={node.manager?.admin_id ?? 'unassigned'} className="org-tree-node">
-                  <div className="org-tree-manager">
-                    <strong>{node.manager?.name || 'Unassigned'}</strong>
-                    <span>{node.report_count} direct report{node.report_count === 1 ? '' : 's'}</span>
-                  </div>
-                  <ul className="org-tree-reports">
-                    {node.reports.map((rep) => (
-                      <li key={rep.admin_id}>
-                        <span className="org-tree-emp">{rep.name}</span>
-                        <span className="org-tree-meta">{rep.emp_id || '—'} · {rep.designation || '—'}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))
-            )}
-          </div>
-        ) : null}
-
-        {viewMode === 'table' && grouped.map((group) => (
-          <div key={`${group.circle}-${group.emp_type}`} className="org-chart-group">
-            <h3>{group.circle || '—'} · {group.emp_type || '—'} <span>({group.rows.length})</span></h3>
-            <div className="org-chart-table-wrap">
-              <table className="org-chart-table">
-                <thead>
-                  <tr>
-                    <th>Employee</th>
-                    <th>ID</th>
-                    <th>Designation</th>
-                    <th>L1 Manager</th>
-                    <th>L2 Manager</th>
-                    <th>L3 Manager</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.rows.map((row) => (
-                    <tr key={row.admin_id}>
-                      <td>
-                        <div className="org-chart-emp">{row.name}</div>
-                        <div className="org-chart-email">{row.email}</div>
-                      </td>
-                      <td>{row.emp_id || '—'}</td>
-                      <td>{row.designation || '—'}</td>
-                      <td>{row.managers?.l1?.name || '—'}</td>
-                      <td>{row.managers?.l2?.name || '—'}</td>
-                      <td>{row.managers?.l3?.name || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
+      <div className="orgx-stats">
+        <span><strong>{employees.length}</strong> people</span>
+        <span><strong>{treeMultilevel.length || tree.length}</strong> reporting lines</span>
       </div>
+
+      <div className="orgx-toolbar">
+        <label>
+          Circle
+          <select value={circle} onChange={(e) => setCircle(e.target.value)}>
+            <option value="">All circles</option>
+            {circleOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label>
+          Department
+          <select value={empType} onChange={(e) => setEmpType(e.target.value)}>
+            <option value="">All departments</option>
+            {empTypeOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <div className="orgx-toggle" role="group" aria-label="View mode">
+          <button type="button" className={viewMode === 'tree' ? 'is-active' : ''} onClick={() => setViewMode('tree')}>Tree</button>
+          <button type="button" className={viewMode === 'table' ? 'is-active' : ''} onClick={() => setViewMode('table')}>Table</button>
+        </div>
+        <div className="orgx-legend" aria-hidden>
+          <span className="orgx-legend__swatch orgx-legend__swatch--l3">L3</span>
+          <span className="orgx-legend__swatch orgx-legend__swatch--l2">L2</span>
+          <span className="orgx-legend__swatch orgx-legend__swatch--l1">L1</span>
+          <span className="orgx-legend__swatch orgx-legend__swatch--emp">Employee</span>
+        </div>
+      </div>
+
+      {error ? <p className="orgx-banner orgx-banner--error" role="alert">{error}</p> : null}
+
+      {loading ? <p className="orgx-empty">Loading organization chart…</p> : null}
+
+      {!loading && employees.length === 0 ? (
+        <p className="orgx-empty">No employees match these filters.</p>
+      ) : null}
+
+      {!loading && viewMode === 'tree' && forest.length > 0 ? (
+        <div className="orgx-canvas">
+          <div className="orgx-forest">
+            {forest.map((branch, index) => (
+              <div className="orgx-tree" key={branch.key || `line-${index}`}>
+                <ul>{branch}</ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {!loading && viewMode === 'table' && grouped.map((group) => (
+        <section key={`${group.circle}-${group.emp_type}`} className="orgx-group">
+          <h2>{group.circle || '—'} · {group.emp_type || '—'} <span>{group.rows.length}</span></h2>
+          <div className="orgx-table-wrap">
+            <table className="orgx-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>ID</th>
+                  <th>Designation</th>
+                  <th>L1</th>
+                  <th>L2</th>
+                  <th>L3</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.rows.map((row) => (
+                  <tr key={row.admin_id}>
+                    <td>
+                      <strong>{row.name}</strong>
+                      <span>{row.email}</span>
+                    </td>
+                    <td>{row.emp_id || '—'}</td>
+                    <td>{row.designation || '—'}</td>
+                    <td>{row.managers?.l1?.name || '—'}</td>
+                    <td>{row.managers?.l2?.name || '—'}</td>
+                    <td>{row.managers?.l3?.name || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
     </div>
   );
 };

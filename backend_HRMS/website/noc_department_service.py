@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from . import db
 from .models.Admin_models import Admin
 from .models.seperation import NocDepartmentRequest, Resignation
+from .tenant_context import tenant_admin_ids, tenant_id_for_admin
 
 NOC_DEPT_LABELS = {
     "HR": "Human Resource",
@@ -132,6 +133,8 @@ def _can_access_row(scope, approver, row):
     emp = row.employee
     if not emp:
         return False
+    if tenant_id_for_admin(emp) != tenant_id_for_admin(approver):
+        return False
     dk = (row.department_key or "").strip().upper()
     if scope == "manager":
         if dk != "MANAGER":
@@ -180,6 +183,7 @@ def list_noc_requests(scope, approver, status_raw):
             joinedload(NocDepartmentRequest.employee),
             joinedload(NocDepartmentRequest.resignation),
         )
+        .filter(NocDepartmentRequest.admin_id.in_(tenant_admin_ids(tenant_id_for_admin(approver))))
         .order_by(NocDepartmentRequest.requested_at.desc(), NocDepartmentRequest.id.desc())
         .all()
     )
@@ -220,14 +224,18 @@ def upload_noc_document(scope, approver, req_id, file_storage):
     if not file_storage or not file_storage.filename:
         return {"success": False, "message": "No file provided", "http": 400}
 
-    upload_dir = os.path.join(current_app.root_path, "static", "uploads", "noc_department")
-    os.makedirs(upload_dir, exist_ok=True)
+    from .tenant_context import tenant_id_for_admin
+    from .upload_tenancy import tenant_upload_path
+
     safe_base = secure_filename(file_storage.filename)
     prefix = f"{row.admin_id}_{req_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
     filename = prefix + safe_base
-    abs_path = os.path.join(upload_dir, filename)
+    abs_path, rel_path = tenant_upload_path(
+        os.path.join(current_app.root_path, "static", "uploads"),
+        f"noc_department/{filename}",
+        tenant_id_for_admin(row.employee),
+    )
     file_storage.save(abs_path)
-    rel_path = f"noc_department/{filename}"
 
     row.file_path = rel_path
     row.status = "Uploaded"

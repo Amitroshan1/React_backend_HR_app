@@ -231,13 +231,17 @@ def build_bank_payment_file(
     *,
     year: int,
     month_num: int,
+    tenant_id: int,
     circle: str | None = None,
     emp_type: str | None = None,
 ) -> dict:
+    from .tenant_context import admin_tenant_clause
+
     q = (
         db.session.query(MonthlyPayroll, Admin)
         .join(Admin, Admin.id == MonthlyPayroll.admin_id)
         .filter(
+            admin_tenant_clause(tenant_id),
             MonthlyPayroll.month_num == int(month_num),
             MonthlyPayroll.year == str(int(year)),
         )

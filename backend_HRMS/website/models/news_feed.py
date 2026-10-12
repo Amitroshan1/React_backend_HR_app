@@ -2,10 +2,17 @@ from datetime import datetime, timedelta
 from .. import db
 
 
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
 class NewsFeed(db.Model):
     __tablename__ = 'news_feeds'
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     title = db.Column(db.String(255), nullable=False)
     content = db.Column(db.Text, nullable=False)
     file_path = db.Column(db.String(255), nullable=True)

@@ -4,12 +4,12 @@ export const ADMIN_HUB_SECTIONS = [
   {
     id: "departments",
     title: "Department workspaces",
-    subtitle: "Open each team's full workspace",
+    subtitle: "Jump into each team's full workspace",
     modules: [
       {
         id: "hr-workspace",
         title: "HR Management",
-        description: "Payroll, holidays, org updates",
+        description: "Employees, leave, holidays, org updates",
         icon: "🏢",
         route: "/hr",
         accent: "rose",
@@ -17,10 +17,18 @@ export const ADMIN_HUB_SECTIONS = [
       {
         id: "accounts-workspace",
         title: "Accounts Management",
-        description: "CTC, payroll, finance",
+        description: "CTC, payroll, tax, finance",
         icon: "📊",
         route: "/account",
         accent: "teal",
+      },
+      {
+        id: "it-panel",
+        title: "IT Management",
+        description: "IT panel, tickets, assets, support",
+        icon: "🛠️",
+        route: "/it",
+        accent: "sky",
       },
       {
         id: "it-workspace",
@@ -35,7 +43,7 @@ export const ADMIN_HUB_SECTIONS = [
   {
     id: "time",
     title: "Time & Leave",
-    subtitle: "Leave applications and resignations org-wide",
+    subtitle: "Leave and separations across the company",
     modules: [
       {
         id: "leaves",
@@ -58,85 +66,17 @@ export const ADMIN_HUB_SECTIONS = [
       },
     ],
   },
-  {
-    id: "finance",
-    title: "Finance",
-    subtitle: "Claims and accounts",
-    modules: [
-      {
-        id: "claims",
-        title: "Expense Claims",
-        description: "All employee reimbursement requests",
-        icon: "💰",
-        route: "/admin/claims",
-        statKey: "total_claims",
-        badgeKey: "pending_claims",
-        accent: "teal",
-      },
-    ],
-  },
-  {
-    id: "it",
-    title: "IT & Assets",
-    subtitle: "Inventory, assignments, tickets, and returns",
-    modules: [
-      {
-        id: "inventory",
-        title: "Inventory Management",
-        description: "All asset categories and stock",
-        icon: "📦",
-        route: "/it/inventory",
-        statKey: "total_inventory_assets",
-        accent: "indigo",
-      },
-      {
-        id: "assets",
-        title: "Asset Management",
-        description: "Assign and track devices",
-        icon: "💻",
-        route: "/it/Assets",
-        accent: "sky",
-      },
-      {
-        id: "tickets",
-        title: "Support Tickets",
-        description: "Open IT support queue",
-        icon: "🎫",
-        route: "/it/OpenTicket",
-        statKey: "open_tickets",
-        badgeKey: "open_tickets",
-        accent: "amber",
-      },
-      {
-        id: "returns",
-        title: "Return Requests",
-        description: "Pending asset returns",
-        icon: "↩️",
-        route: "/it/return-requests",
-        badgeKey: "pending_return_requests",
-        accent: "orange",
-      },
-      {
-        id: "noc",
-        title: "NOC Requests",
-        description: "No-objection certificate workflow",
-        icon: "📄",
-        route: "/it/noc-requests",
-        accent: "cyan",
-      },
-    ],
-  },
 ];
 
 export const ADMIN_PLATFORM_SECTION = {
   id: "platform",
-  title: "Platform & Deployment",
-  subtitle: "Register companies on shared-DB SaaS (tenant_id)",
+  title: "Platform",
+  subtitle: "Shared-DB SaaS — register companies (tenant_id)",
   modules: [
     {
       id: "customers",
       title: "Customers",
-      description: "Register company + plan → creates tenant in shared database",
+      description: "Register a company and create its tenant",
       icon: "🏗️",
       route: "/admin/customers",
       accent: "blue",
@@ -144,7 +84,7 @@ export const ADMIN_PLATFORM_SECTION = {
     {
       id: "deployment-guide",
       title: "Deployment Guide",
-      description: "Checklist and env keys (legacy silo docs archived)",
+      description: "Checklist and environment keys",
       icon: "🚀",
       route: "/admin/deployment-guide",
       accent: "teal",

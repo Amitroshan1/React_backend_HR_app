@@ -1,0 +1,124 @@
+.admin-side {
+  --side-text: #142d52;
+  --side-muted: #667895;
+  --side-border: #e1e7ef;
+  --side-surface: #ffffff;
+  --side-hover: #f1f4f8;
+  --side-active: #e8f5f3;
+  --side-active-text: #0c716a;
+  --side-width: 276px;
+
+  width: var(--side-width);
+  flex: 0 0 var(--side-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--side-surface);
+  border-right: 1px solid var(--side-border);
+  height: calc(100vh - var(--header-height, 80px));
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  padding: 18px 14px 16px;
+  box-sizing: border-box;
+  z-index: 5;
+}
+
+.admin-side__brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 8px 16px;
+}
+
+.admin-side__mark {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: block;
+}
+
+.admin-side__mark svg {
+  display: block;
+}
+
+.admin-side__brand strong {
+  display: block;
+  font-size: 16px;
+  color: var(--side-text);
+}
+
+.admin-side__brand span,
+.admin-side__label {
+  color: var(--side-muted);
+  font-size: 12px;
+}
+
+.admin-side__scroll {
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: none;
+}
+
+.admin-side__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-side__group {
+  margin-bottom: 8px;
+}
+
+.admin-side__label {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  padding: 10px 10px 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.admin-side__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  margin: 2px 0;
+  border-radius: 10px;
+  color: var(--side-text);
+  text-decoration: none;
+  font-weight: 550;
+  font-size: 14px;
+}
+
+.admin-side__link:hover {
+  background: var(--side-hover);
+  text-decoration: none;
+}
+
+.admin-side__link--active {
+  background: var(--side-active);
+  color: var(--side-active-text);
+}
+
+@media (max-width: 900px) {
+  .admin-side {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: auto;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    box-shadow: 16px 0 40px rgba(20, 45, 82, 0.12);
+    z-index: 20;
+  }
+
+  .admin-platform--nav-open .admin-side {
+    transform: none;
+  }
+}

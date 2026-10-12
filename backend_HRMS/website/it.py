@@ -7,6 +7,9 @@ from flask_jwt_extended import get_jwt_identity, jwt_required, get_jwt
 
 from . import db
 from .models.Admin_models import Admin
+from .tenant_context import current_admin, get_admin_in_tenant, get_current_tenant_id, tenant_admin_query
+from .itam.tenancy import it_get, it_query, it_tenant_clause
+from .itam.media import persist_itam_media, present_itam_media
 from .models.it_models import (
     ITAssetAssignment,
     ITAssetReturnRequest,
@@ -32,6 +35,18 @@ from .employee_photo import photo_url_for_admin
 
 
 it_bp = Blueprint("it", __name__)
+
+
+def _stored_media(values, folder):
+    """(keys, error response). Error is None when the photos could be stored."""
+    try:
+        return persist_itam_media(values, folder), None
+    except ValueError as exc:
+        return None, _err(str(exc))
+
+
+def _shown_media(values):
+    return present_itam_media(values)
 
 
 def _allow_self_asset_access_for_non_it():
@@ -199,11 +214,7 @@ def _ensure_parcel_name_columns_runtime():
 
 
 def _current_admin():
-    try:
-        admin_id = int(get_jwt_identity())
-    except Exception:
-        return None
-    return Admin.query.get(admin_id)
+    return current_admin()
 
 
 def _admin_name(admin):
@@ -234,14 +245,14 @@ def _resolve_admin_by_emp_key(emp_key):
     key = str(emp_key or "").strip()
     if not key:
         return None
-    emp = Admin.query.filter(
+    emp = tenant_admin_query().filter(
         db.func.lower(db.func.coalesce(Admin.emp_id, "")) == key.lower()
     ).first()
     if emp:
         return emp
     if key.isdigit():
-        return Admin.query.get(int(key))
-    return Admin.query.filter(
+        return get_admin_in_tenant(int(key))
+    return tenant_admin_query().filter(
         db.func.lower(db.func.coalesce(Admin.email, "")) == key.lower()
     ).first()
 
@@ -274,11 +285,12 @@ def _coerce_optional_int(value):
 
 
 def _existing_fk_id(model, value):
-    """Return value only when the FK target row exists; otherwise None (avoids MySQL 1452)."""
+    """Return value only when the FK target row exists in the caller's tenant; otherwise None (avoids MySQL 1452)."""
     pk = _coerce_optional_int(value)
     if pk is None:
         return None
-    return pk if model.query.get(pk) is not None else None
+    found = get_admin_in_tenant(pk) if model is Admin else it_get(model, pk)
+    return pk if found is not None else None
 
 
 def _inventory_id_from_export_slot(value):
@@ -305,7 +317,7 @@ def _resolve_parcel_export_item_ids(it):
     inventory_item_id = _coerce_optional_int(it.get("inventory_item_id"))
     if inventory_item_id is None:
         inventory_item_id = _inventory_id_from_export_slot(it.get("id"))
-    if inventory_item_id is not None and ITInventoryItem.query.get(inventory_item_id) is None:
+    if inventory_item_id is not None and it_get(ITInventoryItem, inventory_item_id) is None:
         inventory_item_id = None
     return asset_unit_id, inventory_item_id
 
@@ -335,10 +347,10 @@ def _serialize_inventory_item(item):
         "category": item.category,
         "inventory_category": _effective_inventory_category(item),
         "hw_type": item.hw_type,
-        "photos": item.photos_json or [],
+        "photos": _shown_media(item.photos_json or []),
         "vendor": item.vendor or "",
         "purchase_date": item.purchase_date.isoformat() if item.purchase_date else None,
-        "receipts": item.receipts_json or [],
+        "receipts": _shown_media(item.receipts_json or []),
         "location": item.location or "",
         "notes": item.notes or "",
         "totalQuantity": int(item.total_quantity or 0),
@@ -382,8 +394,8 @@ def _serialize_asset_unit(unit):
         "exportedTo": unit.exported_to,
         "exportedAt": _iso(unit.exported_at),
         "repairDate": _iso(unit.repair_date),
-        "photos": unit.photos_json or [],
-        "assignmentPhotos": unit.assignment_photos_json or [],
+        "photos": _shown_media(unit.photos_json or []),
+        "assignmentPhotos": _shown_media(unit.assignment_photos_json or []),
         "created_at": _iso(unit.created_at),
         "updated_at": _iso(unit.updated_at),
     }
@@ -443,7 +455,7 @@ def _serialize_removed_asset(r):
         "name": r.name,
         "category": r.category,
         "reason": r.reason,
-        "photos": r.photos_json or [],
+        "photos": _shown_media(r.photos_json or []),
         "removedAt": _iso(r.removed_at),
     }
 
@@ -475,7 +487,7 @@ def _serialize_parcel_import(i):
         "receivedByAdminId": i.received_by_admin_id,
         "receivedBy": (i.received_by_name or "").strip() or _admin_name(i.received_by_admin),
         "date": _iso(i.received_at),
-        "photos": i.photos_json or [],
+        "photos": _shown_media(i.photos_json or []),
     }
 
 
@@ -488,7 +500,7 @@ def _serialize_parcel_export(e):
         "exportedByAdminId": e.exported_by_admin_id,
         "exportedBy": (e.exported_by_name or "").strip() or _admin_name(e.exported_by_admin),
         "date": _iso(e.exported_at),
-        "photos": e.parcel_photos_json or [],
+        "photos": _shown_media(e.parcel_photos_json or []),
         "inventoryCategory": (e.inventory_category or "").strip() or None,
         "count": len(e.items),
         "assets": [
@@ -501,9 +513,11 @@ def _serialize_parcel_export(e):
                 "make": (it.make or "").strip()
                 or ((it.asset_unit.make or "").strip() if it.asset_unit else ""),
                 "model": it.model,
-                "individualPhoto": (it.individual_photo_json or [None])[0]
-                if isinstance(it.individual_photo_json, list)
-                else it.individual_photo_json,
+                "individualPhoto": _shown_media(
+                    (it.individual_photo_json or [None])[0]
+                    if isinstance(it.individual_photo_json, list)
+                    else it.individual_photo_json
+                ),
             }
             for it in e.items
         ],
@@ -526,7 +540,7 @@ def _serialize_return_request(r):
         "category": r.category,
         "reason": r.reason,
         "returnDestination": r.return_destination or "available",
-        "photos": r.photos_json or [],
+        "photos": _shown_media(r.photos_json or []),
         "status": r.status,
         "approvedByAdminId": r.approved_by_admin_id,
         "approvedByName": _admin_name(r.approved_by_admin),
@@ -541,10 +555,11 @@ def _serialize_return_request(r):
 
 
 def _next_code(prefix, model, field_name):
-    """Allocate next code without loading wide JSON columns (e.g. parcel photos)."""
+    """Next code inside the caller's company (INV-0001 starts again for each company)."""
     code_col = getattr(model, field_name)
     latest = (
         db.session.query(model.id, code_col)
+        .filter(it_tenant_clause(model))
         .order_by(model.id.desc())
         .first()
     )
@@ -566,11 +581,13 @@ def _paginate_parcel_rows(model, *, page, per_page):
     row triggers MySQL "Out of sort memory" (errno 1038). Sorting bare ids
     avoids that while preserving newest-first order.
     """
-    total = db.session.query(db.func.count(model.id)).scalar() or 0
+    in_tenant = it_tenant_clause(model)
+    total = db.session.query(db.func.count(model.id)).filter(in_tenant).scalar() or 0
     pages = max(1, (int(total) + per_page - 1) // per_page) if total else 1
     page = min(max(1, page), pages)
     id_rows = (
         db.session.query(model.id)
+        .filter(in_tenant)
         .order_by(model.id.desc())
         .offset((page - 1) * per_page)
         .limit(per_page)
@@ -619,7 +636,7 @@ def _serialize_emp_assets(emp):
                 "serialNumber": u.serial_number or "",
                 "imei1": u.imei1,
                 "imei2": u.imei2,
-                "photos": u.assignment_photos_json or u.photos_json or [],
+                "photos": _shown_media(u.assignment_photos_json or u.photos_json or []),
                 "assignedDate": _iso(u.assigned_at),
             }
         )
@@ -664,7 +681,7 @@ def _serialize_emp_assets(emp):
 @it_bp.route("/employees/assigned-assets", methods=["GET"])
 @jwt_required()
 def list_employee_assigned_assets():
-    rows = Admin.query.order_by(Admin.id.asc()).all()
+    rows = tenant_admin_query().order_by(Admin.id.asc()).all()
     out = []
     for emp in rows:
         assets = _serialize_emp_assets(emp)
@@ -675,7 +692,7 @@ def list_employee_assigned_assets():
 
 
 def _recalc_inventory_counts(inventory_id):
-    item = ITInventoryItem.query.get(inventory_id)
+    item = it_get(ITInventoryItem, inventory_id)
     if not item:
         return
     units = ITAssetUnit.query.filter_by(inventory_item_id=inventory_id).all()
@@ -699,10 +716,10 @@ def _recalc_inventory_counts(inventory_id):
 @it_bp.route("/summary", methods=["GET"])
 @jwt_required()
 def it_summary():
-    total_assets = db.session.query(db.func.count(ITAssetUnit.id)).scalar() or 0
-    open_tickets = db.session.query(db.func.count(ITSupportTicket.id)).filter(ITSupportTicket.status == "pending").scalar() or 0
-    assigned_assets = db.session.query(db.func.count(ITAssetUnit.id)).filter(ITAssetUnit.status == "assigned").scalar() or 0
-    available_software = db.session.query(db.func.count(ITSoftwareLicense.id)).filter(ITSoftwareLicense.status == "available").scalar() or 0
+    total_assets = it_query(ITAssetUnit).count()
+    open_tickets = it_query(ITSupportTicket).filter(ITSupportTicket.status == "pending").count()
+    assigned_assets = it_query(ITAssetUnit).filter(ITAssetUnit.status == "assigned").count()
+    available_software = it_query(ITSoftwareLicense).filter(ITSoftwareLicense.status == "available").count()
     return _ok(
         {
             "summary": {
@@ -773,7 +790,7 @@ def _employee_lookup_filter(q, limit=20):
     pattern = f"%{term.lower()}%"
     enabled = db.or_(Admin.is_exited == False, Admin.is_exited.is_(None))
     rows = (
-        Admin.query.filter(
+        tenant_admin_query().filter(
             enabled,
             db.or_(
                 db.func.lower(db.func.coalesce(Admin.emp_id, "")).like(pattern),
@@ -806,7 +823,7 @@ def lookup_employee():
 def list_inventory_items():
     category = (request.args.get("category") or "").strip()
     inventory_category = (request.args.get("inventory_category") or "").strip()
-    q = ITInventoryItem.query
+    q = it_query(ITInventoryItem)
     if category:
         q = q.filter(db.func.lower(ITInventoryItem.category) == category.lower())
     if inventory_category:
@@ -850,16 +867,20 @@ def create_inventory_item():
     notes = (data.get("notes") or data.get("remark") or "").strip() or None
     if notes and len(notes) > 500:
         notes = notes[:500]
+    photos, photo_err = _stored_media(data.get("photos") or [], "inventory")
+    receipts, receipt_err = _stored_media(data.get("receipts") or [], "receipts")
+    if photo_err or receipt_err:
+        return photo_err or receipt_err
     item = ITInventoryItem(
         inventory_code=data.get("inventory_code") or _next_code("INV", ITInventoryItem, "inventory_code"),
         name=name,
         category=category,
         inventory_category=inventory_category,
         hw_type=(data.get("hw_type") or None),
-        photos_json=data.get("photos") or [],
+        photos_json=photos,
         vendor=(data.get("vendor") or "").strip() or None,
         purchase_date=_parse_date(data.get("purchase_date")),
-        receipts_json=data.get("receipts") or [],
+        receipts_json=receipts,
         location=(data.get("location") or "").strip() or None,
         notes=notes,
         total_quantity=initial_quantity if is_qty_managed else 0,
@@ -894,7 +915,7 @@ def create_inventory_item():
 @it_bp.route("/inventory/items/<int:item_id>", methods=["PATCH"])
 @jwt_required()
 def update_inventory_item(item_id):
-    item = ITInventoryItem.query.get(item_id)
+    item = it_get(ITInventoryItem, item_id)
     if not item:
         return _err("Inventory item not found", 404)
     data = request.get_json(silent=True) or {}
@@ -903,14 +924,22 @@ def update_inventory_item(item_id):
         ("category", "category"),
         ("inventory_category", "inventory_category"),
         ("hw_type", "hw_type"),
-        ("photos", "photos_json"),
         ("vendor", "vendor"),
         ("location", "location"),
         ("notes", "notes"),
-        ("receipts", "receipts_json"),
     ):
         if key in data:
             setattr(item, attr, (data.get(key) or None))
+    if "photos" in data:
+        photos, err = _stored_media(data.get("photos") or [], "inventory")
+        if err:
+            return err
+        item.photos_json = photos
+    if "receipts" in data:
+        receipts, err = _stored_media(data.get("receipts") or [], "receipts")
+        if err:
+            return err
+        item.receipts_json = receipts
     if "purchase_date" in data:
         item.purchase_date = _parse_date(data.get("purchase_date"))
 
@@ -938,7 +967,7 @@ def list_units():
 
     status = (request.args.get("status") or "").strip()
     inventory_id = request.args.get("inventory_id", type=int)
-    q = ITAssetUnit.query
+    q = it_query(ITAssetUnit)
     if status:
         q = q.filter(db.func.lower(ITAssetUnit.status) == status.lower())
     if inventory_id:
@@ -973,7 +1002,7 @@ def create_units_bulk():
     units = data.get("units") or []
     if not inventory_id or not isinstance(units, list) or not units:
         return _err("inventory_item_id and non-empty units array are required")
-    inv = ITInventoryItem.query.get(inventory_id)
+    inv = it_get(ITInventoryItem, inventory_id)
     if not inv:
         return _err("Inventory item not found", 404)
 
@@ -1011,7 +1040,7 @@ def create_units_bulk():
     laptop_codes = [c for c, r in prepared if not _is_mobile_tablet_hw(r.get("hw_type") or inv.hw_type)]
     if laptop_codes:
         existing = (
-            ITAssetUnit.query.filter(
+            it_query(ITAssetUnit).filter(
                 db.func.lower(ITAssetUnit.unit_code).in_([c.casefold() for c in laptop_codes])
             )
             .with_entities(ITAssetUnit.unit_code)
@@ -1029,7 +1058,11 @@ def create_units_bulk():
 
     created = []
     for unit_code, row in prepared:
+        photos, err = _stored_media(row.get("photos") or [], "units")
+        if err:
+            return err
         unit = ITAssetUnit(
+            tenant_id=int(inv.tenant_id) if inv.tenant_id is not None else get_current_tenant_id(),
             unit_code=unit_code,
             inventory_item_id=inventory_id,
             asset_name=(row.get("asset_name") or inv.name or "").strip(),
@@ -1044,7 +1077,7 @@ def create_units_bulk():
             project_code=(row.get("project_code") or row.get("projectCode") or "").strip() or None,
             device_location=(row.get("device_location") or row.get("deviceLocation") or "").strip() or None,
             status=(row.get("status") or "available").strip(),
-            photos_json=row.get("photos") or [],
+            photos_json=photos,
         )
         unit_notes = (row.get("notes") or row.get("remark") or "").strip() or None
         if unit_notes and len(unit_notes) > 500:
@@ -1100,7 +1133,7 @@ def create_units_bulk():
 def update_unit_status(unit_id):
     from .itam.transition_service import action_for_unit_status, extract_remark_fields
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
     data = request.get_json(silent=True) or {}
@@ -1164,7 +1197,7 @@ def update_unit_status(unit_id):
 def delete_unit(unit_id):
     from .itam.transition_service import extract_remark_fields
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
     if unit.status == "assigned":
@@ -1235,10 +1268,10 @@ def assign_unit():
     if not unit_id or (not assigned_to_admin_id and not assigned_to_emp_id):
         return _err("unit_id and assigned_to_admin_id/assigned_to_emp_id are required")
 
-    unit = ITAssetUnit.query.get(unit_id)
-    target_admin = Admin.query.get(assigned_to_admin_id) if assigned_to_admin_id else None
+    unit = it_get(ITAssetUnit, unit_id)
+    target_admin = get_admin_in_tenant(assigned_to_admin_id) if assigned_to_admin_id else None
     if not target_admin and assigned_to_emp_id:
-        target_admin = Admin.query.filter(
+        target_admin = tenant_admin_query().filter(
             db.func.lower(db.func.coalesce(Admin.emp_id, "")) == assigned_to_emp_id.lower()
         ).first()
     actor = _current_admin()
@@ -1282,7 +1315,10 @@ def assign_unit():
     unit.assigned_to_admin_id = target_admin.id
     unit.assigned_at = _parse_dt(data.get("assigned_at")) or utc_now()
     unit.asset_tag = (data.get("asset_tag") or unit.asset_tag)
-    unit.assignment_photos_json = data.get("assignment_photos") or unit.assignment_photos_json or []
+    photos, err = _stored_media(data.get("assignment_photos") or [], "assignments")
+    if data.get("assignment_photos") and err:
+        return err
+    unit.assignment_photos_json = photos or unit.assignment_photos_json or []
 
     err = _apply_lifecycle_or_err(
         unit,
@@ -1350,7 +1386,7 @@ def return_unit(unit_id):
     )
 
     data = request.get_json(silent=True) or {}
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     actor = _current_admin()
     if not unit:
         return _err("Unit not found", 404)
@@ -1423,7 +1459,7 @@ def return_unit(unit_id):
 def list_software_licenses():
     name = (request.args.get("name") or "").strip()
     status = (request.args.get("status") or "").strip()
-    q = ITSoftwareLicense.query
+    q = it_query(ITSoftwareLicense)
     if name:
         q = q.filter(db.func.lower(ITSoftwareLicense.name) == name.lower())
     if status:
@@ -1441,7 +1477,7 @@ def create_software_licenses():
     quantity = int(data.get("quantity") or 0)
     if not inventory_id or not name or quantity < 1:
         return _err("inventory_item_id, name and quantity>=1 are required")
-    inv = ITInventoryItem.query.get(inventory_id)
+    inv = it_get(ITInventoryItem, inventory_id)
     if not inv:
         return _err("Inventory item not found", 404)
 
@@ -1453,6 +1489,7 @@ def create_software_licenses():
         batch_notes = batch_notes[:500]
     for _ in range(quantity):
         lic = ITSoftwareLicense(
+            tenant_id=int(inv.tenant_id) if inv.tenant_id is not None else get_current_tenant_id(),
             license_code=_next_code("SW", ITSoftwareLicense, "license_code"),
             inventory_item_id=inventory_id,
             name=name,
@@ -1461,6 +1498,7 @@ def create_software_licenses():
             status="available",
         )
         db.session.add(lic)
+        db.session.flush()
         created.append(lic)
     db.session.flush()
     actor = _current_admin()
@@ -1491,10 +1529,10 @@ def assign_software():
     assigned_to_emp_id = (data.get("assigned_to_emp_id") or "").strip()
     if not license_id or (not assigned_to_admin_id and not assigned_to_emp_id):
         return _err("license_id and assigned_to_admin_id/assigned_to_emp_id are required")
-    lic = ITSoftwareLicense.query.get(license_id)
-    target_admin = Admin.query.get(assigned_to_admin_id) if assigned_to_admin_id else None
+    lic = it_get(ITSoftwareLicense, license_id)
+    target_admin = get_admin_in_tenant(assigned_to_admin_id) if assigned_to_admin_id else None
     if not target_admin and assigned_to_emp_id:
-        target_admin = Admin.query.filter(
+        target_admin = tenant_admin_query().filter(
             db.func.lower(db.func.coalesce(Admin.emp_id, "")) == assigned_to_emp_id.lower()
         ).first()
     actor = _current_admin()
@@ -1578,7 +1616,7 @@ def return_software(license_id):
     from .itam.transition_service import extract_remark_fields
 
     data = request.get_json(silent=True) or {}
-    lic = ITSoftwareLicense.query.get(license_id)
+    lic = it_get(ITSoftwareLicense, license_id)
     actor = _current_admin()
     if not lic:
         return _err("Software license not found", 404)
@@ -1636,7 +1674,9 @@ def create_return_request():
     inventory_id = data.get("inventory_item_id")
     quantity = int(data.get("quantity") or 1)
     return_destination = (data.get("return_destination") or "available").strip().lower()
-    photos = data.get("photos") or []
+    photos, err = _stored_media(data.get("photos") or [], "returns")
+    if err:
+        return err
     if not reason:
         return _err("reason is required")
     if return_destination not in ("available", "removed_from_it"):
@@ -1647,7 +1687,7 @@ def create_return_request():
     asset_name = None
     category = None
     if unit_id:
-        unit = ITAssetUnit.query.get(unit_id)
+        unit = it_get(ITAssetUnit, unit_id)
         if not unit:
             return _err("Unit not found", 404)
         if unit.assigned_to_admin_id != actor.id:
@@ -1655,7 +1695,7 @@ def create_return_request():
         asset_name = unit.asset_name or unit.brand or unit.unit_code
         category = unit.category or "Hardware"
     elif license_id:
-        lic = ITSoftwareLicense.query.get(license_id)
+        lic = it_get(ITSoftwareLicense, license_id)
         if not lic:
             return _err("Software license not found", 404)
         if lic.assigned_to_admin_id != actor.id:
@@ -1663,7 +1703,7 @@ def create_return_request():
         asset_name = lic.name or lic.license_code
         category = "Software"
     else:
-        item = ITInventoryItem.query.get(inventory_id)
+        item = it_get(ITInventoryItem, inventory_id)
         if not item:
             return _err("Inventory item not found", 404)
         if quantity < 1:
@@ -1714,7 +1754,7 @@ def create_return_request():
         category=category,
         reason=reason,
         return_destination=return_destination,
-        photos_json=photos if isinstance(photos, list) else [],
+        photos_json=photos,
         status="pending",
     )
     db.session.add(req)
@@ -1744,7 +1784,7 @@ def list_return_requests():
     only_mine = str(request.args.get("mine") or "").strip().lower() in {"1", "true", "yes"}
     emp_id = (request.args.get("emp_id") or "").strip()
     actor = _current_admin()
-    q = ITAssetReturnRequest.query
+    q = it_query(ITAssetReturnRequest)
     if status:
         q = q.filter(db.func.lower(ITAssetReturnRequest.status) == status)
     if emp_id:
@@ -1764,7 +1804,7 @@ def approve_return_request(request_id):
     from .itam.transition_service import extract_remark_fields
 
     actor = _current_admin()
-    row = ITAssetReturnRequest.query.get(request_id)
+    row = it_get(ITAssetReturnRequest, request_id)
     if not row:
         return _err("Return request not found", 404)
     if row.status != "pending":
@@ -1806,7 +1846,7 @@ def approve_return_request(request_id):
 @jwt_required()
 def reject_return_request(request_id):
     actor = _current_admin()
-    row = ITAssetReturnRequest.query.get(request_id)
+    row = it_get(ITAssetReturnRequest, request_id)
     if not row:
         return _err("Return request not found", 404)
     if row.status != "pending":
@@ -1848,7 +1888,7 @@ def reject_return_request(request_id):
 @jwt_required()
 def complete_return_request(request_id):
     actor = _current_admin()
-    row = ITAssetReturnRequest.query.get(request_id)
+    row = it_get(ITAssetReturnRequest, request_id)
     if not row:
         return _err("Return request not found", 404)
     if row.status != "approved":
@@ -1888,7 +1928,7 @@ def complete_return_request(request_id):
     return_photos = row.photos_json if isinstance(row.photos_json, list) else []
 
     if row.asset_unit_id:
-        unit = ITAssetUnit.query.get(row.asset_unit_id)
+        unit = it_get(ITAssetUnit, row.asset_unit_id)
         if unit and unit.assigned_to_admin_id == row.requester_admin_id:
             if to_removed:
                 unit.status = "not-working"
@@ -1923,7 +1963,7 @@ def complete_return_request(request_id):
             _recalc_inventory_counts(unit.inventory_item_id)
 
     if row.software_license_id:
-        lic = ITSoftwareLicense.query.get(row.software_license_id)
+        lic = it_get(ITSoftwareLicense, row.software_license_id)
         if lic and lic.assigned_to_admin_id == row.requester_admin_id:
             if to_removed:
                 lic.status = "not-working"
@@ -1955,7 +1995,7 @@ def complete_return_request(request_id):
             _recalc_inventory_counts(lic.inventory_item_id)
 
     if row.inventory_item_id and int(row.quantity or 0) > 0:
-        item = ITInventoryItem.query.get(row.inventory_item_id)
+        item = it_get(ITInventoryItem, row.inventory_item_id)
         if item:
             qty = int(row.quantity or 0)
             qa = ITInventoryQuantityAssignment.query.filter_by(
@@ -2000,7 +2040,7 @@ def complete_return_request(request_id):
 @it_bp.route("/software/licenses/<int:license_id>/renew", methods=["PATCH"])
 @jwt_required()
 def renew_software_license(license_id):
-    lic = ITSoftwareLicense.query.get(license_id)
+    lic = it_get(ITSoftwareLicense, license_id)
     if not lic:
         return _err("Software license not found", 404)
 
@@ -2034,16 +2074,16 @@ def assign_inventory_quantity():
     if action not in ("assign", "return"):
         return _err("action must be assign or return")
 
-    item = ITInventoryItem.query.get(inventory_item_id)
+    item = it_get(ITInventoryItem, inventory_item_id)
     if not item:
         return _err("Inventory item not found", 404)
 
     if action == "assign":
         if not assigned_to_admin_id and not assigned_to_emp_id:
             return _err("assigned_to_admin_id/assigned_to_emp_id is required for assign", 400)
-        target_admin = Admin.query.get(assigned_to_admin_id) if assigned_to_admin_id else None
+        target_admin = get_admin_in_tenant(assigned_to_admin_id) if assigned_to_admin_id else None
         if not target_admin and assigned_to_emp_id:
-            target_admin = Admin.query.filter(
+            target_admin = tenant_admin_query().filter(
                 db.func.lower(db.func.coalesce(Admin.emp_id, "")) == assigned_to_emp_id.lower()
             ).first()
         if not target_admin:
@@ -2072,9 +2112,9 @@ def assign_inventory_quantity():
         item.assigned_quantity = int(item.assigned_quantity or 0) - quantity
         item.available_quantity = int(item.available_quantity or 0) + quantity
         if assigned_to_admin_id or assigned_to_emp_id:
-            target_admin = Admin.query.get(assigned_to_admin_id) if assigned_to_admin_id else None
+            target_admin = get_admin_in_tenant(assigned_to_admin_id) if assigned_to_admin_id else None
             if not target_admin and assigned_to_emp_id:
-                target_admin = Admin.query.filter(
+                target_admin = tenant_admin_query().filter(
                     db.func.lower(db.func.coalesce(Admin.emp_id, "")) == assigned_to_emp_id.lower()
                 ).first()
             if target_admin:
@@ -2176,6 +2216,7 @@ def _list_stock_deployments_impl():
     inventory_item_id = request.args.get("inventory_item_id")
     inventory_category = (request.args.get("inventory_category") or "").strip()
     q = ITOfficeStockDeployment.query.join(ITInventoryItem).filter(
+        it_tenant_clause(ITInventoryItem),
         ITOfficeStockDeployment.quantity > 0,
         ITInventoryItem.inventory_category.in_(list(_DEPLOY_INVENTORY_CATEGORIES)),
     )
@@ -2209,7 +2250,7 @@ def _stock_deploy_impl():
     if not location:
         return _err("deployment_location is required", 400)
 
-    item = ITInventoryItem.query.get(inventory_item_id)
+    item = it_get(ITInventoryItem, inventory_item_id)
     if not item:
         return _err("Inventory item not found", 404)
 
@@ -2225,7 +2266,7 @@ def _stock_deploy_impl():
             uid = int(asset_unit_id)
         except (TypeError, ValueError):
             return _err("asset_unit_id is required for vehicles and installed equipment", 400)
-        unit = ITAssetUnit.query.get(uid)
+        unit = it_get(ITAssetUnit, uid)
         if not unit or unit.inventory_item_id != item.id:
             return _err("Asset unit not found for this item", 404)
         if (unit.status or "").lower() != "available":
@@ -2342,10 +2383,10 @@ def _stock_return_impl():
     if quantity < 1:
         return _err("quantity must be >= 1", 400)
 
-    row = ITOfficeStockDeployment.query.get(deployment_id)
+    row = it_get(ITOfficeStockDeployment, deployment_id)
     if not row:
         return _err("Deployment not found", 404)
-    item = ITInventoryItem.query.get(row.inventory_item_id)
+    item = it_get(ITInventoryItem, row.inventory_item_id)
     if not item or _inventory_deploy_mode(item) is None:
         return _err("Inventory item not found", 404)
     if int(row.quantity or 0) < quantity:
@@ -2378,7 +2419,7 @@ def _stock_return_impl():
     if row.asset_unit_id:
         if quantity != 1:
             return _err("Return quantity must be 1 for a single vehicle or equipment unit", 400)
-        unit = ITAssetUnit.query.get(row.asset_unit_id)
+        unit = it_get(ITAssetUnit, row.asset_unit_id)
         if unit:
             unit.status = "available"
             unit.assigned_to_admin_id = None
@@ -2434,7 +2475,7 @@ def office_stock_return():
 @jwt_required()
 def list_tickets():
     status = (request.args.get("status") or "").strip()
-    q = ITSupportTicket.query
+    q = it_query(ITSupportTicket)
     if status:
         q = q.filter(db.func.lower(ITSupportTicket.status) == status.lower())
     rows = q.order_by(ITSupportTicket.created_at.desc(), ITSupportTicket.id.desc()).all()
@@ -2450,13 +2491,14 @@ def create_ticket():
     description = (data.get("description") or "").strip()
     if not requester_admin_id or not title or not description:
         return _err("requester_admin_id, title and description are required")
-    requester = Admin.query.get(requester_admin_id)
+    requester = get_admin_in_tenant(requester_admin_id)
     if not requester:
         return _err("Requester not found", 404)
     t = ITSupportTicket(
+        tenant_id=get_current_tenant_id(),
         ticket_code=_next_code("TKT", ITSupportTicket, "ticket_code"),
         requester_admin_id=requester.id,
-        assignee_admin_id=data.get("assignee_admin_id"),
+        assignee_admin_id=_existing_fk_id(Admin, data.get("assignee_admin_id")),
         title=title,
         description=description,
         priority=(data.get("priority") or "medium").strip().lower(),
@@ -2470,7 +2512,7 @@ def create_ticket():
 @it_bp.route("/tickets/<int:ticket_id>/resolve", methods=["PATCH"])
 @jwt_required()
 def resolve_ticket(ticket_id):
-    t = ITSupportTicket.query.get(ticket_id)
+    t = it_get(ITSupportTicket, ticket_id)
     if not t:
         return _err("Ticket not found", 404)
     t.status = "completed"
@@ -2482,7 +2524,7 @@ def resolve_ticket(ticket_id):
 @it_bp.route("/removed-assets", methods=["GET"])
 @jwt_required()
 def list_removed_assets():
-    rows = ITRemovedAsset.query.order_by(ITRemovedAsset.removed_at.desc(), ITRemovedAsset.id.desc()).all()
+    rows = it_query(ITRemovedAsset).order_by(ITRemovedAsset.removed_at.desc(), ITRemovedAsset.id.desc()).all()
     return _ok({"removed_assets": [_serialize_removed_asset(r) for r in rows]})
 
 
@@ -2493,6 +2535,9 @@ def create_removed_asset():
     name = (data.get("name") or "").strip()
     if not name:
         return _err("name is required")
+    photos, err = _stored_media(data.get("photos") or [], "removed")
+    if err:
+        return err
     r = ITRemovedAsset(
         removed_code=data.get("removed_code") or _next_code("RIT", ITRemovedAsset, "removed_code"),
         asset_unit_id=_existing_fk_id(ITAssetUnit, data.get("asset_unit_id")),
@@ -2502,7 +2547,7 @@ def create_removed_asset():
         name=name,
         category=data.get("category"),
         reason=data.get("reason"),
-        photos_json=data.get("photos") or [],
+        photos_json=photos,
         removed_at=_parse_dt(data.get("removed_at")) or utc_now(),
     )
     db.session.add(r)
@@ -2527,7 +2572,7 @@ def create_removed_asset():
 @it_bp.route("/removed-assets/<int:removed_id>", methods=["DELETE"])
 @jwt_required()
 def delete_removed_asset(removed_id):
-    row = ITRemovedAsset.query.get(removed_id)
+    row = it_get(ITRemovedAsset, removed_id)
     if not row:
         return _err("Removed asset not found", 404)
     db.session.delete(row)
@@ -2538,7 +2583,7 @@ def delete_removed_asset(removed_id):
 @it_bp.route("/deleted-logs", methods=["GET"])
 @jwt_required()
 def list_deleted_logs():
-    rows = ITDeletedAssetLog.query.order_by(ITDeletedAssetLog.deleted_at.desc(), ITDeletedAssetLog.id.desc()).all()
+    rows = it_query(ITDeletedAssetLog).order_by(ITDeletedAssetLog.deleted_at.desc(), ITDeletedAssetLog.id.desc()).all()
     return _ok({"logs": [_serialize_deleted_log(d) for d in rows]})
 
 
@@ -2584,7 +2629,7 @@ def create_deleted_log():
 @it_bp.route("/deleted-logs/<string:delete_code>", methods=["DELETE"])
 @jwt_required()
 def delete_deleted_log(delete_code):
-    row = ITDeletedAssetLog.query.filter(
+    row = it_query(ITDeletedAssetLog).filter(
         db.func.lower(db.func.coalesce(ITDeletedAssetLog.delete_code, "")) == str(delete_code).lower()
     ).first()
     if not row:
@@ -2597,7 +2642,7 @@ def delete_deleted_log(delete_code):
 @it_bp.route("/deleted-logs", methods=["DELETE"])
 @jwt_required()
 def delete_all_deleted_logs():
-    ITDeletedAssetLog.query.delete(synchronize_session=False)
+    it_query(ITDeletedAssetLog).delete(synchronize_session=False)
     db.session.commit()
     return _ok(message="All deleted logs removed")
 
@@ -2642,16 +2687,19 @@ def create_parcel_import():
     received_by_name = (
         (data.get("received_by_name") or data.get("receivedBy") or "").strip() or None
     )
+    photos, err = _stored_media(data.get("photos") or [], "parcels")
+    if err:
+        return err
     row = ITParcelImport(
         import_code=data.get("import_code") or _next_code("IMP", ITParcelImport, "import_code"),
         source=source,
         asset_name=asset_name,
         count=int(data.get("count") or 1),
         id_no=data.get("id_no") or data.get("idNo"),
-        received_by_admin_id=data.get("received_by_admin_id"),
+        received_by_admin_id=_existing_fk_id(Admin, data.get("received_by_admin_id")),
         received_by_name=received_by_name,
         received_at=_parse_dt(data.get("received_at") or data.get("date")) or utc_now(),
-        photos_json=data.get("photos") or [],
+        photos_json=photos,
     )
     db.session.add(row)
     db.session.flush()
@@ -2729,14 +2777,17 @@ def create_parcel_export():
     inventory_category = (
         (data.get("inventory_category") or data.get("inventoryCategory") or "").strip() or None
     )
+    photos, err = _stored_media(data.get("photos") or [], "parcels")
+    if err:
+        return err
     row = ITParcelExport(
         export_code=data.get("export_code") or _next_code("EXP", ITParcelExport, "export_code"),
         destination=destination,
         id_no=data.get("id_no") or data.get("idNo"),
-        exported_by_admin_id=_coerce_optional_int(data.get("exported_by_admin_id")),
+        exported_by_admin_id=_existing_fk_id(Admin, data.get("exported_by_admin_id")),
         exported_by_name=exported_by_name,
         exported_at=_parse_dt(data.get("exported_at") or data.get("date")) or utc_now(),
-        parcel_photos_json=data.get("photos") or [],
+        parcel_photos_json=photos,
         inventory_category=inventory_category,
     )
     db.session.add(row)
@@ -2748,9 +2799,15 @@ def create_parcel_export():
         asset_unit_id, inventory_item_id = _resolve_parcel_export_item_ids(it)
         make_val = (it.get("make") or "").strip() or None
         if not make_val and asset_unit_id:
-            unit_for_make = ITAssetUnit.query.get(asset_unit_id)
+            unit_for_make = it_get(ITAssetUnit, asset_unit_id)
             if unit_for_make and unit_for_make.make:
                 make_val = (unit_for_make.make or "").strip() or None
+        photo, photo_err = _stored_media(
+            it.get("individual_photo") or it.get("individualPhoto"), "parcels"
+        )
+        if photo_err:
+            db.session.rollback()
+            return photo_err
         export_item = ITParcelExportItem(
             parcel_export_id=row.id,
             asset_unit_id=asset_unit_id,
@@ -2759,14 +2816,14 @@ def create_parcel_export():
             brand=it.get("brand"),
             make=make_val,
             model=it.get("model"),
-            individual_photo_json=it.get("individual_photo") or it.get("individualPhoto"),
+            individual_photo_json=photo,
         )
         if not export_item.asset_name:
             continue
         db.session.add(export_item)
         linked_inventory_id = inventory_item_id
         if asset_unit_id:
-            unit = ITAssetUnit.query.get(asset_unit_id)
+            unit = it_get(ITAssetUnit, asset_unit_id)
             if unit:
                 linked_inventory_id = unit.inventory_item_id
                 unit.status = "exported"
@@ -2784,7 +2841,7 @@ def create_parcel_export():
         return _err("No valid parcel items found")
 
     for inv_id, qty in inventory_export_qty.items():
-        item = ITInventoryItem.query.get(inv_id)
+        item = it_get(ITInventoryItem, inv_id)
         if not item or qty < 1:
             continue
         if _is_qty_managed_inventory(item.category, item.inventory_category):
@@ -2837,11 +2894,7 @@ def _norm_emp_type_label(s):
 
 
 def _ensure_it_staff_admin():
-    claims = get_jwt()
-    email = (claims.get("email") or "").strip()
-    if not email:
-        return None, _err("Unauthorized", 401)
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return None, _err("Employee not found", 404)
     et = _norm_emp_type_label(admin.emp_type or "")
@@ -2939,7 +2992,7 @@ def create_unit_transition(unit_id):
             409,
         )
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
 
@@ -3011,7 +3064,7 @@ def unit_timeline(unit_id):
             409,
         )
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
 
@@ -3047,7 +3100,7 @@ def unit_timeline_csv(unit_id):
             409,
         )
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
 
@@ -3076,7 +3129,7 @@ def unit_timeline_xlsx(unit_id):
             409,
         )
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
 
@@ -3191,7 +3244,7 @@ def it_activity_log_xlsx():
 def list_unit_reviews(unit_id):
     from .itam.asset_review_service import list_asset_reviews
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
     reviews = list_asset_reviews(asset_unit_id=unit.id)
@@ -3203,7 +3256,7 @@ def list_unit_reviews(unit_id):
 def create_unit_review(unit_id):
     from .itam.asset_review_service import AssetReviewError, create_asset_review, serialize_review
 
-    unit = ITAssetUnit.query.get(unit_id)
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         return _err("Unit not found", 404)
     actor = _current_admin()
@@ -3231,7 +3284,7 @@ def create_unit_review(unit_id):
 def list_inventory_reviews(item_id):
     from .itam.asset_review_service import list_asset_reviews
 
-    item = ITInventoryItem.query.get(item_id)
+    item = it_get(ITInventoryItem, item_id)
     if not item:
         return _err("Inventory item not found", 404)
     reviews = list_asset_reviews(inventory_item_id=item.id)
@@ -3243,7 +3296,7 @@ def list_inventory_reviews(item_id):
 def create_inventory_review(item_id):
     from .itam.asset_review_service import AssetReviewError, create_asset_review, serialize_review
 
-    item = ITInventoryItem.query.get(item_id)
+    item = it_get(ITInventoryItem, item_id)
     if not item:
         return _err("Inventory item not found", 404)
     actor = _current_admin()
@@ -3276,7 +3329,7 @@ def software_timeline(license_id):
             "ITAM timeline is disabled. Set ITAM_TIMELINE_V1=1 to enable.",
             409,
         )
-    lic = ITSoftwareLicense.query.get(license_id)
+    lic = it_get(ITSoftwareLicense, license_id)
     if not lic:
         return _err("Software license not found", 404)
     actions_raw = (request.args.get("action") or request.args.get("actions") or "").strip()

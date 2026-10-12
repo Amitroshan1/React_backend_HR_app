@@ -5,10 +5,17 @@ from .. import db
 from ..datetime_utils import isoformat_api, utc_now
 
 
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
 class JobRequisition(db.Model):
     __tablename__ = "job_requisitions"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     title = db.Column(db.String(200), nullable=False)
     circle = db.Column(db.String(80), nullable=True, index=True)
     emp_type = db.Column(db.String(80), nullable=True, index=True)
@@ -39,6 +46,7 @@ class Candidate(db.Model):
     __tablename__ = "candidates"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     requisition_id = db.Column(
         db.Integer,
         db.ForeignKey("job_requisitions.id", ondelete="SET NULL"),

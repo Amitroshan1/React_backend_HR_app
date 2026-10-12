@@ -4,10 +4,12 @@ from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import get_jwt, jwt_required, verify_jwt_in_request
 
 from ..datetime_utils import isoformat_api
+from ..itam.tenancy import it_get, it_query
 from ..models.Admin_models import Admin
 from ..models.daily_checkout import DailyCheckoutDocument, DailyCheckoutRequest
 from ..models.it_models import ITAssetUnit
 from ..plan_features import can_access_it_panel, has_feature, plan_forbidden_response
+from ..tenant_context import current_admin
 from . import service as svc
 from .service import DailyCheckoutError, serialize_request, serialize_signature
 from .state import DEFAULT_HW_TYPES, OPEN_STATUSES
@@ -29,18 +31,7 @@ EMPLOYEE_ENDPOINTS = {
 
 
 def _current_admin():
-    claims = get_jwt() or {}
-    email = (claims.get("email") or "").strip()
-    if email:
-        admin = Admin.query.filter_by(email=email).first()
-        if admin:
-            return admin
-    try:
-        from flask_jwt_extended import get_jwt_identity
-
-        return Admin.query.get(int(get_jwt_identity()))
-    except Exception:
-        return None
+    return current_admin()
 
 
 def _ok(payload=None, message="OK", code=200):
@@ -184,7 +175,7 @@ def get_request(request_id):
     admin = _current_admin()
     if not admin:
         return _err("Unauthorized", 401)
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         return _err("Request not found", 404)
     claims = get_jwt() or {}
@@ -327,7 +318,7 @@ def pool_units():
     from .. import db
     from ..it import _serialize_asset_unit
 
-    q = ITAssetUnit.query.filter(
+    q = it_query(ITAssetUnit).filter(
         db.func.lower(db.func.coalesce(ITAssetUnit.category, "Hardware")) == "hardware",
         db.func.lower(db.func.coalesce(ITAssetUnit.status, "")) == "available",
     )
@@ -342,7 +333,7 @@ def acknowledge_view(request_id):
     if not actor:
         return _err("Unauthorized", 401)
     claims = get_jwt() or {}
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         return _err("Request not found", 404)
     if not can_access_it_panel(claims) and int(row.requester_admin_id) != int(actor.id):
@@ -364,7 +355,7 @@ def download_document(request_id, doc_type):
     admin = _current_admin()
     if not admin:
         return _err("Unauthorized", 401)
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         return _err("Request not found", 404)
     claims = get_jwt() or {}

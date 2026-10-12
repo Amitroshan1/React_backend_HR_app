@@ -546,6 +546,11 @@
   font-weight: 600;
 }
 
+.archive-container .archive-notice {
+  color: #047857;
+  font-weight: 600;
+}
+
 /* ================= TITLE ================= */
 
 .archive-container .title-section {

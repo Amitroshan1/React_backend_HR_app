@@ -336,6 +336,34 @@ color: rgb(255, 255, 255);
   transform: none;
 }
 
+.login-tenant-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.login-tenant-option {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  background: #fff;
+  font-size: 1rem;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.login-tenant-option:hover:not(:disabled) {
+  border-color: #4f46e5;
+  background: #eef2ff;
+}
+
+.login-tenant-option:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 /* Wrapper keeps "Forgot Password?" row right-aligned; only the button text is clickable */
 .forgot-wrap {
   text-align: right;

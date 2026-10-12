@@ -21,7 +21,7 @@ from .. import db
 from ..datetime_utils import IST
 from ..models.attendance import Punch, PunchSession
 from ..punch_aggregate import recompute_punch_aggregate
-from ..punch_auto_close import close_punch_session
+from ..punch_auto_close import BIOMETRIC_OUT_WINDOW_START, close_punch_session
 from .models import BiometricDayState, BiometricLog
 from .scope import is_nhq_admin, is_nhq_biometric_device_serial, is_nhq_biometric_open_session
 
@@ -34,7 +34,7 @@ BIOMETRIC_DEVICE_LOCATION = "biometric_device"
 CATCHUP_LOOKBACK_DAYS = 7
 
 # Continuous last-scan sync window (inclusive start, exclusive end) — Asia/Kolkata.
-SYNC_WINDOW_START = time(18, 0, 0)
+SYNC_WINDOW_START = BIOMETRIC_OUT_WINDOW_START
 SYNC_WINDOW_END = time(21, 0, 0)
 
 # Legacy cutoffs kept for CLI finalize / extend helpers and tests.

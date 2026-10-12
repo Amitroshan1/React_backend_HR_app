@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import './AdminList.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDateTimeDDMMYYYY } from '../../utils/dateFormat';
+import { matchesListQuery } from './adminListQuery';
 
 const API = '/api/admin/queries';
 
@@ -9,6 +10,7 @@ const AdminQueries = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('All');
+  const [query, setQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailData, setDetailData] = useState(null);
@@ -52,12 +54,34 @@ const AdminQueries = () => {
       });
   };
 
+  const visible = useMemo(
+    () => requests.filter((row) => matchesListQuery(query, [
+      row.employee_name,
+      row.employee_email,
+      row.emp_id,
+      row.department,
+      row.title,
+    ])),
+    [query, requests],
+  );
+
   return (
     <div className="admin-list-container">
       <div className="admin-list-header">
-        <h1>Queries</h1>
+        <div>
+          <h1>Queries</h1>
+          <p className="admin-list-copy">Department queries for this company. Open a row to read the thread.</p>
+        </div>
       </div>
       <div className="admin-list-filters">
+        <label className="admin-list-search">
+          <span>Search</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Name, ID, department, title"
+          />
+        </label>
         <div className="status-buttons">
           {['All', 'New', 'Pending', 'Resolved', 'Closed'].map((s) => (
             <button
@@ -87,7 +111,7 @@ const AdminQueries = () => {
               </tr>
             </thead>
             <tbody>
-              {requests.map((r) => (
+              {visible.map((r) => (
                 <tr key={r.id}>
                   <td>{r.employee_name || r.employee_email || '—'}</td>
                   <td>{r.emp_id || '—'}</td>
@@ -105,8 +129,10 @@ const AdminQueries = () => {
           </table>
         )}
       </div>
-      {!loading && requests.length === 0 && (
-        <p className="admin-list-empty">No queries found.</p>
+      {!loading && visible.length === 0 && (
+        <p className="admin-list-empty">
+          {requests.length === 0 ? 'No queries found.' : 'No queries match that search.'}
+        </p>
       )}
 
       {modalOpen && (

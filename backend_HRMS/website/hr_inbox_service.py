@@ -12,6 +12,7 @@ from .models.seperation import NocDepartmentRequest
 from .offboarding_service import build_offboarding_dashboard
 from .probation_api import _serialize_probation_review, infer_status_from_row
 from .probation_utils import TERMINAL_STATUSES, is_probation_review_row_active
+from .tenant_context import admin_tenant_clause, tenant_admin_ids, tenant_id_for_admin
 
 
 def _enabled_non_exited_admin_filters():
@@ -39,10 +40,12 @@ def build_hr_inbox(*, hr_admin) -> dict:
 
     today = date.today()
     items: list[dict] = []
+    tenant_id = tenant_id_for_admin(hr_admin)
+    tenant_ids = tenant_admin_ids(tenant_id)
 
     # Probation awaiting HR decision
     probation_rows = (
-        ProbationReview.query.order_by(
+        ProbationReview.query.filter(ProbationReview.admin_id.in_(tenant_ids)).order_by(
             ProbationReview.probation_end_date.asc(),
             ProbationReview.id.asc(),
         ).all()
@@ -100,7 +103,7 @@ def build_hr_inbox(*, hr_admin) -> dict:
         )
 
     # Exit pipeline (active separations)
-    offboarding = build_offboarding_dashboard()
+    offboarding = build_offboarding_dashboard(tenant_id=tenant_id)
     pipeline = offboarding.get("pipeline") or []
     exit_count = 0
     for row in pipeline:
@@ -129,7 +132,7 @@ def build_hr_inbox(*, hr_admin) -> dict:
     leave_count = 0
     leave_q = (
         LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id)
-        .filter(db.func.lower(LeaveApplication.status) == "pending")
+        .filter(admin_tenant_clause(tenant_id), db.func.lower(LeaveApplication.status) == "pending")
         .order_by(LeaveApplication.created_at.desc())
         .limit(100)
         .all()
@@ -164,7 +167,7 @@ def build_hr_inbox(*, hr_admin) -> dict:
 
     wfh_q = (
         WorkFromHomeApplication.query.join(Admin, WorkFromHomeApplication.admin_id == Admin.id)
-        .filter(db.func.lower(WorkFromHomeApplication.status) == "pending")
+        .filter(admin_tenant_clause(tenant_id), db.func.lower(WorkFromHomeApplication.status) == "pending")
         .order_by(WorkFromHomeApplication.created_at.desc())
         .limit(100)
         .all()
@@ -201,6 +204,7 @@ def build_hr_inbox(*, hr_admin) -> dict:
 
     salary_rows = (
         SalaryRevisionRequest.query.filter_by(status="pending")
+        .filter(SalaryRevisionRequest.admin_id.in_(tenant_ids))
         .order_by(SalaryRevisionRequest.created_at.asc())
         .limit(100)
         .all()

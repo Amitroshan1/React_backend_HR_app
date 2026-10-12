@@ -187,6 +187,10 @@ def create_app():
         resp.status_code = 401
         return resp
 
+    from .tenant_context import register_tenant_guards
+
+    register_tenant_guards(app, jwt)
+
     login_manager.init_app(app)          # ✅ INIT LOGIN MANAGER
     login_manager.login_view = "auth.login"
 
@@ -195,6 +199,8 @@ def create_app():
     # ---------------------------
     from .models.Admin_models import Admin
     from .models.tenant import Tenant  # noqa: F401 — register for db.create_all
+    from .models.employee_profile_change import EmployeeProfileChangeRequest  # noqa: F401
+    from .models.crm import CrmActivity, CrmDeal  # noqa: F401 — register for db.create_all
     from .models.deployed_customer import DeployedCustomer  # noqa: F401 — register for db.create_all
     from .models.attendance import LeaveBalance, LeaveApplication, CompOffGain, Punch, PunchSession, Location
     from .models.geo_punch_attempt import GeoPunchAttempt  # noqa: F401 — register for db.create_all
@@ -308,6 +314,7 @@ def create_app():
 
     # from .manager import manager
     from .Admin import admin_bp
+    from .crm_api import crm_bp
     from .notifications import notifications
     from .performance_api import performance_api
     from .probation_api import probation_api
@@ -320,6 +327,7 @@ def create_app():
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
+    app.register_blueprint(crm_bp, url_prefix="/api/admin/crm")
     app.register_blueprint(leave, url_prefix="/api/leave")
     app.register_blueprint(hr, url_prefix="/api/HumanResource")
     app.register_blueprint(Accounts, url_prefix="/api/accounts")
@@ -479,6 +487,23 @@ def create_app():
             app.logger.info("Widened %s.name to VARCHAR(255)", table)
         except Exception as e:
             app.logger.warning("location.name length migration skipped: %s", e)
+
+    def _ensure_crm_tables():
+        """Create sales CRM tables when missing (additive)."""
+        try:
+            from sqlalchemy import inspect
+
+            from .models.crm import CrmActivity, CrmDeal
+
+            names = set(inspect(db.engine).get_table_names())
+            if "crm_deals" not in names:
+                CrmDeal.__table__.create(db.engine, checkfirst=True)
+                app.logger.info("crm_deals table created")
+            if "crm_activities" not in names:
+                CrmActivity.__table__.create(db.engine, checkfirst=True)
+                app.logger.info("crm_activities table created")
+        except Exception as e:
+            app.logger.warning("crm tables ensure skipped: %s", e)
 
     def _ensure_geo_punch_attempts_table():
         """Create geo_punch_attempts audit table for Geo Analytics (additive)."""
@@ -1608,6 +1633,10 @@ def create_app():
             if "tenants" not in set(insp.get_table_names()):
                 Tenant.__table__.create(bind=db.engine, checkfirst=True)
                 app.logger.info("Created table tenants")
+            else:
+                from .tenant_migrations import ensure_tenant_mailbox_columns
+
+                ensure_tenant_mailbox_columns(db.engine, app.logger)
 
             # Seed default tenant (existing deployment → tenant 1).
             with db.engine.begin() as conn:
@@ -1654,6 +1683,18 @@ def create_app():
                             },
                         )
                     app.logger.info("Seeded default tenant id=1")
+                else:
+                    stored = conn.execute(
+                        text("SELECT plan FROM tenants WHERE id = 1")
+                    ).scalar()
+                    env_plan = app.config.get("CUSTOMER_PLAN") or "essential"
+                    if (stored or "").strip().lower() != env_plan:
+                        app.logger.warning(
+                            "Default tenant id=1 has plan=%r but CUSTOMER_PLAN=%r; "
+                            "feature checks use the tenant's plan.",
+                            stored,
+                            env_plan,
+                        )
         except Exception as e:
             app.logger.warning("tenants table ensure/seed skipped: %s", e)
 
@@ -1691,6 +1732,128 @@ def create_app():
                     app.logger.info("Backfilled admins.tenant_id=1 for %s row(s)", n)
         except Exception as e:
             app.logger.warning("admins.tenant_id ensure/backfill skipped: %s", e)
+
+    def _ensure_admin_tenant_uniques():
+        """Per-tenant unique email/user_name/mobile/emp_id; admins.tenant_id NOT NULL."""
+        try:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            db.session.remove()
+            from .tenant_migrations import ensure_admin_tenant_uniques
+
+            ensure_admin_tenant_uniques(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("admins per-tenant uniques skipped: %s", e)
+
+    def _ensure_manager_contact_tenant_id():
+        """manager_contacts.tenant_id, backfilled from the linked managers' tenant."""
+        try:
+            from .tenant_migrations import ensure_manager_contact_tenant_id
+
+            ensure_manager_contact_tenant_id(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("manager_contacts.tenant_id migration skipped: %s", e)
+
+    def _ensure_it_tenant_ids():
+        """tenant_id on IT inventory items, parcel/removed/deleted logs and ITAM transitions."""
+        try:
+            from .tenant_migrations import ensure_it_tenant_ids
+
+            ensure_it_tenant_ids(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("IT tenant_id migration skipped: %s", e)
+
+    def _ensure_news_feed_tenant_id():
+        """news_feeds.tenant_id; existing posts go to the default tenant."""
+        try:
+            from .tenant_migrations import ensure_news_feed_tenant_id
+
+            ensure_news_feed_tenant_id(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("news_feeds.tenant_id migration skipped: %s", e)
+
+    def _ensure_company_settings_table():
+        """Per-company leave / TDS / CTC settings documents."""
+        try:
+            from .models.company_setting import CompanySetting
+
+            CompanySetting.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as e:
+            app.logger.warning("company_settings table ensure skipped: %s", e)
+
+    def _ensure_employee_profile_change_table():
+        """HR profile-change and new-signup requests that wait for Admin approval."""
+        try:
+            from sqlalchemy import inspect, text
+
+            from .models.employee_profile_change import EmployeeProfileChangeRequest
+
+            EmployeeProfileChangeRequest.__table__.create(bind=db.engine, checkfirst=True)
+            insp = inspect(db.engine)
+            table = "employee_profile_change_requests"
+            if table not in insp.get_table_names():
+                return
+            columns = {c["name"]: c for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            with db.engine.begin() as conn:
+                if "request_type" not in columns:
+                    conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN request_type VARCHAR(20) "
+                        "NOT NULL DEFAULT 'profile_change'"
+                    ))
+                if "signup_payload" not in columns:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN signup_payload TEXT NULL"))
+                employee_col = columns.get("employee_admin_id")
+                if employee_col is not None and employee_col.get("nullable") is False:
+                    if dialect == "mysql":
+                        conn.execute(text(
+                            f"ALTER TABLE {table} MODIFY employee_admin_id INT NULL"
+                        ))
+                    elif dialect == "postgresql":
+                        conn.execute(text(
+                            f"ALTER TABLE {table} ALTER COLUMN employee_admin_id DROP NOT NULL"
+                        ))
+        except Exception as e:
+            app.logger.warning("employee_profile_change_requests table ensure skipped: %s", e)
+
+    def _ensure_upload_path_columns():
+        """Widen upload path columns that must hold tenants/{id}/... keys."""
+        try:
+            from .tenant_migrations import ensure_upload_path_columns
+
+            ensure_upload_path_columns(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("Upload path column widen skipped: %s", e)
+
+    def _ensure_master_data_tenant_ids():
+        """tenant_id on departments/circles, holidays and HR policies; per-tenant uniques."""
+        try:
+            from .tenant_migrations import ensure_master_data_tenant_ids
+
+            ensure_master_data_tenant_ids(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("master data tenant_id migration skipped: %s", e)
+
+    def _ensure_recruitment_tenant_ids():
+        """tenant_id on job requisitions, candidates, headcount budgets and compensation setup."""
+        try:
+            from .tenant_migrations import ensure_compensation_tenant_ids, ensure_recruitment_tenant_ids
+
+            ensure_recruitment_tenant_ids(db.engine, app.logger)
+            ensure_compensation_tenant_ids(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("recruitment tenant_id migration skipped: %s", e)
+
+    def _ensure_biometric_tenant_ids():
+        """tenant_id on biometric devices and the HR read model; per-tenant read-model unique key."""
+        try:
+            from .tenant_migrations import ensure_biometric_tenant_ids
+
+            ensure_biometric_tenant_ids(db.engine, app.logger)
+        except Exception as e:
+            app.logger.warning("biometric tenant_id migration skipped: %s", e)
 
     def _ensure_leave_balance_defaults():
         """Align leave_balances total/used columns with model (DEFAULT 0, no data change)."""
@@ -2532,6 +2695,11 @@ def create_app():
 
     with app.app_context():
         try:
+            db.session.rollback()
+        except Exception:
+            pass
+        db.session.remove()
+        try:
             _ensure_upload_doc_identity_columns()
             _ensure_ctc_breakup_columns()
             _ensure_parcel_name_columns()
@@ -2539,6 +2707,7 @@ def create_app():
             _ensure_punch_session_auto_punched_out()
             _ensure_location_grace_column()
             _ensure_location_name_length()
+            _ensure_crm_tables()
             _ensure_geo_punch_attempts_table()
             _ensure_geo_analytics_indexes()
             _ensure_geo_config_tables()
@@ -2547,6 +2716,7 @@ def create_app():
             _ensure_punch_session_geo_v2_columns()
             _ensure_punch_session_source_columns()
             _ensure_biometric_schema_tables()
+            _ensure_biometric_tenant_ids()
             _ensure_biometric_attendance_day_backfill()
             _ensure_biometric_employee_map_emp_id()
             _ensure_biometric_device_last_data_push_at()
@@ -2575,6 +2745,10 @@ def create_app():
             _ensure_deployed_customers_table()
             _ensure_tenants_table()
             _ensure_admin_tenant_id_column()
+            _ensure_admin_tenant_uniques()
+            _ensure_manager_contact_tenant_id()
+            _ensure_it_tenant_ids()
+            _ensure_news_feed_tenant_id()
             _ensure_leave_balance_defaults()
             _ensure_probation_review_columns()
             _ensure_employee_tax_declarations_table()
@@ -2583,7 +2757,12 @@ def create_app():
             _ensure_monthly_payroll_tds_columns()
             _ensure_ctc_revision_table()
             _ensure_payroll_lifecycle_tables()
+            _ensure_master_data_tenant_ids()
+            _ensure_company_settings_table()
+            _ensure_employee_profile_change_table()
+            _ensure_upload_path_columns()
             _ensure_phase3_hr_tables()
+            _ensure_recruitment_tenant_ids()
             _ensure_phase6_hr_columns()
             _ensure_payroll_governance_columns()
             _ensure_leave_application_columns()
@@ -2622,6 +2801,10 @@ def create_app():
     register_biometric_attendance_day_command(app)
     from .commands.biometric_reprocess import register_biometric_reprocess_command
     register_biometric_reprocess_command(app)
+    from .commands.upload_relocation import register_upload_relocation_commands
+    register_upload_relocation_commands(app)
+    from .commands.itam_media import register_itam_media_commands
+    register_itam_media_commands(app)
 
     # ---------------------------
     # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention

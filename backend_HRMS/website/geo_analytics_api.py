@@ -5,6 +5,20 @@ from flask import Response, jsonify, request
 from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
 from . import geo_analytics_service as gas
+from .tenant_context import DEFAULT_TENANT_ID, get_current_tenant_id
+
+PLATFORM_ONLY_MESSAGE = "Geo settings apply to every company and are managed by the platform team."
+
+
+def _can_manage_geo_settings() -> bool:
+    """Geo fence config / engine mode are one platform-wide setting: only the platform company changes them."""
+    return get_current_tenant_id() == DEFAULT_TENANT_ID
+
+
+def _platform_only():
+    if not _can_manage_geo_settings():
+        return jsonify({"success": False, "message": PLATFORM_ONLY_MESSAGE}), 403
+    return None
 
 
 def register_geo_analytics_routes(hr, hr_required):
@@ -109,12 +123,15 @@ def register_geo_analytics_routes(hr, hr_required):
     @jwt_required()
     @hr_required
     def geo_analytics_config_get():
-        return jsonify({"success": True, **gas.get_config_for_admin()}), 200
+        return jsonify({"success": True, **gas.get_config_for_admin(), "can_manage": _can_manage_geo_settings()}), 200
 
     @hr.route("/geo-analytics/config", methods=["PUT", "PATCH"])
     @jwt_required()
     @hr_required
     def geo_analytics_config_put():
+        denied = _platform_only()
+        if denied:
+            return denied
         body = request.get_json() or {}
         updates = body.get("updates") or body.get("config") or {}
         reason = body.get("reason") or ""
@@ -141,6 +158,9 @@ def register_geo_analytics_routes(hr, hr_required):
     @jwt_required()
     @hr_required
     def geo_analytics_config_history():
+        denied = _platform_only()
+        if denied:
+            return denied
         limit = request.args.get("limit", 100)
         try:
             limit = int(limit)
@@ -192,7 +212,11 @@ def register_geo_analytics_routes(hr, hr_required):
     @hr_required
     def geo_rollout_status():
         start, end = _range_args()
-        return jsonify({"success": True, **gsa.build_rollout_status(start, end)}), 200
+        return jsonify({
+            "success": True,
+            **gsa.build_rollout_status(start, end),
+            "can_manage": _can_manage_geo_settings(),
+        }), 200
 
     @hr.route("/geo-analytics/engine-mode", methods=["GET"])
     @jwt_required()
@@ -211,6 +235,9 @@ def register_geo_analytics_routes(hr, hr_required):
     @hr_required
     def geo_engine_mode_put():
         """Instant mode switch via versioned config (no deploy)."""
+        denied = _platform_only()
+        if denied:
+            return denied
         body = request.get_json() or {}
         mode = str(body.get("mode") or "").strip().upper()
         reason = body.get("reason") or f"Set GEO_ENGINE_MODE={mode}"

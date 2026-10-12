@@ -181,7 +181,9 @@ def geo_decision_to_legacy_zone(geo_decision: str) -> str:
 
 def _load_office_rows() -> list:
     try:
-        return Location.query.all()
+        from .master_data_tenancy import location_query
+
+        return location_query().all()
     except Exception:
         logger.exception("geo_validation: failed to load Location rows")
         return []

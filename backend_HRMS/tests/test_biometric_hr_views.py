@@ -9,7 +9,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import types
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -269,6 +269,26 @@ def test_unmapped_pin_visible(hr_stack):
     assert row["first_scan"] == "2026-08-20 14:36:28"
     assert row["last_scan"] == "2026-08-20 14:36:28"
     assert row["punch_out"] is None
+
+
+def test_punch_out_is_last_scan_for_past_day(hr_stack):
+    res = _get(hr_stack, "/api/hr/biometric/summary?date=2026-08-20", _hr_token(hr_stack))
+    rows = res.get_json()["rows"]
+    multi = next(r for r in rows if r["emp_id"] == "10236")
+    assert multi["punch_out"] == "2026-08-20 14:36:28"
+    single = next(r for r in rows if r["device_user_id"] == "10320")
+    assert single["punch_out"] is None
+
+
+def test_punch_out_hidden_before_6pm_same_day(hr_stack):
+    hr_views = sys.modules["website.biometric.hr_views"]
+    row = types.SimpleNamespace(
+        attendance_date=date(2026, 8, 20),
+        first_scan=datetime(2026, 8, 20, 9, 3, 16),
+        last_scan=datetime(2026, 8, 20, 14, 36, 28),
+    )
+    assert hr_views._punch_out_for_day(row, datetime(2026, 8, 20, 17, 59, 59)) is None
+    assert hr_views._punch_out_for_day(row, datetime(2026, 8, 20, 18, 0, 0)) == row.last_scan
 
 
 def test_unmapped_detail(hr_stack):

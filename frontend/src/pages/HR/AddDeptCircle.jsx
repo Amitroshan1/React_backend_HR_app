@@ -1,15 +1,15 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
-import { Plus, Trash2, X, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { scrollAppToTop } from '../../utils/scrollToTop';
-import './AddDeptCircle.css';
+import '../Admin/AdminList.css';
 
 const API_BASE = '/api/HumanResource/master';
 
 /** Reserved — matches Admin panel emp_type values; HR must not create these as departments. */
 const RESERVED_DEPARTMENTS = new Set(['admin', 'administrator', 'administration']);
 
-const AddDeptCircle = ({ onBack }) => {
+const AddDeptCircle = ({ onBack, backLabel = 'Back to Updates' }) => {
   const [departments, setDepartments] = useState([]);
   const [circles, setCircles] = useState([]);
   
@@ -216,220 +216,135 @@ const AddDeptCircle = ({ onBack }) => {
   };
 
   return (
-    <div className="add-dept-circle-container">
-      <div className="add-dept-circle-wrapper">
-        {onBack && (
-          <button type="button" className="btn-back-updates" onClick={onBack}>
-            <ArrowLeft size={16} /> Back to Updates
-          </button>
-        )}
-        {/* Page Heading */}
-        <div className="page-header">
-          <h1 className="page-heading">Department & Circle Management</h1>
+    <div className="admin-list-container">
+      {onBack ? (
+        <button type="button" className="admin-master-back" onClick={onBack}>
+          <ArrowLeft size={16} />
+          {backLabel}
+        </button>
+      ) : null}
+      <div className="admin-list-header">
+        <div>
+          <h1>Departments & circles</h1>
+          <p className="admin-list-copy">Add the departments and circles this company can assign to employees.</p>
         </div>
-        {message.text && (
-          <div style={{ marginBottom: '12px', padding: '10px 12px', borderRadius: '8px', background: message.type === 'error' ? '#fef2f2' : '#dcfce7', color: message.type === 'error' ? '#b91c1c' : '#166534' }}>
-            {message.text}
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        <div className="action-buttons">
-          <button 
-            className="add-button add-dept-button" 
-            onClick={handleAddDeptClick}
-          >
-            <Plus size={20} />
-            Add Department
-          </button>
-          <button 
-            className="add-button add-circle-button" 
-            onClick={handleAddCircleClick}
-          >
-            <Plus size={20} />
-            Add Circle
-          </button>
+        <div className="admin-master-actions">
+          <button type="button" className="admin-list-view-btn" onClick={handleAddDeptClick}>Add department</button>
+          <button type="button" className="admin-master-secondary" onClick={handleAddCircleClick}>Add circle</button>
         </div>
+      </div>
 
-        {/* Forms Section */}
-        {(showDeptForm || showCircleForm) && (
-          <div className="form-container">
-            {showDeptForm && (
-              <form className="input-form" onSubmit={handleDeptSubmit}>
-                <div className="form-header">
-                  <h3>Add New Department</h3>
-                  <button 
-                    type="button" 
-                    className="close-button" 
-                    onClick={handleCancel}
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="form-body">
-                  <input
-                    type="text"
-                    placeholder="Enter department name"
-                    value={deptName}
-                    onChange={(e) => setDeptName(e.target.value)}
-                    className="form-input"
-                    autoFocus
-                  />
-                  <div className="form-actions">
-                    <button type="submit" className="submit-button" disabled={savingType === 'department'}>
-                      {savingType === 'department' ? 'Submitting...' : 'Submit'}
-                    </button>
-                    <button 
-                      type="button" 
-                      className="cancel-button" 
-                      onClick={handleCancel}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </form>
-            )}
+      {message.text ? (
+        <p className={message.type === 'error' ? 'admin-master-alert' : 'admin-master-notice'} role={message.type === 'error' ? 'alert' : 'status'}>
+          {message.text}
+        </p>
+      ) : null}
 
-            {showCircleForm && (
-              <form className="input-form" onSubmit={handleCircleSubmit}>
-                <div className="form-header">
-                  <h3>Add New Circle</h3>
-                  <button 
-                    type="button" 
-                    className="close-button" 
-                    onClick={handleCancel}
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="form-body">
-                  <input
-                    type="text"
-                    placeholder="Enter circle name"
-                    value={circleName}
-                    onChange={(e) => setCircleName(e.target.value)}
-                    className="form-input"
-                    autoFocus
-                  />
-                  <div className="form-actions">
-                    <button type="submit" className="submit-button" disabled={savingType === 'circle'}>
-                      {savingType === 'circle' ? 'Submitting...' : 'Submit'}
-                    </button>
-                    <button 
-                      type="button" 
-                      className="cancel-button" 
-                      onClick={handleCancel}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </form>
-            )}
-          </div>
-        )}
+      {showDeptForm ? (
+        <form className="admin-master-form" onSubmit={handleDeptSubmit}>
+          <label htmlFor="new-department">Department name</label>
+          <input
+            id="new-department"
+            type="text"
+            placeholder="Engineering"
+            value={deptName}
+            onChange={(e) => setDeptName(e.target.value)}
+            autoFocus
+          />
+          <button type="submit" className="admin-list-view-btn" disabled={savingType === 'department'}>
+            {savingType === 'department' ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" className="admin-master-secondary" onClick={handleCancel}>Cancel</button>
+        </form>
+      ) : null}
 
-        {/* Two Column Layout */}
-        <div className="content-grid">
-          {/* Left Section - Departments */}
-          <div className="card-container">
-            <div className="card-header">
-              <h2>Departments</h2>
-              <span className="count-badge">{departments.length}</span>
-            </div>
-            <div className="table-wrapper">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Department</th>
-                    <th>Action</th>
+      {showCircleForm ? (
+        <form className="admin-master-form" onSubmit={handleCircleSubmit}>
+          <label htmlFor="new-circle">Circle name</label>
+          <input
+            id="new-circle"
+            type="text"
+            placeholder="North"
+            value={circleName}
+            onChange={(e) => setCircleName(e.target.value)}
+            autoFocus
+          />
+          <button type="submit" className="admin-list-view-btn" disabled={savingType === 'circle'}>
+            {savingType === 'circle' ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" className="admin-master-secondary" onClick={handleCancel}>Cancel</button>
+        </form>
+      ) : null}
+
+      <div className="admin-master-grid">
+        <section>
+          <h2>Departments <span>{departments.length}</span></h2>
+          <div className="admin-list-table-wrap admin-master-table">
+            <table className="admin-list-table">
+              <thead>
+                <tr>
+                  <th>Department</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan="2">Loading…</td></tr>
+                ) : departments.length === 0 ? (
+                  <tr><td colSpan="2">No departments yet.</td></tr>
+                ) : departments.map((dept) => (
+                  <tr key={dept.id}>
+                    <td>{dept.name}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="admin-master-remove"
+                        onClick={() => handleRemoveDept(dept.id)}
+                        disabled={deletingKey === `department-${dept.id}`}
+                      >
+                        {deletingKey === `department-${dept.id}` ? 'Removing…' : 'Remove'}
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan="2" className="no-data">
-                        Loading...
-                      </td>
-                    </tr>
-                  ) : departments.length === 0 ? (
-                    <tr>
-                      <td colSpan="2" className="no-data">
-                        No departments added yet
-                      </td>
-                    </tr>
-                  ) : (
-                    departments.map((dept) => (
-                      <tr key={dept.id}>
-                        <td className="item-name">{dept.name}</td>
-                        <td>
-                          <button
-                            className="remove-button"
-                            onClick={() => handleRemoveDept(dept.id)}
-                            title="Remove department"
-                            disabled={deletingKey === `department-${dept.id}`}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          {/* Right Section - Circles */}
-          <div className="card-container">
-            <div className="card-header">
-              <h2>Circles</h2>
-              <span className="count-badge">{circles.length}</span>
-            </div>
-            <div className="table-wrapper">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Circle</th>
-                    <th>Action</th>
+        </section>
+        <section>
+          <h2>Circles <span>{circles.length}</span></h2>
+          <div className="admin-list-table-wrap admin-master-table">
+            <table className="admin-list-table">
+              <thead>
+                <tr>
+                  <th>Circle</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan="2">Loading…</td></tr>
+                ) : circles.length === 0 ? (
+                  <tr><td colSpan="2">No circles yet.</td></tr>
+                ) : circles.map((circle) => (
+                  <tr key={circle.id}>
+                    <td>{circle.name}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="admin-master-remove"
+                        onClick={() => handleRemoveCircle(circle.id)}
+                        disabled={deletingKey === `circle-${circle.id}`}
+                      >
+                        {deletingKey === `circle-${circle.id}` ? 'Removing…' : 'Remove'}
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan="2" className="no-data">
-                        Loading...
-                      </td>
-                    </tr>
-                  ) : circles.length === 0 ? (
-                    <tr>
-                      <td colSpan="2" className="no-data">
-                        No circles added yet
-                      </td>
-                    </tr>
-                  ) : (
-                    circles.map((circle) => (
-                      <tr key={circle.id}>
-                        <td className="item-name">{circle.name}</td>
-                        <td>
-                          <button
-                            className="remove-button"
-                            onClick={() => handleRemoveCircle(circle.id)}
-                            title="Remove circle"
-                            disabled={deletingKey === `circle-${circle.id}`}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

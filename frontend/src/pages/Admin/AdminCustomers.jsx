@@ -1,8 +1,9 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import './AdminCustomers.css';
 import { formatDate } from '../../utils/dateFormat';
+import { matchesListQuery } from './adminListQuery';
 
 const API_ACCESS = '/api/admin/deployment-guide/access';
 const API_CUSTOMERS = '/api/admin/customers';
@@ -13,17 +14,40 @@ const PLAN_BADGE_CLASS = {
   enterprise: 'cust-plan--enterprise',
 };
 
-const emptyAddForm = () => ({
-  company_name: '',
-  slug: '',
-  plan: 'essential',
-  status: 'active',
-  app_url: '',
-  database_name: '',
-  contact_email: '',
-  go_live_date: '',
-  notes: '',
-});
+// Company mailboxes used for that company's HRMS emails (blank = none; tenant 1 falls back to .env).
+const MAILBOX_FIELDS = [
+  { key: 'mailbox_hr', label: 'HR mailbox', placeholder: 'hr@acme.com' },
+  { key: 'mailbox_accounts', label: 'Accounts mailbox', placeholder: 'accounts@acme.com' },
+  { key: 'mailbox_it', label: 'IT mailbox', placeholder: 'it@acme.com' },
+  { key: 'mailbox_admin', label: 'Admin mailbox', placeholder: 'admin@acme.com' },
+];
+
+const emptyMailboxes = () =>
+  Object.fromEntries(MAILBOX_FIELDS.map((f) => [f.key, '']));
+
+function MailboxInputs({ form, setForm }) {
+  return (
+    <fieldset className="cust-fieldset">
+      <legend>Company mailboxes</legend>
+      <p className="cust-fieldset__hint">
+        Optional. HRMS emails for this company go to (or CC) these addresses.
+      </p>
+      <div className="cust-fieldset__grid">
+        {MAILBOX_FIELDS.map((f) => (
+          <label key={f.key}>
+            {f.label}
+            <input
+              type="email"
+              value={form[f.key] || ''}
+              onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
+              placeholder={f.placeholder}
+            />
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
 
 function slugifyLocal(name) {
   return String(name || '')
@@ -36,13 +60,9 @@ function slugifyLocal(name) {
     .slice(0, 48);
 }
 
-function suggestDb(name, slug) {
-  const base = (slug || slugifyLocal(name) || 'company').slice(0, 48);
-  return `hrms_${base}`.slice(0, 64);
-}
-
 export default function AdminCustomers() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [customers, setCustomers] = useState([]);
   const [plans, setPlans] = useState([]);
   const [statuses, setStatuses] = useState([]);
@@ -50,21 +70,20 @@ export default function AdminCustomers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [companyQuery, setCompanyQuery] = useState('');
 
-  const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(null);
   const [showUpgrade, setShowUpgrade] = useState(null);
   const [showProvision, setShowProvision] = useState(null);
   const [provisionResult, setProvisionResult] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [dbAuto, setDbAuto] = useState(true);
   const [siloProvisionLegacy, setSiloProvisionLegacy] = useState(false);
   const [phaseLabel, setPhaseLabel] = useState(
     'Shared-DB SaaS — register company (creates tenant row)'
   );
 
-  const [addForm, setAddForm] = useState(emptyAddForm);
   const [editForm, setEditForm] = useState(null);
+  const editRequestRef = useRef(null);
   const [upgradePlan, setUpgradePlan] = useState('');
   const [provisionOpts, setProvisionOpts] = useState({
     create_database: true,
@@ -115,6 +134,17 @@ export default function AdminCustomers() {
     loadCustomers();
   });
 
+  useEffect(() => {
+    if (location.search.includes('register=1')) {
+      navigate('/admin/customers/register', { replace: true });
+      return;
+    }
+    const notice = location.state?.message;
+    if (!notice) return;
+    setMessage(notice);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
+
   const stats = useMemo(() => {
     return {
       total: customers.length,
@@ -124,68 +154,59 @@ export default function AdminCustomers() {
     };
   }, [customers, counts]);
 
-  const openAdd = () => {
-    setAddForm(emptyAddForm());
-    setDbAuto(true);
-    setShowAdd(true);
-    setMessage('');
-    setError('');
-  };
+  const visibleCustomers = useMemo(
+    () => customers.filter((row) => matchesListQuery(companyQuery, [
+      row.company_name,
+      row.slug,
+      row.contact_email,
+      row.plan_label,
+      row.status_label,
+    ])),
+    [companyQuery, customers],
+  );
 
-  const onAddCompanyName = (value) => {
-    setAddForm((f) => {
-      const slug = slugifyLocal(value);
-      const next = { ...f, company_name: value, slug };
-      if (dbAuto) next.database_name = suggestDb(value, slug);
-      return next;
-    });
-  };
+  const openRegister = () => navigate('/admin/customers/register');
 
-  const submitAdd = async (e) => {
-    e.preventDefault();
-    if (!addForm.company_name.trim()) {
-      setError('Company name is required');
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      const res = await fetch(API_CUSTOMERS, {
-        method: 'POST',
-        headers: headers(),
-        body: JSON.stringify(addForm),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Failed to register company');
-      }
-      setShowAdd(false);
-      const tid = data.tenant?.id;
-      setMessage(
-        `Registered ${data.customer?.company_name || 'company'} (${data.customer?.plan_label})` +
-          (tid ? ` — tenant #${tid}` : '')
-      );
-      await loadCustomers();
-    } catch (err) {
-      setError(err.message || 'Failed to register company');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openEdit = (customer) => {
+  const openEdit = async (customer) => {
+    editRequestRef.current = customer.id;
     setShowEdit(customer);
     setEditForm({
+      ...emptyMailboxes(),
       company_name: customer.company_name || '',
       slug: customer.slug || '',
-      app_url: customer.app_url || '',
-      database_name: customer.database_name || '',
       contact_email: customer.contact_email || '',
-      go_live_date: customer.go_live_date || '',
+      go_live_date: (customer.go_live_date || '').slice(0, 10),
       notes: customer.notes || '',
-      status: customer.status || 'provisioning',
+      status: customer.status || 'active',
     });
     setError('');
+    try {
+      const res = await fetch(`${API_CUSTOMERS}/${customer.id}`, { headers: headers() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || editRequestRef.current !== customer.id) {
+        return;
+      }
+      const detail = data.customer || {};
+      const tenant = data.tenant || {};
+      const mailboxes = tenant.mailboxes || emptyMailboxes();
+      setShowEdit({ ...customer, ...detail });
+      setEditForm({
+        ...emptyMailboxes(),
+        company_name: detail.company_name || customer.company_name || '',
+        slug: detail.slug || customer.slug || '',
+        contact_email:
+          detail.contact_email || tenant.contact_email || customer.contact_email || '',
+        go_live_date: (detail.go_live_date || customer.go_live_date || '').slice(0, 10),
+        notes: detail.notes || tenant.notes || customer.notes || '',
+        status: detail.status || customer.status || 'active',
+        mailbox_hr: mailboxes.mailbox_hr || '',
+        mailbox_accounts: mailboxes.mailbox_accounts || '',
+        mailbox_it: mailboxes.mailbox_it || '',
+        mailbox_admin: mailboxes.mailbox_admin || '',
+      });
+    } catch {
+      // Keep list-row values; mailboxes may stay empty until retry.
+    }
   };
 
   const submitEdit = async (e) => {
@@ -384,7 +405,7 @@ export default function AdminCustomers() {
           </div>
           <div className="cust-hero__aside">
             <span className="cust-hero__badge">Super Admin</span>
-            <button type="button" className="cust-add-btn" onClick={openAdd}>
+            <button type="button" className="cust-add-btn" onClick={openRegister}>
               + Register company
             </button>
           </div>
@@ -412,7 +433,7 @@ export default function AdminCustomers() {
         )}
 
         {message && <p className="cust-message">{message}</p>}
-        {error && !showAdd && !showUpgrade && !showEdit && !showProvision && (
+        {error && !showUpgrade && !showEdit && !showProvision && (
           <p className="cust-error" role="alert">
             {error}
           </p>
@@ -433,28 +454,42 @@ export default function AdminCustomers() {
             <button
               type="button"
               className="cust-add-btn cust-add-btn--inline"
-              onClick={openAdd}
+              onClick={openRegister}
             >
               Register your first company
             </button>
           </div>
         ) : (
           <div className="cust-panel">
+            <div className="cust-toolbar">
+              <label className="cust-search">
+                <span>Search</span>
+                <input
+                  value={companyQuery}
+                  onChange={(event) => setCompanyQuery(event.target.value)}
+                  placeholder="Company, slug, contact, plan"
+                />
+              </label>
+            </div>
             <div className="cust-table-wrap">
               <table className="cust-table">
                 <thead>
                   <tr>
                     <th>Company</th>
                     <th>Plan</th>
-                    <th>URL</th>
-                    <th>Database</th>
+                    <th>Contact</th>
                     <th>Go-live</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {customers.map((c) => (
+                  {visibleCustomers.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="cust-panel__empty">No companies match that search.</td>
+                    </tr>
+                  )}
+                  {visibleCustomers.map((c) => (
                     <tr key={c.id}>
                       <td className="cust-table__name">
                         <div>{c.company_name}</div>
@@ -469,16 +504,9 @@ export default function AdminCustomers() {
                           {c.plan_label}
                         </span>
                       </td>
-                      <td>
-                        {c.app_url ? (
-                          <a href={c.app_url} target="_blank" rel="noreferrer">
-                            {c.app_url.replace(/^https?:\/\//, '')}
-                          </a>
-                        ) : (
-                          '—'
-                        )}
+                      <td className="cust-table__contact">
+                        {c.contact_email || '—'}
                       </td>
-                      <td className="cust-mono">{c.database_name || '—'}</td>
                       <td>{formatDate(c.go_live_date)}</td>
                       <td>
                         <span className={`cust-status cust-status--${c.status}`}>
@@ -555,246 +583,102 @@ export default function AdminCustomers() {
         )}
       </div>
 
-      {showAdd && (
-        <div className="cust-modal-backdrop" role="presentation">
-          <div className="cust-modal" role="dialog" aria-labelledby="cust-add-title">
-            <h2 id="cust-add-title">Register company</h2>
-            <p className="cust-modal-lead">
-              Creates a <strong>tenant</strong> in the shared HRMS database
-              (same app URL for all companies). Default status is Active.
-            </p>
-            <form onSubmit={submitAdd} className="cust-form">
-              <label>
-                Company name *
-                <input
-                  value={addForm.company_name}
-                  onChange={(e) => onAddCompanyName(e.target.value)}
-                  required
-                  placeholder="Acme Corp"
-                />
-              </label>
-              <label>
-                Slug
-                <input
-                  value={addForm.slug}
-                  onChange={(e) => {
-                    const slug = slugifyLocal(e.target.value);
-                    setAddForm((f) => ({
-                      ...f,
-                      slug,
-                      database_name: dbAuto ? suggestDb(f.company_name, slug) : f.database_name,
-                    }));
-                  }}
-                  placeholder="acme_corp"
-                />
-              </label>
-              <label>
-                Subscription plan *
-                <select
-                  value={addForm.plan}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, plan: e.target.value }))
-                  }
-                >
-                  {(plans.length
-                    ? plans
-                    : [
-                        { id: 'basic', label: 'Basic' },
-                        { id: 'essential', label: 'Essential' },
-                        { id: 'enterprise', label: 'Enterprise' },
-                      ]
-                  ).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Initial status
-                <select
-                  value={addForm.status}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, status: e.target.value }))
-                  }
-                >
-                  {(statuses.length
-                    ? statuses
-                    : [
-                        { id: 'provisioning', label: 'Provisioning' },
-                        { id: 'active', label: 'Active' },
-                      ]
-                  )
-                    .filter((s) =>
-                      ['provisioning', 'active'].includes(s.id)
-                    )
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.label}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label>
-                Login URL
-                <input
-                  type="url"
-                  value={addForm.app_url}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, app_url: e.target.value }))
-                  }
-                  placeholder="https://hr.acme.com"
-                />
-              </label>
-              <label>
-                Database name
-                <input
-                  value={addForm.database_name}
-                  onChange={(e) => {
-                    setDbAuto(false);
-                    setAddForm((f) => ({ ...f, database_name: e.target.value }));
-                  }}
-                  placeholder="hrms_acme_corp"
-                />
-              </label>
-              <label>
-                Contact email
-                <input
-                  type="email"
-                  value={addForm.contact_email}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, contact_email: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Go-live date
-                <input
-                  type="date"
-                  value={addForm.go_live_date}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, go_live_date: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Notes
-                <textarea
-                  rows={2}
-                  value={addForm.notes}
-                  onChange={(e) =>
-                    setAddForm((f) => ({ ...f, notes: e.target.value }))
-                  }
-                />
-              </label>
-              {error && <p className="cust-error">{error}</p>}
-              <div className="cust-modal-actions">
-                <button
-                  type="button"
-                  className="cust-btn cust-btn--ghost"
-                  onClick={() => setShowAdd(false)}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="cust-btn cust-btn--primary"
-                  disabled={saving}
-                >
-                  {saving ? 'Saving…' : 'Register company'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {showEdit && editForm && (
         <div className="cust-modal-backdrop" role="presentation">
-          <div className="cust-modal" role="dialog" aria-labelledby="cust-edit-title">
-            <h2 id="cust-edit-title">Edit company</h2>
-            <form onSubmit={submitEdit} className="cust-form">
-              <label>
-                Company name *
-                <input
-                  value={editForm.company_name}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, company_name: e.target.value }))
-                  }
-                  required
-                />
-              </label>
-              <label>
-                Slug
-                <input
-                  value={editForm.slug}
-                  onChange={(e) =>
-                    setEditForm((f) => ({
-                      ...f,
-                      slug: slugifyLocal(e.target.value),
-                    }))
-                  }
-                />
-              </label>
-              <label>
-                Status
-                <select
-                  value={editForm.status}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, status: e.target.value }))
-                  }
-                >
-                  <option value={showEdit.status}>
-                    {showEdit.status_label || showEdit.status}
-                  </option>
-                  {(showEdit.allowed_next_statuses || []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Login URL
-                <input
-                  type="url"
-                  value={editForm.app_url}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, app_url: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Database name
-                <input
-                  value={editForm.database_name}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, database_name: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Contact email
-                <input
-                  type="email"
-                  value={editForm.contact_email}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, contact_email: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                Go-live date
-                <input
-                  type="date"
-                  value={editForm.go_live_date || ''}
-                  onChange={(e) =>
-                    setEditForm((f) => ({ ...f, go_live_date: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
+          <div
+            className="cust-modal cust-modal--register"
+            role="dialog"
+            aria-labelledby="cust-edit-title"
+          >
+            <header className="cust-modal__header">
+              <div>
+                <p className="cust-modal__eyebrow">Shared-DB SaaS</p>
+                <h2 id="cust-edit-title">Edit company</h2>
+              </div>
+              <button
+                type="button"
+                className="cust-modal__close"
+                onClick={() => {
+                  setShowEdit(null);
+                  setEditForm(null);
+                }}
+                disabled={saving}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </header>
+            <form onSubmit={submitEdit} className="cust-form cust-form--register">
+              <section className="cust-form-section">
+                <h3 className="cust-form-section__title">Company</h3>
+                <div className="cust-form-section__grid">
+                  <label className="cust-field cust-field--full">
+                    Company name *
+                    <input
+                      value={editForm.company_name}
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, company_name: e.target.value }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="cust-field">
+                    Slug
+                    <input
+                      value={editForm.slug}
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          slug: slugifyLocal(e.target.value),
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="cust-field">
+                    Status
+                    <select
+                      value={editForm.status}
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, status: e.target.value }))
+                      }
+                    >
+                      <option value={showEdit.status}>
+                        {showEdit.status_label || showEdit.status}
+                      </option>
+                      {(showEdit.allowed_next_statuses || []).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="cust-field">
+                    Contact email
+                    <input
+                      type="email"
+                      value={editForm.contact_email}
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, contact_email: e.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="cust-field">
+                    Go-live date
+                    <input
+                      type="date"
+                      value={editForm.go_live_date || ''}
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, go_live_date: e.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <MailboxInputs form={editForm} setForm={setEditForm} />
+
+              <label className="cust-field cust-field--full">
                 Notes
                 <textarea
                   rows={2}

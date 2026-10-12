@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import {
   clearAdminDepartmentVisit,
-} from '../pages/Admin/AdminLayout';
+} from '../pages/Admin/adminVisit';
 
 const ADMIN_DEPT_SESSION = 'adminDeptVisit';
 

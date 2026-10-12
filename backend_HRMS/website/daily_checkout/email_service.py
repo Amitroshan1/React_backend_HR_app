@@ -5,9 +5,10 @@ from __future__ import annotations
 from flask import current_app
 
 from ..datetime_utils import utc_now
+from ..company_mailbox import company_mailbox
 from ..email import send_email_via_zeptomail
 from ..models.daily_checkout import DailyCheckoutOutbox, DailyCheckoutRequest
-from .service import _add_event
+from .service import _add_event, _request_tenant_id
 
 
 def send_outbox_row(item: DailyCheckoutOutbox):
@@ -20,8 +21,11 @@ def send_outbox_row(item: DailyCheckoutOutbox):
 
     employee = (row.requester_email_snapshot or "").strip()
     managers = [e for e in (row.manager_emails_snapshot or []) if e]
+    request_tenant = _request_tenant_id(row.id)
     it_mailbox = (
-        current_app.config.get("ZEPTO_CC_IT") or current_app.config.get("EMAIL_IT") or ""
+        company_mailbox("ZEPTO_CC_IT", request_tenant)
+        or company_mailbox("EMAIL_IT", request_tenant)
+        or ""
     ).strip()
     sender = current_app.config.get("ZEPTO_SENDER_EMAIL")
     code = row.request_code

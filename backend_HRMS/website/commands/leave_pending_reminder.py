@@ -13,8 +13,9 @@ from .. import db
 from ..models.Admin_models import Admin
 from ..models.attendance import LeaveApplication
 from ..models.manager_model import ManagerContact
-from ..manager_utils import get_manager_emails
+from ..manager_utils import get_manager_emails, manager_contacts_for
 from ..email import send_leave_pending_reminder
+from ..tenant_jobs import admin_id_scope, merge_tenant_summaries, run_in_each_tenant_scope
 
 
 PENDING_DAYS_THRESHOLD = 6
@@ -28,21 +29,21 @@ def _get_contact_for_admin(admin):
     if not circle or not emp_type:
         return None
     if user_email:
-        contact = ManagerContact.query.filter(
+        contact = manager_contacts_for(admin).filter(
             func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
             func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
             ManagerContact.user_email == user_email,
         ).first()
         if contact:
             return contact
-    return ManagerContact.query.filter(
+    return manager_contacts_for(admin).filter(
         func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
         func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
         or_(ManagerContact.user_email.is_(None), ManagerContact.user_email == ""),
     ).first()
 
 
-def run_leave_pending_reminder(run_date, dry_run=False):
+def run_leave_pending_reminder(run_date, dry_run=False, tenant_id=None):
     """
     Find leave applications pending 6+ days (not approved/rejected); send reminder to managers; set pending_reminder_sent_at.
     Returns summary dict.
@@ -57,6 +58,7 @@ def run_leave_pending_reminder(run_date, dry_run=False):
     created_before = datetime.combine(cutoff + timedelta(days=1), dt_time.min)
 
     leaves = LeaveApplication.query.filter(
+        admin_id_scope(LeaveApplication.admin_id, tenant_id),
         LeaveApplication.status == "Pending",
         LeaveApplication.created_at.isnot(None),
         LeaveApplication.created_at < created_before,
@@ -146,7 +148,11 @@ def register_leave_pending_reminder_command(app):
             run_date_obj = date.today()
 
         with app.app_context():
-            summary = run_leave_pending_reminder(run_date_obj, dry_run=dry_run)
+            summary = merge_tenant_summaries(
+                run_in_each_tenant_scope(
+                    lambda tid: run_leave_pending_reminder(run_date_obj, dry_run=dry_run, tenant_id=tid)
+                )
+            )
             if dry_run:
                 db.session.rollback()
                 click.echo("Dry run. No DB changes committed.")

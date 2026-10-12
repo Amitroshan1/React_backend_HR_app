@@ -1,15 +1,77 @@
-.admin-shell {
-  min-height: calc(100vh - 120px);
-  background: transparent;
+.admin-platform {
+  --platform-bg: #f5f7fa;
+  --platform-border: #e1e7ef;
+  --platform-text: #142d52;
+
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 100%;
+  background: var(--platform-bg);
+  color: var(--platform-text);
 }
 
-.admin-shell--full {
-  margin: 0;
-  min-height: auto;
-}
-
-.admin-shell__main {
+.admin-platform__main {
   min-width: 0;
-  padding: 0;
-  overflow-x: visible;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-platform__bar {
+  display: none;
+}
+
+.admin-platform__menu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--platform-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--platform-text);
+  cursor: pointer;
+}
+
+.admin-platform__content {
+  padding: 18px 8px 40px;
+  min-width: 0;
+}
+
+.admin-platform__backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .admin-platform {
+    display: block;
+  }
+
+  .admin-platform__bar {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    background: #fff;
+    border-bottom: 1px solid var(--platform-border);
+  }
+
+  .admin-platform__menu,
+  .admin-platform--nav-open .admin-platform__backdrop {
+    display: flex;
+  }
+
+  .admin-platform__backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    padding: 0;
+    background: rgba(20, 45, 82, 0.28);
+    z-index: 15;
+  }
+
+  .admin-platform__content {
+    padding: 12px 0 32px;
+  }
 }

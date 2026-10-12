@@ -19,6 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from .email import send_login_alert_email, send_login_otp_email, send_sensitive_otp_email
 from .models.Admin_models import Admin
+from .tenant_context import current_admin, get_admin_in_tenant, tenant_id_for_admin
 from .models.otp import OTP
 from . import db
 import hashlib
@@ -101,13 +102,15 @@ logger.addHandler(ch)
 @jwt_required()
 def get_master_options():
     """Return department and circle names from MasterData for dropdowns (Queries, Admin, etc.)."""
+    from .master_data_tenancy import master_query
+
     dept_rows = (
-        MasterData.query.filter_by(master_type="department", is_active=True)
+        master_query().filter_by(master_type="department", is_active=True)
         .order_by(MasterData.name.asc())
         .all()
     )
     circle_rows = (
-        MasterData.query.filter_by(master_type="circle", is_active=True)
+        master_query().filter_by(master_type="circle", is_active=True)
         .order_by(MasterData.name.asc())
         .all()
     )
@@ -182,7 +185,7 @@ def get_declaration_deadline_auth():
 def form16_reconciliation_self():
     from .Accounts import form16_reconciliation
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     blocked = require_sensitive_for_employee(admin, admin.id)
@@ -196,7 +199,7 @@ def form16_reconciliation_self():
 def tds_projection_auth():
     from .Accounts import tds_projection
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     blocked = require_sensitive_for_employee(admin, admin.id)
@@ -210,7 +213,7 @@ def tds_projection_auth():
 def tds_variance_auth():
     from .Accounts import tds_variance
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     blocked = require_sensitive_for_employee(admin, admin.id)
@@ -224,7 +227,7 @@ def tds_variance_auth():
 def form16_summary_self():
     from .Accounts import form16_summary
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     blocked = require_sensitive_for_employee(admin, admin.id)
@@ -238,7 +241,7 @@ def form16_summary_self():
 def form16_summary_download_self():
     from .Accounts import form16_summary_download
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     blocked = require_sensitive_for_employee(admin, admin.id)
@@ -304,18 +307,88 @@ def _detect_login_channel(identifier: str):
     return "unknown", ident
 
 
-def _find_admin_for_login(channel: str, value: str):
+def _find_admins_for_login(channel: str, value: str) -> list:
+    """Every Admin row for this identifier — one per tenant the person belongs to."""
     if channel == "email":
         # Ignore whitespace in stored emails (leading/trailing/middle)
         cleaned_db_email = func.replace(func.trim(Admin.email), " ", "")
-        return Admin.query.filter(
-            func.lower(cleaned_db_email) == value.lower()
-        ).first()
+        return (
+            Admin.query.filter(func.lower(cleaned_db_email) == value.lower())
+            .order_by(Admin.id.asc())
+            .all()
+        )
     if channel == "sms":
-        return Admin.query.filter(
-            or_(Admin.mobile == value, Admin.mobile.endswith(value))
-        ).first()
-    return None
+        return (
+            Admin.query.filter(or_(Admin.mobile == value, Admin.mobile.endswith(value)))
+            .order_by(Admin.id.asc())
+            .all()
+        )
+    return []
+
+
+TENANT_SELECT_TOKEN_TYPE = "tenant_select"
+TENANT_SELECT_TTL_MINUTES = 5
+
+
+def _login_blocked_response(admins):
+    """403 for accounts that may not log in; says so when only the company is blocked."""
+    from .offboarding_service import employee_login_allowed
+    from .tenant_context import TENANT_BLOCKED_CODE, TENANT_BLOCKED_MESSAGE
+
+    if any(employee_login_allowed(a) for a in admins):
+        return jsonify({
+            "success": False,
+            "code": TENANT_BLOCKED_CODE,
+            "message": TENANT_BLOCKED_MESSAGE,
+        }), 403
+    return jsonify({
+        "success": False,
+        "message": "Your account is inactive. Please contact HR.",
+    }), 403
+
+
+def _tenant_choices(admins) -> list:
+    """One entry per tenant (first matching admin wins), with display names."""
+    from .models.tenant import Tenant
+    from .tenant_context import tenant_id_for_admin
+
+    by_tenant = {}
+    for admin in admins:
+        by_tenant.setdefault(tenant_id_for_admin(admin), admin)
+    tenants = {t.id: t for t in Tenant.query.filter(Tenant.id.in_(list(by_tenant))).all()}
+    choices = []
+    for tid, admin in by_tenant.items():
+        tenant = tenants.get(tid)
+        choices.append({
+            "tenant_id": tid,
+            "name": (tenant.name if tenant else None) or f"Company {tid}",
+            "slug": tenant.slug if tenant else None,
+            "admin_id": admin.id,
+        })
+    choices.sort(key=lambda c: (c["name"] or "").lower())
+    return choices
+
+
+def _tenant_selection_payload(value: str, choices: list) -> dict:
+    token = create_access_token(
+        identity=f"{TENANT_SELECT_TOKEN_TYPE}:{value}",
+        additional_claims={
+            "token_type": TENANT_SELECT_TOKEN_TYPE,
+            "admin_ids": [c["admin_id"] for c in choices],
+        },
+        expires_delta=timedelta(minutes=TENANT_SELECT_TTL_MINUTES),
+    )
+    return {
+        "success": True,
+        "requires_tenant_selection": True,
+        "selection_token": token,
+        "expires_in": TENANT_SELECT_TTL_MINUTES * 60,
+        "tenants": [
+            {"tenant_id": c["tenant_id"], "name": c["name"], "slug": c["slug"]}
+            for c in choices
+        ],
+        "message": "Select the company you want to sign in to.",
+    }
 
 
 def _issue_login_token(admin):
@@ -380,22 +453,22 @@ def request_otp():
             "resend_after": 0,
         }), 200
 
-    admin = _find_admin_for_login("email", value)
-    if not admin or not (admin.email or "").strip():
+    matches = [a for a in _find_admins_for_login("email", value) if (a.email or "").strip()]
+    if not matches:
         return jsonify({
             "success": False,
             "message": "No account found with this email. Please check and try again.",
         }), 404
-    if not admin_login_allowed(admin):
-        return jsonify({
-            "success": False,
-            "message": "Your account is inactive. Please contact HR.",
-        }), 403
+    allowed = [a for a in matches if admin_login_allowed(a)]
+    if not allowed:
+        return _login_blocked_response(matches)
 
-    cleaned_email = re.sub(r"\s+", "", (admin.email or "")).strip()
-    if cleaned_email and admin.email != cleaned_email:
-        admin.email = cleaned_email
-    ident = cleaned_email.lower()
+    for a in allowed:
+        cleaned = re.sub(r"\s+", "", (a.email or "")).strip()
+        if cleaned and a.email != cleaned:
+            a.email = cleaned
+    admin = allowed[0]
+    ident = admin.email.lower()
 
     OTP.query.filter_by(identifier=ident, channel="email", is_used=False).update(
         {"is_used": True},
@@ -407,7 +480,7 @@ def request_otp():
         identifier=ident,
         channel="email",
         otp_hash=_hash_otp(otp_code),
-        admin_id=admin.id,
+        admin_id=admin.id if len(allowed) == 1 else None,
         created_at=utc_now(),
         expires_at=OTP.expiry_from_now(OTP_TTL_MINUTES),
         is_used=False,
@@ -517,23 +590,76 @@ def verify_otp():
             "message": f"Invalid OTP. {remaining} attempt(s) left.",
         }), 400
 
-    admin = Admin.query.get(row.admin_id) if row.admin_id else _find_admin_for_login("email", value)
-    if not admin:
+    matches = _find_admins_for_login("email", value)
+    if not matches and row.admin_id:
+        legacy = Admin.query.get(row.admin_id)
+        matches = [legacy] if legacy else []
+    if not matches:
         return jsonify({
             "success": False,
             "message": "Account not found",
         }), 404
 
-    if not admin_login_allowed(admin):
-        return jsonify({
-            "success": False,
-            "message": "Your account is inactive. Please contact HR.",
-        }), 403
+    allowed = [a for a in matches if admin_login_allowed(a)]
+    if not allowed:
+        return _login_blocked_response(matches)
 
     row.is_used = True
     db.session.commit()
 
+    choices = _tenant_choices(allowed)
+    if len(choices) > 1:
+        return jsonify(_tenant_selection_payload(value, choices)), 200
+    admin = Admin.query.get(choices[0]["admin_id"])
     return jsonify(_issue_login_token(admin)), 200
+
+
+@auth.route("/select-tenant", methods=["POST"])
+def select_tenant():
+    """Exchange a post-OTP selection token + chosen tenant for a login JWT."""
+    from flask_jwt_extended import decode_token
+
+    from .rate_limit import client_ip, enforce
+    from .offboarding_service import admin_login_allowed
+    from .tenant_context import tenant_id_for_admin
+
+    blocked = enforce(
+        f"select-tenant:ip:{client_ip()}",
+        limit=VERIFY_OTP_IP_LIMIT_PER_HOUR,
+        window_seconds=3600,
+        message="Too many attempts. Please try again later.",
+    )
+    if blocked:
+        return blocked
+
+    data = request.get_json(silent=True) or {}
+    selection_token = str(data.get("selection_token") or "").strip()
+    try:
+        tenant_id = int(data.get("tenant_id"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Please choose a company"}), 400
+    if not selection_token:
+        return jsonify({"success": False, "message": "Session expired. Please log in again."}), 401
+
+    try:
+        decoded = decode_token(selection_token)
+    except Exception:
+        return jsonify({"success": False, "message": "Session expired. Please log in again."}), 401
+    if decoded.get("token_type") != TENANT_SELECT_TOKEN_TYPE:
+        return jsonify({"success": False, "message": "Session expired. Please log in again."}), 401
+
+    for raw_id in decoded.get("admin_ids") or []:
+        try:
+            admin = Admin.query.get(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+        if admin is None or tenant_id_for_admin(admin) != tenant_id:
+            continue
+        if not admin_login_allowed(admin):
+            return _login_blocked_response([admin])
+        return jsonify(_issue_login_token(admin)), 200
+
+    return jsonify({"success": False, "message": "You do not have access to this company"}), 403
 
 
 @auth.route("/session/refresh", methods=["POST"])
@@ -552,10 +678,7 @@ def refresh_session():
     if not admin:
         return jsonify({"success": False, "message": "Account not found"}), 404
     if not admin_login_allowed(admin):
-        return jsonify({
-            "success": False,
-            "message": "Your account is inactive. Please contact HR.",
-        }), 403
+        return _login_blocked_response([admin])
 
     return jsonify(_issue_login_token(admin)), 200
 
@@ -564,16 +687,7 @@ SENSITIVE_OTP_CHANNEL = "sensitive"
 
 
 def _resolve_jwt_admin():
-    email = (get_jwt().get("email") or "").strip()
-    admin = None
-    if email:
-        admin = Admin.query.filter(func.lower(Admin.email) == email.lower()).first()
-    if not admin:
-        try:
-            admin = Admin.query.get(int(get_jwt_identity()))
-        except (TypeError, ValueError):
-            admin = None
-    return admin
+    return current_admin()
 
 
 @auth.route("/sensitive/request-otp", methods=["POST"])
@@ -1138,11 +1252,15 @@ def get_news_feed():
         admin_id = int(get_jwt_identity())
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid token"}), 401
-    admin = Admin.query.get(admin_id)
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
 
     from sqlalchemy import or_
+
+    from .tenant_context import tenant_admin_query, tenant_column_clause, tenant_id_for_admin
+
+    tenant_id = tenant_id_for_admin(admin)
     user_circle = (getattr(admin, "circle", None) or "").strip()
     user_emp_type = getattr(admin, "emp_type", None) or ""
     today = date.today()
@@ -1157,7 +1275,7 @@ def get_news_feed():
 
     # 1. Birthdays (Employee.dob) – same circle, current employees only
     if user_circle:
-        bday_admins = Admin.query.join(Employee, Admin.id == Employee.admin_id).filter(
+        bday_admins = tenant_admin_query(tenant_id).join(Employee, Admin.id == Employee.admin_id).filter(
             db.func.lower(db.func.coalesce(Admin.circle, "")) == user_circle.lower(),
             db.extract("month", Employee.dob) == current_month,
             db.extract("day", Employee.dob) == current_day,
@@ -1177,7 +1295,7 @@ def get_news_feed():
 
     # 2. Work anniversaries & joinings today (Admin.doj) – same circle
     if user_circle:
-        anniv_admins = Admin.query.filter(
+        anniv_admins = tenant_admin_query(tenant_id).filter(
             db.func.lower(db.func.coalesce(Admin.circle, "")) == user_circle.lower(),
             Admin.doj.isnot(None),
             db.extract("month", Admin.doj) == current_month,
@@ -1211,6 +1329,7 @@ def get_news_feed():
 
     # 3. Regular news feed posts (visible for NEWS_FEED_VISIBLE_DAYS only)
     posts = NewsFeed.query.filter(
+        tenant_column_clause(NewsFeed.tenant_id, tenant_id),
         or_(NewsFeed.circle == user_circle, NewsFeed.circle == "All"),
         or_(NewsFeed.emp_type == user_emp_type, NewsFeed.emp_type == "All")
     ).order_by(NewsFeed.created_at.desc()).limit(50).all()
@@ -1639,10 +1758,14 @@ def upload_profile_photo():
     # UUID segment prevents enumeration of profile_{admin_id}_{emp_id}.ext
     import uuid as _uuid
 
-    filename = secure_filename(f"profile_{admin.id}_{emp_slug}_{_uuid.uuid4().hex[:12]}.{ext}")
+    from .upload_tenancy import tenant_upload_path
+
     upload_dir = os.path.join(current_app.static_folder, "uploads")
-    os.makedirs(upload_dir, exist_ok=True)
-    photo_path = os.path.join(upload_dir, filename)
+    photo_path, filename = tenant_upload_path(
+        upload_dir,
+        secure_filename(f"profile_{admin.id}_{emp_slug}_{_uuid.uuid4().hex[:12]}.{ext}"),
+        tenant_id_for_admin(admin),
+    )
     photo.save(photo_path)
 
     # Remove previous photo file if stored under uploads
@@ -1760,7 +1883,9 @@ def resolve_geofence_for_coordinates(lat, lon):
             "location_status": zone_to_location_status("NO_GPS"),
         }
 
-    offices = Location.query.all()
+    from .master_data_tenancy import location_query
+
+    offices = location_query().all()
     if not offices:
         return {
             "zone": "NO_OFFICE_CONFIG",
@@ -1892,7 +2017,7 @@ def location_check():
     from .geo_mode_orchestrator import validate_employee_location
 
     email = get_jwt().get("email")
-    employee = Admin.query.filter_by(email=email).first()
+    employee = current_admin()
     admin_id = employee.id if employee else None
 
     t_req = time.perf_counter()
@@ -1950,7 +2075,7 @@ def punch_in():
 
     # Logged-in user
     email = get_jwt().get("email")
-    employee = Admin.query.filter_by(email=email).first()
+    employee = current_admin()
 
     if not employee:
         return jsonify({"success": False, "message": "Employee not found"}), 404
@@ -2174,7 +2299,7 @@ def punch_out():
 
         # Get logged-in user email from JWT
         email = get_jwt().get("email")
-        employee = Admin.query.filter_by(email=email).first()
+        employee = current_admin()
 
         if not employee:
             return jsonify({"success": False, "message": "Employee not found"}), 404
@@ -2846,6 +2971,9 @@ def upload_profile_file():
             return jsonify({"success": False, "message": "Unauthorized"}), 403
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid token"}), 401
+    target_admin = get_admin_in_tenant(admin_id)
+    if not target_admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     file = request.files.get("file")
     if not file or not file.filename:
@@ -2866,14 +2994,16 @@ def upload_profile_file():
     if education_cert and ext not in allowed_extensions:
         return jsonify({"success": False, "message": "Certificate must be .pdf, .jpg, or .png"}), 400
 
-    upload_dir = os.path.join(current_app.root_path, "static", "uploads", "profile")
-    os.makedirs(upload_dir, exist_ok=True)
     import uuid as _uuid
+    from .upload_tenancy import tenant_upload_path
 
-    filename = f"{admin_id}_{field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:10]}{ext}"
-    file_path = os.path.join(upload_dir, filename)
+    filename = f"{target_admin.id}_{field}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:10]}{ext}"
+    file_path, rel_path = tenant_upload_path(
+        os.path.join(current_app.root_path, "static", "uploads"),
+        f"profile/{filename}",
+        tenant_id_for_admin(target_admin),
+    )
     file.save(file_path)
-    rel_path = f"profile/{filename}"
     return jsonify({"success": True, "path": rel_path}), 201
 
 
@@ -3030,11 +3160,13 @@ def employee_acknowledge_policy(policy_id):
     admin = Admin.query.get(admin_id)
     if not admin:
         return jsonify({"success": False, "message": "User not found"}), 404
-    from .policy_service import acknowledge_policy
+    from .policy_service import PolicyNotFound, acknowledge_policy
 
     try:
         ack = acknowledge_policy(admin, policy_id)
         return jsonify({"success": True, "acknowledgment": ack.to_dict()}), 200
+    except PolicyNotFound as exc:
+        return jsonify({"success": False, "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 

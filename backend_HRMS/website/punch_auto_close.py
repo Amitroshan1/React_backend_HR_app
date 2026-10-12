@@ -7,8 +7,10 @@ Server-side auto punch-out: close open PunchSession when work on the current blo
 - clock_out is stored at the cap deadline (punch_in + remaining cap), even if the job runs late.
 - Scheduler runs every 2 minutes; homepage load also closes overdue sessions for the user.
 - Client auto_system_punch_out must only close when evaluate_auto_close says the cap is due.
+- Biometric sessions are never closed before 18:00 IST on their punch date; the 18:00
+  last-scan sync decides OUT (latest scan after IN, whatever time it was).
 """
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 from . import db
 from .models.attendance import Punch, PunchSession
@@ -20,6 +22,8 @@ NHQ_LAST_SCAN_REASON = "Biometric last scan (NHQ priority over 10 hr cap)"
 BIOMETRIC_LAST_SCAN_REASON = "Biometric last scan (priority over 10 hr cap)"
 # Server scheduler close has no live GPS — do not copy punch-in geofence to punch-out.
 AUTO_PUNCH_NO_LIVE_GPS = "auto_punch_out_no_live_gps"
+# Earliest IST wall time on the punch date at which a biometric OUT may be written.
+BIOMETRIC_OUT_WINDOW_START = time(18, 0, 0)
 
 
 def closed_seconds_for_cap(punch_id, open_sess):
@@ -60,12 +64,40 @@ def capped_daily_work_seconds(open_sess, now=None):
     return min(SESSION_CAP_SEC, max(0, open_secs))
 
 
+def _is_biometric_sourced(open_sess) -> bool:
+    src = (getattr(open_sess, "source", None) or "").strip().lower()
+    loc_in = (getattr(open_sess, "location_status_in", None) or "").strip().lower()
+    return src == "biometric" or loc_in == "biometric_device"
+
+
+def _punch_for_session(open_sess):
+    punch = getattr(open_sess, "punch", None)
+    if punch is None and open_sess is not None and open_sess.punch_id:
+        punch = Punch.query.get(open_sess.punch_id)
+    return punch
+
+
+def biometric_out_window_opens_at(punch):
+    """18:00 on the punch date — earliest time a biometric OUT may be written."""
+    punch_date = getattr(punch, "punch_date", None) if punch else None
+    if punch_date is None:
+        return None
+    return datetime.combine(punch_date, BIOMETRIC_OUT_WINDOW_START)
+
+
+def before_biometric_out_window(punch, now) -> bool:
+    """True while `now` is earlier than 18:00 on the punch date (OUT not yet allowed)."""
+    opens_at = biometric_out_window_opens_at(punch)
+    if opens_at is None or now is None:
+        return False
+    return now < opens_at
+
+
 def session_auto_close_deadline(open_sess, now=None):
     """When today's total work (all sessions + this open one) reaches 10 hours."""
+    punch = None
     try:
-        punch = getattr(open_sess, "punch", None)
-        if punch is None and open_sess and open_sess.punch_id:
-            punch = Punch.query.get(open_sess.punch_id)
+        punch = _punch_for_session(open_sess)
         from .biometric.scope import is_nhq_biometric_open_session
 
         if is_nhq_biometric_open_session(open_sess, punch):
@@ -75,7 +107,12 @@ def session_auto_close_deadline(open_sess, now=None):
                 return None
     except Exception:
         pass
-    return auto_close_deadline(open_sess)
+    deadline = auto_close_deadline(open_sess)
+    if deadline and _is_biometric_sourced(open_sess):
+        opens_at = biometric_out_window_opens_at(punch)
+        if opens_at and deadline < opens_at:
+            return opens_at
+    return deadline
 
 
 def evaluate_auto_close(open_sess, now=None):
@@ -87,6 +124,11 @@ def evaluate_auto_close(open_sess, now=None):
 
     cap_at = auto_close_deadline(open_sess)
     if not cap_at or now < cap_at:
+        return False, None, None
+
+    if _is_biometric_sourced(open_sess) and before_biometric_out_window(
+        _punch_for_session(open_sess), now
+    ):
         return False, None, None
 
     return True, AUTO_CAP_REASON, cap_at

@@ -8,6 +8,17 @@ from flask import Blueprint, request, current_app, jsonify,json, send_from_direc
 from flask_jwt_extended import jwt_required, get_jwt
 from .email import send_email_via_zeptomail,send_welcome_email,send_payslip_uploaded_email,send_form16_uploaded_email,send_claim_line_item_decision_email
 from .models.Admin_models import Admin
+from .tenant_context import (
+    admin_id_in_tenant,
+    admin_tenant_clause,
+    current_admin,
+    get_admin_in_tenant,
+    get_current_tenant_id,
+    tenant_admin_ids,
+    tenant_admin_query,
+    tenant_id_for_admin,
+)
+from .upload_tenancy import tenant_upload_path
 from datetime import datetime,date,timedelta
 from .datetime_utils import utc_now, isoformat_api
 from zoneinfo import ZoneInfo
@@ -176,13 +187,21 @@ def _is_hr(admin):
     return t in ("hr", "human resource", "human resources")
 
 
+def _tenant_admin_id_set(admin_ids):
+    ids = {int(x) for x in admin_ids or []}
+    if not ids:
+        return set()
+    rows = db.session.query(Admin.id).filter(Admin.id.in_(ids), admin_tenant_clause()).all()
+    return {r[0] for r in rows}
+
+
 def _find_admin_by_employee_number(emp_raw):
     if emp_raw is None:
         return None
     s = str(emp_raw).strip()
     if not s:
         return None
-    return Admin.query.filter(func.lower(func.trim(Admin.emp_id)) == s.lower()).first()
+    return tenant_admin_query().filter(func.lower(func.trim(Admin.emp_id)) == s.lower()).first()
 
 
 def _parse_doj(val):
@@ -1268,7 +1287,7 @@ def _get_uploads_root():
 @jwt_required()
 def employee_type_count():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({
@@ -1281,6 +1300,7 @@ def employee_type_count():
         Admin.emp_type,
         func.count(Admin.id)
     ).filter(
+        admin_tenant_clause(),
         Admin.is_active == True,
         Admin.is_exited == False
     ).group_by(
@@ -1306,7 +1326,7 @@ def employee_type_count():
 @jwt_required()
 def employees_by_type_and_circle():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({
@@ -1326,7 +1346,7 @@ def employees_by_type_and_circle():
     selected_year = request.args.get("year", type=int) or datetime.now().year
     selected_month = request.args.get("month", type=int) or datetime.now().month
 
-    employees = Admin.query.filter(
+    employees = tenant_admin_query().filter(
         Admin.emp_type == emp_type,
         Admin.circle == circle,
         Admin.is_active == True,
@@ -1379,7 +1399,7 @@ def _serialize_upload_doc(upload_doc):
 @jwt_required()
 def employee_documents(admin_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1394,7 +1414,7 @@ def employee_documents(admin_id):
             "message": "Accounts access required"
         }), 403
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
@@ -1415,7 +1435,7 @@ def employee_documents(admin_id):
 @jwt_required()
 def upload_form16():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1432,15 +1452,12 @@ def upload_form16():
             "message": "admin_id, financial_year and form16_file are required"
         }), 400
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
             "message": "Employee not found"
         }), 404
-
-    upload_folder = os.path.join(_get_uploads_root(), "form16")
-    os.makedirs(upload_folder, exist_ok=True)
 
     safe_name = secure_filename(file.filename)
     cert_type = (request.form.get("certificate_type") or "upload_manual").strip().lower()
@@ -1456,14 +1473,17 @@ def upload_form16():
     import uuid as _uuid
 
     final_name = f"{admin_id}_{financial_year}_{timestamp}_{_uuid.uuid4().hex[:10]}_{safe_name}"
-    file.save(os.path.join(upload_folder, final_name))
+    abs_path, rel_path = tenant_upload_path(
+        _get_uploads_root(), f"form16/{final_name}", tenant_id_for_admin(target_admin)
+    )
+    file.save(abs_path)
 
     data_source = "official_traces" if is_official else (request.form.get("data_source") or "upload_manual").strip()
 
     form16 = Form16(
         admin_id=admin_id,
         financial_year=financial_year,
-        file_path=f"form16/{final_name}",
+        file_path=rel_path,
         parsed_gross_salary=request.form.get("parsed_gross_salary", type=float),
         parsed_tds_deducted=request.form.get("parsed_tds_deducted", type=float),
         parsed_taxable_income=request.form.get("parsed_taxable_income", type=float),
@@ -1503,7 +1523,7 @@ def upload_form16():
 @jwt_required()
 def form16_history(admin_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1522,7 +1542,7 @@ def form16_history(admin_id):
     if blocked:
         return blocked
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
@@ -1560,7 +1580,7 @@ def form16_history(admin_id):
 @jwt_required()
 def bulk_upload_form16():
     email = get_jwt().get("email")
-    admin_user = Admin.query.filter_by(email=email).first()
+    admin_user = current_admin()
     if not admin_user:
         return jsonify({
             "success": False,
@@ -1576,9 +1596,6 @@ def bulk_upload_form16():
             "message": "financial_year and form16_files are required"
         }), 400
 
-    upload_folder = os.path.join(_get_uploads_root(), "form16")
-    os.makedirs(upload_folder, exist_ok=True)
-
     saved_docs = []
     unmatched_files = []
 
@@ -1590,7 +1607,7 @@ def bulk_upload_form16():
         base_name = os.path.splitext(original_name)[0]
         emp_id_part = base_name[:5].upper()
 
-        target_admin = Admin.query.filter(
+        target_admin = tenant_admin_query().filter(
             func.upper(func.coalesce(Admin.emp_id, "")).like(f"%{emp_id_part}%")
         ).first()
 
@@ -1603,10 +1620,11 @@ def bulk_upload_form16():
 
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         final_name = f"{target_admin.id}_{financial_year}_{timestamp}_{original_name}"
-        abs_path = os.path.join(upload_folder, final_name)
+        abs_path, rel_path = tenant_upload_path(
+            _get_uploads_root(), f"form16/{final_name}", tenant_id_for_admin(target_admin)
+        )
         file.save(abs_path)
 
-        rel_path = f"form16/{final_name}"
         doc = Form16(
             admin_id=target_admin.id,
             financial_year=financial_year,
@@ -1644,7 +1662,7 @@ def bulk_upload_form16():
 @jwt_required()
 def upload_payslip():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1662,28 +1680,28 @@ def upload_payslip():
             "message": "admin_id, month, year and payslip_file are required"
         }), 400
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
             "message": "Employee not found"
         }), 404
 
-    upload_folder = os.path.join(_get_uploads_root(), "payslips")
-    os.makedirs(upload_folder, exist_ok=True)
-
     safe_name = secure_filename(file.filename)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     import uuid as _uuid
 
     final_name = f"{admin_id}_{month}_{year}_{timestamp}_{_uuid.uuid4().hex[:10]}_{safe_name}"
-    file.save(os.path.join(upload_folder, final_name))
+    abs_path, rel_path = tenant_upload_path(
+        _get_uploads_root(), f"payslips/{final_name}", tenant_id_for_admin(target_admin)
+    )
+    file.save(abs_path)
 
     payslip = PaySlip(
         admin_id=admin_id,
         month=month,
         year=year,
-        file_path=f"payslips/{final_name}"
+        file_path=rel_path
     )
     db.session.add(payslip)
     db.session.commit()
@@ -1707,7 +1725,7 @@ def upload_payslip():
 @jwt_required()
 def bulk_upload_payslips():
     email = get_jwt().get("email")
-    admin_user = Admin.query.filter_by(email=email).first()
+    admin_user = current_admin()
     if not admin_user:
         return jsonify({
             "success": False,
@@ -1724,9 +1742,6 @@ def bulk_upload_payslips():
             "message": "month, year and payslip_files are required"
         }), 400
 
-    upload_folder = os.path.join(_get_uploads_root(), "payslips")
-    os.makedirs(upload_folder, exist_ok=True)
-
     saved_slips = []
     unmatched_files = []
 
@@ -1738,7 +1753,7 @@ def bulk_upload_payslips():
         base_name = os.path.splitext(original_name)[0]
         emp_id_part = base_name[:5].upper()
 
-        target_admin = Admin.query.filter(
+        target_admin = tenant_admin_query().filter(
             func.upper(func.coalesce(Admin.emp_id, "")).like(f"%{emp_id_part}%")
         ).first()
 
@@ -1753,10 +1768,11 @@ def bulk_upload_payslips():
         import uuid as _uuid
 
         final_name = f"{target_admin.id}_{month}_{year}_{timestamp}_{_uuid.uuid4().hex[:10]}_{original_name}"
-        abs_path = os.path.join(upload_folder, final_name)
+        abs_path, rel_path = tenant_upload_path(
+            _get_uploads_root(), f"payslips/{final_name}", tenant_id_for_admin(target_admin)
+        )
         file.save(abs_path)
 
-        rel_path = f"payslips/{final_name}"
         slip = PaySlip(
             admin_id=target_admin.id,
             month=month,
@@ -1795,7 +1811,7 @@ def bulk_upload_payslips():
 @jwt_required()
 def payslip_history(admin_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1815,7 +1831,7 @@ def payslip_history(admin_id):
     if blocked:
         return blocked
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
@@ -1842,7 +1858,7 @@ def payslip_history(admin_id):
 @jwt_required()
 def get_ctc_breakup(admin_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1861,7 +1877,7 @@ def get_ctc_breakup(admin_id):
     if blocked:
         return blocked
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
@@ -1884,7 +1900,7 @@ def download_ctc_annexure_pdf(admin_id):
     from . import ctc_annexure_service as ctc_pdf
 
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1902,7 +1918,7 @@ def download_ctc_annexure_pdf(admin_id):
     if blocked:
         return blocked
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -1939,7 +1955,7 @@ def download_ctc_annexure_pdf(admin_id):
 def ctc_policy():
     """Company-wide CTC structuring policy (Accounts / HR only for PUT)."""
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1955,10 +1971,31 @@ def ctc_policy():
 
     data = request.get_json(silent=True) or {}
     try:
-        saved = save_ctc_settings(data)
+        saved = save_ctc_settings(data, admin_id=admin.id)
         return jsonify({"success": True, "policy": {**saved, "ptax_states": ctc_policy_payload()["ptax_states"]}}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 400
+
+
+@Accounts.route("/tds-settings", methods=["GET", "PUT"])
+@jwt_required()
+def tds_settings_route():
+    """The company's TDS / payroll settings: employer name, TAN, PAN, declaration rules."""
+    from . import tds_settings as tds_cfg
+
+    admin = current_admin()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    if emp_type_lower not in ("account", "accounts", "accountant", "hr", "human resource", "admin"):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    if request.method == "GET":
+        return jsonify({"success": True, "settings": tds_cfg.load_tds_settings()}), 200
+
+    data = request.get_json(silent=True) or {}
+    saved = tds_cfg.save_tds_settings(data, admin_id=admin.id)
+    return jsonify({"success": True, "settings": saved}), 200
 
 
 @Accounts.route("/ctc-breakup/calculate", methods=["POST"])
@@ -1978,7 +2015,7 @@ def calculate_ctc_breakup():
     }
     """
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -1996,7 +2033,7 @@ def calculate_ctc_breakup():
     if not can_view_any and admin_id != admin.id:
         return jsonify({"success": False, "message": "You can only calculate your own CTC breakup"}), 403
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -2059,7 +2096,7 @@ def reverse_calculate_ctc_breakup():
     }
     """
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2082,7 +2119,7 @@ def reverse_calculate_ctc_breakup():
             "message": "You can only calculate your own CTC breakup",
         }), 403
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -2139,7 +2176,7 @@ def reverse_calculate_ctc_breakup():
 @jwt_required()
 def upsert_ctc_breakup():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -2169,7 +2206,7 @@ def upsert_ctc_breakup():
             "message": "You can only update your own CTC breakup"
         }), 403
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
@@ -2298,7 +2335,7 @@ def upsert_ctc_breakup():
 @jwt_required()
 def ctc_breakup_revisions(admin_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2317,7 +2354,7 @@ def ctc_breakup_revisions(admin_id):
 @jwt_required()
 def ctc_arrears_preview():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2331,6 +2368,8 @@ def ctc_arrears_preview():
         through_month = int(data.get("through_month") or date.today().month)
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid parameters"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     effective_from = ctc_rev.parse_effective_from(data.get("effective_from"))
     new_gross = _parse_amount(data.get("new_gross_monthly"))
@@ -2345,7 +2384,7 @@ def ctc_arrears_preview():
 @jwt_required()
 def payroll_apply_arrears():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -2356,6 +2395,8 @@ def payroll_apply_arrears():
     applications = data.get("applications") or []
     if not applications:
         return jsonify({"success": False, "message": "applications list is required"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     updated = []
     for item in applications:
@@ -2384,7 +2425,7 @@ def payroll_apply_arrears():
 @jwt_required()
 def ctc_breakup_history(admin_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -2403,7 +2444,7 @@ def ctc_breakup_history(admin_id):
     if blocked:
         return blocked
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({
             "success": False,
@@ -2453,7 +2494,7 @@ def _savings_declaration_inputs(admin_id, financial_year, profile, tds_inputs):
 @jwt_required()
 def get_tax_rules():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2481,7 +2522,7 @@ def tds_projection():
     and Employee Accounts profile (tax regime, PAN, DOJ).
     """
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2503,7 +2544,7 @@ def tds_projection():
     if blocked:
         return blocked
 
-    target_admin = Admin.query.get(admin_id)
+    target_admin = get_admin_in_tenant(admin_id)
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -2658,7 +2699,7 @@ def tds_projection():
 def tds_variance():
     """TDS reconciliation: declared/projected tax vs payroll deductions YTD."""
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2670,6 +2711,8 @@ def tds_variance():
         admin_id = int(admin_id)
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     emp_type_lower = (getattr(viewer, "emp_type", None) or "").strip().lower()
     can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
@@ -2703,7 +2746,7 @@ def tds_variance():
 @jwt_required()
 def form16_summary(admin_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2729,7 +2772,7 @@ def form16_summary(admin_id):
 @jwt_required()
 def form16_summary_download(admin_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2761,7 +2804,7 @@ def form16_summary_download(admin_id):
 @jwt_required()
 def form16_reconciliation(admin_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2786,7 +2829,7 @@ def form16_reconciliation(admin_id):
 @jwt_required()
 def form16_traces_import():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -2802,7 +2845,12 @@ def form16_traces_import():
     try:
         content = upload.read()
         rows = traces_svc.parse_traces_csv(content)
-        result = traces_svc.import_traces_rows(rows, financial_year=financial_year, data_source="traces")
+        result = traces_svc.import_traces_rows(
+            rows,
+            financial_year=financial_year,
+            tenant_id=get_current_tenant_id(),
+            data_source="traces",
+        )
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
 
@@ -2899,7 +2947,7 @@ def clear_tax_regime_override_accounts(admin_id):
 @jwt_required()
 def delete_payslip(payslip_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -2909,8 +2957,8 @@ def delete_payslip(payslip_id):
     emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
     can_delete_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
 
-    payslip = PaySlip.query.get(payslip_id)
-    if not payslip:
+    payslip = db.session.get(PaySlip, payslip_id)
+    if not payslip or not admin_id_in_tenant(payslip.admin_id):
         return jsonify({
             "success": False,
             "message": "Payslip not found"
@@ -2944,7 +2992,7 @@ def delete_payslip(payslip_id):
 @jwt_required()
 def serve_uploaded_file(relative_path):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -2957,11 +3005,17 @@ def serve_uploaded_file(relative_path):
             "success": False,
             "message": "Invalid file path"
         }), 400
+    from .upload_tenancy import split_tenant_rel, upload_in_admin_tenant
+
+    if not upload_in_admin_tenant(admin, normalized):
+        return jsonify({"success": False, "message": "File not found"}), 404
+    # Folder checks use the path inside tenants/{id}/; row lookups use the stored (full) path.
+    _, inner = split_tenant_rel(normalized)
 
     # Restrict payslip files: allow if payslip belongs to current user, or user is Accounts/HR/Admin
-    if normalized.startswith("payslips/"):
+    if inner.startswith("payslips/"):
         payslip = PaySlip.query.filter_by(file_path=normalized).first()
-        if not payslip:
+        if not payslip or not admin_id_in_tenant(payslip.admin_id):
             return jsonify({
                 "success": False,
                 "message": "Payslip not found"
@@ -2977,8 +3031,10 @@ def serve_uploaded_file(relative_path):
         if blocked:
             return blocked
 
-    if normalized.startswith("form16/"):
+    if inner.startswith("form16/"):
         form16_row = Form16.query.filter_by(file_path=normalized).first()
+        if form16_row and not admin_id_in_tenant(form16_row.admin_id):
+            return jsonify({"success": False, "message": "File not found"}), 404
         if form16_row:
             emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
             can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
@@ -2991,11 +3047,13 @@ def serve_uploaded_file(relative_path):
             if blocked:
                 return blocked
 
-    if normalized.startswith("tax_declarations/"):
-        parts = normalized.split("/")
+    if inner.startswith("tax_declarations/"):
+        parts = inner.split("/")
         if len(parts) >= 2 and parts[1].isdigit():
             from .models.employee_tax_declaration import EmployeeTaxDeclaration
-            decl = EmployeeTaxDeclaration.query.get(int(parts[1]))
+            decl = db.session.get(EmployeeTaxDeclaration, int(parts[1]))
+            if decl and not admin_id_in_tenant(decl.admin_id):
+                return jsonify({"success": False, "message": "File not found"}), 404
             if decl:
                 emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
                 can_view_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
@@ -3007,11 +3065,7 @@ def serve_uploaded_file(relative_path):
                 blocked = require_sensitive_for_employee(admin, decl.admin_id)
                 if blocked:
                     return blocked
-    elif not (
-        normalized.startswith("payslips/")
-        or normalized.startswith("form16/")
-        or normalized.startswith("tax_declarations/")
-    ):
+    elif not inner.startswith(("payslips/", "form16/", "tax_declarations/")):
         # Unknown upload prefixes: Accounts panel (or org admin) only — no open JWT file browse.
         from .plan_features import can_access_accounts_panel, is_org_admin
 
@@ -3126,7 +3180,7 @@ def serve_uploaded_file(relative_path):
 @jwt_required()
 def employee_type_circle_summary():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({
@@ -3139,6 +3193,7 @@ def employee_type_circle_summary():
         Admin.circle,
         func.count(Admin.id)
     ).filter(
+        admin_tenant_clause(),
         Admin.is_active == True,
         or_(Admin.is_exited == False, Admin.is_exited.is_(None))
     ).group_by(
@@ -3277,7 +3332,7 @@ def download_excel_client_api():
 @jwt_required()
 def payroll_summary():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({
@@ -3289,22 +3344,26 @@ def payroll_summary():
     current_month = now.strftime("%B")
     current_year = str(now.year)
 
-    total_employees = Admin.query.filter(
+    total_employees = tenant_admin_query().filter(
         db.func.coalesce(Admin.is_exited, False) == False,
         db.func.coalesce(Admin.is_active, True) == True,
     ).count()
 
-    payslips_generated = PaySlip.query.filter_by(
-        month=current_month,
-        year=current_year
+    payslips_generated = PaySlip.query.filter(
+        PaySlip.month == current_month,
+        PaySlip.year == current_year,
+        PaySlip.admin_id.in_(tenant_admin_ids()),
     ).count()
 
     employees_paid = payslips_generated
 
     ytd_expenses = db.session.query(
         func.coalesce(func.sum(ExpenseLineItem.amount), 0)
+    ).join(
+        ExpenseClaimHeader, ExpenseLineItem.claim_id == ExpenseClaimHeader.id
     ).filter(
-        func.extract('year', ExpenseLineItem.date) == now.year
+        func.extract('year', ExpenseLineItem.date) == now.year,
+        ExpenseClaimHeader.admin_id.in_(tenant_admin_ids()),
     ).scalar()
 
     return jsonify({
@@ -3336,7 +3395,7 @@ def _claim_status_from_line_items(items):
 def list_expense_claims():
     """Accounts: list all expense claims with optional filters."""
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -3388,6 +3447,7 @@ def list_expense_claims():
     rows = (
         ExpenseClaimHeader.query
         .join(Admin, ExpenseClaimHeader.admin_id == Admin.id)
+        .filter(admin_tenant_clause())
         .order_by(ExpenseClaimHeader.id.desc())
         .all()
     )
@@ -3480,7 +3540,7 @@ def list_expense_claims():
         "circles": sorted(
             {
                 (a.circle or "").strip()
-                for a in Admin.query.filter(
+                for a in tenant_admin_query().filter(
                     db.func.coalesce(Admin.is_exited, False) == False,
                     db.func.coalesce(Admin.is_active, True) == True,
                 ).all()
@@ -3490,7 +3550,7 @@ def list_expense_claims():
         "emp_types": sorted(
             {
                 (a.emp_type or "").strip()
-                for a in Admin.query.filter(
+                for a in tenant_admin_query().filter(
                     db.func.coalesce(Admin.is_exited, False) == False,
                     db.func.coalesce(Admin.is_active, True) == True,
                 ).all()
@@ -3514,12 +3574,12 @@ def list_expense_claims():
 def download_expense_claim_excel(claim_id):
     """Accounts: download one expense claim as Excel."""
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
-    row = ExpenseClaimHeader.query.get(claim_id)
-    if not row:
+    row = db.session.get(ExpenseClaimHeader, claim_id)
+    if not row or not admin_id_in_tenant(row.admin_id):
         return jsonify({"success": False, "message": "Claim not found"}), 404
 
     emp = row.admin
@@ -3549,7 +3609,7 @@ def download_expense_claim_excel(claim_id):
 def act_on_expense_claim_line_item(line_item_id):
     """Accounts: approve or reject a single expense claim line item."""
     email = get_jwt().get("email")
-    approver = Admin.query.filter_by(email=email).first()
+    approver = current_admin()
     if not approver:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -3562,17 +3622,14 @@ def act_on_expense_claim_line_item(line_item_id):
     if action == "reject" and not rejection_reason:
         return jsonify({"success": False, "message": "Rejection reason is required"}), 400
 
-    line_item = ExpenseLineItem.query.get(line_item_id)
-    if not line_item:
+    line_item = db.session.get(ExpenseLineItem, line_item_id)
+    claim = db.session.get(ExpenseClaimHeader, line_item.claim_id) if line_item else None
+    if not line_item or not claim or not admin_id_in_tenant(claim.admin_id):
         return jsonify({"success": False, "message": "Expense line item not found"}), 404
     if (line_item.status or "Pending") != "Pending":
         return jsonify({"success": False, "message": "Only pending items can be updated"}), 409
 
-    claim = ExpenseClaimHeader.query.get(line_item.claim_id)
-    if not claim:
-        return jsonify({"success": False, "message": "Claim not found"}), 404
-
-    employee = claim.admin or Admin.query.get(claim.admin_id)
+    employee = claim.admin or get_admin_in_tenant(claim.admin_id)
     if not employee:
         return jsonify({"success": False, "message": "Employee not found for this claim"}), 404
 
@@ -3665,7 +3722,7 @@ def payroll_generate():
       }
     """
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -3683,6 +3740,8 @@ def payroll_generate():
 
     if not _accounts_can_access_any_profile(viewer) and admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     # Calculate computed payroll amounts
     result = calculate_monthly_payroll_from_ctc_and_attendance(
@@ -3753,7 +3812,7 @@ def payroll_deductions_update():
       }
     """
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -3774,6 +3833,8 @@ def payroll_deductions_update():
 
     if not _accounts_can_access_any_profile(viewer) and admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     row = MonthlyPayroll.query.filter_by(
         admin_id=admin_id,
@@ -3881,7 +3942,7 @@ def payroll_deductions_update():
 def payroll_status_update():
     """Bulk transition payroll status: draft → reviewed → paid → locked."""
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -3908,13 +3969,14 @@ def payroll_status_update():
 
     updated = []
     errors = []
+    allowed_ids = _tenant_admin_id_set(admin_ids)
     for admin_id in admin_ids:
         row = MonthlyPayroll.query.filter_by(
             admin_id=admin_id,
             month_num=month_num,
             year=str(year_int),
         ).first()
-        if not row:
+        if not row or admin_id not in allowed_ids:
             errors.append({"admin_id": admin_id, "message": "Payroll row not found"})
             continue
         try:
@@ -3938,7 +4000,7 @@ def payroll_status_update():
 def payroll_statutory_bonus_run():
     """Apply statutory bonus earning to draft payroll rows for a month."""
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -3962,13 +4024,14 @@ def payroll_statutory_bonus_run():
 
     results = []
     errors = []
+    allowed_ids = _tenant_admin_id_set(admin_ids)
     for admin_id in admin_ids:
         row = MonthlyPayroll.query.filter_by(
             admin_id=admin_id,
             month_num=month_num,
             year=str(year_int),
         ).first()
-        if not row:
+        if not row or admin_id not in allowed_ids:
             errors.append({"admin_id": admin_id, "message": "Payroll row not found"})
             continue
         try:
@@ -3993,12 +4056,12 @@ def payroll_statutory_bonus_run():
 @jwt_required()
 def payroll_audit_trail(payroll_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
-    row = MonthlyPayroll.query.get(payroll_id)
-    if not row:
+    row = db.session.get(MonthlyPayroll, payroll_id)
+    if not row or not admin_id_in_tenant(row.admin_id):
         return jsonify({"success": False, "message": "Payroll not found"}), 404
     if not _accounts_can_access_any_profile(viewer) and row.admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
@@ -4026,7 +4089,7 @@ def payroll_list():
       }
     """
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -4051,6 +4114,9 @@ def payroll_list():
         # Non-Accounts users can only fetch their own payroll row.
         if not (len(admin_ids) == 1 and admin_ids[0] == viewer.id):
             return jsonify({"success": False, "message": "Access denied"}), 403
+
+    allowed_ids = _tenant_admin_id_set(admin_ids)
+    admin_ids = [a for a in admin_ids if a in allowed_ids]
 
     month_name = calendar.month_name[month_num]
     year_str = str(year_int)
@@ -4153,7 +4219,7 @@ def payroll_history():
       }
     """
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -4179,6 +4245,7 @@ def payroll_history():
         db.session.query(MonthlyPayroll, Admin)
         .join(Admin, Admin.id == MonthlyPayroll.admin_id)
         .filter(
+            admin_tenant_clause(),
             MonthlyPayroll.month_num == month_num,
             MonthlyPayroll.year == str(year_int),
         )
@@ -4224,12 +4291,12 @@ def payroll_history():
 @jwt_required()
 def download_payroll_slip(payroll_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
-    payroll = MonthlyPayroll.query.get(payroll_id)
-    if not payroll:
+    payroll = db.session.get(MonthlyPayroll, payroll_id)
+    if not payroll or not admin_id_in_tenant(payroll.admin_id):
         return jsonify({"success": False, "message": "Payroll record not found"}), 404
 
     if not _accounts_can_access_any_profile(viewer) and payroll.admin_id != viewer.id:
@@ -4239,7 +4306,7 @@ def download_payroll_slip(payroll_id):
     if blocked:
         return blocked
 
-    admin = Admin.query.get(payroll.admin_id)
+    admin = get_admin_in_tenant(payroll.admin_id)
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -4658,7 +4725,7 @@ def get_employee_accounts_profile():
     If omitted, returns the logged-in user's profile.
     """
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -4668,7 +4735,7 @@ def get_employee_accounts_profile():
     target_admin = None
     if _accounts_can_access_any_profile(viewer):
         if admin_id_param:
-            target_admin = Admin.query.get(admin_id_param)
+            target_admin = get_admin_in_tenant(admin_id_param)
         elif employee_number:
             target_admin = _find_admin_by_employee_number(employee_number)
         else:
@@ -4751,7 +4818,7 @@ def put_employee_accounts_profile():
     Staff (Accounts/HR/Admin) may pass admin_id to edit a specific employee without sending employee_number again.
     """
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
 
@@ -4769,7 +4836,7 @@ def put_employee_accounts_profile():
     target_admin = None
     if _accounts_can_access_any_profile(viewer):
         if admin_id_body:
-            target_admin = Admin.query.get(admin_id_body)
+            target_admin = get_admin_in_tenant(admin_id_body)
         elif employee_number_in:
             target_admin = _find_admin_by_employee_number(employee_number_in)
         else:
@@ -4853,7 +4920,7 @@ def put_employee_accounts_profile():
 @jwt_required()
 @accounts_department_required
 def accounts_list_noc_department_requests():
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     status_raw = (request.args.get("status") or "All").strip()
@@ -4865,7 +4932,7 @@ def accounts_list_noc_department_requests():
 @jwt_required()
 @accounts_department_required
 def accounts_upload_noc_department_document(req_id):
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     file = request.files.get("file")
@@ -4878,7 +4945,7 @@ def accounts_upload_noc_department_document(req_id):
 @jwt_required()
 @accounts_department_required
 def accounts_download_noc_department_document(req_id):
-    admin = Admin.query.filter_by(email=get_jwt().get("email")).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
     out = download_noc_document("accounts", admin, req_id)
@@ -4917,7 +4984,7 @@ def _compliance_month_year_args():
 @jwt_required()
 def compliance_pf_ecr():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -4932,7 +4999,11 @@ def compliance_pf_ecr():
     fmt = (request.args.get("format") or "csv").strip().lower()
 
     payload = build_pf_ecr_export(
-        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+        year=year_int,
+        month_num=month_num,
+        tenant_id=get_current_tenant_id(),
+        circle=circle,
+        emp_type=emp_type,
     )
     if fmt == "json":
         return jsonify({"success": True, **payload}), 200
@@ -4944,7 +5015,7 @@ def compliance_pf_ecr():
 @jwt_required()
 def compliance_esic_statement():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -4959,7 +5030,11 @@ def compliance_esic_statement():
     fmt = (request.args.get("format") or "csv").strip().lower()
 
     payload = build_esic_statement(
-        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+        year=year_int,
+        month_num=month_num,
+        tenant_id=get_current_tenant_id(),
+        circle=circle,
+        emp_type=emp_type,
     )
     if fmt == "json":
         return jsonify({"success": True, **payload}), 200
@@ -4971,7 +5046,7 @@ def compliance_esic_statement():
 @jwt_required()
 def compliance_pt_summary():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -4986,7 +5061,11 @@ def compliance_pt_summary():
     fmt = (request.args.get("format") or "json").strip().lower()
 
     payload = build_pt_summary(
-        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+        year=year_int,
+        month_num=month_num,
+        tenant_id=get_current_tenant_id(),
+        circle=circle,
+        emp_type=emp_type,
     )
     if fmt == "csv":
         fname = f"pt-summary-{calendar.month_name[month_num]}-{year_int}.csv".replace(" ", "-")
@@ -4998,7 +5077,7 @@ def compliance_pt_summary():
 @jwt_required()
 def compliance_pt_remittance_calendar():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5016,7 +5095,7 @@ def compliance_pt_remittance_calendar():
 @jwt_required()
 def compliance_form_24q():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5040,6 +5119,7 @@ def compliance_form_24q():
         payload = build_form_24q_export(
             financial_year=fy,
             quarter=quarter,
+            tenant_id=get_current_tenant_id(),
             circle=circle,
             emp_type=emp_type,
         )
@@ -5056,7 +5136,7 @@ def compliance_form_24q():
 @jwt_required()
 def compliance_bank_file():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5071,7 +5151,11 @@ def compliance_bank_file():
     fmt = (request.args.get("format") or "csv").strip().lower()
 
     payload = build_bank_payment_file(
-        year=year_int, month_num=month_num, circle=circle, emp_type=emp_type
+        year=year_int,
+        month_num=month_num,
+        tenant_id=get_current_tenant_id(),
+        circle=circle,
+        emp_type=emp_type,
     )
     if fmt == "json":
         return jsonify({"success": True, **payload}), 200
@@ -5083,7 +5167,7 @@ def compliance_bank_file():
 @jwt_required()
 def payroll_loans():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5091,7 +5175,7 @@ def payroll_loans():
 
     if request.method == "GET":
         admin_id = request.args.get("admin_id", type=int)
-        q = EmployeeSalaryLoan.query
+        q = EmployeeSalaryLoan.query.filter(EmployeeSalaryLoan.admin_id.in_(tenant_admin_ids()))
         if admin_id:
             q = q.filter_by(admin_id=admin_id)
         rows = q.order_by(EmployeeSalaryLoan.id.desc()).limit(200).all()
@@ -5106,6 +5190,8 @@ def payroll_loans():
         return jsonify({"success": False, "message": "Invalid loan parameters"}), 400
     if principal <= 0 or emi <= 0:
         return jsonify({"success": False, "message": "principal_amount and emi_monthly must be > 0"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     start_date = _parse_iso_date(data.get("start_date")) or date.today()
     row = EmployeeSalaryLoan(
@@ -5126,14 +5212,14 @@ def payroll_loans():
 @jwt_required()
 def payroll_loan_update(loan_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
 
-    row = EmployeeSalaryLoan.query.get(loan_id)
-    if not row:
+    row = db.session.get(EmployeeSalaryLoan, loan_id)
+    if not row or not admin_id_in_tenant(row.admin_id):
         return jsonify({"success": False, "message": "Loan not found"}), 404
 
     data = request.get_json(silent=True) or {}
@@ -5154,7 +5240,7 @@ def payroll_loan_update(loan_id):
 @jwt_required()
 def payroll_leave_encashment_preview():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5165,6 +5251,8 @@ def payroll_leave_encashment_preview():
         admin_id = int(data.get("admin_id"))
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "admin_id is required"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     preview = preview_leave_encashment(
         admin_id, include_cl=bool(data.get("include_cl"))
@@ -5176,7 +5264,7 @@ def payroll_leave_encashment_preview():
 @jwt_required()
 def payroll_fnf_preview():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5191,6 +5279,8 @@ def payroll_fnf_preview():
         return jsonify({"success": False, "message": "Invalid parameters"}), 400
     if not separation_date or not last_working_day:
         return jsonify({"success": False, "message": "separation_date and last_working_day are required"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     pending_days = data.get("pending_salary_days")
     preview = preview_fnf_settlement(
@@ -5210,7 +5300,7 @@ def payroll_fnf_preview():
 @jwt_required()
 def payroll_fnf_settlements():
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5220,6 +5310,8 @@ def payroll_fnf_settlements():
         admin_id = request.args.get("admin_id", type=int)
         if not admin_id:
             return jsonify({"success": False, "message": "admin_id is required"}), 400
+        if not admin_id_in_tenant(admin_id):
+            return jsonify({"success": False, "message": "Employee not found"}), 404
         return jsonify({
             "success": True,
             "settlements": list_fnf_settlements(admin_id),
@@ -5234,6 +5326,8 @@ def payroll_fnf_settlements():
         return jsonify({"success": False, "message": "Invalid parameters"}), 400
     if not separation_date or not last_working_day:
         return jsonify({"success": False, "message": "separation_date and last_working_day are required"}), 400
+    if not admin_id_in_tenant(admin_id):
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
     snapshot = data.get("settlement") or data.get("snapshot")
     if not snapshot:
@@ -5263,7 +5357,7 @@ def payroll_fnf_settlements():
 def payroll_fnf_settlement_update(settlement_id):
     """Update F&F settlement status (draft → finalized → paid)."""
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5275,8 +5369,8 @@ def payroll_fnf_settlement_update(settlement_id):
         return jsonify({"success": False, "message": "status is required"}), 400
 
     try:
-        row = FnfSettlement.query.get(settlement_id)
-        if not row:
+        row = db.session.get(FnfSettlement, settlement_id)
+        if not row or not admin_id_in_tenant(row.admin_id):
             return jsonify({"success": False, "message": "Settlement not found"}), 404
         prev_status = (row.status or "").strip().lower()
         row = update_fnf_settlement_status(settlement_id, status)
@@ -5302,11 +5396,14 @@ def payroll_fnf_settlement_update(settlement_id):
 @jwt_required()
 def payroll_fnf_settlement_pdf(settlement_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
         return jsonify({"success": False, "message": "Access denied"}), 403
+    settlement = db.session.get(FnfSettlement, settlement_id)
+    if not settlement or not admin_id_in_tenant(settlement.admin_id):
+        return jsonify({"success": False, "message": "Settlement not found"}), 404
     try:
         from .fnf_settlement_pdf_service import generate_fnf_settlement_pdf
 
@@ -5326,7 +5423,7 @@ def payroll_fnf_settlement_pdf(settlement_id):
 def list_pending_salary_revisions():
     """Queue of post-probation CTC reviews for Accounts."""
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5335,7 +5432,9 @@ def list_pending_salary_revisions():
     from .models.salary_revision_request import SalaryRevisionRequest
 
     status = (request.args.get("status") or "pending").strip().lower()
-    q = SalaryRevisionRequest.query.order_by(SalaryRevisionRequest.created_at.desc())
+    q = SalaryRevisionRequest.query.filter(
+        SalaryRevisionRequest.admin_id.in_(tenant_admin_ids())
+    ).order_by(SalaryRevisionRequest.created_at.desc())
     if status != "all":
         q = q.filter(SalaryRevisionRequest.status == status)
     rows = q.limit(200).all()
@@ -5350,7 +5449,7 @@ def list_pending_salary_revisions():
 @jwt_required()
 def update_salary_revision_request(req_id):
     email = get_jwt().get("email")
-    viewer = Admin.query.filter_by(email=email).first()
+    viewer = current_admin()
     if not viewer:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
     if not _accounts_can_access_any_profile(viewer):
@@ -5359,8 +5458,8 @@ def update_salary_revision_request(req_id):
     from .models.salary_revision_request import SalaryRevisionRequest
     from .datetime_utils import utc_now
 
-    row = SalaryRevisionRequest.query.get(req_id)
-    if not row:
+    row = db.session.get(SalaryRevisionRequest, req_id)
+    if not row or not admin_id_in_tenant(row.admin_id):
         return jsonify({"success": False, "message": "Request not found"}), 404
 
     data = request.get_json(silent=True) or {}

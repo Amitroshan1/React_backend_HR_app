@@ -5,10 +5,17 @@ from .. import db
 from ..datetime_utils import isoformat_api, utc_now
 
 
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
 class HRPolicyDocument(db.Model):
     __tablename__ = "hr_policy_documents"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     title = db.Column(db.String(200), nullable=False)
     version = db.Column(db.String(40), nullable=False, default="1.0")
     circle = db.Column(db.String(80), nullable=True, index=True)

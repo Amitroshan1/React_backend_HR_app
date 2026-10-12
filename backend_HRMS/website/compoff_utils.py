@@ -21,13 +21,19 @@ def sunday_dedupe_key(admin_id, gain_date):
     return f"{int(admin_id)}:{gain_date.isoformat()}:sunday"
 
 
-def dedupe_duplicate_sunday_compoff_gains():
+def dedupe_duplicate_sunday_compoff_gains(tenant_id=None):
     """
     Collapse triplicate/duplicate Sunday CompOffGain rows (multi-worker scheduler race).
     Keeps one row per (admin_id, Sunday gain_date); merges used (capped at 1.0).
     Returns number of rows deleted.
     """
-    gains = CompOffGain.query.order_by(CompOffGain.id.asc()).all()
+    from .tenant_jobs import admin_id_scope
+
+    gains = (
+        CompOffGain.query.filter(admin_id_scope(CompOffGain.admin_id, tenant_id))
+        .order_by(CompOffGain.id.asc())
+        .all()
+    )
     groups = defaultdict(list)
     for g in gains:
         if g.gain_date is None or g.gain_date.weekday() != 6:

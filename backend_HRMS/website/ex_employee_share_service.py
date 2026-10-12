@@ -22,8 +22,8 @@ def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
-def _uploads_base_dir() -> str:
-    return os.path.join(current_app.root_path, "static", "uploads", "ex_employee_docs")
+def _uploads_root() -> str:
+    return os.path.join(current_app.root_path, "static", "uploads")
 
 
 def create_ex_employee_doc_share_and_email(
@@ -31,12 +31,15 @@ def create_ex_employee_doc_share_and_email(
     recipient_email: str,
     files: list[tuple[str, bytes]],
     created_by_admin_id: int | None = None,
+    tenant_id: int | None = None,
 ) -> tuple[bool, str, dict | None]:
     """
     Save files, create share row, email secure link.
-    files: list of (display_name, content_bytes)
+    files: list of (display_name, content_bytes); stored under the company's
+    ``tenants/{tenant_id}/ex_employee_docs/{share_id}/`` (default: the caller's company).
     Returns (success, message, {share_id, doc_link} or None).
     """
+    from .upload_tenancy import tenant_upload_rel
     to_addr = (recipient_email or "").strip().lower()
     if not to_addr or "@" not in to_addr:
         return False, "Valid recipient email is required", None
@@ -56,7 +59,8 @@ def create_ex_employee_doc_share_and_email(
     db.session.add(share)
     db.session.flush()
 
-    share_dir = os.path.join(_uploads_base_dir(), str(share.id))
+    share_rel = tenant_upload_rel(f"ex_employee_docs/{share.id}", tenant_id)
+    share_dir = os.path.join(_uploads_root(), *share_rel.split("/"))
     os.makedirs(share_dir, exist_ok=True)
     display_names: list[str] = []
 
@@ -67,7 +71,7 @@ def create_ex_employee_doc_share_and_email(
                 base, ext = os.path.splitext(dn)
                 dn = (base[: max(1, 240 - len(ext))] + ext) if ext else dn[:240]
             disk_name = f"{uuid.uuid4().hex}_{dn}"
-            rel_path = os.path.join("ex_employee_docs", str(share.id), disk_name).replace("\\", "/")
+            rel_path = f"{share_rel}/{disk_name}"
             abs_path = os.path.join(share_dir, disk_name)
             with open(abs_path, "wb") as fh:
                 fh.write(content or b"")

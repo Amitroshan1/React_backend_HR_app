@@ -3,6 +3,16 @@
 export const EXTENDED_SESSION_MS = 60 * 60 * 1000;
 export const DEFAULT_SESSION_MS = 15 * 60 * 1000;
 export const ACTIVITY_KEY = "lastActivityAt";
+export const SESSION_ENDED_KEY = "sessionExpired";
+export const TENANT_SUSPENDED_CODE = "tenant_suspended";
+
+/** Remember why a 401 ended the session so the login page can explain it. */
+export async function noteSessionEnded(res) {
+  const body = await res.clone().json().catch(() => ({}));
+  if (body?.code === TENANT_SUSPENDED_CODE) {
+    localStorage.setItem(SESSION_ENDED_KEY, TENANT_SUSPENDED_CODE);
+  }
+}
 
 const EXTENDED_EMP_TYPES = new Set([
   "hr",
@@ -67,6 +77,7 @@ export async function refreshSessionToken() {
       },
     });
     if (res.status === 401) {
+      await noteSessionEnded(res);
       localStorage.removeItem("token");
       localStorage.removeItem(ACTIVITY_KEY);
       return false;

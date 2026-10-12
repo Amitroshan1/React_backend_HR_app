@@ -1,25 +1,33 @@
 .deploy-guide-page {
-  padding: 20px 40px;
-  max-width: 960px;
-  margin: 0 auto;
-  min-height: 100vh;
-  background: #f5f7fa;
+  --guide-text: #142d52;
+  --guide-muted: #667895;
+  --guide-border: #e1e7ef;
+  --guide-primary: #13877f;
+  --guide-primary-dark: #0c716a;
+  --guide-primary-light: #e8f5f3;
+
+  padding: 4px 20px 36px;
+  max-width: 980px;
+  margin: 0;
+  color: var(--guide-text);
 }
 
 .deploy-guide-header {
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .deploy-guide-header h1 {
-  font-size: 26px;
-  color: #1e293b;
-  margin: 12px 0 8px;
+  font-size: 22px;
+  color: var(--guide-text);
+  font-weight: 700;
+  margin: 0 0 4px;
 }
 
 .deploy-guide-sub {
-  color: #64748b;
-  font-size: 14px;
-  margin: 0 0 16px;
+  color: var(--guide-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 14px;
 }
 
 .deploy-guide-back {
@@ -37,21 +45,21 @@
 
 .deploy-guide-progress-bar {
   height: 8px;
-  background: #e2e8f0;
-  border-radius: 4px;
+  background: #e1e7ef;
+  border-radius: 999px;
   overflow: hidden;
   margin-bottom: 8px;
 }
 
 .deploy-guide-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #2563eb, #0d9488);
+  background: var(--guide-primary);
   transition: width 0.3s ease;
 }
 
 .deploy-guide-progress-text {
   font-size: 13px;
-  color: #64748b;
+  color: var(--guide-muted);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -60,10 +68,10 @@
 .deploy-guide-reset {
   background: none;
   border: none;
-  color: #94a3b8;
-  font-size: 12px;
+  color: var(--guide-primary-dark);
+  font-size: 13px;
+  font-weight: 650;
   cursor: pointer;
-  text-decoration: underline;
 }
 
 .deploy-guide-customer-card,
@@ -71,18 +79,60 @@
 .deploy-guide-env-card,
 .deploy-guide-plans-card {
   background: #fff;
+  border: 1px solid var(--guide-border);
   border-radius: 12px;
-  padding: 20px 24px;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  padding: 16px 18px 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 16px rgba(20, 45, 82, 0.04);
+}
+
+.deploy-guide-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.deploy-guide-card-copy {
+  margin: 0 0 14px;
+  color: var(--guide-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.deploy-guide-register {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--guide-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.deploy-guide-register:hover:not(:disabled) {
+  background: var(--guide-primary-dark);
+}
+
+.deploy-guide-register:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .deploy-guide-customer-card h2,
 .deploy-guide-env-card h2,
 .deploy-guide-plans-card h2 {
   font-size: 16px;
-  margin: 0 0 16px;
-  color: #334155;
+  margin: 0 0 12px;
+  color: var(--guide-text);
+}
+
+.deploy-guide-card-head h2 {
+  margin: 0;
 }
 
 .deploy-guide-customer-grid {
@@ -100,18 +150,27 @@
 .deploy-guide-customer-grid label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #475569;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5b6b82;
 }
 
 .deploy-guide-customer-grid input,
 .deploy-guide-customer-grid select {
-  padding: 8px 10px;
-  border: 1.5px solid #dfe6ee;
-  border-radius: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid #c9d3e0;
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
   font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--guide-text);
 }
 
 .deploy-guide-customer-summary {
@@ -122,8 +181,8 @@
 
 .deploy-guide-section h3 {
   font-size: 15px;
-  margin: 0 0 12px;
-  color: #1e293b;
+  margin: 0 0 8px;
+  color: var(--guide-text);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -163,6 +222,7 @@
 .deploy-guide-checklist input {
   margin-top: 3px;
   flex-shrink: 0;
+  accent-color: var(--guide-primary);
 }
 
 .deploy-guide-env-table {
@@ -175,7 +235,14 @@
 .deploy-guide-env-table td {
   text-align: left;
   padding: 10px 12px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--guide-border);
+}
+
+.deploy-guide-env-table th {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--guide-muted);
 }
 
 .deploy-guide-env-table code {

@@ -11,6 +11,7 @@ from .models.Admin_models import Admin, AuditLog
 from .models.attendance import LeaveBalance
 from .models.emp_detail_models import Employee
 from .email import send_welcome_email
+from .tenant_context import tenant_admin_query
 
 _COLUMN_ALIASES = {
     "email": ("email", "email id", "official email"),
@@ -114,8 +115,8 @@ def _validate_row(row: dict) -> list[str]:
     return errors
 
 
-def preview_employee_import(rows: list[dict]) -> dict:
-    """Validate rows without committing."""
+def preview_employee_import(rows: list[dict], *, tenant_id: int) -> dict:
+    """Validate rows without committing (duplicates checked within the tenant)."""
     valid_rows: list[dict] = []
     errors: list[dict] = []
     for row in rows:
@@ -123,7 +124,7 @@ def preview_employee_import(rows: list[dict]) -> dict:
         email = (row.get("email") or "").lower()
         emp_id = row.get("emp_id") or ""
         if email:
-            existing = Admin.query.filter(
+            existing = tenant_admin_query(tenant_id).filter(
                 (Admin.email == email) | (Admin.emp_id == emp_id)
             ).first()
             if existing and existing.is_onboarded():
@@ -141,8 +142,8 @@ def preview_employee_import(rows: list[dict]) -> dict:
     }
 
 
-def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
-    """Create employees from validated rows."""
+def commit_employee_import(rows: list[dict], *, hr_email: str, tenant_id: int) -> dict:
+    """Create employees from validated rows in the importing HR user's tenant."""
     from .Human_resource import (
         _log_initial_circle_assignment,
         _sync_probation_after_doj_change,
@@ -171,7 +172,8 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
         designation = str(row["designation"]).strip()
         doj = datetime.fromisoformat(str(row["doj"]).strip()[:10]).date()
 
-        existing_conflict = Admin.query.filter(
+        tenant_admins = tenant_admin_query(tenant_id)
+        existing_conflict = tenant_admins.filter(
             (Admin.email == email)
             | (Admin.user_name == user_name)
             | (Admin.mobile == mobile)
@@ -187,12 +189,14 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
             continue
 
         try:
-            admin = Admin.query.filter_by(email=email).first()
+            admin = tenant_admins.filter(Admin.email == email).first()
             if admin:
                 if admin.is_onboarded():
                     failed += 1
                     errors.append({"row": row.get("row_number"), "errors": ["User already fully registered"], "email": email})
                     continue
+                if admin.tenant_id is None:
+                    admin.tenant_id = tenant_id
                 admin.first_name = first_name
                 admin.user_name = user_name
                 admin.mobile = mobile
@@ -205,6 +209,7 @@ def commit_employee_import(rows: list[dict], *, hr_email: str) -> dict:
                 action = "UPGRADE_EXISTING_USER"
             else:
                 admin = Admin(
+                    tenant_id=tenant_id,
                     email=email,
                     first_name=first_name,
                     user_name=user_name,

@@ -24,7 +24,9 @@ def generate_fnf_settlement_pdf(settlement_id: int) -> BytesIO:
         raise ValueError("Settlement not found")
     admin = Admin.query.get(row.admin_id)
     snap = row.snapshot if isinstance(row.snapshot, dict) else {}
-    employer = tds_cfg.employer_details()
+    from .tenant_context import tenant_id_for_admin
+
+    employer = tds_cfg.employer_details(tenant_id_for_admin(admin))
 
     emp_name = (
         (getattr(admin, "first_name", None) or "").strip()

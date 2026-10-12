@@ -67,13 +67,15 @@ def action_for_return_destination(status: str) -> str:
     return TransitionAction.CHECKIN.value
 
 
-def _next_transition_code() -> str:
+def _next_transition_code(tenant_id=None) -> str:
     prefix = "TRN"
-    last = (
-        ITAssetTransition.query.filter(ITAssetTransition.transition_code.like(f"{prefix}%"))
-        .order_by(ITAssetTransition.id.desc())
-        .first()
-    )
+    query = ITAssetTransition.query.filter(ITAssetTransition.transition_code.like(f"{prefix}%"))
+    column = getattr(ITAssetTransition, "tenant_id", None)
+    if tenant_id is not None and column is not None and hasattr(column, "comparator"):
+        from ..tenant_context import tenant_column_clause
+
+        query = query.filter(tenant_column_clause(column, tenant_id))
+    last = query.order_by(ITAssetTransition.id.desc()).first()
     n = 1
     if last and last.transition_code:
         digits = "".join(ch for ch in last.transition_code if ch.isdigit())
@@ -155,6 +157,30 @@ def _snapshot_related(
     return (out or None), item_id, category
 
 
+def _tenant_for_transition(
+    item_id: Optional[int], software_license_id: Optional[int]
+) -> Optional[int]:
+    """Company of the stock row; falls back to the caller's company."""
+    try:
+        from ..models.it_models import ITInventoryItem, ITSoftwareLicense
+
+        if item_id is None and software_license_id is not None:
+            lic = db.session.get(ITSoftwareLicense, int(software_license_id))
+            item_id = lic.inventory_item_id if lic else None
+        if item_id is not None:
+            item = db.session.get(ITInventoryItem, int(item_id))
+            if item is not None and item.tenant_id is not None:
+                return int(item.tenant_id)
+    except Exception:
+        pass
+    try:
+        from ..tenant_context import get_current_tenant_id
+
+        return get_current_tenant_id()
+    except Exception:
+        return None
+
+
 def record_transition(
     *,
     action_code: str,
@@ -210,8 +236,10 @@ def record_transition(
         inventory_item_id=inventory_item_id,
     )
 
+    tenant_id = _tenant_for_transition(item_id, software_license_id)
     row = ITAssetTransition(
-        transition_code=_next_transition_code(),
+        tenant_id=tenant_id,
+        transition_code=_next_transition_code(tenant_id),
         asset_unit_id=asset_unit_id,
         software_license_id=software_license_id,
         inventory_item_id=item_id,

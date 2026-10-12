@@ -4,8 +4,11 @@
 # send_resignation_email,notify_query_event,send_leave_applied_email,
 
 from .models.Admin_models import Admin
-from .models.manager_model import ManagerContact
-from .manager_utils import get_manager_emails, resolve_manager_contact_for_employee
+from .manager_utils import (
+    find_manager_contact,
+    get_manager_emails,
+    resolve_manager_contact_for_employee,
+)
 from flask import current_app, url_for
 from .models.expense import ExpenseLineItem
 from .expense_utils import claim_attach_static_filename
@@ -16,6 +19,7 @@ import os
 import requests
 from sqlalchemy import func
 from . import db
+from .company_mailbox import company_mailbox
 
 
 
@@ -153,8 +157,10 @@ def send_email_via_zeptomail(
 
 
 def news_feed_employee_emails(circle, emp_type):
-    """Active employees with email, filtered like dashboard news feed visibility."""
-    q = Admin.query.filter(
+    """Active employees of the caller's tenant with email, filtered like dashboard news feed visibility."""
+    from .tenant_context import tenant_admin_query
+
+    q = tenant_admin_query().filter(
         Admin.is_active.is_(True),
         db.or_(Admin.is_exited.is_(False), Admin.is_exited.is_(None)),
         Admin.email.isnot(None),
@@ -184,7 +190,7 @@ def send_news_feed_announcement_email(title, content, circle, emp_type, attachme
     Returns (success, message, recipient_count).
     """
     zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
-    hr_email = (current_app.config.get("ZEPTO_CC_HR") or "").strip().lower()
+    hr_email = (company_mailbox("ZEPTO_CC_HR") or "").strip().lower()
     if not zepto_from:
         return False, "ZEPTO_SENDER_EMAIL not configured", 0
     if not hr_email:
@@ -258,14 +264,7 @@ def send_it_assignment_notification(
         if not target_admin or not target_admin.email:
             return False, "Target employee email unavailable"
 
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=target_admin.email
-        ).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=target_admin.circle,
-                user_type=target_admin.emp_type,
-            ).first()
+        manager_contact = find_manager_contact(target_admin)
 
         manager_emails = get_manager_emails(
             manager_contact, exclude_email=target_admin.email
@@ -286,7 +285,7 @@ def send_it_assignment_notification(
             cc_emails.append(target_admin.email.strip())
 
         it_mailbox = (
-            current_app.config.get("ZEPTO_CC_IT") or current_app.config.get("EMAIL_IT") or ""
+            company_mailbox("ZEPTO_CC_IT") or company_mailbox("EMAIL_IT") or ""
         ).strip()
         if it_mailbox:
             cc_emails.append(it_mailbox)
@@ -389,8 +388,8 @@ def send_it_return_request_email(*, requester_admin, reason, asset_label):
         if not requester_admin:
             return False, "Requester missing"
         it_email = (
-            current_app.config.get("ZEPTO_CC_IT")
-            or current_app.config.get("EMAIL_IT")
+            company_mailbox("ZEPTO_CC_IT")
+            or company_mailbox("EMAIL_IT")
             or current_app.config.get("ZEPTO_SENDER_EMAIL")
         )
         if not it_email:
@@ -400,12 +399,7 @@ def send_it_return_request_email(*, requester_admin, reason, asset_label):
         if not zepto_from:
             return False, "ZEPTO_SENDER_EMAIL not configured"
 
-        manager_contact = ManagerContact.query.filter_by(user_email=requester_admin.email).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=requester_admin.circle,
-                user_type=requester_admin.emp_type,
-            ).first()
+        manager_contact = find_manager_contact(requester_admin)
         manager_emails = get_manager_emails(manager_contact, exclude_email=requester_admin.email) if manager_contact else []
 
         cc_emails = list(manager_emails)
@@ -456,8 +450,8 @@ def send_it_return_request_status_email(*, requester_admin, status, asset_label,
         if not requester_admin or not requester_admin.email:
             return False, "Requester email missing"
         it_email = (
-            current_app.config.get("ZEPTO_CC_IT")
-            or current_app.config.get("EMAIL_IT")
+            company_mailbox("ZEPTO_CC_IT")
+            or company_mailbox("EMAIL_IT")
             or current_app.config.get("ZEPTO_SENDER_EMAIL")
         )
         zepto_from = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
@@ -595,12 +589,12 @@ def send_payslip_uploaded_email(admin, month, year):
 
         employee_email = (admin.email or "").strip().lower()
         cc_emails = []
-        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        accounts_email = company_mailbox("ZEPTO_CC_ACCOUNT") or company_mailbox("EMAIL_ACCOUNTS")
         if accounts_email and accounts_email.strip().lower() != employee_email:
             cc_emails.append(accounts_email.strip())
 
         raw_hr = (
-            current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or ""
+            company_mailbox("ZEPTO_CC_HR") or company_mailbox("EMAIL_HR") or ""
         ).strip()
         for part in raw_hr.replace(";", ",").split(","):
             addr = part.strip()
@@ -658,7 +652,7 @@ def send_tax_declaration_tds_updated_email(
         <p>View details in <strong>Tax Projection</strong> on the HRMS portal.</p>
         <p>Regards,<br><strong>Accounts Team</strong></p>
         """
-        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        accounts_email = company_mailbox("ZEPTO_CC_ACCOUNT") or company_mailbox("EMAIL_ACCOUNTS")
         cc_emails = []
         if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
             cc_emails.append(accounts_email.strip())
@@ -692,7 +686,7 @@ def send_form16_variance_alert_email(admin, financial_year: str, reconciliation:
         <p>Please review in <strong>Form 16</strong> on the HRMS portal or contact Accounts.</p>
         <p>Regards,<br><strong>Accounts Team</strong></p>
         """
-        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        accounts_email = company_mailbox("ZEPTO_CC_ACCOUNT") or company_mailbox("EMAIL_ACCOUNTS")
         cc_emails = []
         if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
             cc_emails.append(accounts_email.strip())
@@ -746,7 +740,7 @@ def send_form16_uploaded_email(admin, financial_year):
         <p>Regards,<br><strong>Accounts Team</strong></p>
         """
 
-        accounts_email = current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS")
+        accounts_email = company_mailbox("ZEPTO_CC_ACCOUNT") or company_mailbox("EMAIL_ACCOUNTS")
         cc_emails = []
         if accounts_email and accounts_email.strip().lower() != (admin.email or "").strip().lower():
             cc_emails.append(accounts_email.strip())
@@ -765,12 +759,12 @@ def send_form16_uploaded_email(admin, financial_year):
 
 def get_department_email(department):
     department_map = {
-        "Human Resource": current_app.config.get("EMAIL_HR"),
-        "Accounts": current_app.config.get("EMAIL_ACCOUNTS"),
-        "IT": current_app.config.get("EMAIL_IT"),
-        "IT Department": current_app.config.get("EMAIL_IT"),
-        "Inventory": current_app.config.get("EMAIL_IT"),
-        "Administration": current_app.config.get("EMAIL_ADMIN"),
+        "Human Resource": company_mailbox("EMAIL_HR"),
+        "Accounts": company_mailbox("EMAIL_ACCOUNTS"),
+        "IT": company_mailbox("EMAIL_IT"),
+        "IT Department": company_mailbox("EMAIL_IT"),
+        "Inventory": company_mailbox("EMAIL_IT"),
+        "Administration": company_mailbox("EMAIL_ADMIN"),
     }
     return department_map.get(department)
 
@@ -891,22 +885,14 @@ def send_wfh_approval_email_to_managers(admin, wfh):
         # -------------------------
         # HR is ALWAYS included
         # -------------------------
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         if hr_email:
             cc_emails.append(hr_email)
 
         # -------------------------
         # Try finding manager mapping
         # -------------------------
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         # -------------------------
         # Add managers IF found (exclude applicant to prevent self-approval)
@@ -1011,7 +997,7 @@ def send_wfh_decision_email(wfh_obj, approver, action: str):
         if not to_email:
             return False
 
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         cc_emails = []
 
         # HR always in CC (if configured and not same as TO)
@@ -1019,14 +1005,7 @@ def send_wfh_decision_email(wfh_obj, approver, action: str):
             cc_emails.append(hr_email.strip())
 
         # Manager mapping (optional)
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         if manager_contact:
             for addr in get_manager_emails(manager_contact, exclude_email=to_email):
@@ -1092,19 +1071,12 @@ def send_performance_submitted_email(perf_row):
             return False
 
         # Base recipients
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         to_email = None
         cc_emails = []
 
         # Manager mapping: prefer employee-specific, then group
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         if manager_contact:
             manager_emails = get_manager_emails(manager_contact, exclude_email=admin.email)
@@ -1202,7 +1174,7 @@ def send_performance_reviewed_email(perf_row, manager_admin, rating: str, commen
         if not to_email:
             return False
 
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         cc_emails = []
 
         # HR in CC if not TO
@@ -1216,14 +1188,7 @@ def send_performance_reviewed_email(perf_row, manager_admin, rating: str, commen
                 cc_emails.append(mgr_email)
 
         # Optional: other mapped managers (L2/L3)
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         if manager_contact:
             for addr in get_manager_emails(manager_contact, exclude_email=admin.email):
@@ -1348,15 +1313,7 @@ def send_claim_submission_email(header):
         # -------------------------
         # Manager lookup (ManagerContact)
         # -------------------------
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         cc_emails = []
         if manager_contact:
@@ -1364,7 +1321,7 @@ def send_claim_submission_email(header):
                 cc_emails.append(email)
 
         # Always CC HR if configured
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         if hr_email:
             cc_emails.append(hr_email)
 
@@ -1409,17 +1366,12 @@ def send_claim_line_item_decision_email(
         if not to_email:
             return False
 
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         cc_emails = []
         if hr_email and hr_email.strip().lower() != to_email.lower():
             cc_emails.append(hr_email.strip())
 
-        manager_contact = ManagerContact.query.filter_by(user_email=employee.email).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=employee.circle,
-                user_type=employee.emp_type,
-            ).first()
+        manager_contact = find_manager_contact(employee)
 
         if manager_contact:
             for addr in get_manager_emails(manager_contact, exclude_email=to_email):
@@ -1634,7 +1586,7 @@ def send_employment_status_updated_email(admin, changed_fields, changed_by=None)
         <p>If you have questions, please contact HR.</p>
         <p>— HRMS</p>
         """
-        cc_hr = current_app.config.get("ZEPTO_CC_HR")
+        cc_hr = company_mailbox("ZEPTO_CC_HR")
         cc_emails = [cc_hr] if cc_hr else None
         ok, _msg = send_email_via_zeptomail(
             sender_email=current_app.config.get("ZEPTO_SENDER_EMAIL"),
@@ -1696,7 +1648,7 @@ def send_welcome_email(admin,data):
         """
 
         # ✅ SAFE env access
-        cc_hr = current_app.config.get("ZEPTO_CC_HR")
+        cc_hr = company_mailbox("ZEPTO_CC_HR")
 
         # ✅ Normalize to list (important)
         cc_emails = [cc_hr] if cc_hr else None
@@ -1773,7 +1725,7 @@ def send_asset_assigned_email(admin, asset):
             subject=subject,
             body=body,
             recipient_email=admin.email,
-            cc_emails=[current_app.config.get("ZEPTO_CC_HR")]
+            cc_emails=[company_mailbox("ZEPTO_CC_HR")]
         )
 
     except Exception as e:
@@ -1792,15 +1744,7 @@ def send_resignation_email(admin, resignation):
         # -------------------------
         # Manager lookup
         # -------------------------
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         if not manager_contact:
             current_app.logger.warning(
@@ -1817,7 +1761,7 @@ def send_resignation_email(admin, resignation):
         to_email = manager_emails[0]
         cc_emails = list(manager_emails[1:])
 
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         if hr_email:
             cc_emails.append(hr_email)
 
@@ -1908,7 +1852,7 @@ def send_noc_request_email(admin, resignation, noc_date, department_names, recip
                 seen.add(a.lower())
                 cc_set.append(a)
 
-        hr_cc = current_app.config.get("ZEPTO_CC_HR")
+        hr_cc = company_mailbox("ZEPTO_CC_HR")
         if hr_cc and hr_cc.strip().lower() not in seen:
             cc_set.append(hr_cc.strip())
             seen.add(hr_cc.strip().lower())
@@ -1974,15 +1918,7 @@ def send_resignation_revoked_email(admin, resignation):
     """
 
     try:
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         if not manager_contact:
             current_app.logger.warning(
@@ -1996,7 +1932,7 @@ def send_resignation_revoked_email(admin, resignation):
         to_email = manager_emails[0]
         cc_emails = list(manager_emails[1:])
 
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         if hr_email:
             cc_emails.append(hr_email)
 
@@ -2093,9 +2029,9 @@ def _notify_query_created(query: Query):
 
     # Route to department
     if query.department == "Human Resource":
-        to_email = current_app.config.get("ZEPTO_CC_HR")
+        to_email = company_mailbox("ZEPTO_CC_HR")
     else:
-        to_email = current_app.config.get("ZEPTO_CC_ACCOUNT")
+        to_email = company_mailbox("ZEPTO_CC_ACCOUNT")
 
     # CC employee who raised the query (if email present)
     cc_emails = []
@@ -2179,9 +2115,9 @@ def _notify_query_closed(query):
     # Decide recipient
     # -------------------------
     if query.department == "Human Resource":
-        to_email = current_app.config.get("ZEPTO_CC_HR")
+        to_email = company_mailbox("ZEPTO_CC_HR")
     else:
-        to_email = current_app.config.get("ZEPTO_CC_ACCOUNT")
+        to_email = company_mailbox("ZEPTO_CC_ACCOUNT")
 
     # CC employee (recommended)
     cc_emails = [admin.email]
@@ -2237,21 +2173,13 @@ def send_leave_applied_email(admin, leave):
         # -------------------------
         # HR (always)
         # -------------------------
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         cc_emails = []
 
         # -------------------------
         # Manager lookup (optional)
         # -------------------------
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         if manager_contact:
             for addr in get_manager_emails(manager_contact, exclude_email=admin.email):
@@ -2405,7 +2333,7 @@ def send_leave_pending_reminder(leave_application, manager_emails, hr_cc=True):
         if not admin:
             return False
 
-        hr_email = (current_app.config.get("ZEPTO_CC_HR") or "").strip()
+        hr_email = (company_mailbox("ZEPTO_CC_HR") or "").strip()
         to_email = None
         cc_emails = []
 
@@ -2484,7 +2412,7 @@ def send_leave_decision_email(leave_obj, approver, action: str):
         if not to_email:
             return False
 
-        hr_email = current_app.config.get("ZEPTO_CC_HR")
+        hr_email = company_mailbox("ZEPTO_CC_HR")
         cc_emails = []
 
         # HR always in CC (if configured and not same as TO)
@@ -2492,14 +2420,7 @@ def send_leave_decision_email(leave_obj, approver, action: str):
             cc_emails.append(hr_email.strip())
 
         # Manager mapping (optional) - use same pattern as WFH
-        manager_contact = ManagerContact.query.filter_by(
-            user_email=admin.email
-        ).first()
-        if not manager_contact:
-            manager_contact = ManagerContact.query.filter_by(
-                circle_name=admin.circle,
-                user_type=admin.emp_type
-            ).first()
+        manager_contact = find_manager_contact(admin)
 
         if manager_contact:
             for addr in get_manager_emails(manager_contact, exclude_email=to_email):
@@ -2576,7 +2497,7 @@ def _hr_updation_cc_emails(admin, hr_admin):
     to_email = (getattr(admin, "email", None) or "").strip()
     cc_emails = []
 
-    hr_cc = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
+    hr_cc = (company_mailbox("ZEPTO_CC_HR") or company_mailbox("EMAIL_HR") or "").strip()
     if hr_cc:
         cc_emails.append(hr_cc)
 
@@ -2787,7 +2708,7 @@ def send_probation_reminder_email(admin, probation_end_date, manager_emails):
     One email: primary recipient is first manager (L1 order); other managers + HR are CC (deduped).
     """
     try:
-        hr_email = (current_app.config.get("EMAIL_HR") or "").strip()
+        hr_email = (company_mailbox("EMAIL_HR") or "").strip()
         emp_name = (getattr(admin, "first_name", None) or "").strip() or (admin.email or "Employee")
         doj = getattr(admin, "doj", None)
         doj_str = doj.isoformat() if doj and hasattr(doj, "isoformat") else "N/A"
@@ -2861,7 +2782,7 @@ def _probation_email_context(admin, probation_end_date):
 
 
 def _probation_manager_recipients(manager_emails):
-    hr_email = (current_app.config.get("EMAIL_HR") or "").strip()
+    hr_email = (company_mailbox("EMAIL_HR") or "").strip()
     mgr_ordered = []
     seen_lower = set()
     for e in manager_emails or []:
@@ -2968,7 +2889,7 @@ def send_probation_hr_decision_email(admin_employee, hr_name, decision, probatio
         manager_emails = get_manager_emails(contact) if contact else []
         primary, cc_emails = _probation_manager_recipients(manager_emails)
         if not primary:
-            hr_email = current_app.config.get("EMAIL_HR")
+            hr_email = company_mailbox("EMAIL_HR")
             if not hr_email:
                 return False
             primary = hr_email
@@ -3110,7 +3031,7 @@ def send_probation_review_received_employee_email(admin_employee, manager_name, 
 def send_probation_review_submitted_email(admin_employee, manager_name, feedback_preview=None, rating=None, recommendation=None):
     """Notify HR that manager has submitted probation review for the employee."""
     try:
-        hr_email = current_app.config.get("EMAIL_HR")
+        hr_email = company_mailbox("EMAIL_HR")
         if not hr_email:
             current_app.logger.warning("EMAIL_HR not set; cannot send probation review submitted email")
             return False
@@ -3147,7 +3068,7 @@ def send_probation_review_submitted_email(admin_employee, manager_name, feedback
 def send_salary_revision_pending_accounts_email(revision_request):
     """Notify Accounts when a new salary revision is queued (e.g. post-probation)."""
     try:
-        accounts_email = current_app.config.get("EMAIL_ACCOUNTS") or current_app.config.get("EMAIL_HR")
+        accounts_email = company_mailbox("EMAIL_ACCOUNTS") or company_mailbox("EMAIL_HR")
         if not accounts_email:
             return False
         admin = revision_request.admin
@@ -3181,7 +3102,7 @@ def send_salary_revision_pending_accounts_email(revision_request):
 def send_manager_increment_proposed_email(manager_admin, target_employee, revision_request):
     """Notify HR when a manager proposes an annual increment."""
     try:
-        hr_email = current_app.config.get("EMAIL_HR")
+        hr_email = company_mailbox("EMAIL_HR")
         if not hr_email:
             current_app.logger.warning("EMAIL_HR not set; cannot send increment proposal email")
             return False
@@ -3218,7 +3139,7 @@ def send_manager_increment_proposed_email(manager_admin, target_employee, revisi
 def send_salary_revision_accounts_email(revision_request):
     """Notify Accounts team when HR approves a salary revision for processing."""
     try:
-        accounts_email = current_app.config.get("EMAIL_ACCOUNTS") or current_app.config.get("EMAIL_HR")
+        accounts_email = company_mailbox("EMAIL_ACCOUNTS") or company_mailbox("EMAIL_HR")
         if not accounts_email:
             current_app.logger.warning("EMAIL_ACCOUNTS not set; cannot send salary revision email")
             return False
@@ -3442,7 +3363,7 @@ def send_lwd_approaching_reminder(
     )
     name = html.escape((employee_name or "Employee").strip())
     emp_id_esc = html.escape(str(emp_id or "—"))
-    hr_cc = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
+    hr_cc = (company_mailbox("ZEPTO_CC_HR") or company_mailbox("EMAIL_HR") or "").strip()
     cc = _dedupe_cc_emails([hr_cc] if hr_cc else [], to_addr)
 
     subject = f"Reminder: last working day in {days_before} day(s) – {employee_name or emp_id}"
@@ -3478,7 +3399,7 @@ def send_noc_sla_reminder(
     if cfg_err:
         return False
 
-    hr_to = (current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR") or "").strip()
+    hr_to = (company_mailbox("ZEPTO_CC_HR") or company_mailbox("EMAIL_HR") or "").strip()
     if not hr_to:
         return False
 
@@ -3551,9 +3472,9 @@ valid for <strong>{valid_hours} hours</strong> and is intended for you only.</p>
 <p style="margin-top:18px;">Kind regards,<br /><strong>Human Resources</strong></p>
 </div>
 """
-    raw_hr_cc = (current_app.config.get("ZEPTO_CC_HR") or "").strip()
+    raw_hr_cc = (company_mailbox("ZEPTO_CC_HR") or "").strip()
     if not raw_hr_cc:
-        raw_hr_cc = (current_app.config.get("EMAIL_HR") or "").strip()
+        raw_hr_cc = (company_mailbox("EMAIL_HR") or "").strip()
     cc_list = []
     rec_lower = to_addr.lower()
     if raw_hr_cc:
@@ -3660,8 +3581,8 @@ def send_assessment_invite_email(*, to_email, candidate_name, department, token,
         """
         cc_candidates = []
         configured_hr = (
-            current_app.config.get("ZEPTO_CC_HR")
-            or current_app.config.get("EMAIL_HR")
+            company_mailbox("ZEPTO_CC_HR")
+            or company_mailbox("EMAIL_HR")
             or ""
         ).strip()
         if configured_hr:
@@ -3702,8 +3623,8 @@ def send_assessment_submitted_email_to_hr(*, candidate_name, candidate_email, de
     """Notify HR mailbox when candidate submits assessment."""
     try:
         to_email = (
-            current_app.config.get("EMAIL_HR")
-            or current_app.config.get("ZEPTO_CC_HR")
+            company_mailbox("EMAIL_HR")
+            or company_mailbox("ZEPTO_CC_HR")
             or current_app.config.get("ZEPTO_SENDER_EMAIL")
         )
         if not to_email:
@@ -3742,8 +3663,8 @@ def send_assessment_hr_report_email(*, subject, html_body):
     """Send HR the proficiency summary (Arithmetic + English) and Section 2 Q&A from review."""
     try:
         to_email = (
-            current_app.config.get("EMAIL_HR")
-            or current_app.config.get("ZEPTO_CC_HR")
+            company_mailbox("EMAIL_HR")
+            or company_mailbox("ZEPTO_CC_HR")
             or current_app.config.get("ZEPTO_SENDER_EMAIL")
         )
         if not to_email:

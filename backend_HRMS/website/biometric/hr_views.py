@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import calendar
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time
 from functools import wraps
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -34,7 +34,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt, jwt_required
 
 from .. import db
-from ..datetime_utils import isoformat_api
+from ..datetime_utils import IST, isoformat_api
 from ..models.Admin_models import Admin
 from .device_manager import (
     device_online_timeout_seconds,
@@ -42,6 +42,7 @@ from .device_manager import (
 )
 from .models import BiometricAttendanceDay, BiometricDevice, BiometricLog
 from .day_rollup import rebuild_attendance_days_from_logs
+from .tenancy import admin_tenant_clause, day_tenant_clause, device_tenant_clause, log_tenant_clause
 
 biometric_hr_bp = Blueprint("biometric_hr", __name__)
 logger = logging.getLogger(__name__)
@@ -333,6 +334,7 @@ def _pin_dates_for_device(device_sn: str, start, end):
     """DB-only helper: (device_user_id, date) pairs that have logs on this device."""
     q = BiometricLog.query.filter(
         *_base_scan_filter(),
+        log_tenant_clause(),
         BiometricLog.device_serial_number == device_sn,
     )
     if start:
@@ -347,8 +349,16 @@ def _pin_dates_for_device(device_sn: str, start, end):
     return pairs
 
 
+def _admin_in_tenant(admin_id: int) -> Optional[Admin]:
+    q = Admin.query.filter(Admin.id == admin_id)
+    clause = admin_tenant_clause(Admin, None)
+    if clause is not None:
+        q = q.filter(clause)
+    return q.first()
+
+
 def _base_day_query(args, start, end):
-    q = BiometricAttendanceDay.query
+    q = BiometricAttendanceDay.query.filter(day_tenant_clause())
     if start:
         q = q.filter(BiometricAttendanceDay.attendance_date >= start)
     if end:
@@ -380,7 +390,28 @@ def _base_day_query(args, start, end):
     return q
 
 
-def _serialize_day_row(row: BiometricAttendanceDay, admin: Optional[Admin]) -> dict:
+# Must match punch_auto_close.BIOMETRIC_OUT_WINDOW_START (not imported: this module
+# stays independent of the attendance ORM).
+_PUNCH_OUT_FROM = time(18, 0, 0)
+
+
+def _punch_out_for_day(row: BiometricAttendanceDay, now_ist: datetime) -> Optional[datetime]:
+    """Last scan after punch-in, shown only once 18:00 has passed on that date."""
+    if row.attendance_date is None or row.last_scan is None:
+        return None
+    if row.first_scan is not None and row.last_scan <= row.first_scan:
+        return None
+    if now_ist < datetime.combine(row.attendance_date, _PUNCH_OUT_FROM):
+        return None
+    return row.last_scan
+
+
+def _serialize_day_row(
+    row: BiometricAttendanceDay,
+    admin: Optional[Admin],
+    now_ist: Optional[datetime] = None,
+) -> dict:
+    now_ist = now_ist or datetime.now(IST).replace(tzinfo=None)
     mapped = row.admin_id is not None
     scans = row.total_scans if isinstance(row.total_scans, list) else []
     link = _attendance_label_for_day(
@@ -536,12 +567,13 @@ def biometric_employee_day(admin_id: int, date_str: str):
     if not day:
         return jsonify({"success": False, "message": "Invalid date. Use YYYY-MM-DD"}), 400
 
-    admin = Admin.query.get(admin_id)
+    admin = _admin_in_tenant(admin_id)
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
     logs = (
         BiometricLog.query.filter(
+            log_tenant_clause(),
             BiometricLog.admin_id == admin_id,
             BiometricLog.punch_time >= datetime.combine(day, datetime.min.time()),
             BiometricLog.punch_time <= datetime.combine(day, datetime.max.time()),
@@ -575,6 +607,7 @@ def biometric_unmapped_day(device_user_id: str, date_str: str):
 
     logs = (
         BiometricLog.query.filter(
+            log_tenant_clause(),
             BiometricLog.admin_id.is_(None),
             BiometricLog.device_user_id == device_user_id,
             BiometricLog.punch_time >= datetime.combine(day, datetime.min.time()),
@@ -605,7 +638,11 @@ def biometric_unmapped_day(device_user_id: str, date_str: str):
 def biometric_devices():
     """Registered devices + Online/Offline from last_seen_at (DB only; no device I/O)."""
     timeout = device_online_timeout_seconds()
-    devices = BiometricDevice.query.order_by(BiometricDevice.serial_number.asc()).all()
+    devices = (
+        BiometricDevice.query.filter(device_tenant_clause())
+        .order_by(BiometricDevice.serial_number.asc())
+        .all()
+    )
     payload = []
     for d in devices:
         payload.append(
@@ -613,6 +650,7 @@ def biometric_devices():
                 "id": d.id,
                 "serial_number": d.serial_number,
                 "name": d.name,
+                "tenant_id": d.tenant_id,
                 "is_active": d.is_active,
                 "last_seen_at": isoformat_api(d.last_seen_at),
                 "last_data_push_at": isoformat_api(getattr(d, "last_data_push_at", None)),
@@ -620,13 +658,69 @@ def biometric_devices():
                 "status": "Online" if is_device_online(d) else "Offline",
             }
         )
+    from ..tenant_context import DEFAULT_TENANT_ID, get_current_tenant_id
+
     return jsonify(
         {
             "success": True,
             "online_timeout_seconds": timeout,
+            "can_reassign": get_current_tenant_id() == DEFAULT_TENANT_ID,
             "devices": payload,
         }
     ), 200
+
+
+def _device_payload(device):
+    return {
+        "id": device.id,
+        "serial_number": device.serial_number,
+        "tenant_id": device.tenant_id,
+    }
+
+
+@biometric_hr_bp.route("/devices/<int:device_id>", methods=["PATCH"])
+@jwt_required()
+@hr_required
+def assign_biometric_device(device_id):
+    """Set which company owns a device. Only the platform company can move one."""
+    from ..models.tenant import Tenant
+    from ..tenant_context import DEFAULT_TENANT_ID, get_current_tenant_id
+
+    if get_current_tenant_id() != DEFAULT_TENANT_ID:
+        return jsonify({"success": False, "message": "Only the platform company can move a device"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        target = int(data.get("tenant_id"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "tenant_id is required"}), 400
+    device = (
+        BiometricDevice.query.filter(device_tenant_clause(), BiometricDevice.id == device_id).first()
+    )
+    if device is None or db.session.get(Tenant, target) is None:
+        return jsonify({"success": False, "message": "Device not found"}), 404
+    device.tenant_id = target
+    db.session.commit()
+    return jsonify({"success": True, "device": _device_payload(device)}), 200
+
+
+@biometric_hr_bp.route("/devices/claim", methods=["POST"])
+@jwt_required()
+@hr_required
+def claim_biometric_device():
+    """Take an unassigned device (no company set) into the caller's company."""
+    from ..tenant_context import get_current_tenant_id
+
+    serial = (request.get_json(silent=True) or {}).get("serial_number")
+    serial = (serial or "").strip()
+    if not serial:
+        return jsonify({"success": False, "message": "serial_number is required"}), 400
+    device = BiometricDevice.query.filter_by(serial_number=serial).first()
+    caller = get_current_tenant_id()
+    if device is None or (device.tenant_id not in (None, caller)):
+        return jsonify({"success": False, "message": "Device not found"}), 404
+    device.tenant_id = caller
+    db.session.commit()
+    return jsonify({"success": True, "device": _device_payload(device)}), 200
 
 
 def _time_only(value: Optional[str]) -> str:

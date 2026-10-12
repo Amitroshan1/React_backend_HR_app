@@ -27,7 +27,9 @@ from ..models.daily_checkout import (
 )
 from ..models.it_models import ITAssetUnit
 from ..models.notification import Notification
+from ..itam.tenancy import it_get, it_query, it_tenant_clause
 from ..plan_features import is_inventory_department, is_it_department
+from ..tenant_context import tenant_admin_query, tenant_id_for_admin
 from .state import (
     DEFAULT_HW_TYPES,
     IT_COMPLETE_RETURN_FROM,
@@ -162,8 +164,8 @@ def _enqueue_email(request_row, event_code, payload):
     )
 
 
-def _it_staff_admins():
-    rows = Admin.query.filter(
+def _it_staff_admins(tenant_id=None):
+    rows = tenant_admin_query(tenant_id).filter(
         db.or_(Admin.is_exited == False, Admin.is_exited.is_(None))  # noqa: E712
     ).all()
     out = []
@@ -174,8 +176,15 @@ def _it_staff_admins():
     return out
 
 
+def _request_tenant_id(request_id):
+    row = db.session.get(DailyCheckoutRequest, int(request_id)) if request_id else None
+    requester = db.session.get(Admin, row.requester_admin_id) if row else None
+    return tenant_id_for_admin(requester) if requester else None
+
+
 def notify_it_staff(title, body, entity_id):
-    for admin in _it_staff_admins():
+    """``entity_id`` is the Day-use request id; only IT staff in its company are notified."""
+    for admin in _it_staff_admins(_request_tenant_id(entity_id)):
         db.session.add(
             Notification(
                 recipient_admin_id=admin.id,
@@ -384,17 +393,19 @@ def upload_signature(admin, file_storage):
     EmployeeSignature.query.filter_by(admin_id=admin.id, is_current=True).update(
         {"is_current": False}, synchronize_session=False
     )
+    from ..tenant_context import tenant_id_for_admin
+    from ..upload_tenancy import tenant_upload_path
+
     ext = "png" if content_type == "image/png" else "jpg"
-    rel = f"signatures/{admin.id}/v{version}.{ext}"
-    abs_dir = os.path.join(_uploads_root(), "signatures", str(admin.id))
-    os.makedirs(abs_dir, exist_ok=True)
-    abs_path = os.path.join(_uploads_root(), rel.replace("/", os.sep))
+    abs_path, rel = tenant_upload_path(
+        _uploads_root(), f"signatures/{admin.id}/v{version}.{ext}", tenant_id_for_admin(admin)
+    )
     with open(abs_path, "wb") as fh:
         fh.write(data)
     row = EmployeeSignature(
         admin_id=admin.id,
         version=version,
-        file_path=rel.replace("\\", "/"),
+        file_path=rel,
         content_type=content_type,
         sha256=hashlib.sha256(data).hexdigest(),
         is_current=True,
@@ -508,7 +519,7 @@ def _release_unit_hold(request_row):
 
 
 def cancel_request(admin, request_id, reason=None):
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     if int(row.requester_admin_id) != int(admin.id):
@@ -529,7 +540,7 @@ def cancel_request(admin, request_id, reason=None):
 
 
 def approve_request(actor, request_id):
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     if not can_transition(row.status, "approved"):
@@ -545,7 +556,7 @@ def reject_request(actor, request_id, reason):
     reason = (reason or "").strip()
     if len(reason) < 5:
         raise DailyCheckoutError("Rejection reason is required")
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     if not can_transition(row.status, "rejected"):
@@ -571,7 +582,7 @@ def reject_request(actor, request_id, reason):
 
 def list_available_daily_units(hw_type=None, search=None):
     """Available hardware units from inventory management (same stock as IT inventory)."""
-    q = ITAssetUnit.query.filter(db.func.lower(ITAssetUnit.status) == "available")
+    q = it_query(ITAssetUnit).filter(db.func.lower(ITAssetUnit.status) == "available")
     # Match inventory hardware devices; exclude software seats (those live in licenses).
     q = q.filter(
         db.or_(
@@ -702,7 +713,7 @@ def assign_unit(
     remarks=None,
     devices=None,
 ):
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     if not can_transition(row.status, "assigned"):
@@ -784,7 +795,7 @@ def assign_unit(
 
     locked_units = []
     for slot, entry in planned:
-        unit = ITAssetUnit.query.get(entry["asset_unit_id"])
+        unit = it_get(ITAssetUnit, entry["asset_unit_id"])
         if not unit:
             raise DailyCheckoutError(f"Asset unit not found for {slot['hw_type']}", 404)
         unit = ITAssetUnit.query.filter_by(id=unit.id).with_for_update().first()
@@ -879,7 +890,7 @@ def assign_unit(
 
 def acknowledge_acceptance(actor, request_id):
     """Generate (or return existing) Acceptance PDF after devices are assigned."""
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     status = (row.status or "").strip().lower()
@@ -908,7 +919,7 @@ def acknowledge_acceptance(actor, request_id):
 
 
 def request_return(admin, request_id):
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     if int(row.requester_admin_id) != int(admin.id):
@@ -946,7 +957,7 @@ def request_return(admin, request_id):
 
 
 def complete_return(actor, request_id, *, condition_in=None, remarks=None, walk_up=False):
-    row = DailyCheckoutRequest.query.get(request_id)
+    row = it_get(DailyCheckoutRequest, request_id)
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     if row.status not in IT_COMPLETE_RETURN_FROM:
@@ -996,7 +1007,7 @@ def complete_return(actor, request_id, *, condition_in=None, remarks=None, walk_
 
 
 def set_daily_pool(unit_id, enabled):
-    unit = ITAssetUnit.query.get(int(unit_id))
+    unit = it_get(ITAssetUnit, unit_id)
     if not unit:
         raise DailyCheckoutError("Unit not found", 404)
     if (unit.category or "Hardware").strip().lower() != "hardware":
@@ -1078,7 +1089,7 @@ def list_requests_for_employee(admin_id):
 
 
 def list_inbox(status=None):
-    q = DailyCheckoutRequest.query
+    q = it_query(DailyCheckoutRequest)
     if status:
         q = q.filter(db.func.lower(DailyCheckoutRequest.status) == status.strip().lower())
     return q.order_by(DailyCheckoutRequest.created_at.desc(), DailyCheckoutRequest.id.desc()).limit(200).all()
@@ -1087,7 +1098,11 @@ def list_inbox(status=None):
 def hardware_types():
     extra = (
         db.session.query(ITAssetUnit.hw_type)
-        .filter(ITAssetUnit.is_daily_pool.is_(True), ITAssetUnit.hw_type.isnot(None))
+        .filter(
+            ITAssetUnit.is_daily_pool.is_(True),
+            ITAssetUnit.hw_type.isnot(None),
+            it_tenant_clause(ITAssetUnit),
+        )
         .distinct()
         .all()
     )

@@ -82,6 +82,8 @@ export const GeoAnalytics = ({ onBack }) => {
   const [configReason, setConfigReason] = useState('');
   const [configHistory, setConfigHistory] = useState([]);
   const [configMsg, setConfigMsg] = useState('');
+  // Geo settings apply to every company; only the platform company may change them.
+  const [canManageGeo, setCanManageGeo] = useState(false);
 
   const [attemptId, setAttemptId] = useState('');
   const [attemptDetail, setAttemptDetail] = useState(null);
@@ -186,16 +188,20 @@ export const GeoAnalytics = ({ onBack }) => {
     setLoading(true);
     setError('');
     try {
-      const [cRes, hRes] = await Promise.all([
-        fetch(`${HR_API}/geo-analytics/config`, { headers: authHeaders() }),
-        fetch(`${HR_API}/geo-analytics/config/history?limit=50`, { headers: authHeaders() }),
-      ]);
+      const cRes = await fetch(`${HR_API}/geo-analytics/config`, { headers: authHeaders() });
       const cJson = await cRes.json();
-      const hJson = await hRes.json();
       if (!cRes.ok || !cJson.success) throw new Error(cJson.message || 'Config load failed');
+      const canManage = cJson.can_manage !== false;
+      setCanManageGeo(canManage);
       setConfigItems(cJson.items || []);
       setConfigEdits({});
-      setConfigHistory(hJson.rows || []);
+      if (canManage) {
+        const hRes = await fetch(`${HR_API}/geo-analytics/config/history?limit=50`, { headers: authHeaders() });
+        const hJson = await hRes.json();
+        setConfigHistory(hJson.rows || []);
+      } else {
+        setConfigHistory([]);
+      }
     } catch (e) {
       setError(e.message || 'Failed to load config');
     } finally {
@@ -747,13 +753,21 @@ export const GeoAnalytics = ({ onBack }) => {
 
       {tab === 'config' && (
         <div className="geo-panel">
-          <p className="geo-hint">Changes are versioned. Engine reads live Flask config (DB overrides applied at boot and on save).</p>
-          <label className="geo-config-reason">
-            Change reason (required)
-            <input value={configReason} onChange={(e) => setConfigReason(e.target.value)} placeholder="Why are you changing this?" />
-          </label>
-          <button type="button" className="geo-btn" onClick={saveConfig}>Save changes</button>
-          {configMsg ? <div className="geo-config-msg">{configMsg}</div> : null}
+          {canManageGeo ? (
+            <>
+              <p className="geo-hint">Changes are versioned. Engine reads live Flask config (DB overrides applied at boot and on save).</p>
+              <label className="geo-config-reason">
+                Change reason (required)
+                <input value={configReason} onChange={(e) => setConfigReason(e.target.value)} placeholder="Why are you changing this?" />
+              </label>
+              <button type="button" className="geo-btn" onClick={saveConfig}>Save changes</button>
+              {configMsg ? <div className="geo-config-msg">{configMsg}</div> : null}
+            </>
+          ) : (
+            <p className="geo-hint">
+              Geo settings apply to every company and are managed by the platform team. Contact support to request a change.
+            </p>
+          )}
           <div className="geo-table-wrap">
             <table className="geo-table">
               <thead>
@@ -761,7 +775,7 @@ export const GeoAnalytics = ({ onBack }) => {
                   <th>Key</th>
                   <th>Current</th>
                   <th>Default</th>
-                  <th>New value</th>
+                  {canManageGeo ? <th>New value</th> : null}
                   <th>Docs</th>
                 </tr>
               </thead>
@@ -771,20 +785,24 @@ export const GeoAnalytics = ({ onBack }) => {
                     <td><code>{item.key}</code></td>
                     <td>{String(item.value)}</td>
                     <td>{String(item.default)}</td>
-                    <td>
-                      <input
-                        className="geo-config-input"
-                        value={configEdits[item.key] ?? ''}
-                        placeholder="leave blank = no change"
-                        onChange={(e) => setConfigEdits({ ...configEdits, [item.key]: e.target.value })}
-                      />
-                    </td>
+                    {canManageGeo ? (
+                      <td>
+                        <input
+                          className="geo-config-input"
+                          value={configEdits[item.key] ?? ''}
+                          placeholder="leave blank = no change"
+                          onChange={(e) => setConfigEdits({ ...configEdits, [item.key]: e.target.value })}
+                        />
+                      </td>
+                    ) : null}
                     <td className="geo-doc">{item.doc}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {canManageGeo ? (
+          <>
           <h3>Change history</h3>
           <div className="geo-table-wrap">
             <table className="geo-table">
@@ -814,6 +832,8 @@ export const GeoAnalytics = ({ onBack }) => {
               </tbody>
             </table>
           </div>
+          </>
+          ) : null}
         </div>
       )}
 
@@ -1070,16 +1090,22 @@ export const GeoAnalytics = ({ onBack }) => {
               <li key={c.category} className="geo-rec"><strong>{c.category}</strong> — {c.count}</li>
             ))}
           </ul>
-          <h3>Instant mode switch (no deploy)</h3>
-          <div className="geo-audit-filters">
-            <button type="button" className="geo-btn geo-btn--secondary" onClick={() => setEngineMode('LEGACY')}>LEGACY</button>
-            <button type="button" className="geo-btn geo-btn--secondary" onClick={() => setEngineMode('SHADOW')}>SHADOW</button>
-            <button type="button" className="geo-btn" onClick={() => setEngineMode('V2')}>V2</button>
-          </div>
-          {modeMsg ? <div className="geo-config-msg">{modeMsg}</div> : null}
-          <p className="geo-hint">
-            Rollback: set LEGACY immediately. Shadow never affects punch approval/rejection/geo reason.
-          </p>
+          {rollout.can_manage !== false ? (
+            <>
+              <h3>Instant mode switch (no deploy)</h3>
+              <div className="geo-audit-filters">
+                <button type="button" className="geo-btn geo-btn--secondary" onClick={() => setEngineMode('LEGACY')}>LEGACY</button>
+                <button type="button" className="geo-btn geo-btn--secondary" onClick={() => setEngineMode('SHADOW')}>SHADOW</button>
+                <button type="button" className="geo-btn" onClick={() => setEngineMode('V2')}>V2</button>
+              </div>
+              {modeMsg ? <div className="geo-config-msg">{modeMsg}</div> : null}
+              <p className="geo-hint">
+                Rollback: set LEGACY immediately. Shadow never affects punch approval/rejection/geo reason.
+              </p>
+            </>
+          ) : (
+            <p className="geo-hint">The geo engine mode is managed by the platform team for all companies.</p>
+          )}
         </div>
       )}
 

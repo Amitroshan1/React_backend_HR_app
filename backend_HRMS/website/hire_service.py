@@ -14,9 +14,12 @@ def complete_hire_from_signup(
     candidate_id: int | None,
     offer_annual_ctc: float | None = None,
 ) -> dict:
+    from .ats_service import candidate_query
+    from .tenant_context import tenant_id_for_admin
+
     if not candidate_id or not admin:
         return {}
-    cand = Candidate.query.get(int(candidate_id))
+    cand = candidate_query(tenant_id_for_admin(admin)).filter(Candidate.id == int(candidate_id)).first()
     if not cand:
         return {"warning": "Candidate record not found"}
     cand.admin_id = admin.id
@@ -47,9 +50,9 @@ def complete_hire_from_signup(
 
 
 def hire_progress_for_candidate(candidate_id: int) -> dict:
-    cand = Candidate.query.get(candidate_id)
-    if not cand:
-        raise ValueError("Candidate not found")
+    from .ats_service import get_candidate
+
+    cand = get_candidate(candidate_id)
     offer = cand.offer
     has_draft_ctc = False
     if cand.admin_id:

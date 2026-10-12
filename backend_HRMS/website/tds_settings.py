@@ -1,4 +1,4 @@
-"""Runtime TDS / payroll policy settings (JSON file, Accounts-configurable)."""
+"""Runtime TDS / payroll policy settings, per company (``company_settings``; default company: JSON file)."""
 from __future__ import annotations
 
 import json
@@ -24,6 +24,22 @@ _DEFAULTS = {
     "declaration_deadline_overrides": {},
 }
 
+_NAMESPACE = "tds"
+
+
+def _company_store():
+    """Per-company settings storage, or None without an app (file-only mode)."""
+    try:
+        from . import company_settings
+    except Exception:
+        return None
+    return company_settings if company_settings.available() else None
+
+
+def _company_defaults(store, tenant_id: int) -> dict:
+    """Defaults for a company other than the platform one: its own name, no TAN / PAN."""
+    return {**_DEFAULTS, "employer_name": store.company_name(tenant_id)}
+
 
 def form16_variance_tolerance() -> float:
     return float(load_tds_settings().get("form16_variance_tolerance_inr") or 100)
@@ -33,16 +49,34 @@ def max_declaration_amendments_per_fy() -> int:
     return int(load_tds_settings().get("max_declaration_amendments_per_fy") or 2)
 
 
-def employer_details() -> dict:
-    s = load_tds_settings()
+def employer_details(tenant_id=None) -> dict:
+    """Employer block for letters / Form 16 of one company (default: the caller's)."""
+    s = load_tds_settings(tenant_id)
+    name = (s.get("employer_name") or "").strip()
+    store = _company_store()
+    if not name and (store is None or store.settings_tenant_id(tenant_id) == store.DEFAULT_TENANT_ID):
+        name = _DEFAULTS["employer_name"]
     return {
-        "name": (s.get("employer_name") or _DEFAULTS["employer_name"]).strip(),
+        "name": name or "—",
         "tan": (s.get("employer_tan") or "").strip() or "—",
         "pan": (s.get("employer_pan") or "").strip() or "—",
     }
 
 
-def load_tds_settings() -> dict:
+def load_tds_settings(tenant_id=None) -> dict:
+    store = _company_store()
+    if store is not None:
+        tid = store.settings_tenant_id(tenant_id)
+        saved = store.stored_settings(_NAMESPACE, tid)
+        if tid == store.DEFAULT_TENANT_ID:
+            if saved is not None:
+                return {**_DEFAULTS, **saved}
+        else:
+            return {**_company_defaults(store, tid), **(saved or {})}
+    return _load_file()
+
+
+def _load_file() -> dict:
     if _SETTINGS_PATH.is_file():
         try:
             with open(_SETTINGS_PATH, encoding="utf-8") as fh:
@@ -54,8 +88,8 @@ def load_tds_settings() -> dict:
     return dict(_DEFAULTS)
 
 
-def save_tds_settings(updates: dict) -> dict:
-    current = load_tds_settings()
+def save_tds_settings(updates: dict, tenant_id=None, *, admin_id=None) -> dict:
+    current = load_tds_settings(tenant_id)
     if "payroll_tds_approved_only" in updates:
         current["payroll_tds_approved_only"] = bool(updates["payroll_tds_approved_only"])
     if "block_employee_regime_change_after_submit" in updates:
@@ -111,6 +145,10 @@ def save_tds_settings(updates: dict) -> dict:
                 except ValueError:
                     continue
             current["declaration_deadline_overrides"] = cleaned
+    store = _company_store()
+    if store is not None:
+        store.save_settings(_NAMESPACE, store.settings_tenant_id(tenant_id), current, admin_id=admin_id)
+        return current
     _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(_SETTINGS_PATH, "w", encoding="utf-8") as fh:
         json.dump(current, fh, indent=2)

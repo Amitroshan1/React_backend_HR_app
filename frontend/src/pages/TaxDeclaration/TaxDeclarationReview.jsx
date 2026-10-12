@@ -13,6 +13,7 @@ import {
     statusBadgeClass,
 } from "./taxDeclarationReviewUtils";
 import { notifyError, notifySuccess } from "../../utils/notify";
+import { TdsSettingsPanel } from "./TdsSettingsPanel";
 import "./TaxDeclaration.css";
 
 export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpenDetail }) {
@@ -242,8 +243,9 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                 <section className="tax-decl-review-deadline">
                     <h3>Declaration submission deadline</h3>
                     <p>
-                        Default is 25 February (FY end year). Employees see a scrolling notice on the
-                        tax declaration page. Extend the date below to allow submissions later.
+                        The default date comes from the company TDS settings below (25 February unless
+                        changed). Employees see a scrolling notice on the tax declaration page. Extend
+                        the date below to allow submissions later.
                     </p>
                     {deadlineLoading && <p className="tax-decl-muted">Loading deadline…</p>}
                     {!deadlineLoading && submissionDeadline && (
@@ -280,11 +282,13 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                                 onClick={resetDeadline}
                                 disabled={deadlineSaving || deadlineLoading}
                             >
-                                Reset to 25 Feb
+                                Reset to default
                             </button>
                         </div>
                     </div>
                 </section>
+
+                <TdsSettingsPanel apiBase={apiBase} onSaved={loadDeadline} />
 
                 {loading ? (
                     <p className="tax-decl-muted">Loading declarations…</p>

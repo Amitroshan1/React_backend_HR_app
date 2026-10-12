@@ -260,8 +260,10 @@ def lifecycle_for_legacy_status_change(
 
 def backfill_unit_lifecycle(*, limit: int = 500, config=None) -> dict[str, int]:
     """Hydrate lifecycle_status / custody_type / open custody from legacy rows."""
+    from .tenancy import it_query
+
     limit = max(1, min(5000, int(limit or 500)))
-    units = ITAssetUnit.query.order_by(ITAssetUnit.id.asc()).limit(limit).all()
+    units = it_query(ITAssetUnit).order_by(ITAssetUnit.id.asc()).limit(limit).all()
     updated = 0
     skipped = 0
     for unit in units:

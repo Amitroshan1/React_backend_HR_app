@@ -14,7 +14,7 @@ export function AdminReturnBar({ visible }) {
     return null;
   }
 
-  const items = crumbsForAdminPath(location.pathname);
+  const items = crumbsForAdminPath(location.pathname, location.search);
   if (!items?.length) return null;
 
   return <AdminBreadcrumb items={items} />;

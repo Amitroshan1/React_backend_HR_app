@@ -1,4 +1,4 @@
-"""Company-wide CTC structuring policy (JSON file, Accounts-configurable)."""
+"""Company-wide CTC structuring policy, per company (``company_settings``; default company: JSON file)."""
 from __future__ import annotations
 
 import json
@@ -44,8 +44,31 @@ _BOOL_KEYS = (
     "include_lwf_in_ctc",
 )
 
+_NAMESPACE = "ctc"
 
-def load_ctc_settings() -> dict:
+
+def _company_store():
+    """Per-company settings storage, or None without an app (file-only mode)."""
+    try:
+        from . import company_settings
+    except Exception:
+        return None
+    return company_settings if company_settings.available() else None
+
+
+def load_ctc_settings(tenant_id=None) -> dict:
+    store = _company_store()
+    if store is not None:
+        tid = store.settings_tenant_id(tenant_id)
+        saved = store.stored_settings(_NAMESPACE, tid)
+        if saved is not None:
+            return {**_DEFAULTS, **saved}
+        if tid != store.DEFAULT_TENANT_ID:
+            return dict(_DEFAULTS)
+    return _load_file()
+
+
+def _load_file() -> dict:
     if _SETTINGS_PATH.is_file():
         try:
             with open(_SETTINGS_PATH, encoding="utf-8") as fh:
@@ -57,8 +80,8 @@ def load_ctc_settings() -> dict:
     return dict(_DEFAULTS)
 
 
-def save_ctc_settings(updates: dict) -> dict:
-    current = load_ctc_settings()
+def save_ctc_settings(updates: dict, tenant_id=None, *, admin_id=None) -> dict:
+    current = load_ctc_settings(tenant_id)
     if "default_ptax_state" in updates:
         code = str(updates.get("default_ptax_state") or "MH").strip().upper()
         current["default_ptax_state"] = code[:2] if code else "MH"
@@ -71,6 +94,10 @@ def save_ctc_settings(updates: dict) -> dict:
                 current[key] = max(0.0, float(updates[key]))
             except (TypeError, ValueError):
                 pass
+    store = _company_store()
+    if store is not None:
+        store.save_settings(_NAMESPACE, store.settings_tenant_id(tenant_id), current, admin_id=admin_id)
+        return current
     _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(_SETTINGS_PATH, "w", encoding="utf-8") as fh:
         json.dump(current, fh, indent=2)

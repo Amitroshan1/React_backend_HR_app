@@ -19,7 +19,13 @@ from .. import db
 from ..models.Admin_models import Admin
 from ..models.manager_model import ManagerContact
 from ..models.probation import ProbationReview
-from ..manager_utils import get_manager_emails
+from ..tenant_jobs import (
+    admin_id_scope,
+    admin_scope,
+    merge_tenant_summaries,
+    run_in_each_tenant_scope,
+)
+from ..manager_utils import get_manager_emails, manager_contacts_for
 from ..email import (
     send_probation_reminder_email,
     send_probation_followup_reminder_email,
@@ -40,7 +46,7 @@ from ..probation_utils import (
 )
 
 
-def dedupe_probation_review_rows():
+def dedupe_probation_review_rows(tenant_id=None):
     """
     Merge duplicate ProbationReview rows for the same (admin_id, probation_end_date).
     Keeps one canonical row (prefer one with reviewed_at, else lowest id), merges timestamps.
@@ -52,6 +58,7 @@ def dedupe_probation_review_rows():
             ProbationReview.probation_end_date,
             func.count(ProbationReview.id),
         )
+        .filter(admin_id_scope(ProbationReview.admin_id, tenant_id))
         .group_by(ProbationReview.admin_id, ProbationReview.probation_end_date)
         .having(func.count(ProbationReview.id) > 1)
         .all()
@@ -99,14 +106,14 @@ def _get_contact_for_admin(admin):
     if not circle or not emp_type:
         return None
     if user_email:
-        contact = ManagerContact.query.filter(
+        contact = manager_contacts_for(admin).filter(
             func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
             func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
             ManagerContact.user_email == user_email,
         ).first()
         if contact:
             return contact
-    return ManagerContact.query.filter(
+    return manager_contacts_for(admin).filter(
         func.lower(func.coalesce(ManagerContact.circle_name, "")) == circle,
         func.lower(func.coalesce(ManagerContact.user_type, "")) == emp_type,
         or_(ManagerContact.user_email.is_(None), ManagerContact.user_email == ""),
@@ -160,9 +167,12 @@ def _cleanup_stale_probation_reviews(admin, current_end):
     return removed
 
 
-def _prune_legacy_probation_reviews(run_date, summary):
+def _prune_legacy_probation_reviews(run_date, summary, tenant_id=None):
     """Remove open review rows for employees whose probation cycle ended long ago."""
-    rows = ProbationReview.query.filter(ProbationReview.reviewed_at.is_(None)).all()
+    rows = ProbationReview.query.filter(
+        ProbationReview.reviewed_at.is_(None),
+        admin_id_scope(ProbationReview.admin_id, tenant_id),
+    ).all()
     for row in rows:
         status = infer_status_from_row(row)
         if status in TERMINAL_STATUSES or status == STATUS_MANAGER_SUBMITTED:
@@ -233,8 +243,9 @@ def sync_probation_for_admin(admin, run_date=None, send_notifications=True):
     return {"review": row, **summary}
 
 
-def _process_backfill(run_date, summary):
+def _process_backfill(run_date, summary, tenant_id=None):
     admins = Admin.query.filter(
+        admin_scope(tenant_id),
         Admin.doj.isnot(None),
         db.func.coalesce(Admin.is_active, True) == True,
         db.func.coalesce(Admin.is_exited, False) == False,
@@ -256,9 +267,10 @@ def _get_or_create_review(admin, end_date):
     return row
 
 
-def _process_initial_reminders(run_date, summary):
+def _process_initial_reminders(run_date, summary, tenant_id=None):
     target_end = run_date + timedelta(days=REMINDER_DAYS_BEFORE)
     admins = Admin.query.filter(
+        admin_scope(tenant_id),
         Admin.doj.isnot(None),
         db.func.coalesce(Admin.is_active, True) == True,
         db.func.coalesce(Admin.is_exited, False) == False,
@@ -286,10 +298,11 @@ def _process_initial_reminders(run_date, summary):
         summary["reminders_sent"] += 1
 
 
-def _process_followup_reminders(run_date, summary):
+def _process_followup_reminders(run_date, summary, tenant_id=None):
     """T-7 follow-up; also catches missed follow-ups when run_date is past T-7."""
     rows = (
         ProbationReview.query.filter(
+            admin_id_scope(ProbationReview.admin_id, tenant_id),
             ProbationReview.reminder_sent_at.isnot(None),
             ProbationReview.reviewed_at.is_(None),
             ProbationReview.followup_reminder_sent_at.is_(None),
@@ -318,9 +331,10 @@ def _process_followup_reminders(run_date, summary):
         summary["followup_reminders_sent"] += 1
 
 
-def _process_overdue_escalations(run_date, summary):
+def _process_overdue_escalations(run_date, summary, tenant_id=None):
     rows = (
         ProbationReview.query.filter(
+            admin_id_scope(ProbationReview.admin_id, tenant_id),
             ProbationReview.reminder_sent_at.isnot(None),
             ProbationReview.reviewed_at.is_(None),
             ProbationReview.probation_end_date < run_date,
@@ -348,8 +362,8 @@ def _process_overdue_escalations(run_date, summary):
         summary["overdue_escalations_sent"] += 1
 
 
-def run_probation_reminder(run_date):
-    """Run backfill, T-15, T-7, and overdue probation reminder jobs for run_date."""
+def run_probation_reminder(run_date, tenant_id=None):
+    """Run backfill, T-15, T-7, and overdue probation reminder jobs for run_date (one tenant, or all when None)."""
     summary = {
         "run_date": run_date.isoformat(),
         "backfill_reminders_sent": 0,
@@ -366,16 +380,16 @@ def run_probation_reminder(run_date):
         "overdue_skipped_inactive": 0,
         "dedupe_removed": 0,
     }
-    merged = dedupe_probation_review_rows()
+    merged = dedupe_probation_review_rows(tenant_id)
     summary["dedupe_removed"] = merged
     if merged:
         db.session.flush()
 
-    _prune_legacy_probation_reviews(run_date, summary)
-    _process_backfill(run_date, summary)
-    _process_initial_reminders(run_date, summary)
-    _process_followup_reminders(run_date, summary)
-    _process_overdue_escalations(run_date, summary)
+    _prune_legacy_probation_reviews(run_date, summary, tenant_id)
+    _process_backfill(run_date, summary, tenant_id)
+    _process_initial_reminders(run_date, summary, tenant_id)
+    _process_followup_reminders(run_date, summary, tenant_id)
+    _process_overdue_escalations(run_date, summary, tenant_id)
     return summary
 
 
@@ -402,7 +416,9 @@ def register_probation_command(app):
             run_date_obj = date.today()
 
         with app.app_context():
-            summary = run_probation_reminder(run_date_obj)
+            summary = merge_tenant_summaries(
+                run_in_each_tenant_scope(lambda tid: run_probation_reminder(run_date_obj, tenant_id=tid))
+            )
             if dry_run:
                 db.session.rollback()
                 click.echo("Dry run. No DB changes committed.")
@@ -431,7 +447,9 @@ def register_probation_command(app):
             run_date_obj = date.today()
 
         with app.app_context():
-            summary = run_probation_reminder(run_date_obj)
+            summary = merge_tenant_summaries(
+                run_in_each_tenant_scope(lambda tid: run_probation_reminder(run_date_obj, tenant_id=tid))
+            )
             if dry_run:
                 db.session.rollback()
                 click.echo("Dry run. No DB changes committed.")

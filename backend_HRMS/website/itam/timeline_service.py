@@ -48,10 +48,12 @@ def query_transitions(
     exclude_parcel: bool = False,
 ) -> dict[str, Any]:
     """Paginated timeline for a unit / license / catalog item, or org-wide activity log."""
+    from .tenancy import it_query
+
     page = max(1, int(page or 1))
     limit = max(1, min(200, int(limit or 50)))
 
-    query = ITAssetTransition.query
+    query = it_query(ITAssetTransition)
     if asset_unit_id is not None:
         query = query.filter(ITAssetTransition.asset_unit_id == int(asset_unit_id))
     if software_license_id is not None:
@@ -179,7 +181,8 @@ def query_transitions(
     latest = transitions[0] if transitions and page == 1 and not actions and not needle else None
     if latest is None and asset_unit_id and page == 1:
         latest_row = (
-            ITAssetTransition.query.filter(ITAssetTransition.asset_unit_id == int(asset_unit_id))
+            it_query(ITAssetTransition)
+            .filter(ITAssetTransition.asset_unit_id == int(asset_unit_id))
             .order_by(ITAssetTransition.occurred_at.desc(), ITAssetTransition.id.desc())
             .first()
         )
@@ -379,9 +382,12 @@ def backfill_from_assignments(*, limit: int = 500, config=None) -> dict[str, int
     Seed TransitionRecords from ITAssetAssignment history (best-effort).
     Skips assignments already linked via related_json.assignment_id.
     """
+    from .tenancy import it_query
+
     limit = max(1, min(5000, int(limit or 500)))
     assignments = (
-        ITAssetAssignment.query.filter(ITAssetAssignment.asset_unit_id.isnot(None))
+        it_query(ITAssetAssignment)
+        .filter(ITAssetAssignment.asset_unit_id.isnot(None))
         .order_by(ITAssetAssignment.id.asc())
         .limit(limit)
         .all()

@@ -38,12 +38,17 @@ export function BiometricAttendance({ onBack }) {
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
   const [deviceStatus, setDeviceStatus] = useState(null);
+  const [canReassign, setCanReassign] = useState(false);
+  const [claimSerial, setClaimSerial] = useState('');
+  const [assignTenant, setAssignTenant] = useState('');
+  const [deviceMessage, setDeviceMessage] = useState('');
 
   const fetchDeviceStatus = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/devices`, { headers: getAuthHeaders() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) return;
+      setCanReassign(!!data.can_reassign);
       setDeviceStatus(pickPrimaryDevice(data.devices || []));
     } catch {
       /* keep last known status */
@@ -203,6 +208,58 @@ export function BiometricAttendance({ onBack }) {
         </div>
       )}
 
+      <form
+        className="bio-att-device-meta"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setDeviceMessage('');
+          const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+          const moving = canReassign && deviceStatus && assignTenant;
+          const res = moving
+            ? await fetch(`${API_BASE}/devices/${deviceStatus.id}`, {
+                method: 'PATCH',
+                headers,
+                body: JSON.stringify({ tenant_id: Number(assignTenant) }),
+              })
+            : await fetch(`${API_BASE}/devices/claim`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ serial_number: claimSerial.trim() }),
+              });
+          const data = await res.json().catch(() => ({}));
+          setDeviceMessage(data.message || (res.ok ? 'Device saved' : 'Could not save the device'));
+          if (res.ok) {
+            setClaimSerial('');
+            fetchDeviceStatus();
+          }
+        }}
+      >
+        {canReassign && deviceStatus ? (
+          <label>
+            Move {deviceDisplayName(deviceStatus)} to company id
+            <input
+              value={assignTenant}
+              onChange={(e) => setAssignTenant(e.target.value)}
+              inputMode="numeric"
+              placeholder="2"
+            />
+          </label>
+        ) : (
+          <label>
+            Unassigned device serial
+            <input
+              value={claimSerial}
+              onChange={(e) => setClaimSerial(e.target.value)}
+              placeholder="Device serial"
+            />
+          </label>
+        )}
+        <button type="submit">
+          {canReassign && deviceStatus ? 'Move device' : 'Use for this company'}
+        </button>
+        {deviceMessage && <span>{deviceMessage}</span>}
+      </form>
+
       <div className="bio-att-filters">
         <label>
           Month
@@ -293,10 +350,12 @@ export function BiometricAttendance({ onBack }) {
                   <td className="bio-att-scan-highlight">
                     <Star size={12} /> {r.first_scan ? r.first_scan.slice(11, 19) : '—'}
                   </td>
-                  <td className="bio-att-scan-highlight">
-                    <Star size={12} /> {r.last_scan ? r.last_scan.slice(11, 19) : '—'}
+                  <td
+                    className="bio-att-scan-highlight"
+                    title={r.punch_out ? '' : 'Punch out is set from the last scan at 6 PM'}
+                  >
+                    <Star size={12} /> {r.punch_out ? r.punch_out.slice(11) : '—'}
                   </td>
-                  <td>{r.punch_out ? r.punch_out.slice(11, 19) : '—'}</td>
                   <td>{Array.isArray(r.total_scans) ? r.total_scans.length : r.scan_count}</td>
                   <td>
                     <span

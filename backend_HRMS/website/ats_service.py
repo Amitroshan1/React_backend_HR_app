@@ -9,6 +9,7 @@ from .datetime_utils import isoformat_api, utc_now
 from .models.recruitment import Candidate, JobRequisition, Offer
 from .models.assessment import AssessmentInvite
 from .email import send_assessment_invite_email
+from .tenant_context import get_current_tenant_id, tenant_column_clause
 from flask import current_app
 from flask_jwt_extended import get_jwt
 
@@ -24,8 +25,40 @@ CANDIDATE_STAGES = (
 )
 
 
+class ATSNotFound(ValueError):
+    """Requisition or candidate missing, or in another tenant (routes answer 404)."""
+
+
+def assessment_invite_query(tenant_id=None):
+    return AssessmentInvite.query.filter(tenant_column_clause(AssessmentInvite.tenant_id, tenant_id))
+
+
+def requisition_query(tenant_id=None):
+    """JobRequisition query limited to one tenant (default: the caller's)."""
+    return JobRequisition.query.filter(tenant_column_clause(JobRequisition.tenant_id, tenant_id))
+
+
+def candidate_query(tenant_id=None):
+    """Candidate query limited to one tenant (default: the caller's)."""
+    return Candidate.query.filter(tenant_column_clause(Candidate.tenant_id, tenant_id))
+
+
+def get_requisition(req_id, tenant_id=None) -> JobRequisition:
+    row = requisition_query(tenant_id).filter(JobRequisition.id == req_id).first()
+    if not row:
+        raise ATSNotFound("Requisition not found")
+    return row
+
+
+def get_candidate(candidate_id, tenant_id=None) -> Candidate:
+    row = candidate_query(tenant_id).filter(Candidate.id == candidate_id).first()
+    if not row:
+        raise ATSNotFound("Candidate not found")
+    return row
+
+
 def list_requisitions(*, status: str | None = None) -> list[dict]:
-    q = JobRequisition.query.order_by(JobRequisition.created_at.desc())
+    q = requisition_query().order_by(JobRequisition.created_at.desc())
     if status and status.lower() != "all":
         q = q.filter(JobRequisition.status == status.lower())
     return [r.to_dict() for r in q.all()]
@@ -36,6 +69,7 @@ def create_requisition(data: dict, *, created_by: str) -> JobRequisition:
     if not title:
         raise ValueError("title is required")
     row = JobRequisition(
+        tenant_id=get_current_tenant_id(),
         title=title,
         circle=(data.get("circle") or "").strip() or None,
         emp_type=(data.get("emp_type") or "").strip() or None,
@@ -50,9 +84,7 @@ def create_requisition(data: dict, *, created_by: str) -> JobRequisition:
 
 
 def update_requisition(req_id: int, data: dict) -> JobRequisition:
-    row = JobRequisition.query.get(req_id)
-    if not row:
-        raise ValueError("Requisition not found")
+    row = get_requisition(req_id)
     for key in ("title", "circle", "emp_type", "description", "status"):
         if key in data:
             val = data.get(key)
@@ -71,7 +103,7 @@ def update_requisition(req_id: int, data: dict) -> JobRequisition:
 
 
 def list_candidates(*, requisition_id: int | None = None, stage: str | None = None) -> list[dict]:
-    q = Candidate.query.order_by(Candidate.updated_at.desc(), Candidate.created_at.desc())
+    q = candidate_query().order_by(Candidate.updated_at.desc(), Candidate.created_at.desc())
     if requisition_id:
         q = q.filter(Candidate.requisition_id == requisition_id)
     if stage and stage.lower() != "all":
@@ -84,8 +116,12 @@ def create_candidate(data: dict) -> Candidate:
     email = (data.get("email") or "").strip().lower()
     if not full_name or not email:
         raise ValueError("full_name and email are required")
+    requisition_id = data.get("requisition_id")
+    if requisition_id:
+        requisition_id = get_requisition(requisition_id).id
     row = Candidate(
-        requisition_id=data.get("requisition_id"),
+        tenant_id=get_current_tenant_id(),
+        requisition_id=requisition_id or None,
         full_name=full_name,
         email=email,
         mobile=(data.get("mobile") or "").strip() or None,
@@ -101,9 +137,7 @@ def update_candidate_stage(candidate_id: int, stage: str, notes: str | None = No
     stage = (stage or "").strip().lower()
     if stage not in CANDIDATE_STAGES:
         raise ValueError(f"stage must be one of: {', '.join(CANDIDATE_STAGES)}")
-    row = Candidate.query.get(candidate_id)
-    if not row:
-        raise ValueError("Candidate not found")
+    row = get_candidate(candidate_id)
     row.stage = stage
     row.updated_at = utc_now()
     if notes is not None:
@@ -120,9 +154,7 @@ def send_candidate_assessment(candidate_id: int, *, department: str | None = Non
     )
     from .email_validation import personal_email_validation_error
 
-    row = Candidate.query.get(candidate_id)
-    if not row:
-        raise ValueError("Candidate not found")
+    row = get_candidate(candidate_id)
     dept = (department or "").strip()
     if not dept and row.requisition:
         dept = row.requisition.emp_type or row.requisition.circle or "General"
@@ -135,6 +167,7 @@ def send_candidate_assessment(candidate_id: int, *, department: str | None = Non
 
     raw_token = secrets.token_urlsafe(48)
     invite = AssessmentInvite(
+        tenant_id=row.tenant_id or get_current_tenant_id(),
         full_name=row.full_name,
         department=dept,
         candidate_email=row.email,
@@ -168,9 +201,7 @@ def send_candidate_assessment(candidate_id: int, *, department: str | None = Non
 
 
 def create_or_update_offer(candidate_id: int, data: dict) -> Offer:
-    row = Candidate.query.get(candidate_id)
-    if not row:
-        raise ValueError("Candidate not found")
+    row = get_candidate(candidate_id)
     offer = Offer.query.filter_by(candidate_id=candidate_id).first()
     if not offer:
         offer = Offer(candidate_id=candidate_id)
@@ -210,9 +241,7 @@ def send_candidate_offer_email(candidate_id: int) -> dict:
     from .email import send_offer_letter_email
     from .offer_acceptance_service import issue_acceptance_token, acceptance_link
 
-    row = Candidate.query.get(candidate_id)
-    if not row:
-        raise ValueError("Candidate not found")
+    row = get_candidate(candidate_id)
     if not row.offer:
         raise ValueError("Offer details are required before sending")
 
@@ -252,9 +281,7 @@ def send_candidate_offer_email(candidate_id: int) -> dict:
 
 
 def candidate_signup_payload(candidate_id: int) -> dict:
-    row = Candidate.query.get(candidate_id)
-    if not row:
-        raise ValueError("Candidate not found")
+    row = get_candidate(candidate_id)
     req = row.requisition
     offer = row.offer
     joining = offer.joining_date if offer and offer.joining_date else date.today()

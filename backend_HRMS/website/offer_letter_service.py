@@ -15,14 +15,14 @@ from .models.recruitment import Candidate, Offer
 
 
 def build_offer_letter_payload(candidate_id: int) -> dict:
-    row = Candidate.query.get(candidate_id)
-    if not row:
-        raise ValueError("Candidate not found")
+    from .ats_service import get_candidate
+
+    row = get_candidate(candidate_id)
     offer = row.offer
     if not offer:
         raise ValueError("Offer details are required before generating the letter")
     req = row.requisition
-    employer = tds_cfg.employer_details()
+    employer = tds_cfg.employer_details(row.tenant_id)
     joining = offer.joining_date or date.today()
 
     return {

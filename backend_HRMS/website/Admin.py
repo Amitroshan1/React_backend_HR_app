@@ -19,6 +19,15 @@ from .models.seperation import Resignation
 from .models.news_feed import PaySlip
 from .models.emp_detail_models import Employee, Asset
 from .employee_photo import photo_url_for_admin_id
+from .tenant_context import (
+    DEFAULT_TENANT_ID,
+    admin_id_in_tenant,
+    admin_tenant_clause,
+    get_admin_in_tenant,
+    get_current_tenant_id,
+    require_same_tenant,
+    tenant_admin_ids,
+)
 from .models.deployed_customer import (
     DeployedCustomer,
     PLAN_ORDER,
@@ -66,13 +75,15 @@ def _deployment_guide_enabled():
 
 
 def _can_view_deployment_guide(claims=None):
-    """Vendor ops: Admin role on instance with SHOW_DEPLOYMENT_GUIDE=1."""
+    """Vendor ops: Admin role of the platform tenant on instance with SHOW_DEPLOYMENT_GUIDE=1."""
     if not _deployment_guide_enabled():
         return False
     if claims is None:
         claims = get_jwt() or {}
     emp_type = _norm(claims.get("emp_type") or "")
     if emp_type not in ADMIN_EMP_TYPES and "super" not in emp_type:
+        return False
+    if not require_same_tenant(DEFAULT_TENANT_ID, claims_tenant_id=claims.get("tenant_id") or DEFAULT_TENANT_ID):
         return False
     raw = (os.getenv("DEPLOYMENT_GUIDE_EMAILS") or "").strip()
     if not raw:
@@ -83,8 +94,9 @@ def _can_view_deployment_guide(claims=None):
 
 
 def _base_employee_query():
-    """Enabled, non-exited employees only (excludes is_active=False)."""
+    """Enabled, non-exited employees of the caller's tenant (excludes is_active=False)."""
     return Admin.query.filter(
+        admin_tenant_clause(),
         db.func.coalesce(Admin.is_exited, False) == False,
         db.func.coalesce(Admin.is_active, True) == True,
     )
@@ -243,6 +255,7 @@ def get_dashboard():
     active_today = (
         Punch.query.join(Admin, Punch.admin_id == Admin.id)
         .filter(
+            admin_tenant_clause(),
             Punch.punch_date == today,
             Punch.punch_in.isnot(None),
             db.func.coalesce(Admin.is_exited, False) == False,
@@ -251,23 +264,30 @@ def get_dashboard():
         .count()
     )
 
-    # Leaves, queries, claims, resignations: all data in DB (Admin has org-wide access)
-    total_leaves = LeaveApplication.query.count()
-    total_queries = Query.query.count()
-    total_claims = ExpenseClaimHeader.query.count()
-    total_resignations = Resignation.query.count()
+    # Leaves, queries, claims, resignations: every record of the caller's tenant
+    in_tenant = tenant_admin_ids()
+    total_leaves = LeaveApplication.query.filter(LeaveApplication.admin_id.in_(in_tenant)).count()
+    total_queries = Query.query.filter(Query.admin_id.in_(in_tenant)).count()
+    total_claims = ExpenseClaimHeader.query.filter(ExpenseClaimHeader.admin_id.in_(in_tenant)).count()
+    total_resignations = Resignation.query.filter(Resignation.admin_id.in_(in_tenant)).count()
 
     pending_leaves = LeaveApplication.query.filter(
-        func.lower(func.coalesce(LeaveApplication.status, "")) == "pending"
+        LeaveApplication.admin_id.in_(in_tenant),
+        func.lower(func.coalesce(LeaveApplication.status, "")) == "pending",
     ).count()
 
     pending_queries = Query.query.filter(
-        func.lower(func.coalesce(Query.status, "")).in_(("new", "open", "pending"))
+        Query.admin_id.in_(in_tenant),
+        func.lower(func.coalesce(Query.status, "")).in_(("new", "open", "pending")),
     ).count()
 
     pending_claims = (
         db.session.query(func.count(ExpenseLineItem.id))
-        .filter(func.lower(func.coalesce(ExpenseLineItem.status, "")) == "pending")
+        .join(ExpenseClaimHeader, ExpenseLineItem.claim_id == ExpenseClaimHeader.id)
+        .filter(
+            ExpenseClaimHeader.admin_id.in_(in_tenant),
+            func.lower(func.coalesce(ExpenseLineItem.status, "")) == "pending",
+        )
         .scalar()
         or 0
     )
@@ -276,20 +296,30 @@ def get_dashboard():
     open_tickets = 0
     pending_return_requests = 0
     try:
+        from .itam.tenancy import it_tenant_clause
         from .models.it_models import ITAssetUnit, ITSupportTicket, ITAssetReturnRequest
 
         total_inventory_assets = (
-            db.session.query(func.count(ITAssetUnit.id)).scalar() or 0
+            db.session.query(func.count(ITAssetUnit.id))
+            .filter(it_tenant_clause(ITAssetUnit))
+            .scalar()
+            or 0
         )
         open_tickets = (
             db.session.query(func.count(ITSupportTicket.id))
-            .filter(func.lower(ITSupportTicket.status) == "pending")
+            .filter(
+                ITSupportTicket.requester_admin_id.in_(in_tenant),
+                func.lower(ITSupportTicket.status) == "pending",
+            )
             .scalar()
             or 0
         )
         pending_return_requests = (
             db.session.query(func.count(ITAssetReturnRequest.id))
-            .filter(func.lower(ITAssetReturnRequest.status) == "pending")
+            .filter(
+                ITAssetReturnRequest.requester_admin_id.in_(in_tenant),
+                func.lower(ITAssetReturnRequest.status) == "pending",
+            )
             .scalar()
             or 0
         )
@@ -340,7 +370,9 @@ def _claim_status_from_items(items):
 @_admin_required
 def list_all_leaves():
     status = (request.args.get("status") or "All").strip()
-    q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id)
+    q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id).filter(
+        admin_tenant_clause()
+    )
     if status and _norm(status) != "all":
         q = q.filter(LeaveApplication.status == status)
     rows = q.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).all()
@@ -374,7 +406,7 @@ def list_all_leaves():
 @_admin_required
 def list_all_queries():
     status = (request.args.get("status") or "All").strip()
-    q = Query.query.join(Admin, Query.admin_id == Admin.id)
+    q = Query.query.join(Admin, Query.admin_id == Admin.id).filter(admin_tenant_clause())
     if status and _norm(status) != "all":
         q = q.filter(Query.status == status)
     rows = q.order_by(Query.created_at.desc(), Query.id.desc()).all()
@@ -403,8 +435,8 @@ def list_all_queries():
 @_admin_required
 def get_query_detail(query_id):
     import json as _json
-    query_obj = Query.query.get(query_id)
-    if not query_obj:
+    query_obj = db.session.get(Query, query_id)
+    if not query_obj or not admin_id_in_tenant(query_obj.admin_id):
         return jsonify({"success": False, "message": "Query not found"}), 404
 
     attachments = []
@@ -458,7 +490,11 @@ def get_query_detail(query_id):
 @_admin_required
 def list_all_claims():
     status = (request.args.get("status") or "All").strip()
-    rows = ExpenseClaimHeader.query.order_by(ExpenseClaimHeader.id.desc()).all()
+    rows = (
+        ExpenseClaimHeader.query.filter(ExpenseClaimHeader.admin_id.in_(tenant_admin_ids()))
+        .order_by(ExpenseClaimHeader.id.desc())
+        .all()
+    )
     items = []
     for row in rows:
         line_items = ExpenseLineItem.query.filter_by(claim_id=row.id).order_by(ExpenseLineItem.sr_no.asc()).all()
@@ -502,7 +538,9 @@ def list_all_claims():
 @_admin_required
 def list_all_resignations():
     status = (request.args.get("status") or "All").strip()
-    q = Resignation.query.join(Admin, Resignation.admin_id == Admin.id)
+    q = Resignation.query.join(Admin, Resignation.admin_id == Admin.id).filter(
+        admin_tenant_clause()
+    )
     if status and _norm(status) != "all":
         q = q.filter(Resignation.status == status)
     rows = q.order_by(Resignation.applied_on.desc(), Resignation.id.desc()).all()
@@ -551,6 +589,10 @@ def list_employees():
             "emp_type": (row.emp_type or "").strip(),
             "photo": photo,
             "photo_url": photo,
+            "mobile": (row.mobile or "").strip(),
+            "doj": _date_iso(row.doj),
+            "employment_status": (row.employment_status or "").strip(),
+            "is_active": True if row.is_active is None else bool(row.is_active),
         })
     return jsonify({
         "success": True,
@@ -566,7 +608,7 @@ def list_employees():
 @jwt_required()
 @_admin_required
 def get_employee_detail(admin_id):
-    admin = Admin.query.get(admin_id)
+    admin = get_admin_in_tenant(admin_id)
     if not admin or admin.is_exited:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -759,7 +801,7 @@ def get_employee_detail(admin_id):
 @jwt_required()
 @_admin_required
 def get_employee_punches(admin_id):
-    admin = Admin.query.get(admin_id)
+    admin = get_admin_in_tenant(admin_id)
     if not admin or admin.is_exited:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -840,6 +882,32 @@ def _customers_access_denied():
         "success": False,
         "message": "Customer registry is not available on this instance",
     }), 403
+
+
+@admin_bp.route("/mailboxes", methods=["GET", "PUT"])
+@jwt_required()
+@_admin_required
+def company_mailboxes():
+    """The signed-in admin's own company mailboxes. Other companies are not addressable."""
+    from .models.tenant import TENANT_MAILBOX_COLUMNS, Tenant
+
+    tenant = db.session.get(Tenant, get_current_tenant_id())
+    if tenant is None:
+        return jsonify({"success": False, "message": "Company not found"}), 404
+    if request.method == "PUT":
+        data = request.get_json(silent=True) or {}
+        mailboxes, mailbox_error = _parse_tenant_mailboxes(data)
+        if mailbox_error:
+            return jsonify({"success": False, "message": mailbox_error}), 400
+        for column, value in mailboxes.items():
+            setattr(tenant, column, value)
+        db.session.commit()
+    return jsonify({
+        "success": True,
+        "company": tenant.name,
+        "uses_env_fallback": tenant.id == DEFAULT_TENANT_ID,
+        "mailboxes": {key: getattr(tenant, key) or "" for key in TENANT_MAILBOX_COLUMNS},
+    }), 200
 
 
 def _parse_plan(value):
@@ -943,6 +1011,65 @@ def _sync_tenant_from_customer(row, *, create=False):
     return tenant
 
 
+def _parse_tenant_mailboxes(data):
+    """
+    ``mailbox_hr`` / ``mailbox_accounts`` / ``mailbox_it`` / ``mailbox_admin`` present in
+    the payload as {column: value or None}, or (None, error message).
+    """
+    from .models.tenant import TENANT_MAILBOX_COLUMNS
+
+    out = {}
+    for column in TENANT_MAILBOX_COLUMNS:
+        if column not in data:
+            continue
+        value = (data.get(column) or "").strip().lower() or None
+        if value and ("@" not in value or len(value) > 200):
+            return None, f"Invalid {column.replace('_', ' ')}"
+        out[column] = value
+    return out, None
+
+
+FIRST_TENANT_ADMIN_EMP_ID = "ADM0001"
+
+
+def _seed_tenant_admin(tenant, *, email, first_name, mobile, performed_by):
+    """First Super Admin of a newly registered tenant (logs in with email OTP)."""
+    from .models.Admin_models import AuditLog
+    from .models.attendance import LeaveBalance
+
+    admin = Admin(
+        tenant_id=tenant.id,
+        email=email,
+        first_name=first_name or "Company Admin",
+        mobile=mobile,
+        emp_id=FIRST_TENANT_ADMIN_EMP_ID,
+        emp_type="Super Admin",
+        doj=date.today(),
+        is_active=True,
+        is_exited=False,
+    )
+    db.session.add(admin)
+    db.session.flush()
+    db.session.add(LeaveBalance(
+        admin_id=admin.id,
+        privilege_leave_balance=0.0,
+        casual_leave_balance=0.0,
+        compensatory_leave_balance=0.0,
+        total_privilege_leave=0.0,
+        total_casual_leave=0.0,
+        total_compensatory_leave=0.0,
+        used_privilege_leave=0.0,
+        used_casual_leave=0.0,
+        used_comp_leave=0.0,
+    ))
+    db.session.add(AuditLog(
+        action="CREATE_TENANT_ADMIN",
+        performed_by=performed_by,
+        target_email=email,
+    ))
+    return admin
+
+
 def _registry_meta():
     from .deployment_guide_data import DEPLOYMENT_GUIDE
 
@@ -1035,6 +1162,17 @@ def create_deployed_customer():
     if contact and "@" not in contact:
         return jsonify({"success": False, "message": "Invalid contact email"}), 400
 
+    admin_email = (data.get("admin_email") or "").strip().lower() or None
+    admin_name = (data.get("admin_name") or "").strip()[:150] or None
+    admin_mobile = (data.get("admin_mobile") or "").strip().replace(" ", "")[:15] or None
+    if (admin_name or admin_mobile) and not admin_email:
+        return jsonify({"success": False, "message": "Admin email is required to create the company admin"}), 400
+    if admin_email and ("@" not in admin_email or len(admin_email) > 120):
+        return jsonify({"success": False, "message": "Invalid admin email"}), 400
+    mailboxes, mailbox_error = _parse_tenant_mailboxes(data)
+    if mailbox_error:
+        return jsonify({"success": False, "message": mailbox_error}), 400
+
     row = DeployedCustomer(
         company_name=company_name,
         slug=slug,
@@ -1049,15 +1187,40 @@ def create_deployed_customer():
     db.session.add(row)
     db.session.flush()
     tenant = _sync_tenant_from_customer(row, create=True)
+    for column, value in mailboxes.items():
+        setattr(tenant, column, value)
+    tenant_admin = None
+    if admin_email:
+        db.session.flush()
+        tenant_admin = _seed_tenant_admin(
+            tenant,
+            email=admin_email,
+            first_name=admin_name,
+            mobile=admin_mobile,
+            performed_by=(get_jwt() or {}).get("email") or "platform",
+        )
     db.session.commit()
     payload = row.to_dict()
     payload["tenant_id"] = tenant.id
-    return jsonify({
+    body = {
         "success": True,
-        "message": "Company registered (tenant created in shared database)",
+        "message": (
+            "Company registered with its first admin (tenant created in shared database)"
+            if tenant_admin
+            else "Company registered (tenant created in shared database)"
+        ),
         "customer": payload,
         "tenant": tenant.to_dict(),
-    }), 201
+    }
+    if tenant_admin:
+        body["tenant_admin"] = {
+            "id": tenant_admin.id,
+            "email": tenant_admin.email,
+            "emp_id": tenant_admin.emp_id,
+            "first_name": tenant_admin.first_name,
+            "emp_type": tenant_admin.emp_type,
+        }
+    return jsonify(body), 201
 
 
 @admin_bp.route("/customers/<int:customer_id>", methods=["GET"])
@@ -1069,10 +1232,16 @@ def get_deployed_customer(customer_id):
     row = DeployedCustomer.query.get(customer_id)
     if not row:
         return jsonify({"success": False, "message": "Customer not found"}), 404
+    from .models.tenant import Tenant
+
+    tenant = Tenant.query.filter_by(slug=row.slug).first() if row.slug else None
+    if tenant is None and (row.company_name or "").strip():
+        tenant = Tenant.query.filter_by(name=row.company_name.strip()).first()
     plans, statuses = _registry_meta()
     return jsonify({
         "success": True,
         "customer": row.to_dict(),
+        "tenant": tenant.to_dict() if tenant else None,
         "plans": plans,
         "statuses": statuses,
         "silo_provision_legacy": _silo_provision_legacy_enabled(),
@@ -1151,7 +1320,13 @@ def update_deployed_customer(customer_id):
     if "go_live_date" in data:
         row.go_live_date = _parse_date(data.get("go_live_date"))
 
+    mailboxes, mailbox_error = _parse_tenant_mailboxes(data)
+    if mailbox_error:
+        return jsonify({"success": False, "message": mailbox_error}), 400
+
     tenant = _sync_tenant_from_customer(row)
+    for column, value in mailboxes.items():
+        setattr(tenant, column, value)
     db.session.commit()
     payload = row.to_dict()
     payload["tenant_id"] = tenant.id if tenant else None
@@ -1247,3 +1422,46 @@ def provision_deployed_customer(customer_id):
             "success": False,
             "message": f"Provisioning failed: {e}",
         }), 500
+
+
+@admin_bp.route("/employee-change-requests", methods=["GET"])
+@jwt_required()
+@_admin_required
+def list_employee_change_requests():
+    from .employee_profile_change_service import list_change_requests, request_tenant_id
+
+    status = (request.args.get("status") or "pending").strip()
+    rows = list_change_requests(request_tenant_id(), status)
+    return jsonify({"success": True, "requests": rows, "count": len(rows)}), 200
+
+
+@admin_bp.route("/employee-change-requests/<int:request_id>", methods=["GET"])
+@jwt_required()
+@_admin_required
+def get_employee_change_request(request_id):
+    from .employee_profile_change_service import get_change_request, request_tenant_id, serialize_change_request
+
+    row = get_change_request(request_tenant_id(), request_id)
+    if row is None:
+        return jsonify({"success": False, "message": "Request not found"}), 404
+    return jsonify({"success": True, "request": serialize_change_request(row)}), 200
+
+
+@admin_bp.route("/employee-change-requests/<int:request_id>/decide", methods=["POST"])
+@jwt_required()
+@_admin_required
+def decide_employee_change_request(request_id):
+    from .employee_profile_change_service import decide_profile_change, get_change_request, request_tenant_id
+
+    row = get_change_request(request_tenant_id(), request_id)
+    if row is None:
+        return jsonify({"success": False, "message": "Request not found"}), 404
+    body = request.get_json() or {}
+    payload, message, status = decide_profile_change(
+        row,
+        body.get("decision"),
+        body.get("note") or "",
+    )
+    if payload is None:
+        return jsonify({"success": False, "message": message}), status
+    return jsonify({"success": True, "message": "Decision saved.", "request": payload}), status

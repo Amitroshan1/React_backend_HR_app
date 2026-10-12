@@ -1,21 +1,38 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Users, Calendar, LogOut, TrendingDown, FileText, Download, AlertTriangle, BarChart3 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Users, Calendar, LogOut, TrendingDown, FileText, Download, AlertTriangle, Archive } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
-import './OffboardingDashboard.css';
+import './offboarding-ui.css';
 
 const HR_API_BASE = '/api/HumanResource';
 
-const statusClass = (status) => {
+const statusPill = (status) => {
   const map = {
-    initiated: 'ob-dash-status--initiated',
-    notice: 'ob-dash-status--notice',
-    clearance: 'ob-dash-status--clearance',
-    ready: 'ob-dash-status--ready',
+    initiated: 'obx-pill--info',
+    notice: 'obx-pill--warn',
+    clearance: 'obx-pill--bad',
+    ready: 'obx-pill--ok',
   };
-  return map[status] || 'ob-dash-status--none';
+  return map[status] || '';
 };
 
+function Kpi({ label, value, hint, icon: Icon, tone = 'ok' }) {
+  return (
+    <article className="obx-kpi">
+      <div>
+        <span className="obx-kpi-label">{label}</span>
+        <span className="obx-kpi-value">{value}</span>
+        <span className="obx-kpi-hint">{hint}</span>
+      </div>
+      <span className={`obx-kpi-icon obx-kpi-icon--${tone}`}>
+        <Icon size={18} />
+      </span>
+    </article>
+  );
+}
+
 const OffboardingDashboard = ({ onBack, onOpenExitEmployee }) => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -126,268 +143,186 @@ const OffboardingDashboard = ({ onBack, onOpenExitEmployee }) => {
   const summary = data?.summary || {};
   const analytics = data?.analytics || {};
 
+  const exitTypes = (analytics.by_exit_type || []).slice(0, 5);
+  const maxExits = Math.max(analytics.total_exits || 1, 1);
+
   return (
-    <div className="ob-dash-container">
-      <div className="ob-dash-wrapper">
-        <div className="ob-dash-header">
-          <button type="button" className="ob-dash-back" onClick={onBack}>
-            <ArrowLeft size={18} />
-            <span>Back</span>
+    <section className="obx">
+      <header className="obx-head">
+        <div>
+          <button type="button" className="obx-back" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Back
           </button>
-          <div className="ob-dash-header-text">
-            <h1 className="ob-dash-title">Offboarding Dashboard</h1>
-            <p className="ob-dash-subtitle">Pipeline, LWD schedule, login grace, and attrition analytics</p>
-          </div>
+          <h1>Offboarding</h1>
+          <p>Separation pipeline, last working day, login grace, and attrition.</p>
+        </div>
+        <div className="obx-actions">
+          <button type="button" className="obx-btn" onClick={() => navigate('/archive-employees')}>
+            <Archive size={16} />
+            Archive
+          </button>
           {typeof onOpenExitEmployee === 'function' ? (
-            <button type="button" className="ob-dash-exit-btn" onClick={onOpenExitEmployee}>
+            <button type="button" className="obx-btn obx-btn--primary" onClick={onOpenExitEmployee}>
               <LogOut size={16} />
-              <span>Exit employee</span>
+              Exit employee
             </button>
           ) : null}
         </div>
+      </header>
 
-        {error && <p className="ob-dash-error" role="alert">{error}</p>}
+      {error ? <p className="obx-alert" role="alert">{error}</p> : null}
 
-        {loading ? (
-          <div className="ob-dash-loading">
-            <div className="ob-dash-loading-spinner" aria-hidden />
-            <span>Loading dashboard…</span>
+      {loading ? (
+        <p className="obx-loading">Loading offboarding…</p>
+      ) : data ? (
+        <>
+          <div className="obx-kpis">
+            <Kpi label="In pipeline" value={summary.in_pipeline || 0} hint="Active separations" icon={Users} tone="info" />
+            <Kpi label="LWD this week" value={summary.lwd_this_week_count || 0} hint="Last working days" icon={Calendar} />
+            <Kpi label="Login grace" value={summary.login_grace_count || 0} hint="Exited, still signed in" icon={LogOut} tone="warn" />
+            <Kpi label="Exits" value={summary.exits_last_12_months || 0} hint="Last 12 months" icon={TrendingDown} />
+            <Kpi
+              label="NOC overdue"
+              value={summary.noc_sla_overdue_count || 0}
+              hint="Past the SLA window"
+              icon={AlertTriangle}
+              tone={(summary.noc_sla_overdue_count || 0) > 0 ? 'bad' : 'ok'}
+            />
           </div>
-        ) : data && (
-          <div className="ob-dash-body">
-            <div className="ob-dash-cards">
-              <div className="ob-dash-card ob-dash-card--pipeline">
-                <div className="ob-dash-card__icon">
-                  <Users size={22} strokeWidth={2.25} />
-                </div>
-                <div className="ob-dash-card__body">
-                  <span className="ob-dash-card__value">{summary.in_pipeline || 0}</span>
-                  <span className="ob-dash-card__label">In separation pipeline</span>
-                </div>
-              </div>
-              <div className="ob-dash-card ob-dash-card--lwd">
-                <div className="ob-dash-card__icon">
-                  <Calendar size={22} strokeWidth={2.25} />
-                </div>
-                <div className="ob-dash-card__body">
-                  <span className="ob-dash-card__value">{summary.lwd_this_week_count || 0}</span>
-                  <span className="ob-dash-card__label">LWD this week</span>
-                </div>
-              </div>
-              <div className="ob-dash-card ob-dash-card--grace">
-                <div className="ob-dash-card__icon">
-                  <LogOut size={22} strokeWidth={2.25} />
-                </div>
-                <div className="ob-dash-card__body">
-                  <span className="ob-dash-card__value">{summary.login_grace_count || 0}</span>
-                  <span className="ob-dash-card__label">Login grace (exited)</span>
-                </div>
-              </div>
-              <div className="ob-dash-card ob-dash-card--exits">
-                <div className="ob-dash-card__icon">
-                  <TrendingDown size={22} strokeWidth={2.25} />
-                </div>
-                <div className="ob-dash-card__body">
-                  <span className="ob-dash-card__value">{summary.exits_last_12_months || 0}</span>
-                  <span className="ob-dash-card__label">Exits (12 months)</span>
-                </div>
-              </div>
-              <div className={`ob-dash-card ob-dash-card--sla${(summary.noc_sla_overdue_count || 0) > 0 ? ' ob-dash-card--alert' : ''}`}>
-                <div className="ob-dash-card__icon">
-                  <AlertTriangle size={22} strokeWidth={2.25} />
-                </div>
-                <div className="ob-dash-card__body">
-                  <span className="ob-dash-card__value">{summary.noc_sla_overdue_count || 0}</span>
-                  <span className="ob-dash-card__label">NOC SLA overdue</span>
-                </div>
-              </div>
-            </div>
 
-            {(data.sla?.noc_overdue || []).length > 0 && (
-              <section className="ob-dash-panel ob-dash-panel--full ob-dash-sla-panel">
-                <h2>NOC SLA alerts ({data.sla?.noc_pending_days_threshold}+ days pending)</h2>
-                <ul className="ob-dash-sla-list">
-                  {data.sla.noc_overdue.map((row) => (
-                    <li key={row.noc_id}>
+          {(data.sla?.noc_overdue || []).length > 0 ? (
+            <section className="obx-panel">
+              <div className="obx-panel-head">
+                <h2>NOC alerts</h2>
+                <span className="obx-muted">{data.sla?.noc_pending_days_threshold}+ days pending</span>
+              </div>
+              <ul className="obx-people">
+                {data.sla.noc_overdue.map((row) => (
+                  <li key={row.noc_id} className="obx-person">
+                    <div>
                       <strong>{row.employee_name}</strong>
-                      <span>{row.department_key} · {row.days_pending} days pending</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            <div className="ob-dash-grid">
-              <section className="ob-dash-panel">
-                <h2>Status breakdown</h2>
-                <ul className="ob-dash-breakdown">
-                  <li>
-                    <span><i className="ob-dash-status-dot ob-dash-status-dot--initiated" aria-hidden />Submitted</span>
-                    <strong>{summary.initiated || 0}</strong>
-                  </li>
-                  <li>
-                    <span><i className="ob-dash-status-dot ob-dash-status-dot--notice" aria-hidden />Notice period</span>
-                    <strong>{summary.notice || 0}</strong>
-                  </li>
-                  <li>
-                    <span><i className="ob-dash-status-dot ob-dash-status-dot--clearance" aria-hidden />NOC clearance</span>
-                    <strong>{summary.clearance || 0}</strong>
-                  </li>
-                  <li>
-                    <span><i className="ob-dash-status-dot ob-dash-status-dot--ready" aria-hidden />Ready to exit</span>
-                    <strong>{summary.ready || 0}</strong>
-                  </li>
-                </ul>
-              </section>
-
-              <section className="ob-dash-panel">
-                <div className="ob-dash-panel-head">
-                  <h2>Attrition analytics</h2>
-                  <div className="ob-dash-export-actions">
-                    <button type="button" className="ob-dash-export-btn" onClick={() => exportAnalytics('csv')}>
-                      <Download size={14} />
-                      CSV
-                    </button>
-                    <button type="button" className="ob-dash-export-btn" onClick={() => exportAnalytics('pdf')}>
-                      <Download size={14} />
-                      PDF
-                    </button>
-                  </div>
-                </div>
-                <p className="ob-dash-muted">
-                  Avg notice shortfall: {analytics.avg_notice_shortfall_days || 0} days
-                  {' · '}
-                  {analytics.employees_with_notice_shortfall || 0} with shortfall
-                </p>
-                <div className="ob-dash-analytics-bars">
-                  {(analytics.by_exit_type || []).length === 0 ? (
-                    <div className="ob-dash-analytics-empty">
-                      <BarChart3 size={28} strokeWidth={1.5} />
-                      <span>No exit data for the selected period</span>
+                      <span>{row.department_key}</span>
                     </div>
-                  ) : (
-                    (analytics.by_exit_type || []).slice(0, 5).map((row) => (
-                      <div key={row.exit_type} className="ob-dash-bar-row">
-                        <span>{row.exit_type}</span>
-                        <div className="ob-dash-bar-track">
-                          <div
-                            className="ob-dash-bar-fill"
-                            style={{
-                              width: `${Math.min(100, (row.count / Math.max(analytics.total_exits || 1, 1)) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                        <strong>{row.count}</strong>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
-
-            <section className="ob-dash-panel ob-dash-panel--full">
-              <h2>Active separation pipeline</h2>
-              <div className="ob-dash-table-wrap">
-                <table className="ob-dash-table">
-                  <thead>
-                    <tr>
-                      <th>Employee</th>
-                      <th>Circle</th>
-                      <th>Status</th>
-                      <th>NOC</th>
-                      <th>F&F</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(data.pipeline || []).length === 0 ? (
-                      <tr><td colSpan="5" className="ob-dash-empty">No employees in offboarding pipeline</td></tr>
-                    ) : (
-                      data.pipeline.map((row) => (
-                        <tr key={row.admin_id}>
-                          <td>
-                            <div className="ob-dash-emp-cell">
-                              <strong>{row.name}</strong>
-                              <span>{row.emp_id} · {row.email}</span>
-                            </div>
-                          </td>
-                          <td>{row.circle || '—'}</td>
-                          <td>
-                            <span className={`ob-dash-status ${statusClass(row.status)}`}>
-                              {row.status_label}
-                            </span>
-                          </td>
-                          <td>
-                            {row.noc_summary?.total > 0
-                              ? `${row.noc_summary.cleared}/${row.noc_summary.total}`
-                              : '—'}
-                          </td>
-                          <td>{row.fnf_status || 'none'}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    <em>{row.days_pending} days</em>
+                  </li>
+                ))}
+              </ul>
             </section>
+          ) : null}
 
-            <div className="ob-dash-grid">
-              <section className="ob-dash-panel">
-                <h2>LWD this week</h2>
-                <ul className="ob-dash-list">
-                  {(data.lwd_this_week || []).length === 0 ? (
-                    <li className="ob-dash-empty">No LWD scheduled this week</li>
-                  ) : (
-                    data.lwd_this_week.map((row) => (
-                      <li key={`lwd-${row.admin_id}`}>
-                        <strong>{row.name}</strong>
-                        <span>{formatDateDDMMYYYY(row.last_working_day)}</span>
-                        {row.is_exited && <em>Exited</em>}
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </section>
-
-              <section className="ob-dash-panel">
-                <h2>Login grace (exited, access until LWD)</h2>
-                <ul className="ob-dash-list">
-                  {(data.login_grace || []).length === 0 ? (
-                    <li className="ob-dash-empty">No employees in login grace period</li>
-                  ) : (
-                    data.login_grace.map((row) => (
-                      <li key={`grace-${row.admin_id}`} className="ob-dash-list-item--actions">
-                        <div>
-                          <strong>{row.name}</strong>
-                          <span>Until {formatDateDDMMYYYY(row.login_until)} · F&F: {row.fnf_status}</span>
-                        </div>
-                        <div className="ob-dash-grace-actions">
-                          <button
-                            type="button"
-                            className="ob-dash-link-btn"
-                            onClick={() => downloadRelievingLetter(row.admin_id, row.emp_id)}
-                          >
-                            <FileText size={14} />
-                            Relieving letter
-                          </button>
-                          <button
-                            type="button"
-                            className="ob-dash-link-btn"
-                            onClick={() => downloadExperienceLetter(row.admin_id, row.emp_id)}
-                          >
-                            <FileText size={14} />
-                            Experience letter
-                          </button>
-                        </div>
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </section>
-            </div>
+          <div className="obx-split">
+            <section className="obx-panel">
+              <div className="obx-panel-head"><h2>Status</h2></div>
+              <ul className="obx-breakdown">
+                <li><span><i className="obx-dot obx-dot--info" />Submitted</span><strong>{summary.initiated || 0}</strong></li>
+                <li><span><i className="obx-dot obx-dot--warn" />Notice</span><strong>{summary.notice || 0}</strong></li>
+                <li><span><i className="obx-dot obx-dot--bad" />NOC</span><strong>{summary.clearance || 0}</strong></li>
+                <li><span><i className="obx-dot obx-dot--ok" />Ready</span><strong>{summary.ready || 0}</strong></li>
+              </ul>
+            </section>
+            <section className="obx-panel">
+              <div className="obx-panel-head">
+                <h2>Attrition</h2>
+                <div className="obx-actions">
+                  <button type="button" className="obx-btn" onClick={() => exportAnalytics('csv')}><Download size={14} />CSV</button>
+                  <button type="button" className="obx-btn" onClick={() => exportAnalytics('pdf')}><Download size={14} />PDF</button>
+                </div>
+              </div>
+              <p className="obx-muted">
+                Average notice shortfall {analytics.avg_notice_shortfall_days || 0} days · {analytics.employees_with_notice_shortfall || 0} people
+              </p>
+              {exitTypes.length === 0 ? (
+                <p className="obx-empty">No exits in this period.</p>
+              ) : exitTypes.map((row) => (
+                <div key={row.exit_type} className="obx-bar">
+                  <span>{row.exit_type}</span>
+                  <div className="obx-bar-track">
+                    <div className="obx-bar-fill" style={{ width: `${Math.min(100, (row.count / maxExits) * 100)}%` }} />
+                  </div>
+                  <strong>{row.count}</strong>
+                </div>
+              ))}
+            </section>
           </div>
-        )}
-      </div>
-    </div>
+
+          <section className="obx-panel">
+            <div className="obx-panel-head"><h2>Separation pipeline</h2></div>
+            <div className="obx-table-wrap">
+              <table className="obx-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Circle</th>
+                    <th>Status</th>
+                    <th>NOC</th>
+                    <th>F&amp;F</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.pipeline || []).length === 0 ? (
+                    <tr><td colSpan="5" className="obx-empty">No employees in the pipeline.</td></tr>
+                  ) : data.pipeline.map((row) => (
+                    <tr key={row.admin_id}>
+                      <td>
+                        <strong>{row.name}</strong>
+                        <span className="obx-sub">{row.emp_id} · {row.email}</span>
+                      </td>
+                      <td>{row.circle || '—'}</td>
+                      <td><span className={`obx-pill ${statusPill(row.status)}`}>{row.status_label}</span></td>
+                      <td>{row.noc_summary?.total > 0 ? `${row.noc_summary.cleared}/${row.noc_summary.total}` : '—'}</td>
+                      <td><span className="obx-pill">{row.fnf_status || 'none'}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <div className="obx-split">
+            <section className="obx-panel">
+              <div className="obx-panel-head"><h2>Last working day this week</h2></div>
+              <ul className="obx-people">
+                {(data.lwd_this_week || []).length === 0 ? (
+                  <li className="obx-empty">Nothing scheduled this week.</li>
+                ) : data.lwd_this_week.map((row) => (
+                  <li key={`lwd-${row.admin_id}`} className="obx-person">
+                    <div>
+                      <strong>{row.name}</strong>
+                      <span>{formatDateDDMMYYYY(row.last_working_day)}</span>
+                    </div>
+                    {row.is_exited ? <em>Exited</em> : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className="obx-panel">
+              <div className="obx-panel-head"><h2>Login still open</h2></div>
+              <ul className="obx-people">
+                {(data.login_grace || []).length === 0 ? (
+                  <li className="obx-empty">No one is in a login grace period.</li>
+                ) : data.login_grace.map((row) => (
+                  <li key={`grace-${row.admin_id}`} className="obx-person">
+                    <div>
+                      <strong>{row.name}</strong>
+                      <span>Until {formatDateDDMMYYYY(row.login_until)} · F&amp;F {row.fnf_status}</span>
+                      <span className="obx-row-actions">
+                        <button type="button" className="obx-link" onClick={() => downloadRelievingLetter(row.admin_id, row.emp_id)}>
+                          <FileText size={14} /> Relieving letter
+                        </button>
+                        <button type="button" className="obx-link" onClick={() => downloadExperienceLetter(row.admin_id, row.emp_id)}>
+                          <FileText size={14} /> Experience letter
+                        </button>
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        </>
+      ) : null}
+    </section>
   );
 };
 

@@ -16,6 +16,12 @@ from ..email import send_lwd_approaching_reminder, send_noc_sla_reminder
 from ..models.Admin_models import Admin, EmployeeExitHistory
 from ..models.offboarding_reminder import OffboardingReminderLog
 from ..models.seperation import Resignation
+from ..tenant_jobs import (
+    admin_id_scope,
+    admin_scope,
+    merge_tenant_summaries,
+    run_in_each_tenant_scope,
+)
 from ..offboarding_service import (
     NOC_SLA_DAYS,
     _admin_display_name,
@@ -47,13 +53,14 @@ def _release_reminder(reminder_key: str) -> None:
     )
 
 
-def _lwd_targets_for_offset(run_date, days_before: int) -> list[dict]:
+def _lwd_targets_for_offset(run_date, days_before: int, tenant_id=None) -> list[dict]:
     target_lwd = run_date + timedelta(days=days_before)
     out: list[dict] = []
     seen: set[int] = set()
 
     grace_rows = (
-        Admin.query.filter(Admin.exit_login_until == target_lwd)
+        Admin.query.filter(admin_scope(tenant_id))
+        .filter(Admin.exit_login_until == target_lwd)
         .filter(func.coalesce(Admin.is_exited, False) == True)
         .all()
     )
@@ -74,7 +81,8 @@ def _lwd_targets_for_offset(run_date, days_before: int) -> list[dict]:
         )
 
     active_res = (
-        Resignation.query.filter(func.lower(func.coalesce(Resignation.status, "")) == "approved")
+        Resignation.query.filter(admin_id_scope(Resignation.admin_id, tenant_id))
+        .filter(func.lower(func.coalesce(Resignation.status, "")) == "approved")
         .all()
     )
     for res in active_res:
@@ -104,6 +112,7 @@ def _lwd_targets_for_offset(run_date, days_before: int) -> list[dict]:
     hist_rows = (
         db.session.query(EmployeeExitHistory, Admin)
         .join(Admin, Admin.id == EmployeeExitHistory.admin_id)
+        .filter(admin_scope(tenant_id))
         .filter(EmployeeExitHistory.last_working_day == target_lwd)
         .filter(func.coalesce(Admin.is_exited, False) == False)
         .all()
@@ -127,11 +136,12 @@ def _lwd_targets_for_offset(run_date, days_before: int) -> list[dict]:
     return out
 
 
-def _noc_sla_overdue(run_date) -> list[dict]:
-    return get_noc_sla_overdue_items(run_date)
+def _noc_sla_overdue(run_date, tenant_id=None) -> list[dict]:
+    return get_noc_sla_overdue_items(run_date, tenant_id=tenant_id)
 
 
-def run_offboarding_reminders(run_date, *, dry_run: bool = False) -> dict:
+def run_offboarding_reminders(run_date, *, dry_run: bool = False, tenant_id=None) -> dict:
+    """LWD approaching and NOC SLA reminders for one tenant, or all when tenant_id is None."""
     summary = {
         "run_date": run_date.isoformat(),
         "lwd_reminders_sent": 0,
@@ -140,7 +150,7 @@ def run_offboarding_reminders(run_date, *, dry_run: bool = False) -> dict:
     }
 
     for days_before in LWD_REMINDER_DAYS:
-        for target in _lwd_targets_for_offset(run_date, days_before):
+        for target in _lwd_targets_for_offset(run_date, days_before, tenant_id):
             key = f"lwd:{target['admin_id']}:{days_before}"
             if not _claim_reminder(key, dry_run=dry_run):
                 summary["skipped"] += 1
@@ -163,7 +173,7 @@ def run_offboarding_reminders(run_date, *, dry_run: bool = False) -> dict:
                 db.session.commit()
                 summary["skipped"] += 1
 
-    for item in _noc_sla_overdue(run_date):
+    for item in _noc_sla_overdue(run_date, tenant_id):
         key = f"noc_sla:{item['noc_id']}"
         if not _claim_reminder(key, dry_run=dry_run):
             summary["skipped"] += 1
@@ -201,5 +211,9 @@ def register_offboarding_reminders_command(app):
         else:
             parsed = datetime.now(ZoneInfo("Asia/Kolkata")).date()
         with app.app_context():
-            result = run_offboarding_reminders(parsed, dry_run=dry_run)
+            result = merge_tenant_summaries(
+                run_in_each_tenant_scope(
+                    lambda tid: run_offboarding_reminders(parsed, dry_run=dry_run, tenant_id=tid)
+                )
+            )
             click.echo(result)

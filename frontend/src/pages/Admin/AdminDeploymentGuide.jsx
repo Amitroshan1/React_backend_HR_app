@@ -5,7 +5,7 @@ import './AdminDeploymentGuide.css';
 
 const API_ACCESS = '/api/admin/deployment-guide/access';
 const API_GUIDE = '/api/admin/deployment-guide';
-const STORAGE_KEY = 'hrms_deployment_checklist_v1';
+const STORAGE_KEY = 'hrms_deployment_checklist_v2';
 
 function loadChecked() {
   try {
@@ -30,8 +30,8 @@ export default function AdminDeploymentGuide() {
   const [checked, setChecked] = useState(loadChecked);
   const [customerName, setCustomerName] = useState(prefill.customerName || '');
   const [customerPlan, setCustomerPlan] = useState(prefill.customerPlan || 'essential');
-  const [customerUrl, setCustomerUrl] = useState(prefill.customerUrl || '');
-  const [customerDb, setCustomerDb] = useState(prefill.customerDb || '');
+  const [customerSlug, setCustomerSlug] = useState(prefill.customerSlug || '');
+  const [adminEmail, setAdminEmail] = useState(prefill.adminEmail || '');
 
   const token = () => localStorage.getItem('token');
   const headers = () => ({
@@ -136,7 +136,28 @@ export default function AdminDeploymentGuide() {
       </div>
 
       <div className="deploy-guide-customer-card">
-        <h2>Customer record (for your notes)</h2>
+        <div className="deploy-guide-card-head">
+          <h2>Company notes</h2>
+          <button
+            type="button"
+            className="deploy-guide-register"
+            disabled={!customerName.trim()}
+            onClick={() => navigate('/admin/customers/register', {
+              state: {
+                company_name: customerName.trim(),
+                plan: customerPlan,
+                slug: customerSlug.trim(),
+                admin_email: adminEmail.trim(),
+              },
+            })}
+          >
+            Register company
+          </button>
+        </div>
+        <p className="deploy-guide-card-copy">
+          These notes stay in this browser. Register company opens the form with them filled in.
+          The company uses this app’s login page.
+        </p>
         <div className="deploy-guide-customer-grid">
           <label>
             Company name
@@ -158,31 +179,30 @@ export default function AdminDeploymentGuide() {
             </select>
           </label>
           <label>
-            Login URL
+            Slug
             <input
-              type="url"
-              value={customerUrl}
-              onChange={(e) => setCustomerUrl(e.target.value)}
-              placeholder="https://hr.acme.com"
+              type="text"
+              value={customerSlug}
+              onChange={(e) => setCustomerSlug(e.target.value)}
+              placeholder="acme_corp"
             />
           </label>
           <label>
-            Database name
+            Admin email
             <input
-              type="text"
-              value={customerDb}
-              onChange={(e) => setCustomerDb(e.target.value)}
-              placeholder="hrms_acme"
+              type="email"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+              placeholder="admin@acme.com"
             />
           </label>
         </div>
-        {customerName && (
+        {customerName ? (
           <p className="deploy-guide-customer-summary">
-            Deploying <strong>{customerName}</strong> ({customerPlan})
-            {customerUrl ? ` at ${customerUrl}` : ''}
-            {customerDb ? ` · DB: ${customerDb}` : ''}
+            <strong>{customerName}</strong> on {customerPlan}
+            {adminEmail ? ` · admin ${adminEmail}` : ''}
           </p>
-        )}
+        ) : null}
       </div>
 
       <div className="deploy-guide-sections">
@@ -221,7 +241,7 @@ export default function AdminDeploymentGuide() {
 
       {guide.env_template?.length > 0 && (
         <div className="deploy-guide-env-card">
-          <h2>Environment variables (per customer)</h2>
+          <h2>Platform settings</h2>
           <table className="deploy-guide-env-table">
             <thead>
               <tr>
@@ -257,7 +277,7 @@ export default function AdminDeploymentGuide() {
       )}
 
       <p className="deploy-guide-footer">
-        Full document: <code>docs/NEW_CUSTOMER_DEPLOYMENT.md</code> in the repository.
+        Same steps are written in <code>docs/NEW_CUSTOMER_DEPLOYMENT.md</code>.
       </p>
     </div>
   );

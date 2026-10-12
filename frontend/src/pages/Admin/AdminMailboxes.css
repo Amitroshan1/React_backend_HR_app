@@ -1,0 +1,236 @@
+/* Company mailboxes — Admin settings page */
+
+.mbox-page {
+  --mbox-text: #142d52;
+  --mbox-muted: #667895;
+  --mbox-border: #e1e7ef;
+  --mbox-surface: #ffffff;
+  --mbox-primary: #13877f;
+
+  width: 100%;
+  min-height: auto;
+  padding: 4px 0 40px;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.mbox-shell {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 20px 28px;
+}
+
+.mbox-hero {
+  margin: 0 0 16px;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--mbox-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.mbox-hero__eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #0c716a;
+}
+
+.mbox-hero h1 {
+  margin: 0 0 8px;
+  font-size: clamp(1.25rem, 2vw, 1.45rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--mbox-text);
+  line-height: 1.25;
+}
+
+.mbox-hero p {
+  margin: 0;
+  max-width: 58ch;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--mbox-muted);
+}
+
+.mbox-hero strong {
+  color: var(--mbox-text);
+  font-weight: 700;
+}
+
+.mbox-panel {
+  margin: 0;
+  padding: 20px 22px 18px;
+  border: 1px solid var(--mbox-border);
+  border-radius: 12px;
+  background: var(--mbox-surface);
+  box-shadow: 0 4px 16px rgba(20, 45, 82, 0.04);
+}
+
+.mbox-panel__head {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.mbox-panel__head h2 {
+  margin: 0 0 4px;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  color: #1e293b;
+  letter-spacing: -0.01em;
+}
+
+.mbox-panel__head p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+}
+
+.mbox-loading {
+  margin: 8px 0 16px;
+  font-size: 0.875rem;
+  color: var(--mbox-muted);
+}
+
+.mbox-alert {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.mbox-alert--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+.mbox-alert--ok {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+}
+
+.mbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.mbox-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--mbox-border);
+  border-radius: 12px;
+  border-top-width: 3px;
+  border-top-color: #94a3b8;
+  background: #fafbfc;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #334155;
+  box-sizing: border-box;
+}
+
+.mbox-field--rose { border-top-color: #f43f5e; }
+.mbox-field--teal { border-top-color: #14b8a6; }
+.mbox-field--indigo { border-top-color: #6366f1; }
+.mbox-field--blue { border-top-color: #3b82f6; }
+
+.mbox-field__label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--mbox-text);
+}
+
+.mbox-field__hint {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.mbox-field input {
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--mbox-border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--mbox-text);
+  background: #fff;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.mbox-field input:focus {
+  outline: none;
+  border-color: #5eead4;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.14);
+}
+
+.mbox-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.mbox-btn {
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.12s;
+}
+
+.mbox-btn--primary {
+  border: none;
+  background: var(--mbox-primary);
+  color: #fff;
+}
+
+.mbox-btn--primary:hover:not(:disabled) {
+  opacity: 0.95;
+  transform: translateY(-1px);
+}
+
+.mbox-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 700px) {
+  .mbox-shell {
+    padding: 0 12px 20px;
+  }
+
+  .mbox-hero,
+  .mbox-panel {
+    padding: 16px;
+  }
+
+  .mbox-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mbox-actions {
+    justify-content: stretch;
+  }
+
+  .mbox-btn {
+    width: 100%;
+  }
+}

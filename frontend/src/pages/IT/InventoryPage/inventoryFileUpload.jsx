@@ -124,9 +124,7 @@ export function InventoryFileCell({
             className="ana-photo-count-btn"
             onClick={() => {
               const items = buildPreviewItems(row, field);
-              const firstImage = items.find(
-                (it) => it.isImage && String(it.data).startsWith("data:image/"),
-              );
+              const firstImage = items.find((it) => it.isImage);
               if (firstImage?.data && openFirstImageInNewTab([firstImage.data])) return;
               onPreview(row.id, field);
             }}
@@ -154,7 +152,7 @@ export function FilePreviewModal({ items, title, onClose, onRemove }) {
           <div className="ana-photo-grid">
             {items.map((item, i) => (
               <div key={i} className="ana-photo-item">
-                {item.isImage && String(item.data).startsWith("data:image/") ? (
+                {item.isImage ? (
                   <ClickableImage src={item.data} alt={item.name || ""} />
                 ) : (
                   <div className="ana-file-preview-tag" title={item.name}>
@@ -173,11 +171,20 @@ export function FilePreviewModal({ items, title, onClose, onRemove }) {
   );
 }
 
+export function isInventoryImage(src) {
+  const value = String(src || "");
+  return (
+    value.startsWith("data:image/") ||
+    value.startsWith("/api/files/") ||
+    /^https?:\/\/.+\.(png|jpe?g|gif|webp)(\?|$)/i.test(value)
+  );
+}
+
 /** Build preview items from parallel data + names arrays. */
 export function buildPreviewItems(dataUrls = [], names = []) {
   return (dataUrls || []).map((data, i) => {
     const name = names[i] || `File ${i + 1}`;
-    const isImage = String(data).startsWith("data:image/");
+    const isImage = isInventoryImage(data);
     return { data, name, isImage };
   });
 }

@@ -14,7 +14,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import flag_modified
 
 from .. import db
+from ..tenant_context import DEFAULT_TENANT_ID
 from .models import BiometricAttendanceDay, BiometricLog
+from .tenancy import tenant_by_serial, tenant_for_serial
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +50,18 @@ def _sorted_unique_keep_dupes(times: Iterable[str]) -> List[str]:
 
 
 def upsert_attendance_day_from_log(log: BiometricLog) -> Optional[BiometricAttendanceDay]:
-    """Append one valid scan onto the PIN+date read-model row."""
+    """Append one valid scan onto the tenant+PIN+date read-model row."""
     if not is_reportable_log(log):
         return None
 
     pin = (log.device_user_id or "").strip()
     day = log.punch_time.date()
     ts = format_scan_ts(log.punch_time)
+    tenant_id = tenant_for_serial(log.device_serial_number)
 
     row = (
         BiometricAttendanceDay.query.filter_by(
-            device_user_id=pin, attendance_date=day
+            tenant_id=tenant_id, device_user_id=pin, attendance_date=day
         )
         .with_for_update()
         .first()
@@ -66,6 +69,7 @@ def upsert_attendance_day_from_log(log: BiometricLog) -> Optional[BiometricAtten
     created = False
     if row is None:
         row = BiometricAttendanceDay(
+            tenant_id=tenant_id,
             admin_id=log.admin_id,
             device_user_id=pin,
             attendance_date=day,
@@ -81,7 +85,7 @@ def upsert_attendance_day_from_log(log: BiometricLog) -> Optional[BiometricAtten
         except IntegrityError:
             row = (
                 BiometricAttendanceDay.query.filter_by(
-                    device_user_id=pin, attendance_date=day
+                    tenant_id=tenant_id, device_user_id=pin, attendance_date=day
                 )
                 .with_for_update()
                 .first()
@@ -135,13 +139,14 @@ def rebuild_attendance_days_from_logs() -> int:
         .all()
     )
 
+    tenants = tenant_by_serial()
     grouped: dict[tuple, dict] = {}
     for log in logs:
         pin = (log.device_user_id or "").strip()
         if not pin or log.punch_time is None:
             continue
         day = log.punch_time.date()
-        key = (pin, day)
+        key = (tenants.get(log.device_serial_number, DEFAULT_TENANT_ID), pin, day)
         ts = format_scan_ts(log.punch_time)
         bucket = grouped.get(key)
         if bucket is None:
@@ -165,10 +170,11 @@ def rebuild_attendance_days_from_logs() -> int:
 
     now = datetime.utcnow()
     count = 0
-    for (pin, day), bucket in grouped.items():
+    for (tenant_id, pin, day), bucket in grouped.items():
         times = _sorted_unique_keep_dupes(bucket["times"])
         db.session.add(
             BiometricAttendanceDay(
+                tenant_id=tenant_id,
                 admin_id=bucket["admin_id"],
                 device_user_id=pin,
                 attendance_date=day,

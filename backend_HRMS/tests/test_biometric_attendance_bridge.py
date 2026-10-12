@@ -128,6 +128,7 @@ def stack():
         return False
 
     off.admin_login_allowed = admin_login_allowed
+    off.employee_login_allowed = admin_login_allowed
     sys.modules["website.offboarding_service"] = off
 
     # Minimal attendance models (avoid full Admin_models graph)

@@ -7,8 +7,14 @@ from sqlalchemy import or_
 
 from . import db
 from .datetime_utils import utc_now
+from .master_data_tenancy import policy_query
 from .models.Admin_models import Admin
 from .models.hr_policy import HRPolicyDocument, PolicyAcknowledgment
+from .tenant_context import get_current_tenant_id, tenant_admin_query, tenant_id_for_admin
+
+
+class PolicyNotFound(ValueError):
+    """Policy missing or owned by another tenant."""
 
 
 def _enabled_filters():
@@ -16,6 +22,13 @@ def _enabled_filters():
         or_(Admin.is_exited == False, Admin.is_exited.is_(None)),
         or_(Admin.is_active == True, Admin.is_active.is_(None)),
     )
+
+
+def _get_policy(policy_id: int, tenant_id=None) -> HRPolicyDocument:
+    row = policy_query(tenant_id).filter(HRPolicyDocument.id == policy_id).first()
+    if not row:
+        raise PolicyNotFound("Policy not found")
+    return row
 
 
 def _policy_applies_to_admin(policy: HRPolicyDocument, admin: Admin) -> bool:
@@ -31,7 +44,7 @@ def _policy_applies_to_admin(policy: HRPolicyDocument, admin: Admin) -> bool:
 
 
 def list_policies_for_hr() -> list[dict]:
-    rows = HRPolicyDocument.query.order_by(HRPolicyDocument.created_at.desc()).all()
+    rows = policy_query().order_by(HRPolicyDocument.created_at.desc()).all()
     out = []
     for row in rows:
         ack_count = PolicyAcknowledgment.query.filter_by(policy_id=row.id).count()
@@ -44,6 +57,7 @@ def create_policy(data: dict, *, created_by: str) -> HRPolicyDocument:
     if data.get("effective_from"):
         eff = date.fromisoformat(str(data["effective_from"])[:10])
     row = HRPolicyDocument(
+        tenant_id=get_current_tenant_id(),
         title=str(data.get("title") or "").strip(),
         version=str(data.get("version") or "1.0").strip(),
         circle=(data.get("circle") or None) or None,
@@ -63,9 +77,7 @@ def create_policy(data: dict, *, created_by: str) -> HRPolicyDocument:
 
 
 def update_policy(policy_id: int, data: dict) -> HRPolicyDocument:
-    row = HRPolicyDocument.query.get(policy_id)
-    if not row:
-        raise ValueError("Policy not found")
+    row = _get_policy(policy_id)
     if "title" in data:
         row.title = str(data.get("title") or "").strip()
     if "version" in data:
@@ -94,7 +106,7 @@ def pending_policies_for_admin(admin: Admin) -> list[dict]:
         a.policy_id
         for a in PolicyAcknowledgment.query.filter_by(admin_id=admin.id).all()
     }
-    policies = HRPolicyDocument.query.filter(HRPolicyDocument.is_active.is_(True)).all()
+    policies = policy_query(tenant_id_for_admin(admin)).filter(HRPolicyDocument.is_active.is_(True)).all()
     pending = []
     for p in policies:
         if not p.requires_acknowledgment:
@@ -107,19 +119,21 @@ def pending_policies_for_admin(admin: Admin) -> list[dict]:
     return pending
 
 
+def get_policy_for_hr(policy_id: int) -> HRPolicyDocument:
+    return _get_policy(policy_id)
+
+
 def save_policy_file(policy_id: int, *, rel_path: str) -> HRPolicyDocument:
-    row = HRPolicyDocument.query.get(policy_id)
-    if not row:
-        raise ValueError("Policy not found")
+    row = _get_policy(policy_id)
     row.file_path = rel_path
     db.session.commit()
     return row
 
 
 def acknowledge_policy(admin: Admin, policy_id: int) -> PolicyAcknowledgment:
-    policy = HRPolicyDocument.query.get(policy_id)
-    if not policy or not policy.is_active:
-        raise ValueError("Policy not found")
+    policy = _get_policy(policy_id, tenant_id_for_admin(admin))
+    if not policy.is_active:
+        raise PolicyNotFound("Policy not found")
     if not _policy_applies_to_admin(policy, admin):
         raise ValueError("This policy does not apply to you")
     existing = PolicyAcknowledgment.query.filter_by(policy_id=policy_id, admin_id=admin.id).first()
@@ -132,11 +146,11 @@ def acknowledge_policy(admin: Admin, policy_id: int) -> PolicyAcknowledgment:
 
 
 def policy_ack_stats(policy_id: int) -> dict:
-    policy = HRPolicyDocument.query.get(policy_id)
-    if not policy:
-        raise ValueError("Policy not found")
+    policy = _get_policy(policy_id)
     applicable = [
-        a for a in Admin.query.filter(*_enabled_filters()).all() if _policy_applies_to_admin(policy, a)
+        a
+        for a in tenant_admin_query(policy.tenant_id).filter(*_enabled_filters()).all()
+        if _policy_applies_to_admin(policy, a)
     ]
     acked = PolicyAcknowledgment.query.filter_by(policy_id=policy_id).count()
     return {

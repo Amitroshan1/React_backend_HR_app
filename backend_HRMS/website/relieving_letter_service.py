@@ -27,7 +27,9 @@ def build_relieving_letter_payload(admin_id: int) -> dict:
         .first()
     )
     profile = EmployeeAccounts.query.filter_by(admin_id=admin_id).first()
-    employer = tds_cfg.employer_details()
+    from .tenant_context import tenant_id_for_admin
+
+    employer = tds_cfg.employer_details(tenant_id_for_admin(admin))
 
     emp_name = (
         (getattr(profile, "name", None) or "").strip()

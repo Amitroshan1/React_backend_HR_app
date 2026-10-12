@@ -6,6 +6,7 @@ from sqlalchemy import or_
 from .manager_utils import get_manager_detail, resolve_manager_contact_for_employee
 from .models.Admin_models import Admin
 from .models.emp_detail_models import Employee
+from .tenant_context import admin_tenant_clause
 
 
 def _enabled_filters():
@@ -15,8 +16,11 @@ def _enabled_filters():
     )
 
 
-def build_org_chart(*, circle: str | None = None, emp_type: str | None = None) -> dict:
-    q = Admin.query.filter(*_enabled_filters()).order_by(Admin.circle.asc(), Admin.emp_type.asc(), Admin.first_name.asc())
+def build_org_chart(*, tenant_id: int, circle: str | None = None, emp_type: str | None = None) -> dict:
+    q = (
+        Admin.query.filter(admin_tenant_clause(tenant_id), *_enabled_filters())
+        .order_by(Admin.circle.asc(), Admin.emp_type.asc(), Admin.first_name.asc())
+    )
     if circle:
         q = q.filter(Admin.circle == circle.strip())
     if emp_type:

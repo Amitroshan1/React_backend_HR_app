@@ -11,9 +11,10 @@ Translates stored biometric_logs into existing attendance using:
 Does NOT call auth.punch_in / auth.punch_out.
 Does NOT apply geo-fence.
 Does NOT interpret device state as IN/OUT.
-Does NOT close sessions on subsequent scans (OUT via web, 20:00 NHQ finalizer,
-or 10h auto-close for non-NHQ). Same-day reconnect bursts never open a second
-session; cross-day stale opens are closed before a new IN.
+Does NOT close sessions on subsequent scans (OUT via web, the 18:00 NHQ last-scan
+sync, or 10h auto-close for non-NHQ — never before 18:00 on the punch date).
+Same-day reconnect bursts never open a second session; cross-day stale opens are
+closed before a new IN.
 """
 
 from __future__ import annotations
@@ -402,8 +403,16 @@ def _apply_nhq_scan_to_closed_biometric_out(
     if punch_time <= target.clock_in:
         return None
 
-    # Always move OUT forward to last scan (overrides web-closed OUT).
-    if target.clock_out is not None and punch_time <= target.clock_out:
+    from ..datetime_utils import IST
+    from ..punch_auto_close import before_biometric_out_window
+
+    now_ist = datetime.now(IST).replace(tzinfo=None)
+    # Always move OUT forward to last scan (overrides web-closed OUT), but only
+    # from 18:00; earlier scans are recorded and applied by the 18:00 sync.
+    out_deferred = before_biometric_out_window(punch, now_ist)
+    if out_deferred or (
+        target.clock_out is not None and punch_time <= target.clock_out
+    ):
         # Still record activity on day state / log for idempotent later finalizers.
         _upsert_day_state(
             admin_id=admin_id,
@@ -413,7 +422,7 @@ def _apply_nhq_scan_to_closed_biometric_out(
         )
         log.status = "processed"
         log.punch_session_id = target.id
-        log.error_message = "activity_after_out"
+        log.error_message = "out_deferred_until_18" if out_deferred else "activity_after_out"
         return log.status
 
     prev_out = target.clock_out

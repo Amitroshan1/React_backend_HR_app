@@ -10,6 +10,7 @@ from sqlalchemy import func, or_
 from . import db
 from .models.Admin_models import Admin
 from .models.employee_circle_history import EmployeeCircleHistory
+from .tenant_context import admin_tenant_clause
 
 
 def _norm_circle(value):
@@ -237,6 +238,7 @@ def fetch_admins_for_attendance_export(circle: str, emp_type: str, year: int, mo
     month_end = date(year, month, num_days)
 
     active_filter = (
+        admin_tenant_clause(),
         db.func.coalesce(Admin.is_exited, False) == False,
         db.func.coalesce(Admin.is_active, True) == True,
         Admin.emp_type == emp_type,

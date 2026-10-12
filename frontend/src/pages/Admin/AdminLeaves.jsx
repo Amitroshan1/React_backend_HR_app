@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import './AdminList.css';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { formatDate } from '../../utils/dateFormat';
+import { matchesListQuery } from './adminListQuery';
 
 const API = '/api/admin/leaves';
 
@@ -9,6 +10,7 @@ const AdminLeaves = () => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('All');
+  const [query, setQuery] = useState('');
 
   useRefreshOnNavigate(() => {
     const token = localStorage.getItem('token');
@@ -27,12 +29,34 @@ const AdminLeaves = () => {
       .catch(() => setLoading(false));
   }, [status]);
 
+  const visible = useMemo(
+    () => requests.filter((row) => matchesListQuery(query, [
+      row.employee_name,
+      row.employee_email,
+      row.emp_id,
+      row.circle,
+      row.leave_type,
+    ])),
+    [query, requests],
+  );
+
   return (
     <div className="admin-list-container">
       <div className="admin-list-header">
-        <h1>Leave applications</h1>
+        <div>
+          <h1>Leave applications</h1>
+          <p className="admin-list-copy">Company leave requests. Status filters still load from the server.</p>
+        </div>
       </div>
       <div className="admin-list-filters">
+        <label className="admin-list-search">
+          <span>Search</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Name, ID, circle, leave type"
+          />
+        </label>
         <div className="status-buttons">
           {['All', 'Pending', 'Approved', 'Rejected'].map((s) => (
             <button
@@ -64,7 +88,7 @@ const AdminLeaves = () => {
               </tr>
             </thead>
             <tbody>
-              {requests.map((r) => (
+              {visible.map((r) => (
                 <tr key={r.id}>
                   <td>{r.employee_name || r.employee_email || '—'}</td>
                   <td>{r.emp_id || '—'}</td>
@@ -80,8 +104,10 @@ const AdminLeaves = () => {
           </table>
         )}
       </div>
-      {!loading && requests.length === 0 && (
-        <p className="admin-list-empty">No leave applications found.</p>
+      {!loading && visible.length === 0 && (
+        <p className="admin-list-empty">
+          {requests.length === 0 ? 'No leave applications found.' : 'No leave applications match that search.'}
+        </p>
       )}
     </div>
   );

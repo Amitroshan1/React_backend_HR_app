@@ -9,10 +9,15 @@ from .models.increment_cycle import IncrementCycle
 from .models.salary_revision_request import SalaryRevisionRequest
 from .models.Admin_models import Admin
 from .manager_utils import resolve_manager_contact_for_employee, is_manager_in_contact
+from .tenant_context import get_current_tenant_id, tenant_column_clause
+
+
+def cycle_query(tenant_id=None):
+    return IncrementCycle.query.filter(tenant_column_clause(IncrementCycle.tenant_id, tenant_id))
 
 
 def list_cycles() -> list[dict]:
-    rows = IncrementCycle.query.order_by(IncrementCycle.created_at.desc()).all()
+    rows = cycle_query().order_by(IncrementCycle.created_at.desc()).all()
     return [r.to_dict() for r in rows]
 
 
@@ -22,6 +27,7 @@ def create_cycle(data: dict, *, created_by: str) -> IncrementCycle:
     if not name or not fiscal_year:
         raise ValueError("name and fiscal_year are required")
     row = IncrementCycle(
+        tenant_id=get_current_tenant_id(),
         name=name,
         fiscal_year=fiscal_year,
         status=(data.get("status") or "open").strip().lower(),
@@ -36,8 +42,26 @@ def create_cycle(data: dict, *, created_by: str) -> IncrementCycle:
     return row
 
 
-def list_proposals(*, status: str | None = None, revision_type: str | None = None) -> list[dict]:
-    q = SalaryRevisionRequest.query.order_by(SalaryRevisionRequest.created_at.desc())
+def _proposal_for_approver(approver: Admin, proposal_id: int) -> SalaryRevisionRequest:
+    from .tenant_context import admin_id_in_tenant, tenant_id_for_admin
+
+    row = db.session.get(SalaryRevisionRequest, proposal_id)
+    if not row or not admin_id_in_tenant(row.admin_id, tenant_id_for_admin(approver)):
+        raise ValueError("Proposal not found")
+    return row
+
+
+def list_proposals(
+    *,
+    tenant_id: int,
+    status: str | None = None,
+    revision_type: str | None = None,
+) -> list[dict]:
+    from .tenant_context import tenant_admin_ids
+
+    q = SalaryRevisionRequest.query.filter(
+        SalaryRevisionRequest.admin_id.in_(tenant_admin_ids(tenant_id))
+    ).order_by(SalaryRevisionRequest.created_at.desc())
     if status and status.lower() != "all":
         q = q.filter(SalaryRevisionRequest.status == status.lower())
     if revision_type and revision_type.lower() != "all":
@@ -54,12 +78,18 @@ def manager_propose_increment(
     manager_notes: str | None,
     increment_cycle_id: int | None = None,
 ) -> SalaryRevisionRequest:
-    target = Admin.query.get(target_admin_id)
+    from .tenant_context import get_admin_in_tenant, tenant_id_for_admin
+
+    target = get_admin_in_tenant(target_admin_id, tenant_id_for_admin(manager_admin))
     if not target:
         raise ValueError("Employee not found")
     contact = resolve_manager_contact_for_employee(target)
     if not contact or not is_manager_in_contact(contact, manager_admin):
         raise ValueError("You are not the manager for this employee")
+    if increment_cycle_id is not None and not cycle_query(tenant_id_for_admin(manager_admin)).filter(
+        IncrementCycle.id == increment_cycle_id
+    ).first():
+        raise ValueError("Increment cycle not found")
 
     existing = SalaryRevisionRequest.query.filter_by(
         admin_id=target_admin_id,
@@ -103,9 +133,7 @@ def manager_propose_increment(
 
 
 def hr_approve_proposal(hr_admin: Admin, proposal_id: int, *, notes: str | None = None) -> SalaryRevisionRequest:
-    row = SalaryRevisionRequest.query.get(proposal_id)
-    if not row:
-        raise ValueError("Proposal not found")
+    row = _proposal_for_approver(hr_admin, proposal_id)
     if row.status != "pending":
         raise ValueError("Proposal is not pending")
     row.hr_approved_at = utc_now()
@@ -124,9 +152,7 @@ def hr_approve_proposal(hr_admin: Admin, proposal_id: int, *, notes: str | None 
 
 
 def hr_reject_proposal(hr_admin: Admin, proposal_id: int, *, notes: str | None = None) -> SalaryRevisionRequest:
-    row = SalaryRevisionRequest.query.get(proposal_id)
-    if not row:
-        raise ValueError("Proposal not found")
+    row = _proposal_for_approver(hr_admin, proposal_id)
     row.status = "dismissed"
     row.hr_approved_at = utc_now()
     row.hr_approved_by_admin_id = hr_admin.id

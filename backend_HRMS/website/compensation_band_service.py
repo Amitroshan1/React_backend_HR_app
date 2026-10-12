@@ -5,10 +5,15 @@ from . import db
 from .models.compensation_band import CompensationBand
 from .models.Admin_models import Admin
 from .models.emp_detail_models import Employee
+from .tenant_context import get_admin_in_tenant, get_current_tenant_id, tenant_column_clause, tenant_id_for_admin
+
+
+def band_query(tenant_id=None):
+    return CompensationBand.query.filter(tenant_column_clause(CompensationBand.tenant_id, tenant_id))
 
 
 def list_bands(*, circle: str | None = None, emp_type: str | None = None) -> list[dict]:
-    q = CompensationBand.query.order_by(
+    q = band_query().order_by(
         CompensationBand.circle.asc(),
         CompensationBand.emp_type.asc(),
         CompensationBand.grade.asc(),
@@ -31,9 +36,11 @@ def upsert_band(data: dict, *, created_by: str) -> CompensationBand:
     if max_ctc and min_ctc and max_ctc < min_ctc:
         raise ValueError("max_annual_ctc must be >= min_annual_ctc")
 
-    row = CompensationBand.query.filter_by(circle=circle, emp_type=emp_type, grade=grade).first()
+    row = band_query().filter_by(circle=circle, emp_type=emp_type, grade=grade).first()
     if not row:
-        row = CompensationBand(circle=circle, emp_type=emp_type, grade=grade, created_by=created_by)
+        row = CompensationBand(
+            tenant_id=get_current_tenant_id(), circle=circle, emp_type=emp_type, grade=grade, created_by=created_by
+        )
         db.session.add(row)
     row.min_annual_ctc = min_ctc
     row.mid_annual_ctc = float(data["mid_annual_ctc"]) if data.get("mid_annual_ctc") is not None else None
@@ -52,15 +59,9 @@ def _grade_for_admin(admin: Admin) -> str:
 def band_for_admin(admin: Admin) -> CompensationBand | None:
     if not admin:
         return None
-    grade = _grade_for_admin(admin)
-    circle = (admin.circle or "").strip()
-    emp_type = (admin.emp_type or "").strip()
-    if not circle or not emp_type:
-        return None
-    row = CompensationBand.query.filter_by(circle=circle, emp_type=emp_type, grade=grade).first()
-    if row:
-        return row
-    return CompensationBand.query.filter_by(circle=circle, emp_type=emp_type, grade="General").first()
+    return band_for_position(
+        circle=admin.circle, emp_type=admin.emp_type, grade=_grade_for_admin(admin), tenant_id=tenant_id_for_admin(admin)
+    )
 
 
 def validate_proposed_ctc(admin: Admin, proposed_annual_ctc: float) -> str | None:
@@ -82,16 +83,18 @@ def validate_proposed_ctc(admin: Admin, proposed_annual_ctc: float) -> str | Non
     return None
 
 
-def band_for_position(*, circle: str, emp_type: str, grade: str | None = None) -> CompensationBand | None:
+def band_for_position(
+    *, circle: str, emp_type: str, grade: str | None = None, tenant_id: int | None = None
+) -> CompensationBand | None:
     circle = (circle or "").strip()
     emp_type = (emp_type or "").strip()
     grade = (grade or "General").strip() or "General"
     if not circle or not emp_type:
         return None
-    row = CompensationBand.query.filter_by(circle=circle, emp_type=emp_type, grade=grade).first()
+    row = band_query(tenant_id).filter_by(circle=circle, emp_type=emp_type, grade=grade).first()
     if row:
         return row
-    return CompensationBand.query.filter_by(circle=circle, emp_type=emp_type, grade="General").first()
+    return band_query(tenant_id).filter_by(circle=circle, emp_type=emp_type, grade="General").first()
 
 
 def validate_ctc_for_position(
@@ -139,7 +142,7 @@ def _latest_performance_rating(admin_id: int) -> str:
 
 
 def band_hint_for_admin_id(admin_id: int) -> dict | None:
-    admin = Admin.query.get(admin_id)
+    admin = get_admin_in_tenant(admin_id)
     if not admin:
         return None
     band = band_for_admin(admin)
@@ -160,6 +163,7 @@ def band_hint_for_admin_id(admin_id: int) -> dict | None:
                 grade=grade,
                 current_annual_ctc=float(current_ctc),
                 rating=rating,
+                tenant_id=tenant_id_for_admin(admin),
             )
             if merit:
                 hint["merit_suggestion"] = merit

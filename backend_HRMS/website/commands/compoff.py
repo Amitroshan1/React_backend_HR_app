@@ -18,6 +18,12 @@ from ..compoff_utils import (
     sync_comp_balance_for_admin,
 )
 from ..email import send_compoff_expiry_reminder
+from ..tenant_jobs import (
+    admin_id_scope,
+    admin_scope,
+    merge_tenant_summaries,
+    run_in_each_tenant_scope,
+)
 
 REMINDER_DAYS_BEFORE = 7
 MAX_GAINS_PER_MONTH = 2
@@ -61,10 +67,10 @@ def _worked_sunday(admin_id, punch_date):
     return p.punch_in is not None or p.punch_out is not None
 
 
-def run_compoff_process(run_date):
+def run_compoff_process(run_date, tenant_id=None):
     """
     Create comp-off gains from Sunday punches, sync balances, send 7-day expiry reminders.
-    Returns a summary dict.
+    One tenant, or all when tenant_id is None. Returns a summary dict.
     """
     today = run_date
     summary = {
@@ -76,11 +82,12 @@ def run_compoff_process(run_date):
     }
 
     # 0) Remove triplicate Sunday rows from multi-worker races (production cleanup)
-    summary["duplicates_removed"] = dedupe_duplicate_sunday_compoff_gains()
+    summary["duplicates_removed"] = dedupe_duplicate_sunday_compoff_gains(tenant_id)
 
     # 1) Create gains from Sunday punches (look back LOOKBACK_DAYS)
     start = today - timedelta(days=LOOKBACK_DAYS)
     admins = Admin.query.filter(
+        admin_scope(tenant_id),
         db.func.coalesce(Admin.is_exited, False) == False,
     ).all()
 
@@ -121,6 +128,7 @@ def run_compoff_process(run_date):
     # 3) Send reminders for gains expiring in REMINDER_DAYS_BEFORE days
     expiry_target = today + timedelta(days=REMINDER_DAYS_BEFORE)
     reminder_gains = CompOffGain.query.filter(
+        admin_id_scope(CompOffGain.admin_id, tenant_id),
         CompOffGain.expiry_date == expiry_target,
         CompOffGain.reminder_sent_at.is_(None),
         CompOffGain.used < 1.0,
@@ -152,7 +160,9 @@ def register_compoff_command(app):
             run_date_obj = d.today()
 
         with app.app_context():
-            summary = run_compoff_process(run_date_obj)
+            summary = merge_tenant_summaries(
+                run_in_each_tenant_scope(lambda tid: run_compoff_process(run_date_obj, tenant_id=tid))
+            )
             if dry_run:
                 db.session.rollback()
                 click.echo("Dry run. No DB changes committed.")

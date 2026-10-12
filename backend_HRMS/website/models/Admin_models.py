@@ -17,21 +17,40 @@ from website.models.Performance import EmployeePerformance
 
 
 
+def _default_tenant_id():
+    """Caller's JWT tenant; default tenant outside a request (scripts / CLI)."""
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
 class Admin(db.Model, UserMixin):
     """Aligned with MySQL `admins` table (DESCRIBE)."""
 
     __tablename__ = 'admins'
+    # Identifiers are unique per company, not across the shared database.
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "email", name="uq_admins_tenant_email"),
+        db.UniqueConstraint("tenant_id", "user_name", name="uq_admins_tenant_user_name"),
+        db.UniqueConstraint("tenant_id", "mobile", name="uq_admins_tenant_mobile"),
+        db.UniqueConstraint("tenant_id", "emp_id", name="uq_admins_tenant_emp_id"),
+    )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
 
-    # Shared-DB SaaS: company isolation (Phase 1). Default tenant id=1 after backfill.
-    tenant_id = db.Column(db.Integer, db.ForeignKey("tenants.id"), nullable=True, index=True)
+    tenant_id = db.Column(
+        db.Integer,
+        db.ForeignKey("tenants.id"),
+        nullable=False,
+        default=_default_tenant_id,
+        index=True,
+    )
 
-    email = db.Column(db.String(120), unique=True, nullable=True)
+    email = db.Column(db.String(120), nullable=True)
     first_name = db.Column(db.String(150), nullable=True)
-    user_name = db.Column(db.String(120), unique=True, nullable=True)
-    mobile = db.Column(db.String(15), unique=True, nullable=True)
-    emp_id = db.Column(db.String(10), unique=True, nullable=True)
+    user_name = db.Column(db.String(120), nullable=True)
+    mobile = db.Column(db.String(15), nullable=True)
+    emp_id = db.Column(db.String(10), nullable=True)
     doj = db.Column(db.Date, nullable=True)
     emp_type = db.Column(db.String(50), nullable=True)
     circle = db.Column(db.String(50), nullable=True)

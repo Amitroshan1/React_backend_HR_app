@@ -4,6 +4,7 @@ import { ArrowLeft, Edit3, Search } from "lucide-react";
 import "./LeaveApplicationUpdation.css";
 import { formatDate, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import { HRApplyLeaveOnBehalf } from "./HRApplyLeaveOnBehalf";
+import { HRLeavePolicyPanel } from "./HRLeavePolicyPanel";
 
 const API_BASE = "/api/HumanResource";
 
@@ -331,6 +332,8 @@ export const LeaveApplicationUpdation = ({
             <p className="lau-inbox-hint">Showing pending queue from HR Inbox{initialContext.ref_id ? ` — opened ${initialContext.ref_id}` : ''}.</p>
           ) : null}
         </div>
+
+        <HRLeavePolicyPanel />
 
         <div className="lau-on-behalf-panel">
           <div className="lau-on-behalf-panel__header">

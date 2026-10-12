@@ -19,8 +19,10 @@ def _hash_token(raw_token: str) -> str:
 
 
 def issue_acceptance_token(candidate_id: int) -> str:
-    row = Candidate.query.get(candidate_id)
-    if not row or not row.offer:
+    from .ats_service import get_candidate
+
+    row = get_candidate(candidate_id)
+    if not row.offer:
         raise ValueError("Offer details are required before sending acceptance link")
     raw = secrets.token_urlsafe(32)
     offer = row.offer

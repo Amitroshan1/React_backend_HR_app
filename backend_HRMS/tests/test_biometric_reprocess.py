@@ -153,6 +153,7 @@ def stack():
 
     off = types.ModuleType("website.offboarding_service")
     off.admin_login_allowed = lambda admin: admin is not None and getattr(admin, "is_active", True)
+    off.employee_login_allowed = off.admin_login_allowed
     sys.modules["website.offboarding_service"] = off
 
     punch_agg = _load("website.punch_aggregate", _WEB / "punch_aggregate.py")

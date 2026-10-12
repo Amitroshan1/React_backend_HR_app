@@ -16,39 +16,73 @@ def set_app(app):
     _app = app
 
 
+def run_daily_hr_jobs_for_tenant(today, tenant_id, log):
+    """One tenant's daily HR jobs; each job fails on its own. The caller commits."""
+    from .commands.probation import run_probation_reminder
+    from .commands.compoff import run_compoff_process
+    from .commands.leave_accrual import _run_leave_accrual_for_date
+    from .commands.leave_pending_reminder import run_leave_pending_reminder
+    from .commands.offboarding_reminders import run_offboarding_reminders
+    from .offboarding_service import run_lwd_deactivation_job
+
+    try:
+        run_probation_reminder(today, tenant_id=tenant_id)
+    except Exception as e:
+        log.exception("scheduler: probation-reminder failed for tenant %s: %s", tenant_id, e)
+
+    try:
+        run_compoff_process(today, tenant_id=tenant_id)
+    except Exception as e:
+        log.exception("scheduler: compoff-process failed for tenant %s: %s", tenant_id, e)
+
+    try:
+        _run_leave_accrual_for_date(today, tenant_id=tenant_id)
+    except Exception as e:
+        log.exception("scheduler: leave-accrual failed for tenant %s: %s", tenant_id, e)
+
+    try:
+        run_leave_pending_reminder(today, tenant_id=tenant_id)
+    except Exception as e:
+        log.exception("scheduler: leave-pending-reminder failed for tenant %s: %s", tenant_id, e)
+
+    try:
+        deactivated = run_lwd_deactivation_job(today, tenant_id=tenant_id)
+        if deactivated:
+            log.info(
+                "scheduler: LWD deactivation disabled login for %s employee(s) in tenant %s",
+                deactivated,
+                tenant_id,
+            )
+    except Exception as e:
+        log.exception("scheduler: offboarding-LWD failed for tenant %s: %s", tenant_id, e)
+
+    try:
+        reminder_summary = run_offboarding_reminders(today, tenant_id=tenant_id)
+        if reminder_summary.get("lwd_reminders_sent") or reminder_summary.get("noc_sla_reminders_sent"):
+            log.info("scheduler: offboarding reminders tenant %s %s", tenant_id, reminder_summary)
+    except Exception as e:
+        log.exception("scheduler: offboarding-reminders failed for tenant %s: %s", tenant_id, e)
+
+
 def run_daily_hr_jobs():
-    """Run probation reminder, compoff process, and leave accrual for today (IST)."""
+    """
+    Daily HR jobs for today (IST), once per active tenant (suspended / cancelled
+    tenants are skipped), each run inside that tenant's scope and committed on its own.
+    """
     if _app is None:
         return
     with _app.app_context():
         from . import db
-        from .commands.probation import run_probation_reminder
-        from .commands.compoff import run_compoff_process
-        from .commands.leave_accrual import _run_leave_accrual_for_date
+        from .tenant_jobs import run_for_each_tenant
 
         today = datetime.now(IST).date()
         log = _app.logger
 
-        try:
-            run_probation_reminder(today)
-        except Exception as e:
-            log.exception("scheduler: probation-reminder failed: %s", e)
-
-        try:
-            run_compoff_process(today)
-        except Exception as e:
-            log.exception("scheduler: compoff-process failed: %s", e)
-
-        try:
-            _run_leave_accrual_for_date(today)
-        except Exception as e:
-            log.exception("scheduler: leave-accrual failed: %s", e)
-
-        try:
-            from .commands.leave_pending_reminder import run_leave_pending_reminder
-            run_leave_pending_reminder(today)
-        except Exception as e:
-            log.exception("scheduler: leave-pending-reminder failed: %s", e)
+        run_for_each_tenant(
+            lambda tid: run_daily_hr_jobs_for_tenant(today, tid, log),
+            logger=log,
+            label="daily-hr-jobs",
+        )
 
         try:
             from .Human_resource import purge_expired_assessment_recordings
@@ -56,31 +90,9 @@ def run_daily_hr_jobs():
             purged = purge_expired_assessment_recordings()
             if purged:
                 log.info("scheduler: purged %s expired assessment recording(s)", purged)
-        except Exception as e:
-            log.exception("scheduler: assessment-recording-purge failed: %s", e)
-
-        try:
-            from .offboarding_service import run_lwd_deactivation_job
-
-            deactivated = run_lwd_deactivation_job(today)
-            if deactivated:
-                log.info("scheduler: LWD deactivation disabled login for %s employee(s)", deactivated)
-        except Exception as e:
-            log.exception("scheduler: offboarding-LWD failed: %s", e)
-
-        try:
-            from .commands.offboarding_reminders import run_offboarding_reminders
-
-            reminder_summary = run_offboarding_reminders(today)
-            if reminder_summary.get("lwd_reminders_sent") or reminder_summary.get("noc_sla_reminders_sent"):
-                log.info("scheduler: offboarding reminders %s", reminder_summary)
-        except Exception as e:
-            log.exception("scheduler: offboarding-reminders failed: %s", e)
-
-        try:
             db.session.commit()
         except Exception as e:
-            log.exception("scheduler: commit failed: %s", e)
+            log.exception("scheduler: assessment-recording-purge failed: %s", e)
             db.session.rollback()
 
 

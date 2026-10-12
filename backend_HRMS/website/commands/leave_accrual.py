@@ -7,6 +7,7 @@ from .. import db
 from ..models.Admin_models import Admin
 from ..models.attendance import LeaveBalance
 from ..models.leave_accrual_log import LeaveAccrualLog
+from ..tenant_jobs import admin_scope
 from ..leave_balance_utils import (
     credit_cl_entitlement,
     credit_pl_entitlement,
@@ -116,7 +117,7 @@ def _try_credit_variable(
     _mark_event(admin_id, event_key, run_date)
 
 
-def _run_leave_accrual_for_date(run_date):
+def _run_leave_accrual_for_date(run_date, tenant_id=None):
     summary = {
         "run_date": run_date.isoformat(),
         "admins_scanned": 0,
@@ -136,6 +137,7 @@ def _run_leave_accrual_for_date(run_date):
 
     admins = (
         Admin.query.filter(
+            admin_scope(tenant_id),
             db.func.coalesce(Admin.is_active, True) == True,
             db.func.coalesce(Admin.is_exited, False) == False,
         )

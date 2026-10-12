@@ -9,13 +9,15 @@ from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication,
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
+from .tenant_context import current_admin, tenant_id_for_admin, tenant_scope
 from .models.seperation import Resignation, Noc_Upload, NocDepartmentRequest
 from .models.holiday_calendar import HolidayCalendar
+from .master_data_tenancy import holiday_query
 from .models.manager_model import ManagerContact
 from sqlalchemy import or_, func
 from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email,send_noc_request_email
-from .expense_utils import claim_attach_storage_name
-from .manager_utils import get_manager_emails
+from .manager_utils import find_manager_contact, get_manager_emails
+from .upload_tenancy import tenant_upload_path
 from .utility import generate_attendance_excel, send_excel_file
 from .attendance_engine import (
     load_attendance_month_context,
@@ -51,8 +53,8 @@ def _is_weekend_non_working_for_emp(emp_type: str, d: date) -> bool:
     return False
 
 
-def _load_holiday_sets(year: int, start_date: date, end_date: date):
-    rows = HolidayCalendar.query.filter(
+def _load_holiday_sets(year: int, start_date: date, end_date: date, tenant_id=None):
+    rows = holiday_query(tenant_id).filter(
         HolidayCalendar.year == year,
         HolidayCalendar.is_active.is_(True),
         HolidayCalendar.holiday_date.between(start_date, end_date),
@@ -72,9 +74,9 @@ def _parse_leave_year(value):
     return year
 
 
-def _fetch_optional_holiday_rows(year: int):
+def _fetch_optional_holiday_rows(year: int, tenant_id=None):
     rows = (
-        HolidayCalendar.query.filter(
+        holiday_query(tenant_id).filter(
             HolidayCalendar.year == year,
             HolidayCalendar.is_active.is_(True),
             HolidayCalendar.is_optional.is_(True),
@@ -85,9 +87,9 @@ def _fetch_optional_holiday_rows(year: int):
     if not rows:
         from .Human_resource import _seed_holidays_for_year
 
-        _seed_holidays_for_year(year, overwrite=False)
+        _seed_holidays_for_year(year, overwrite=False, tenant_id=tenant_id)
         rows = (
-            HolidayCalendar.query.filter(
+            holiday_query(tenant_id).filter(
                 HolidayCalendar.year == year,
                 HolidayCalendar.is_active.is_(True),
                 HolidayCalendar.is_optional.is_(True),
@@ -98,8 +100,8 @@ def _fetch_optional_holiday_rows(year: int):
     return rows
 
 
-def _optional_holiday_on_date(d: date):
-    for row in _fetch_optional_holiday_rows(d.year):
+def _optional_holiday_on_date(d: date, tenant_id=None):
+    for row in _fetch_optional_holiday_rows(d.year, tenant_id):
         if row.holiday_date == d:
             return row
     return None
@@ -131,7 +133,7 @@ def _has_optional_leave_for_year(admin_id: int, year: int) -> bool:
     return existing is not None
 
 
-def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_date: date) -> float:
+def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_date: date, tenant_id=None) -> float:
     """
     Sandwich leave policy:
     - Count all calendar WORKING days within the range as leave days.
@@ -141,7 +143,7 @@ def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_da
     if end_date < start_date:
         return 0.0
 
-    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date)
+    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date, tenant_id)
 
     def _is_non_working(d: date) -> bool:
         # Treat both mandatory and optional holidays as non-working for sandwich computation
@@ -175,7 +177,7 @@ def _compute_leave_days_with_sandwich(*, emp_type: str, start_date: date, end_da
     return float(len(counted))
 
 
-def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_date: date):
+def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_date: date, tenant_id=None):
     """
     Return (working_days, sandwich_days).
     - working_days: days that are calendar working days for this emp_type (holidays + weekends excluded)
@@ -184,7 +186,7 @@ def _compute_working_and_sandwich_days(*, emp_type: str, start_date: date, end_d
     if end_date < start_date:
         return 0.0, 0.0
 
-    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date)
+    mandatory_holidays, optional_holidays = _load_holiday_sets(start_date.year, start_date, end_date, tenant_id)
 
     def _is_non_working(d: date) -> bool:
         if d in mandatory_holidays or d in optional_holidays:
@@ -218,26 +220,7 @@ def _is_active_resignation_status(status):
 
 
 def _resolve_admin_from_jwt():
-    """Prefer JWT identity (admin id); fall back to email claim."""
-    admin = None
-    try:
-        identity = get_jwt_identity()
-        if identity is not None:
-            admin = Admin.query.get(int(identity))
-    except (TypeError, ValueError):
-        admin = None
-
-    if admin:
-        return admin
-
-    email = (get_jwt().get("email") or "").strip()
-    if not email:
-        return None
-
-    admin = Admin.query.filter(func.lower(Admin.email) == email.lower()).first()
-    if admin:
-        return admin
-    return Admin.query.filter_by(email=email).first()
+    return current_admin()
 
 
 def _serialize_notice(resignation):
@@ -355,12 +338,7 @@ def _admin_emails_for_emp_type_tokens(lower_tokens):
 
 
 def _manager_emails_for_noc(admin):
-    mc = ManagerContact.query.filter_by(user_email=admin.email).first()
-    if not mc:
-        mc = ManagerContact.query.filter_by(
-            circle_name=admin.circle,
-            user_type=admin.emp_type,
-        ).first()
+    mc = find_manager_contact(admin)
     if not mc:
         return []
     return get_manager_emails(mc, exclude_email=admin.email)
@@ -408,7 +386,7 @@ def attendance_summary():
 
 def _attendance_summary_impl():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
@@ -491,7 +469,7 @@ def _attendance_summary_impl():
 @jwt_required()
 def download_my_attendance_excel():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
@@ -530,7 +508,7 @@ def download_my_attendance_excel():
 @jwt_required()
 def leave_page_summary():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({
@@ -584,7 +562,7 @@ def leave_page_summary():
 def compoff_ledger():
     """Employee Comp Off ledger: credits, expiry, pending applications, usage history."""
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -599,7 +577,7 @@ def compoff_ledger():
 def list_optional_holidays_for_leave():
     """Optional holidays for leave apply (all authenticated employees)."""
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -611,7 +589,7 @@ def list_optional_holidays_for_leave():
         }), 400
 
     optional_leave_used = _has_optional_leave_for_year(admin.id, year)
-    rows = _fetch_optional_holiday_rows(year)
+    rows = _fetch_optional_holiday_rows(year, tenant_id_for_admin(admin))
     today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
 
     return jsonify({
@@ -635,7 +613,7 @@ def apply_leave_api():
     # -------------------------
     # Fetch employee from Admin
     # -------------------------
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -727,7 +705,7 @@ def apply_leave_api():
                 "message": "Optional Leave can only be applied for one day"
             }), 400
 
-        if not _optional_holiday_on_date(start_date):
+        if not _optional_holiday_on_date(start_date, tenant_id_for_admin(admin)):
             return jsonify({
                 "success": False,
                 "message": "Selected date is not an optional holiday in the company calendar"
@@ -787,6 +765,7 @@ def apply_leave_api():
         emp_type=emp_type,
         start_date=start_date,
         end_date=end_date,
+        tenant_id=tenant_id_for_admin(admin),
     )
     leave_days = float(working_days) + float(sandwich_days)
     deducted_days = 0.0
@@ -969,7 +948,7 @@ def apply_leave_api():
 @jwt_required()
 def submit_wfh():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({
@@ -1082,7 +1061,7 @@ def submit_wfh():
 @jwt_required()
 def get_wfh_applications():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
 
     if not admin:
         return jsonify({
@@ -1117,7 +1096,7 @@ def get_wfh_applications():
 @jwt_required()
 def cancel_leave_request(leave_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -1145,7 +1124,7 @@ def cancel_leave_request(leave_id):
 @jwt_required()
 def cancel_wfh_request(wfh_id):
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -1176,7 +1155,7 @@ def cancel_wfh_request(wfh_id):
 def submit_expense_claim():
     email = get_jwt().get("email")
 
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1242,10 +1221,8 @@ def submit_expense_claim():
         # -------------------------
         # File upload directory
         # -------------------------
-        upload_folder = os.path.join(
-            current_app.root_path, "static/uploads/expenses"
-        )
-        os.makedirs(upload_folder, exist_ok=True)
+        uploads_root = os.path.join(current_app.root_path, "static", "uploads")
+        claim_tenant_id = tenant_id_for_admin(admin)
 
         # -------------------------
         # Save line items
@@ -1259,8 +1236,10 @@ def submit_expense_claim():
                 basename = secure_filename(
                     f"{data.get('emp_id')}_{header.id}_{sr}_{file.filename}"
                 )
-                file.save(os.path.join(upload_folder, basename))
-                filename = claim_attach_storage_name(basename)
+                abs_path, filename = tenant_upload_path(
+                    uploads_root, f"expenses/{basename}", claim_tenant_id
+                )
+                file.save(abs_path)
 
             try:
                 item_date = datetime.strptime(
@@ -1324,7 +1303,7 @@ def submit_expense_claim():
 def get_expense_claims():
     email = get_jwt().get("email")
 
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({
             "success": False,
@@ -1438,7 +1417,7 @@ def submit_resignation():
 def submit_noc_request_email():
     """Employee applies for NOC: email selected departments + CC chain."""
     email_claim = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email_claim).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -1721,7 +1700,8 @@ def revoke_resignation():
                         adm = Admin.query.get(admin_id)
                         resig = Resignation.query.get(resignation_id)
                         if adm and resig:
-                            send_resignation_revoked_email(adm, resig)
+                            with tenant_scope(tenant_id_for_admin(adm)):
+                                send_resignation_revoked_email(adm, resig)
                     except Exception:
                         app_obj.logger.exception(
                             "Failed to send resignation revoked email (async)"
@@ -1751,7 +1731,7 @@ def get_my_noc_document():
         if not email:
             return jsonify({"success": False, "message": "Invalid token"}), 401
 
-        admin = Admin.query.filter_by(email=email).first()
+        admin = current_admin()
         if not admin:
             return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -1785,7 +1765,7 @@ def download_my_relieving_letter():
         if not email:
             return jsonify({"success": False, "message": "Invalid token"}), 401
 
-        admin = Admin.query.filter_by(email=email).first()
+        admin = current_admin()
         if not admin:
             return jsonify({"success": False, "message": "Employee not found"}), 404
         if not getattr(admin, "is_exited", False):
@@ -1818,7 +1798,7 @@ def employee_exit_interview():
         if not email:
             return jsonify({"success": False, "message": "Invalid token"}), 401
 
-        admin = Admin.query.filter_by(email=email).first()
+        admin = current_admin()
         if not admin:
             return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -1864,7 +1844,7 @@ def download_my_experience_letter():
         if not email:
             return jsonify({"success": False, "message": "Invalid token"}), 401
 
-        admin = Admin.query.filter_by(email=email).first()
+        admin = current_admin()
         if not admin:
             return jsonify({"success": False, "message": "Employee not found"}), 404
         if not getattr(admin, "is_exited", False):
@@ -1891,7 +1871,7 @@ def download_my_experience_letter():
 @jwt_required()
 def list_my_attendance_regularizations():
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
@@ -1928,7 +1908,7 @@ def submit_attendance_regularization():
     from . import leave_settings as leave_cfg
 
     email = get_jwt().get("email")
-    admin = Admin.query.filter_by(email=email).first()
+    admin = current_admin()
     if not admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 

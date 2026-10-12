@@ -23,13 +23,23 @@ from .models.monthly_payroll import MonthlyPayroll
 from . import db
 
 
-def _payroll_query(year: int, month_num: int, *, circle: str | None = None, emp_type: str | None = None):
+def _payroll_query(
+    year: int,
+    month_num: int,
+    *,
+    tenant_id: int,
+    circle: str | None = None,
+    emp_type: str | None = None,
+):
+    from .tenant_context import admin_tenant_clause
+
     q = (
         db.session.query(MonthlyPayroll, Admin, CTCBreakup, EmployeeAccounts)
         .join(Admin, Admin.id == MonthlyPayroll.admin_id)
         .outerjoin(CTCBreakup, CTCBreakup.admin_id == MonthlyPayroll.admin_id)
         .outerjoin(EmployeeAccounts, EmployeeAccounts.admin_id == MonthlyPayroll.admin_id)
         .filter(
+            admin_tenant_clause(tenant_id),
             MonthlyPayroll.month_num == int(month_num),
             MonthlyPayroll.year == str(int(year)),
         )
@@ -55,9 +65,18 @@ def _resolve_state(ctc: CTCBreakup | None, accounts: EmployeeAccounts | None) ->
     )
 
 
-def build_pf_ecr_export(*, year: int, month_num: int, circle: str | None = None, emp_type: str | None = None) -> dict:
+def build_pf_ecr_export(
+    *,
+    year: int,
+    month_num: int,
+    tenant_id: int,
+    circle: str | None = None,
+    emp_type: str | None = None,
+) -> dict:
     lines = []
-    for payroll, admin, ctc, accounts in _payroll_query(year, month_num, circle=circle, emp_type=emp_type).all():
+    for payroll, admin, ctc, accounts in _payroll_query(
+        year, month_num, tenant_id=tenant_id, circle=circle, emp_type=emp_type
+    ).all():
         basic = float(getattr(ctc, "basic_salary", 0) or 0) if ctc else 0.0
         da = float(getattr(ctc, "dearness_allowance", 0) or 0) if ctc else 0.0
         gross = float(payroll.gross_salary_for_month or 0) + float(payroll.arrears_gross_final or 0)
@@ -88,9 +107,18 @@ def build_pf_ecr_export(*, year: int, month_num: int, circle: str | None = None,
     }
 
 
-def build_esic_statement(*, year: int, month_num: int, circle: str | None = None, emp_type: str | None = None) -> dict:
+def build_esic_statement(
+    *,
+    year: int,
+    month_num: int,
+    tenant_id: int,
+    circle: str | None = None,
+    emp_type: str | None = None,
+) -> dict:
     lines = []
-    for payroll, admin, ctc, accounts in _payroll_query(year, month_num, circle=circle, emp_type=emp_type).all():
+    for payroll, admin, ctc, accounts in _payroll_query(
+        year, month_num, tenant_id=tenant_id, circle=circle, emp_type=emp_type
+    ).all():
         gross = float(payroll.gross_salary_for_month or 0) + float(payroll.arrears_gross_final or 0)
         esic = compute_esic_amounts(gross, float(payroll.esic_final or 0))
         if not esic["applicable"] and float(payroll.esic_final or 0) <= 0:
@@ -118,13 +146,22 @@ def build_esic_statement(*, year: int, month_num: int, circle: str | None = None
     }
 
 
-def build_pt_summary(*, year: int, month_num: int, circle: str | None = None, emp_type: str | None = None) -> dict:
+def build_pt_summary(
+    *,
+    year: int,
+    month_num: int,
+    tenant_id: int,
+    circle: str | None = None,
+    emp_type: str | None = None,
+) -> dict:
     from .commands.compliance_export_logic import _load_pt_rules
 
     rules = _load_pt_rules()
     by_state: dict[str, dict] = {}
 
-    for payroll, admin, ctc, accounts in _payroll_query(year, month_num, circle=circle, emp_type=emp_type).all():
+    for payroll, admin, ctc, accounts in _payroll_query(
+        year, month_num, tenant_id=tenant_id, circle=circle, emp_type=emp_type
+    ).all():
         pt = float(payroll.ptax_final or 0)
         if pt <= 0:
             continue
@@ -159,6 +196,7 @@ def build_form_24q_export(
     *,
     financial_year: str,
     quarter: int,
+    tenant_id: int,
     circle: str | None = None,
     emp_type: str | None = None,
 ) -> dict:
@@ -166,7 +204,9 @@ def build_form_24q_export(
     agg: dict[int, dict] = {}
 
     for y, m in months:
-        for payroll, admin, _ctc, accounts in _payroll_query(y, m, circle=circle, emp_type=emp_type).all():
+        for payroll, admin, _ctc, accounts in _payroll_query(
+            y, m, tenant_id=tenant_id, circle=circle, emp_type=emp_type
+        ).all():
             aid = admin.id
             bucket = agg.setdefault(aid, {
                 "pan": (getattr(accounts, "pan", None) or "").strip().upper() if accounts else "",

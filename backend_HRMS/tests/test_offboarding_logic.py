@@ -98,7 +98,7 @@ class TestOffboardingLogic(unittest.TestCase):
             is_exited = True
             exit_login_until = date.today() + timedelta(days=3)
 
-        self.assertTrue(obs.admin_login_allowed(FakeAdmin()))
+        self.assertTrue(obs.employee_login_allowed(FakeAdmin()))
 
     def test_admin_login_blocked_after_grace(self):
         from datetime import date, timedelta
@@ -108,7 +108,7 @@ class TestOffboardingLogic(unittest.TestCase):
             is_exited = True
             exit_login_until = date.today() - timedelta(days=1)
 
-        self.assertFalse(obs.admin_login_allowed(FakeAdmin()))
+        self.assertFalse(obs.employee_login_allowed(FakeAdmin()))
 
 
 def _load_exit_interview():

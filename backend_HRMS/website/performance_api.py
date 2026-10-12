@@ -9,6 +9,12 @@ from . import db
 from .models.Admin_models import Admin
 from .models.Performance import EmployeePerformance, ManagerReview
 from .email import send_performance_submitted_email, send_performance_reviewed_email
+from .tenant_context import current_admin, tenant_admin_ids
+
+
+def _tenant_performance_query():
+    """EmployeePerformance rows of the caller's tenant."""
+    return EmployeePerformance.query.filter(EmployeePerformance.admin_id.in_(tenant_admin_ids()))
 
 
 performance_api = Blueprint("performance_api", __name__)
@@ -19,10 +25,7 @@ def _norm(value):
 
 
 def _current_admin():
-    email = get_jwt().get("email")
-    if not email:
-        return None
-    return Admin.query.filter_by(email=email).first()
+    return current_admin()
 
 
 def _is_hr(admin):
@@ -168,7 +171,7 @@ def manager_queue():
     status = (request.args.get("status") or "").strip()
     if _norm(status) == "all":
         status = ""
-    q = EmployeePerformance.query.order_by(
+    q = _tenant_performance_query().order_by(
         EmployeePerformance.submitted_at.desc(), EmployeePerformance.id.desc()
     )
     if month:
@@ -191,7 +194,7 @@ def manager_review(performance_id):
     if err:
         return err
 
-    row = EmployeePerformance.query.get(performance_id)
+    row = _tenant_performance_query().filter(EmployeePerformance.id == performance_id).first()
     if not row:
         return jsonify({"success": False, "message": "Performance entry not found"}), 404
     if not row.admin or not _is_manager_for_target(manager_admin, row.admin):
@@ -242,7 +245,7 @@ def hr_report():
     circle = _norm(request.args.get("circle"))
     emp_type = _norm(request.args.get("emp_type"))
 
-    q = EmployeePerformance.query.order_by(
+    q = _tenant_performance_query().order_by(
         EmployeePerformance.submitted_at.desc(), EmployeePerformance.id.desc()
     )
     if month:
@@ -281,7 +284,7 @@ def manager_summary():
         return err
 
     month = (request.args.get("month") or "").strip()
-    q = EmployeePerformance.query
+    q = _tenant_performance_query()
     if month:
         q = q.filter(EmployeePerformance.month == month)
 

@@ -8,7 +8,7 @@ class FamilyDetails(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=False)
     
-    photo_filename = db.Column(db.String(100), nullable=True)
+    photo_filename = db.Column(db.String(300), nullable=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), nullable=True)
     dob = db.Column(db.Date, nullable=False)

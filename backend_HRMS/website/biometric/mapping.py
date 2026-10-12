@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from .models import BiometricEmployeeMap
+from .tenancy import admin_tenant_clause, tenant_for_device_id
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +60,21 @@ def find_employee_map(
     device_id: Optional[int] = None,
 ) -> Optional[BiometricEmployeeMap]:
     """
-    Locate mapping row. Prefer (device_id, device_user_id), then global
-    (device_id IS NULL), then any active row for that exact device_user_id.
+    Locate mapping row among employees of the device's tenant. Prefer
+    (device_id, device_user_id), then global (device_id IS NULL), then any active
+    row for that exact device_user_id.
     """
     pin = _norm_device_user_id(device_user_id)
     if not pin:
         return None
 
     base = BiometricEmployeeMap.query.filter_by(device_user_id=pin, is_active=True)
+    Admin = _load_admin_model()
+    clause = admin_tenant_clause(Admin, tenant_for_device_id(device_id)) if Admin is not None else None
+    if clause is not None:
+        from sqlalchemy import select
+
+        base = base.filter(BiometricEmployeeMap.admin_id.in_(select(Admin.id).where(clause)))
     if device_id is not None:
         specific = base.filter_by(device_id=device_id).first()
         if specific:
@@ -78,11 +86,11 @@ def find_employee_map(
 
 
 def _admin_eligible(admin) -> bool:
-    """Reuse HRMS login eligibility (inactive / exited)."""
+    """Reuse HRMS login eligibility (inactive / exited); tenant suspension does not drop punches."""
     try:
-        from ..offboarding_service import admin_login_allowed
+        from ..offboarding_service import employee_login_allowed
 
-        return bool(admin_login_allowed(admin))
+        return bool(employee_login_allowed(admin))
     except Exception:
         if admin is None:
             return False
@@ -112,7 +120,8 @@ def resolve_biometric_employee(
     device_id: Optional[int] = None,
 ) -> MappingResolution:
     """
-    Authoritative resolver: eSSL User ID == Admin.emp_id (exact string).
+    Authoritative resolver: eSSL User ID == Admin.emp_id (exact string), among
+    employees of the device's tenant (unknown device = default tenant).
 
     Mapping rows cannot override Admin.emp_id. If a map exists it must agree:
       device_user_id == map.emp_id == Admin.emp_id
@@ -138,7 +147,11 @@ def resolve_biometric_employee(
         )
 
     try:
-        matches = Admin.query.filter_by(emp_id=pin).all()
+        q = Admin.query.filter_by(emp_id=pin)
+        clause = admin_tenant_clause(Admin, tenant_for_device_id(device_id))
+        if clause is not None:
+            q = q.filter(clause)
+        matches = q.all()
     except Exception:
         logger.exception("BIOMETRIC_ADMIN_LOOKUP_FAILED pin=%s", pin)
         return MappingResolution(
@@ -349,7 +362,11 @@ def audit_all_mappings(*, include_inactive_maps: bool = False) -> dict[str, Any]
         elif admin_emp != map_emp or int(admin.id) != int(m.admin_id):
             category = "admin_mismatch"
         else:
-            emp_matches = Admin.query.filter_by(emp_id=map_emp).all()
+            same_emp = Admin.query.filter_by(emp_id=map_emp)
+            clause = admin_tenant_clause(Admin, getattr(admin, "tenant_id", None))
+            if clause is not None:
+                same_emp = same_emp.filter(clause)
+            emp_matches = same_emp.all()
             if len(emp_matches) > 1:
                 category = "admin_mismatch"
                 rec["error_message"] = "ambiguous_employee_mapping"
@@ -370,6 +387,7 @@ def audit_all_mappings(*, include_inactive_maps: bool = False) -> dict[str, Any]
             "timezone": d.timezone,
             "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
             "allowed_ips": d.allowed_ips,
+            "tenant_id": getattr(d, "tenant_id", None),
         }
         for d in BiometricDevice.query.order_by(BiometricDevice.id.asc()).all()
     ]

@@ -4,6 +4,12 @@ from __future__ import annotations
 from .. import db
 from ..datetime_utils import isoformat_api, utc_now
 
+
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
 RATING_OPTIONS = (
     "Excellent",
     "Good",
@@ -16,14 +22,16 @@ class MeritMatrixEntry(db.Model):
     __tablename__ = "merit_matrix_entries"
     __table_args__ = (
         db.UniqueConstraint(
+            "tenant_id",
             "circle",
             "emp_type",
             "rating",
-            name="uq_merit_matrix_circle_dept_rating",
+            name="uq_merit_matrix_tenant_circle_dept_rating",
         ),
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     circle = db.Column(db.String(80), nullable=False, index=True)
     emp_type = db.Column(db.String(80), nullable=False, index=True)
     rating = db.Column(db.String(40), nullable=False, index=True)

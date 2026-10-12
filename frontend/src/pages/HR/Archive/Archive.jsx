@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../../hooks/useRefreshOnNavigate';
 import { useAdminVisitNav } from '../../../hooks/useAdminVisitNav';
 import { formatDateDDMMYYYY } from '../../../utils/dateFormat';
-import './Archive.css';
+import '../offboarding-ui.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const ALL_TYPES_LABEL = 'All Types';
@@ -42,6 +42,7 @@ const ArchiveEmployees = () => {
   
   const [masterOptions, setMasterOptions] = useState({ departments: [], circles: [] });
   const [rejoiningId, setRejoiningId] = useState(null);
+  const [notice, setNotice] = useState('');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -172,13 +173,14 @@ const ArchiveEmployees = () => {
       return;
     }
     const ok = window.confirm(
-      `Rejoin “${emp.name}” (${emp.email})?\n\n` +
-        'They will be restored as an active employee with the same profile and records. ' +
+      `Send a rehire request for “${emp.name}” (${emp.email})?\n\n` +
+        'An Admin must approve it before they become active again. ' +
         'Past exit history stays in the system for audit.'
     );
     if (!ok) return;
     setRejoiningId(emp.id);
     setError('');
+    setNotice('');
     try {
       const res = await fetch(`${HR_API_BASE}/archive/employee/${emp.id}/rejoin`, {
         method: 'POST',
@@ -190,8 +192,7 @@ const ArchiveEmployees = () => {
         setError(data.message || data.msg || 'Could not restore employee');
         return;
       }
-      await loadArchivedEmployees();
-      window.dispatchEvent(new Event('employeeRejoined'));
+      setNotice(data.message || 'Rehire sent for Admin approval. The employee stays exited until an Admin approves it.');
     } catch {
       setError('Network error while restoring employee');
     } finally {
@@ -291,38 +292,25 @@ const ArchiveEmployees = () => {
   };
 
   return (
-    <div className="archive-container">
-      <div className="archive-wrapper">
-        {/* Header with Back Button */}
-        <div className="archive-header">
-          <button type="button" className="btn-back-updates" onClick={() => goBack()}>
-            <ArrowLeft size={20} />
-            <span>{backLabel}</span>
-          </button>
-        </div>
-
-        {/* Title */}
-        <div className="title-section">
-          <div className="title-section__copy">
-            <h1 className="page-title">Archive Employees</h1>
-            <p className="page-subtitle">View exited employees and manage rehire or rejoin actions.</p>
+    <section className="obx">
+        <header className="obx-head">
+          <div>
+            <button type="button" className="obx-back" onClick={() => goBack()}>
+              <ArrowLeft size={16} />
+              {backLabel}
+            </button>
+            <h1>Archive</h1>
+            <p>Exited employees. A rehire stays here until an Admin approves it.</p>
           </div>
-          <div className="title-section__meta">
-            <span className="results-count">
-              Showing <strong>{filteredEmployees.length}</strong> of {archivedEmployees.length} archived
-            </span>
-          </div>
-        </div>
-        {error && (
-          <p className="archive-error" role="alert">{error}</p>
-        )}
+          <span className="obx-count">{filteredEmployees.length} of {archivedEmployees.length}</span>
+        </header>
+        {error ? <p className="obx-alert" role="alert">{error}</p> : null}
+        {notice ? <p className="obx-notice" role="status">{notice}</p> : null}
 
-        {/* Filters */}
-        <div className="archive-filters-panel">
-          <div className="archive-filters-panel__toolbar">
-            <div className="archive-filters-panel__search">
-              <div className="archive-filters-panel__field">
-                <span className="archive-filters-panel__label" id="archive-emp-type-label">Employee type</span>
+        <div className="obx-toolbar">
+          <div className="obx-filters">
+              <div className="obx-field">
+                <label id="archive-emp-type-label" htmlFor="archive-emp-type">Employee type</label>
                 <div className="custom-select">
                   <input
                     id="archive-emp-type"
@@ -348,7 +336,7 @@ const ArchiveEmployees = () => {
                   />
 
                   {showTypeList && (
-                    <div className="dropdown-list">
+                    <div className="obx-menu">
                       <div
                         className={`dropdown-item${!employeeType ? ' dropdown-item-selected' : ''}`}
                         onClick={() => {
@@ -382,8 +370,8 @@ const ArchiveEmployees = () => {
                 </div>
               </div>
 
-              <div className="archive-filters-panel__field">
-                <span className="archive-filters-panel__label" id="archive-circle-label">Circle</span>
+              <div className="obx-field">
+                <label id="archive-circle-label" htmlFor="archive-circle">Circle</label>
                 <div className="custom-select">
                   <input
                     id="archive-circle"
@@ -409,7 +397,7 @@ const ArchiveEmployees = () => {
                   />
 
                   {showCircleList && (
-                    <div className="dropdown-list">
+                    <div className="obx-menu">
                       <div
                         className={`dropdown-item${!circle ? ' dropdown-item-selected' : ''}`}
                         onClick={() => {
@@ -443,131 +431,85 @@ const ArchiveEmployees = () => {
                 </div>
               </div>
 
-              <button type="button" className="archive-filters-panel__reset-btn" onClick={resetFilters}>
+              <button type="button" className="obx-btn" onClick={resetFilters}>
                 Reset
               </button>
             </div>
-          </div>
         </div>
 
         {/* Table */}
-        <div className="table-container">
-          <table className="employees-table">
+        <div className="obx-table-wrap">
+          <table className="obx-table">
             <thead>
               <tr>
-                <th>Employee ID</th>
-                <th>Name</th>
+                <th>Employee</th>
                 <th>Circle</th>
-                <th>Employee Type</th>
-                <th>Email</th>
+                <th>Type</th>
                 <th>F&amp;F</th>
-                <th>Rehire policy</th>
-                <th>Rejoin</th>
-                <th>Action</th>
+                <th>Rehire</th>
+                <th></th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="9" className="no-data">
-                    Loading archived employees...
-                  </td>
+                  <td colSpan="6">Loading archived employees…</td>
                 </tr>
               ) : filteredEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="no-data">
-                    No archived employees found
-                  </td>
+                  <td colSpan="6">No archived employees match these filters.</td>
                 </tr>
               ) : (
                 filteredEmployees.map(emp => (
-                  <tr 
-                    key={emp.id}
-                    className="employee-row"
-                  >
-                    <td className="archive-cell archive-cell--id">
-                      <span className="archive-emp-id">{emp.employeeId}</span>
+                  <tr key={emp.id}>
+                    <td>
+                      <strong>{emp.name}</strong>
+                      <span className="obx-sub">{emp.employeeId} · {emp.email}</span>
                     </td>
-                    
-                    <td className="archive-cell archive-cell--name">
-                      <span className="employee-name">{emp.name}</span>
+                    <td>{emp.circle || '—'}</td>
+                    <td>{emp.employeeType || '—'}</td>
+                    <td>
+                      <span className="obx-pill">{emp.fnfStatus || 'none'}</span>
+                      {emp.fnf?.net_payable != null && emp.fnf.net_payable > 0 ? (
+                        <span className="obx-sub">₹{Number(emp.fnf.net_payable).toLocaleString('en-IN')}</span>
+                      ) : null}
                     </td>
-
-                    <td className="archive-cell">
-                      <span className="circle-badge">{emp.circle || '—'}</span>
-                    </td>
-
-                    <td className="archive-cell">
-                      <span className="type-badge">{emp.employeeType || '—'}</span>
-                    </td>
-
-                    <td className="archive-cell archive-cell--email">
-                      <span className="employee-email">{emp.email}</span>
-                    </td>
-                    <td className="archive-cell">
-                      <div className="archive-fnf-cell">
-                        <span className={`archive-fnf-badge archive-fnf-badge--${(emp.fnfStatus || 'none').replace(/\s+/g, '-')}`}>
-                          {emp.fnfStatus || 'none'}
-                        </span>
-                        {emp.fnf?.net_payable != null && emp.fnf.net_payable > 0 ? (
-                          <small className="archive-fnf-net">₹{Number(emp.fnf.net_payable).toLocaleString('en-IN')}</small>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="archive-cell">
+                    <td>
                       {emp.rehirePolicy ? (
-                        <div className="archive-rehire-cell">
-                          <span className={`archive-rehire-badge ${emp.rehirePolicy.can_rejoin_now ? 'archive-rehire-badge--ok' : 'archive-rehire-badge--blocked'}`}>
+                        <>
+                          <span className={`obx-pill ${emp.rehirePolicy.can_rejoin_now ? 'obx-pill--ok' : 'obx-pill--bad'}`}>
                             {emp.rehirePolicy.can_rejoin_now ? 'Eligible' : 'Blocked'}
                           </span>
-                          {!emp.rehirePolicy.can_rejoin_now && emp.rehirePolicy.rehire_block_reason && (
-                            <small className="archive-rehire-reason">{emp.rehirePolicy.rehire_block_reason}</small>
-                          )}
-                          <button
-                            type="button"
-                            className="archive-rehire-edit"
-                            onClick={() => openRehirePolicyModal(emp)}
-                          >
-                            Edit policy
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="archive-cell-empty">—</span>
-                      )}
+                          {!emp.rehirePolicy.can_rejoin_now && emp.rehirePolicy.rehire_block_reason ? (
+                            <span className="obx-sub">{emp.rehirePolicy.rehire_block_reason}</span>
+                          ) : null}
+                          <button type="button" className="obx-link" onClick={() => openRehirePolicyModal(emp)}>Edit policy</button>
+                        </>
+                      ) : '—'}
                     </td>
-                    <td className="archive-cell archive-cell--rejoin">
-                      <button
-                        type="button"
-                        className="archive-rejoin-btn"
-                        onClick={() => handleRejoin(emp)}
-                        disabled={rejoiningId === emp.id || (emp.rehirePolicy && !emp.rehirePolicy.can_rejoin_now)}
-                        title={
-                          emp.rehirePolicy && !emp.rehirePolicy.can_rejoin_now
-                            ? (emp.rehirePolicy.rehire_block_reason || 'Rejoin not allowed')
-                            : 'Restore as active employee (same profile data)'
-                        }
-                      >
-                        <UserRoundPlus size={15} aria-hidden />
-                        {rejoiningId === emp.id ? 'Restoring…' : 'Rejoin'}
-                      </button>
-                    </td>
-                    <td className="archive-cell archive-cell--actions">
-                      <div className="archive-action-cell">
+                    <td>
+                      <div className="obx-row-actions">
                         <button
                           type="button"
-                          className="action-button archive-history-btn"
-                          onClick={(e) => openExitHistory(emp, e)}
+                          className="obx-btn obx-btn--primary"
+                          onClick={() => handleRejoin(emp)}
+                          disabled={rejoiningId === emp.id || (emp.rehirePolicy && !emp.rehirePolicy.can_rejoin_now)}
+                          title={
+                            emp.rehirePolicy && !emp.rehirePolicy.can_rejoin_now
+                              ? (emp.rehirePolicy.rehire_block_reason || 'Rejoin not allowed')
+                              : 'Send a rehire request to Admin'
+                          }
                         >
-                          <History size={14} aria-hidden />
+                          <UserRoundPlus size={14} />
+                          {rejoiningId === emp.id ? 'Sending…' : 'Rehire'}
+                        </button>
+                        <button type="button" className="obx-btn" onClick={(e) => openExitHistory(emp, e)}>
+                          <History size={14} />
                           History
                         </button>
-                        <button
-                          type="button"
-                          className="action-button archive-details-btn"
-                          onClick={() => handleViewDetails(emp)}
-                        >
-                          View details
+                        <button type="button" className="obx-btn" onClick={() => handleViewDetails(emp)}>
+                          Details
                         </button>
                       </div>
                     </td>
@@ -577,27 +519,26 @@ const ArchiveEmployees = () => {
             </tbody>
           </table>
         </div>
-      </div>
 
       {showHistoryModal && createPortal(
-        <div className="archive-modal-overlay" onClick={closeExitHistory}>
-          <div className="archive-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="archive-modal__header">
+        <div className="obx-overlay" onClick={closeExitHistory}>
+          <div className="obx-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="obx-dialog-head">
               <h2>Exit history — {historyEmployee?.name}</h2>
-              <button type="button" className="archive-modal__close" onClick={closeExitHistory} aria-label="Close">
-                <X size={18} />
+              <button type="button" className="obx-btn" onClick={closeExitHistory} aria-label="Close">
+                <X size={16} />
               </button>
             </div>
             {historyLoading ? (
-              <p className="archive-modal__muted">Loading exit history…</p>
+              <p className="obx-muted">Loading exit history…</p>
             ) : historyError ? (
-              <p className="archive-error">{historyError}</p>
+              <p className="obx-alert">{historyError}</p>
             ) : historyRows.length === 0 ? (
-              <p className="archive-modal__muted">No exit history records found.</p>
+              <p className="obx-muted">No exit history records found.</p>
             ) : (
-              <ul className="archive-history-list">
+              <ul className="obx-history">
                 {historyRows.map((row) => (
-                  <li key={row.id} className="archive-history-item">
+                  <li key={row.id}>
                     <div>
                       <strong>{row.exit_type || 'Exit'}</strong>
                       <span>LWD: {formatDateDDMMYYYY(row.last_working_day || row.exit_date)}</span>
@@ -617,15 +558,15 @@ const ArchiveEmployees = () => {
       )}
 
       {showRehireModal && rehireEditEmp && createPortal(
-        <div className="archive-modal-overlay" onClick={closeRehirePolicyModal}>
-          <div className="archive-modal archive-modal--form" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <div className="archive-modal__header">
+        <div className="obx-overlay" onClick={closeRehirePolicyModal}>
+          <div className="obx-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div className="obx-dialog-head">
               <h2>Rehire policy — {rehireEditEmp.name}</h2>
-              <button type="button" className="archive-modal__close" onClick={closeRehirePolicyModal} aria-label="Close">
-                <X size={18} />
+              <button type="button" className="obx-btn" onClick={closeRehirePolicyModal} aria-label="Close">
+                <X size={16} />
               </button>
             </div>
-            <label className="archive-modal__check">
+            <label className="obx-check-row">
               <input
                 type="checkbox"
                 checked={rehireForm.rehire_eligible}
@@ -633,24 +574,28 @@ const ArchiveEmployees = () => {
               />
               Eligible for rehire
             </label>
-            <label className="archive-modal__label">Rehire cooldown until (optional)</label>
-            <input
-              type="date"
-              className="archive-modal__input"
-              value={rehireForm.rehire_cooldown_until}
-              onChange={(e) => setRehireForm((f) => ({ ...f, rehire_cooldown_until: e.target.value }))}
-            />
-            <label className="archive-modal__label">Notes</label>
-            <textarea
-              className="archive-modal__textarea"
-              rows={3}
-              value={rehireForm.rehire_notes}
-              onChange={(e) => setRehireForm((f) => ({ ...f, rehire_notes: e.target.value }))}
-              placeholder="HR notes on rehire eligibility"
-            />
-            <div className="archive-modal__actions">
-              <button type="button" className="action-button" onClick={closeRehirePolicyModal}>Cancel</button>
-              <button type="button" className="archive-rejoin-btn" onClick={saveRehirePolicy} disabled={rehireSaving}>
+            <div className="obx-span">
+              <label htmlFor="rehire-cooldown">Cooldown until</label>
+              <input
+                id="rehire-cooldown"
+                type="date"
+                value={rehireForm.rehire_cooldown_until}
+                onChange={(e) => setRehireForm((f) => ({ ...f, rehire_cooldown_until: e.target.value }))}
+              />
+            </div>
+            <div className="obx-span">
+              <label htmlFor="rehire-notes">Notes</label>
+              <textarea
+                id="rehire-notes"
+                rows={3}
+                value={rehireForm.rehire_notes}
+                onChange={(e) => setRehireForm((f) => ({ ...f, rehire_notes: e.target.value }))}
+                placeholder="Notes on rehire eligibility"
+              />
+            </div>
+            <div className="obx-actions" style={{ marginTop: 14 }}>
+              <button type="button" className="obx-btn" onClick={closeRehirePolicyModal}>Cancel</button>
+              <button type="button" className="obx-btn obx-btn--primary" onClick={saveRehirePolicy} disabled={rehireSaving}>
                 {rehireSaving ? 'Saving…' : 'Save policy'}
               </button>
             </div>
@@ -659,7 +604,7 @@ const ArchiveEmployees = () => {
         document.body
       )}
 
-    </div>
+    </section>
   );
 };
 

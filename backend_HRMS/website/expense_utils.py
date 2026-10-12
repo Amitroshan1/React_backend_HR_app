@@ -16,20 +16,19 @@ def claim_attach_static_filename(stored_name):
     Path segment for url_for('static', filename=...).
     Files on disk: website/static/uploads/expenses/<name>
     """
-    if not stored_name:
-        return None
-    name = (stored_name or "").replace("\\", "/").strip().lstrip("/")
-    if name.startswith(f"{CLAIM_EXPENSES_SUBDIR}/"):
-        return f"uploads/{name}"
-    return f"uploads/{CLAIM_EXPENSES_SUBDIR}/{name}"
+    storage = claim_attach_storage_name(stored_name)
+    return f"uploads/{storage}" if storage else None
 
 
 def claim_attach_storage_name(basename):
-    """Relative path stored in ExpenseLineItem.Attach_file (under uploads/expenses/)."""
+    """
+    Relative upload path of a claim attachment: ``tenants/{id}/expenses/<name>`` for new
+    files, ``expenses/<name>`` for legacy ones (a bare legacy name gets ``expenses/``).
+    """
     base = (basename or "").replace("\\", "/").strip().lstrip("/")
     if not base:
         return None
-    if base.startswith(f"{CLAIM_EXPENSES_SUBDIR}/"):
+    if base.startswith((f"{CLAIM_EXPENSES_SUBDIR}/", "tenants/")):
         return base
     return f"{CLAIM_EXPENSES_SUBDIR}/{base}"
 

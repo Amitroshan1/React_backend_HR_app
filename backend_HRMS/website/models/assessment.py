@@ -4,10 +4,17 @@ from .. import db
 from ..datetime_utils import utc_now
 
 
+def _default_tenant_id():
+    from ..tenant_context import get_current_tenant_id
+
+    return get_current_tenant_id()
+
+
 class AssessmentInvite(db.Model):
     __tablename__ = "assessment_invites"
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, nullable=True, default=_default_tenant_id, index=True)
     full_name = db.Column(db.String(150), nullable=False)
     department = db.Column(db.String(120), nullable=False)
     candidate_email = db.Column(db.String(150), nullable=False, index=True)

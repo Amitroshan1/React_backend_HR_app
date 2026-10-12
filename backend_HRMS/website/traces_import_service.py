@@ -81,18 +81,21 @@ def parse_traces_csv(content: bytes | str) -> list[dict]:
     return rows
 
 
-def _resolve_admin(row: dict) -> Admin | None:
+def _resolve_admin(row: dict, tenant_id: int) -> Admin | None:
+    from .tenant_context import get_admin_in_tenant, tenant_admin_ids, tenant_admin_query
+
     if row.get("emp_id"):
-        admin = Admin.query.filter_by(emp_id=row["emp_id"]).first()
+        admin = tenant_admin_query(tenant_id).filter(Admin.emp_id == row["emp_id"]).first()
         if admin:
             return admin
     if row.get("pan"):
         from .models.employee_accounts import EmployeeAccounts
         acct = EmployeeAccounts.query.filter(
-            EmployeeAccounts.pan.ilike(row["pan"])
+            EmployeeAccounts.pan.ilike(row["pan"]),
+            EmployeeAccounts.admin_id.in_(tenant_admin_ids(tenant_id)),
         ).first()
         if acct and acct.admin_id:
-            return Admin.query.get(acct.admin_id)
+            return get_admin_in_tenant(acct.admin_id, tenant_id)
     return None
 
 
@@ -100,6 +103,7 @@ def import_traces_rows(
     rows: list[dict],
     *,
     financial_year: str,
+    tenant_id: int,
     data_source: str = "traces",
 ) -> dict:
     """Attach parsed figures to latest Form16 upload per employee or create metadata-only row."""
@@ -108,7 +112,7 @@ def import_traces_rows(
     errors: list[str] = []
 
     for row in rows:
-        admin = _resolve_admin(row)
+        admin = _resolve_admin(row, tenant_id)
         if not admin:
             skipped += 1
             errors.append(f"Row {row.get('row_number')}: employee not found")

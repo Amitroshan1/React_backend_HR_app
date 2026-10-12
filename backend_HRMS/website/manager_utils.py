@@ -3,8 +3,39 @@ Helper utilities for ManagerContact: resolve emails from admin_id, exclude appli
 """
 from sqlalchemy import func, or_
 
-from .models.Admin_models import Admin
 from .models.manager_model import ManagerContact
+from .tenant_context import (
+    DEFAULT_TENANT_ID,
+    get_admin_in_tenant,
+    tenant_id_for_admin,
+    tenant_manager_contacts,
+)
+
+
+def manager_contacts_for(admin):
+    """ManagerContact query limited to the employee's tenant."""
+    return tenant_manager_contacts(tenant_id_for_admin(admin))
+
+
+def find_manager_contact(admin):
+    """Employee-specific row (user_email) first, else the circle + emp_type group row."""
+    if not admin:
+        return None
+    contacts = manager_contacts_for(admin)
+    contact = None
+    if getattr(admin, "email", None):
+        contact = contacts.filter_by(user_email=admin.email).first()
+    if not contact:
+        contact = manager_contacts_for(admin).filter_by(
+            circle_name=admin.circle,
+            user_type=admin.emp_type,
+        ).first()
+    return contact
+
+
+def _contact_tenant_id(contact):
+    tid = getattr(contact, "tenant_id", None)
+    return int(tid) if tid is not None else DEFAULT_TENANT_ID
 
 
 def _norm_circle(value):
@@ -69,7 +100,7 @@ def resolve_manager_contact_for_employee(target_admin):
         return None
     target_email = _norm_email(getattr(target_admin, "email", None))
 
-    candidates = ManagerContact.query.filter(
+    candidates = manager_contacts_for(target_admin).filter(
         func.lower(func.trim(func.coalesce(ManagerContact.circle_name, ""))) == circle_key,
     ).all()
 
@@ -90,7 +121,7 @@ def _resolve_email_from_contact(contact, level):
     admin_id = getattr(contact, f"{level}_admin_id", None)
     if not admin_id:
         return ""
-    admin = Admin.query.get(admin_id)
+    admin = get_admin_in_tenant(admin_id, _contact_tenant_id(contact))
     if admin and admin.email:
         return (admin.email or "").strip()
     return ""
@@ -112,15 +143,22 @@ def get_manager_emails(contact, exclude_email=None):
 
 
 def is_manager_in_contact(contact, admin_or_email):
-    """Check if admin (or email string) is L1/L2/L3 in this contact."""
+    """
+    Check if admin (or email string) is L1/L2/L3 in this contact.
+
+    An Admin matches by id only, and only within the contact's tenant: emails are
+    unique per tenant, so an email match could point at another company's manager.
+    """
     if not contact:
         return False
     if hasattr(admin_or_email, "id") and getattr(admin_or_email, "id", None):
+        if tenant_id_for_admin(admin_or_email) != _contact_tenant_id(contact):
+            return False
         aid = admin_or_email.id
-        for level in ("l1", "l2", "l3"):
-            if getattr(contact, f"{level}_admin_id", None) == aid:
-                return True
-    email = admin_or_email.email if hasattr(admin_or_email, "email") else (admin_or_email or "").strip()
+        return any(
+            getattr(contact, f"{level}_admin_id", None) == aid for level in ("l1", "l2", "l3")
+        )
+    email = (admin_or_email or "").strip()
     if not email:
         return False
     emails = [e.lower() for e in get_manager_emails(contact)]
@@ -134,7 +172,7 @@ def get_manager_detail(contact, level):
     """
     admin_id = getattr(contact, f"{level}_admin_id", None)
     if admin_id:
-        admin = Admin.query.get(admin_id)
+        admin = get_admin_in_tenant(admin_id, _contact_tenant_id(contact))
         if admin and getattr(admin, "is_active", True) and not getattr(admin, "is_exited", False):
             return {
                 "id": admin.id,
@@ -163,7 +201,7 @@ def user_has_manager_access(admin):
     admin_id = getattr(admin, "id", None)
     if not admin_id:
         return False
-    rows = ManagerContact.query.filter(
+    rows = manager_contacts_for(admin).filter(
         or_(
             ManagerContact.l1_admin_id == admin_id,
             ManagerContact.l2_admin_id == admin_id,

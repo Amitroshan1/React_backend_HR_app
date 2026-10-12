@@ -1,28 +1,29 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Archive, AlertCircle, SlidersHorizontal, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Archive, RotateCcw, X } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import { useAdminVisitNav } from '../../hooks/useAdminVisitNav';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
-import './ExitEmployee.css';
+import './offboarding-ui.css';
 
 const HR_API_BASE = '/api/HumanResource';
 const ALL_TYPES_LABEL = 'All Types';
 const ALL_CIRCLES_LABEL = 'All Circles';
 const norm = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
 const EXIT_TYPES_DEFAULT = ['Resigned', 'Terminated', 'Absconded', 'Retirement', 'End of Contract'];
+const PAGE_SIZE = 5;
 
 const statusBadgeClass = (status) => {
   const map = {
-    initiated: 'exit-status--initiated',
-    notice: 'exit-status--notice',
-    clearance: 'exit-status--clearance',
-    ready: 'exit-status--ready',
-    exited: 'exit-status--exited',
-    fnf_settled: 'exit-status--fnf',
+    initiated: 'obx-pill--info',
+    notice: 'obx-pill--warn',
+    clearance: 'obx-pill--bad',
+    ready: 'obx-pill--ok',
+    exited: 'obx-pill',
+    fnf_settled: 'obx-pill--ok',
   };
-  return map[status] || 'exit-status--none';
+  return map[status] || '';
 };
 
 const ExitEmployee = ({onBack}) => {
@@ -61,6 +62,7 @@ const ExitEmployee = ({onBack}) => {
 
   const [employeeType, setEmployeeType] = useState('');
   const [circle, setCircle] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // Searchable dropdown states
   const [typeSearch, setTypeSearch] = useState('');
@@ -203,6 +205,13 @@ const ExitEmployee = ({onBack}) => {
 
     return filtered;
   }, [employees, employeeType, circle]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [employeeType, circle, employees]);
+
+  const visibleEmployees = filteredEmployees.slice(0, visibleCount);
+  const hiddenCount = filteredEmployees.length - visibleEmployees.length;
 
   const employeeTypes = useMemo(() => {
     if (masterOptions.departments.length) return masterOptions.departments;
@@ -361,16 +370,12 @@ const ExitEmployee = ({onBack}) => {
         setError(data.message || 'Failed to exit employee');
         return;
       }
-      setEmployees((prev) => prev.filter((emp) => emp.id !== selectedEmployee.id));
-      window.dispatchEvent(new Event('employeeArchived'));
-      if (data.login_deferred_until) {
-        setSuccessMessage(
-          `Employee exited. Login active until ${formatDateDDMMYYYY(data.login_deferred_until)}.${data.relieving_letter_shared ? ' Relieving letter link emailed.' : ''} F&F draft created in Accounts.`
-        );
+      if (data.pending_approval) {
+        setSuccessMessage(data.message || 'Exit sent for Admin approval. The employee stays active until an Admin approves it.');
       } else {
-        setSuccessMessage(
-          `Employee exited successfully.${data.relieving_letter_shared ? ' Relieving letter link emailed.' : ''} F&F draft created in Accounts.`
-        );
+        setEmployees((prev) => prev.filter((emp) => emp.id !== selectedEmployee.id));
+        window.dispatchEvent(new Event('employeeArchived'));
+        setSuccessMessage(data.message || 'Employee exited successfully.');
       }
       setShowSuccess(true);
     } catch {
@@ -408,499 +413,262 @@ const ExitEmployee = ({onBack}) => {
   };
 
   return (
-    <div className="exit-employee-container" ref={wrapperRef}>
-      <div className="exit-employee-wrapper">
-
-        {/* Header */} 
-
-        <div className="header-section">
+    <section className="obx" ref={wrapperRef}>
+      <header className="obx-head">
+        <div>
           <button
             type="button"
-            className="btn-back-updates"
-            aria-label={backLabel}
+            className="obx-back"
             onClick={() => goBack({ replace: true })}
           >
-            <ArrowLeft size={20} />
-            <span>{fromAdmin ? backLabel : (sourceFrom === 'archive' ? 'Back to Archive' : (onBack ? 'Back to Offboarding' : 'Back to Updates'))}</span>
+            <ArrowLeft size={16} />
+            {fromAdmin ? backLabel : (sourceFrom === 'archive' ? 'Back to Archive' : (onBack ? 'Back to Offboarding' : 'Back to Updates'))}
           </button>
-
-          <button
-            className="archive-button"
-            aria-label="Open Archive"
-            onClick={() => navigate('/archive-employees')}
-          >
-            <Archive size={20} />
-            <span>Archive</span>
+          <h1>Exit an employee</h1>
+          <p>The request goes to Admin. The person stays active until it is approved.</p>
+        </div>
+        <div className="obx-actions">
+          <button type="button" className="obx-btn" onClick={() => navigate('/archive-employees')}>
+            <Archive size={16} />
+            Archive
           </button>
         </div>
+      </header>
+      {error && !showConfirm ? <p className="obx-alert" role="alert">{error}</p> : null}
 
-        {/* Title */}
-
-        <div className="title-section">
-          <h1 className="page-title">Exit Employees</h1>
-          <p className="page-subtitle">Manage and archive exited employees</p>
-        </div>
-        {error && (
-          <p className="exit-employee-error" role="alert">{error}</p>
-        )}
-
-        <div className="filters-section">
-          <div className="filters-panel">
-            <div className="filters-panel__head">
-              <div className="filters-panel__title-wrap">
-                <span className="filters-panel__icon" aria-hidden="true">
-                  <SlidersHorizontal size={17} />
-                </span>
-                <h2 className="filters-toolbar-title">Find employees</h2>
+      <div className="obx-toolbar">
+        <div className="obx-filters">
+          <div className="obx-field" ref={typeSelectRef}>
+            <label htmlFor="exit-emp-type">Employee type</label>
+            <input
+              id="exit-emp-type"
+              type="text"
+              placeholder="Select or type"
+              value={typeSearch !== '' ? typeSearch : (employeeType || ALL_TYPES_LABEL)}
+              onFocus={(e) => {
+                setShowCircleList(false);
+                setShowTypeList(true);
+                if (!employeeType && typeSearch === '') requestAnimationFrame(() => e.target.select());
+              }}
+              onChange={(e) => {
+                const val = e.target.value;
+                setTypeSearch(val);
+                if (val === '' || val === ALL_TYPES_LABEL) setEmployeeType('');
+                setShowTypeList(true);
+              }}
+            />
+            {showTypeList && (
+              <div className="obx-menu">
+                <button type="button" className={!employeeType ? 'is-on' : ''} onClick={() => { setEmployeeType(''); setTypeSearch(''); setShowTypeList(false); }}>{ALL_TYPES_LABEL}</button>
+                {employeeTypes.filter((type) => type.toLowerCase().includes(typeSearch.toLowerCase())).map((type) => (
+                  <button type="button" key={type} onClick={() => { setEmployeeType(type); setTypeSearch(''); setShowTypeList(false); }}>{type}</button>
+                ))}
               </div>
-              <div className="results-badge">
-                <span className="results-badge__count">{filteredEmployees.length}</span>
-                <span className="results-badge__text">of {employees.length} shown</span>
-              </div>
-            </div>
-
-            <div className="filter-row">
-              <div className="filter-group">
-                <label htmlFor="exit-emp-type">Employee type</label>
-                <div className="custom-select" ref={typeSelectRef}>
-                  <input
-                    id="exit-emp-type"
-                    type="text"
-                    placeholder="Select or type"
-                    value={typeSearch !== '' ? typeSearch : (employeeType || ALL_TYPES_LABEL)}
-                    onFocus={(e) => {
-                      setShowCircleList(false);
-                      setShowTypeList(true);
-                      if (!employeeType && typeSearch === '') {
-                        requestAnimationFrame(() => e.target.select());
-                      }
-                    }}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setTypeSearch(val);
-                      if (val === '' || val === ALL_TYPES_LABEL) {
-                        setEmployeeType('');
-                      }
-                      setShowTypeList(true);
-                    }}
-                    className="filter-input"
-                  />
-
-                  {showTypeList && (
-                    <div className="dropdown-list">
-                      <div
-                        className={`dropdown-item${!employeeType ? ' dropdown-item-selected' : ''}`}
-                        onClick={() => {
-                          setEmployeeType('');
-                          setTypeSearch('');
-                          setShowTypeList(false);
-                        }}
-                      >
-                        {ALL_TYPES_LABEL}
-                      </div>
-
-                      {employeeTypes
-                        .filter(type =>
-                          type.toLowerCase().includes(typeSearch.toLowerCase())
-                        )
-                        .map(type => (
-                          <div
-                            key={type}
-                            className="dropdown-item"
-                            onClick={() => {
-                              setEmployeeType(type);
-                              setTypeSearch('');
-                              setShowTypeList(false);
-                            }}
-                          >
-                            {type}
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="filter-group">
-                <label htmlFor="exit-circle">Circle</label>
-                <div className="custom-select" ref={circleSelectRef}>
-                  <input
-                    id="exit-circle"
-                    type="text"
-                    placeholder="Select or type"
-                    value={circleSearch !== '' ? circleSearch : (circle || ALL_CIRCLES_LABEL)}
-                    onFocus={(e) => {
-                      setShowTypeList(false);
-                      setShowCircleList(true);
-                      if (!circle && circleSearch === '') {
-                        requestAnimationFrame(() => e.target.select());
-                      }
-                    }}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setCircleSearch(val);
-                      if (val === '' || val === ALL_CIRCLES_LABEL) {
-                        setCircle('');
-                      }
-                      setShowCircleList(true);
-                    }}
-                    className="filter-input"
-                  />
-
-                  {showCircleList && (
-                    <div className="dropdown-list">
-                      <div
-                        className={`dropdown-item${!circle ? ' dropdown-item-selected' : ''}`}
-                        onClick={() => {
-                          setCircle('');
-                          setCircleSearch('');
-                          setShowCircleList(false);
-                        }}
-                      >
-                        {ALL_CIRCLES_LABEL}
-                      </div>
-
-                      {circles
-                        .filter(cir =>
-                          cir.toLowerCase().includes(circleSearch.toLowerCase())
-                        )
-                        .map(cir => (
-                          <div
-                            key={cir}
-                            className="dropdown-item"
-                            onClick={() => {
-                              setCircle(cir);
-                              setCircleSearch('');
-                              setShowCircleList(false);
-                            }}
-                          >
-                            {cir}
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button type="button" className="reset-button" onClick={resetFilters}>
-                <RotateCcw size={16} aria-hidden />
-                <span>Reset</span>
-              </button>
-            </div>
+            )}
           </div>
+          <div className="obx-field" ref={circleSelectRef}>
+            <label htmlFor="exit-circle">Circle</label>
+            <input
+              id="exit-circle"
+              type="text"
+              placeholder="Select or type"
+              value={circleSearch !== '' ? circleSearch : (circle || ALL_CIRCLES_LABEL)}
+              onFocus={(e) => {
+                setShowTypeList(false);
+                setShowCircleList(true);
+                if (!circle && circleSearch === '') requestAnimationFrame(() => e.target.select());
+              }}
+              onChange={(e) => {
+                const val = e.target.value;
+                setCircleSearch(val);
+                if (val === '' || val === ALL_CIRCLES_LABEL) setCircle('');
+                setShowCircleList(true);
+              }}
+            />
+            {showCircleList && (
+              <div className="obx-menu">
+                <button type="button" className={!circle ? 'is-on' : ''} onClick={() => { setCircle(''); setCircleSearch(''); setShowCircleList(false); }}>{ALL_CIRCLES_LABEL}</button>
+                {circles.filter((cir) => cir.toLowerCase().includes(circleSearch.toLowerCase())).map((cir) => (
+                  <button type="button" key={cir} onClick={() => { setCircle(cir); setCircleSearch(''); setShowCircleList(false); }}>{cir}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button type="button" className="obx-btn" onClick={resetFilters}>
+            <RotateCcw size={14} />
+            Reset
+          </button>
         </div>
-      
-        {/* Table */} 
-
-        <div className="table-container">
-          <table className="employees-table">
-            <thead>
-              <tr>
-                <th>Employee ID</th>
-                <th>Name</th>
-                <th>Circle</th>
-                <th>Employee Type</th>
-                <th>Email</th>
-                <th>Separation</th>
-                <th>Offboarding</th>
-                <th>NOC</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan="9" className="no-data">
-                    Loading employees...
-                  </td>
-                </tr>
-              ) : filteredEmployees.length === 0 ? (
-                <tr>
-                  <td colSpan="9" className="no-data">
-                    No employees found
-                  </td>
-                </tr>
-              ) : (
-                filteredEmployees.map(emp => (
-                  <tr key={emp.id}>
-                    <td>{emp.employeeId}</td>
-                    <td className="employee-name">{emp.name}</td>
-
-                    <td>
-                      <span className="circle-badge">{emp.circle}</span>
-                    </td>
-
-                    <td>
-                      <span className="type-badge">{emp.employeeType}</span>
-                    </td>
-
-                    <td className="employee-email">{emp.email}</td>
-
-                    <td>
-                      <div className="exit-separation-cell">
-                        <span>{formatDateDDMMYYYY(emp.resignationDate)}</span>
-                        {emp.resignationStatus && (
-                          <span className="exit-resignation-pill">{emp.resignationStatus}</span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td>
-                      <span className={`exit-status-badge ${statusBadgeClass(emp.offboarding?.status)}`}>
-                        {emp.offboarding?.status_label || 'Not in separation'}
-                      </span>
-                    </td>
-
-                    <td>
-                      {emp.offboarding?.noc_summary?.total > 0 ? (
-                        <span className="exit-noc-pill">
-                          {emp.offboarding.noc_summary.cleared}/{emp.offboarding.noc_summary.total} cleared
-                          {emp.offboarding.noc_summary.pending > 0 && (
-                            <span className="exit-noc-pending"> · {emp.offboarding.noc_summary.pending} pending</span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="exit-noc-muted">—</span>
-                      )}
-                    </td>
-
-                    <td>
-                      <button
-                        className="action-button"
-                        onClick={() => handleActionClick(emp)}
-                        disabled={submitting}
-                      >
-                        Exit Employee
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <span className="obx-count">{visibleEmployees.length} of {filteredEmployees.length}</span>
       </div>
+
+      <div className="obx-table-wrap">
+        <table className="obx-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Circle</th>
+              <th>Type</th>
+              <th>Separation</th>
+              <th>Status</th>
+              <th>NOC</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan="7">Loading employees…</td></tr>
+            ) : filteredEmployees.length === 0 ? (
+              <tr><td colSpan="7">No employees match these filters.</td></tr>
+            ) : visibleEmployees.map((emp) => (
+              <tr key={emp.id}>
+                <td>
+                  <strong>{emp.name}</strong>
+                  <span className="obx-sub">{emp.employeeId} · {emp.email}</span>
+                </td>
+                <td>{emp.circle || '—'}</td>
+                <td>{emp.employeeType || '—'}</td>
+                <td>
+                  <span>{formatDateDDMMYYYY(emp.resignationDate)}</span>
+                  {emp.resignationStatus ? <span className="obx-sub">{emp.resignationStatus}</span> : null}
+                </td>
+                <td>
+                  <span className={`obx-pill ${statusBadgeClass(emp.offboarding?.status)}`}>
+                    {emp.offboarding?.status_label || 'Not in separation'}
+                  </span>
+                </td>
+                <td>
+                  {emp.offboarding?.noc_summary?.total > 0
+                    ? `${emp.offboarding.noc_summary.cleared}/${emp.offboarding.noc_summary.total}`
+                    : '—'}
+                </td>
+                <td>
+                  <button type="button" className="obx-btn obx-btn--primary" onClick={() => handleActionClick(emp)} disabled={submitting}>
+                    Start exit
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {hiddenCount > 0 ? (
+        <div className="obx-more">
+          <button type="button" className="obx-btn" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
+            See more ({Math.min(PAGE_SIZE, hiddenCount)} of {hiddenCount} left)
+          </button>
+        </div>
+      ) : null}
 
       {/* Modal */} 
 
       {showConfirm && createPortal(
-        <div className="exit-modal-overlay" onClick={handleCancelExit}>
-            <div
-            className="exit-modal-content"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="confirm-modal-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-icon">
-              <AlertCircle size={48} />
-            </div>
-
-            <h2 id="confirm-modal-title" className="modal-title">Process employee exit</h2>
-
-            <p className="modal-message">
-              Complete the exit for <strong>{selectedEmployee?.name}</strong>. Review the checklist before confirming.
-            </p>
-
-            {offboardingPreview && (
-              <div className={`exit-checklist-banner ${offboardingPreview.can_exit ? 'exit-checklist-banner--ok' : 'exit-checklist-banner--warn'}`}>
-                <strong>{offboardingPreview.status_label}</strong>
-                {offboardingPreview.can_exit
-                  ? ' — No hard blockers. You may proceed.'
-                  : ` — ${offboardingPreview.hard_blocker_count} hard blocker(s). Use force override to proceed anyway.`}
-              </div>
-            )}
-
-            <div className="exit-checklist-panel">
-              <h3 className="exit-checklist-title">Pre-exit checklist</h3>
-              {checklistLoading ? (
-                <p className="exit-checklist-loading">Loading checklist…</p>
-              ) : (
-                <ul className="exit-checklist-list">
-                  {(offboardingPreview?.checklist || []).map((item) => (
-                    <li
-                      key={item.key}
-                      className={`exit-checklist-item exit-checklist-item--${item.severity} ${item.passed ? 'is-passed' : 'is-failed'}`}
-                    >
-                      <span className="exit-checklist-item__label">{item.label}</span>
-                      <span className="exit-checklist-item__tag">{item.severity}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {leaveBalance && (
-              <div className="exit-leave-balance-panel">
-                <h3 className="exit-checklist-title">Leave balance at exit</h3>
-                <div className="exit-leave-balance-grid">
-                  <div className="exit-leave-balance-item">
-                    <span className="exit-leave-balance-item__value">{Number(leaveBalance.privilege_leave_balance || 0).toFixed(1)}</span>
-                    <span className="exit-leave-balance-item__label">Privilege (PL)</span>
-                  </div>
-                  <div className="exit-leave-balance-item">
-                    <span className="exit-leave-balance-item__value">{Number(leaveBalance.casual_leave_balance || 0).toFixed(1)}</span>
-                    <span className="exit-leave-balance-item__label">Casual (CL)</span>
-                  </div>
-                  <div className="exit-leave-balance-item">
-                    <span className="exit-leave-balance-item__value">{Number(leaveBalance.compensatory_leave_balance || 0).toFixed(1)}</span>
-                    <span className="exit-leave-balance-item__label">Comp-off</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="exit-hr-interview-panel">
-              <h3 className="exit-checklist-title">HR exit interview</h3>
-              {exitInterview?.submitted_at && (
-                <p className="exit-hr-interview-employee-note">
-                  Employee feedback received
-                  {exitInterview.overall_rating ? ` · Rating ${exitInterview.overall_rating}/5` : ''}
-                  {exitInterview.would_recommend ? ' · Would recommend' : ''}
+        <div className="obx-overlay" onClick={handleCancelExit}>
+          <div className="obx-sheet" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" onClick={(e) => e.stopPropagation()}>
+            <div className="obx-sheet-head">
+              <div>
+                <h2 id="confirm-modal-title">Exit {selectedEmployee?.name}</h2>
+                <p>
+                  {offboardingPreview
+                    ? (offboardingPreview.can_exit
+                      ? `${offboardingPreview.status_label}. No hard blockers.`
+                      : `${offboardingPreview.status_label}. ${offboardingPreview.hard_blocker_count} hard blocker(s).`)
+                    : 'Review the checklist, then send this to Admin.'}
                 </p>
-              )}
-              <label className="exit-hr-interview-check">
-                <input
-                  type="checkbox"
-                  checked={hrInterviewCompleted}
-                  onChange={(e) => setHrInterviewCompleted(e.target.checked)}
-                />
-                Mark HR exit interview complete
-              </label>
-              <div className="modal-field-row">
-                <div className="modal-field">
+              </div>
+              <button type="button" className="obx-btn" onClick={handleCancelExit} aria-label="Close"><X size={16} /></button>
+            </div>
+            <div className="obx-sheet-body">
+              <aside className="obx-sheet-side">
+                <h3>Checklist</h3>
+                {checklistLoading ? <p className="obx-muted">Loading checklist…</p> : (
+                  <ul className="obx-check">
+                    {(offboardingPreview?.checklist || []).map((item) => (
+                      <li key={item.key} className={item.passed ? '' : 'is-failed'}>
+                        <span>{item.label}</span>
+                        <span className={`obx-pill ${item.passed ? 'obx-pill--ok' : item.severity === 'hard' ? 'obx-pill--bad' : 'obx-pill--warn'}`}>{item.severity}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {leaveBalance ? (
+                  <>
+                    <h3>Leave balance</h3>
+                    <div className="obx-leave">
+                      <div><strong>{Number(leaveBalance.privilege_leave_balance || 0).toFixed(1)}</strong><span>Privilege</span></div>
+                      <div><strong>{Number(leaveBalance.casual_leave_balance || 0).toFixed(1)}</strong><span>Casual</span></div>
+                      <div><strong>{Number(leaveBalance.compensatory_leave_balance || 0).toFixed(1)}</strong><span>Comp-off</span></div>
+                    </div>
+                  </>
+                ) : null}
+                <h3>HR interview</h3>
+                {exitInterview?.submitted_at ? (
+                  <p className="obx-muted">
+                    Employee feedback received
+                    {exitInterview.overall_rating ? ` · ${exitInterview.overall_rating}/5` : ''}
+                    {exitInterview.would_recommend ? ' · Would recommend' : ''}
+                  </p>
+                ) : null}
+                <label className="obx-check-row">
+                  <input type="checkbox" checked={hrInterviewCompleted} onChange={(e) => setHrInterviewCompleted(e.target.checked)} />
+                  Interview complete
+                </label>
+                <div className="obx-span">
                   <label htmlFor="hr-interview-date">Interview date</label>
-                  <input
-                    id="hr-interview-date"
-                    type="date"
-                    value={hrInterviewDate}
-                    onChange={(e) => setHrInterviewDate(e.target.value)}
-                  />
+                  <input id="hr-interview-date" type="date" value={hrInterviewDate} onChange={(e) => setHrInterviewDate(e.target.value)} />
                 </div>
+                <div className="obx-span">
+                  <label htmlFor="hr-interview-notes">Notes</label>
+                  <textarea id="hr-interview-notes" rows={2} value={hrInterviewNotes} onChange={(e) => setHrInterviewNotes(e.target.value)} placeholder="Summary or follow-up" />
+                </div>
+                <button type="button" className="obx-btn" onClick={handleSaveHrInterview} disabled={hrInterviewSaving}>
+                  {hrInterviewSaving ? 'Saving…' : 'Save interview'}
+                </button>
+              </aside>
+              <div className="obx-sheet-main">
+                <div className="obx-form-grid">
+                  <div className="obx-span">
+                    <label htmlFor="exit-type">Exit type</label>
+                    <select id="exit-type" value={exitType} onChange={handleExitTypeChange}>
+                      {exitTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="resignation-date">Resignation date</label>
+                    <input id="resignation-date" type="date" value={resignationDate || ''} onChange={(e) => setResignationDate(e.target.value)} readOnly={!!offboardingPreview?.resignation_date} />
+                  </div>
+                  <div>
+                    <label htmlFor="last-working-day">Last working day</label>
+                    <input id="last-working-day" type="date" value={lastWorkingDay} onChange={(e) => { setLastWorkingDay(e.target.value); setExitDate(e.target.value); }} required />
+                  </div>
+                  <div>
+                    <label htmlFor="notice-shortfall">Notice shortfall (days)</label>
+                    <input id="notice-shortfall" type="number" min="0" step="1" value={noticeShortfallDays} onChange={(e) => setNoticeShortfallDays(e.target.value)} />
+                  </div>
+                  <div className="obx-span">
+                    <label htmlFor="exit-reason">Reason</label>
+                    <textarea id="exit-reason" value={exitReason} onChange={(e) => setExitReason(e.target.value)} rows={4} placeholder="Why is this employee exiting?" required />
+                  </div>
+                  {offboardingPreview && !offboardingPreview.can_exit ? (
+                    <div className="obx-span">
+                      <label className="obx-check-row">
+                        <input type="checkbox" checked={forceOverride} onChange={(e) => setForceOverride(e.target.checked)} />
+                        Override hard blockers
+                      </label>
+                      {forceOverride ? (
+                        <textarea value={forceOverrideReason} onChange={(e) => setForceOverrideReason(e.target.value)} rows={2} placeholder="Why this is proceeding despite blockers (at least 10 characters)" />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <p className="obx-muted">This stays a request until an Admin approves it. Settlement starts after approval.</p>
+                {error ? <p className="obx-alert" role="alert">{error}</p> : null}
               </div>
-              <div className="modal-field">
-                <label htmlFor="hr-interview-notes">HR notes</label>
-                <textarea
-                  id="hr-interview-notes"
-                  rows={2}
-                  value={hrInterviewNotes}
-                  onChange={(e) => setHrInterviewNotes(e.target.value)}
-                  placeholder="Interview summary or follow-up actions"
-                />
-              </div>
-              <button
-                type="button"
-                className="exit-hr-interview-save"
-                onClick={handleSaveHrInterview}
-                disabled={hrInterviewSaving}
-              >
-                {hrInterviewSaving ? 'Saving…' : 'Save HR interview'}
-              </button>
             </div>
-
-            <div className="modal-form">
-              <div className="modal-field">
-                <label htmlFor="exit-type">Exit type</label>
-                <select id="exit-type" value={exitType} onChange={handleExitTypeChange}>
-                  {exitTypes.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="modal-field-row">
-                <div className="modal-field">
-                  <label htmlFor="resignation-date">Resignation date</label>
-                  <input
-                    id="resignation-date"
-                    type="date"
-                    value={resignationDate || ''}
-                    onChange={(e) => setResignationDate(e.target.value)}
-                    readOnly={!!offboardingPreview?.resignation_date}
-                  />
-                </div>
-                <div className="modal-field">
-                  <label htmlFor="last-working-day">Last working day</label>
-                  <input
-                    id="last-working-day"
-                    type="date"
-                    value={lastWorkingDay}
-                    onChange={(e) => {
-                      setLastWorkingDay(e.target.value);
-                      setExitDate(e.target.value);
-                    }}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="modal-field">
-                <label htmlFor="notice-shortfall">Notice shortfall (days)</label>
-                <input
-                  id="notice-shortfall"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={noticeShortfallDays}
-                  onChange={(e) => setNoticeShortfallDays(e.target.value)}
-                />
-              </div>
-              <div className="modal-field">
-                <label htmlFor="exit-reason">Reason</label>
-                <textarea
-                  id="exit-reason"
-                  value={exitReason}
-                  onChange={(e) => setExitReason(e.target.value)}
-                  rows={4}
-                  placeholder="Write reason for exiting..."
-                  required
-                />
-              </div>
-              {offboardingPreview && !offboardingPreview.can_exit && (
-                <div className="modal-field exit-force-override">
-                  <label className="exit-force-override__label">
-                    <input
-                      type="checkbox"
-                      checked={forceOverride}
-                      onChange={(e) => setForceOverride(e.target.checked)}
-                    />
-                    Force override hard blockers
-                  </label>
-                  {forceOverride && (
-                    <textarea
-                      value={forceOverrideReason}
-                      onChange={(e) => setForceOverrideReason(e.target.value)}
-                      rows={2}
-                      placeholder="Explain why exit is proceeding despite blockers (min 10 characters)"
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-
-            <p className="exit-fnf-hint">
-              After exit, prepare Full &amp; Final settlement in Accounts → Payroll for this employee.
-            </p>
-
-            {error && (
-              <p className="exit-modal-error" role="alert">{error}</p>
-            )}
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-button cancel-button"
-                onClick={handleCancelExit}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                className="modal-button confirm-button"
-                onClick={handleConfirmExit}
-                disabled={submitting || !canSubmitExit}
-              >
-                {submitting ? 'Please wait...' : 'Confirm exit'}
+            <div className="obx-sheet-foot">
+              <button type="button" className="obx-btn" onClick={handleCancelExit}>Cancel</button>
+              <button type="button" className="obx-btn obx-btn--primary" onClick={handleConfirmExit} disabled={submitting || !canSubmitExit}>
+                {submitting ? 'Sending…' : 'Send for approval'}
               </button>
             </div>
           </div>
@@ -908,15 +676,10 @@ const ExitEmployee = ({onBack}) => {
         document.body,
       )}
 
-      {/* Success Toast */} 
-
-      {showSuccess && (
-        <div className="success-toast">
-          ✓ {successMessage || 'Employee exited successfully and moved to archive'}
-        </div>
-      )}
-
-    </div>
+      {showSuccess ? (
+        <div className="obx-toast" role="status">{successMessage || 'Exit sent for Admin approval.'}</div>
+      ) : null}
+    </section>
   );
 };
 

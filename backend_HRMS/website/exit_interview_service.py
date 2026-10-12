@@ -144,9 +144,12 @@ def send_fnf_paid_documents_to_employee(settlement_id: int, *, created_by_admin_
     if not pdf_bytes:
         return False
     display_name = f"FnF-Settlement-{admin.emp_id or settlement_id}.pdf"
+    from .tenant_context import tenant_id_for_admin
+
     ok, _msg, _payload = create_ex_employee_doc_share_and_email(
         recipient_email=recipient,
         files=[(display_name, pdf_bytes)],
         created_by_admin_id=created_by_admin_id,
+        tenant_id=tenant_id_for_admin(admin),
     )
     return ok
