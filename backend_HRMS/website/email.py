@@ -758,13 +758,15 @@ def send_form16_uploaded_email(admin, financial_year):
 
 
 def get_department_email(department):
+    """Resolve department mailbox; prefer ZEPTO_CC_* over legacy EMAIL_*."""
+    it_email = current_app.config.get("ZEPTO_CC_IT") or current_app.config.get("EMAIL_IT")
     department_map = {
-        "Human Resource": company_mailbox("EMAIL_HR"),
-        "Accounts": company_mailbox("EMAIL_ACCOUNTS"),
-        "IT": company_mailbox("EMAIL_IT"),
-        "IT Department": company_mailbox("EMAIL_IT"),
-        "Inventory": company_mailbox("EMAIL_IT"),
-        "Administration": company_mailbox("EMAIL_ADMIN"),
+        "Human Resource": current_app.config.get("ZEPTO_CC_HR") or current_app.config.get("EMAIL_HR"),
+        "Accounts": current_app.config.get("ZEPTO_CC_ACCOUNT") or current_app.config.get("EMAIL_ACCOUNTS"),
+        "IT": it_email,
+        "IT Department": it_email,
+        "Inventory": it_email,
+        "Administration": current_app.config.get("EMAIL_ADMIN"),
     }
     return department_map.get(department)
 
@@ -2027,11 +2029,8 @@ def _notify_query_created(query: Query):
     <p>Please log in to HRMS to respond.</p>
     """
 
-    # Route to department
-    if query.department == "Human Resource":
-        to_email = company_mailbox("ZEPTO_CC_HR")
-    else:
-        to_email = company_mailbox("ZEPTO_CC_ACCOUNT")
+    # Route to department mailbox (HR / IT / Accounts → ZEPTO_CC_*)
+    to_email = get_department_email(query.department)
 
     # CC employee who raised the query (if email present)
     cc_emails = []
@@ -2112,12 +2111,9 @@ def _notify_query_closed(query):
     """
 
     # -------------------------
-    # Decide recipient
+    # Decide recipient (HR / IT / Accounts → ZEPTO_CC_*)
     # -------------------------
-    if query.department == "Human Resource":
-        to_email = company_mailbox("ZEPTO_CC_HR")
-    else:
-        to_email = company_mailbox("ZEPTO_CC_ACCOUNT")
+    to_email = get_department_email(query.department)
 
     # CC employee (recommended)
     cc_emails = [admin.email]
