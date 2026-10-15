@@ -2,11 +2,17 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
+import { usePagedList } from "../../../hooks/usePagedList";
+import Pager from "../../../components/Pager";
+import { isPagedScreenEnabled } from "../../../utils/pagedScreens";
 import {
+  fetchInventoryDeadAssetsPageAPI,
   getAssetUnitsFromStorage,
   getDeletedAssetsFromStorage,
   getInventoryFromStorage,
+  notifyInventoryChange,
   toastITApiFailure,
+  toLocalDeletedLog,
   syncDeletedLogsFromAPI,
   wipeAllDeletedLogsAPI,
   wipeDeletedLogAPI
@@ -28,8 +34,14 @@ import { formatDate } from "../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SEARCH_FIELDS = ["brand", "assetName", "serialNumber"];
+const PER_PAGE = 25;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const selectServerLogs = (body) => (Array.isArray(body?.logs) ? body.logs.map(toLocalDeletedLog) : []);
+const selectCategoryCounts = (body) => body?.counts || {};
+const recordMatchesSearch = (record, needle) =>
+  SEARCH_FIELDS.some((field) => String(record[field] ?? "").toLowerCase().includes(needle));
 
 // ─── DetailModal ──────────────────────────────────────────────────────────────
 
@@ -137,7 +149,30 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
   const [wipeTarget,     setWipeTarget]     = useState(undefined);
   const [toast,          setToast]          = useState("");
 
-  const reload = useCallback(async () => {
+  const paged = useMemo(() => isPagedScreenEnabled("itDeadAssets"), []);
+  const listFilters = useMemo(
+    () => ({
+      inventory_category: inventoryCategory,
+      ...(activeCategory !== "All" ? { category: activeCategory } : {}),
+    }),
+    [inventoryCategory, activeCategory],
+  );
+  const list = usePagedList({
+    fetchList: fetchInventoryDeadAssetsPageAPI,
+    select: selectServerLogs,
+    selectMeta: selectCategoryCounts,
+    filters: listFilters,
+    perPage: PER_PAGE,
+    skip: !paged,
+    matchesSearch: recordMatchesSearch,
+  });
+  const { reload: reloadList, error: listError } = list;
+
+  useEffect(() => {
+    if (listError) toastITApiFailure(listError, "Could not load dead assets from the server.");
+  }, [listError]);
+
+  const reloadLocal = useCallback(async () => {
     try {
       await syncDeletedLogsFromAPI();
     } catch (err) {
@@ -150,7 +185,11 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
     }
     setRecords(getDeletedAssetsFromStorage());
   }, []);
-  useRefreshOnNavigate(reload, [inventoryCategory]);
+  const reload = paged ? reloadList : reloadLocal;
+  useRefreshOnNavigate(() => {
+    // The paged list refetches by itself when the tab or category changes.
+    if (!paged) reloadLocal();
+  }, [inventoryCategory]);
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -185,10 +224,16 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
     return rows;
   }, [scopedRecords, activeCategory, searchQuery]);
 
+  const categoryCounts = list.meta;
   const getCategoryCount = useCallback(
-    (cat) => scopedRecords.filter((r) => r.category === cat).length,
-    [scopedRecords],
+    (cat) =>
+      paged
+        ? categoryCounts?.[cat] || 0
+        : scopedRecords.filter((r) => r.category === cat).length,
+    [paged, categoryCounts, scopedRecords],
   );
+
+  const tableRows = paged ? list.rows : filteredRows;
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleWipeConfirm = useCallback(async () => {
@@ -199,6 +244,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
         await wipeAllDeletedLogsAPI();
       }
       await reload();
+      if (paged) notifyInventoryChange();
       setWipeTarget(undefined);
       showToast("Record permanently removed ✓");
     } catch (err) {
@@ -206,7 +252,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
       const msg = toastITApiFailure(err, "Failed to remove record on the server.");
       showToast(msg);
     }
-  }, [wipeTarget, reload, showToast]);
+  }, [wipeTarget, reload, paged, showToast]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -217,7 +263,7 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
         eyebrow={inventoryCategory}
         title="Dead Assets"
         subtitle="Full audit trail of all dead assets"
-        recordCount={filteredRows.length}
+        recordCount={paged ? list.total : filteredRows.length}
         filterBadge={
           activeCategory !== "All" ? (
             <span className="inv-table-filter-badge">{activeCategory}</span>
@@ -226,8 +272,8 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
         filters={
           <InventoryFiltersInner>
             <InventoryFilterSearch
-              value={searchQuery}
-              onChange={setSearchQuery}
+              value={paged ? list.searchInput : searchQuery}
+              onChange={paged ? list.setSearchInput : setSearchQuery}
               placeholder="Search by brand or serial…"
             />
             {showCategoryTabs && (
@@ -260,10 +306,14 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.length === 0 ? (
-                <tr><td colSpan={6} className="inv-empty-row">No dead assets found</td></tr>
+              {tableRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="inv-empty-row">
+                    {paged && list.loading ? "Loading…" : "No dead assets found"}
+                  </td>
+                </tr>
               ) : (
-                filteredRows.map((rec, i) => (
+                tableRows.map((rec, i) => (
                   <DeletedAssetRow
                     key={rec.deletedId}
                     record={rec}
@@ -276,6 +326,17 @@ export default function RemovedAssets({ inventoryCategory = "IT Assets" }) {
             </tbody>
           </table>
         </div>
+        {paged ? (
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            perPage={list.perPage}
+            onPage={list.setPage}
+            loading={list.loading}
+            noun="records"
+          />
+        ) : null}
       </InventoryPanel>
 
       {detailAsset && (

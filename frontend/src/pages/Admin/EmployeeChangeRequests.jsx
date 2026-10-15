@@ -108,8 +108,8 @@ export default function EmployeeChangeRequests({
           <h1>{title || (isAdmin ? 'Requests for approval' : 'Change request history')}</h1>
           <p className="admin-list-copy">
             {description || (isAdmin
-              ? 'Written HR requests, new signups, exits, rehires, and changes to department, circle, designation, and employment status.'
-              : 'Written requests, signups, exits, rehires, and profile changes, including who decided them.')}
+              ? 'Written HR requests, new signups, exits, rehires, leave and WFH changes by HR, and changes to department, circle, designation, and employment status.'
+              : 'Written requests, signups, exits, rehires, leave and WFH changes, and profile changes, including who decided them.')}
           </p>
         </div>
       </div>

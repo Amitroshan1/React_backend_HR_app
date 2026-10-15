@@ -142,6 +142,9 @@ export function crumbsForAdminPath(pathname, search = '') {
   if (p.startsWith('/account')) {
     return [commandCenterCrumbItem(), { label: 'Accounts Management' }];
   }
+  if (p.startsWith('/finance')) {
+    return [commandCenterCrumbItem(), { label: 'Finance' }];
+  }
   if (p.startsWith('/it/inventory')) {
     return [commandCenterCrumbItem(), { label: 'Inventory Management' }];
   }

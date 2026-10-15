@@ -1,13 +1,18 @@
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { toast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
+import { usePagedList } from "../../../hooks/usePagedList";
+import Pager from "../../../components/Pager";
+import { isPagedScreenEnabled } from "../../../utils/pagedScreens";
 import {
   buildDeletedLogApiPayload,
   createDeletedLogAPI,
   deleteAssetUnitAPI,
+  fetchInventoryRemovedITPageAPI,
   getAssetUnitsFromStorage,
   toastITApiFailure,
+  toLocalRemovedIT,
   getRemovedITAssets,
   getSoftwareInventory,
   removeFromRemovedIT,
@@ -41,6 +46,18 @@ const CATEGORY_COLORS = {
 };
 
 const searchText = (value) => String(value ?? "").toLowerCase();
+
+const PER_PAGE = 25;
+
+const selectServerAssets = (body) =>
+  Array.isArray(body?.removed_assets) ? body.removed_assets.map(toLocalRemovedIT) : [];
+const selectCategoryCounts = (body) => body?.counts || {};
+const assetMatchesSearch = (asset, needle) =>
+  searchText(asset.name).includes(needle) ||
+  searchText(asset.id).includes(needle) ||
+  searchText(asset.owner).includes(needle);
+
+const noPreparation = async () => {};
 
 function resolveAssetForDeadAction(asset) {
   const cat = String(asset?.category || "").trim().toLowerCase();
@@ -89,7 +106,7 @@ async function dismissRemovedITRecord(asset) {
 // AssetTable
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AssetTable({ assets, onView }) {
+function AssetTable({ assets, onView, loading = false }) {
   if (assets.length === 0) {
     return (
       <div className="empty-state">
@@ -97,7 +114,7 @@ function AssetTable({ assets, onView }) {
           <rect x="3" y="3" width="18" height="18" rx="3" stroke="#cbd5e1" strokeWidth="1.5" />
           <path d="M9 12h6M12 9v6" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
-        <p>No removed IT assets found</p>
+        <p>{loading ? "Loading…" : "No removed IT assets found"}</p>
       </div>
     );
   }
@@ -158,7 +175,8 @@ function AssetTable({ assets, onView }) {
 // ActionModal
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ActionModal({ asset, onClose, onActionDone }) {
+/** `prepare` runs before an action; it must leave the units / licenses the action looks up in localStorage. */
+function ActionModal({ asset, onClose, onActionDone, prepare = noPreparation }) {
   const [showDeadConfirm, setShowDeadConfirm] = useState(false);
   const [deadReason, setDeadReason] = useState("");
   const [submitted, setSubmitted] = useState(null);
@@ -173,6 +191,7 @@ function ActionModal({ asset, onClose, onActionDone }) {
   const handleRepair = () => {
     void (async () => {
       try {
+        await prepare();
         const resolved = resolveAssetForDeadAction(asset);
         if (resolved?.kind === "unit" && resolved.row?.id) {
           await setUnitStatusAPI({ unitId: resolved.row.id, status: "repair" });
@@ -203,6 +222,7 @@ function ActionModal({ asset, onClose, onActionDone }) {
       setBusy(true);
       setError("");
       try {
+        await prepare();
         const deletedId = `del-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const resolved = resolveAssetForDeadAction(asset);
         const reasonText = [asset.itReason, deadReason.trim()]
@@ -387,13 +407,35 @@ export default function RemovedITAssets() {
   const [assets,        setAssets       ] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState(null);
 
-  const reload = useCallback(() => {
+  const paged = useMemo(() => isPagedScreenEnabled("itRemovedFromIT"), []);
+  const listFilters = useMemo(
+    () => (activeFilter !== "All" ? { category: activeFilter } : {}),
+    [activeFilter],
+  );
+  const list = usePagedList({
+    fetchList: fetchInventoryRemovedITPageAPI,
+    select: selectServerAssets,
+    selectMeta: selectCategoryCounts,
+    filters: listFilters,
+    perPage: PER_PAGE,
+    skip: !paged,
+    matchesSearch: assetMatchesSearch,
+  });
+  const { reload: reloadList, error: listError } = list;
+
+  useEffect(() => {
+    if (listError) toastITApiFailure(listError, "Could not load removed IT assets from the server.");
+  }, [listError]);
+
+  const reloadLocal = useCallback(() => {
     setAssets((getRemovedITAssets() || []).filter(
       (a) => String(a?.category || "").toLowerCase() !== "software",
     ));
   }, []);
+  const reload = paged ? reloadList : reloadLocal;
 
   useRefreshOnNavigate(() => {
+    if (paged) return;
     const load = async () => {
       try {
         await syncRemovedITFromAPI();
@@ -421,13 +463,21 @@ export default function RemovedITAssets() {
     return matchCat && matchSearch;
   });
 
+  const categoryCounts = list.meta;
+  const allCount = paged
+    ? Object.values(categoryCounts || {}).reduce((sum, n) => sum + n, 0)
+    : assets.length;
   const getCategoryCount = useCallback(
-    (cat) =>
-      cat === "All"
-        ? assets.length
-        : assets.filter((a) => a.category === cat).length,
-    [assets],
+    (cat) => {
+      if (cat === "All") return allCount;
+      return paged
+        ? categoryCounts?.[cat] || 0
+        : assets.filter((a) => a.category === cat).length;
+    },
+    [paged, allCount, categoryCounts, assets],
   );
+  const shownAssets = paged ? list.rows : filteredAssets;
+  const shownCount = paged ? list.total : filteredAssets.length;
 
   const handleActionDone = () => {
     reload();
@@ -440,7 +490,7 @@ export default function RemovedITAssets() {
         eyebrow="IT Management"
         title="Removed Assets"
         subtitle="Assets removed from active inventory"
-        recordCount={filteredAssets.length}
+        recordCount={shownCount}
         filterBadge={
           activeFilter !== "All" ? (
             <span className="inv-table-filter-badge">{activeFilter}</span>
@@ -449,8 +499,8 @@ export default function RemovedITAssets() {
         filters={
           <InventoryFiltersInner>
             <InventoryFilterSearch
-              value={search}
-              onChange={setSearch}
+              value={paged ? list.searchInput : search}
+              onChange={paged ? list.setSearchInput : setSearch}
               placeholder="Search assets or owners…"
             />
             <InventoryCategoryTabs
@@ -463,12 +513,27 @@ export default function RemovedITAssets() {
         }
         footer={
           <>
-            Showing <strong>{filteredAssets.length}</strong> of{" "}
-            <strong>{assets.length}</strong> assets
+            Showing <strong>{shownCount}</strong> of{" "}
+            <strong>{allCount}</strong> assets
           </>
         }
       >
-        <AssetTable assets={filteredAssets} onView={setSelectedAsset} />
+        <AssetTable
+          assets={shownAssets}
+          onView={setSelectedAsset}
+          loading={paged && list.loading}
+        />
+        {paged ? (
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            perPage={list.perPage}
+            onPage={list.setPage}
+            loading={list.loading}
+            noun="assets"
+          />
+        ) : null}
       </InventoryPanel>
 
       {/* Modal */}
@@ -476,6 +541,7 @@ export default function RemovedITAssets() {
         asset={selectedAsset}
         onClose={() => setSelectedAsset(null)}
         onActionDone={handleActionDone}
+        prepare={paged ? syncITDataFromAPI : noPreparation}
       />
     </>
   );

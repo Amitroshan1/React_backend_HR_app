@@ -722,9 +722,9 @@ def _load_department_inbox_queries(admin, department):
     """Queries for one department inbox, with canonical post-filter."""
     _repair_query_created_at_from_history()
 
-    q = Query.query.options(joinedload(Query.admin), noload(Query.replies)).filter(
-        _query_department_sql_filter(department)
-    )
+    q = _tenant_queries(tenant_id_for_admin(admin)).options(
+        joinedload(Query.admin), noload(Query.replies)
+    ).filter(_query_department_sql_filter(department))
 
     reply_created_at_subquery = (
         db.session.query(func.min(QueryReply.created_at))

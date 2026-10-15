@@ -4,6 +4,7 @@ export const DEPARTMENT_TITLES = {
   hr: "HR Management",
   account: "Accounts Management",
   accounts: "Accounts Management",
+  finance: "Finance",
   admin: "Admin Management",
   it: "IT Management",
   inventory: "Inventory Management",
@@ -12,6 +13,7 @@ export const DEPARTMENT_TITLES = {
 export const PANEL_ROUTE_LABELS = {
   "/hr": DEPARTMENT_TITLES.hr,
   "/account": DEPARTMENT_TITLES.account,
+  "/finance": DEPARTMENT_TITLES.finance,
   "/admin": DEPARTMENT_TITLES.admin,
   "/it": DEPARTMENT_TITLES.it,
   "/it/inventory": DEPARTMENT_TITLES.inventory,

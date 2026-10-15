@@ -78,8 +78,9 @@ def _decode_data_url(raw: str) -> tuple[bytes, str]:
     return blob, ext
 
 
-def _write_data_url(raw: str, tenant_id: int, folder: str) -> str:
-    blob, ext = _decode_data_url(raw)
+def _write_blob(blob: bytes, ext: str, tenant_id: int, folder: str, *, durable: bool = False) -> str:
+    import os
+
     from ..secure_file_service import static_uploads_root
 
     root = static_uploads_root()
@@ -87,7 +88,18 @@ def _write_data_url(raw: str, tenant_id: int, folder: str) -> str:
     abs_path, key = tenant_upload_path(root, name, tenant_id)
     with open(abs_path, "wb") as fh:
         fh.write(blob)
+        if durable:
+            fh.flush()
+            os.fsync(fh.fileno())
+    if durable and os.path.getsize(abs_path) != len(blob):
+        os.remove(abs_path)
+        raise OSError(f"Short write for {key}")
     return key
+
+
+def _write_data_url(raw: str, tenant_id: int, folder: str) -> str:
+    blob, ext = _decode_data_url(raw)
+    return _write_blob(blob, ext, tenant_id, folder)
 
 
 def persist_itam_media(value, folder: str, tenant_id: Optional[int] = None):
@@ -174,76 +186,213 @@ def _media_targets():
     )
 
 
-def extract_itam_data_urls(*, apply: bool = False) -> dict:
+def _remove_files(keys) -> None:
+    import os
+
+    from ..secure_file_service import static_uploads_root
+
+    root = static_uploads_root()
+    for key in keys:
+        path = os.path.join(root, *key.split("/"))
+        if os.path.isfile(path):
+            os.remove(path)
+
+
+def _rewrite_media_value(value, tenant_id: int, folder: str, *, apply: bool, created: list):
+    """(new value, files, bytes, skipped). Files are only written when ``apply``."""
+    single = isinstance(value, str)
+    items = [value] if single else list(value)
+    rewritten = []
+    files = nbytes = skipped = 0
+    for item in items:
+        raw = _as_text(item)
+        if not raw.startswith("data:"):
+            if raw:
+                rewritten.append(item if not single else raw)
+            continue
+        try:
+            blob, ext = _decode_data_url(raw)
+        except ValueError:
+            skipped += 1
+            rewritten.append(item)
+            continue
+        files += 1
+        nbytes += len(blob)
+        if apply:
+            key = _write_blob(blob, ext, tenant_id, folder, durable=True)
+            created.append(key)
+            rewritten.append(key)
+        else:
+            rewritten.append(item)
+    return (rewritten[0] if single else rewritten), files, nbytes, skipped
+
+
+def _set_keeping_updated_at(row, column: str, value) -> None:
+    """A data move is not an edit: send the current updated_at so onupdate does not bump it."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    setattr(row, column, value)
+    if "updated_at" in row.__table__.columns:
+        flag_modified(row, "updated_at")
+
+
+def default_backup_dir() -> str:
+    import os
+
+    from flask import current_app
+
+    return os.path.join(current_app.instance_path, "itam_photo_backups")
+
+
+def extract_itam_data_urls(*, apply: bool = False, batch_size: int = 10, backup_dir: Optional[str] = None) -> dict:
     """
     Turn stored ``data:`` photos into ``tenants/{company}/itam/`` files.
 
     Dry run unless ``apply``. A photo that is not a JPG, PNG, WEBP, GIF or PDF,
     or is larger than 8 MB, stays as image data and is counted as skipped.
+
+    Rows are read ``batch_size`` at a time and each batch is committed on its own, so a
+    stopped run keeps finished batches and the next run continues with what is left.
+    Before a batch is committed, every changed row's old and new value is appended to a
+    backup file (``restore_itam_photos`` puts the old values back). Clears the session.
     """
+    import json
+    import os
+    from collections import Counter
+    from datetime import datetime, timezone
+
+    from .. import db
+
+    batch_size = max(1, int(batch_size or 10))
+    counts = Counter()
+    tables = {}
+    backup_path = None
+    backup_fh = None
+    if apply:
+        folder_path = backup_dir or default_backup_dir()
+        os.makedirs(folder_path, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup_path = os.path.join(folder_path, f"itam_photos_{stamp}.jsonl")
+        backup_fh = open(backup_path, "a", encoding="utf-8")
+    try:
+        for model, column, folder, owner_of in _media_targets():
+            stats = tables.setdefault(f"{model.__tablename__}.{column}", Counter())
+            ids = sorted(row_id for (row_id,) in db.session.query(model.id))
+            for start in range(0, len(ids), batch_size):
+                chunk = ids[start:start + batch_size]
+                created = []
+                try:
+                    changed_rows = []
+                    for row in sorted(model.query.filter(model.id.in_(chunk)), key=lambda r: r.id):
+                        value = getattr(row, column)
+                        if not value:
+                            continue
+                        new_value, files, nbytes, skipped = _rewrite_media_value(
+                            value, owner_of(row), folder, apply=apply, created=created
+                        )
+                        counts["skipped"] += skipped
+                        if not files:
+                            continue
+                        for bucket in (counts, stats):
+                            bucket["rows"] += 1
+                            bucket["files"] += files
+                            bucket["bytes"] += nbytes
+                        if apply:
+                            changed_rows.append((row, value, new_value))
+                    if apply and changed_rows:
+                        for row, old, new in changed_rows:
+                            backup_fh.write(json.dumps({
+                                "table": model.__tablename__,
+                                "column": column,
+                                "id": row.id,
+                                "old": old,
+                                "new": new,
+                            }) + "\n")
+                            _set_keeping_updated_at(row, column, new)
+                        backup_fh.flush()
+                        os.fsync(backup_fh.fileno())
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    _remove_files(created)
+                    raise
+                finally:
+                    db.session.expunge_all()
+    finally:
+        if backup_fh is not None:
+            backup_fh.close()
+            if not counts["rows"]:
+                os.remove(backup_path)
+                backup_path = None
+    result = {
+        "applied": bool(apply and counts["rows"]),
+        "rows": counts["rows"],
+        "files": counts["files"],
+        "bytes": counts["bytes"],
+        "skipped": counts["skipped"],
+        "tables": {name: dict(c) for name, c in tables.items() if c["rows"]},
+    }
+    if backup_path:
+        result["backup"] = backup_path
+    return result
+
+
+def restore_itam_photos(backup_path: str, *, apply: bool = False, batch_size: int = 10) -> dict:
+    """
+    Put back the image data saved by ``extract_itam_data_urls``.
+
+    Only rows still holding the value the extraction wrote are restored; a row edited
+    since then is counted as ``changed_since`` and left alone. The files stay on disk.
+    """
+    import json
     from collections import Counter
 
     from .. import db
 
-    created = []
+    columns = {(m.__tablename__, c): m for m, c, _folder, _owner in _media_targets()}
     counts = Counter()
-    bytes_total = 0
+    pending = 0
     try:
-        for model, column, folder, owner_of in _media_targets():
-            for row in model.query.order_by(model.id).all():
-                value = getattr(row, column)
-                if not value:
+        with open(backup_path, encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
                     continue
-                single = isinstance(value, str)
-                items = [value] if single else list(value)
-                rewritten = []
-                changed = False
-                tenant_id = owner_of(row)
-                for item in items:
-                    raw = _as_text(item)
-                    if not raw.startswith("data:"):
-                        if raw:
-                            rewritten.append(item if not single else raw)
-                        continue
-                    try:
-                        blob, _ext = _decode_data_url(raw)
-                    except ValueError:
-                        counts["skipped"] += 1
-                        rewritten.append(item)
-                        continue
-                    counts["files"] += 1
-                    bytes_total += len(blob)
-                    changed = True
-                    if apply:
-                        key = _write_data_url(raw, tenant_id, folder)
-                        created.append(key)
-                        rewritten.append(key)
-                    else:
-                        rewritten.append(item)
-                if apply and changed:
-                    setattr(row, column, rewritten[0] if single else rewritten)
-                    counts["rows"] += 1
-                elif changed:
-                    counts["rows"] += 1
-        if apply:
+                entry = json.loads(line)
+                model = columns.get((entry.get("table"), entry.get("column")))
+                if model is None:
+                    counts["unknown"] += 1
+                    continue
+                row = db.session.get(model, entry["id"])
+                if row is None:
+                    counts["missing"] += 1
+                    continue
+                current = getattr(row, entry["column"])
+                if current == entry["old"]:
+                    counts["already"] += 1
+                    continue
+                if current != entry["new"]:
+                    counts["changed_since"] += 1
+                    continue
+                counts["rows"] += 1
+                if apply:
+                    _set_keeping_updated_at(row, entry["column"], entry["old"])
+                    pending += 1
+                    if pending >= batch_size:
+                        db.session.commit()
+                        db.session.expunge_all()
+                        pending = 0
+        if apply and pending:
             db.session.commit()
     except Exception:
         db.session.rollback()
-        if created:
-            from ..secure_file_service import static_uploads_root
-
-            root = static_uploads_root()
-            import os
-
-            for key in created:
-                path = os.path.join(root, *key.split("/"))
-                if os.path.isfile(path):
-                    os.remove(path)
         raise
+    finally:
+        db.session.expunge_all()
     return {
         "applied": bool(apply and counts["rows"]),
         "rows": counts["rows"],
-        "files": counts["files"],
-        "bytes": bytes_total,
-        "skipped": counts["skipped"],
+        "changed_since": counts["changed_since"],
+        "already": counts["already"],
+        "missing": counts["missing"],
+        "unknown": counts["unknown"],
     }

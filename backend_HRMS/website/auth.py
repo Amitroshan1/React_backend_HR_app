@@ -102,26 +102,17 @@ logger.addHandler(ch)
 @jwt_required()
 def get_master_options():
     """Return department and circle names from MasterData for dropdowns (Queries, Admin, etc.)."""
-    from .master_data_tenancy import master_query
-
-    dept_rows = (
-        master_query().filter_by(master_type="department", is_active=True)
-        .order_by(MasterData.name.asc())
-        .all()
-    )
-    circle_rows = (
-        master_query().filter_by(master_type="circle", is_active=True)
-        .order_by(MasterData.name.asc())
-        .all()
-    )
+    from .cache import active_master_names
     from .plan_features import filter_query_departments
+    from .tenant_context import get_current_tenant_id
 
-    departments = filter_query_departments([r.name for r in dept_rows])
+    tid = get_current_tenant_id()
+    departments = filter_query_departments(active_master_names(tid, "department"))
 
     return jsonify({
         "success": True,
         "departments": departments,
-        "circles": [r.name for r in circle_rows],
+        "circles": active_master_names(tid, "circle"),
     }), 200
 
 
@@ -276,10 +267,25 @@ def revoke_sensitive_access():
 OTP_TTL_MINUTES = 5
 OTP_RESEND_SECONDS = 60  # used by sensitive (payslip/tax) OTP only
 OTP_MAX_ATTEMPTS = 5
-VERIFY_OTP_IP_LIMIT_PER_HOUR = 30
-PINCODE_IP_LIMIT_PER_HOUR = 60
-SENSITIVE_OTP_IP_LIMIT_PER_HOUR = 10
-SENSITIVE_OTP_USER_LIMIT_PER_DAY = 20
+
+
+def _env_int(name: str, default: int) -> int:
+    import os
+
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    try:
+        return int(str(raw).strip())
+    except ValueError:
+        return default
+
+
+# 0 = unlimited (rate_limit.hit treats limit <= 0 as allow-all).
+VERIFY_OTP_IP_LIMIT_PER_HOUR = _env_int("VERIFY_OTP_IP_LIMIT_PER_HOUR", 30)
+PINCODE_IP_LIMIT_PER_HOUR = _env_int("PINCODE_IP_LIMIT_PER_HOUR", 60)
+SENSITIVE_OTP_IP_LIMIT_PER_HOUR = _env_int("SENSITIVE_OTP_IP_LIMIT_PER_HOUR", 10)
+SENSITIVE_OTP_USER_LIMIT_PER_DAY = _env_int("SENSITIVE_OTP_USER_LIMIT_PER_DAY", 20)
 MAX_PUNCH_SESSIONS_PER_DAY = 8
 GEO_REASON_MIN_CHARS = 10
 

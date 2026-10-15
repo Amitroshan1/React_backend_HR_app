@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { useDebounced, usePagedList } from '../../hooks/usePagedList';
 import { formatDateDDMMYYYY } from '../../utils/dateFormat';
+import { isPagedScreenEnabled } from '../../utils/pagedScreens';
 import { matchesListQuery } from './adminListQuery';
 import { markAdminDepartmentVisit } from './adminVisit';
 import { UserAvatar } from '../../components/UserAvatar';
@@ -69,6 +71,24 @@ function downloadCsv(rows) {
   URL.revokeObjectURL(url);
 }
 
+async function fetchDirectoryPage(params) {
+  const token = localStorage.getItem('token');
+  if (!token) throw new Error('Please sign in again.');
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') qs.set(key, String(value));
+  });
+  const res = await fetch(`${ADMIN_EMPLOYEES_API}?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.message || 'The directory could not be loaded.');
+  return data;
+}
+
+const selectEmployees = (body) => (Array.isArray(body?.employees) ? body.employees : []);
+const selectFacets = (body) => body?.facets || null;
+const EMPTY_FACETS = { total: 0, typeCounts: {}, types: [], circles: [], statuses: [] };
+const byCountThenName = (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]);
+
 const Employee = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -84,6 +104,29 @@ const Employee = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportFailed, setExportFailed] = useState(false);
+
+  const paged = useMemo(() => isPagedScreenEnabled('adminEmployees'), []);
+  const searchTerm = useDebounced(query.trim(), 300);
+  const directoryFilters = useMemo(() => ({
+    view: 'directory',
+    ...(employeeType !== 'All' ? { type: employeeType } : {}),
+    ...(circle !== 'All' ? { in_circle: circle } : {}),
+    ...(status !== 'All' ? { status } : {}),
+    ...(searchTerm ? { q: searchTerm } : {}),
+    sort: sortKey,
+    dir: sortDir,
+  }), [circle, employeeType, searchTerm, sortDir, sortKey, status]);
+  const list = usePagedList({
+    fetchList: fetchDirectoryPage,
+    select: selectEmployees,
+    selectMeta: selectFacets,
+    filters: directoryFilters,
+    perPage: PAGE_SIZE,
+    skip: !paged,
+  });
+  const facets = list.meta || EMPTY_FACETS;
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -105,6 +148,8 @@ const Employee = () => {
   }, [location.state]);
 
   const loadEmployees = useCallback(() => {
+    // The paged list loads itself and refetches when filters, search or sort change.
+    if (paged) return;
     const token = localStorage.getItem('token');
     if (!token) {
       setLoading(false);
@@ -128,36 +173,38 @@ const Employee = () => {
         setFailed(true);
         setLoading(false);
       });
-  }, []);
+  }, [paged]);
 
   useRefreshOnNavigate(loadEmployees);
 
   const typeCounts = useMemo(() => {
+    if (paged) return Object.entries(facets.typeCounts || {}).sort(byCountThenName);
     const counts = new Map();
     employees.forEach((row) => {
       const key = row.emp_type || 'Unassigned';
       counts.set(key, (counts.get(key) || 0) + 1);
     });
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [employees]);
+    return Array.from(counts.entries()).sort(byCountThenName);
+  }, [employees, facets, paged]);
   const typeChoices = useMemo(
     () => uniqueSorted([
       ...employeeTypeOptions,
-      ...employees.map((row) => row.emp_type),
+      ...(paged ? facets.types || [] : employees.map((row) => row.emp_type)),
       ...typeCounts.map(([name]) => name),
     ]),
-    [employeeTypeOptions, employees, typeCounts],
+    [employeeTypeOptions, employees, facets, paged, typeCounts],
   );
   const circleChoices = useMemo(
-    () => uniqueSorted([...circleOptions, ...employees.map((row) => row.circle)]),
-    [circleOptions, employees],
+    () => uniqueSorted([...circleOptions, ...(paged ? facets.circles || [] : employees.map((row) => row.circle))]),
+    [circleOptions, employees, facets, paged],
   );
   const statusChoices = useMemo(
-    () => uniqueSorted(employees.map((row) => statusKey(row))),
-    [employees],
+    () => uniqueSorted(paged ? facets.statuses || [] : employees.map((row) => statusKey(row))),
+    [employees, facets, paged],
   );
 
   const visible = useMemo(() => {
+    if (paged) return [];
     const filtered = employees.filter((row) => {
       if (employeeType !== 'All' && (row.emp_type || 'Unassigned') !== employeeType) return false;
       if (circle !== 'All' && (row.circle || '') !== circle) return false;
@@ -171,18 +218,40 @@ const Employee = () => {
       return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' }) * dir;
     });
     return filtered;
-  }, [circle, employeeType, employees, query, sortDir, sortKey, status]);
+  }, [circle, employeeType, employees, paged, query, sortDir, sortKey, status]);
 
   useEffect(() => {
     setPage(1);
   }, [query, employeeType, circle, status, sortKey, sortDir]);
 
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
-  const pageRows = visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const rangeStart = visible.length ? (safePage - 1) * PAGE_SIZE + 1 : 0;
-  const rangeEnd = Math.min(safePage * PAGE_SIZE, visible.length);
+  const isLoading = paged ? list.loading && !list.meta : loading;
+  const isFailed = paged ? Boolean(list.error) : failed;
+  const retry = paged ? list.reload : loadEmployees;
+  const companyCount = paged ? facets.total : employees.length;
+  const matchCount = paged ? list.total : visible.length;
+  const pageCount = paged ? list.pages : Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = paged ? list.page : Math.min(page, pageCount);
+  const goToPage = paged ? list.setPage : setPage;
+  const pageRows = paged ? list.rows : visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const rangeStart = matchCount ? (safePage - 1) * PAGE_SIZE + 1 : 0;
+  const rangeEnd = Math.min(safePage * PAGE_SIZE, matchCount);
   const filtersActive = query.trim() || employeeType !== 'All' || circle !== 'All' || status !== 'All';
+
+  const exportVisible = async () => {
+    if (!paged) {
+      downloadCsv(visible);
+      return;
+    }
+    setExporting(true);
+    setExportFailed(false);
+    try {
+      downloadCsv(selectEmployees(await fetchDirectoryPage(directoryFilters)));
+    } catch {
+      setExportFailed(true);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const toggleSort = (key) => {
     if (sortKey === key) {
@@ -226,29 +295,29 @@ const Employee = () => {
         <div>
           <h1>Employees</h1>
           <p className="admin-list-copy">
-            {loading
+            {isLoading
               ? 'Loading the company directory…'
-              : `${employees.length} in this company${filtersActive ? ` · ${visible.length} match` : ''}`}
+              : `${companyCount} in this company${filtersActive ? ` · ${matchCount} match` : ''}`}
           </p>
         </div>
         <button
           type="button"
           className="emp-dir__export"
-          onClick={() => downloadCsv(visible)}
-          disabled={loading || visible.length === 0}
+          onClick={exportVisible}
+          disabled={isLoading || exporting || matchCount === 0}
         >
-          Export
+          {exporting ? 'Exporting…' : exportFailed ? 'Export failed – retry' : 'Export'}
         </button>
       </div>
 
-      {!loading && typeCounts.length > 0 ? (
+      {!isLoading && typeCounts.length > 0 ? (
         <div className="emp-dir__chips" role="toolbar" aria-label="Filter by type">
           <button
             type="button"
             className={employeeType === 'All' ? 'is-on' : ''}
             onClick={() => setEmployeeType('All')}
           >
-            All <strong>{employees.length}</strong>
+            All <strong>{companyCount}</strong>
           </button>
           {typeCounts.map(([name, count]) => (
             <button
@@ -307,12 +376,12 @@ const Employee = () => {
       </div>
 
       <div className="admin-list-table-wrap">
-        {loading ? (
+        {isLoading ? (
           <p className="emp-dir__loading">Loading employees…</p>
-        ) : failed ? (
+        ) : isFailed ? (
           <p className="emp-dir__loading">
             The directory could not be loaded.
-            <button type="button" className="emp-dir__retry" onClick={loadEmployees}>Try again</button>
+            <button type="button" className="emp-dir__retry" onClick={retry}>Try again</button>
           </p>
         ) : pageRows.length > 0 ? (
           <table className="admin-list-table">
@@ -374,22 +443,22 @@ const Employee = () => {
             </tbody>
           </table>
         ) : null}
-        {!loading && !failed && visible.length === 0 ? (
+        {!isLoading && !isFailed && matchCount === 0 ? (
           <p className="admin-list-empty">
-            {employees.length === 0
+            {companyCount === 0
               ? 'No employees are in this company yet.'
               : 'No employees match these filters.'}
           </p>
         ) : null}
-        {!loading && !failed && visible.length > 0 ? (
+        {!isLoading && !isFailed && matchCount > 0 ? (
           <div className="emp-dir__pager">
-            <span>Showing {rangeStart}–{rangeEnd} of {visible.length}</span>
+            <span>Showing {rangeStart}–{rangeEnd} of {matchCount}</span>
             <div>
-              <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1}>
+              <button type="button" onClick={() => goToPage(Math.max(1, safePage - 1))} disabled={safePage <= 1}>
                 Previous
               </button>
               <span>Page {safePage} of {pageCount}</span>
-              <button type="button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={safePage >= pageCount}>
+              <button type="button" onClick={() => goToPage(Math.min(pageCount, safePage + 1))} disabled={safePage >= pageCount}>
                 Next
               </button>
             </div>

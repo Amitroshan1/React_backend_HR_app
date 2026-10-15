@@ -6,6 +6,7 @@ import {
     isAdminUser,
     isHrUser,
     canAccessAccountPanel,
+    canAccessFinancePanel,
     canAccessItPanel,
     canAccessHrPanel,
     canViewOwnAssignedAssets,
@@ -107,6 +108,10 @@ export const AppLayout = () => {
         }
 
         if (path.startsWith("/account") && !canAccessAccountPanel(user)) {
+            navigate("/dashboard", { replace: true });
+            return;
+        }
+        if (path.startsWith("/finance") && !canAccessFinancePanel(user)) {
             navigate("/dashboard", { replace: true });
             return;
         }

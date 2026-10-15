@@ -170,6 +170,10 @@ function resolveStoredAccountView() {
     return { view: 'main', taxDeclId: null };
   }
 
+  if (view === 'expenseClaims') {
+    return { view: 'main', taxDeclId: null };
+  }
+
   if (view === 'taxDeclarationDetail') {
     if (!taxDeclId || Number.isNaN(taxDeclId)) {
       return { view: 'taxDeclarations', taxDeclId: null };
@@ -532,11 +536,6 @@ export const Account = ()  => {
     }
   };
 
-  const handleOpenExpenseClaims = useCallback(() => {
-    setPreviousView('main');
-    setCurrentView('expenseClaims');
-  }, []);
-
   const handleOpenNocRequests = useCallback(() => {
     setCurrentView('noc_requests');
   }, []);
@@ -551,14 +550,6 @@ export const Account = ()  => {
     const base = [
       { title: 'Total Employees', value: statsData.total_employees, subtitle: 'Active employees', icon: <Users size={20} /> },
       { title: 'Payslips Generated', value: statsData.payslips_generated, subtitle: 'Current month', icon: <FileText size={20} /> },
-      {
-        title: 'Expense Claims',
-        value: formatCurrency(statsData.ytd_expenses),
-        subtitle: 'Year to date (Jan–today)',
-        icon: <TrendingUp size={20} />,
-        clickable: true,
-        onClick: handleOpenExpenseClaims,
-      },
     ];
 
     if (isAccountsDept) {
@@ -603,7 +594,6 @@ export const Account = ()  => {
     canReviewTaxDeclarations,
     nocSummary,
     taxDeclSummary,
-    handleOpenExpenseClaims,
     handleOpenNocRequests,
     handleOpenTaxDeclarations,
   ]);
@@ -6473,7 +6463,6 @@ export const Account = ()  => {
     || (currentView === 'payrollHistory')
     || (currentView === 'complianceExports')
     || (currentView === 'payrollLifecycle')
-    || (currentView === 'expenseClaims')
     || (currentView === 'taxDeclarations')
     || (currentView === 'taxDeclarationDetail' && selectedTaxDeclId)
     || (currentView === 'addForm16')
@@ -6521,7 +6510,6 @@ export const Account = ()  => {
       {currentView === 'complianceExports' && renderComplianceExports()}
       {currentView === 'payrollLifecycle' && renderPayrollLifecycle()}
       {currentView === 'payrollHistory' && renderPayrollHistory()}
-      {currentView === 'expenseClaims' && renderExpenseClaims()}
       {currentView === 'taxDeclarations' && (
         <TaxDeclarationReview
           apiBase={API_BASE_URL}

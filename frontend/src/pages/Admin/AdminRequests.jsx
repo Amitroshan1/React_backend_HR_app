@@ -50,7 +50,7 @@ export default function AdminRequests() {
           </span>
           <span className="admin-dash__shortcut-text">
             <strong>Requests for approval</strong>
-            <span>Review written HR requests, new signups, exits, rehires, and profile changes</span>
+            <span>Review written HR requests, new signups, exits, rehires, leave and WFH changes by HR, and profile changes</span>
           </span>
           {pendingCount > 0 ? (
             <span className="admin-dash__notify" aria-label={`${pendingCount} pending requests`}>

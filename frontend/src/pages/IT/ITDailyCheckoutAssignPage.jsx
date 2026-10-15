@@ -4,9 +4,13 @@ import { toast } from "react-toastify";
 import {
   assignDayUseUnitAPI,
   fetchDayUseAvailableUnitsAPI,
+  fetchDayUseAvailableUnitsPageAPI,
   fetchDayUseRequestAPI,
   toastITApiFailure,
 } from "./Data";
+import { useDebounced, usePagedList } from "../../hooks/usePagedList";
+import Pager from "../../components/Pager";
+import { isPagedScreenEnabled } from "../../utils/pagedScreens";
 import { formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import {
   getAssetCodeField,
@@ -75,14 +79,20 @@ function columnsForHwType(hwType) {
   ];
 }
 
+const PICKER_PER_PAGE = 30;
+
+const selectUnits = (body) => (Array.isArray(body?.units) ? body.units : []);
+
+const fetchFullUnitList = (params) => fetchDayUseAvailableUnitsAPI(params.hw_type, params.q);
+
 export default function ITDailyCheckoutAssignPage() {
   const { requestId } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [request, setRequest] = useState(null);
-  const [units, setUnits] = useState([]);
   const [search, setSearch] = useState("");
+  const pagedPicker = useMemo(() => isPagedScreenEnabled("itDayUsePicker"), []);
   const [activeSlotKey, setActiveSlotKey] = useState(null);
   const [selections, setSelections] = useState({}); // key -> { unitId, remarks, unit }
   const [accessoryComments, setAccessoryComments] = useState({});
@@ -107,6 +117,25 @@ export default function ITDailyCheckoutAssignPage() {
     [activeSlot],
   );
 
+  const debouncedSearch = useDebounced(search.trim(), 200);
+  const unitFilters = useMemo(
+    () => ({ hw_type: activeSlot?.hw_type || undefined, q: debouncedSearch || undefined }),
+    [activeSlot?.hw_type, debouncedSearch],
+  );
+  const unitList = usePagedList({
+    fetchList: pagedPicker ? fetchDayUseAvailableUnitsPageAPI : fetchFullUnitList,
+    select: selectUnits,
+    filters: unitFilters,
+    perPage: PICKER_PER_PAGE,
+    enabled: pagedPicker,
+    skip: !request || !activeSlot?.hw_type,
+  });
+  const units = unitList.rows;
+
+  useEffect(() => {
+    if (unitList.error) toastITApiFailure(unitList.error, "Unable to load inventory");
+  }, [unitList.error]);
+
   const takenUnitIds = useMemo(() => {
     const ids = new Set();
     Object.entries(selections).forEach(([key, sel]) => {
@@ -119,6 +148,19 @@ export default function ITDailyCheckoutAssignPage() {
     () => units.filter((u) => !takenUnitIds.has(Number(u.id))),
     [units, takenUnitIds],
   );
+
+  // Units picked for other slots of the same type are still in the server total.
+  const availableCount = useMemo(() => {
+    if (!pagedPicker) return visibleUnits.length;
+    const hw = String(activeSlot?.hw_type || "").toLowerCase();
+    const takenSameType = Object.entries(selections).filter(
+      ([key, sel]) =>
+        key !== activeSlot?.key &&
+        sel?.unitId &&
+        String(sel.unit?.hwType || "").toLowerCase() === hw,
+    ).length;
+    return Math.max(0, unitList.total - takenSameType);
+  }, [pagedPicker, visibleUnits.length, unitList.total, selections, activeSlot]);
 
   const selectedCount = deviceSlots.filter((s) => selections[s.key]?.unitId).length;
   const allDevicesSelected = deviceSlots.length > 0 && selectedCount === deviceSlots.length;
@@ -145,28 +187,9 @@ export default function ITDailyCheckoutAssignPage() {
     }
   }, [requestId, navigate]);
 
-  const loadUnits = useCallback(async () => {
-    if (!activeSlot?.hw_type) {
-      setUnits([]);
-      return;
-    }
-    try {
-      const data = await fetchDayUseAvailableUnitsAPI(activeSlot.hw_type, search || undefined);
-      setUnits(data.units || []);
-    } catch (err) {
-      toastITApiFailure(err, "Unable to load inventory");
-    }
-  }, [activeSlot?.hw_type, search]);
-
   useEffect(() => {
     loadRequest();
   }, [loadRequest]);
-
-  useEffect(() => {
-    if (!request || !activeSlot) return;
-    const t = setTimeout(() => loadUnits(), 200);
-    return () => clearTimeout(t);
-  }, [request, activeSlot, loadUnits]);
 
   const selectUnitForActive = (unit) => {
     if (!activeSlot) return;
@@ -328,7 +351,7 @@ export default function ITDailyCheckoutAssignPage() {
                 </p>
               </div>
               <span className="da-assign-count">
-                <strong>{visibleUnits.length}</strong> available
+                <strong>{availableCount}</strong> available
               </span>
             </div>
 
@@ -398,6 +421,17 @@ export default function ITDailyCheckoutAssignPage() {
                   );
                 })}
               </div>
+            )}
+            {pagedPicker && (
+              <Pager
+                page={unitList.page}
+                pages={unitList.pages}
+                total={unitList.total}
+                perPage={unitList.perPage}
+                onPage={unitList.setPage}
+                loading={unitList.loading}
+                noun="units"
+              />
             )}
           </section>
 

@@ -49,11 +49,12 @@ from .tenant_context import (
 from .models.employee_circle_history import EmployeeCircleHistory
 from datetime import datetime,date,timedelta
 from .datetime_utils import utc_now, isoformat_api
+from .query_utils import list_params, pagination_for
 from zoneinfo import ZoneInfo
 import calendar
 from sqlalchemy import and_, or_, func, func, func
 from sqlalchemy.exc import DataError, IntegrityError, OperationalError, StatementError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import contains_eager, joinedload
 from flask_login import current_user
 from .email import (
     update_asset_email,
@@ -537,12 +538,9 @@ def _master_type_or_400(raw_type):
 
 
 def _get_master_values(master_type):
-    rows = (
-        master_query().filter_by(master_type=master_type, is_active=True)
-        .order_by(MasterData.name.asc())
-        .all()
-    )
-    return [row.name for row in rows]
+    from .cache import active_master_names
+
+    return active_master_names(get_current_tenant_id(), master_type)
 
 
 def _is_allowed_master_value(master_type, value):
@@ -609,6 +607,9 @@ def _seed_holidays_for_year(year, overwrite=False, tenant_id=None):
         )
     db.session.add_all(rows)
     db.session.commit()
+    from .cache import bump_holidays
+
+    bump_holidays(tid)
     return rows
 
 
@@ -768,6 +769,9 @@ def create_holiday():
         existing.is_optional = is_optional
         existing.is_active = True
         db.session.commit()
+        from .cache import bump_holidays
+
+        bump_holidays()
         return jsonify(
             {
                 "success": True,
@@ -796,6 +800,9 @@ def create_holiday():
             }
         ), 409
 
+    from .cache import bump_holidays
+
+    bump_holidays()
     return jsonify(
         {
             "success": True,
@@ -851,6 +858,9 @@ def update_holiday(holiday_id):
         row.is_active = bool(data.get("is_active"))
 
     db.session.commit()
+    from .cache import bump_holidays
+
+    bump_holidays()
     return jsonify({"success": True, "holiday": _serialize_holiday(row)}), 200
 
 
@@ -866,6 +876,9 @@ def delete_holiday(holiday_id):
 
     row.is_active = False
     db.session.commit()
+    from .cache import bump_holidays
+
+    bump_holidays()
     return jsonify(
         {
             "success": True,
@@ -945,6 +958,9 @@ def create_master_data(master_type):
         existing.is_active = True
         existing.name = name
         db.session.commit()
+        from .cache import bump_master
+
+        bump_master()
         return jsonify(
             {
                 "success": True,
@@ -956,6 +972,9 @@ def create_master_data(master_type):
     row = MasterData(tenant_id=get_current_tenant_id(), master_type=parsed_type, name=name, is_active=True)
     db.session.add(row)
     db.session.commit()
+    from .cache import bump_master
+
+    bump_master()
     return jsonify(
         {
             "success": True,
@@ -1006,6 +1025,9 @@ def delete_master_data(master_type, item_id):
 
     row.is_active = False
     db.session.commit()
+    from .cache import bump_master
+
+    bump_master()
     return jsonify({"success": True, "message": "Value deleted successfully"}), 200
 
 
@@ -1096,6 +1118,7 @@ def signup_api():
     except EmploymentStatusError as emp_err:
         return jsonify({"success": False, "message": str(emp_err)}), 400
 
+    from .approval_settings import approval_required, maybe_notify_bypass
     from .employee_profile_change_service import signup_identifier_conflict, stage_signup_request
 
     hr_tenant_id = get_current_tenant_id()
@@ -1109,7 +1132,7 @@ def signup_api():
     if conflict:
         return jsonify({"success": False, "message": conflict}), 409
 
-    stage_signup_request({
+    signup_payload = {
         "email": email,
         "first_name": first_name,
         "user_name": user_name,
@@ -1127,7 +1150,29 @@ def signup_api():
         "candidate_id": data.get("candidate_id"),
         "circle_effective_from": data.get("circle_effective_from"),
         "circle_transfer_notes": data.get("circle_transfer_notes"),
-    })
+    }
+    if not approval_required("signup"):
+        from .email import send_welcome_email
+
+        new_admin = materialize_employee_signup(signup_payload, hr_email)
+        db.session.commit()
+        try:
+            send_welcome_email(new_admin, signup_payload)
+        except Exception as mail_err:
+            current_app.logger.warning("Welcome email failed after direct signup: %s", mail_err)
+        maybe_notify_bypass(
+            "signup",
+            f"HR created employee {first_name} ({email}) without Admin approval.",
+            tenant_id=hr_tenant_id,
+        )
+        return jsonify({
+            "success": True,
+            "pending_approval": False,
+            "message": "Employee created successfully.",
+            "admin_id": new_admin.id,
+        }), 201
+
+    stage_signup_request(signup_payload)
     db.session.commit()
     return jsonify({
         "success": True,
@@ -2478,8 +2523,13 @@ def mark_employee_exit():
         if res and res.resignation_date:
             resignation_date = res.resignation_date
 
-    from .employee_profile_change_service import pending_request_message, stage_action_request
-    from .offboarding_service import validate_employee_exit
+    from .approval_settings import approval_required, maybe_notify_bypass
+    from .employee_profile_change_service import (
+        _apply_exit,
+        pending_request_message,
+        stage_action_request,
+    )
+    from .offboarding_service import send_exit_employee_notifications, validate_employee_exit
 
     ok, message, payload = validate_employee_exit(
         admin,
@@ -2498,22 +2548,47 @@ def mark_employee_exit():
     if blocked:
         return jsonify({"success": False, "message": blocked}), 400
 
+    exit_payload = {
+        "exit_type": exit_type,
+        "exit_reason": exit_reason,
+        "exit_date": exit_date.isoformat(),
+        "last_working_day": last_working_day.isoformat(),
+        "resignation_date": resignation_date.isoformat() if resignation_date else None,
+        "notice_shortfall_days": notice_shortfall_days,
+        "force_override": force_override,
+        "force_override_reason": force_override_reason,
+    }
     try:
-        stage_action_request(
-            admin,
-            "exit",
-            {},
-            {
-                "exit_type": exit_type,
-                "exit_reason": exit_reason,
-                "exit_date": exit_date.isoformat(),
-                "last_working_day": last_working_day.isoformat(),
-                "resignation_date": resignation_date.isoformat() if resignation_date else None,
-                "notice_shortfall_days": notice_shortfall_days,
-                "force_override": force_override,
-                "force_override_reason": force_override_reason,
-            },
-        )
+        if not approval_required("exit"):
+            performer = (get_jwt() or {}).get("email") or "HR"
+            row = stage_action_request(admin, "exit", {}, exit_payload)
+            exit_notice = _apply_exit(admin, row, performer)
+            row.status = "approved"
+            row.decided_at = utc_now()
+            row.decision_note = "Applied immediately (Admin approval switch off)."
+            db.session.commit()
+            try:
+                send_exit_employee_notifications(
+                    admin,
+                    exit_type=exit_notice.get("exit_type"),
+                    last_working_day=exit_notice.get("last_working_day"),
+                    exit_reason=exit_notice.get("exit_reason"),
+                    hr_email=exit_notice.get("hr_email") or performer,
+                    deferred_login=bool(exit_notice.get("deferred_login")),
+                )
+            except Exception as mail_err:
+                current_app.logger.warning("Exit email failed after direct exit: %s", mail_err)
+            maybe_notify_bypass(
+                "exit",
+                f"HR exited {admin.email} without Admin approval.",
+            )
+            return jsonify({
+                "success": True,
+                "pending_approval": False,
+                "message": "Employee exit applied.",
+            }), 200
+
+        stage_action_request(admin, "exit", {}, exit_payload)
         db.session.commit()
         return jsonify({
             "success": True,
@@ -2549,7 +2624,12 @@ def rejoin_archived_employee(admin_id):
             }
         ), 409
 
-    from .employee_profile_change_service import pending_request_message, stage_action_request
+    from .approval_settings import approval_required, maybe_notify_bypass
+    from .employee_profile_change_service import (
+        _apply_rehire,
+        pending_request_message,
+        stage_action_request,
+    )
     from .exit_interview_service import serialize_rehire_policy
 
     policy = serialize_rehire_policy(admin_id)
@@ -2567,6 +2647,19 @@ def rejoin_archived_employee(admin_id):
         return jsonify({"success": False, "message": blocked}), 400
 
     try:
+        performer = (get_jwt() or {}).get("email") or "HR"
+        if not approval_required("rehire"):
+            _apply_rehire(admin, performer)
+            db.session.commit()
+            maybe_notify_bypass("rehire", f"HR rehired {admin.email} without Admin approval.")
+            return jsonify(
+                {
+                    "success": True,
+                    "pending_approval": False,
+                    "message": "Employee restored.",
+                    "admin_id": admin.id,
+                }
+            ), 200
         stage_action_request(admin, "rehire", {}, {"action": "rehire"})
         db.session.commit()
         return jsonify(
@@ -4250,6 +4343,131 @@ def preview_leave_on_behalf_by_hr():
     }), 200
 
 
+def _mark_admin_pending(rows, admin_id):
+    """Flag rows whose HR change waits for Admin; returns the on-behalf leaves waiting for Admin."""
+    from .employee_profile_change_service import request_tenant_id
+    from .leave_admin_approval import pending_overview
+
+    waiting = pending_overview(request_tenant_id())
+    for row in rows:
+        ids = waiting["wfh_ids"] if row.get("request_type") == "wfh" else waiting["leave_ids"]
+        request_id = ids.get(int(row.get("id") or 0))
+        row["admin_pending"] = bool(request_id)
+        row["admin_request_id"] = request_id
+    pending_on_behalf = waiting["on_behalf"]
+    if admin_id:
+        pending_on_behalf = [r for r in pending_on_behalf if int(r.get("admin_id") or 0) == admin_id]
+    return pending_on_behalf
+
+
+def _updation_status_expr(column):
+    """Status as the screen shows it (blank is Pending), lower-cased."""
+    trimmed = func.trim(func.coalesce(column, ""))
+    return func.lower(func.coalesce(func.nullif(trimmed, ""), "Pending"))
+
+
+_UPDATION_SOURCES = (
+    ("leave", LeaveApplication, _serialize_leave_updation_row),
+    ("wfh", WorkFromHomeApplication, _serialize_wfh_updation_row),
+)
+
+
+def _updation_union(circle, emp_type, request_type, admin_id):
+    """(kind, rid, created_at, st) for every matching leave and WFH request, or None."""
+    from sqlalchemy import literal, union_all
+
+    parts = []
+    for kind, model, _ in _UPDATION_SOURCES:
+        if request_type not in ("all", kind):
+            continue
+        q = (
+            db.session.query(
+                literal(kind).label("kind"),
+                model.id.label("rid"),
+                model.created_at.label("created_at"),
+                _updation_status_expr(model.status).label("st"),
+            )
+            .join(Admin, model.admin_id == Admin.id)
+            .filter(admin_tenant_clause())
+        )
+        if circle:
+            q = q.filter(Admin.circle == circle)
+        if emp_type:
+            q = q.filter(Admin.emp_type == emp_type)
+        if admin_id:
+            q = q.filter(model.admin_id == admin_id)
+        parts.append(q.statement)
+    if not parts:
+        return None
+    return (parts[0] if len(parts) == 1 else union_all(*parts)).subquery()
+
+
+def _load_updation_rows(keys):
+    """Serialized rows for [(kind, id), ...] in the same order."""
+    by_key = {}
+    for kind, model, serialize in _UPDATION_SOURCES:
+        ids = [rid for k, rid in keys if k == kind]
+        if ids:
+            for row in model.query.options(joinedload(model.admin)).filter(model.id.in_(ids)):
+                by_key[(kind, row.id)] = serialize(row)
+    return [by_key[k] for k in keys if k in by_key]
+
+
+def _leave_updation_page(params, status, circle, emp_type, request_type, admin_id):
+    """
+    One page of the merged leave + WFH list (newest first, no 500-row cap), with counts per status
+    over the other filters. ``status`` matches the status as shown (blank is Pending).
+    ``ref=leave-12`` / ``ref=wfh-3`` also returns that row as ``ref_row`` when it matches the filters.
+    """
+    sub = _updation_union(circle, emp_type, request_type, admin_id)
+    by_status = {}
+    if sub is not None:
+        for st, n in db.session.query(sub.c.st, func.count()).group_by(sub.c.st):
+            by_status[st] = by_status.get(st, 0) + int(n)
+    counts = {
+        "all": sum(by_status.values()),
+        "pending": by_status.get("pending", 0),
+        "approved": by_status.get("approved", 0),
+        "rejected": by_status.get("rejected", 0),
+    }
+    total = counts["all"] if status == "all" else by_status.get(status, 0)
+    pagination = pagination_for(params, total)
+
+    keys = []
+    offset = (params.page - 1) * params.per_page
+    if sub is not None and offset < total:
+        q = db.session.query(sub.c.kind, sub.c.rid)
+        if status != "all":
+            q = q.filter(sub.c.st == status)
+        q = q.order_by(sub.c.created_at.desc(), sub.c.rid.desc(), sub.c.kind.asc())
+        keys = [(kind, int(rid)) for kind, rid in q.offset(offset).limit(params.per_page)]
+    rows_out = _load_updation_rows(keys)
+
+    ref_row = None
+    ref = (request.args.get("ref") or "").strip().lower()
+    if sub is not None and ref:
+        kind, _, raw_id = ref.partition("-")
+        if raw_id.isdigit():
+            q = db.session.query(sub.c.rid).filter(sub.c.kind == kind, sub.c.rid == int(raw_id))
+            if status != "all":
+                q = q.filter(sub.c.st == status)
+            if q.first() is not None:
+                found = _load_updation_rows([(kind, int(raw_id))])
+                ref_row = found[0] if found else None
+
+    pending_on_behalf = _mark_admin_pending(rows_out + ([ref_row] if ref_row else []), admin_id)
+    body = {
+        "success": True,
+        "requests": rows_out,
+        "pending_on_behalf": pending_on_behalf,
+        "counts": counts,
+        "pagination": pagination,
+    }
+    if ref:
+        body["ref_row"] = ref_row
+    return jsonify(body), 200
+
+
 @hr.route("/leave-updation/requests", methods=["GET"])
 @jwt_required()
 @hr_required
@@ -4260,11 +4478,17 @@ def list_leave_updation_requests():
     request_type = (request.args.get("request_type") or "all").strip().lower()
     admin_id = request.args.get("admin_id", type=int)
 
+    params = list_params()
+    if params.page is not None:
+        return _leave_updation_page(params, status, circle, emp_type, request_type, admin_id)
+
     rows_out = []
 
     if request_type in ("all", "leave"):
-        q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id).filter(
-            admin_tenant_clause()
+        q = (
+            LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id)
+            .options(contains_eager(LeaveApplication.admin))
+            .filter(admin_tenant_clause())
         )
         if status != "all":
             q = q.filter(db.func.lower(LeaveApplication.status) == status)
@@ -4278,9 +4502,11 @@ def list_leave_updation_requests():
         rows_out.extend(_serialize_leave_updation_row(r) for r in leave_rows)
 
     if request_type in ("all", "wfh"):
-        q_wfh = WorkFromHomeApplication.query.join(
-            Admin, WorkFromHomeApplication.admin_id == Admin.id
-        ).filter(admin_tenant_clause())
+        q_wfh = (
+            WorkFromHomeApplication.query.join(Admin, WorkFromHomeApplication.admin_id == Admin.id)
+            .options(contains_eager(WorkFromHomeApplication.admin))
+            .filter(admin_tenant_clause())
+        )
         if status != "all":
             q_wfh = q_wfh.filter(db.func.lower(WorkFromHomeApplication.status) == status)
         if circle:
@@ -4300,52 +4526,110 @@ def list_leave_updation_requests():
         key=lambda x: (x.get("created_at") or "", x.get("id") or 0),
         reverse=True,
     )
-    return jsonify({"success": True, "requests": rows_out[:500]}), 200
+    rows_out = rows_out[:500]
+
+    pending_on_behalf = _mark_admin_pending(rows_out, admin_id)
+    return jsonify({
+        "success": True,
+        "requests": rows_out,
+        "pending_on_behalf": pending_on_behalf,
+    }), 200
+
+
+@hr.route("/leave-updation/approved", methods=["GET"])
+@jwt_required()
+@hr_required
+def list_l1_approved_leave_and_wfh():
+    """Leave and WFH approved by L1, with the L2 step shown as pending or approved."""
+    from .leave_approval_tracker import tracker_rows
+
+    try:
+        data = tracker_rows(
+            month=request.args.get("month"),
+            emp_type=(request.args.get("emp_type") or "").strip(),
+            circle=(request.args.get("circle") or "").strip(),
+            request_type=(request.args.get("request_type") or "all").strip().lower(),
+            stage=(request.args.get("stage") or "all").strip().lower(),
+        )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    return jsonify({"success": True, **data}), 200
+
+
+def _leave_admin_actor():
+    """The signed-in HR user and their email, for emails and the audit trail."""
+    return current_admin(), (get_jwt() or {}).get("email")
+
+
+def _approved_by_chunk(approved_by):
+    label = str(approved_by or "").replace("|", "/").strip()
+    return f"approved_by:{label[:60]}|" if label else ""
 
 
 @hr.route("/leave-updation/requests", methods=["POST"])
 @jwt_required()
 @hr_required
 def create_leave_on_behalf_by_hr():
-    """HR applies leave for an employee (backdated dates allowed)."""
+    """HR applies leave for an employee. Admin's own request applies now; others wait for Admin."""
+    from .approval_settings import approval_required, maybe_notify_bypass
+
     payload = request.get_json(silent=True) or {}
+    if approval_required("leave_on_behalf"):
+        from .leave_admin_approval import stage_leave_on_behalf
+
+        body, code = stage_leave_on_behalf(payload)
+        return jsonify(body), code
+    actor, actor_email = _leave_admin_actor()
+    body, code = _hr_create_leave_on_behalf(payload, actor=actor, actor_email=actor_email)
+    if body.get("success"):
+        maybe_notify_bypass("leave_on_behalf", "HR applied leave on behalf without Admin approval.")
+    return jsonify(body), code
+
+
+def _hr_create_leave_on_behalf(
+    payload, *, actor=None, actor_email=None, today_ist=None, dry_run=False, approved_by=None
+):
+    """Check and create leave for an employee. Returns (body, status_code).
+
+    ``dry_run`` runs every check, then rolls back without saving or emailing.
+    """
     admin_id = payload.get("admin_id")
     if not admin_id:
-        return jsonify({"success": False, "message": "admin_id is required"}), 400
+        return {"success": False, "message": "admin_id is required"}, 400
     try:
         admin_id = int(admin_id)
     except (TypeError, ValueError):
-        return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+        return {"success": False, "message": "Invalid admin_id"}, 400
     if not admin_id_in_tenant(admin_id):
-        return jsonify({"success": False, "message": "Employee not found"}), 404
+        return {"success": False, "message": "Employee not found"}, 404
 
     leave_type = (payload.get("leave_type") or "").strip()
     reason = (payload.get("reason") or "").strip()
     if not leave_type:
-        return jsonify({"success": False, "message": "leave_type is required"}), 400
+        return {"success": False, "message": "leave_type is required"}, 400
     if not reason:
-        return jsonify({"success": False, "message": "reason is required"}), 400
+        return {"success": False, "message": "reason is required"}, 400
     if len(reason) < 10:
-        return jsonify({"success": False, "message": "Reason must be at least 10 characters long"}), 400
+        return {"success": False, "message": "Reason must be at least 10 characters long"}, 400
     if len(reason) > LEAVE_REASON_MAX_LEN:
-        return jsonify({
+        return {
             "success": False,
             "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
-        }), 400
+        }, 400
 
     start_date, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
     if err:
-        return jsonify({"success": False, "message": err}), 400
+        return {"success": False, "message": err}, 400
     end_date, err = _parse_leave_date_or_400(payload.get("end_date"), "end_date")
     if err:
-        return jsonify({"success": False, "message": err}), 400
+        return {"success": False, "message": err}, 400
     if end_date < start_date:
-        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
+        return {"success": False, "message": "End date cannot be before start date"}, 400
 
-    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    today_ist = today_ist or datetime.now(ZoneInfo("Asia/Kolkata")).date()
     policy_err = _validate_hr_on_behalf_dates(admin_id, start_date, end_date, today_ist=today_ist)
     if policy_err:
-        return jsonify({"success": False, "message": policy_err}), 400
+        return {"success": False, "message": policy_err}, 400
 
     status, status_err = _resolve_hr_on_behalf_status(
         (payload.get("status") or "").strip().title() if payload.get("status") else "",
@@ -4353,29 +4637,29 @@ def create_leave_on_behalf_by_hr():
         today_ist,
     )
     if status_err:
-        return jsonify({"success": False, "message": status_err}), 400
+        return {"success": False, "message": status_err}, 400
 
-    admin = Admin.query.get(admin_id)
+    admin = db.session.get(Admin, admin_id)
     if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
+        return {"success": False, "message": "Employee not found"}, 404
 
     leave_balance = LeaveBalance.query.filter_by(admin_id=admin_id).first()
     if not leave_balance:
-        return jsonify({"success": False, "message": "Leave balance not configured for employee"}), 400
+        return {"success": False, "message": "Leave balance not configured for employee"}, 400
 
-    hr_email = (get_jwt() or {}).get("email")
-    hr_admin = current_admin()
+    hr_email = actor_email
+    hr_admin = actor
 
     if leave_type == "Optional Leave":
         opt_err = _validate_optional_leave_on_behalf(admin_id, start_date, end_date)
         if opt_err:
-            return jsonify({"success": False, "message": opt_err}), 400
+            return {"success": False, "message": opt_err}, 400
 
     conflict = _check_leave_application_conflicts(
         admin_id, start_date, end_date, leave_type=leave_type
     )
     if conflict:
-        return jsonify({"success": False, "message": conflict}), 409
+        return {"success": False, "message": conflict}, 409
 
     projection, proj_err = _compute_leave_projection(
         admin=admin,
@@ -4385,7 +4669,7 @@ def create_leave_on_behalf_by_hr():
         end_date=end_date,
     )
     if proj_err:
-        return jsonify({"success": False, "message": proj_err}), 400
+        return {"success": False, "message": proj_err}, 400
 
     leave_obj = LeaveApplication(
         admin_id=admin_id,
@@ -4405,7 +4689,25 @@ def create_leave_on_behalf_by_hr():
     if status == "Approved":
         apply_err = _apply_approved_leave_effect(leave_obj, leave_balance)
         if apply_err:
-            return jsonify({"success": False, "message": apply_err}), 400
+            db.session.rollback()
+            return {"success": False, "message": apply_err}, 400
+
+    if dry_run:
+        db.session.rollback()
+        return {
+            "success": True,
+            "dry_run": True,
+            "admin_id": admin_id,
+            "values": {
+                "admin_id": admin_id,
+                "leave_type": leave_type,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "status": status,
+                "reason": reason,
+            },
+            "preview": dict(projection),
+        }, 200
 
     try:
         db.session.add(leave_obj)
@@ -4413,7 +4715,7 @@ def create_leave_on_behalf_by_hr():
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error("HR leave on behalf failed: %s", exc, exc_info=True)
-        return jsonify({"success": False, "message": str(exc) or "Failed to create leave request"}), 500
+        return {"success": False, "message": str(exc) or "Failed to create leave request"}, 500
 
     try:
         send_hr_leave_updation_email(
@@ -4453,6 +4755,7 @@ def create_leave_on_behalf_by_hr():
             f"dates:->{leave_obj.start_date.isoformat()},{leave_obj.end_date.isoformat()}|"
             f"paid:0->{_round_leave_value(leave_obj.deducted_days)}|"
             f"lwp:0->{_round_leave_value(leave_obj.extra_days)}|"
+            f"{_approved_by_chunk(approved_by)}"
             f"reason:{compact_reason}"
         )
         db.session.add(
@@ -4467,7 +4770,7 @@ def create_leave_on_behalf_by_hr():
         db.session.rollback()
         current_app.logger.warning("Failed to insert leave on-behalf audit log for leave_id=%s", leave_obj.id)
 
-    return jsonify({
+    return {
         "success": True,
         "message": "Leave applied on behalf of employee successfully.",
         "request": _serialize_leave_updation_row(leave_obj),
@@ -4476,7 +4779,7 @@ def create_leave_on_behalf_by_hr():
             "casual_leave_balance": _round_leave_value(leave_balance.casual_leave_balance),
             "compensatory_leave_balance": _round_leave_value(get_effective_comp_balance(admin_id)),
         },
-    }), 201
+    }, 201
 
 
 def _serialize_regularization_row(row):
@@ -4700,45 +5003,76 @@ def leave_proxy_report():
 @jwt_required()
 @hr_required
 def update_leave_application_by_hr(leave_id):
-    leave_obj = LeaveApplication.query.get(leave_id)
-    if not leave_obj or not admin_id_in_tenant(leave_obj.admin_id):
-        return jsonify({"success": False, "message": "Leave request not found"}), 404
+    """HR edits a leave. Admin's own edit applies now; others wait for Admin."""
+    from .approval_settings import approval_required, maybe_notify_bypass
 
     payload = request.get_json(silent=True) or {}
+    if approval_required("leave_update"):
+        from .leave_admin_approval import stage_leave_update
+
+        body, code = stage_leave_update(leave_id, payload)
+        return jsonify(body), code
+    actor, actor_email = _leave_admin_actor()
+    body, code = _hr_update_leave(leave_id, payload, actor=actor, actor_email=actor_email)
+    if body.get("success"):
+        maybe_notify_bypass("leave_update", f"HR updated leave #{leave_id} without Admin approval.")
+    return jsonify(body), code
+
+
+def _hr_update_leave(
+    leave_id, payload, *, actor=None, actor_email=None, today_ist=None, dry_run=False, approved_by=None
+):
+    """Check and apply an HR edit to one leave. Returns (body, status_code).
+
+    ``dry_run`` runs every check, then rolls back without saving or emailing.
+    """
+    leave_obj = db.session.get(LeaveApplication, leave_id)
+    if not leave_obj or not admin_id_in_tenant(leave_obj.admin_id):
+        return {"success": False, "message": "Leave request not found"}, 404
+
     next_leave_type = (payload.get("leave_type") or leave_obj.leave_type or "").strip()
     next_status = (payload.get("status") or leave_obj.status or "").strip().title()
     if next_status not in {"Pending", "Approved", "Rejected"}:
-        return jsonify({"success": False, "message": "status must be Pending, Approved or Rejected"}), 400
+        return {"success": False, "message": "status must be Pending, Approved or Rejected"}, 400
 
     next_start_date = leave_obj.start_date
     next_end_date = leave_obj.end_date
     if "start_date" in payload:
         parsed, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
         if err:
-            return jsonify({"success": False, "message": err}), 400
+            return {"success": False, "message": err}, 400
         next_start_date = parsed
     if "end_date" in payload:
         parsed, err = _parse_leave_date_or_400(payload.get("end_date"), "end_date")
         if err:
-            return jsonify({"success": False, "message": err}), 400
+            return {"success": False, "message": err}, 400
         next_end_date = parsed
 
     if next_end_date < next_start_date:
-        return jsonify({"success": False, "message": "End date cannot be before start date"}), 400
+        return {"success": False, "message": "End date cannot be before start date"}, 400
 
-    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    next_reason = None
+    if "reason" in payload and str(payload.get("reason") or "").strip():
+        next_reason = str(payload.get("reason")).strip()
+        if len(next_reason) > LEAVE_REASON_MAX_LEN:
+            return {
+                "success": False,
+                "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
+            }, 400
+
+    today_ist = today_ist or datetime.now(ZoneInfo("Asia/Kolkata")).date()
     policy_err = _validate_hr_on_behalf_dates(
         leave_obj.admin_id, next_start_date, next_end_date, today_ist=today_ist
     )
     if policy_err:
-        return jsonify({"success": False, "message": policy_err}), 400
+        return {"success": False, "message": policy_err}, 400
 
     admin = leave_obj.admin
     if not admin:
-        return jsonify({"success": False, "message": "Employee not found for this leave request"}), 404
+        return {"success": False, "message": "Employee not found for this leave request"}, 404
     leave_balance = admin.leave_balance
     if not leave_balance:
-        return jsonify({"success": False, "message": "Leave balance not configured for employee"}), 400
+        return {"success": False, "message": "Leave balance not configured for employee"}, 400
 
     old_data = {
         "status": leave_obj.status,
@@ -4761,20 +5095,13 @@ def update_leave_application_by_hr(leave_id):
     )
     if err:
         db.session.rollback()
-        return jsonify({"success": False, "message": err}), 400
+        return {"success": False, "message": err}, 400
 
     leave_obj.leave_type = next_leave_type
     leave_obj.start_date = next_start_date
     leave_obj.end_date = next_end_date
     leave_obj.status = next_status
-    if "reason" in payload and str(payload.get("reason") or "").strip():
-        next_reason = str(payload.get("reason")).strip()
-        if len(next_reason) > LEAVE_REASON_MAX_LEN:
-            db.session.rollback()
-            return jsonify({
-                "success": False,
-                "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
-            }), 400
+    if next_reason:
         leave_obj.reason = next_reason
     leave_obj.deducted_days = projection["deducted_days"]
     leave_obj.extra_days = projection["extra_days"]
@@ -4785,17 +5112,31 @@ def update_leave_application_by_hr(leave_id):
         apply_err = _apply_approved_leave_effect(leave_obj, leave_balance)
         if apply_err:
             db.session.rollback()
-            return jsonify({"success": False, "message": apply_err}), 400
+            return {"success": False, "message": apply_err}, 400
+
+    if dry_run:
+        values = {
+            "leave_type": next_leave_type,
+            "status": next_status,
+            "start_date": next_start_date.isoformat(),
+            "end_date": next_end_date.isoformat(),
+            "reason": leave_obj.reason or "",
+        }
+        preview = {
+            "deducted_days": _round_leave_value(projection["deducted_days"]),
+            "extra_days": _round_leave_value(projection["extra_days"]),
+        }
+        db.session.rollback()
+        return {"success": True, "dry_run": True, "admin_id": admin.id, "values": values, "preview": preview}, 200
 
     try:
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
-        return jsonify({"success": False, "message": str(exc) or "Failed to update leave request"}), 500
+        return {"success": False, "message": str(exc) or "Failed to update leave request"}, 500
 
     try:
-        hr_email = (get_jwt() or {}).get("email")
-        hr_admin = current_admin()
+        hr_admin = actor
         send_hr_leave_updation_email(
             leave_obj=leave_obj,
             hr_admin=hr_admin,
@@ -4815,7 +5156,7 @@ def update_leave_application_by_hr(leave_id):
         current_app.logger.warning("send_hr_leave_updation_email failed for leave_id=%s", leave_obj.id)
 
     try:
-        hr_email = (get_jwt() or {}).get("email") or "unknown"
+        hr_email = actor_email or "unknown"
         compact_reason = str(leave_obj.reason or "").replace("|", "/").replace("\n", " ").strip()
         if len(compact_reason) > 120:
             compact_reason = compact_reason[:117] + "..."
@@ -4825,6 +5166,7 @@ def update_leave_application_by_hr(leave_id):
             f"dates:{old_data.get('start_date')}->{leave_obj.start_date.isoformat()},{old_data.get('end_date')}->{leave_obj.end_date.isoformat()}|"
             f"paid:{old_data.get('deducted_days')}->{_round_leave_value(leave_obj.deducted_days)}|"
             f"lwp:{old_data.get('extra_days')}->{_round_leave_value(leave_obj.extra_days)}|"
+            f"{_approved_by_chunk(approved_by)}"
             f"reason:{compact_reason}"
         )
         db.session.add(
@@ -4839,7 +5181,7 @@ def update_leave_application_by_hr(leave_id):
         db.session.rollback()
         current_app.logger.warning("Failed to insert leave updation audit log for leave_id=%s", leave_obj.id)
 
-    return jsonify({
+    return {
         "success": True,
         "message": "Leave request updated successfully.",
         "request": _serialize_leave_updation_row(leave_obj),
@@ -4848,7 +5190,7 @@ def update_leave_application_by_hr(leave_id):
             "casual_leave_balance": _round_leave_value(leave_balance.casual_leave_balance),
             "compensatory_leave_balance": _round_leave_value(get_effective_comp_balance(admin.id)),
         },
-    }), 200
+    }, 200
 
 
 @hr.route("/leave-updation/requests/<int:leave_id>/audit", methods=["GET"])
@@ -4883,29 +5225,68 @@ def get_leave_updation_audit(leave_id):
 @jwt_required()
 @hr_required
 def update_wfh_application_by_hr(wfh_id):
-    wfh_obj = WorkFromHomeApplication.query.get(wfh_id)
-    if not wfh_obj or not admin_id_in_tenant(wfh_obj.admin_id):
-        return jsonify({"success": False, "message": "WFH request not found"}), 404
+    """HR edits a WFH request. Admin's own edit applies now; others wait for Admin."""
+    from .approval_settings import approval_required, maybe_notify_bypass
 
     payload = request.get_json(silent=True) or {}
+    if approval_required("wfh_update"):
+        from .leave_admin_approval import stage_wfh_update
+
+        body, code = stage_wfh_update(wfh_id, payload)
+        return jsonify(body), code
+    actor, actor_email = _leave_admin_actor()
+    body, code = _hr_update_wfh(wfh_id, payload, actor=actor, actor_email=actor_email)
+    if body.get("success"):
+        maybe_notify_bypass("wfh_update", f"HR updated WFH #{wfh_id} without Admin approval.")
+    return jsonify(body), code
+
+
+def _hr_update_wfh(wfh_id, payload, *, actor=None, actor_email=None, dry_run=False, approved_by=None):
+    """Check and apply an HR edit to one WFH request. Returns (body, status_code)."""
+    wfh_obj = db.session.get(WorkFromHomeApplication, wfh_id)
+    if not wfh_obj or not admin_id_in_tenant(wfh_obj.admin_id):
+        return {"success": False, "message": "WFH request not found"}, 404
+
     next_status = (payload.get("status") or wfh_obj.status or "").strip().title()
     if next_status not in {"Pending", "Approved", "Rejected"}:
-        return jsonify({"success": False, "message": "status must be Pending, Approved or Rejected"}), 400
+        return {"success": False, "message": "status must be Pending, Approved or Rejected"}, 400
 
     next_start_date = wfh_obj.start_date
     next_end_date = wfh_obj.end_date
     if "start_date" in payload:
         parsed, err = _parse_leave_date_or_400(payload.get("start_date"), "start_date")
         if err:
-            return jsonify({"success": False, "message": err}), 400
+            return {"success": False, "message": err}, 400
         next_start_date = parsed
     if "end_date" in payload:
         parsed, err = _parse_leave_date_or_400(payload.get("end_date"), "end_date")
         if err:
-            return jsonify({"success": False, "message": err}), 400
+            return {"success": False, "message": err}, 400
         next_end_date = parsed
     if next_end_date < next_start_date:
-        return jsonify({"success": False, "message": "End date cannot be before start date."}), 400
+        return {"success": False, "message": "End date cannot be before start date."}, 400
+
+    next_reason = None
+    if "reason" in payload and str(payload.get("reason") or "").strip():
+        next_reason = str(payload.get("reason")).strip()
+        if len(next_reason) > LEAVE_REASON_MAX_LEN:
+            return {
+                "success": False,
+                "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
+            }, 400
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "admin_id": wfh_obj.admin_id,
+            "values": {
+                "status": next_status,
+                "start_date": next_start_date.isoformat(),
+                "end_date": next_end_date.isoformat(),
+                "reason": next_reason or wfh_obj.reason or "",
+            },
+        }, 200
 
     old_data = {
         "status": wfh_obj.status,
@@ -4917,34 +5298,26 @@ def update_wfh_application_by_hr(wfh_id):
     wfh_obj.start_date = next_start_date
     wfh_obj.end_date = next_end_date
     wfh_obj.status = next_status
-    if "reason" in payload and str(payload.get("reason") or "").strip():
-        next_reason = str(payload.get("reason")).strip()
-        if len(next_reason) > LEAVE_REASON_MAX_LEN:
-            return jsonify({
-                "success": False,
-                "message": f"Reason must be at most {LEAVE_REASON_MAX_LEN} characters",
-            }), 400
+    if next_reason:
         wfh_obj.reason = next_reason
 
     try:
         db.session.commit()
     except Exception as exc:
         db.session.rollback()
-        return jsonify({"success": False, "message": str(exc) or "Failed to update WFH request"}), 500
+        return {"success": False, "message": str(exc) or "Failed to update WFH request"}, 500
 
     try:
-        hr_email = (get_jwt() or {}).get("email")
-        hr_admin = current_admin()
         send_hr_wfh_updation_email(
             wfh_obj=wfh_obj,
-            hr_admin=hr_admin,
+            hr_admin=actor,
             old_data=old_data,
         )
     except Exception:
         current_app.logger.warning("send_hr_wfh_updation_email failed for wfh_id=%s", wfh_obj.id)
 
     try:
-        hr_email = (get_jwt() or {}).get("email") or "unknown"
+        hr_email = actor_email or "unknown"
         compact_reason = str(wfh_obj.reason or "").replace("|", "/").replace("\n", " ").strip()
         if len(compact_reason) > 120:
             compact_reason = compact_reason[:117] + "..."
@@ -4953,6 +5326,7 @@ def update_wfh_application_by_hr(wfh_id):
             f"status:{old_data.get('status')}->{wfh_obj.status}|"
             f"dates:{old_data.get('start_date')}->{wfh_obj.start_date.isoformat()},"
             f"{old_data.get('end_date')}->{wfh_obj.end_date.isoformat()}|"
+            f"{_approved_by_chunk(approved_by)}"
             f"reason:{compact_reason}"
         )
         db.session.add(
@@ -4967,13 +5341,11 @@ def update_wfh_application_by_hr(wfh_id):
         db.session.rollback()
         current_app.logger.warning("Failed to insert WFH updation audit log for wfh_id=%s", wfh_obj.id)
 
-    return jsonify(
-        {
-            "success": True,
-            "message": "WFH request updated successfully.",
-            "request": _serialize_wfh_updation_row(wfh_obj),
-        }
-    ), 200
+    return {
+        "success": True,
+        "message": "WFH request updated successfully.",
+        "request": _serialize_wfh_updation_row(wfh_obj),
+    }, 200
 
 
 @hr.route("/leave-updation/wfh-requests/<int:wfh_id>/audit", methods=["GET"])
@@ -6466,28 +6838,49 @@ def add_news_feed_api():
     db.session.commit()
 
     email_status = None
+    job_payload = None
     if send_email_flag:
-        try:
-            ok, msg, recipient_count = send_news_feed_announcement_email(
-                title=title,
-                content=content,
-                circle=circle,
-                emp_type=emp_type,
-                attachment_abs_path=abs_file_path,
+        from .jobs import KIND_NEWS_FEED_EMAIL, enqueue, want_async
+
+        if want_async():
+            viewer = current_admin()
+            job = enqueue(
+                KIND_NEWS_FEED_EMAIL,
+                {
+                    "title": title,
+                    "content": content,
+                    "circle": circle,
+                    "emp_type": emp_type,
+                    "attachment_abs_path": abs_file_path,
+                    "news_feed_id": news_feed.id,
+                },
+                tenant_id=get_current_tenant_id(),
+                requested_by_admin_id=viewer.id if viewer else None,
             )
-            if ok:
-                email_status = f"Email sent to {recipient_count} recipient(s)."
-            else:
-                email_status = f"Post saved, but email failed: {msg}"
-        except Exception as e:
-            current_app.logger.warning(f"News feed email error: {e}")
-            email_status = "Post saved, but email could not be sent."
+            email_status = "Email queued in the background."
+            job_payload = {"id": job.id, "status": job.status, "kind": job.kind}
+        else:
+            try:
+                ok, msg, recipient_count = send_news_feed_announcement_email(
+                    title=title,
+                    content=content,
+                    circle=circle,
+                    emp_type=emp_type,
+                    attachment_abs_path=abs_file_path,
+                )
+                if ok:
+                    email_status = f"Email sent to {recipient_count} recipient(s)."
+                else:
+                    email_status = f"Post saved, but email failed: {msg}"
+            except Exception as e:
+                current_app.logger.warning(f"News feed email error: {e}")
+                email_status = "Post saved, but email could not be sent."
 
     response_message = "News feed posted successfully."
     if email_status:
         response_message = f"{response_message} {email_status}"
 
-    return jsonify({
+    body = {
         "success": True,
         "message": response_message,
         "news_feed": {
@@ -6497,7 +6890,12 @@ def add_news_feed_api():
             "circle": news_feed.circle,
             "emp_type": news_feed.emp_type
         }
-    }), 201
+    }
+    if job_payload:
+        body["async"] = True
+        body["job_id"] = job_payload["id"]
+        body["job"] = job_payload
+    return jsonify(body), 201
 
 
 @hr.route("/news-feed", methods=["GET"])

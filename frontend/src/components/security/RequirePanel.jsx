@@ -2,6 +2,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { useUser } from "../layout/UserContext";
 import {
   canAccessAccountPanel,
+  canAccessFinancePanel,
   canAccessHrPanel,
   canAccessItPanel,
   canViewOwnAssignedAssets,
@@ -21,6 +22,7 @@ function canAccessManagerPanel(user) {
 const PANEL_CHECKS = {
   hr: (user) => canAccessHrPanel(user),
   account: (user) => canAccessAccountPanel(user),
+  finance: (user) => canAccessFinancePanel(user),
   it: (user) => canAccessItPanel(user),
   admin: (user) => isAdminUser(user),
   manager: (user) => canAccessManagerPanel(user),

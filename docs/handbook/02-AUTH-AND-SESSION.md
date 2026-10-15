@@ -67,7 +67,7 @@ OTP row fields that matter:
 | `OTP_TTL_MINUTES` | 5 | Login + sensitive OTP lifetime |
 | `OTP_MAX_ATTEMPTS` | 5 | Wrong codes then OTP invalidated |
 | `OTP_RESEND_SECONDS` | 60 | Cooldown for **sensitive** resend |
-| `VERIFY_OTP_IP_LIMIT_PER_HOUR` | 30 | Rate limit verify-otp by IP |
+| `VERIFY_OTP_IP_LIMIT_PER_HOUR` | 30 (env; **0 = unlimited**) | Rate limit verify-otp by IP |
 | `SENSITIVE_OTP_IP_LIMIT_PER_HOUR` | 10 | Sensitive request by IP |
 | `SENSITIVE_OTP_USER_LIMIT_PER_DAY` | 20 | Sensitive request by user |
 

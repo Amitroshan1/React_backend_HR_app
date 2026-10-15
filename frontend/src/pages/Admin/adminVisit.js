@@ -21,6 +21,7 @@ export function isAdminDepartmentPath(pathname) {
   return (
     p.startsWith('/hr')
     || p.startsWith('/account')
+    || p.startsWith('/finance')
     || p.startsWith('/it')
     || p.startsWith('/manager')
     || p.startsWith('/employees')

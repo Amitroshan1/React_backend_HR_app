@@ -1,12 +1,15 @@
-import { useCallback, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
+import { usePagedList } from "../../hooks/usePagedList";
+import Pager from "../../components/Pager";
+import { isPagedScreenEnabled } from "../../utils/pagedScreens";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   approveReturnRequestAPI,
   completeReturnRequestAPI,
   toastITApiFailure,
-  listReturnRequestsAPI,
+  fetchReturnRequestsPageAPI,
   rejectReturnRequestAPI
 } from "./Data";
 import { openFirstImageInNewTab, openImageInNewTab } from "../../utils/openImageInNewTab";
@@ -18,32 +21,43 @@ import { remarkPayload } from "./itam/transitionUi";
 
 const STATUS_OPTIONS = ["all", "pending", "approved", "rejected", "completed"];
 
+const PER_PAGE = 25;
+
 const formatReturnDest = (dest) =>
   dest === "removed_from_it" ? "Removed From IT" : "Available";
+
+const selectRequests = (body) => (Array.isArray(body?.requests) ? body.requests : []);
+
+const requestMatchesSearch = (r, needle) =>
+  [r.requestCode, r.requesterName, r.requesterEmpId, r.requesterEmail, r.assetName, r.reason]
+    .some((v) => String(v || "").toLowerCase().includes(needle));
 
 export default function ReturnRequests() {
   const navigate = useNavigate();
   const { requestRemark } = useTransitionRemark();
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("all");
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await listReturnRequestsAPI({
-        status: status === "all" ? "" : status,
-      });
-      setRows(data);
-    } catch (err) {
-      toastITApiFailure(err, "Could not load return requests.");
-    } finally {
-      setLoading(false);
-    }
-  }, [status]);
+  const pagedEnabled = useMemo(() => isPagedScreenEnabled("itReturnRequests"), []);
+  const filters = useMemo(() => (status === "all" ? {} : { status }), [status]);
+  const list = usePagedList({
+    fetchList: fetchReturnRequestsPageAPI,
+    select: selectRequests,
+    filters,
+    perPage: PER_PAGE,
+    enabled: pagedEnabled,
+    matchesSearch: requestMatchesSearch,
+  });
+  const { rows, loading, error, reload } = list;
 
+  useEffect(() => {
+    if (error) toastITApiFailure(error, "Could not load return requests.");
+  }, [error]);
+
+  // The list loads itself on mount; later navigations to this route refresh it.
+  const mountedRef = useRef(false);
   useRefreshOnNavigate(() => {
-    load();
-  }, [status]);
+    if (mountedRef.current) reload();
+    mountedRef.current = true;
+  });
 
   const onApprove = async (id) => {
     const remarkResult = await requestRemark("APPROVE_RETURN", {
@@ -54,7 +68,7 @@ export default function ReturnRequests() {
     try {
       await approveReturnRequestAPI(id, remarkPayload(remarkResult));
       toast.success("Return request approved.");
-      await load();
+      reload();
     } catch (err) {
       toastITApiFailure(err, "Could not approve request.");
     }
@@ -79,7 +93,7 @@ export default function ReturnRequests() {
     try {
       await rejectReturnRequestAPI(id, String(finalReason).trim());
       toast.success("Return request rejected.");
-      await load();
+      reload();
     } catch (err) {
       toastITApiFailure(err, "Could not reject request.");
     }
@@ -96,7 +110,7 @@ export default function ReturnRequests() {
     try {
       await completeReturnRequestAPI(id, remarkPayload(remarkResult));
       toast.success("Return completed and asset unassigned.");
-      await load();
+      reload();
     } catch (err) {
       toastITApiFailure(err, "Could not complete request.");
     }
@@ -119,10 +133,20 @@ export default function ReturnRequests() {
             {s === "all" ? "All" : s[0].toUpperCase() + s.slice(1)}
           </button>
         ))}
+        {pagedEnabled && (
+          <input
+            type="search"
+            className="rr-search"
+            value={list.searchInput}
+            onChange={(e) => list.setSearchInput(e.target.value)}
+            placeholder="Search code, employee, asset or reason…"
+            aria-label="Search return requests"
+          />
+        )}
       </div>
 
       <div className="rr-table-wrap it-m-scroll--cards">
-        {loading ? (
+        {loading && rows.length === 0 ? (
           <div className="rr-loading">Loading…</div>
         ) : (
           <table className="rr-table">
@@ -202,6 +226,17 @@ export default function ReturnRequests() {
               )}
             </tbody>
           </table>
+        )}
+        {pagedEnabled && (
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            perPage={list.perPage}
+            onPage={list.setPage}
+            loading={loading}
+            noun="requests"
+          />
         )}
       </div>
 

@@ -1179,7 +1179,35 @@ const _toLocalParcelExport = (r) => ({
   photos: r.photos || [],
 });
 
-export const syncITDataFromAPI = async () => {
+let _itSyncQueued = null;
+let _itSyncRunning = null;
+
+/**
+ * Refresh the IT localStorage cache from the API.
+ *
+ * Calls made while a sync is waiting to start share it, so screens that mount together
+ * fetch once. Every caller still gets a sync that started after its call, so a refresh
+ * right after a save never returns data read before that save.
+ */
+export const syncITDataFromAPI = () => {
+  if (_itSyncQueued) return _itSyncQueued;
+  const prior = _itSyncRunning;
+  const run = (async () => {
+    if (prior) await prior.catch(() => {});
+    else await new Promise((resolve) => setTimeout(resolve, 0));
+    if (_itSyncQueued === run) _itSyncQueued = null;
+    _itSyncRunning = run;
+    try {
+      return await _runITSync();
+    } finally {
+      if (_itSyncRunning === run) _itSyncRunning = null;
+    }
+  })();
+  _itSyncQueued = run;
+  return run;
+};
+
+const _runITSync = async () => {
   const results = await Promise.allSettled([
     _itFetch("/inventory/items"),
     _itFetch("/units"),
@@ -1898,6 +1926,51 @@ export const createReturnRequestAPI = async ({
     },
   });
 
+/** Query string from params, skipping empty values. */
+const _listQuery = (params = {}) => {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") qs.set(key, String(value));
+  });
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+};
+
+/** Return requests body ({ requests, pagination? }); paging params are ignored when the server has paging off. */
+export const fetchReturnRequestsPageAPI = async (params = {}) =>
+  _itFetch(`/return-requests${_listQuery(params)}`);
+
+/** Inventory header card counts for one tab, keyed by card segment ("total", "not-working", ...). */
+export const fetchInventorySummaryAPI = async (inventoryCategory) => {
+  const res = await _itFetch(`/inventory/summary${_listQuery({ inventory_category: inventoryCategory })}`);
+  return res?.summary || null;
+};
+
+/** Not Working / In Repair body ({ rows, counts, pagination? }); rows are { kind: "unit" | "quantity", ... }. */
+export const fetchInventoryStatusRowsPageAPI = async (params = {}) =>
+  _itFetch(`/inventory/status-rows${_listQuery(params)}`);
+
+/** Dead Assets body ({ logs, counts, pagination? }) for one inventory tab. */
+export const fetchInventoryDeadAssetsPageAPI = async (params = {}) =>
+  _itFetch(`/inventory/dead-assets${_listQuery(params)}`);
+
+/** Removed From IT body ({ removed_assets, counts, pagination? }), software excluded. */
+export const fetchInventoryRemovedITPageAPI = async (params = {}) =>
+  _itFetch(`/inventory/removed-it${_listQuery(params)}`);
+
+/** Asset Overview / Total Assets body ({ items, counts, projects, pagination? }); items carry `firstUnit`. */
+export const fetchInventoryOverviewPageAPI = async (params = {}) =>
+  _itFetch(`/inventory/overview${_listQuery(params)}`);
+
+/** Asset Management body ({ rows, counts, totalAssets, pagination? }) for view=available | assigned. */
+export const fetchAssetScreenPageAPI = async (params = {}) =>
+  _itFetch(`/assets/screen${_listQuery(params)}`);
+
+export const toLocalInventory = (item) => _toLocalInventory(item);
+export const toLocalUnit = (u) => _toLocalUnit(u);
+export const toLocalDeletedLog = (d) => _toLocalDeletedLog(d);
+export const toLocalRemovedIT = (r) => _toLocalRemovedIT(r);
+
 export const listReturnRequestsAPI = async ({ status = "", mine = false, empId = "" } = {}) => {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
@@ -2012,6 +2085,10 @@ export const fetchDayUseAvailableUnitsAPI = async (hwType, search) => {
   const q = params.toString() ? `?${params.toString()}` : "";
   return _itFetch(`${DC_BASE}/available-units${q}`);
 };
+
+/** Day-use picker rows without photos ({ units, pagination? }). */
+export const fetchDayUseAvailableUnitsPageAPI = async (params = {}) =>
+  _itFetch(`${DC_BASE}/available-units${_listQuery({ ...params, fields: "summary" })}`);
 
 export const assignDayUseUnitAPI = async (requestId, payloadOrUnitId, maybeOpts = {}) => {
   let payload = payloadOrUnitId;

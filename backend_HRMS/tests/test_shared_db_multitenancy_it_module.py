@@ -353,11 +353,14 @@ def test_existing_itam_image_data_can_be_written_to_the_company_folder(app, tmp_
         item.photos_json = [PNG, "data:text/html;base64,PGh0bWw+", "tenants/2/itam/inventory/kept.png"]
         db.session.commit()
         dry = extract_itam_data_urls()
-        assert dry == {"applied": False, "rows": 1, "files": 1, "bytes": 70, "skipped": 1}
+        assert {k: dry[k] for k in ("applied", "rows", "files", "bytes", "skipped")} == {
+            "applied": False, "rows": 1, "files": 1, "bytes": 70, "skipped": 1,
+        }
+        assert "backup" not in dry
         assert db.session.get(ITInventoryItem, 40).photos_json[0].startswith("data:image/")
         assert not (tmp_path / "static" / "uploads" / "tenants").exists()
 
-        done = extract_itam_data_urls(apply=True)
+        done = extract_itam_data_urls(apply=True, backup_dir=str(tmp_path / "backups"))
         assert done["applied"] is True and done["files"] == 1 and done["skipped"] == 1
         stored = db.session.get(ITInventoryItem, 40).photos_json
         assert stored[0].startswith("tenants/2/itam/inventory/")
@@ -367,7 +370,7 @@ def test_existing_itam_image_data_can_be_written_to_the_company_folder(app, tmp_
         assert (tmp_path / "static" / "uploads").joinpath(*stored[0].split("/")).is_file()
         assert not (tmp_path / "static" / "uploads" / "tenants" / "1").exists()
 
-        again = extract_itam_data_urls(apply=True)
-        assert again["files"] == 0 and again["rows"] == 0
+        again = extract_itam_data_urls(apply=True, backup_dir=str(tmp_path / "backups"))
+        assert again["files"] == 0 and again["rows"] == 0 and "backup" not in again
         assert db.session.get(ITInventoryItem, 40).photos_json[0] == stored[0]
 

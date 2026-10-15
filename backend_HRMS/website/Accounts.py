@@ -98,6 +98,7 @@ def _accounts_plan_guard():
     from .plan_features import (
         can_access_accounts_panel,
         can_access_employee_accounts_module,
+        can_access_finance_panel,
         can_access_for_client_export,
         has_feature,
         plan_forbidden_response,
@@ -146,6 +147,10 @@ def _accounts_plan_guard():
         if not can_access_for_client_export(claims):
             return plan_forbidden_response("account_for_client")
         return None
+    if "/expense-claims" in path:
+        if can_access_accounts_panel(claims) or can_access_finance_panel(claims):
+            return None
+        return jsonify({"success": False, "message": "Finance access required"}), 403
 
     if not can_access_accounts_panel(claims):
         return plan_forbidden_response("account_panel")
@@ -2694,6 +2699,79 @@ def tds_projection():
     return jsonify({"success": True, "projection": projection}), 200
 
 
+@Accounts.route("/tds/recalculate", methods=["POST"])
+@jwt_required()
+def tds_recalculate():
+    """
+    Recalculate payroll TDS for one employee or the whole company (Phase 6).
+
+    Body: { financial_year, admin_id? , async? }
+    Default is synchronous. With BACKGROUND_JOBS=1 and async=true, returns a job ID.
+    """
+    viewer = current_admin()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+
+    data = request.get_json(silent=True) or {}
+    from .tax_declaration_service import normalize_financial_year
+
+    financial_year = normalize_financial_year(data.get("financial_year"))
+    if not financial_year:
+        return jsonify({"success": False, "message": "financial_year is required"}), 400
+
+    admin_id = data.get("admin_id")
+    if admin_id not in (None, ""):
+        try:
+            admin_id = int(admin_id)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "message": "Invalid admin_id"}), 400
+        if not admin_id_in_tenant(admin_id):
+            return jsonify({"success": False, "message": "Employee not found"}), 404
+    else:
+        admin_id = None
+
+    from .jobs import KIND_PAYROLL_TDS_RECALC, enqueue, want_async
+
+    payload = {"financial_year": financial_year, "admin_id": admin_id}
+    if want_async():
+        job = enqueue(
+            KIND_PAYROLL_TDS_RECALC,
+            payload,
+            tenant_id=get_current_tenant_id(),
+            requested_by_admin_id=viewer.id,
+        )
+        return jsonify({
+            "success": True,
+            "async": True,
+            "job_id": job.id,
+            "job": {"id": job.id, "status": job.status, "kind": job.kind},
+            "message": "TDS recalculation queued. Poll /api/jobs/<id> for status.",
+        }), 202
+
+    from .jobs import process_job
+
+    # Run through the same handler path so sync and async share one implementation.
+    job = enqueue(
+        KIND_PAYROLL_TDS_RECALC,
+        payload,
+        tenant_id=get_current_tenant_id(),
+        requested_by_admin_id=viewer.id,
+        kick=False,
+    )
+    process_job(job.id)
+    db.session.refresh(job)
+    from .jobs import job_to_dict
+
+    body = {"success": job.status == "succeeded", "job": job_to_dict(job)}
+    if job.status != "succeeded":
+        body["message"] = job.error_message or "TDS recalculation failed"
+        return jsonify(body), 500
+    body["result"] = body["job"].get("result")
+    return jsonify(body), 200
+
+
 @Accounts.route("/tds/variance", methods=["POST"])
 @jwt_required()
 def tds_variance():
@@ -4997,6 +5075,29 @@ def compliance_pf_ecr():
     circle = (request.args.get("circle") or "").strip() or None
     emp_type = (request.args.get("emp_type") or "").strip() or None
     fmt = (request.args.get("format") or "csv").strip().lower()
+
+    from .jobs import KIND_COMPLIANCE_PF_ECR, enqueue, want_async
+
+    if want_async():
+        job = enqueue(
+            KIND_COMPLIANCE_PF_ECR,
+            {
+                "year": year_int,
+                "month_num": month_num,
+                "circle": circle,
+                "emp_type": emp_type,
+                "format": fmt,
+            },
+            tenant_id=get_current_tenant_id(),
+            requested_by_admin_id=viewer.id,
+        )
+        return jsonify({
+            "success": True,
+            "async": True,
+            "job_id": job.id,
+            "job": {"id": job.id, "status": job.status, "kind": job.kind},
+            "message": "PF ECR export queued. Poll /api/jobs/<id> then download when ready.",
+        }), 202
 
     payload = build_pf_ecr_export(
         year=year_int,

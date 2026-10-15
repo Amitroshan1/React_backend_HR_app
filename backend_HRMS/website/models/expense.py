@@ -15,6 +15,9 @@ class ExpenseClaimHeader(db.Model):
     country_state = db.Column(db.String(100), nullable=False)
     travel_from_date = db.Column(db.Date, nullable=False)
     travel_to_date = db.Column(db.Date, nullable=False)
+    payout_status = db.Column(db.String(20), nullable=True)  # None awaiting, hold, paid
+    payout_at = db.Column(db.DateTime, nullable=True)
+    payout_by_admin_id = db.Column(db.Integer, nullable=True)
     expenses = db.relationship('ExpenseLineItem', backref='claim', cascade="all, delete", lazy=True)
 
     admin = db.relationship('Admin', back_populates='expense_claim_header')

@@ -791,14 +791,16 @@ def calculate_weekend_continuous_absence_penalty(admin_id: int, emp_type: str, y
         return 0
 
     # Holidays (needed for Optional Leave tracking)
-    from .master_data_tenancy import holiday_query, tenant_for_admin_id
+    from .cache import active_holidays_for_year, holiday_as_date
+    from .master_data_tenancy import tenant_for_admin_id
 
-    holiday_rows = holiday_query(tenant_for_admin_id(admin_id)).filter(
-        HolidayCalendar.year == year,
-        HolidayCalendar.is_active.is_(True),
-        HolidayCalendar.holiday_date.between(start_date, end_date),
-    ).all()
-    optional_holidays = {h.holiday_date for h in holiday_rows if getattr(h, "is_optional", False)}
+    optional_holidays = set()
+    for row in active_holidays_for_year(tenant_for_admin_id(admin_id), year):
+        if not row.get("is_optional"):
+            continue
+        d = holiday_as_date(row.get("holiday_date"))
+        if d is not None and start_date <= d <= end_date:
+            optional_holidays.add(d)
 
     # Punches (full-day only for "presence")
     FULL_DAY_WORK_SECONDS = 8 * 3600
@@ -1399,6 +1401,9 @@ def _client_leave_row_summary(admin_id, year, month):
             .all()
         )
         for lv in leaves:
+            from .leave_two_step import counts_as_paid_on_sheet
+            if not counts_as_paid_on_sheet(lv, year, month):
+                continue
             block = _calendar_dates_inclusive(
                 max(lv.start_date, ms), min(lv.end_date, me)
             )
@@ -1417,6 +1422,8 @@ _CLIENT_APPROVED_LEAVE_STATUSES = frozenset({
 
 _CLIENT_PENDING_LEAVE_STATUSES = frozenset({
     "pending",
+    "l1 approved",
+    "greyed out",
 })
 
 _CLIENT_FULL_DAY_WORK_SECONDS = 8 * 3600
@@ -1426,12 +1433,22 @@ def _client_norm_leave_status(status):
     return (status or "").strip().lower()
 
 
-def _client_is_approved_leave(leave_app):
-    return _client_norm_leave_status(getattr(leave_app, "status", None)) in _CLIENT_APPROVED_LEAVE_STATUSES
+def _client_is_approved_leave(leave_app, year=None, month=None):
+    if _client_norm_leave_status(getattr(leave_app, "status", None)) not in _CLIENT_APPROVED_LEAVE_STATUSES:
+        return False
+    if year and month:
+        from .leave_two_step import counts_as_paid_on_sheet
+        return counts_as_paid_on_sheet(leave_app, year, month)
+    return True
 
 
-def _client_is_pending_leave(leave_app):
-    return _client_norm_leave_status(getattr(leave_app, "status", None)) in _CLIENT_PENDING_LEAVE_STATUSES
+def _client_is_pending_leave(leave_app, year=None, month=None):
+    status = _client_norm_leave_status(getattr(leave_app, "status", None))
+    if status in _CLIENT_PENDING_LEAVE_STATUSES:
+        return True
+    if year and month and status in _CLIENT_APPROVED_LEAVE_STATUSES and not _client_is_approved_leave(leave_app, year, month):
+        return True
+    return False
 
 
 def _client_is_compoff_leave(leave_app):
@@ -1599,17 +1616,19 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     month_end = date(year, month, num_days)
 
     # Mandatory and optional holidays for this month (aligned with attendance calendar)
-    from .master_data_tenancy import holiday_query
+    from .cache import active_holidays_for_year, holiday_namespace
     from .tenant_context import tenant_id_for_admin
 
-    all_holidays = holiday_query(tenant_id_for_admin(admins[0]) if admins else None).filter(
-        HolidayCalendar.year == year,
-        HolidayCalendar.holiday_date >= month_start,
-        HolidayCalendar.holiday_date <= month_end,
-        HolidayCalendar.is_active == True,
-    ).all()
-    holiday_dates = {h.holiday_date: h for h in all_holidays if not h.is_optional}
-    optional_holiday_dates = {h.holiday_date: h for h in all_holidays if h.is_optional}
+    holiday_dates = {}
+    optional_holiday_dates = {}
+    for row in active_holidays_for_year(tenant_id_for_admin(admins[0]) if admins else None, year):
+        h = holiday_namespace(row)
+        if h is None or h.holiday_date < month_start or h.holiday_date > month_end:
+            continue
+        if h.is_optional:
+            optional_holiday_dates[h.holiday_date] = h
+        else:
+            holiday_dates[h.holiday_date] = h
 
     # Single worksheet for all employees
     worksheet = workbook.add_worksheet("Attendance")
@@ -1767,7 +1786,7 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
 
             if is_optional_holiday:
                 has_optional_leave = any(
-                    _client_is_approved_leave(la)
+                    _client_is_approved_leave(la, year, month)
                     and (getattr(la, "leave_type", "") or "").strip() == "Optional Leave"
                     for la in leaves_for_day
                 )
@@ -1778,8 +1797,8 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
                     continue
 
             if leaves_for_day:
-                approved_leaves = [la for la in leaves_for_day if _client_is_approved_leave(la)]
-                pending_leaves = [la for la in leaves_for_day if _client_is_pending_leave(la)]
+                approved_leaves = [la for la in leaves_for_day if _client_is_approved_leave(la, year, month)]
+                pending_leaves = [la for la in leaves_for_day if _client_is_pending_leave(la, year, month)]
                 approved_compoff = [la for la in approved_leaves if _client_is_compoff_leave(la)]
                 approved_other = [la for la in approved_leaves if not _client_is_compoff_leave(la)]
                 pending_compoff = [la for la in pending_leaves if _client_is_compoff_leave(la)]
@@ -1891,12 +1910,16 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
     worksheet.write(summary_leave_row, LABEL_COL, "Leave", summary_label_fmt)
     worksheet.write(summary_comp_row, LABEL_COL, "Comp off", summary_label_fmt)
     worksheet.write(summary_half_row, LABEL_COL, "Half day", summary_label_fmt)
+    summary_extra_row = summary_half_row + 1
+    worksheet.write(summary_extra_row, LABEL_COL, "Extra approval payment", summary_label_fmt)
 
     for emp_index, admin in enumerate(admins):
         base_col = FIRST_EMP_COL + emp_index * TIME_COLUMNS_PER_PAIR
         leave_txt = _client_leave_row_summary(admin.id, year, month)
         comp_txt = _client_comp_off_row_summary(admin.id, year, month)
         half_txt = _client_half_day_row_summary(admin.id, year, month)
+        from .leave_two_step import extra_payment_lines
+        extra_txt = "\n".join(extra_payment_lines(admin.id, year, month))
         worksheet.merge_range(
             summary_leave_row,
             base_col,
@@ -1919,6 +1942,14 @@ def generate_client_attendance_excel(admins, year, month, project_name=None, pla
             summary_half_row,
             base_col + 1,
             half_txt or "—",
+            summary_body_fmt,
+        )
+        worksheet.merge_range(
+            summary_extra_row,
+            base_col,
+            summary_extra_row,
+            base_col + 1,
+            extra_txt or "—",
             summary_body_fmt,
         )
 

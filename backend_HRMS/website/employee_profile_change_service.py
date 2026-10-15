@@ -18,13 +18,22 @@ REQUEST_LABELS = {
     "exit": "Employee exit",
     "rehire": "Employee rehire",
     "general": "General request",
+    "leave_unlock": "Release greyed request",
+    "leave_update": "Leave change by HR",
+    "wfh_update": "WFH change by HR",
+    "leave_on_behalf": "Leave applied by HR",
 }
 DECISION_KINDS = {
     "signup": "new employee signup",
     "exit": "employee exit",
     "rehire": "employee rehire",
     "general": "request from HR",
+    "leave_unlock": "request to release greyed leave",
+    "leave_update": "leave change by HR",
+    "wfh_update": "WFH change by HR",
+    "leave_on_behalf": "leave applied by HR",
 }
+LEAVE_REQUEST_TYPES = ("leave_update", "wfh_update", "leave_on_behalf")
 GATED_FIELDS = ("emp_type", "circle", "designation", "employment_status")
 FIELD_LABELS = {
     "emp_type": "Department",
@@ -79,12 +88,15 @@ def _requester():
 
 
 def pending_for_employee(admin):
+    """A pending profile, exit or rehire request. Leave and WFH requests do not block these."""
+    request_type = EmployeeProfileChangeRequest.request_type
     return (
         EmployeeProfileChangeRequest.query.filter_by(
             tenant_id=tenant_id_for_admin(admin),
             employee_admin_id=admin.id,
             status="pending",
         )
+        .filter(db.or_(request_type.is_(None), request_type.notin_(LEAVE_REQUEST_TYPES)))
         .order_by(EmployeeProfileChangeRequest.id.desc())
         .first()
     )
@@ -179,6 +191,23 @@ def prepare_profile_change(admin, data: dict):
                 direct.pop(key, None)
 
     if not changes:
+        return direct, None, None
+
+    from .approval_settings import approval_required
+
+    if not approval_required("profile_change"):
+        # Switch off (or Admin): put gated fields back so HR update applies them now.
+        if "emp_type" in changes:
+            direct["emp_type"] = changes["emp_type"]["to"]
+        if "circle" in changes:
+            direct["circle"] = changes["circle"]["to"]
+            direct["circle_effective_from"] = changes["circle"].get("effective_from")
+            direct["circle_transfer_notes"] = changes["circle"].get("notes")
+        if "designation" in changes:
+            direct["designation"] = changes["designation"]["to"]
+        if "employment_status" in changes:
+            payload = changes["employment_status"].get("payload") or {}
+            direct.update(payload)
         return direct, None, None
 
     blocked = pending_request_message(admin)
@@ -353,7 +382,7 @@ def serialize_change_request(row) -> dict:
     changes = _load_changes(row)
     fields = []
     request_type = (getattr(row, "request_type", None) or "profile_change").strip() or "profile_change"
-    signup = _signup_payload(row) if request_type in ("signup", "exit", "rehire", "general") else {}
+    signup = _signup_payload(row) if request_type in ("signup", "exit", "rehire", "general", "leave_unlock") else {}
     if request_type == "exit":
         for key, label in (
             ("exit_type", "Exit type"),
@@ -386,6 +415,18 @@ def serialize_change_request(row) -> dict:
             "from": "Exited",
             "to": "Active",
         })
+    elif request_type == "leave_unlock":
+        for item in signup.get("items") or []:
+            fields.append({
+                "field": f"{item.get('kind')}-{item.get('id')}",
+                "label": f"{(item.get('kind') or 'request').title()} · {item.get('employee') or 'Employee'}",
+                "from": "Greyed out",
+                "to": item.get("dates") or "—",
+            })
+    elif request_type in LEAVE_REQUEST_TYPES:
+        from .leave_admin_approval import display_fields
+
+        fields.extend(display_fields(request_type, _signup_payload(row)))
     elif request_type == "general":
         fields.append({
             "field": "subject",
@@ -431,7 +472,7 @@ def serialize_change_request(row) -> dict:
         fields.append(entry)
     employee = getattr(row, "employee", None)
     bits = _employee_bits(employee)
-    if request_type == "general":
+    if request_type in ("general", "leave_unlock"):
         bits = {
             "employee_name": _clean(signup.get("subject")),
             "employee_email": "",
@@ -693,6 +734,24 @@ def decide_profile_change(row, decision: str, note: str = ""):
             _apply_rehire(employee, decider_email or decider_name)
         elif status == "approved" and request_type == "general":
             pass
+        elif status == "approved" and request_type == "leave_unlock":
+            from .leave_two_step import release_greyed_items
+
+            release_greyed_items(_signup_payload(row))
+        elif status == "approved" and request_type in LEAVE_REQUEST_TYPES:
+            from .leave_admin_approval import apply_leave_request
+
+            # Stamped first so the leave change and the decision save in one commit.
+            row.status = status
+            row.decided_by_admin_id = decider_id
+            row.decided_by_name = decider_name
+            row.decided_by_email = decider_email
+            row.decision_note = _clean(note)[:500] or None
+            row.decided_at = utc_now()
+            ok, message, code = apply_leave_request(row, decider_name)
+            if not ok:
+                db.session.rollback()
+                return None, message, code
         elif status == "approved":
             employee = row.employee
             if employee is None:

@@ -529,8 +529,16 @@ def _payslip_feature_required():
 
 
 def _accounts_reviewer(admin) -> bool:
-    emp = (getattr(admin, "emp_type", None) or "").strip().lower()
-    return emp in ("account", "accounts", "accountant", "hr", "human resource", "admin")
+    """HR, Accounts, Finance, and org Admin may decide tax proofs."""
+    from .plan_features import is_finance_department, is_org_admin
+
+    emp = (getattr(admin, "emp_type", None) or "").strip().lower().replace("-", " ")
+    emp = " ".join(emp.split())
+    if emp in ("account", "accounts", "accountant", "hr", "human resource", "human resources", "admin"):
+        return True
+    if is_finance_department(emp):
+        return True
+    return is_org_admin({"emp_type": emp})
 
 
 def _require_employee_sensitive(viewer):

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from calendar import monthrange
 
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import jwt_required, get_jwt
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from sqlalchemy import func
 
 from . import db
@@ -18,11 +18,15 @@ from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.seperation import Resignation
 from .models.news_feed import PaySlip
 from .models.emp_detail_models import Employee, Asset
-from .employee_photo import photo_url_for_admin_id
+from sqlalchemy.orm import contains_eager
+
+from .employee_photo import photo_url_for_admin_id, prime_photo_urls
+from .query_utils import apply_search, base_collation_key, list_params, list_rows, page_slice
 from .tenant_context import (
     DEFAULT_TENANT_ID,
     admin_id_in_tenant,
     admin_tenant_clause,
+    current_admin,
     get_admin_in_tenant,
     get_current_tenant_id,
     require_same_tenant,
@@ -370,12 +374,21 @@ def _claim_status_from_items(items):
 @_admin_required
 def list_all_leaves():
     status = (request.args.get("status") or "All").strip()
+    params = list_params()
     q = LeaveApplication.query.join(Admin, LeaveApplication.admin_id == Admin.id).filter(
         admin_tenant_clause()
     )
     if status and _norm(status) != "all":
         q = q.filter(LeaveApplication.status == status)
-    rows = q.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).all()
+    q = apply_search(q, _LEAVE_SEARCH, params.search)
+    rows, pagination = list_rows(
+        q,
+        LeaveApplication,
+        (LeaveApplication.created_at.desc(), LeaveApplication.id.desc()),
+        params,
+        (contains_eager(LeaveApplication.admin),),
+        sort_ids_first=False,
+    )
     items = []
     for row in rows:
         admin = row.admin
@@ -395,7 +408,13 @@ def list_all_leaves():
             "extra_days": row.extra_days,
             "created_at": _date_iso(row.created_at),
         })
-    return jsonify({"success": True, "requests": items}), 200
+    body = {"success": True, "requests": items}
+    if pagination is not None:
+        body["pagination"] = pagination
+    return jsonify(body), 200
+
+
+_LEAVE_SEARCH = (Admin.first_name, Admin.email, Admin.emp_id, Admin.circle, LeaveApplication.leave_type)
 
 
 # --------------------------------------------------
@@ -562,6 +581,106 @@ def list_all_resignations():
     return jsonify({"success": True, "requests": items}), 200
 
 
+def _employee_list_row(row):
+    return {
+        "id": row.id,
+        "emp_id": row.emp_id or "",
+        "name": (row.first_name or "").strip() or row.email or "",
+        "email": row.email or "",
+        "designation": (row.emp_type or "").strip(),
+        "circle": (row.circle or "").strip(),
+        "emp_type": (row.emp_type or "").strip(),
+        "mobile": (row.mobile or "").strip(),
+        "doj": _date_iso(row.doj),
+        "employment_status": (row.employment_status or "").strip(),
+        "is_active": True if row.is_active is None else bool(row.is_active),
+    }
+
+
+def _with_photos(employees):
+    prime_photo_urls(e["id"] for e in employees)
+    for e in employees:
+        photo = photo_url_for_admin_id(e["id"])
+        e["photo"] = photo
+        e["photo_url"] = photo
+    return employees
+
+
+# Employee directory screen (frontend/src/pages/Admin/Employee.jsx): keep these rules in step.
+_EMPLOYMENT_STATUS_LABELS = {
+    "active": "Active",
+    "inactive": "Inactive",
+    "on_probation": "On probation",
+    "review_pending": "Review in progress",
+    "awaiting_hr": "Awaiting HR decision",
+    "confirmed": "Confirmed",
+    "extended": "Probation extended",
+    "failed": "Probation not cleared",
+}
+_DIRECTORY_SORTS = ("name", "emp_id", "emp_type", "circle", "doj", "status")
+_DIRECTORY_SEARCH = ("name", "emp_id", "email", "mobile", "emp_type", "circle")
+
+
+def _employment_status_key(e):
+    if e["is_active"] is False:
+        return "inactive"
+    return e["employment_status"] or "active"
+
+
+def _employment_status_label(key):
+    if key in _EMPLOYMENT_STATUS_LABELS:
+        return _EMPLOYMENT_STATUS_LABELS[key]
+    text = (key or "").replace("_", " ").strip()
+    return text[:1].upper() + text[1:] if text else "Active"
+
+
+def _employee_directory(employees):
+    """
+    view=directory: type / in_circle / status filters, q search and sort / dir applied here,
+    plus facets (counts and choices over all employees). Paging follows API_PAGINATION_V1.
+    """
+    sort = (request.args.get("sort") or "name").strip()
+    if sort not in _DIRECTORY_SORTS:
+        return jsonify({"success": False, "message": "sort must be one of: " + ", ".join(_DIRECTORY_SORTS)}), 400
+    descending = (request.args.get("dir") or "asc").strip().lower() == "desc"
+    emp_type = (request.args.get("type") or "").strip() or "All"
+    circle = (request.args.get("in_circle") or "").strip() or "All"
+    status = (request.args.get("status") or "").strip() or "All"
+    needle = (request.args.get("q") or "").strip().lower()
+
+    type_counts = {}
+    for e in employees:
+        key = e["emp_type"] or "Unassigned"
+        type_counts[key] = type_counts.get(key, 0) + 1
+    facets = {
+        "total": len(employees),
+        "typeCounts": type_counts,
+        "types": sorted({e["emp_type"] for e in employees if e["emp_type"]}),
+        "circles": sorted({e["circle"] for e in employees if e["circle"]}),
+        "statuses": sorted({_employment_status_key(e) for e in employees}),
+    }
+
+    rows = [
+        e for e in employees
+        if (emp_type == "All" or (e["emp_type"] or "Unassigned") == emp_type)
+        and (circle == "All" or e["circle"] == circle)
+        and (status == "All" or _employment_status_key(e) == status)
+        and (not needle or any(needle in (e[k] or "").lower() for k in _DIRECTORY_SEARCH))
+    ]
+
+    def sort_value(e):
+        if sort == "status":
+            return _employment_status_label(_employment_status_key(e))
+        return e[sort] or ""
+
+    rows.sort(key=lambda e: base_collation_key(sort_value(e), numeric=True), reverse=descending)
+    page, pagination = page_slice(rows, list_params())
+    body = {"success": True, "count": len(rows), "employees": _with_photos(page), "facets": facets}
+    if pagination is not None:
+        body["pagination"] = pagination
+    return jsonify(body), 200
+
+
 # --------------------------------------------------
 # GET /api/admin/employees – list employees (optional circle, emp_type)
 # --------------------------------------------------
@@ -575,25 +694,11 @@ def list_employees():
     q = _base_employee_query()
     q = _apply_scope(q, circle, emp_type)
     rows = q.order_by(Admin.first_name.asc(), Admin.id.asc()).all()
+    employees = [_employee_list_row(row) for row in rows]
+    if (request.args.get("view") or "").strip() == "directory":
+        return _employee_directory(employees)
 
-    employees = []
-    for row in rows:
-        photo = photo_url_for_admin_id(row.id)
-        employees.append({
-            "id": row.id,
-            "emp_id": row.emp_id or "",
-            "name": (row.first_name or "").strip() or row.email or "",
-            "email": row.email or "",
-            "designation": (row.emp_type or "").strip(),
-            "circle": (row.circle or "").strip(),
-            "emp_type": (row.emp_type or "").strip(),
-            "photo": photo,
-            "photo_url": photo,
-            "mobile": (row.mobile or "").strip(),
-            "doj": _date_iso(row.doj),
-            "employment_status": (row.employment_status or "").strip(),
-            "is_active": True if row.is_active is None else bool(row.is_active),
-        })
+    employees = _with_photos(employees)
     return jsonify({
         "success": True,
         "count": len(employees),
@@ -910,6 +1015,37 @@ def company_mailboxes():
     }), 200
 
 
+@admin_bp.route("/approval-settings", methods=["GET", "PUT"])
+@jwt_required()
+@_admin_required
+def approval_settings_api():
+    """Per-company switches for which HR actions wait for Admin approval."""
+    from .approval_settings import load_approval_settings, save_approval_settings, settings_payload
+    from .models.Admin_models import AuditLog
+
+    tid = get_current_tenant_id()
+    if request.method == "PUT":
+        data = request.get_json(silent=True) or {}
+        updates = data.get("settings") if isinstance(data.get("settings"), dict) else data
+        before = load_approval_settings(tid)
+        try:
+            actor_id = int(get_jwt_identity())
+        except (TypeError, ValueError):
+            actor_id = None
+        after = save_approval_settings(updates, tid, admin_id=actor_id)
+        changed = [k for k in after if before.get(k) != after.get(k)]
+        if changed:
+            admin = current_admin()
+            db.session.add(AuditLog(
+                action=f"APPROVAL_SETTINGS|{','.join(changed)}"[:100],
+                performed_by=getattr(admin, "email", None) or str(get_jwt_identity()),
+                target_email=f"tenant:{tid}",
+            ))
+            db.session.commit()
+        return jsonify({"success": True, **settings_payload(tid)}), 200
+    return jsonify({"success": True, **settings_payload(tid)}), 200
+
+
 def _parse_plan(value):
     return normalize_plan(value)
 
@@ -1002,6 +1138,9 @@ def _sync_tenant_from_customer(row, *, create=False):
         if row.slug and row.slug != tenant.slug:
             tenant.slug = _unique_tenant_slug(row.slug, exclude_id=tenant.id)
         tenant.plan = plan
+        from .cache import NS_PLAN, bump
+
+        bump(NS_PLAN, tenant.id)
         tenant.status = status
         if row.contact_email is not None:
             tenant.contact_email = row.contact_email
@@ -1276,6 +1415,12 @@ def update_deployed_customer(customer_id):
                 "message": "Can only upgrade to a higher plan or keep the current plan",
             }), 400
         row.plan = new_plan
+        from .cache import NS_PLAN, bump
+        from .models.tenant import Tenant
+
+        tenant = Tenant.query.filter_by(slug=row.slug).first() if row.slug else None
+        if tenant is not None:
+            bump(NS_PLAN, tenant.id)
 
     if "company_name" in data:
         name = (data.get("company_name") or "").strip()

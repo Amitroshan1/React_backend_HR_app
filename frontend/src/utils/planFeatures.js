@@ -64,6 +64,12 @@ export function isHrUser(user) {
   return ['hr', 'human resource', 'human resources'].includes(normalized);
 }
 
+export function isFinanceUser(user) {
+  const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
+  const normalized = et.replace(/\s+/g, ' ').trim();
+  return normalized === 'finance' || normalized.startsWith('finance ');
+}
+
 export function isAccountUser(user) {
   const et = String(user?.emp_type || user?.department || '').trim().toLowerCase().replace(/-/g, ' ');
   const normalized = et.replace(/\s+/g, ' ').trim();
@@ -106,6 +112,11 @@ export function canAccessItPanel(user) {
 export function canAccessHrPanel(user) {
   if (adminHasFullPanelAccess(user)) return true;
   return hasFeature('hr_panel') && isHrUser(user);
+}
+
+export function canAccessFinancePanel(user) {
+  if (adminHasFullPanelAccess(user)) return true;
+  return hasFeature('finance_panel') && isFinanceUser(user);
 }
 
 export function canAccessAccountPanel(user) {

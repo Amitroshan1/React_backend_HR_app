@@ -54,13 +54,18 @@ def _is_weekend_non_working_for_emp(emp_type: str, d: date) -> bool:
 
 
 def _load_holiday_sets(year: int, start_date: date, end_date: date, tenant_id=None):
-    rows = holiday_query(tenant_id).filter(
-        HolidayCalendar.year == year,
-        HolidayCalendar.is_active.is_(True),
-        HolidayCalendar.holiday_date.between(start_date, end_date),
-    ).all()
-    mandatory = {h.holiday_date for h in rows if not getattr(h, "is_optional", False)}
-    optional = {h.holiday_date for h in rows if getattr(h, "is_optional", False)}
+    from .cache import active_holidays_for_year, holiday_as_date
+    from .tenant_context import get_current_tenant_id
+
+    tid = tenant_id if tenant_id is not None else get_current_tenant_id()
+    dates = []
+    for row in active_holidays_for_year(tid, year):
+        d = holiday_as_date(row.get("holiday_date"))
+        if d is None or d < start_date or d > end_date:
+            continue
+        dates.append((d, bool(row.get("is_optional"))))
+    mandatory = {d for d, optional in dates if not optional}
+    optional = {d for d, opt in dates if opt}
     return mandatory, optional
 
 

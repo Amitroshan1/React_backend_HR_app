@@ -175,7 +175,7 @@ export function isInventoryImage(src) {
   const value = String(src || "");
   return (
     value.startsWith("data:image/") ||
-    value.startsWith("/api/files/") ||
+    (value.startsWith("/api/files/") && !/\.pdf$/i.test(value.split("?")[0])) ||
     /^https?:\/\/.+\.(png|jpe?g|gif|webp)(\?|$)/i.test(value)
   );
 }

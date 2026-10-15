@@ -21,6 +21,7 @@ PLAN_LABELS = {
 ALL_FEATURES = frozenset({
     "hr_panel",
     "account_panel",
+    "finance_panel",
     "it_panel",
     "dashboard_payslip",
     "dashboard_my_assets",
@@ -40,6 +41,7 @@ ALL_FEATURES = frozenset({
 
 BASIC_DISABLED = frozenset({
     "account_panel",
+    "finance_panel",
     "it_panel",
     "dashboard_payslip",
     "dashboard_my_assets",
@@ -78,6 +80,12 @@ ACCOUNTS_DEPARTMENT_ALIASES = frozenset({
     "account",
     "accounts",
     "accountant",
+})
+
+FINANCE_DEPARTMENT_ALIASES = frozenset({
+    "finance",
+    "finance department",
+    "finance team",
 })
 
 IT_DEPARTMENT_ALIASES = frozenset({
@@ -135,13 +143,21 @@ def _tenant_plan(tenant_id: int) -> Optional[str]:
         return cache[tenant_id]
     plan = None
     try:
+        from .cache import NS_PLAN, cached_json
         from .models.tenant import Tenant
 
-        t = Tenant.query.get(int(tenant_id))
-        if t and (t.plan or "").strip():
-            p = t.plan.strip().lower()
-            if p in CUSTOMER_PLANS:
-                plan = p
+        def load():
+            from . import db
+
+            t = db.session.get(Tenant, int(tenant_id))
+            if t and (t.plan or "").strip():
+                p = t.plan.strip().lower()
+                if p in CUSTOMER_PLANS:
+                    return p
+            return ""
+
+        stored = cached_json(NS_PLAN, int(tenant_id), "plan", load)
+        plan = stored or None
     except Exception:
         plan = None
     cache[tenant_id] = plan
@@ -239,6 +255,18 @@ def is_it_role(claims: Optional[dict] = None) -> bool:
     return is_it_department(emp_type) or is_inventory_department(emp_type)
 
 
+def is_finance_role(claims: Optional[dict] = None) -> bool:
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    emp_type = _norm_emp_type(claims.get("emp_type") or "").replace("-", " ")
+    emp_type = " ".join(emp_type.split())
+    return is_finance_department(emp_type)
+
+
 def is_accounts_role(claims: Optional[dict] = None) -> bool:
     if claims is None:
         try:
@@ -263,6 +291,21 @@ def can_access_it_panel(claims: Optional[dict] = None) -> bool:
     if not has_feature("it_panel"):
         return False
     return is_it_role(claims)
+
+
+def can_access_finance_panel(claims: Optional[dict] = None) -> bool:
+    """Finance module: Finance role (or org Admin). Does not open Accounts data entry."""
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+    if is_org_admin(claims):
+        return True
+    if not has_feature("finance_panel"):
+        return False
+    return is_finance_role(claims)
 
 
 def can_access_accounts_panel(claims: Optional[dict] = None) -> bool:
@@ -299,10 +342,18 @@ def can_access_employee_accounts_module(claims: Optional[dict] = None) -> bool:
 
 
 def can_access_for_client_export(claims: Optional[dict] = None) -> bool:
-    """For Client attendance export — HR and Accounts (when feature enabled)."""
+    """For Client attendance export — HR, Accounts, and Finance (when enabled)."""
+    if claims is None:
+        try:
+            from flask_jwt_extended import get_jwt
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
     if not has_feature("account_for_client"):
         return False
-    return can_access_hr_or_accounts_shared(claims)
+    if can_access_hr_or_accounts_shared(claims):
+        return True
+    return is_finance_role(claims) and has_feature("finance_panel")
 
 
 def is_hr_department(name: str) -> bool:
@@ -312,6 +363,16 @@ def is_hr_department(name: str) -> bool:
     if n in HR_DEPARTMENT_ALIASES:
         return True
     return "human resource" in n
+
+
+def is_finance_department(name: str) -> bool:
+    n = (name or "").strip().lower().replace("-", " ")
+    n = " ".join(n.split())
+    if not n:
+        return False
+    if n in FINANCE_DEPARTMENT_ALIASES:
+        return True
+    return n.startswith("finance ")
 
 
 def is_accounts_department(name: str) -> bool:

@@ -1,7 +1,7 @@
 import "./RequestCard.css";
 import { formatDate } from "../../../../utils/dateFormat";
 
-export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
+export const RequestCard = ({ request, onAction, isActing, onViewDetails, selected = false, onToggle }) => {
   const getBadgeClass = (type) => {
     const t = type?.toLowerCase() || "";
     if (t.includes("leave")) return "badge-leave";
@@ -10,7 +10,8 @@ export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
     return "badge-claim";
   };
 
-  const isPending = (request.status || "").toLowerCase() === "pending";
+  const canAct = request.canAct === true || (request.canAct == null && (request.status || "").toLowerCase() === "pending");
+  const statusClass = (request.status || "pending").toLowerCase().replace(/\s+/g, "-");
 
   return (
     <div className="request-card">
@@ -20,7 +21,7 @@ export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
             {request.type || "Claim"}
           </span>
 
-          <span className={`status-pill status-${request.status?.toLowerCase() || "pending"}`}>
+          <span className={`status-pill status-${statusClass}`}>
             {request.status || "Pending"}
           </span>
         </div>
@@ -52,7 +53,13 @@ export const RequestCard = ({ request, onAction, isActing, onViewDetails }) => {
         ) : null}
       </div>
 
-      {isPending && onAction ? (
+      {onToggle ? (
+        <label className="request-select">
+          <input type="checkbox" checked={selected} onChange={() => onToggle(request.id)} />
+          Select
+        </label>
+      ) : null}
+      {canAct && onAction ? (
         <div className="request-actions">
           {onViewDetails ? (
             <button type="button" className="details-pill" onClick={onViewDetails}>

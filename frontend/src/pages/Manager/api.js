@@ -110,6 +110,32 @@ export async function fetchManagerRequests(type, statusFilter = "Pending") {
   return result.requests || [];
 }
 
+export async function submitApprovalConsent({ leaveIds = [], wfhIds = [] }) {
+  const response = await fetch(`${API_BASE}/approval-consent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ leave_ids: leaveIds, wfh_ids: wfhIds }),
+  });
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Could not record consent");
+  }
+  return result;
+}
+
+export async function requestGreyedUnlock({ leaveIds = [], wfhIds = [] }) {
+  const response = await fetch(`${API_BASE}/greyed-requests/unlock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ leave_ids: leaveIds, wfh_ids: wfhIds }),
+  });
+  const result = await parseApiJson(response);
+  if (!response.ok || !result.success) {
+    throw new Error(result.message || "Could not send this to Admin");
+  }
+  return result;
+}
+
 export async function actOnManagerRequest(type, id, action) {
   const config = endpointMap[type];
   if (!config || typeof config.action !== "function") {

@@ -1,10 +1,27 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
-import { ArrowLeft, Edit3, Search } from "lucide-react";
+import { usePagedList } from "../../hooks/usePagedList";
+import Pager from "../../components/Pager";
+import { isPagedScreenEnabled } from "../../utils/pagedScreens";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BadgeCheck,
+  Calculator,
+  CalendarRange,
+  Check,
+  Edit3,
+  Hourglass,
+  Search,
+  ShieldCheck,
+  UserPlus,
+  X,
+} from "lucide-react";
 import "./LeaveApplicationUpdation.css";
 import { formatDate, formatDateTimeDDMMYYYY } from "../../utils/dateFormat";
 import { HRApplyLeaveOnBehalf } from "./HRApplyLeaveOnBehalf";
-import { HRLeavePolicyPanel } from "./HRLeavePolicyPanel";
+import { HRLeavePolicyCard, HRLeavePolicyPanel } from "./HRLeavePolicyPanel";
+import { HRApprovedLeaves } from "./HRApprovedLeaves";
 
 const API_BASE = "/api/HumanResource";
 
@@ -41,6 +58,27 @@ const matchesStatusFilter = (row, statusFilter) => {
   return normalizeRequestStatus(row?.status) === normalizeRequestStatus(statusFilter);
 };
 
+const UPDATION_PER_PAGE = 25;
+
+async function fetchUpdationPage(params) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") qs.set(key, String(value));
+  });
+  const res = await fetch(`${API_BASE}/leave-updation/requests?${qs.toString()}`, {
+    headers: getAuthHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.message || "Failed to fetch requests");
+  return data;
+}
+
+const selectUpdationRows = (body) => (Array.isArray(body?.requests) ? body.requests : []);
+const selectUpdationMeta = (body) => ({
+  counts: body?.counts || null,
+  pendingOnBehalf: Array.isArray(body?.pending_on_behalf) ? body.pending_on_behalf : [],
+});
+
 const parseAuditAction = (actionText) => {
   const raw = String(actionText || "");
   const chunks = raw.split("|");
@@ -76,6 +114,12 @@ const parseAuditAction = (actionText) => {
         const [fromVal, toVal] = parts[1].split("->");
         pushDetail("End Date", fromVal, toVal);
       }
+    } else if (chunk.startsWith("approved_by:")) {
+      details.push({
+        label: "Approved by Admin",
+        from: null,
+        to: chunk.replace("approved_by:", "").trim() || "-",
+      });
     } else if (chunk.startsWith("reason:")) {
       details.push({
         label: "Reason",
@@ -102,6 +146,7 @@ export const LeaveApplicationUpdation = ({
     initialContext?.status ? initialContext.status.charAt(0).toUpperCase() + initialContext.status.slice(1) : "All"
   );
   const [allRows, setAllRows] = useState([]);
+  const [pendingOnBehalf, setPendingOnBehalf] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [editRow, setEditRow] = useState(null);
@@ -117,12 +162,34 @@ export const LeaveApplicationUpdation = ({
     emp_type: empTypeOptions[0] || "",
     circle: circleOptions[0] || "",
   });
+  const [page, setPage] = useState("main");
+  const [pageNotice, setPageNotice] = useState("");
+  const pageTopRef = useRef(null);
   const [form, setForm] = useState({
     leave_type: "",
     start_date: "",
     end_date: "",
     status: "Pending",
     reason: "",
+  });
+
+  const paged = useMemo(() => isPagedScreenEnabled("hrLeaveUpdation"), []);
+  // Dropdown filters apply on "Search", as before; status pills apply straight away.
+  const [appliedFilters, setAppliedFilters] = useState(filters);
+  const listFilters = useMemo(() => ({
+    request_type: appliedFilters.request_type,
+    emp_type: appliedFilters.emp_type,
+    circle: appliedFilters.circle,
+    ...(initialContext?.admin_id ? { admin_id: String(initialContext.admin_id) } : {}),
+    ...(statusFilter !== "All" ? { status: statusFilter.toLowerCase() } : {}),
+  }), [appliedFilters, initialContext?.admin_id, statusFilter]);
+  const list = usePagedList({
+    fetchList: fetchUpdationPage,
+    select: selectUpdationRows,
+    selectMeta: selectUpdationMeta,
+    filters: listFilters,
+    perPage: UPDATION_PER_PAGE,
+    skip: !paged,
   });
 
   const fetchRows = useCallback(async () => {
@@ -144,8 +211,10 @@ export const LeaveApplicationUpdation = ({
         throw new Error(data.message || "Failed to fetch requests");
       }
       setAllRows(data.requests || []);
+      setPendingOnBehalf(data.pending_on_behalf || []);
     } catch (err) {
       setAllRows([]);
+      setPendingOnBehalf([]);
       setError(err.message || "Network error");
     } finally {
       setLoading(false);
@@ -160,8 +229,20 @@ export const LeaveApplicationUpdation = ({
   }, [empTypeOptions, circleOptions]);
 
   useRefreshOnNavigate(() => {
+    // The paged list loads itself and refetches when its filters change.
+    if (paged) return;
     fetchRows();
   });
+
+  const refreshRows = paged ? list.reload : fetchRows;
+  const runSearch = () => {
+    if (!paged) {
+      fetchRows();
+      return;
+    }
+    setAppliedFilters(filters);
+    list.reload();
+  };
 
   const searchEmployeesForOnBehalf = useCallback(async () => {
     if (!onBehalfFilters.emp_type || !onBehalfFilters.circle) {
@@ -193,6 +274,19 @@ export const LeaveApplicationUpdation = ({
       setOnBehalfSearchLoading(false);
     }
   }, [onBehalfFilters.emp_type, onBehalfFilters.circle]);
+
+  const openPage = useCallback((next) => {
+    setPage(next);
+    if (next !== "main") setPageNotice("");
+  }, []);
+
+  useEffect(() => {
+    pageTopRef.current?.scrollIntoView({ block: "start" });
+  }, [page]);
+
+  const onBehalfLabel = onBehalfEmployee
+    ? `${onBehalfEmployee.first_name || onBehalfEmployee.email || "Employee"} (${onBehalfEmployee.emp_id || onBehalfEmployee.id})`
+    : "";
 
   const openEditor = (row) => {
     setSuccessMessage("");
@@ -226,6 +320,21 @@ export const LeaveApplicationUpdation = ({
     if (match) openEditor(match);
   }, [allRows, initialContext?.ref_id]);
 
+  // Paged: the linked request may not be on the first page, so ask for it by key once.
+  const refLookupRef = useRef(false);
+  useEffect(() => {
+    if (!paged || !initialContext?.ref_id || refLookupRef.current) return;
+    refLookupRef.current = true;
+    fetchUpdationPage({ ...listFilters, page: 1, per_page: 1, ref: initialContext.ref_id })
+      .then((body) => {
+        const match = body?.pagination
+          ? body.ref_row
+          : selectUpdationRows(body).find((r) => rowKey(r) === initialContext.ref_id);
+        if (match) openEditor(match);
+      })
+      .catch(() => {});
+  }, [paged, initialContext?.ref_id, listFilters]);
+
   const closeEditor = () => {
     setEditRow(null);
     setSaving(false);
@@ -252,12 +361,12 @@ export const LeaveApplicationUpdation = ({
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!editRow?.id) return;
+    if (!editRow?.id || editRow.admin_pending) return;
     if (needsSaveConfirmation()) {
       const isWfh = String(editRow.request_type || "").toLowerCase() === "wfh";
       const msg = isWfh
-        ? "This approved WFH request will be changed. Managers and the employee will be notified by email. Continue?"
-        : "This approved leave will be reversed and recalculated (balance restored/adjusted). Managers and the employee will be notified by email. Continue?";
+        ? "This approved WFH request will be changed (after Admin approval, if your change needs it). Managers and the employee will be notified by email. Continue?"
+        : "This approved leave will be reversed and recalculated, with the balance restored or adjusted (after Admin approval, if your change needs it). Managers and the employee will be notified by email. Continue?";
       if (!window.confirm(msg)) return;
     }
     setSaving(true);
@@ -291,14 +400,18 @@ export const LeaveApplicationUpdation = ({
       if (!res.ok || !data.success) {
         throw new Error(data.message || "Failed to update request");
       }
-      setSuccessMessage(
-        isWfh ? "WFH request updated successfully." : "Leave request updated successfully."
-      );
-      if (!isWfh) {
-        window.dispatchEvent(new CustomEvent("leaveDataUpdated"));
+      if (data.pending_approval) {
+        setSuccessMessage(data.message || "Sent to Admin for approval.");
+      } else {
+        setSuccessMessage(
+          isWfh ? "WFH request updated successfully." : "Leave request updated successfully."
+        );
+        if (!isWfh) {
+          window.dispatchEvent(new CustomEvent("leaveDataUpdated"));
+        }
       }
       closeEditor();
-      await fetchRows();
+      await refreshRows();
     } catch (err) {
       setError(err.message || "Network error");
     } finally {
@@ -307,115 +420,228 @@ export const LeaveApplicationUpdation = ({
   };
 
   const stats = useMemo(() => {
+    if (paged) {
+      const counts = list.meta?.counts;
+      if (!counts) return null;
+      return { total: counts.all, pending: counts.pending, approved: counts.approved, rejected: counts.rejected };
+    }
     const total = allRows.length;
     const pending = allRows.filter((r) => matchesStatusFilter(r, "Pending")).length;
     const approved = allRows.filter((r) => matchesStatusFilter(r, "Approved")).length;
     const rejected = allRows.filter((r) => matchesStatusFilter(r, "Rejected")).length;
     return { total, pending, approved, rejected };
-  }, [allRows]);
+  }, [allRows, list.meta, paged]);
 
   const displayRows = useMemo(
-    () => allRows.filter((r) => matchesStatusFilter(r, statusFilter)),
-    [allRows, statusFilter],
+    () => (paged ? list.rows : allRows.filter((r) => matchesStatusFilter(r, statusFilter))),
+    [allRows, list.rows, paged, statusFilter],
   );
+  const listLoading = paged ? list.loading : loading;
+  const listError = paged ? list.error?.message || "" : "";
+  const waitingOnBehalf = paged ? list.meta?.pendingOnBehalf || [] : pendingOnBehalf;
+
+  if (page === "policy") {
+    return (
+      <div className="leave-application-updation-page" ref={pageTopRef}>
+        <div className="leave-application-updation-shell lx-subpage">
+          <button type="button" className="lau-back-btn" onClick={() => openPage("main")}>
+            <ArrowLeft size={16} /> Back to Leave/WFH updation
+          </button>
+          <HRLeavePolicyPanel
+            onCancel={() => openPage("main")}
+            onSaved={(message) => {
+              setPageNotice(message);
+              openPage("main");
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (page === "approved") {
+    return (
+      <div className="leave-application-updation-page" ref={pageTopRef}>
+        <div className="leave-application-updation-shell lx-subpage is-wide">
+          <button type="button" className="lau-back-btn" onClick={() => openPage("main")}>
+            <ArrowLeft size={16} /> Back to Leave/WFH updation
+          </button>
+          <HRApprovedLeaves empTypeOptions={empTypeOptions} circleOptions={circleOptions} />
+        </div>
+      </div>
+    );
+  }
+
+  if (page === "onBehalf") {
+    return (
+      <div className="leave-application-updation-page" ref={pageTopRef}>
+        <div className="leave-application-updation-shell lx-subpage">
+          <button type="button" className="lau-back-btn" onClick={() => openPage("main")}>
+            <ArrowLeft size={16} /> Back to Leave/WFH updation
+          </button>
+          <section className="lob-card">
+            <div className="lob-head">
+              <span className="lob-icon"><UserPlus size={20} /></span>
+              <div className="lob-copy">
+                <h3>Apply leave on behalf</h3>
+                <p>Search an employee, then apply backdated or future leave with preview and policy checks.</p>
+              </div>
+            </div>
+
+            <ul className="lob-features">
+              <li><span><Search size={15} /></span>Find any employee by type and circle</li>
+              <li><span><CalendarRange size={15} /></span>Backdated or future dates</li>
+              <li><span><Calculator size={15} /></span>Live paid days and LWP preview</li>
+              <li><span><ShieldCheck size={15} /></span>Checked against company policy</li>
+            </ul>
+
+            <div className="lob-steps">
+              <div className={`lob-step${onBehalfEmployee ? " is-done" : " is-active"}`}>
+                <div className="lob-step-label">
+                  <span className="lob-step-num">{onBehalfEmployee ? <Check size={13} /> : 1}</span>
+                  Find the employee
+                  {onBehalfCandidates.length > 0 ? (
+                    <span className="lob-count">{onBehalfCandidates.length} found</span>
+                  ) : null}
+                </div>
+                <div className={`lob-search${onBehalfCandidates.length > 0 ? " has-employee" : ""}`}>
+                  <label className="lob-field">
+                    <span>Employee type</span>
+                    <select
+                      value={onBehalfFilters.emp_type}
+                      onChange={(e) => setOnBehalfFilters((p) => ({ ...p, emp_type: e.target.value }))}
+                    >
+                      {empTypeOptions.map((item) => (
+                        <option key={item} value={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="lob-field">
+                    <span>Circle</span>
+                    <select
+                      value={onBehalfFilters.circle}
+                      onChange={(e) => setOnBehalfFilters((p) => ({ ...p, circle: e.target.value }))}
+                    >
+                      {circleOptions.map((item) => (
+                        <option key={item} value={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {onBehalfCandidates.length > 0 ? (
+                    <label className="lob-field is-employee">
+                      <span>Employee</span>
+                      <select
+                        value={onBehalfEmployee?.id || ""}
+                        onChange={(e) => {
+                          const picked = onBehalfCandidates.find((emp) => String(emp.id) === e.target.value);
+                          setOnBehalfEmployee(picked || null);
+                        }}
+                      >
+                        <option value="">Select employee</option>
+                        {onBehalfCandidates.map((emp) => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.first_name || emp.email} ({emp.emp_id || emp.id})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="lob-find"
+                    onClick={searchEmployeesForOnBehalf}
+                    disabled={onBehalfSearchLoading}
+                  >
+                    <Search size={16} aria-hidden />
+                    {onBehalfSearchLoading ? "Searching…" : "Find employees"}
+                  </button>
+                </div>
+                {onBehalfSearchError ? <div className="lob-error">{onBehalfSearchError}</div> : null}
+              </div>
+
+              <div className={`lob-step${onBehalfEmployee ? " is-active" : ""}`}>
+                <div className="lob-step-label">
+                  <span className="lob-step-num">2</span>
+                  Apply leave
+                </div>
+                <HRApplyLeaveOnBehalf
+                  embedded
+                  adminId={onBehalfEmployee?.id || null}
+                  employeeLabel={onBehalfLabel}
+                  onSuccess={async (json) => {
+                    const who = onBehalfLabel || "the employee";
+                    setPageNotice(
+                      json?.pending_approval
+                        ? `Leave for ${who} sent to Admin for approval. It will be applied once an Admin approves it.`
+                        : `Leave applied on behalf of ${who}.`
+                    );
+                    setOnBehalfEmployee(null);
+                    openPage("main");
+                    await refreshRows();
+                  }}
+                />
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="leave-application-updation-page">
+    <div className="leave-application-updation-page" ref={pageTopRef}>
       <div className="leave-application-updation-shell">
         <button type="button" className="lau-back-btn" onClick={onBack}>
           <ArrowLeft size={16} /> Back to Updates
         </button>
         <div className="lau-header-card">
           <h2>Leave/WFH Application Updation</h2>
-          <p>HR can update Leave/WFH dates, reason, and status (leave balances auto-adjust including reversals).</p>
+          <p>HR can update Leave/WFH dates, reason, and status (leave balances auto-adjust including reversals). HR changes wait for Admin approval; an Admin's own changes apply straight away.</p>
           {initialContext?.status === 'pending' ? (
             <p className="lau-inbox-hint">Showing pending queue from HR Inbox{initialContext.ref_id ? ` — opened ${initialContext.ref_id}` : ''}.</p>
           ) : null}
         </div>
 
-        <HRLeavePolicyPanel />
-
-        <div className="lau-on-behalf-panel">
-          <div className="lau-on-behalf-panel__header">
-            <h3>Apply leave on behalf</h3>
-            <p className="lau-on-behalf-panel__hint">
-              Search an employee, then apply backdated or future leave with preview and policy checks.
-            </p>
+        {pageNotice ? (
+          <div className="lx-notice" role="status">
+            <Check size={16} />
+            <span>{pageNotice}</span>
+            <button type="button" aria-label="Dismiss" onClick={() => setPageNotice("")}><X size={15} /></button>
           </div>
+        ) : null}
 
-          <div className="lau-on-behalf-panel__toolbar">
-            <div
-              className={`lau-on-behalf-panel__search${
-                onBehalfCandidates.length > 0 ? ' lau-on-behalf-panel__search--with-employee' : ''
-              }`}
-            >
-              <label className="lau-on-behalf-panel__field">
-                <span className="lau-on-behalf-panel__label">Employee type</span>
-                <select
-                  value={onBehalfFilters.emp_type}
-                  onChange={(e) => setOnBehalfFilters((p) => ({ ...p, emp_type: e.target.value }))}
-                >
-                  {empTypeOptions.map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="lau-on-behalf-panel__field">
-                <span className="lau-on-behalf-panel__label">Circle</span>
-                <select
-                  value={onBehalfFilters.circle}
-                  onChange={(e) => setOnBehalfFilters((p) => ({ ...p, circle: e.target.value }))}
-                >
-                  {circleOptions.map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              {onBehalfCandidates.length > 0 ? (
-                <label className="lau-on-behalf-panel__field lau-on-behalf-panel__field--employee">
-                  <span className="lau-on-behalf-panel__label">Employee</span>
-                  <select
-                    value={onBehalfEmployee?.id || ""}
-                    onChange={(e) => {
-                      const picked = onBehalfCandidates.find((emp) => String(emp.id) === e.target.value);
-                      setOnBehalfEmployee(picked || null);
-                    }}
-                  >
-                    <option value="">Select employee</option>
-                    {onBehalfCandidates.map((emp) => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.first_name || emp.email} ({emp.emp_id || emp.id})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <button
-                type="button"
-                className="lau-on-behalf-panel__find-btn"
-                onClick={searchEmployeesForOnBehalf}
-                disabled={onBehalfSearchLoading}
-              >
-                <Search size={16} aria-hidden />
-                {onBehalfSearchLoading ? "Searching…" : "Find employees"}
+        <div className="lx-actions">
+          <HRLeavePolicyCard onEdit={() => openPage("policy")} />
+
+          <section className="lx-action">
+            <div className="lx-action-top">
+              <span className="lob-icon"><UserPlus size={20} /></span>
+              <div className="lx-action-copy">
+                <h3>Apply leave on behalf</h3>
+                <p>Search an employee, then apply backdated or future leave with preview and policy checks.</p>
+              </div>
+            </div>
+            <div className="lx-action-foot">
+              <button type="button" className="lp-btn is-sky" onClick={() => openPage("onBehalf")}>
+                Apply leave <ArrowRight size={16} />
               </button>
             </div>
-            {onBehalfSearchError ? <div className="lau-on-behalf-panel__inline-error">{onBehalfSearchError}</div> : null}
-          </div>
+          </section>
 
-          <HRApplyLeaveOnBehalf
-            embedded
-            adminId={onBehalfEmployee?.id || null}
-            employeeLabel={
-              onBehalfEmployee
-                ? `${onBehalfEmployee.first_name || onBehalfEmployee.email || "Employee"} (${onBehalfEmployee.emp_id || onBehalfEmployee.id})`
-                : ""
-            }
-            onSuccess={async () => {
-              setSuccessMessage("Leave applied on behalf successfully.");
-              await fetchRows();
-            }}
-          />
+          <section className="lx-action">
+            <div className="lx-action-top">
+              <span className="lob-icon ap-icon"><BadgeCheck size={20} /></span>
+              <div className="lx-action-copy">
+                <h3>Approved leaves</h3>
+                <p>Leave and WFH approved by L1, with L2 shown as pending or approved. Filter by month, type and circle.</p>
+              </div>
+            </div>
+            <div className="lx-action-foot">
+              <button type="button" className="lp-btn is-green" onClick={() => openPage("approved")}>
+                Approved leaves <ArrowRight size={16} />
+              </button>
+            </div>
+          </section>
         </div>
 
         <div className="lau-filters">
@@ -448,21 +674,23 @@ export const LeaveApplicationUpdation = ({
               ))}
             </select>
           </div>
-          <button type="button" className="lau-search-btn" onClick={fetchRows} disabled={loading}>
-            <Search size={16} /> {loading ? "Loading..." : "Search"}
+          <button type="button" className="lau-search-btn" onClick={runSearch} disabled={listLoading}>
+            <Search size={16} /> {listLoading ? "Loading..." : "Search"}
           </button>
         </div>
 
         <div className="lau-stats">
           {STATUS_FILTERS.map((status) => {
-            const count =
-              status === "All"
+            const count = !stats
+              ? null
+              : status === "All"
                 ? stats.total
                 : status === "Pending"
                   ? stats.pending
                   : status === "Approved"
                     ? stats.approved
                     : stats.rejected;
+            const label = status === "All" ? "Total" : status;
             return (
               <button
                 key={status}
@@ -470,14 +698,38 @@ export const LeaveApplicationUpdation = ({
                 className={`lau-stat-pill ${statusFilter === status ? "active" : ""}`}
                 onClick={() => setStatusFilter(status)}
               >
-                {status === "All" ? `Total: ${count}` : `${status}: ${count}`}
+                {count == null ? label : `${label}: ${count}`}
               </button>
             );
           })}
         </div>
 
-        {error && <div className="lau-error">{error}</div>}
+        {(error || listError) && <div className="lau-error">{error || listError}</div>}
         {successMessage && <div className="lau-success">{successMessage}</div>}
+
+        {waitingOnBehalf.length > 0 ? (
+          <section className="lau-waiting" aria-label="Leave waiting for Admin approval">
+            <div className="lau-waiting-head">
+              <Hourglass size={16} aria-hidden />
+              <h3>Leave applied by HR, waiting for Admin</h3>
+              <span className="lau-waiting-count">{waitingOnBehalf.length}</span>
+            </div>
+            <ul>
+              {waitingOnBehalf.map((item) => (
+                <li key={item.request_id}>
+                  <div className="lau-waiting-who">
+                    <strong>{item.employee_name}</strong>
+                    <small>{item.emp_id || "-"}</small>
+                  </div>
+                  <span>{item.leave_type}</span>
+                  <span>{formatDate(item.start_date)} to {formatDate(item.end_date)}</span>
+                  <span className={`lau-status ${normalizeRequestStatus(item.status)}`}>{item.status}</span>
+                  <small className="lau-waiting-by">Sent by {item.requested_by_name || "HR"}</small>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <div className="lau-table-wrap">
           <table className="lau-table">
@@ -509,13 +761,19 @@ export const LeaveApplicationUpdation = ({
                   <td>{row.deducted_days == null ? "-" : row.deducted_days}</td>
                   <td>{row.extra_days == null ? "-" : row.extra_days}</td>
                   <td>
-                    <button type="button" className="lau-edit-btn" onClick={() => openEditor(row)}>
-                      <Edit3 size={14} /> Update
-                    </button>
+                    {row.admin_pending ? (
+                      <span className="lau-admin-wait" title="HR's change is waiting for Admin approval">
+                        <Hourglass size={13} aria-hidden /> Waiting for Admin
+                      </span>
+                    ) : (
+                      <button type="button" className="lau-edit-btn" onClick={() => openEditor(row)}>
+                        <Edit3 size={14} /> Update
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
-              {!loading && displayRows.length === 0 && (
+              {!listLoading && displayRows.length === 0 && (
                 <tr>
                   <td colSpan={7} className="lau-empty">No requests found for selected filters.</td>
                 </tr>
@@ -523,12 +781,28 @@ export const LeaveApplicationUpdation = ({
             </tbody>
           </table>
         </div>
+        {paged && list.total > 0 ? (
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            perPage={list.perPage}
+            onPage={list.setPage}
+            loading={list.loading}
+            noun="requests"
+          />
+        ) : null}
       </div>
 
       {editRow && (
         <div className="lau-modal-backdrop" onClick={closeEditor}>
           <div className="lau-modal" onClick={(e) => e.stopPropagation()}>
             <h3>{String(editRow.request_type || "").toLowerCase() === "wfh" ? `Update WFH #${editRow.id}` : `Update Leave #${editRow.id}`}</h3>
+            {editRow.admin_pending ? (
+              <p className="lau-admin-wait is-block">
+                <Hourglass size={14} aria-hidden /> A change to this request is waiting for Admin approval. You can edit it again once the Admin decides.
+              </p>
+            ) : null}
             <form onSubmit={handleSave}>
               <div className="lau-grid">
                 {String(editRow.request_type || "").toLowerCase() !== "wfh" && (
@@ -568,7 +842,7 @@ export const LeaveApplicationUpdation = ({
               </div>
               <div className="lau-modal-actions">
                 <button type="button" className="lau-cancel" onClick={closeEditor}>Cancel</button>
-                <button type="submit" className="lau-save" disabled={saving}>
+                <button type="submit" className="lau-save" disabled={saving || editRow.admin_pending}>
                   {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>

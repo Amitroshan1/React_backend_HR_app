@@ -4,11 +4,9 @@ import { LeaveRequests } from "./comps/LeaveRequests/LeaveRequests";
 import { ClaimRequests } from "./comps/LeaveRequests/ClaimRequests";
 import { WFHRequests } from "./comps/LeaveRequests/WFHRequests";
 import { ResignationRequests } from "./comps/LeaveRequests/ResignationRequests";
-import { TeamOffboarding } from "./comps/TeamOffboarding/TeamOffboarding";
 import { NocRequests } from "./comps/LeaveRequests/NocRequests";
 import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
 import { ManagerProbationReviews } from "./ManagerProbationReviews";
-import { ManagerIncrementProposals } from "./ManagerIncrementProposals";
 import { ManagerTeamAttendance } from "./ManagerTeamAttendance";
 import { ManagerProfileCard } from "./comps/ManagerProfileCard/ManagerProfileCard";
 import { fetchPendingCounts, fetchManagerProfile, fetchPendingPerformanceReviewsCount, fetchProbationReviewsDue } from "./api";
@@ -22,11 +20,9 @@ const MANAGER_TABS = [
   "wfh",
   "claims",
   "resignation",
-  "offboarding",
   "noc",
   "performance",
   "probation",
-  "increment",
   "attendance",
 ];
 
@@ -35,12 +31,10 @@ const APPROVAL_TABS = [
   { key: "wfh", label: "Work From Home", countKey: "wfh" },
   { key: "claims", label: "Claims", countKey: "claim" },
   { key: "resignation", label: "Resignation", countKey: "resignation" },
-  { key: "offboarding", label: "Team Exit", countKey: "offboarding" },
   { key: "noc", label: "NOC Request", countKey: "noc" },
 ];
 const PERFORMANCE_TAB = { key: "performance", label: "Performance", countKey: "performance" };
 const PROBATION_TAB = { key: "probation", label: "Probation", countKey: "probation" };
-const INCREMENT_TAB = { key: "increment", label: "Increment", countKey: "increment" };
 const ATTENDANCE_TAB = { key: "attendance", label: "Attendance", countKey: "attendance" };
 
 export const Manager = () => {
@@ -206,7 +200,7 @@ export const Manager = () => {
   };
 
   const isApprovalTab = APPROVAL_TABS.some((t) => t.key === activeTab);
-  const showStatusFilters = isApprovalTab && activeTab !== 'offboarding';
+  const showStatusFilters = isApprovalTab;
 
   const renderTabContent = () => {
     const panelProps = {
@@ -222,16 +216,12 @@ export const Manager = () => {
         return <WFHRequests {...panelProps} />;
       case "resignation":
         return <ResignationRequests {...panelProps} />;
-      case "offboarding":
-        return <TeamOffboarding />;
       case "noc":
         return <NocRequests {...panelProps} />;
       case "performance":
         return <ManagerPerformanceReviews />;
       case "probation":
         return <ManagerProbationReviews />;
-      case "increment":
-        return <ManagerIncrementProposals />;
       case "attendance":
         return <ManagerTeamAttendance scope={managerProfile?.scope} />;
       case "leave":
@@ -296,16 +286,6 @@ export const Manager = () => {
             {getCount(PROBATION_TAB.countKey)}
           </span>
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === INCREMENT_TAB.key}
-          className={`manager-tab ${activeTab === INCREMENT_TAB.key ? "active" : ""}`}
-          onClick={() => setActiveTab(INCREMENT_TAB.key)}
-        >
-          {INCREMENT_TAB.label}
-          <span className="manager-tab-badge" aria-label="Increment proposals">0</span>
-        </button>
         {showTeamAttendance && (
           <button
             type="button"
@@ -327,7 +307,7 @@ export const Manager = () => {
 
       {showStatusFilters && (
         <div className="manager-status-filters">
-          {["All", "Pending", "Approved", "Rejected"].map((status) => (
+          {["All", "Pending", "Approved", "Rejected", "Greyed Out"].map((status) => (
             <button
               key={status}
               type="button"

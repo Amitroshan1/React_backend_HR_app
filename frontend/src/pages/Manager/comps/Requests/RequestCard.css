@@ -1,3 +1,43 @@
+.request-batch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+.request-batch button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #13877f;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.request-batch button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.request-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.status-l1-approved {
+  background: #eef3fd;
+  color: #2f4f9a;
+}
+
+.status-greyed-out {
+  background: #eef1f4;
+  color: #667895;
+}
+
 .request-card {
   background: #ffffff;
   border-radius: 14px;

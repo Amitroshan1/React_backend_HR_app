@@ -110,18 +110,22 @@ class AttendanceMonthContext:
     summary_unpaid_accumulator: float = 0.0
 
     def is_on_leave_approved(self, d: date) -> bool:
+        from .leave_two_step import counts_as_paid_on_sheet
+
         return any(
             lv.start_date <= d <= lv.end_date
             for lv in self.leaves
-            if str(lv.status or "").strip().lower() == "approved"
+            if counts_as_paid_on_sheet(lv, self.year, self.month)
             and str(lv.leave_type or "").strip().lower() != "half day leave"
         )
 
     def is_on_half_day_leave_approved(self, d: date) -> bool:
+        from .leave_two_step import counts_as_paid_on_sheet
+
         return any(
             lv.start_date <= d <= lv.end_date
             for lv in self.leaves
-            if str(lv.status or "").strip().lower() == "approved"
+            if counts_as_paid_on_sheet(lv, self.year, self.month)
             and str(lv.leave_type or "").strip().lower() == "half day leave"
         )
 
@@ -187,7 +191,7 @@ def load_attendance_month_context(
     ).all()
     punch_map = {p.punch_date: p for p in punches}
 
-    leave_statuses = ["Approved", "Pending"] if include_pending else ["Approved"]
+    leave_statuses = ["Approved", "Pending", "L1 Approved", "Greyed Out"] if include_pending else ["Approved"]
     leaves = LeaveApplication.query.filter(
         LeaveApplication.admin_id == admin_id,
         LeaveApplication.status.in_(leave_statuses),
@@ -195,7 +199,7 @@ def load_attendance_month_context(
         LeaveApplication.end_date >= first_day,
     ).all()
 
-    wfh_statuses = ["Approved", "Pending"] if include_pending else ["Approved"]
+    wfh_statuses = ["Approved", "Pending", "L1 Approved", "Greyed Out"] if include_pending else ["Approved"]
     wfh_apps = WorkFromHomeApplication.query.filter(
         WorkFromHomeApplication.admin_id == admin_id,
         WorkFromHomeApplication.status.in_(wfh_statuses),
@@ -203,14 +207,14 @@ def load_attendance_month_context(
         WorkFromHomeApplication.end_date >= first_day,
     ).all()
 
-    from .master_data_tenancy import holiday_query, tenant_for_admin_id
+    from .cache import active_holidays_for_year, holiday_namespace
+    from .master_data_tenancy import tenant_for_admin_id
 
-    holidays = holiday_query(tenant_for_admin_id(admin_id)).filter(
-        HolidayCalendar.year == year,
-        HolidayCalendar.is_active.is_(True),
-        HolidayCalendar.holiday_date.between(first_day, last_day),
-    ).all()
-    holiday_map = {h.holiday_date: h for h in holidays}
+    holiday_map = {}
+    for row in active_holidays_for_year(tenant_for_admin_id(admin_id), year):
+        h = holiday_namespace(row)
+        if h is not None and first_day <= h.holiday_date <= last_day:
+            holiday_map[h.holiday_date] = h
 
     ctx = AttendanceMonthContext(
         admin_id=admin_id,
@@ -260,8 +264,10 @@ def _leave_working_and_sandwich_days(ctx: AttendanceMonthContext, start_d: date,
 
 def _process_leave_units(ctx: AttendanceMonthContext) -> None:
     """Paid/unpaid leave units for credited-days summary (calendar card)."""
+    from .leave_two_step import counts_as_paid_on_sheet
+
     approved_leaves = [
-        lv for lv in ctx.leaves if str(lv.status or "").strip().lower() == "approved"
+        lv for lv in ctx.leaves if counts_as_paid_on_sheet(lv, ctx.year, ctx.month)
     ]
 
     def _consume_days(days, paid_quota, unpaid_quota, unit_default=1.0, is_half_day=False):
@@ -356,8 +362,10 @@ def _process_accounts_leave_units(ctx: AttendanceMonthContext) -> None:
     lop_total = 0.0
     leave_units = {}
 
+    from .leave_two_step import counts_as_paid_on_sheet
+
     approved = [
-        lv for lv in ctx.leaves if str(lv.status or "").strip().lower() == "approved"
+        lv for lv in ctx.leaves if counts_as_paid_on_sheet(lv, ctx.year, ctx.month)
     ]
     for leave in approved:
         d_start = max(leave.start_date, start_date)

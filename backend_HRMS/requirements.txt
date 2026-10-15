@@ -18,6 +18,7 @@ flask_jwt_extended==4.7.1
 geopy==2.4.1
 geographiclib==2.0
 gunicorn==23.0.0
+redis==5.2.1
 pandas==2.3.3
 numpy        # let pip choose the right version
 openpyxl==3.1.5

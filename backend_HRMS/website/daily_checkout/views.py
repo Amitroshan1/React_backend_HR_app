@@ -227,13 +227,20 @@ def reject_view(request_id):
 @daily_checkout_bp.route("/available-units", methods=["GET"])
 @jwt_required()
 def available_units():
-    from ..it import _serialize_asset_unit
+    from ..it import _serialize_asset_unit, units_for_listing
+    from ..query_utils import list_params
 
-    rows = svc.list_available_daily_units(
+    # Search keeps using q / search as before; list_params only adds paging and fields.
+    params = list_params(search_arg=None)
+    q = svc.available_daily_units_query(
         request.args.get("hw_type"),
         search=request.args.get("q") or request.args.get("search"),
     )
-    return _ok({"units": [_serialize_asset_unit(u) for u in rows]})
+    rows, pagination = units_for_listing(q, svc.DAILY_UNIT_ORDER, params)
+    body = {"units": [_serialize_asset_unit(u, params.summary) for u in rows]}
+    if pagination is not None:
+        body["pagination"] = pagination
+    return _ok(body)
 
 
 @daily_checkout_bp.route("/requests/<int:request_id>/assign", methods=["POST"])

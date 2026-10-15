@@ -2,14 +2,19 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
+import { usePagedList } from "../../../hooks/usePagedList";
+import Pager from "../../../components/Pager";
+import { isPagedScreenEnabled } from "../../../utils/pagedScreens";
 import {
   buildDeletedLogApiPayload,
   buildLocalDeletedEntry,
   createDeletedLogAPI,
   deleteAssetUnitAPI,
+  fetchInventoryStatusRowsPageAPI,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
   toastITApiFailure,
+  toLocalUnit,
   saveAssetUnitsToStorage,
   logDeletedAsset,
   deleteAssetUnit,
@@ -87,6 +92,40 @@ function expandRepairRowsForDisplay(rows) {
 function isCatalogQtyRepairRow(unit) {
   return Boolean(unit?.isQuantityRow || unit?.isQuantityLine);
 }
+
+const PER_PAGE = 25;
+
+const toQtyRepairRow = (i, repairQuantity) => ({
+  id: `qty-${i.id}`,
+  inventoryId: i.id,
+  assetName: i.name,
+  brand: i.name,
+  category: normCategory(i.category),
+  serialNumber: "",
+  repairQuantity,
+  availableQuantity: Number(i.availableQuantity || 0),
+  totalQuantity: Number(i.totalQuantity || 0),
+  assignedQuantity: Number(i.assignedQuantity || 0),
+  notWorkingQuantity: Number(i.notWorkingQuantity || 0),
+  isQuantityRow: true,
+});
+
+/** Server rows are already one per catalog unit in repair, like expandRepairRowsForDisplay. */
+const selectServerRows = (body) =>
+  (Array.isArray(body?.rows) ? body.rows : []).map((row) => {
+    if (row.kind === "unit") return toLocalUnit(row.unit);
+    const base = toQtyRepairRow(row.item, Number(row.quantity || 0));
+    return {
+      ...base,
+      id: `${base.id}::line-${row.line}`,
+      isQuantityLine: true,
+      qtyLineIndex: row.line,
+      qtyLineTotal: row.lines,
+    };
+  });
+const selectChipCounts = (body) => body?.counts || {};
+const rowMatchesSearch = (row, needle) =>
+  SEARCH_FIELDS.some((field) => String(row[field] ?? "").toLowerCase().includes(needle));
 
 const readAssetUnits = () => getAssetUnitsFromStorage() || [];
 const writeAssetUnits = (units) => saveAssetUnitsToStorage(units);
@@ -240,11 +279,38 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     setActiveCategory("All");
   }, [inventoryCategory]);
 
-  const reload = useCallback(() => {
+  const paged = useMemo(() => isPagedScreenEnabled("itInRepair"), []);
+  const listFilters = useMemo(
+    () => ({
+      status: "repair",
+      inventory_category: inventoryCategory,
+      ...(activeCategory !== "All" ? { category: activeCategory } : {}),
+    }),
+    [inventoryCategory, activeCategory],
+  );
+  const list = usePagedList({
+    fetchList: fetchInventoryStatusRowsPageAPI,
+    select: selectServerRows,
+    selectMeta: selectChipCounts,
+    filters: listFilters,
+    perPage: PER_PAGE,
+    skip: !paged,
+    matchesSearch: rowMatchesSearch,
+  });
+  const { reload: reloadList, error: listError } = list;
+
+  useEffect(() => {
+    if (listError) toastITApiFailure(listError, "Could not load the repair list from the server.");
+  }, [listError]);
+
+  const reloadLocal = useCallback(() => {
     setUnits(getAssetUnitsFromStorage() ?? []);
   }, []);
+  const reload = paged ? reloadList : reloadLocal;
 
   useRefreshOnNavigate(() => {
+    // The paged list refetches by itself when the tab or chip changes.
+    if (paged) return;
     const load = async () => {
       try {
         await syncITDataFromAPI();
@@ -266,8 +332,11 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     setTimeout(() => setToast(""), 2_500);
   }, []);
 
-  // ── Derived rows ────────────────────────────────────────────────────────────
-  const inventoryRows = useMemo(() => getInventoryFromStorage() || [], [units]);
+  // ── Derived rows (localStorage mode) ───────────────────────────────────────
+  const inventoryRows = useMemo(
+    () => (paged ? [] : getInventoryFromStorage() || []),
+    [units, paged],
+  );
 
   const repairUnits = useMemo(
     () =>
@@ -294,39 +363,13 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
       ).length;
 
       if (qtyCatalogCats.has(cat)) {
-        rows.push({
-          id: `qty-${i.id}`,
-          inventoryId: i.id,
-          assetName: i.name,
-          brand: i.name,
-          category: normCategory(i.category),
-          serialNumber: "",
-          repairQuantity: repairQty,
-          availableQuantity: Number(i.availableQuantity || 0),
-          totalQuantity: Number(i.totalQuantity || 0),
-          assignedQuantity: Number(i.assignedQuantity || 0),
-          notWorkingQuantity: Number(i.notWorkingQuantity || 0),
-          isQuantityRow: true,
-        });
+        rows.push(toQtyRepairRow(i, repairQty));
         continue;
       }
 
       const excess = repairQty - unitsForItem;
       if (excess > 0) {
-        rows.push({
-          id: `qty-${i.id}`,
-          inventoryId: i.id,
-          assetName: i.name,
-          brand: i.name,
-          category: normCategory(i.category),
-          serialNumber: "",
-          repairQuantity: excess,
-          availableQuantity: Number(i.availableQuantity || 0),
-          totalQuantity: Number(i.totalQuantity || 0),
-          assignedQuantity: Number(i.assignedQuantity || 0),
-          notWorkingQuantity: Number(i.notWorkingQuantity || 0),
-          isQuantityRow: true,
-        });
+        rows.push(toQtyRepairRow(i, excess));
       }
     }
     return rows;
@@ -358,13 +401,18 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
     [filteredRows],
   );
 
+  const chipCounts = list.meta;
   const getCategoryCount = useCallback(
     (cat) =>
-      expandRepairRowsForDisplay(
-        allRepairRows.filter((u) => normCategory(u.category) === cat),
-      ).length,
-    [allRepairRows],
+      paged
+        ? chipCounts?.[cat] || 0
+        : expandRepairRowsForDisplay(
+          allRepairRows.filter((u) => normCategory(u.category) === cat),
+        ).length,
+    [paged, chipCounts, allRepairRows],
   );
+
+  const tableRows = paged ? list.rows : displayRows;
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleReturn = useCallback(async (unit) => {
@@ -567,7 +615,7 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
         eyebrow={inventoryCategory}
         title="In Repair"
         subtitle="Assets currently under repair"
-        recordCount={displayRows.length}
+        recordCount={paged ? list.total : displayRows.length}
         variant="warn"
         filterBadge={
           activeCategory !== "All" ? (
@@ -577,8 +625,8 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
         filters={
           <InventoryFiltersInner>
             <InventoryFilterSearch
-              value={searchQuery}
-              onChange={setSearchQuery}
+              value={paged ? list.searchInput : searchQuery}
+              onChange={paged ? list.setSearchInput : setSearchQuery}
               placeholder="Search by brand, name or serial…"
             />
             {showCategoryTabs && (
@@ -605,10 +653,14 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
               </tr>
             </thead>
             <tbody>
-              {displayRows.length === 0 ? (
-                <tr><td colSpan={6} className="inv-empty-row">No assets in repair</td></tr>
+              {tableRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="inv-empty-row">
+                    {paged && list.loading ? "Loading…" : "No assets in repair"}
+                  </td>
+                </tr>
               ) : (
-                displayRows.map((unit, i) => (
+                tableRows.map((unit, i) => (
                   <RepairRow
                     key={unit.id}
                     unit={unit}
@@ -624,6 +676,17 @@ export default function InRepair({ inventoryCategory = "IT Assets" }) {
             </tbody>
           </table>
         </div>
+        {paged ? (
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            perPage={list.perPage}
+            onPage={list.setPage}
+            loading={list.loading}
+            noun="assets"
+          />
+        ) : null}
       </InventoryPanel>
 
       {removeTarget && (

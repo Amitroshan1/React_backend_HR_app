@@ -1,0 +1,5012 @@
+{
+ "flags_off": {
+  "/api/it/daily-checkout/available-units": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/daily-checkout/available-units?hw_type=Mobile": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/daily-checkout/available-units?q=lap": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/deleted-logs": {
+   "body": {
+    "logs": [
+     {
+      "assetName": "Old mouse",
+      "assetUnitId": null,
+      "category": "Accessories",
+      "deleteCode": "DEL-802",
+      "deletedAt": "2025-01-01T11:00:00Z",
+      "deletedByAdminId": 1,
+      "deletedByName": "One IT",
+      "id": 802,
+      "inventoryId": null,
+      "reason": "Lost",
+      "serialNumber": "MS2"
+     },
+     {
+      "assetName": "Old mouse",
+      "assetUnitId": null,
+      "category": "Accessories",
+      "deleteCode": "DEL-801",
+      "deletedAt": "2025-01-01T10:00:00Z",
+      "deletedByAdminId": 1,
+      "deletedByName": "Named IT",
+      "id": 801,
+      "inventoryId": null,
+      "reason": "Lost",
+      "serialNumber": "MS1"
+     },
+     {
+      "assetName": "Old mouse",
+      "assetUnitId": null,
+      "category": "Accessories",
+      "deleteCode": "DEL-800",
+      "deletedAt": "2025-01-01T09:00:00Z",
+      "deletedByAdminId": 1,
+      "deletedByName": "One IT",
+      "id": 800,
+      "inventoryId": null,
+      "reason": "Lost",
+      "serialNumber": "MS0"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/E2/assets": {
+   "body": {
+    "employee": {
+     "activated": true,
+     "adminId": 2,
+     "assignedAssets": [
+      {
+       "assetId": "LAP-100",
+       "assetTag": null,
+       "assignedDate": "2025-01-01T09:00:00Z",
+       "brand": "Dell",
+       "category": "Hardware",
+       "hwType": "Laptop",
+       "id": 100,
+       "imei1": null,
+       "imei2": null,
+       "make": "Dell",
+       "model": "5420",
+       "name": "Laptop",
+       "photos": [
+        "data:image/png;base64,iVBORw0KGgo="
+       ],
+       "serialNumber": "SN100",
+       "status": "Assigned"
+      },
+      {
+       "assignedDate": "2025-01-01T09:00:00Z",
+       "category": "Software",
+       "id": 300,
+       "licenseId": 300,
+       "name": "Office 365",
+       "photos": [],
+       "status": "Assigned",
+       "subscriptionEnd": "2026-01-01",
+       "subscriptionStart": "2025-01-01"
+      },
+      {
+       "assignedDate": "2025-01-01T09:00:00Z",
+       "category": "Accessories",
+       "id": "invq-400",
+       "inventoryAssignmentId": 400,
+       "inventoryId": 12,
+       "name": "Mouse",
+       "photos": [],
+       "quantity": 2,
+       "status": "Assigned"
+      }
+     ],
+     "circle": "NHQ",
+     "email": "emp2@x.com",
+     "empId": "E2",
+     "id": "E2",
+     "name": "Emp 2",
+     "photo": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+     "photo_url": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+     "type": "Engineering"
+    },
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/E2/return-requests": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/assigned-assets": {
+   "body": {
+    "employees": [
+     {
+      "activated": true,
+      "adminId": 2,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-100",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 100,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN100",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Software",
+        "id": 300,
+        "licenseId": 300,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Accessories",
+        "id": "invq-400",
+        "inventoryAssignmentId": 400,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp2@x.com",
+      "empId": "E2",
+      "id": "E2",
+      "name": "Emp 2",
+      "photo": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 3,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-101",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 101,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN101",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "category": "Software",
+        "id": 301,
+        "licenseId": 301,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp3@x.com",
+      "empId": "E3",
+      "id": "E3",
+      "name": "Emp 3",
+      "photo": "",
+      "photo_url": "",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 4,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-102",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 102,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN102",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Software",
+        "id": 302,
+        "licenseId": 302,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Accessories",
+        "id": "invq-402",
+        "inventoryAssignmentId": 402,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp4@x.com",
+      "empId": "E4",
+      "id": "E4",
+      "name": "",
+      "photo": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/lookup?q=emp": {
+   "body": {
+    "employees": [
+     {
+      "activated": true,
+      "adminId": 4,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-102",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 102,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN102",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Software",
+        "id": 302,
+        "licenseId": 302,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Accessories",
+        "id": "invq-402",
+        "inventoryAssignmentId": 402,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp4@x.com",
+      "empId": "E4",
+      "id": "E4",
+      "name": "",
+      "photo": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 2,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-100",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 100,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN100",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Software",
+        "id": 300,
+        "licenseId": 300,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Accessories",
+        "id": "invq-400",
+        "inventoryAssignmentId": 400,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp2@x.com",
+      "empId": "E2",
+      "id": "E2",
+      "name": "Emp 2",
+      "photo": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 3,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-101",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 101,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN101",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "category": "Software",
+        "id": 301,
+        "licenseId": 301,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp3@x.com",
+      "empId": "E3",
+      "id": "E3",
+      "name": "Emp 3",
+      "photo": "",
+      "photo_url": "",
+      "type": "Engineering"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory-stock/deployments?inventory_category=Transport Assets": {
+   "body": {
+    "deployments": [
+     {
+      "assetUnitId": 107,
+      "createdAt": "2025-01-01T09:00:00Z",
+      "custodianEmpId": "",
+      "custodianName": "",
+      "deploymentLocation": "Depot",
+      "id": 999,
+      "inventoryCategory": "Transport Assets",
+      "inventoryItemId": 14,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": "DL01AB1234"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory/items": {
+   "body": {
+    "items": [
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Vehicle",
+      "created_at": "2025-01-01T09:14:00Z",
+      "hw_type": null,
+      "id": 14,
+      "inventory_category": "Transport Assets",
+      "inventory_code": "INV-14",
+      "location": "",
+      "name": "Van",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:14:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 10,
+      "category": "Stock",
+      "created_at": "2025-01-01T09:13:00Z",
+      "hw_type": null,
+      "id": 13,
+      "inventory_category": "Office Assets",
+      "inventory_code": "INV-13",
+      "location": "",
+      "name": "Chairs",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 20,
+      "updated_at": "2025-01-01T09:13:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 40,
+      "category": "Accessories",
+      "created_at": "2025-01-01T09:12:00Z",
+      "hw_type": null,
+      "id": 12,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-12",
+      "location": "",
+      "name": "Mouse",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 50,
+      "updated_at": "2025-01-01T09:12:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Software",
+      "created_at": "2025-01-01T09:11:00Z",
+      "hw_type": null,
+      "id": 11,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-11",
+      "location": "",
+      "name": "Office 365",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:11:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:10:00Z",
+      "hw_type": "Laptop",
+      "id": 10,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-10",
+      "location": "",
+      "name": "Laptop",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:10:00Z",
+      "vendor": ""
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory/items?category=hardware": {
+   "body": {
+    "items": [
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:10:00Z",
+      "hw_type": "Laptop",
+      "id": 10,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-10",
+      "location": "",
+      "name": "Laptop",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:10:00Z",
+      "vendor": ""
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory/items?inventory_category=office assets": {
+   "body": {
+    "items": [
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 10,
+      "category": "Stock",
+      "created_at": "2025-01-01T09:13:00Z",
+      "hw_type": null,
+      "id": 13,
+      "inventory_category": "Office Assets",
+      "inventory_code": "INV-13",
+      "location": "",
+      "name": "Chairs",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 20,
+      "updated_at": "2025-01-01T09:13:00Z",
+      "vendor": ""
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/office-stock/deployments": {
+   "body": {
+    "deployments": [
+     {
+      "assetUnitId": null,
+      "createdAt": "2025-01-01T11:00:00Z",
+      "custodianEmpId": "E4",
+      "custodianName": "Emp 4",
+      "deploymentLocation": "Floor 2",
+      "id": 902,
+      "inventoryCategory": "Office Assets",
+      "inventoryItemId": 13,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": ""
+     },
+     {
+      "assetUnitId": null,
+      "createdAt": "2025-01-01T10:00:00Z",
+      "custodianEmpId": "E3",
+      "custodianName": "Emp 3",
+      "deploymentLocation": "Floor 1",
+      "id": 901,
+      "inventoryCategory": "Office Assets",
+      "inventoryItemId": 13,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": ""
+     },
+     {
+      "assetUnitId": null,
+      "createdAt": "2025-01-01T09:00:00Z",
+      "custodianEmpId": "E2",
+      "custodianName": "Emp 2",
+      "deploymentLocation": "Floor 0",
+      "id": 900,
+      "inventoryCategory": "Office Assets",
+      "inventoryItemId": 13,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": ""
+     },
+     {
+      "assetUnitId": 107,
+      "createdAt": "2025-01-01T09:00:00Z",
+      "custodianEmpId": "",
+      "custodianName": "",
+      "deploymentLocation": "Depot",
+      "id": 999,
+      "inventoryCategory": "Transport Assets",
+      "inventoryItemId": 14,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": "DL01AB1234"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/removed-assets": {
+   "body": {
+    "message": "OK",
+    "removed_assets": [
+     {
+      "assetUnitId": null,
+      "category": "Hardware",
+      "id": 702,
+      "inventoryId": null,
+      "name": "Old laptop",
+      "ownerAdminId": 4,
+      "ownerName": "emp4@x.com",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "reason": "Dead",
+      "removedAt": "2025-01-01T11:00:00Z",
+      "removedByAdminId": 1,
+      "removedByName": "One IT",
+      "removedCode": "RIT-702"
+     },
+     {
+      "assetUnitId": null,
+      "category": "Hardware",
+      "id": 701,
+      "inventoryId": null,
+      "name": "Old laptop",
+      "ownerAdminId": 3,
+      "ownerName": "Emp 3",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "reason": "Dead",
+      "removedAt": "2025-01-01T10:00:00Z",
+      "removedByAdminId": 1,
+      "removedByName": "One IT",
+      "removedCode": "RIT-701"
+     },
+     {
+      "assetUnitId": null,
+      "category": "Hardware",
+      "id": 700,
+      "inventoryId": null,
+      "name": "Old laptop",
+      "ownerAdminId": 2,
+      "ownerName": "Emp 2",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "reason": "Dead",
+      "removedAt": "2025-01-01T09:00:00Z",
+      "removedByAdminId": 1,
+      "removedByName": "One IT",
+      "removedCode": "RIT-700"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/return-requests": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 102,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T11:00:00Z",
+      "id": 602,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-602",
+      "requesterAdminId": 4,
+      "requesterEmail": "emp4@x.com",
+      "requesterEmpId": "E4",
+      "requesterName": "emp4@x.com",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T11:00:00Z"
+     },
+     {
+      "approvedAt": "2025-01-01T10:05:00Z",
+      "approvedByAdminId": 1,
+      "approvedByName": "One IT",
+      "assetName": "Laptop",
+      "assetUnitId": 101,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T10:00:00Z",
+      "id": 601,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-601",
+      "requesterAdminId": 3,
+      "requesterEmail": "emp3@x.com",
+      "requesterEmpId": "E3",
+      "requesterName": "Emp 3",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "approved",
+      "updatedAt": "2025-01-01T10:00:00Z"
+     },
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/return-requests?emp_id=E2": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/return-requests?status=pending": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 102,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T11:00:00Z",
+      "id": 602,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-602",
+      "requesterAdminId": 4,
+      "requesterEmail": "emp4@x.com",
+      "requesterEmpId": "E4",
+      "requesterName": "emp4@x.com",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T11:00:00Z"
+     },
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/software/licenses": {
+   "body": {
+    "licenses": [
+     {
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "created_at": "2025-01-01T09:00:00Z",
+      "id": 303,
+      "inventoryId": 11,
+      "licenseCode": "LIC-303",
+      "name": "Office 365",
+      "status": "available",
+      "subscriptionEnd": null,
+      "subscriptionStart": null,
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T11:00:00Z",
+      "id": 302,
+      "inventoryId": 11,
+      "licenseCode": "LIC-302",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "created_at": "2025-01-01T10:00:00Z",
+      "id": 301,
+      "inventoryId": 11,
+      "licenseCode": "LIC-301",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T09:00:00Z",
+      "id": 300,
+      "inventoryId": 11,
+      "licenseCode": "LIC-300",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/software/licenses?status=assigned": {
+   "body": {
+    "licenses": [
+     {
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T11:00:00Z",
+      "id": 302,
+      "inventoryId": 11,
+      "licenseCode": "LIC-302",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "created_at": "2025-01-01T10:00:00Z",
+      "id": 301,
+      "inventoryId": 11,
+      "licenseCode": "LIC-301",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T09:00:00Z",
+      "id": 300,
+      "inventoryId": 11,
+      "licenseCode": "LIC-300",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/summary": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "summary": {
+     "assigned_assets": 4,
+     "available_software": 1,
+     "open_tickets": 2,
+     "total_assets": 9
+    }
+   },
+   "status": 200
+  },
+  "/api/it/tickets": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "tickets": [
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T11:00:00Z",
+      "description": "Screen",
+      "id": 502,
+      "priority": "medium",
+      "requesterAdminId": 4,
+      "requesterName": "emp4@x.com",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-502",
+      "title": "Issue 2",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assigneeAdminId": null,
+      "assigneeName": null,
+      "created_at": "2025-01-01T10:00:00Z",
+      "description": "Screen",
+      "id": 501,
+      "priority": "medium",
+      "requesterAdminId": 3,
+      "requesterName": "Emp 3",
+      "resolvedAt": null,
+      "status": "completed",
+      "ticketCode": "TKT-501",
+      "title": "Issue 1",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T09:00:00Z",
+      "description": "Screen",
+      "id": 500,
+      "priority": "medium",
+      "requesterAdminId": 2,
+      "requesterName": "Emp 2",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-500",
+      "title": "Issue 0",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/tickets?status=pending": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "tickets": [
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T11:00:00Z",
+      "description": "Screen",
+      "id": 502,
+      "priority": "medium",
+      "requesterAdminId": 4,
+      "requesterName": "emp4@x.com",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-502",
+      "title": "Issue 2",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T09:00:00Z",
+      "description": "Screen",
+      "id": 500,
+      "priority": "medium",
+      "requesterAdminId": 2,
+      "requesterName": "Emp 2",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-500",
+      "title": "Issue 0",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop held",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 108,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAP-HELD",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Van",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Vehicle",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": null,
+      "id": 107,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 14,
+      "isDailyPool": false,
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "DL01AB1234",
+      "status": "assigned",
+      "unitCode": "VAN-1",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop broken",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 106,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "repair",
+      "unitCode": "LAP-106",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 102,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN102",
+      "status": "assigned",
+      "unitCode": "LAP-102",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 101,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN101",
+      "status": "assigned",
+      "unitCode": "LAP-101",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 100,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN100",
+      "status": "assigned",
+      "unitCode": "LAP-100",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units?inventory_id=10": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop held",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 108,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAP-HELD",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop broken",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 106,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "repair",
+      "unitCode": "LAP-106",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 102,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN102",
+      "status": "assigned",
+      "unitCode": "LAP-102",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 101,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN101",
+      "status": "assigned",
+      "unitCode": "LAP-101",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 100,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN100",
+      "status": "assigned",
+      "unitCode": "LAP-100",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units?status=ASSIGNED": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Van",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Vehicle",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": null,
+      "id": 107,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 14,
+      "isDailyPool": false,
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "DL01AB1234",
+      "status": "assigned",
+      "unitCode": "VAN-1",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 102,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN102",
+      "status": "assigned",
+      "unitCode": "LAP-102",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 101,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN101",
+      "status": "assigned",
+      "unitCode": "LAP-101",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 100,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": false,
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN100",
+      "status": "assigned",
+      "unitCode": "LAP-100",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units?status=available": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop held",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 108,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAP-HELD",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isDailyPool": true,
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  }
+ },
+ "flags_on": {
+  "/api/it/daily-checkout/available-units": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/daily-checkout/available-units?hw_type=Mobile": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/daily-checkout/available-units?q=lap": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/deleted-logs": {
+   "body": {
+    "logs": [
+     {
+      "assetName": "Old mouse",
+      "assetUnitId": null,
+      "category": "Accessories",
+      "deleteCode": "DEL-802",
+      "deletedAt": "2025-01-01T11:00:00Z",
+      "deletedByAdminId": 1,
+      "deletedByName": "One IT",
+      "id": 802,
+      "inventoryId": null,
+      "reason": "Lost",
+      "serialNumber": "MS2"
+     },
+     {
+      "assetName": "Old mouse",
+      "assetUnitId": null,
+      "category": "Accessories",
+      "deleteCode": "DEL-801",
+      "deletedAt": "2025-01-01T10:00:00Z",
+      "deletedByAdminId": 1,
+      "deletedByName": "Named IT",
+      "id": 801,
+      "inventoryId": null,
+      "reason": "Lost",
+      "serialNumber": "MS1"
+     },
+     {
+      "assetName": "Old mouse",
+      "assetUnitId": null,
+      "category": "Accessories",
+      "deleteCode": "DEL-800",
+      "deletedAt": "2025-01-01T09:00:00Z",
+      "deletedByAdminId": 1,
+      "deletedByName": "One IT",
+      "id": 800,
+      "inventoryId": null,
+      "reason": "Lost",
+      "serialNumber": "MS0"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/E2/assets": {
+   "body": {
+    "employee": {
+     "activated": true,
+     "adminId": 2,
+     "assignedAssets": [
+      {
+       "assetId": "LAP-100",
+       "assetTag": null,
+       "assignedDate": "2025-01-01T09:00:00Z",
+       "brand": "Dell",
+       "category": "Hardware",
+       "hwType": "Laptop",
+       "id": 100,
+       "imei1": null,
+       "imei2": null,
+       "make": "Dell",
+       "model": "5420",
+       "name": "Laptop",
+       "photos": [
+        "data:image/png;base64,iVBORw0KGgo="
+       ],
+       "serialNumber": "SN100",
+       "status": "Assigned"
+      },
+      {
+       "assignedDate": "2025-01-01T09:00:00Z",
+       "category": "Software",
+       "id": 300,
+       "licenseId": 300,
+       "name": "Office 365",
+       "photos": [],
+       "status": "Assigned",
+       "subscriptionEnd": "2026-01-01",
+       "subscriptionStart": "2025-01-01"
+      },
+      {
+       "assignedDate": "2025-01-01T09:00:00Z",
+       "category": "Accessories",
+       "id": "invq-400",
+       "inventoryAssignmentId": 400,
+       "inventoryId": 12,
+       "name": "Mouse",
+       "photos": [],
+       "quantity": 2,
+       "status": "Assigned"
+      }
+     ],
+     "circle": "NHQ",
+     "email": "emp2@x.com",
+     "empId": "E2",
+     "id": "E2",
+     "name": "Emp 2",
+     "photo": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+     "photo_url": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+     "type": "Engineering"
+    },
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/E2/return-requests": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/assigned-assets": {
+   "body": {
+    "employees": [
+     {
+      "activated": true,
+      "adminId": 2,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-100",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 100,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN100",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Software",
+        "id": 300,
+        "licenseId": 300,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Accessories",
+        "id": "invq-400",
+        "inventoryAssignmentId": 400,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp2@x.com",
+      "empId": "E2",
+      "id": "E2",
+      "name": "Emp 2",
+      "photo": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 3,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-101",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 101,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN101",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "category": "Software",
+        "id": 301,
+        "licenseId": 301,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp3@x.com",
+      "empId": "E3",
+      "id": "E3",
+      "name": "Emp 3",
+      "photo": "",
+      "photo_url": "",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 4,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-102",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 102,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN102",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Software",
+        "id": 302,
+        "licenseId": 302,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Accessories",
+        "id": "invq-402",
+        "inventoryAssignmentId": 402,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp4@x.com",
+      "empId": "E4",
+      "id": "E4",
+      "name": "",
+      "photo": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/employees/lookup?q=emp": {
+   "body": {
+    "employees": [
+     {
+      "activated": true,
+      "adminId": 4,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-102",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 102,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN102",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Software",
+        "id": 302,
+        "licenseId": 302,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T11:00:00Z",
+        "category": "Accessories",
+        "id": "invq-402",
+        "inventoryAssignmentId": 402,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp4@x.com",
+      "empId": "E4",
+      "id": "E4",
+      "name": "",
+      "photo": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 2,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-100",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 100,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN100",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Software",
+        "id": 300,
+        "licenseId": 300,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       },
+       {
+        "assignedDate": "2025-01-01T09:00:00Z",
+        "category": "Accessories",
+        "id": "invq-400",
+        "inventoryAssignmentId": 400,
+        "inventoryId": 12,
+        "name": "Mouse",
+        "photos": [],
+        "quantity": 2,
+        "status": "Assigned"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp2@x.com",
+      "empId": "E2",
+      "id": "E2",
+      "name": "Emp 2",
+      "photo": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "photo_url": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "type": "Engineering"
+     },
+     {
+      "activated": true,
+      "adminId": 3,
+      "assignedAssets": [
+       {
+        "assetId": "LAP-101",
+        "assetTag": null,
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "brand": "Dell",
+        "category": "Hardware",
+        "hwType": "Laptop",
+        "id": 101,
+        "imei1": null,
+        "imei2": null,
+        "make": "Dell",
+        "model": "5420",
+        "name": "Laptop",
+        "photos": [
+         "data:image/png;base64,iVBORw0KGgo="
+        ],
+        "serialNumber": "SN101",
+        "status": "Assigned"
+       },
+       {
+        "assignedDate": "2025-01-01T10:00:00Z",
+        "category": "Software",
+        "id": 301,
+        "licenseId": 301,
+        "name": "Office 365",
+        "photos": [],
+        "status": "Assigned",
+        "subscriptionEnd": "2026-01-01",
+        "subscriptionStart": "2025-01-01"
+       }
+      ],
+      "circle": "NHQ",
+      "email": "emp3@x.com",
+      "empId": "E3",
+      "id": "E3",
+      "name": "Emp 3",
+      "photo": "",
+      "photo_url": "",
+      "type": "Engineering"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory-stock/deployments?inventory_category=Transport Assets": {
+   "body": {
+    "deployments": [
+     {
+      "assetUnitId": 107,
+      "createdAt": "2025-01-01T09:00:00Z",
+      "custodianEmpId": "",
+      "custodianName": "",
+      "deploymentLocation": "Depot",
+      "id": 999,
+      "inventoryCategory": "Transport Assets",
+      "inventoryItemId": 14,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": "DL01AB1234"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory/items": {
+   "body": {
+    "items": [
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Vehicle",
+      "created_at": "2025-01-01T09:14:00Z",
+      "hw_type": null,
+      "id": 14,
+      "inventory_category": "Transport Assets",
+      "inventory_code": "INV-14",
+      "location": "",
+      "name": "Van",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:14:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 10,
+      "category": "Stock",
+      "created_at": "2025-01-01T09:13:00Z",
+      "hw_type": null,
+      "id": 13,
+      "inventory_category": "Office Assets",
+      "inventory_code": "INV-13",
+      "location": "",
+      "name": "Chairs",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 20,
+      "updated_at": "2025-01-01T09:13:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 40,
+      "category": "Accessories",
+      "created_at": "2025-01-01T09:12:00Z",
+      "hw_type": null,
+      "id": 12,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-12",
+      "location": "",
+      "name": "Mouse",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 50,
+      "updated_at": "2025-01-01T09:12:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Software",
+      "created_at": "2025-01-01T09:11:00Z",
+      "hw_type": null,
+      "id": 11,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-11",
+      "location": "",
+      "name": "Office 365",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:11:00Z",
+      "vendor": ""
+     },
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:10:00Z",
+      "hw_type": "Laptop",
+      "id": 10,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-10",
+      "location": "",
+      "name": "Laptop",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:10:00Z",
+      "vendor": ""
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory/items?category=hardware": {
+   "body": {
+    "items": [
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 0,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:10:00Z",
+      "hw_type": "Laptop",
+      "id": 10,
+      "inventory_category": "IT Assets",
+      "inventory_code": "INV-10",
+      "location": "",
+      "name": "Laptop",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 0,
+      "updated_at": "2025-01-01T09:10:00Z",
+      "vendor": ""
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/inventory/items?inventory_category=office assets": {
+   "body": {
+    "items": [
+     {
+      "assignedQuantity": 0,
+      "availableQuantity": 10,
+      "category": "Stock",
+      "created_at": "2025-01-01T09:13:00Z",
+      "hw_type": null,
+      "id": 13,
+      "inventory_category": "Office Assets",
+      "inventory_code": "INV-13",
+      "location": "",
+      "name": "Chairs",
+      "notWorkingQuantity": 0,
+      "notes": "",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "purchase_date": null,
+      "receipts": [],
+      "repairQuantity": 0,
+      "totalQuantity": 20,
+      "updated_at": "2025-01-01T09:13:00Z",
+      "vendor": ""
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/office-stock/deployments": {
+   "body": {
+    "deployments": [
+     {
+      "assetUnitId": null,
+      "createdAt": "2025-01-01T11:00:00Z",
+      "custodianEmpId": "E4",
+      "custodianName": "Emp 4",
+      "deploymentLocation": "Floor 2",
+      "id": 902,
+      "inventoryCategory": "Office Assets",
+      "inventoryItemId": 13,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": ""
+     },
+     {
+      "assetUnitId": null,
+      "createdAt": "2025-01-01T10:00:00Z",
+      "custodianEmpId": "E3",
+      "custodianName": "Emp 3",
+      "deploymentLocation": "Floor 1",
+      "id": 901,
+      "inventoryCategory": "Office Assets",
+      "inventoryItemId": 13,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": ""
+     },
+     {
+      "assetUnitId": null,
+      "createdAt": "2025-01-01T09:00:00Z",
+      "custodianEmpId": "E2",
+      "custodianName": "Emp 2",
+      "deploymentLocation": "Floor 0",
+      "id": 900,
+      "inventoryCategory": "Office Assets",
+      "inventoryItemId": 13,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": ""
+     },
+     {
+      "assetUnitId": 107,
+      "createdAt": "2025-01-01T09:00:00Z",
+      "custodianEmpId": "",
+      "custodianName": "",
+      "deploymentLocation": "Depot",
+      "id": 999,
+      "inventoryCategory": "Transport Assets",
+      "inventoryItemId": 14,
+      "notes": "",
+      "quantity": 1,
+      "unitLabel": "DL01AB1234"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/removed-assets": {
+   "body": {
+    "message": "OK",
+    "removed_assets": [
+     {
+      "assetUnitId": null,
+      "category": "Hardware",
+      "id": 702,
+      "inventoryId": null,
+      "name": "Old laptop",
+      "ownerAdminId": 4,
+      "ownerName": "emp4@x.com",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "reason": "Dead",
+      "removedAt": "2025-01-01T11:00:00Z",
+      "removedByAdminId": 1,
+      "removedByName": "One IT",
+      "removedCode": "RIT-702"
+     },
+     {
+      "assetUnitId": null,
+      "category": "Hardware",
+      "id": 701,
+      "inventoryId": null,
+      "name": "Old laptop",
+      "ownerAdminId": 3,
+      "ownerName": "Emp 3",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "reason": "Dead",
+      "removedAt": "2025-01-01T10:00:00Z",
+      "removedByAdminId": 1,
+      "removedByName": "One IT",
+      "removedCode": "RIT-701"
+     },
+     {
+      "assetUnitId": null,
+      "category": "Hardware",
+      "id": 700,
+      "inventoryId": null,
+      "name": "Old laptop",
+      "ownerAdminId": 2,
+      "ownerName": "Emp 2",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "reason": "Dead",
+      "removedAt": "2025-01-01T09:00:00Z",
+      "removedByAdminId": 1,
+      "removedByName": "One IT",
+      "removedCode": "RIT-700"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/return-requests": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 102,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T11:00:00Z",
+      "id": 602,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-602",
+      "requesterAdminId": 4,
+      "requesterEmail": "emp4@x.com",
+      "requesterEmpId": "E4",
+      "requesterName": "emp4@x.com",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T11:00:00Z"
+     },
+     {
+      "approvedAt": "2025-01-01T10:05:00Z",
+      "approvedByAdminId": 1,
+      "approvedByName": "One IT",
+      "assetName": "Laptop",
+      "assetUnitId": 101,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T10:00:00Z",
+      "id": 601,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-601",
+      "requesterAdminId": 3,
+      "requesterEmail": "emp3@x.com",
+      "requesterEmpId": "E3",
+      "requesterName": "Emp 3",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "approved",
+      "updatedAt": "2025-01-01T10:00:00Z"
+     },
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/return-requests?emp_id=E2": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/return-requests?status=pending": {
+   "body": {
+    "message": "OK",
+    "requests": [
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 102,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T11:00:00Z",
+      "id": 602,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-602",
+      "requesterAdminId": 4,
+      "requesterEmail": "emp4@x.com",
+      "requesterEmpId": "E4",
+      "requesterName": "emp4@x.com",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T11:00:00Z"
+     },
+     {
+      "approvedAt": null,
+      "approvedByAdminId": null,
+      "approvedByName": null,
+      "assetName": "Laptop",
+      "assetUnitId": 100,
+      "category": "Hardware",
+      "createdAt": "2025-01-01T09:00:00Z",
+      "id": 600,
+      "inventoryItemId": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "quantity": 1,
+      "reason": "Leaving",
+      "receiptConfirmedAt": null,
+      "receiptConfirmedByAdminId": null,
+      "receiptConfirmedByName": null,
+      "rejectionReason": null,
+      "requestCode": "RET-600",
+      "requesterAdminId": 2,
+      "requesterEmail": "emp2@x.com",
+      "requesterEmpId": "E2",
+      "requesterName": "Emp 2",
+      "returnDestination": "available",
+      "softwareLicenseId": null,
+      "status": "pending",
+      "updatedAt": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/software/licenses": {
+   "body": {
+    "licenses": [
+     {
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "created_at": "2025-01-01T09:00:00Z",
+      "id": 303,
+      "inventoryId": 11,
+      "licenseCode": "LIC-303",
+      "name": "Office 365",
+      "status": "available",
+      "subscriptionEnd": null,
+      "subscriptionStart": null,
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T11:00:00Z",
+      "id": 302,
+      "inventoryId": 11,
+      "licenseCode": "LIC-302",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "created_at": "2025-01-01T10:00:00Z",
+      "id": 301,
+      "inventoryId": 11,
+      "licenseCode": "LIC-301",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T09:00:00Z",
+      "id": 300,
+      "inventoryId": 11,
+      "licenseCode": "LIC-300",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/software/licenses?status=assigned": {
+   "body": {
+    "licenses": [
+     {
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T11:00:00Z",
+      "id": 302,
+      "inventoryId": 11,
+      "licenseCode": "LIC-302",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "created_at": "2025-01-01T10:00:00Z",
+      "id": 301,
+      "inventoryId": 11,
+      "licenseCode": "LIC-301",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "created_at": "2025-01-01T09:00:00Z",
+      "id": 300,
+      "inventoryId": 11,
+      "licenseCode": "LIC-300",
+      "name": "Office 365",
+      "status": "assigned",
+      "subscriptionEnd": "2026-01-01",
+      "subscriptionStart": "2025-01-01",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ],
+    "message": "OK",
+    "success": true
+   },
+   "status": 200
+  },
+  "/api/it/summary": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "summary": {
+     "assigned_assets": 4,
+     "available_software": 1,
+     "open_tickets": 2,
+     "total_assets": 9
+    }
+   },
+   "status": 200
+  },
+  "/api/it/tickets": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "tickets": [
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T11:00:00Z",
+      "description": "Screen",
+      "id": 502,
+      "priority": "medium",
+      "requesterAdminId": 4,
+      "requesterName": "emp4@x.com",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-502",
+      "title": "Issue 2",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assigneeAdminId": null,
+      "assigneeName": null,
+      "created_at": "2025-01-01T10:00:00Z",
+      "description": "Screen",
+      "id": 501,
+      "priority": "medium",
+      "requesterAdminId": 3,
+      "requesterName": "Emp 3",
+      "resolvedAt": null,
+      "status": "completed",
+      "ticketCode": "TKT-501",
+      "title": "Issue 1",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T09:00:00Z",
+      "description": "Screen",
+      "id": 500,
+      "priority": "medium",
+      "requesterAdminId": 2,
+      "requesterName": "Emp 2",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-500",
+      "title": "Issue 0",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/tickets?status=pending": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "tickets": [
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T11:00:00Z",
+      "description": "Screen",
+      "id": 502,
+      "priority": "medium",
+      "requesterAdminId": 4,
+      "requesterName": "emp4@x.com",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-502",
+      "title": "Issue 2",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assigneeAdminId": 1,
+      "assigneeName": "One IT",
+      "created_at": "2025-01-01T09:00:00Z",
+      "description": "Screen",
+      "id": 500,
+      "priority": "medium",
+      "requesterAdminId": 2,
+      "requesterName": "Emp 2",
+      "resolvedAt": null,
+      "status": "pending",
+      "ticketCode": "TKT-500",
+      "title": "Issue 0",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop held",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 108,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAP-HELD",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Van",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Vehicle",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "type": "LOCATION"
+      },
+      "custodyLabel": "Location",
+      "custodyType": "LOCATION",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": null,
+      "id": 107,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 14,
+      "isCheckedOut": false,
+      "isDailyPool": false,
+      "isDeployed": true,
+      "lifecycleStatus": "Deployed",
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "DL01AB1234",
+      "status": "assigned",
+      "statusLabel": "Deployed",
+      "unitCode": "VAN-1",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop broken",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "type": "VENDOR"
+      },
+      "custodyLabel": "Vendor",
+      "custodyType": "VENDOR",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 106,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lifecycleStatus": "InRepair",
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "repair",
+      "statusLabel": "In repair",
+      "unitCode": "LAP-106",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:00:00Z",
+      "custody": {
+       "admin_id": 4,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 102,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN102",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-102",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:00:00Z",
+      "custody": {
+       "admin_id": 3,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 101,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lastRemark": "Note 1",
+      "lastTransition": {
+       "actionCode": "NOTE",
+       "actionLabel": "Comment only",
+       "occurredAt": "2025-01-01T10:00:00",
+       "remark": "Note 1",
+       "transitionCode": "TRN-1"
+      },
+      "lastTransitionAt": "2025-01-01T10:00:00",
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN101",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-101",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "admin_id": 2,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 100,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lastRemark": "Note 0",
+      "lastTransition": {
+       "actionCode": "NOTE",
+       "actionLabel": "Comment only",
+       "occurredAt": "2025-01-01T09:00:00",
+       "remark": "Note 0",
+       "transitionCode": "TRN-0"
+      },
+      "lastTransitionAt": "2025-01-01T09:00:00",
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN100",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-100",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units?inventory_id=10": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop held",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 108,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAP-HELD",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop broken",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "type": "VENDOR"
+      },
+      "custodyLabel": "Vendor",
+      "custodyType": "VENDOR",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 106,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lifecycleStatus": "InRepair",
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "repair",
+      "statusLabel": "In repair",
+      "unitCode": "LAP-106",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:00:00Z",
+      "custody": {
+       "admin_id": 4,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 102,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN102",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-102",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:00:00Z",
+      "custody": {
+       "admin_id": 3,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 101,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lastRemark": "Note 1",
+      "lastTransition": {
+       "actionCode": "NOTE",
+       "actionLabel": "Comment only",
+       "occurredAt": "2025-01-01T10:00:00",
+       "remark": "Note 1",
+       "transitionCode": "TRN-1"
+      },
+      "lastTransitionAt": "2025-01-01T10:00:00",
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN101",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-101",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "admin_id": 2,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 100,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lastRemark": "Note 0",
+      "lastTransition": {
+       "actionCode": "NOTE",
+       "actionLabel": "Comment only",
+       "occurredAt": "2025-01-01T09:00:00",
+       "remark": "Note 0",
+       "transitionCode": "TRN-0"
+      },
+      "lastTransitionAt": "2025-01-01T09:00:00",
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN100",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-100",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units?status=ASSIGNED": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Van",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Vehicle",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "type": "LOCATION"
+      },
+      "custodyLabel": "Location",
+      "custodyType": "LOCATION",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": null,
+      "id": 107,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 14,
+      "isCheckedOut": false,
+      "isDailyPool": false,
+      "isDeployed": true,
+      "lifecycleStatus": "Deployed",
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "DL01AB1234",
+      "status": "assigned",
+      "statusLabel": "Deployed",
+      "unitCode": "VAN-1",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T11:00:00Z",
+      "assignedTo": 4,
+      "assignedToEmpId": "E4",
+      "assignedToName": "emp4@x.com",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e4.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:00:00Z",
+      "custody": {
+       "admin_id": 4,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 102,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN102",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-102",
+      "updated_at": "2025-01-01T11:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T10:00:00Z",
+      "assignedTo": 3,
+      "assignedToEmpId": "E3",
+      "assignedToName": "Emp 3",
+      "assignedToPhoto": "",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:00:00Z",
+      "custody": {
+       "admin_id": 3,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 101,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lastRemark": "Note 1",
+      "lastTransition": {
+       "actionCode": "NOTE",
+       "actionLabel": "Comment only",
+       "occurredAt": "2025-01-01T10:00:00",
+       "remark": "Note 1",
+       "transitionCode": "TRN-1"
+      },
+      "lastTransitionAt": "2025-01-01T10:00:00",
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN101",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-101",
+      "updated_at": "2025-01-01T10:00:00Z"
+     },
+     {
+      "assetName": "Laptop",
+      "assetTag": null,
+      "assignedDate": "2025-01-01T09:00:00Z",
+      "assignedTo": 2,
+      "assignedToEmpId": "E2",
+      "assignedToName": "Emp 2",
+      "assignedToPhoto": "/api/files/signed/employee_photos/e2.jpg?exp=<exp>&sig=<sig>",
+      "assignmentPhotos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "brand": "Dell",
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "admin_id": 2,
+       "type": "EMPLOYEE"
+      },
+      "custodyLabel": "Employee",
+      "custodyType": "EMPLOYEE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 100,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": true,
+      "isDailyPool": false,
+      "isDeployed": false,
+      "lastRemark": "Note 0",
+      "lastTransition": {
+       "actionCode": "NOTE",
+       "actionLabel": "Comment only",
+       "occurredAt": "2025-01-01T09:00:00",
+       "remark": "Note 0",
+       "transitionCode": "TRN-0"
+      },
+      "lastTransitionAt": "2025-01-01T09:00:00",
+      "lifecycleStatus": "CheckedOut",
+      "make": "Dell",
+      "model": "5420",
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": "SN100",
+      "status": "assigned",
+      "statusLabel": "Checked out",
+      "unitCode": "LAP-100",
+      "updated_at": "2025-01-01T09:00:00Z"
+     }
+    ]
+   },
+   "status": 200
+  },
+  "/api/it/units?status=available": {
+   "body": {
+    "message": "OK",
+    "success": true,
+    "units": [
+     {
+      "assetName": "Laptop held",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:00:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 108,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAP-HELD",
+      "updated_at": "2025-01-01T09:00:00Z"
+     },
+     {
+      "assetName": "Laptop spare 2",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T11:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 105,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-105",
+      "updated_at": "2025-01-01T11:30:00Z"
+     },
+     {
+      "assetName": "Mobile spare 1",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T10:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Mobile",
+      "id": 104,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "available",
+      "statusLabel": "In stock",
+      "unitCode": "MOBILE-104",
+      "updated_at": "2025-01-01T10:30:00Z"
+     },
+     {
+      "assetName": "Laptop spare 0",
+      "assetTag": null,
+      "assignedDate": null,
+      "assignedTo": null,
+      "assignedToEmpId": null,
+      "assignedToName": null,
+      "assignedToPhoto": "",
+      "assignmentPhotos": [],
+      "brand": null,
+      "category": "Hardware",
+      "created_at": "2025-01-01T09:30:00Z",
+      "custody": {
+       "type": "NONE"
+      },
+      "custodyLabel": "None",
+      "custodyType": "NONE",
+      "deviceLocation": null,
+      "exportedAt": null,
+      "exportedTo": null,
+      "hwType": "Laptop",
+      "id": 103,
+      "imei1": null,
+      "imei2": null,
+      "inventoryId": 10,
+      "isCheckedOut": false,
+      "isDailyPool": true,
+      "isDeployed": false,
+      "lifecycleStatus": "InStock",
+      "make": null,
+      "model": null,
+      "photos": [
+       "data:image/png;base64,iVBORw0KGgo="
+      ],
+      "projectCode": null,
+      "repairDate": null,
+      "serialNumber": null,
+      "status": "Available",
+      "statusLabel": "In stock",
+      "unitCode": "LAPTOP-103",
+      "updated_at": "2025-01-01T09:30:00Z"
+     }
+    ]
+   },
+   "status": 200
+  }
+ }
+}

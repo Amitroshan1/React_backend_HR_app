@@ -2,12 +2,30 @@ from datetime import datetime
 import uuid
 
 from flask import Blueprint, current_app, jsonify, request, send_file
+from sqlalchemy.orm import defer, load_only, selectinload
 from .datetime_utils import utc_now, isoformat_api
 from flask_jwt_extended import get_jwt_identity, jwt_required, get_jwt
 
 from . import db
 from .models.Admin_models import Admin
-from .tenant_context import current_admin, get_admin_in_tenant, get_current_tenant_id, tenant_admin_query
+from .query_utils import (
+    FULL_LIST,
+    apply_search,
+    ci_equals,
+    empty_pagination,
+    list_params,
+    list_rows,
+    pagination_enabled,
+    rows_sorted_by_id,
+    sort_order,
+)
+from .tenant_context import (
+    current_admin,
+    get_admin_in_tenant,
+    get_current_tenant_id,
+    tenant_admin_ids,
+    tenant_admin_query,
+)
 from .itam.tenancy import it_get, it_query, it_tenant_clause
 from .itam.media import persist_itam_media, present_itam_media
 from .models.it_models import (
@@ -31,7 +49,7 @@ from .email import (
     send_it_return_request_status_email,
 )
 from .noc_department_service import download_noc_document, list_noc_requests, upload_noc_document
-from .employee_photo import photo_url_for_admin
+from .employee_photo import photo_url_for_admin, prime_photo_urls
 
 
 it_bp = Blueprint("it", __name__)
@@ -107,6 +125,23 @@ def _ok(payload=None, message="OK", code=200):
 
 def _err(message="Bad request", code=400):
     return jsonify({"success": False, "message": message}), code
+
+
+def _list_ok(key, items, pagination):
+    """Old list body; ``pagination`` is added only when the caller asked for a page."""
+    payload = {key: items}
+    if pagination is not None:
+        payload["pagination"] = pagination
+    return _ok(payload)
+
+
+def _sort_or_err(params, allowed, model, default):
+    """(order_by, error response) for the request's ``sort``."""
+    order = sort_order(params.sort, allowed, model.id, default)
+    if order is None:
+        names = ", ".join(sorted(allowed))
+        return None, _err(f"sort must be one of: {names} (prefix with - for descending)")
+    return order, None
 
 
 def _record_transition_or_err(**kwargs):
@@ -339,18 +374,16 @@ def _effective_inventory_category(item):
     return ic or "IT Assets"
 
 
-def _serialize_inventory_item(item):
-    return {
+def _serialize_inventory_item(item, summary=False):
+    payload = {
         "id": item.id,
         "inventory_code": item.inventory_code,
         "name": item.name,
         "category": item.category,
         "inventory_category": _effective_inventory_category(item),
         "hw_type": item.hw_type,
-        "photos": _shown_media(item.photos_json or []),
         "vendor": item.vendor or "",
         "purchase_date": item.purchase_date.isoformat() if item.purchase_date else None,
-        "receipts": _shown_media(item.receipts_json or []),
         "location": item.location or "",
         "notes": item.notes or "",
         "totalQuantity": int(item.total_quantity or 0),
@@ -361,9 +394,16 @@ def _serialize_inventory_item(item):
         "created_at": _iso(item.created_at),
         "updated_at": _iso(item.updated_at),
     }
+    if not summary:
+        payload["photos"] = _shown_media(item.photos_json or [])
+        payload["receipts"] = _shown_media(item.receipts_json or [])
+    return payload
 
 
-def _serialize_asset_unit(unit):
+_INVENTORY_MEDIA = (defer(ITInventoryItem.photos_json), defer(ITInventoryItem.receipts_json))
+
+
+def _serialize_asset_unit(unit, summary=False):
     from flask import current_app, has_app_context
     from .itam.lifecycle_service import lifecycle_enabled, serialize_lifecycle_fields
 
@@ -394,14 +434,52 @@ def _serialize_asset_unit(unit):
         "exportedTo": unit.exported_to,
         "exportedAt": _iso(unit.exported_at),
         "repairDate": _iso(unit.repair_date),
-        "photos": _shown_media(unit.photos_json or []),
-        "assignmentPhotos": _shown_media(unit.assignment_photos_json or []),
         "created_at": _iso(unit.created_at),
         "updated_at": _iso(unit.updated_at),
     }
+    if not summary:
+        payload["photos"] = _shown_media(unit.photos_json or [])
+        payload["assignmentPhotos"] = _shown_media(unit.assignment_photos_json or [])
     if has_app_context() and lifecycle_enabled(current_app.config):
         payload.update(serialize_lifecycle_fields(unit))
     return payload
+
+
+def units_for_listing(query, order_by, params=FULL_LIST):
+    """(units, pagination) for _serialize_asset_unit lists: id-only sort, related rows loaded in batches."""
+    from .itam.lifecycle_service import lifecycle_enabled, prime_open_deployments
+
+    lifecycle_on = lifecycle_enabled(current_app.config)
+    options = [selectinload(ITAssetUnit.assigned_to_admin)]
+    if lifecycle_on:
+        options.append(selectinload(ITAssetUnit.inventory_item))
+    if params.summary:
+        options += [defer(ITAssetUnit.photos_json), defer(ITAssetUnit.assignment_photos_json)]
+    rows, pagination = list_rows(query, ITAssetUnit, order_by, params, options)
+    prime_photo_urls(r.assigned_to_admin_id for r in rows)
+    if lifecycle_on:
+        prime_open_deployments(rows)
+    return rows, pagination
+
+
+def load_units_for_listing(query, order_by):
+    return units_for_listing(query, order_by)[0]
+
+
+_UNIT_SEARCH = (
+    ITAssetUnit.asset_name,
+    ITAssetUnit.unit_code,
+    ITAssetUnit.serial_number,
+    ITAssetUnit.brand,
+    ITAssetUnit.make,
+    ITAssetUnit.model,
+    ITAssetUnit.hw_type,
+    ITAssetUnit.project_code,
+    ITAssetUnit.imei1,
+    ITAssetUnit.imei2,
+    ITAssetUnit.asset_tag,
+    ITAssetUnit.device_location,
+)
 
 
 def _serialize_license(lic):
@@ -442,8 +520,8 @@ def _serialize_ticket(t):
     }
 
 
-def _serialize_removed_asset(r):
-    return {
+def _serialize_removed_asset(r, summary=False):
+    payload = {
         "id": r.id,
         "removedCode": r.removed_code,
         "assetUnitId": r.asset_unit_id,
@@ -455,9 +533,11 @@ def _serialize_removed_asset(r):
         "name": r.name,
         "category": r.category,
         "reason": r.reason,
-        "photos": _shown_media(r.photos_json or []),
         "removedAt": _iso(r.removed_at),
     }
+    if not summary:
+        payload["photos"] = _shown_media(r.photos_json or [])
+    return payload
 
 
 def _serialize_deleted_log(d):
@@ -524,8 +604,8 @@ def _serialize_parcel_export(e):
     }
 
 
-def _serialize_return_request(r):
-    return {
+def _serialize_return_request(r, summary=False):
+    payload = {
         "id": r.id,
         "requestCode": r.request_code,
         "requesterAdminId": r.requester_admin_id,
@@ -540,7 +620,6 @@ def _serialize_return_request(r):
         "category": r.category,
         "reason": r.reason,
         "returnDestination": r.return_destination or "available",
-        "photos": _shown_media(r.photos_json or []),
         "status": r.status,
         "approvedByAdminId": r.approved_by_admin_id,
         "approvedByName": _admin_name(r.approved_by_admin),
@@ -552,6 +631,21 @@ def _serialize_return_request(r):
         "createdAt": _iso(r.created_at),
         "updatedAt": _iso(r.updated_at),
     }
+    if not summary:
+        payload["photos"] = _shown_media(r.photos_json or [])
+    return payload
+
+
+_RETURN_REQUEST_ADMINS = (
+    selectinload(ITAssetReturnRequest.requester_admin),
+    selectinload(ITAssetReturnRequest.approved_by_admin),
+    selectinload(ITAssetReturnRequest.receipt_confirmed_by_admin),
+)
+_RETURN_REQUESTS_NEWEST = (ITAssetReturnRequest.created_at.desc(), ITAssetReturnRequest.id.desc())
+
+
+def _return_requests_newest_first(query):
+    return rows_sorted_by_id(query, ITAssetReturnRequest, _RETURN_REQUESTS_NEWEST, _RETURN_REQUEST_ADMINS)
 
 
 def _next_code(prefix, model, field_name):
@@ -611,83 +705,152 @@ def _paginate_parcel_rows(model, *, page, per_page):
     }
 
 
-def _serialize_emp_assets(emp):
-    units = ITAssetUnit.query.filter_by(assigned_to_admin_id=emp.id).all()
-    licenses = ITSoftwareLicense.query.filter_by(assigned_to_admin_id=emp.id).all()
-    qty_rows = (
-        ITInventoryQuantityAssignment.query.filter_by(assigned_to_admin_id=emp.id)
-        .filter(ITInventoryQuantityAssignment.quantity > 0)
+def _emp_unit_asset(u):
+    return {
+        "id": u.id,
+        "assetId": u.unit_code,
+        "assetTag": u.asset_tag,
+        "name": u.asset_name,
+        "category": u.category or "Hardware",
+        "status": "Assigned" if u.status == "assigned" else (u.status or "Assigned"),
+        "hwType": u.hw_type,
+        "brand": u.brand or "",
+        "make": u.make or "",
+        "model": u.model or "",
+        "serialNumber": u.serial_number or "",
+        "imei1": u.imei1,
+        "imei2": u.imei2,
+        "photos": _shown_media(u.assignment_photos_json or u.photos_json or []),
+        "assignedDate": _iso(u.assigned_at),
+    }
+
+
+def _emp_license_asset(s):
+    return {
+        "id": s.id,
+        "licenseId": s.id,
+        "name": s.name,
+        "category": "Software",
+        "status": "Assigned" if s.status == "assigned" else (s.status or "Assigned"),
+        "subscriptionStart": s.subscription_start.isoformat() if s.subscription_start else None,
+        "subscriptionEnd": s.subscription_end.isoformat() if s.subscription_end else None,
+        "photos": [],
+        "assignedDate": _iso(s.assigned_at),
+    }
+
+
+def _emp_quantity_asset(qa):
+    item = qa.inventory_item
+    category = (item.category if item else "") or ""
+    cat_norm = category.strip().lower()
+    if cat_norm.startswith("consumable"):
+        category = "Consumables"
+    elif cat_norm.startswith("accessor"):
+        category = "Accessories"
+    return {
+        "id": f"invq-{qa.id}",
+        "inventoryAssignmentId": qa.id,
+        "inventoryId": qa.inventory_item_id,
+        "name": item.name if item else "Inventory item",
+        "category": category or "Accessories",
+        "quantity": int(qa.quantity or 0),
+        "status": "Assigned",
+        "photos": [],
+        "assignedDate": _iso(qa.updated_at or qa.created_at),
+    }
+
+
+def _emp_assets_by_admin(admin_ids):
+    """
+    {admin_id: assigned assets} for many employees: units, then licenses, then stock,
+    each in id order. ``admin_ids`` is a list of ids or a SELECT of ids.
+    """
+    units = rows_sorted_by_id(
+        ITAssetUnit.query.filter(ITAssetUnit.assigned_to_admin_id.in_(admin_ids)),
+        ITAssetUnit,
+        (ITAssetUnit.id.asc(),),
+    )
+    licenses = (
+        ITSoftwareLicense.query.filter(ITSoftwareLicense.assigned_to_admin_id.in_(admin_ids))
+        .order_by(ITSoftwareLicense.id.asc())
         .all()
     )
-    assets = []
+    qty_rows = (
+        ITInventoryQuantityAssignment.query.options(selectinload(ITInventoryQuantityAssignment.inventory_item))
+        .filter(
+            ITInventoryQuantityAssignment.assigned_to_admin_id.in_(admin_ids),
+            ITInventoryQuantityAssignment.quantity > 0,
+        )
+        .order_by(ITInventoryQuantityAssignment.id.asc())
+        .all()
+    )
+    out = {}
     for u in units:
-        assets.append(
-            {
-                "id": u.id,
-                "assetId": u.unit_code,
-                "assetTag": u.asset_tag,
-                "name": u.asset_name,
-                "category": u.category or "Hardware",
-                "status": "Assigned" if u.status == "assigned" else (u.status or "Assigned"),
-                "hwType": u.hw_type,
-                "brand": u.brand or "",
-                "make": u.make or "",
-                "model": u.model or "",
-                "serialNumber": u.serial_number or "",
-                "imei1": u.imei1,
-                "imei2": u.imei2,
-                "photos": _shown_media(u.assignment_photos_json or u.photos_json or []),
-                "assignedDate": _iso(u.assigned_at),
-            }
-        )
+        out.setdefault(u.assigned_to_admin_id, []).append(_emp_unit_asset(u))
     for s in licenses:
-        assets.append(
-            {
-                "id": s.id,
-                "licenseId": s.id,
-                "name": s.name,
-                "category": "Software",
-                "status": "Assigned" if s.status == "assigned" else (s.status or "Assigned"),
-                "subscriptionStart": s.subscription_start.isoformat() if s.subscription_start else None,
-                "subscriptionEnd": s.subscription_end.isoformat() if s.subscription_end else None,
-                "photos": [],
-                "assignedDate": _iso(s.assigned_at),
-            }
-        )
+        out.setdefault(s.assigned_to_admin_id, []).append(_emp_license_asset(s))
     for qa in qty_rows:
-        item = qa.inventory_item
-        category = (item.category if item else "") or ""
-        cat_norm = category.strip().lower()
-        if cat_norm.startswith("consumable"):
-            category = "Consumables"
-        elif cat_norm.startswith("accessor"):
-            category = "Accessories"
-        assets.append(
-            {
-                "id": f"invq-{qa.id}",
-                "inventoryAssignmentId": qa.id,
-                "inventoryId": qa.inventory_item_id,
-                "name": item.name if item else "Inventory item",
-                "category": category or "Accessories",
-                "quantity": int(qa.quantity or 0),
-                "status": "Assigned",
-                "photos": [],
-                "assignedDate": _iso(qa.updated_at or qa.created_at),
-            }
-        )
-    return assets
+        out.setdefault(qa.assigned_to_admin_id, []).append(_emp_quantity_asset(qa))
+    return out
+
+
+def _serialize_emp_assets(emp):
+    return _emp_assets_by_admin([emp.id]).get(emp.id, [])
+
+
+def _serialize_admin_employees(admins):
+    """_serialize_admin_employee for many admins with batched asset and photo lookups."""
+    assets = _emp_assets_by_admin([a.id for a in admins]) if admins else {}
+    prime_photo_urls(a.id for a in admins)
+    return [_serialize_admin_employee(a, assets.get(a.id, [])) for a in admins]
+
+
+def _holds_any_asset():
+    """Admin holds a unit, a license seat or a non-zero stock quantity."""
+    return db.or_(
+        Admin.id.in_(
+            db.select(ITAssetUnit.assigned_to_admin_id).where(ITAssetUnit.assigned_to_admin_id.isnot(None))
+        ),
+        Admin.id.in_(
+            db.select(ITSoftwareLicense.assigned_to_admin_id).where(
+                ITSoftwareLicense.assigned_to_admin_id.isnot(None)
+            )
+        ),
+        Admin.id.in_(
+            db.select(ITInventoryQuantityAssignment.assigned_to_admin_id).where(
+                ITInventoryQuantityAssignment.quantity > 0
+            )
+        ),
+    )
+
+
+_EMPLOYEE_SEARCH = (Admin.first_name, Admin.email, Admin.emp_id)
+_EMPLOYEE_SORTS = {"name": Admin.first_name, "emp_id": Admin.emp_id, "email": Admin.email}
 
 
 @it_bp.route("/employees/assigned-assets", methods=["GET"])
 @jwt_required()
 def list_employee_assigned_assets():
+    params = list_params()
+    if params.page is not None or params.search or params.sort:
+        order, err = _sort_or_err(params, _EMPLOYEE_SORTS, Admin, (Admin.id.asc(),))
+        if err:
+            return err
+        q = apply_search(tenant_admin_query().filter(_holds_any_asset()), _EMPLOYEE_SEARCH, params.search)
+        rows, pagination = list_rows(q, Admin, order, params, sort_ids_first=False)
+        return _list_ok("employees", _serialize_admin_employees(rows), pagination)
+
+    assets = _emp_assets_by_admin(tenant_admin_ids())
+    if not assets:
+        return _ok({"employees": []})
     rows = tenant_admin_query().order_by(Admin.id.asc()).all()
+    prime_photo_urls(emp.id for emp in rows if assets.get(emp.id))
     out = []
     for emp in rows:
-        assets = _serialize_emp_assets(emp)
-        if not assets:
+        emp_assets = assets.get(emp.id)
+        if not emp_assets:
             continue
-        out.append(_serialize_admin_employee(emp, assets))
+        out.append(_serialize_admin_employee(emp, emp_assets))
     return _ok({"employees": out})
 
 
@@ -695,22 +858,32 @@ def _recalc_inventory_counts(inventory_id):
     item = it_get(ITInventoryItem, inventory_id)
     if not item:
         return
-    units = ITAssetUnit.query.filter_by(inventory_item_id=inventory_id).all()
     if item.category.lower() == "software":
-        seats = ITSoftwareLicense.query.filter_by(inventory_item_id=inventory_id).all()
+        seats = [
+            s
+            for (s,) in db.session.query(ITSoftwareLicense.status).filter(
+                ITSoftwareLicense.inventory_item_id == inventory_id
+            )
+        ]
         item.total_quantity = len(seats)
-        item.available_quantity = len([s for s in seats if s.status == "available"])
-        item.assigned_quantity = len([s for s in seats if s.status == "assigned"])
+        item.available_quantity = len([s for s in seats if s == "available"])
+        item.assigned_quantity = len([s for s in seats if s == "assigned"])
         item.not_working_quantity = 0
         item.repair_quantity = 0
     else:
+        units = [
+            u
+            for (u,) in db.session.query(ITAssetUnit.status).filter(
+                ITAssetUnit.inventory_item_id == inventory_id
+            )
+        ]
         item.total_quantity = len(units)
-        item.available_quantity = len([u for u in units if (u.status or "").lower() == "available"])
+        item.available_quantity = len([u for u in units if (u or "").lower() == "available"])
         item.assigned_quantity = len(
-            [u for u in units if (u.status or "").lower() in ("assigned", "daily_out")]
+            [u for u in units if (u or "").lower() in ("assigned", "daily_out")]
         )
-        item.not_working_quantity = len([u for u in units if u.status in ("not-working", "notWorking")])
-        item.repair_quantity = len([u for u in units if u.status == "repair"])
+        item.not_working_quantity = len([u for u in units if u in ("not-working", "notWorking")])
+        item.repair_quantity = len([u for u in units if u == "repair"])
 
 
 @it_bp.route("/summary", methods=["GET"])
@@ -774,11 +947,8 @@ def employee_return_requests(emp_id):
         ITAssetReturnRequest.requester_admin_id == emp.id
     )
     if status:
-        q = q.filter(db.func.lower(ITAssetReturnRequest.status) == status)
-    rows = q.order_by(
-        ITAssetReturnRequest.created_at.desc(),
-        ITAssetReturnRequest.id.desc(),
-    ).all()
+        q = q.filter(ci_equals(ITAssetReturnRequest.status, status))
+    rows = _return_requests_newest_first(q)
     return _ok({"requests": [_serialize_return_request(r) for r in rows]})
 
 
@@ -815,21 +985,105 @@ def lookup_employee():
         return _ok({"employees": [], "message": "Type at least 2 characters to search"})
 
     rows = _employee_lookup_filter(q)
-    return _ok({"employees": [_serialize_admin_employee(r) for r in rows]})
+    return _ok({"employees": _serialize_admin_employees(rows)})
+
+
+def _options_limit():
+    limit = request.args.get("limit", 20, type=int) or 20
+    return min(max(limit, 1), 50)
+
+
+@it_bp.route("/employees/options", methods=["GET"])
+@jwt_required()
+def employee_options():
+    """Search-as-you-type picker: active employees, id and name only."""
+    enabled = db.or_(Admin.is_exited == False, Admin.is_exited.is_(None))  # noqa: E712
+    q = apply_search(tenant_admin_query().filter(enabled), _EMPLOYEE_SEARCH, (request.args.get("q") or "").strip())
+    rows = (
+        q.options(load_only(Admin.id, Admin.emp_id, Admin.first_name, Admin.email))
+        .order_by(Admin.first_name.asc(), Admin.id.asc())
+        .limit(_options_limit())
+        .all()
+    )
+    return _ok({
+        "options": [
+            {"adminId": a.id, "empId": a.emp_id or str(a.id), "name": a.first_name or "", "email": a.email or ""}
+            for a in rows
+        ]
+    })
+
+
+_INVENTORY_SEARCH = (
+    ITInventoryItem.name,
+    ITInventoryItem.inventory_code,
+    ITInventoryItem.hw_type,
+    ITInventoryItem.vendor,
+    ITInventoryItem.location,
+)
+_INVENTORY_SORTS = {
+    "name": ITInventoryItem.name,
+    "category": ITInventoryItem.category,
+    "created_at": ITInventoryItem.created_at,
+    "updated_at": ITInventoryItem.updated_at,
+    "available": ITInventoryItem.available_quantity,
+}
+
+
+def _inventory_items_query():
+    category = (request.args.get("category") or "").strip()
+    inventory_category = (request.args.get("inventory_category") or "").strip()
+    q = it_query(ITInventoryItem)
+    if category:
+        q = q.filter(ci_equals(ITInventoryItem.category, category))
+    if inventory_category:
+        q = q.filter(ci_equals(ITInventoryItem.inventory_category, inventory_category))
+    return q
 
 
 @it_bp.route("/inventory/items", methods=["GET"])
 @jwt_required()
 def list_inventory_items():
-    category = (request.args.get("category") or "").strip()
-    inventory_category = (request.args.get("inventory_category") or "").strip()
-    q = it_query(ITInventoryItem)
-    if category:
-        q = q.filter(db.func.lower(ITInventoryItem.category) == category.lower())
-    if inventory_category:
-        q = q.filter(db.func.lower(ITInventoryItem.inventory_category) == inventory_category.lower())
-    items = q.order_by(ITInventoryItem.id.desc()).all()
-    return _ok({"items": [_serialize_inventory_item(i) for i in items]})
+    params = list_params()
+    order, err = _sort_or_err(params, _INVENTORY_SORTS, ITInventoryItem, (ITInventoryItem.id.desc(),))
+    if err:
+        return err
+    q = apply_search(_inventory_items_query(), _INVENTORY_SEARCH, params.search)
+    options = _INVENTORY_MEDIA if params.summary else ()
+    items, pagination = list_rows(q, ITInventoryItem, order, params, options)
+    return _list_ok("items", [_serialize_inventory_item(i, params.summary) for i in items], pagination)
+
+
+@it_bp.route("/inventory/items/options", methods=["GET"])
+@jwt_required()
+def inventory_item_options():
+    """Search-as-you-type picker: catalog items, id and name only."""
+    q = apply_search(_inventory_items_query(), _INVENTORY_SEARCH, (request.args.get("q") or "").strip())
+    rows = (
+        q.options(
+            load_only(
+                ITInventoryItem.id,
+                ITInventoryItem.inventory_code,
+                ITInventoryItem.name,
+                ITInventoryItem.category,
+                ITInventoryItem.inventory_category,
+            )
+        )
+        .order_by(ITInventoryItem.name.asc(), ITInventoryItem.id.asc())
+        .limit(_options_limit())
+        .all()
+    )
+    return _ok({
+        "options": [
+            {
+                "id": i.id,
+                "inventoryCode": i.inventory_code,
+                "name": i.name,
+                "category": i.category,
+                "inventoryCategory": _effective_inventory_category(i),
+            }
+            for i in rows
+        ]
+    })
 
 
 @it_bp.route("/inventory/items", methods=["POST"])
@@ -962,18 +1216,20 @@ def update_inventory_item(item_id):
 @it_bp.route("/units", methods=["GET"])
 @jwt_required()
 def list_units():
-    from flask import current_app
+    params = list_params()
+    order, err = _sort_or_err(params, _UNIT_SORTS, ITAssetUnit, (ITAssetUnit.id.desc(),))
+    if err:
+        return err
+    q = apply_search(_units_query(pagination_enabled()), _UNIT_SEARCH, params.search)
+    rows, pagination = units_for_listing(q, order, params)
+    return _list_ok("units", serialize_listed_units(rows, params.summary), pagination)
+
+
+def serialize_listed_units(rows, summary=False):
+    """Unit list payload, with the latest transition attached when the timeline is on."""
     from .itam.timeline_service import latest_by_unit_ids, timeline_enabled
 
-    status = (request.args.get("status") or "").strip()
-    inventory_id = request.args.get("inventory_id", type=int)
-    q = it_query(ITAssetUnit)
-    if status:
-        q = q.filter(db.func.lower(ITAssetUnit.status) == status.lower())
-    if inventory_id:
-        q = q.filter(ITAssetUnit.inventory_item_id == inventory_id)
-    rows = q.order_by(ITAssetUnit.id.desc()).all()
-    payload = [_serialize_asset_unit(r) for r in rows]
+    payload = [_serialize_asset_unit(r, summary) for r in rows]
     if timeline_enabled(current_app.config) and payload:
         latest_map = latest_by_unit_ids([r.id for r in rows])
         for item in payload:
@@ -982,7 +1238,73 @@ def list_units():
                 item["lastTransition"] = latest
                 item["lastRemark"] = latest.get("remark")
                 item["lastTransitionAt"] = latest.get("occurredAt")
-    return _ok({"units": payload})
+    return payload
+
+
+_UNIT_SORTS = {
+    "asset_name": ITAssetUnit.asset_name,
+    "unit_code": ITAssetUnit.unit_code,
+    "serial_number": ITAssetUnit.serial_number,
+    "status": ITAssetUnit.status,
+    "hw_type": ITAssetUnit.hw_type,
+    "assigned_at": ITAssetUnit.assigned_at,
+    "created_at": ITAssetUnit.created_at,
+    "updated_at": ITAssetUnit.updated_at,
+}
+
+
+def _units_query(extra_filters):
+    """Units for this tenant filtered by status / inventory_id, plus hw_type / category when ``extra_filters``."""
+    status = (request.args.get("status") or "").strip()
+    inventory_id = request.args.get("inventory_id", type=int)
+    q = it_query(ITAssetUnit)
+    if status:
+        q = q.filter(ci_equals(ITAssetUnit.status, status))
+    if inventory_id:
+        q = q.filter(ITAssetUnit.inventory_item_id == inventory_id)
+    if extra_filters:
+        hw_type = (request.args.get("hw_type") or "").strip()
+        category = (request.args.get("category") or "").strip()
+        if hw_type:
+            q = q.filter(ci_equals(ITAssetUnit.hw_type, hw_type))
+        if category:
+            q = q.filter(ci_equals(ITAssetUnit.category, category))
+    return q
+
+
+@it_bp.route("/units/options", methods=["GET"])
+@jwt_required()
+def unit_options():
+    """Search-as-you-type picker: units, id and labels only."""
+    q = apply_search(_units_query(True), _UNIT_SEARCH, (request.args.get("q") or "").strip())
+    rows = (
+        q.options(
+            load_only(
+                ITAssetUnit.id,
+                ITAssetUnit.unit_code,
+                ITAssetUnit.asset_name,
+                ITAssetUnit.hw_type,
+                ITAssetUnit.serial_number,
+                ITAssetUnit.status,
+            )
+        )
+        .order_by(ITAssetUnit.asset_name.asc(), ITAssetUnit.id.asc())
+        .limit(_options_limit())
+        .all()
+    )
+    return _ok({
+        "options": [
+            {
+                "id": u.id,
+                "unitCode": u.unit_code,
+                "assetName": u.asset_name,
+                "hwType": u.hw_type,
+                "serialNumber": u.serial_number,
+                "status": u.status,
+            }
+            for u in rows
+        ]
+    })
 
 
 def _is_mobile_tablet_hw(hw_type) -> bool:
@@ -1461,11 +1783,33 @@ def list_software_licenses():
     status = (request.args.get("status") or "").strip()
     q = it_query(ITSoftwareLicense)
     if name:
-        q = q.filter(db.func.lower(ITSoftwareLicense.name) == name.lower())
+        q = q.filter(ci_equals(ITSoftwareLicense.name, name))
     if status:
-        q = q.filter(db.func.lower(ITSoftwareLicense.status) == status.lower())
-    rows = q.order_by(ITSoftwareLicense.id.desc()).all()
-    return _ok({"licenses": [_serialize_license(r) for r in rows]})
+        q = q.filter(ci_equals(ITSoftwareLicense.status, status))
+    params = list_params()
+    order, err = _sort_or_err(params, _LICENSE_SORTS, ITSoftwareLicense, (ITSoftwareLicense.id.desc(),))
+    if err:
+        return err
+    q = apply_search(q, (ITSoftwareLicense.name, ITSoftwareLicense.license_code), params.search)
+    rows, pagination = list_rows(
+        q,
+        ITSoftwareLicense,
+        order,
+        params,
+        (selectinload(ITSoftwareLicense.assigned_to_admin),),
+        sort_ids_first=False,
+    )
+    prime_photo_urls(r.assigned_to_admin_id for r in rows)
+    return _list_ok("licenses", [_serialize_license(r) for r in rows], pagination)
+
+
+_LICENSE_SORTS = {
+    "name": ITSoftwareLicense.name,
+    "status": ITSoftwareLicense.status,
+    "subscription_end": ITSoftwareLicense.subscription_end,
+    "assigned_at": ITSoftwareLicense.assigned_at,
+    "created_at": ITSoftwareLicense.created_at,
+}
 
 
 @it_bp.route("/software/licenses/bulk", methods=["POST"])
@@ -1784,18 +2128,38 @@ def list_return_requests():
     only_mine = str(request.args.get("mine") or "").strip().lower() in {"1", "true", "yes"}
     emp_id = (request.args.get("emp_id") or "").strip()
     actor = _current_admin()
+    params = list_params()
+    order, err = _sort_or_err(params, _RETURN_REQUEST_SORTS, ITAssetReturnRequest, _RETURN_REQUESTS_NEWEST)
+    if err:
+        return err
     q = it_query(ITAssetReturnRequest)
     if status:
-        q = q.filter(db.func.lower(ITAssetReturnRequest.status) == status)
+        q = q.filter(ci_equals(ITAssetReturnRequest.status, status))
     if emp_id:
         emp = _resolve_admin_by_emp_key(emp_id)
         if not emp:
-            return _ok({"requests": []})
+            return _list_ok("requests", [], empty_pagination(params))
         q = q.filter(ITAssetReturnRequest.requester_admin_id == emp.id)
     elif only_mine and actor:
         q = q.filter(ITAssetReturnRequest.requester_admin_id == actor.id)
-    rows = q.order_by(ITAssetReturnRequest.created_at.desc(), ITAssetReturnRequest.id.desc()).all()
-    return _ok({"requests": [_serialize_return_request(r) for r in rows]})
+    q = apply_search(q, _RETURN_REQUEST_SEARCH, params.search)
+    options = _RETURN_REQUEST_ADMINS + ((defer(ITAssetReturnRequest.photos_json),) if params.summary else ())
+    rows, pagination = list_rows(q, ITAssetReturnRequest, order, params, options)
+    return _list_ok("requests", [_serialize_return_request(r, params.summary) for r in rows], pagination)
+
+
+_RETURN_REQUEST_SEARCH = (
+    ITAssetReturnRequest.request_code,
+    ITAssetReturnRequest.asset_name,
+    ITAssetReturnRequest.requester_emp_id,
+    ITAssetReturnRequest.reason,
+)
+_RETURN_REQUEST_SORTS = {
+    "created_at": ITAssetReturnRequest.created_at,
+    "updated_at": ITAssetReturnRequest.updated_at,
+    "status": ITAssetReturnRequest.status,
+    "asset_name": ITAssetReturnRequest.asset_name,
+}
 
 
 @it_bp.route("/return-requests/<int:request_id>/approve", methods=["PATCH"])
@@ -2230,8 +2594,38 @@ def _list_stock_deployments_impl():
         except (TypeError, ValueError):
             return _err("inventory_item_id must be an integer", 400)
         q = q.filter(ITOfficeStockDeployment.inventory_item_id == iid)
-    rows = q.order_by(ITOfficeStockDeployment.created_at.desc()).all()
-    return _ok({"deployments": [_serialize_office_deployment(r) for r in rows]})
+    params = list_params()
+    q = apply_search(
+        q,
+        (
+            ITOfficeStockDeployment.deployment_location,
+            ITOfficeStockDeployment.custodian_name,
+            ITOfficeStockDeployment.custodian_emp_id,
+        ),
+        params.search,
+    )
+    newest = (ITOfficeStockDeployment.created_at.desc(),)
+    if params.page is not None:
+        newest += (ITOfficeStockDeployment.id.desc(),)
+    order, err = _sort_or_err(
+        params,
+        {"created_at": ITOfficeStockDeployment.created_at, "location": ITOfficeStockDeployment.deployment_location},
+        ITOfficeStockDeployment,
+        newest,
+    )
+    if err:
+        return err
+    unit_labels = selectinload(ITOfficeStockDeployment.asset_unit).options(
+        load_only(
+            ITAssetUnit.id,
+            ITAssetUnit.serial_number,
+            ITAssetUnit.make,
+            ITAssetUnit.model,
+            ITAssetUnit.unit_code,
+        )
+    )
+    rows, pagination = list_rows(q, ITOfficeStockDeployment, order, params, (unit_labels,), sort_ids_first=False)
+    return _list_ok("deployments", [_serialize_office_deployment(r) for r in rows], pagination)
 
 
 def _stock_deploy_impl():
@@ -2475,11 +2869,35 @@ def office_stock_return():
 @jwt_required()
 def list_tickets():
     status = (request.args.get("status") or "").strip()
+    params = list_params()
+    order, err = _sort_or_err(
+        params, _TICKET_SORTS, ITSupportTicket, (ITSupportTicket.created_at.desc(), ITSupportTicket.id.desc())
+    )
+    if err:
+        return err
     q = it_query(ITSupportTicket)
     if status:
-        q = q.filter(db.func.lower(ITSupportTicket.status) == status.lower())
-    rows = q.order_by(ITSupportTicket.created_at.desc(), ITSupportTicket.id.desc()).all()
-    return _ok({"tickets": [_serialize_ticket(t) for t in rows]})
+        q = q.filter(ci_equals(ITSupportTicket.status, status))
+    priority = (request.args.get("priority") or "").strip() if pagination_enabled() else ""
+    if priority:
+        q = q.filter(ci_equals(ITSupportTicket.priority, priority))
+    q = apply_search(q, (ITSupportTicket.ticket_code, ITSupportTicket.title), params.search)
+    rows, pagination = list_rows(
+        q,
+        ITSupportTicket,
+        order,
+        params,
+        (selectinload(ITSupportTicket.requester_admin), selectinload(ITSupportTicket.assignee_admin)),
+    )
+    return _list_ok("tickets", [_serialize_ticket(t) for t in rows], pagination)
+
+
+_TICKET_SORTS = {
+    "created_at": ITSupportTicket.created_at,
+    "updated_at": ITSupportTicket.updated_at,
+    "priority": ITSupportTicket.priority,
+    "status": ITSupportTicket.status,
+}
 
 
 @it_bp.route("/tickets", methods=["POST"])
@@ -2524,8 +2942,25 @@ def resolve_ticket(ticket_id):
 @it_bp.route("/removed-assets", methods=["GET"])
 @jwt_required()
 def list_removed_assets():
-    rows = it_query(ITRemovedAsset).order_by(ITRemovedAsset.removed_at.desc(), ITRemovedAsset.id.desc()).all()
-    return _ok({"removed_assets": [_serialize_removed_asset(r) for r in rows]})
+    params = list_params()
+    order, err = _sort_or_err(
+        params,
+        {"removed_at": ITRemovedAsset.removed_at, "name": ITRemovedAsset.name},
+        ITRemovedAsset,
+        (ITRemovedAsset.removed_at.desc(), ITRemovedAsset.id.desc()),
+    )
+    if err:
+        return err
+    q = apply_search(
+        it_query(ITRemovedAsset),
+        (ITRemovedAsset.removed_code, ITRemovedAsset.name, ITRemovedAsset.category, ITRemovedAsset.reason),
+        params.search,
+    )
+    options = (selectinload(ITRemovedAsset.owner_admin), selectinload(ITRemovedAsset.removed_by_admin))
+    if params.summary:
+        options += (defer(ITRemovedAsset.photos_json),)
+    rows, pagination = list_rows(q, ITRemovedAsset, order, params, options)
+    return _list_ok("removed_assets", [_serialize_removed_asset(r, params.summary) for r in rows], pagination)
 
 
 @it_bp.route("/removed-assets", methods=["POST"])
@@ -2583,8 +3018,29 @@ def delete_removed_asset(removed_id):
 @it_bp.route("/deleted-logs", methods=["GET"])
 @jwt_required()
 def list_deleted_logs():
-    rows = it_query(ITDeletedAssetLog).order_by(ITDeletedAssetLog.deleted_at.desc(), ITDeletedAssetLog.id.desc()).all()
-    return _ok({"logs": [_serialize_deleted_log(d) for d in rows]})
+    params = list_params()
+    order, err = _sort_or_err(
+        params,
+        {"deleted_at": ITDeletedAssetLog.deleted_at, "asset_name": ITDeletedAssetLog.asset_name},
+        ITDeletedAssetLog,
+        (ITDeletedAssetLog.deleted_at.desc(), ITDeletedAssetLog.id.desc()),
+    )
+    if err:
+        return err
+    q = apply_search(
+        it_query(ITDeletedAssetLog),
+        (
+            ITDeletedAssetLog.delete_code,
+            ITDeletedAssetLog.asset_name,
+            ITDeletedAssetLog.serial_number,
+            ITDeletedAssetLog.reason,
+        ),
+        params.search,
+    )
+    rows, pagination = list_rows(
+        q, ITDeletedAssetLog, order, params, (selectinload(ITDeletedAssetLog.deleted_by_admin),)
+    )
+    return _list_ok("logs", [_serialize_deleted_log(d) for d in rows], pagination)
 
 
 @it_bp.route("/deleted-logs", methods=["POST"])
@@ -3390,3 +3846,6 @@ def itam_backfill_lifecycle():
     stats = backfill_unit_lifecycle(limit=limit, config=cfg)
     return _ok(stats, "Lifecycle backfill completed")
 
+
+from . import it_inventory_screens  # noqa: E402,F401  (registers the inventory screen routes on it_bp)
+from . import it_assets_screen  # noqa: E402,F401  (registers the Asset Management screen route on it_bp)

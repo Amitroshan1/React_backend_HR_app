@@ -174,6 +174,8 @@ class LeaveApplication(db.Model):
     requested_deducted_days = db.Column(db.Float, default=0.0)
     sandwich_pl_days = db.Column(db.Float, default=0.0)
     pending_reminder_sent_at = db.Column(db.DateTime, nullable=True)
+    greyed_from_status = db.Column(db.String(20), nullable=True)
+    final_approved_at = db.Column(db.DateTime, nullable=True)
     applied_by_admin_id = db.Column(db.Integer, db.ForeignKey('admins.id'), nullable=True)
     applied_on_behalf = db.Column(db.Boolean, nullable=False, default=False)
 
@@ -197,6 +199,8 @@ class WorkFromHomeApplication(db.Model):
     end_date = db.Column(db.Date, nullable=False)
     reason = db.Column(db.String(LEAVE_REASON_MAX_LEN), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='Pending')
+    greyed_from_status = db.Column(db.String(20), nullable=True)
+    final_approved_at = db.Column(db.DateTime, nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 

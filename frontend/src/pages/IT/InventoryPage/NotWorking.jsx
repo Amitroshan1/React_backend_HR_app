@@ -2,14 +2,19 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { toast as rtToast } from "react-toastify";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
+import { usePagedList } from "../../../hooks/usePagedList";
+import Pager from "../../../components/Pager";
+import { isPagedScreenEnabled } from "../../../utils/pagedScreens";
 import {
   buildDeletedLogApiPayload,
   buildLocalDeletedEntry,
   createDeletedLogAPI,
   deleteAssetUnitAPI,
+  fetchInventoryStatusRowsPageAPI,
   getAssetUnitsFromStorage,
   getInventoryFromStorage,
   toastITApiFailure,
+  toLocalUnit,
   deleteHwUnit,
   logDeletedAsset,
   saveAssetUnitsToStorage,
@@ -61,6 +66,31 @@ const normCategory = (category) => {
 function dispatchInventoryUpdate() {
   try { window.dispatchEvent(new Event("inventory-updated")); } catch { /* no-op */ }
 }
+
+const PER_PAGE = 25;
+
+const toQtyNotWorkingRow = (i) => ({
+  id: `qty-${i.id}`,
+  inventoryId: i.id,
+  assetName: i.name,
+  brand: i.name,
+  category: normCategory(i.category),
+  serialNumber: "",
+  notWorkingQuantity: Number(i.notWorkingQuantity || 0),
+  availableQuantity: Number(i.availableQuantity || 0),
+  totalQuantity: Number(i.totalQuantity || 0),
+  assignedQuantity: Number(i.assignedQuantity || 0),
+  repairQuantity: Number(i.repairQuantity || 0),
+  isQuantityRow: true,
+});
+
+const selectServerRows = (body) =>
+  (Array.isArray(body?.rows) ? body.rows : []).map((row) =>
+    row.kind === "unit" ? toLocalUnit(row.unit) : toQtyNotWorkingRow(row.item),
+  );
+const selectChipCounts = (body) => body?.counts || {};
+const rowMatchesSearch = (row, needle) =>
+  SEARCH_FIELDS.some((field) => String(row[field] ?? "").toLowerCase().includes(needle));
 
 // ─── DeleteModal ──────────────────────────────────────────────────────────────
 
@@ -171,11 +201,38 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
     setActiveCategory("All");
   }, [inventoryCategory]);
 
-  const reload = useCallback(() => {
+  const paged = useMemo(() => isPagedScreenEnabled("itNotWorking"), []);
+  const listFilters = useMemo(
+    () => ({
+      status: "not_working",
+      inventory_category: inventoryCategory,
+      ...(activeCategory !== "All" ? { category: activeCategory } : {}),
+    }),
+    [inventoryCategory, activeCategory],
+  );
+  const list = usePagedList({
+    fetchList: fetchInventoryStatusRowsPageAPI,
+    select: selectServerRows,
+    selectMeta: selectChipCounts,
+    filters: listFilters,
+    perPage: PER_PAGE,
+    skip: !paged,
+    matchesSearch: rowMatchesSearch,
+  });
+  const { reload: reloadList, error: listError } = list;
+
+  useEffect(() => {
+    if (listError) toastITApiFailure(listError, "Could not load not-working assets from the server.");
+  }, [listError]);
+
+  const reloadLocal = useCallback(() => {
     setUnits(getAssetUnitsFromStorage() ?? []);
   }, []);
+  const reload = paged ? reloadList : reloadLocal;
 
   useRefreshOnNavigate(() => {
+    // The paged list refetches by itself when the tab or chip changes.
+    if (paged) return;
     const load = async () => {
       try {
         await syncITDataFromAPI();
@@ -197,8 +254,11 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
     setTimeout(() => setToast(""), 2_500);
   }, []);
 
-  // ── Derived rows ────────────────────────────────────────────────────────────
-  const inventoryRows = useMemo(() => getInventoryFromStorage() || [], [units]);
+  // ── Derived rows (localStorage mode) ───────────────────────────────────────
+  const inventoryRows = useMemo(
+    () => (paged ? [] : getInventoryFromStorage() || []),
+    [units, paged],
+  );
 
   const notWorkingUnits = useMemo(
     () =>
@@ -217,20 +277,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         )
         .filter((i) => resolveInventoryCategory(i) === inventoryCategory)
         .filter((i) => Number(i.notWorkingQuantity || 0) > 0)
-        .map((i) => ({
-          id: `qty-${i.id}`,
-          inventoryId: i.id,
-          assetName: i.name,
-          brand: i.name,
-          category: normCategory(i.category),
-          serialNumber: "",
-          notWorkingQuantity: Number(i.notWorkingQuantity || 0),
-          availableQuantity: Number(i.availableQuantity || 0),
-          totalQuantity: Number(i.totalQuantity || 0),
-          assignedQuantity: Number(i.assignedQuantity || 0),
-          repairQuantity: Number(i.repairQuantity || 0),
-          isQuantityRow: true,
-        })),
+        .map(toQtyNotWorkingRow),
     [inventoryRows, inventoryCategory],
   );
 
@@ -250,12 +297,17 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
     return rows;
   }, [notWorkingUnits, qtyNotWorkingRows, activeCategory, searchQuery]);
 
+  const chipCounts = list.meta;
   const getCategoryCount = useCallback(
     (cat) =>
-      [...notWorkingUnits, ...qtyNotWorkingRows]
-        .filter((u) => normCategory(u.category) === cat).length,
-    [notWorkingUnits, qtyNotWorkingRows],
+      paged
+        ? chipCounts?.[cat] || 0
+        : [...notWorkingUnits, ...qtyNotWorkingRows]
+          .filter((u) => normCategory(u.category) === cat).length,
+    [paged, chipCounts, notWorkingUnits, qtyNotWorkingRows],
   );
+
+  const tableRows = paged ? list.rows : filteredRows;
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const handleSendToRepair = useCallback(async (unit) => {
@@ -454,7 +506,7 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         eyebrow={inventoryCategory}
         title="Not Working"
         subtitle="Assets currently marked as not working"
-        recordCount={filteredRows.length}
+        recordCount={paged ? list.total : filteredRows.length}
         variant="alert"
         filterBadge={
           activeCategory !== "All" ? (
@@ -464,8 +516,8 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
         filters={
           <InventoryFiltersInner>
             <InventoryFilterSearch
-              value={searchQuery}
-              onChange={setSearchQuery}
+              value={paged ? list.searchInput : searchQuery}
+              onChange={paged ? list.setSearchInput : setSearchQuery}
               placeholder="Search by brand, name or serial…"
             />
             {showCategoryTabs && (
@@ -490,10 +542,14 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.length === 0 ? (
-                <tr><td colSpan={4} className="inv-empty-row">No not-working assets found</td></tr>
+              {tableRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="inv-empty-row">
+                    {paged && list.loading ? "Loading…" : "No not-working assets found"}
+                  </td>
+                </tr>
               ) : (
-                filteredRows.map((unit, i) => (
+                tableRows.map((unit, i) => (
                   <NotWorkingRow
                     key={unit.id}
                     unit={unit}
@@ -508,6 +564,17 @@ export default function NotWorking({ inventoryCategory = "IT Assets" }) {
             </tbody>
           </table>
         </div>
+        {paged ? (
+          <Pager
+            page={list.page}
+            pages={list.pages}
+            total={list.total}
+            perPage={list.perPage}
+            onPage={list.setPage}
+            loading={list.loading}
+            noun="assets"
+          />
+        ) : null}
       </InventoryPanel>
 
       {removeTarget && (

@@ -27,6 +27,7 @@ import { Claims } from "./pages/Claims/Claims";
 import { Separation } from "./pages/Separation/Separation";
 import { Hr } from "./pages/HR/Hr";
 import { Account } from "./pages/Account/Account";
+import { Finance } from "./pages/Finance/Finance";
 import Admin from "./pages/Admin/Admin";
 import AdminAnalytics from "./pages/Admin/AdminAnalytics";
 import AdminCrm from "./pages/Admin/AdminCrm";
@@ -70,6 +71,7 @@ import AdminDeploymentGuide from "./pages/Admin/AdminDeploymentGuide";
 import AdminCustomers from "./pages/Admin/AdminCustomers";
 import AdminRegisterCompany from "./pages/Admin/AdminRegisterCompany";
 import AdminMailboxes from "./pages/Admin/AdminMailboxes";
+import AdminApprovalSettings from "./pages/Admin/AdminApprovalSettings";
 import AdminDepartments from "./pages/Admin/AdminDepartments";
 import AdminRequests from "./pages/Admin/AdminRequests";
 import EmployeeChangeRequests from "./pages/Admin/EmployeeChangeRequests";
@@ -152,6 +154,7 @@ export const App = () => {
         { path: "performance",                     element: <EmployeePerformance /> },
         { path: "holiday-calendar",                element: <HolidayCalendarUser /> },
         { path: "account",                         element: <RequirePanel panel="account"><Account /></RequirePanel> },
+        { path: "finance",                         element: <RequirePanel panel="finance"><Finance /></RequirePanel> },
         { path: "hr",                              element: <RequirePanel panel="hr"><Hr /></RequirePanel> },
         { path: "updates",                         element: <RequirePanel panel="hr"><Hr /></RequirePanel> },
         { path: "archive-employees",               element: <RequirePanel panel="hr"><ArchiveEmployees /></RequirePanel> },
@@ -167,6 +170,7 @@ export const App = () => {
             { path: "customers/register", element: <AdminRegisterCompany /> },
             { path: "customers", element: <AdminCustomers /> },
             { path: "mailboxes", element: <AdminMailboxes /> },
+            { path: "approval-settings", element: <AdminApprovalSettings /> },
             { path: "deployment-guide", element: <AdminDeploymentGuide /> },
             { path: "leaves", element: <AdminLeaves /> },
             { path: "queries", element: <AdminQueries /> },

@@ -1,0 +1,47 @@
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.pager-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager-controls button {
+  border: 1px solid #dbe2ea;
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  min-height: 34px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pager-controls button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pager-page {
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .pager {
+    justify-content: center;
+  }
+
+  .pager-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

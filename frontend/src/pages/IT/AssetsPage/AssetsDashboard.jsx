@@ -26,8 +26,13 @@ import {
   saveInventoryToStorage,
   saveSoftwareInventory,
   syncITDataFromAPI,
-  syncRemovedITFromAPI
+  syncRemovedITFromAPI,
+  fetchAssetScreenPageAPI,
 } from "../Data";
+import { useDebounced, usePagedList } from "../../../hooks/usePagedList";
+import Pager from "../../../components/Pager";
+import { isPagedScreenEnabled } from "../../../utils/pagedScreens";
+import { useITCacheGate } from "../useITCacheGate";
 import { useTransitionRemark } from "../itam/TransitionRemarkModal";
 import { remarkPayload } from "../itam/transitionUi";
 import AssetHistoryTimeline from "../itam/AssetHistoryTimeline";
@@ -2211,6 +2216,22 @@ function EditAssignedPanel({ assignedRow, onClose, onUpdated }) {
 //  ASSETS DASHBOARD (main export)
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ─── Server-paged rows ───────────────────────────────────────────────────────
+
+const SCREEN_PER_PAGE = 25;
+
+const selectScreenRows = (body) =>
+  (body?.rows || []).map((row) => ({ ...row, empPhoto: getUserPhotoUrl({ photo: row.empPhoto }) }));
+
+const selectScreenMeta = (body) => ({
+  categoryCounts: body?.counts?.category || {},
+  typeCounts: body?.counts?.type || {},
+  totalAssets: Number(body?.totalAssets) || 0,
+});
+
+const findAvailableRow = (row) =>
+  buildAvailableData().find((a) => String(a.id) === String(row.id));
+
 export default function AssetsDashboard() {
   const navigate = useNavigate();
 
@@ -2223,9 +2244,37 @@ export default function AssetsDashboard() {
   const [detailItem, setDetailItem] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  const paged = useMemo(() => isPagedScreenEnabled("itAssetManagement"), []);
+  const debouncedSearch = useDebounced(search.trim(), 300);
+  const listFilters = useMemo(() => {
+    const filters = { view: mainFilter.toLowerCase(), order: sortMode };
+    if (catFilter !== "ALL") {
+      filters.category = catFilter;
+      if (typeFilter !== "All") filters.type = typeFilter;
+    }
+    if (debouncedSearch) filters.q = debouncedSearch;
+    return filters;
+  }, [mainFilter, sortMode, catFilter, typeFilter, debouncedSearch]);
+  const list = usePagedList({
+    fetchList: fetchAssetScreenPageAPI,
+    select: selectScreenRows,
+    selectMeta: selectScreenMeta,
+    filters: listFilters,
+    perPage: SCREEN_PER_PAGE,
+    skip: !paged,
+  });
+  const { error: listError } = list;
+  const { withCache, preparing } = useITCacheGate(paged);
+
+  useEffect(() => {
+    if (listError) toastITApiFailure(listError, "Could not load assets from the server.");
+  }, [listError]);
+
   const bumpRefreshKey = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   const syncAssetsFromServer = useCallback(() => {
+    // The paged list refetches by itself when the view, a filter or the sort changes.
+    if (paged) return;
     syncITDataFromAPI().then(bumpRefreshKey).catch((err) => {
       console.error("[AssetsDashboard] API sync failed, using cached data:", err);
       toastITApiFailure(
@@ -2234,18 +2283,19 @@ export default function AssetsDashboard() {
         );
       bumpRefreshKey();
     });
-  }, [bumpRefreshKey]);
+  }, [bumpRefreshKey, paged]);
 
   useRefreshOnNavigate(syncAssetsFromServer);
 
   useEffect(() => {
+    if (paged) return undefined;
     window.addEventListener("inventory-updated", bumpRefreshKey);
     window.addEventListener("storage", bumpRefreshKey);
     return () => {
       window.removeEventListener("inventory-updated", bumpRefreshKey);
       window.removeEventListener("storage", bumpRefreshKey);
     };
-  }, [bumpRefreshKey]);
+  }, [bumpRefreshKey, paged]);
 
   /* Type chips match Inventory → IT Assets (Hardware / Accessories / Consumables). */
   useEffect(() => {
@@ -2266,13 +2316,13 @@ export default function AssetsDashboard() {
   }, [catFilter]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
-  const availableData = useMemo(() => buildAvailableData(), [refreshKey]);
-  const assignedData = useMemo(() => buildAssignedData(), [refreshKey]);
+  const availableData = useMemo(() => (paged ? [] : buildAvailableData()), [refreshKey, paged]);
+  const assignedData = useMemo(() => (paged ? [] : buildAssignedData()), [refreshKey, paged]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const data = mainFilter === "Available" ? availableData : assignedData;
 
-  const filtered = useMemo(() => {
+  const localFiltered = useMemo(() => {
     let result = data;
 
     if (catFilter !== "ALL") {
@@ -2307,6 +2357,9 @@ export default function AssetsDashboard() {
     return sorted;
   }, [data, catFilter, typeFilter, search, sortMode]);
 
+  const filtered = paged ? list.rows : localFiltered;
+  const serverMeta = list.meta;
+
   const categoryScopedData = useMemo(() => {
     if (catFilter === "ALL") return data;
     return data.filter((a) => a.category === catFilter);
@@ -2314,14 +2367,24 @@ export default function AssetsDashboard() {
 
   const getTypeCount = useCallback(
     (type) => {
+      if (paged) {
+        const counts = serverMeta?.typeCounts || {};
+        if (type === "All") return counts.All || 0;
+        return counts[String(type).trim().toLowerCase()] || 0;
+      }
       if (type === "All") return categoryScopedData.length;
       const want = String(type).trim().toLowerCase();
       return categoryScopedData.filter(
         (a) => String(a.hwType || "").trim().toLowerCase() === want,
       ).length;
     },
-    [categoryScopedData],
+    [categoryScopedData, paged, serverMeta],
   );
+
+  const getCategoryCount = (cat) => {
+    if (paged) return serverMeta?.categoryCounts?.[cat] || 0;
+    return cat === "ALL" ? data.length : data.filter((a) => a.category === cat).length;
+  };
 
   // Extra identity columns on Available table only (Hardware Laptop / Mobile / Tablet).
   const showLaptopCodeCol =
@@ -2337,10 +2400,11 @@ export default function AssetsDashboard() {
   const availableColSpan =
     5 + (showLaptopCodeCol ? 1 : 0) + (showImeiCol ? 1 : 0);
 
-  const totalAssetCount = useMemo(() => {
+  const localTotalAssetCount = useMemo(() => {
+    if (paged) return 0;
     if (mainFilter === "Available") {
       const allUnits = getAssetUnitsFromStorage() || [];
-      return filtered.reduce((sum, a) => {
+      return localFiltered.reduce((sum, a) => {
         if (a.category === "Software") {
           return sum + (a.totalQty || a.seats || a.availableQty || 0);
         }
@@ -2352,9 +2416,11 @@ export default function AssetsDashboard() {
         return sum + (unitCount || a.availableQty || 0);
       }, 0);
     } else {
-      return filtered.length;
+      return localFiltered.length;
     }
-  }, [filtered, mainFilter]);
+  }, [localFiltered, mainFilter, paged]);
+  const totalAssetCount = paged ? serverMeta?.totalAssets ?? 0 : localTotalAssetCount;
+  const recordCount = paged ? list.total : filtered.length;
 
   const handleMainFilter = useCallback((filter) => {
     setMainFilter(filter);
@@ -2482,11 +2548,7 @@ export default function AssetsDashboard() {
               onClick={() => setCatFilter(cat)}
             >
               {cat}
-              <span className="am-cat-count">
-                {cat === "ALL"
-                  ? data.length
-                  : data.filter((a) => a.category === cat).length}
-              </span>
+              <span className="am-cat-count">{getCategoryCount(cat)}</span>
             </button>
           ))}
         </div>
@@ -2536,7 +2598,7 @@ export default function AssetsDashboard() {
               )}
             </div>
             <span className="am-table-count">
-              {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+              {recordCount} record{recordCount !== 1 ? "s" : ""}
             </span>
           </div>
 
@@ -2635,7 +2697,7 @@ export default function AssetsDashboard() {
                           <td data-label="Details">
                             <button
                               className="am-view-btn"
-                              onClick={() => setDetailItem(a)}
+                              onClick={() => withCache(setDetailItem, findAvailableRow)(a)}
                             >
                               View
                             </button>
@@ -2718,8 +2780,21 @@ export default function AssetsDashboard() {
               </table>
             )}
           </div>
+          {paged ? (
+            <Pager
+              page={list.page}
+              pages={list.pages}
+              total={list.total}
+              perPage={list.perPage}
+              onPage={list.setPage}
+              loading={list.loading}
+              noun="assets"
+            />
+          ) : null}
         </div>
       </div>
+
+      {preparing && <div className="am-preparing" role="status">Loading asset details…</div>}
 
       {/* Panels / modals */}
       {detailItem && (

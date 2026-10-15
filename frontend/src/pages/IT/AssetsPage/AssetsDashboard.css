@@ -2389,3 +2389,16 @@
   border: 1.5px solid #e2e8f0;
   flex-shrink: 0;
 }
+.am-preparing {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #0f172a;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  z-index: 9998;
+}

@@ -122,7 +122,7 @@ import { toast } from "react-toastify";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
 import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
 import "./style/Headers.css";
-import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountPanel } from "../utils/planFeatures";
+import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountPanel, canAccessFinancePanel } from "../utils/planFeatures";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
 import { clearSensitiveToken } from "../utils/sensitiveDataAuth";
 import { DEPARTMENT_TITLES, getPanelLinkLabel } from "../utils/departmentLabels";
@@ -178,6 +178,7 @@ const getPageInfo = (pathname, firstName) => {
         '/wfh': { title: 'Work From Home', subtitle: 'WFH requests and approvals' },
         '/hr': { title: DEPARTMENT_TITLES.hr, subtitle: 'Administration' },
         '/account': { title: DEPARTMENT_TITLES.account, subtitle: 'Financial Management' },
+        '/finance': { title: DEPARTMENT_TITLES.finance, subtitle: 'Payroll control and payouts' },
         '/admin': { title: DEPARTMENT_TITLES.admin, subtitle: 'Organization Control' },
         '/admin/leaves': { title: 'All Leave Applications', subtitle: DEPARTMENT_TITLES.admin },
         '/admin/queries': { title: 'All Queries', subtitle: DEPARTMENT_TITLES.admin },
@@ -207,6 +208,10 @@ const getPageInfo = (pathname, firstName) => {
 
     if (normalizedPath.startsWith("/account/")) {
         return { title: DEPARTMENT_TITLES.account, subtitle: "Financial Management" };
+    }
+
+    if (normalizedPath.startsWith("/finance")) {
+        return { title: DEPARTMENT_TITLES.finance, subtitle: "Payroll control and payouts" };
     }
 
     if (normalizedPath.startsWith("/admin/")) {
@@ -286,6 +291,10 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
             accounts: { display: "Account", route: "/account", hasPanel: true },
             accountant: { display: "Account", route: "/account", hasPanel: true },
 
+            finance: { display: "Finance", route: "/finance", hasPanel: true },
+            "finance department": { display: "Finance", route: "/finance", hasPanel: true },
+            "finance team": { display: "Finance", route: "/finance", hasPanel: true },
+
             it: { display: "IT", route: "/it", hasPanel: true },
             "information technology": { display: "IT", route: "/it", hasPanel: true },
 
@@ -307,6 +316,9 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
             }
             if (/\baccounts\b|\baccountant\b|(^|\s)account(\s|$)/i.test(s)) {
                 return { display: "Account", route: "/account", hasPanel: true };
+            }
+            if (/\bfinance\b/i.test(s)) {
+                return { display: "Finance", route: "/finance", hasPanel: true };
             }
             return null;
         };
@@ -404,6 +416,7 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         if (isAdminRole) return true;
         if (route === "/hr") return canAccessHrPanel(user);
         if (route === "/account") return canAccessAccountPanel(user);
+        if (route === "/finance") return canAccessFinancePanel(user);
         if (route === "/it" || route === "/it/inventory") return canAccessItPanel(user);
         return true;
     };

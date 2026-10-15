@@ -33,6 +33,21 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URI")
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+    from .db_perf import engine_options_from_env, env_flag
+
+    _engine_options = engine_options_from_env(app.config['SQLALCHEMY_DATABASE_URI'])
+    if _engine_options:
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = _engine_options
+    # Set only after confirming text columns use a case-insensitive (_ci) collation on MySQL.
+    app.config['DB_CI_COLLATION'] = env_flag("DB_CI_COLLATION")
+    # Off: list endpoints ignore page/per_page/q/sort/fields and return full lists as before.
+    app.config['API_PAGINATION_V1'] = env_flag("API_PAGINATION_V1")
+    from .cache import configure_app as _configure_cache
+    from .jobs import configure_app as _configure_jobs
+
+    _configure_cache(app)
+    _configure_jobs(app)
+
     # JWT configuration
     app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret-key")
     # Default JWT lifetime; login/refresh override via session_timeout by emp_type.
@@ -169,6 +184,10 @@ def create_app():
     migrate.init_app(app, db)
     jwt.init_app(app)
 
+    from .db_perf import register_request_perf_log
+
+    register_request_perf_log(app, db)
+
     @jwt.unauthorized_loader
     def _jwt_unauthorized(reason):
         resp = jsonify(success=False, message=reason or "Authorization required")
@@ -199,6 +218,7 @@ def create_app():
     # ---------------------------
     from .models.Admin_models import Admin
     from .models.tenant import Tenant  # noqa: F401 — register for db.create_all
+    from .models.background_job import BackgroundJob  # noqa: F401 — register for db.create_all
     from .models.employee_profile_change import EmployeeProfileChangeRequest  # noqa: F401
     from .models.crm import CrmActivity, CrmDeal  # noqa: F401 — register for db.create_all
     from .models.deployed_customer import DeployedCustomer  # noqa: F401 — register for db.create_all
@@ -308,6 +328,7 @@ def create_app():
     from .Human_resource import hr
     from .query import query
     from .Accounts import Accounts
+    from .finance import finance_bp
     from .manager import manager
     from .it import it_bp
     from .daily_checkout.views import daily_checkout_bp
@@ -324,6 +345,7 @@ def create_app():
     from .biometric.hr_views import biometric_hr_bp
     from .attendance_realtime import attendance_realtime_bp
     from .attendance_realtime import routes as attendance_realtime_routes  # noqa: F401
+    from .jobs_api import jobs_bp
 
     app.register_blueprint(auth, url_prefix="/api/auth")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
@@ -331,6 +353,7 @@ def create_app():
     app.register_blueprint(leave, url_prefix="/api/leave")
     app.register_blueprint(hr, url_prefix="/api/HumanResource")
     app.register_blueprint(Accounts, url_prefix="/api/accounts")
+    app.register_blueprint(finance_bp, url_prefix="/api/finance")
     app.register_blueprint(query, url_prefix="/api/query")
     app.register_blueprint(manager, url_prefix="/api/manager")
     app.register_blueprint(it_bp, url_prefix="/api/it")
@@ -339,6 +362,7 @@ def create_app():
     app.register_blueprint(performance_api, url_prefix="/api/performance")
     app.register_blueprint(probation_api, url_prefix="/api/probation")
     app.register_blueprint(files_bp, url_prefix="/api/files")
+    app.register_blueprint(jobs_bp, url_prefix="/api/jobs")
     # eSSL ADMS / iClock push (Phase 3A+: /iclock/health; 3B+: /iclock/cdata)
     app.register_blueprint(biometric_bp, url_prefix="/iclock")
     # HR Biometric Attendance reporting (read-only over biometric_logs)
@@ -408,6 +432,37 @@ def create_app():
             app.logger.info("Added column %s.rejection_reason", table)
         except Exception as e:
             app.logger.warning("expense_line_item rejection_reason migration skipped: %s", e)
+
+    def _ensure_expense_claim_payout_columns():
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "expense_claim_header"
+            if table not in insp.get_table_names():
+                return
+            existing = {c["name"] for c in insp.get_columns(table)}
+            dialect = db.engine.dialect.name
+            statements = []
+            if "payout_status" not in existing:
+                col = "VARCHAR(20) NULL" if dialect != "postgresql" else "VARCHAR(20) NULL"
+                statements.append(("payout_status", col))
+            if "payout_at" not in existing:
+                col = "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL"
+                statements.append(("payout_at", col))
+            if "payout_by_admin_id" not in existing:
+                statements.append(("payout_by_admin_id", "INTEGER NULL"))
+            if not statements:
+                return
+            with db.engine.begin() as conn:
+                for name, coltype in statements:
+                    if dialect == "postgresql":
+                        conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {name} {coltype}'))
+                    else:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {coltype}"))
+            app.logger.info("Added expense claim payout columns")
+        except Exception as e:
+            app.logger.warning("expense claim payout migration skipped: %s", e)
 
     def _ensure_punch_session_auto_punched_out():
         try:
@@ -884,6 +939,17 @@ def create_app():
             app.logger.info("biometric_logs (admin_id, punch_time) index ensured")
         except Exception as e:
             app.logger.warning("biometric hr index ensure skipped: %s", e)
+
+    def _ensure_it_perf_indexes():
+        """Composite indexes for IT / inventory lists (idempotent; DB_PERF_INDEXES=0 skips)."""
+        if not env_flag("DB_PERF_INDEXES", default=True):
+            return
+        try:
+            from .db_perf import IT_PERF_INDEXES, ensure_indexes
+
+            ensure_indexes(db.engine, IT_PERF_INDEXES, app.logger)
+        except Exception as e:
+            app.logger.warning("IT performance indexes skipped: %s", e)
 
     def _cleanup_zero_qty_inventory_rows():
         """
@@ -1783,6 +1849,15 @@ def create_app():
         except Exception as e:
             app.logger.warning("company_settings table ensure skipped: %s", e)
 
+    def _ensure_background_jobs_table():
+        """Phase 6 background job status rows (exports, mass emails, recalculations)."""
+        try:
+            from .models.background_job import BackgroundJob
+
+            BackgroundJob.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as e:
+            app.logger.warning("background_jobs table ensure skipped: %s", e)
+
     def _ensure_employee_profile_change_table():
         """HR profile-change and new-signup requests that wait for Admin approval."""
         try:
@@ -2325,6 +2400,8 @@ def create_app():
                     if dialect == "postgresql"
                     else "BOOLEAN NOT NULL DEFAULT 0"
                 ),
+                "greyed_from_status": "VARCHAR(20) NULL",
+                "final_approved_at": "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL",
             }
             for col, col_type in additions.items():
                 if col in existing:
@@ -2335,6 +2412,24 @@ def create_app():
                 with db.engine.begin() as conn:
                     conn.execute(stmt)
                 app.logger.info("Added column %s.%s", table, col)
+
+            from .models.attendance import WorkFromHomeApplication
+
+            wfh_table = WorkFromHomeApplication.__tablename__
+            if wfh_table in insp.get_table_names():
+                wfh_existing = {c["name"] for c in insp.get_columns(wfh_table)}
+                for col in ("greyed_from_status", "final_approved_at"):
+                    if col in wfh_existing:
+                        continue
+                    col_type = "VARCHAR(20) NULL" if col == "greyed_from_status" else (
+                        "TIMESTAMP NULL" if dialect == "postgresql" else "DATETIME NULL"
+                    )
+                    stmt = text(f"ALTER TABLE {wfh_table} ADD COLUMN {col} {col_type}")
+                    if dialect == "postgresql":
+                        stmt = text(f'ALTER TABLE "{wfh_table}" ADD COLUMN {col} {col_type}')
+                    with db.engine.begin() as conn:
+                        conn.execute(stmt)
+                    app.logger.info("Added column %s.%s", wfh_table, col)
         except Exception as e:
             app.logger.warning("leave_applications column migration skipped: %s", e)
 
@@ -2704,6 +2799,7 @@ def create_app():
             _ensure_ctc_breakup_columns()
             _ensure_parcel_name_columns()
             _ensure_expense_line_item_rejection_reason()
+            _ensure_expense_claim_payout_columns()
             _ensure_punch_session_auto_punched_out()
             _ensure_location_grace_column()
             _ensure_location_name_length()
@@ -2748,6 +2844,7 @@ def create_app():
             _ensure_admin_tenant_uniques()
             _ensure_manager_contact_tenant_id()
             _ensure_it_tenant_ids()
+            _ensure_it_perf_indexes()
             _ensure_news_feed_tenant_id()
             _ensure_leave_balance_defaults()
             _ensure_probation_review_columns()
@@ -2759,6 +2856,7 @@ def create_app():
             _ensure_payroll_lifecycle_tables()
             _ensure_master_data_tenant_ids()
             _ensure_company_settings_table()
+            _ensure_background_jobs_table()
             _ensure_employee_profile_change_table()
             _ensure_upload_path_columns()
             _ensure_phase3_hr_tables()
@@ -2805,6 +2903,8 @@ def create_app():
     register_upload_relocation_commands(app)
     from .commands.itam_media import register_itam_media_commands
     register_itam_media_commands(app)
+    from .commands.jobs_worker import register_jobs_worker_command
+    register_jobs_worker_command(app)
 
     # ---------------------------
     # APScheduler: daily HR jobs (probation, compoff, leave accrual) - no manual intervention
@@ -2866,6 +2966,13 @@ def create_app():
             "func": "website.scheduler:run_daily_checkout_job",
             "trigger": "interval",
             "minutes": 15,
+        },
+        {
+            # Phase 6: drain pending background jobs when no dedicated worker is running.
+            "id": "background_jobs_flush",
+            "func": "website.scheduler:run_background_jobs_flush",
+            "trigger": "interval",
+            "minutes": 1,
         },
     ]
     scheduler.init_app(app)

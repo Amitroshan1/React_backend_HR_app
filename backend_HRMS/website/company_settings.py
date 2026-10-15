@@ -52,15 +52,24 @@ def stored_settings(namespace: str, tenant_id: int) -> Optional[dict]:
         return cache[key]
     data = None
     try:
+        from .cache import NS_SETTINGS, cached_json
         from .models.company_setting import CompanySetting
 
-        row = CompanySetting.query.filter_by(tenant_id=int(tenant_id), namespace=namespace).first()
-        if row is not None:
+        def load():
+            row = CompanySetting.query.filter_by(tenant_id=int(tenant_id), namespace=namespace).first()
+            if row is None:
+                return {"saved": False, "data": None}
             try:
                 parsed = json.loads(row.data or "{}")
             except (TypeError, ValueError):
                 parsed = {}
-            data = parsed if isinstance(parsed, dict) else {}
+            return {"saved": True, "data": parsed if isinstance(parsed, dict) else {}}
+
+        wrapped = cached_json(NS_SETTINGS, int(tenant_id), namespace, load)
+        if isinstance(wrapped, dict) and wrapped.get("saved"):
+            data = wrapped.get("data") if isinstance(wrapped.get("data"), dict) else {}
+        else:
+            data = None
     except Exception:
         data = None
     cache[key] = data
@@ -80,6 +89,9 @@ def save_settings(namespace: str, tenant_id: int, data: dict, *, admin_id: Optio
     row.updated_by_admin_id = admin_id
     db.session.commit()
     _cache()[(namespace, int(tenant_id))] = dict(data)
+    from .cache import NS_SETTINGS, bump
+
+    bump(NS_SETTINGS, int(tenant_id))
 
 
 def company_name(tenant_id: int) -> str:

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { CalendarPlus } from 'lucide-react';
+import { CalendarPlus, Check, UserRound } from 'lucide-react';
 import './HRApplyLeaveOnBehalf.css';
 
 export const HR_LEAVE_API_BASE = '/api/HumanResource';
@@ -22,6 +22,13 @@ export const LEAVE_STATUS_OPTIONS = [
 export function getHrAuthHeaders() {
   const token = localStorage.getItem('token');
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function initialsOf(label) {
+  const name = String(label || '').replace(/\(.*\)/, '').replace(/[^a-zA-Z\s]/g, ' ').trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'E';
+  return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase();
 }
 
 const EMPTY_FORM = {
@@ -58,6 +65,13 @@ export function HRApplyLeaveOnBehalf({
       });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (embedded && adminId) {
+      setShowForm(true);
+      setFormSuccess('');
+    }
+  }, [embedded, adminId]);
 
   const resetForm = useCallback(() => {
     setForm(EMPTY_FORM);
@@ -174,7 +188,7 @@ export function HRApplyLeaveOnBehalf({
       setFormSuccess(json.message || 'Leave applied successfully.');
       resetForm();
       setShowForm(false);
-      window.dispatchEvent(new CustomEvent('leaveDataUpdated'));
+      if (!json.pending_approval) window.dispatchEvent(new CustomEvent('leaveDataUpdated'));
       if (onSuccess) await onSuccess(json);
     } catch (err) {
       setFormError(err.message || 'Network error');
@@ -189,12 +203,31 @@ export function HRApplyLeaveOnBehalf({
       }`
     : null;
 
+  if (embedded && !adminId) {
+    return (
+      <section className="hr-leave-on-behalf hr-leave-on-behalf--embedded hr-leave-on-behalf--waiting" aria-label="Apply leave on behalf">
+        <span className="hr-leave-on-behalf__waiting-icon"><UserRound size={20} /></span>
+        <div>
+          <strong>No employee selected yet</strong>
+          <p className="hr-leave-on-behalf__hint">
+            Pick an employee in step 1 to open the leave form.
+            {policyHint ? ` ${policyHint}.` : ''}
+          </p>
+        </div>
+        {formSuccess ? <p className="hr-leave-on-behalf__success" role="status"><Check size={15} /> {formSuccess}</p> : null}
+      </section>
+    );
+  }
+
   return (
     <section
       className={`hr-leave-on-behalf ${embedded ? 'hr-leave-on-behalf--embedded' : ''}`}
       aria-label="Apply leave on behalf"
     >
       <div className="hr-leave-on-behalf__head">
+        {embedded && employeeLabel ? (
+          <span className="hr-leave-on-behalf__avatar">{initialsOf(employeeLabel)}</span>
+        ) : null}
         <div className="hr-leave-on-behalf__head-copy">
           {embedded && employeeLabel ? (
             <p className="hr-leave-on-behalf__selected">
@@ -211,7 +244,7 @@ export function HRApplyLeaveOnBehalf({
         </div>
         <button
           type="button"
-          className="hr-leave-on-behalf__toggle"
+          className={`hr-leave-on-behalf__toggle${showForm ? ' is-open' : ''}`}
           onClick={() => {
             setShowForm((v) => !v);
             setFormError('');
@@ -286,16 +319,13 @@ export function HRApplyLeaveOnBehalf({
               ) : previewError ? (
                 <span>{previewError}</span>
               ) : preview ? (
-                <>
-                  <strong>Preview:</strong>
-                  {' '}
-                  Paid days {preview.deducted_days ?? '—'}
-                  {' • '}
-                  LWP {preview.extra_days ?? '—'}
-                  {' • '}
-                  Suggested status: {preview.suggested_status || '—'}
-                  {preview.is_backdated ? ' (backdated)' : ''}
-                </>
+                <div className="hr-leave-on-behalf__preview-chips">
+                  <span className="hr-leave-on-behalf__preview-title">Preview</span>
+                  <span className="hr-leave-on-behalf__chip">Paid days <strong>{preview.deducted_days ?? '—'}</strong></span>
+                  <span className="hr-leave-on-behalf__chip">LWP <strong>{preview.extra_days ?? '—'}</strong></span>
+                  <span className="hr-leave-on-behalf__chip">Status <strong>{preview.suggested_status || '—'}</strong></span>
+                  {preview.is_backdated ? <span className="hr-leave-on-behalf__chip is-warn">Backdated</span> : null}
+                </div>
               ) : null}
             </div>
           )}

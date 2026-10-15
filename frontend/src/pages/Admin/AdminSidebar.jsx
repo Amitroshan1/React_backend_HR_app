@@ -7,6 +7,7 @@ import {
   ChartColumn,
   ChevronDown,
   CircleDollarSign,
+  Landmark,
   CircleUserRound,
   Handshake,
   ClipboardCheck,
@@ -16,6 +17,7 @@ import {
   Mail,
   Monitor,
   Package,
+  ShieldCheck,
   UserMinus,
   UserPlus,
   Users,
@@ -41,6 +43,18 @@ const groups = [
       { id: 'customers', to: '/admin/customers', label: 'Customers', icon: Building2 },
       { id: 'register', to: '/admin/customers/register', label: 'Register company', icon: UserPlus },
       { id: 'mailboxes', to: '/admin/mailboxes', label: 'Company mailboxes', icon: Mail },
+      { id: 'approval-settings', to: '/admin/approval-settings', label: 'Approval settings', icon: ShieldCheck },
+    ],
+  },
+  {
+    id: 'workspaces',
+    label: 'Workspaces',
+    items: [
+      { id: 'hr', to: '/hr', label: 'HR Management', icon: ClipboardList, external: true },
+      { id: 'accounts', to: '/account', label: 'Accounts Management', icon: CircleDollarSign, external: true },
+      { id: 'finance', to: '/finance', label: 'Finance', icon: Landmark, external: true },
+      { id: 'it', to: '/it', label: 'IT Management', icon: Monitor, external: true },
+      { id: 'inventory', to: '/it/inventory', label: 'Inventory Management', icon: Package, external: true },
     ],
   },
   {
@@ -53,16 +67,6 @@ const groups = [
       { id: 'queries', to: '/admin/queries', label: 'All Queries', icon: Inbox },
       { id: 'claims', to: '/admin/claims', label: 'Claims', icon: Wallet },
       { id: 'resignations', to: '/admin/resignations', label: 'Resignations', icon: UserMinus },
-    ],
-  },
-  {
-    id: 'workspaces',
-    label: 'Workspaces',
-    items: [
-      { id: 'hr', to: '/hr', label: 'HR Management', icon: ClipboardList, external: true },
-      { id: 'accounts', to: '/account', label: 'Accounts Management', icon: CircleDollarSign, external: true },
-      { id: 'it', to: '/it', label: 'IT Management', icon: Monitor, external: true },
-      { id: 'inventory', to: '/it/inventory', label: 'Inventory Management', icon: Package, external: true },
     ],
   },
   {

@@ -70,6 +70,12 @@ def _other_tenant(viewer_admin, record_admin):
     )
 
 
+def _leave_can_act(approver, row):
+    from .leave_two_step import can_act
+
+    return can_act(approver, row)
+
+
 def _is_manager_for_target(approver_admin, target_admin):
     """True if approver is L1/L2/L3 in target's ManagerContact."""
     if not approver_admin or not target_admin:
@@ -326,12 +332,18 @@ def list_leave_requests():
         return err
 
     status = (request.args.get("status") or "Pending").strip()
+    actionable_only = status.lower() == "pending"
     query = LeaveApplication.query.filter(LeaveApplication.admin_id.in_(_tenant_ids(admin)))
-    if status.lower() != "all":
+    if actionable_only:
+        query = query.filter(LeaveApplication.status.in_(["Pending", "L1 Approved"]))
+    elif status.lower() != "all":
         query = query.filter(LeaveApplication.status == status)
 
     rows = query.order_by(LeaveApplication.created_at.desc(), LeaveApplication.id.desc()).all()
     managed = [row for row in rows if _is_manager_for_target(admin, row.admin)]
+    if actionable_only:
+        from .leave_two_step import can_act
+        managed = [row for row in managed if can_act(admin, row)]
 
     # Comp Off: FIFO credit preview so manager sees expiry / earned dates per request
     from collections import defaultdict
@@ -387,6 +399,8 @@ def list_leave_requests():
             "start_date": _serialize_date(row.start_date),
             "end_date": _serialize_date(row.end_date),
             "status": row.status,
+            "can_act": True if actionable_only else _leave_can_act(admin, row),
+            "waiting_on": "l1" if row.status == "Pending" else "l2" if row.status == "L1 Approved" else "",
             "deducted_days": row.deducted_days,
             "extra_days": row.extra_days,
             "requested_deducted_days": getattr(row, "requested_deducted_days", 0.0),
@@ -399,6 +413,50 @@ def list_leave_requests():
         })
 
     return jsonify({"success": True, "requests": items}), 200
+
+
+def _apply_approved_leave_balance(leave_obj):
+    """Cut paid balance only after the request is finally approved. Returns an error response or None."""
+    if leave_obj.status != "Approved":
+        return None
+    leave_balance = leave_obj.admin.leave_balance if leave_obj.admin else None
+    deducted = float(leave_obj.deducted_days or 0.0)
+    requested_deducted = float(getattr(leave_obj, "requested_deducted_days", 0.0) or 0.0)
+    sandwich_pl = float(getattr(leave_obj, "sandwich_pl_days", 0.0) or 0.0)
+    if not leave_balance or (deducted <= 0 and sandwich_pl <= 0):
+        return None
+    lt = leave_obj.leave_type
+    if lt == "Privilege Leave":
+        current = float(leave_balance.privilege_leave_balance or 0.0)
+        leave_balance.privilege_leave_balance = max(0.0, current - deducted)
+        leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + deducted
+    elif lt == "Casual Leave":
+        current = float(leave_balance.casual_leave_balance or 0.0)
+        leave_balance.casual_leave_balance = max(0.0, current - requested_deducted)
+        leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + requested_deducted
+    elif lt == "Compensatory Leave":
+        from .compoff_utils import deduct_comp_leave
+        if not deduct_comp_leave(leave_obj.admin_id, requested_deducted):
+            db.session.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Insufficient comp-off balance (may have expired). Please refresh and try again."
+            }), 400
+        leave_balance.used_comp_leave = float(leave_balance.used_comp_leave or 0.0) + requested_deducted
+    elif lt == "Half Day Leave":
+        extra = float(leave_obj.extra_days or 0.0)
+        if extra < 0.5:
+            if float(leave_balance.casual_leave_balance or 0.0) >= 0.5:
+                leave_balance.casual_leave_balance -= 0.5
+                leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + 0.5
+            elif float(leave_balance.privilege_leave_balance or 0.0) >= 0.5:
+                leave_balance.privilege_leave_balance -= 0.5
+                leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + 0.5
+    if sandwich_pl > 0 and lt not in ("Privilege Leave", "Optional Leave"):
+        current_pl = float(leave_balance.privilege_leave_balance or 0.0)
+        leave_balance.privilege_leave_balance = max(0.0, current_pl - sandwich_pl)
+        leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + sandwich_pl
+    return None
 
 
 @manager.route("/leave-requests/<int:leave_id>/action", methods=["POST"])
@@ -417,69 +475,18 @@ def act_on_leave_request(leave_id):
         return jsonify({"success": False, "message": "Leave request not found"}), 404
     if not _is_manager_for_target(approver, leave_obj.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
-    if leave_obj.status != "Pending":
-        return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
 
-    new_status = "Approved" if action == "approve" else "Rejected"
-    leave_obj.status = new_status
+    from .leave_two_step import ApprovalError, decide_request
 
-    leave_balance = leave_obj.admin.leave_balance if leave_obj.admin else None
-    deducted = float(leave_obj.deducted_days or 0.0)
-    requested_deducted = float(getattr(leave_obj, "requested_deducted_days", 0.0) or 0.0)
-    sandwich_pl = float(getattr(leave_obj, "sandwich_pl_days", 0.0) or 0.0)
+    try:
+        outcome = decide_request(leave_obj, approver, action)
+    except ApprovalError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 409
 
-    # Apply balance changes ONLY on approval.
-    # Rejected requests do not touch LeaveBalance.
-    if new_status == "Approved" and leave_balance and (deducted > 0 or sandwich_pl > 0):
-        lt = leave_obj.leave_type
-
-        # Privilege Leave
-        if lt == "Privilege Leave":
-            # For PL requests, deducted_days already includes any sandwich effect.
-            current = float(leave_balance.privilege_leave_balance or 0.0)
-            leave_balance.privilege_leave_balance = max(0.0, current - deducted)
-            leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + deducted
-
-        # Casual Leave
-        elif lt == "Casual Leave":
-            # Deduct only working-day portion from CL; sandwich days are handled via sandwich_pl_days below.
-            current = float(leave_balance.casual_leave_balance or 0.0)
-            leave_balance.casual_leave_balance = max(0.0, current - requested_deducted)
-            leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + requested_deducted
-
-        # Compensatory Leave (deduct from CompOffGain oldest-first, then sync to LeaveBalance)
-        elif lt == "Compensatory Leave":
-            from .compoff_utils import deduct_comp_leave
-            if not deduct_comp_leave(leave_obj.admin_id, requested_deducted):
-                db.session.rollback()
-                return jsonify({
-                    "success": False,
-                    "message": "Insufficient comp-off balance (may have expired). Please refresh and try again."
-                }), 400
-            leave_balance.used_comp_leave = float(leave_balance.used_comp_leave or 0.0) + requested_deducted
-
-        # Half Day Leave: treat as 0.5 day CL (or PL) unless it was pure LOP (extra_days >= 0.5)
-        elif lt == "Half Day Leave":
-            extra = float(leave_obj.extra_days or 0.0)
-            if extra < 0.5:
-                # There was sufficient balance when applied; now consume from CL if possible, else PL.
-                if float(leave_balance.casual_leave_balance or 0.0) >= 0.5:
-                    leave_balance.casual_leave_balance -= 0.5
-                    leave_balance.used_casual_leave = float(leave_balance.used_casual_leave or 0.0) + 0.5
-                elif float(leave_balance.privilege_leave_balance or 0.0) >= 0.5:
-                    leave_balance.privilege_leave_balance -= 0.5
-                    leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + 0.5
-                # else: treat as LOP at this point as well (no balance change)
-
-        # Optional Leave: never touches leave balances
-        elif lt == "Optional Leave":
-            pass
-
-        # Sandwich leave: deduct sandwich days from PL if recorded (leave with pay).
-        if sandwich_pl > 0 and lt not in ("Privilege Leave", "Optional Leave"):
-            current_pl = float(leave_balance.privilege_leave_balance or 0.0)
-            leave_balance.privilege_leave_balance = max(0.0, current_pl - sandwich_pl)
-            leave_balance.used_privilege_leave = float(leave_balance.used_privilege_leave or 0.0) + sandwich_pl
+    new_status = leave_obj.status
+    balance_err = _apply_approved_leave_balance(leave_obj)
+    if balance_err:
+        return balance_err
 
     _append_self_approval_audit_if_needed(
         approver=approver,
@@ -491,15 +498,21 @@ def act_on_leave_request(leave_id):
     )
     db.session.commit()
 
-    # Fire-and-forget email notification; never break API on failure
+    # Fire-and-forget email notification; never break API on failure.
+    # L1 approval is not final, so the employee is told only when the request closes.
     try:
-        send_leave_decision_email(leave_obj, approver, action)
+        if new_status in ("Approved", "Rejected"):
+            send_leave_decision_email(leave_obj, approver, action)
     except Exception:
         current_app.logger.warning(
             "send_leave_decision_email failed for leave_id=%s", getattr(leave_obj, "id", None)
         )
 
-    return jsonify({"success": True, "message": f"Leave request {new_status.lower()}"}), 200
+    return jsonify({
+        "success": True,
+        "status": new_status,
+        "message": f"Leave request {new_status.lower()}",
+    }), 200
 
 
 @manager.route("/wfh-requests", methods=["GET"])
@@ -510,16 +523,21 @@ def list_wfh_requests():
         return err
 
     status = (request.args.get("status") or "Pending").strip()
+    actionable_only = status.lower() == "pending"
     query = WorkFromHomeApplication.query.filter(
         WorkFromHomeApplication.admin_id.in_(_tenant_ids(admin))
     )
-    if status.lower() != "all":
+    if actionable_only:
+        query = query.filter(WorkFromHomeApplication.status.in_(["Pending", "L1 Approved"]))
+    elif status.lower() != "all":
         query = query.filter(WorkFromHomeApplication.status == status)
 
     rows = query.order_by(WorkFromHomeApplication.created_at.desc(), WorkFromHomeApplication.id.desc()).all()
     items = []
     for row in rows:
         if not _is_manager_for_target(admin, row.admin):
+            continue
+        if actionable_only and not _leave_can_act(admin, row):
             continue
         items.append({
             "id": row.id,
@@ -532,6 +550,8 @@ def list_wfh_requests():
             "end_date": _serialize_date(row.end_date),
             "reason": row.reason,
             "status": row.status,
+            "can_act": True if actionable_only else _leave_can_act(admin, row),
+            "waiting_on": "l1" if row.status == "Pending" else "l2" if row.status == "L1 Approved" else "",
             "created_at": _serialize_date(row.created_at),
         })
 
@@ -554,10 +574,13 @@ def act_on_wfh_request(wfh_id):
         return jsonify({"success": False, "message": "WFH request not found"}), 404
     if not _is_manager_for_target(approver, wfh_obj.admin):
         return jsonify({"success": False, "message": "Not allowed for this employee"}), 403
-    if wfh_obj.status != "Pending":
-        return jsonify({"success": False, "message": "Only pending requests can be updated"}), 409
 
-    wfh_obj.status = "Approved" if action == "approve" else "Rejected"
+    from .leave_two_step import ApprovalError, decide_request
+
+    try:
+        decide_request(wfh_obj, approver, action)
+    except ApprovalError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 409
     _append_self_approval_audit_if_needed(
         approver=approver,
         target=wfh_obj.admin,
@@ -569,13 +592,108 @@ def act_on_wfh_request(wfh_id):
     db.session.commit()
 
     try:
-        send_wfh_decision_email(wfh_obj, approver, action)
+        if wfh_obj.status in ("Approved", "Rejected"):
+            send_wfh_decision_email(wfh_obj, approver, action)
     except Exception:
         current_app.logger.warning(
             "send_wfh_decision_email failed for wfh_id=%s", getattr(wfh_obj, "id", None)
         )
 
-    return jsonify({"success": True, "message": f"WFH request {wfh_obj.status.lower()}"}), 200
+    return jsonify({
+        "success": True,
+        "status": wfh_obj.status,
+        "message": f"WFH request {wfh_obj.status.lower()}",
+    }), 200
+
+
+@manager.route("/approval-consent", methods=["POST"])
+@jwt_required()
+def give_approval_consent():
+    """L2 accepts several L1-approved requests in one step."""
+    approver, err = _ensure_manager_user()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    leave_ids = [int(item) for item in (data.get("leave_ids") or [])]
+    wfh_ids = [int(item) for item in (data.get("wfh_ids") or [])]
+    if not leave_ids and not wfh_ids:
+        return jsonify({"success": False, "message": "Select at least one request."}), 400
+
+    from .leave_two_step import ApprovalError, decide_request, send_consent_email
+
+    approved = []
+    try:
+        for leave_id in leave_ids:
+            row = LeaveApplication.query.get(leave_id)
+            if not row or _other_tenant(approver, row.admin):
+                raise ApprovalError("Leave request was not found.")
+            if row.status != "L1 Approved":
+                raise ApprovalError("Consent is only for requests L1 has already approved.")
+            outcome = decide_request(row, approver, "approve")
+            if outcome != "approved":
+                raise ApprovalError("This request still needs L1.")
+            balance_err = _apply_approved_leave_balance(row)
+            if balance_err:
+                return balance_err
+            approved.append(("Leave", row))
+        for wfh_id in wfh_ids:
+            row = WorkFromHomeApplication.query.get(wfh_id)
+            if not row or _other_tenant(approver, row.admin):
+                raise ApprovalError("Work-from-home request was not found.")
+            if row.status != "L1 Approved":
+                raise ApprovalError("Consent is only for requests L1 has already approved.")
+            outcome = decide_request(row, approver, "approve")
+            if outcome != "approved":
+                raise ApprovalError("This request still needs L1.")
+            approved.append(("Work from home", row))
+        db.session.commit()
+    except ApprovalError as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(exc)}), 409
+
+    send_consent_email(approver, approved)
+    for kind, row in approved:
+        try:
+            if kind == "Leave":
+                send_leave_decision_email(row, approver, "approve")
+            else:
+                send_wfh_decision_email(row, approver, "approve")
+        except Exception:
+            current_app.logger.warning("Decision email failed after consent for %s %s", kind, row.id)
+    return jsonify({"success": True, "approved": len(approved)}), 200
+
+
+@manager.route("/greyed-requests/unlock", methods=["POST"])
+@jwt_required()
+def request_greyed_unlock():
+    """Ask Admin to release selected greyed-out leave and work-from-home requests."""
+    approver, err = _ensure_manager_user()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    from .leave_two_step import ApprovalError, can_release, describe_unlock_item, stage_unlock_request
+
+    items = []
+    try:
+        for leave_id in data.get("leave_ids") or []:
+            row = LeaveApplication.query.get(int(leave_id))
+            if not row or _other_tenant(approver, row.admin) or not can_release(approver, row):
+                raise ApprovalError("A selected leave request cannot be released by you.")
+            items.append(describe_unlock_item("leave", row))
+        for wfh_id in data.get("wfh_ids") or []:
+            row = WorkFromHomeApplication.query.get(int(wfh_id))
+            if not row or _other_tenant(approver, row.admin) or not can_release(approver, row):
+                raise ApprovalError("A selected work-from-home request cannot be released by you.")
+            items.append(describe_unlock_item("wfh", row))
+        stage_unlock_request(approver, items)
+        db.session.commit()
+    except ApprovalError as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(exc)}), 400
+    return jsonify({
+        "success": True,
+        "message": "Sent to Admin. These requests stay locked until Admin approves the release.",
+    }), 201
 
 
 def _claim_status(items):
@@ -849,17 +967,19 @@ def pending_request_counts():
     noc_count = 0
 
     if team_ids:
-        leave_count = (
-            LeaveApplication.query.filter(
-                LeaveApplication.status == "Pending",
+        leave_count = sum(
+            1 for row in LeaveApplication.query.filter(
+                LeaveApplication.status.in_(["Pending", "L1 Approved"]),
                 LeaveApplication.admin_id.in_(team_ids),
-            ).count()
+            ).all()
+            if _leave_can_act(admin, row)
         )
-        wfh_count = (
-            WorkFromHomeApplication.query.filter(
-                WorkFromHomeApplication.status == "Pending",
+        wfh_count = sum(
+            1 for row in WorkFromHomeApplication.query.filter(
+                WorkFromHomeApplication.status.in_(["Pending", "L1 Approved"]),
                 WorkFromHomeApplication.admin_id.in_(team_ids),
-            ).count()
+            ).all()
+            if _leave_can_act(admin, row)
         )
         resignation_count = (
             Resignation.query.filter(

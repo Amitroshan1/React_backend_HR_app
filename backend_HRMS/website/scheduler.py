@@ -46,6 +46,21 @@ def run_daily_hr_jobs_for_tenant(today, tenant_id, log):
         log.exception("scheduler: leave-pending-reminder failed for tenant %s: %s", tenant_id, e)
 
     try:
+        from .leave_two_step import grey_out_closed_months, send_month_end_reminders
+
+        greyed = grey_out_closed_months(today, tenant_id)
+        reminded = send_month_end_reminders(today, tenant_id)
+        if greyed or reminded:
+            log.info(
+                "scheduler: leave two-step tenant %s greyed=%s reminders=%s",
+                tenant_id,
+                greyed,
+                reminded,
+            )
+    except Exception as e:
+        log.exception("scheduler: leave two-step failed for tenant %s: %s", tenant_id, e)
+
+    try:
         deactivated = run_lwd_deactivation_job(today, tenant_id=tenant_id)
         if deactivated:
             log.info(
@@ -228,6 +243,27 @@ def run_daily_checkout_job():
             flush_outbox()
         except Exception as e:
             log.exception("scheduler: day-use checkout job failed: %s", e)
+            from . import db
+
+            db.session.rollback()
+
+
+def run_background_jobs_flush():
+    """Phase 6: process pending background jobs (safety net when no CLI worker)."""
+    if _app is None:
+        return
+    with _app.app_context():
+        log = _app.logger
+        try:
+            from .jobs import jobs_enabled, process_pending
+
+            if not jobs_enabled():
+                return
+            n = process_pending()
+            if n:
+                log.info("scheduler: background jobs processed=%s", n)
+        except Exception as e:
+            log.exception("scheduler: background jobs flush failed: %s", e)
             from . import db
 
             db.session.rollback()

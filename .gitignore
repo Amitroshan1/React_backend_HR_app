@@ -18,6 +18,7 @@ backend_HRMS/website/static/uploads/
 backend_HRMS/website/static/uploads/**/*.pdf
 backend_HRMS/website/static/uploads/signatures/
 backend_HRMS/instance/upload_relocation/
+backend_HRMS/instance/itam_photo_backups/
 
 # Silo deploy runtime (see deploy/README.md)
 deploy/artifacts/**

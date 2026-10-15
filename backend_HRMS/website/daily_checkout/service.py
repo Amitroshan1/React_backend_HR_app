@@ -580,9 +580,20 @@ def reject_request(actor, request_id, reason):
     return row
 
 
+DAILY_UNIT_ORDER = (ITAssetUnit.hw_type.asc(), ITAssetUnit.asset_name.asc(), ITAssetUnit.id.asc())
+
+
 def list_available_daily_units(hw_type=None, search=None):
     """Available hardware units from inventory management (same stock as IT inventory)."""
-    q = it_query(ITAssetUnit).filter(db.func.lower(ITAssetUnit.status) == "available")
+    from ..it import load_units_for_listing
+
+    return load_units_for_listing(available_daily_units_query(hw_type, search), DAILY_UNIT_ORDER)
+
+
+def available_daily_units_query(hw_type=None, search=None):
+    from ..query_utils import ci_equals
+
+    q = it_query(ITAssetUnit).filter(ci_equals(ITAssetUnit.status, "available"))
     # Match inventory hardware devices; exclude software seats (those live in licenses).
     q = q.filter(
         db.or_(
@@ -592,7 +603,7 @@ def list_available_daily_units(hw_type=None, search=None):
         )
     )
     if hw_type:
-        q = q.filter(db.func.lower(ITAssetUnit.hw_type) == hw_type.strip().lower())
+        q = q.filter(ci_equals(ITAssetUnit.hw_type, hw_type.strip()))
     term = (search or "").strip()
     if term:
         like = f"%{term}%"
@@ -612,10 +623,10 @@ def list_available_daily_units(hw_type=None, search=None):
                 ITAssetUnit.device_location.ilike(like),
             )
         )
-    held_ids = [h.asset_unit_id for h in DailyUnitHold.query.all()]
+    held_ids = [unit_id for (unit_id,) in db.session.query(DailyUnitHold.asset_unit_id)]
     if held_ids:
         q = q.filter(~ITAssetUnit.id.in_(held_ids))
-    return q.order_by(ITAssetUnit.hw_type.asc(), ITAssetUnit.asset_name.asc(), ITAssetUnit.id.asc()).all()
+    return q
 
 
 def _normalize_accessory_comments(raw_comments, request_items):

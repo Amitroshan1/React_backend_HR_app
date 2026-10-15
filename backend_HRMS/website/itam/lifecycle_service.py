@@ -28,6 +28,57 @@ def lifecycle_enabled(config=None) -> bool:
     return is_itam_flag_enabled("itam_lifecycle_v1", config)
 
 
+_OPEN_DEPLOY_KEY = "_itam_open_deploy_units"
+
+
+def _needs_open_deploy_check(unit: ITAssetUnit) -> bool:
+    return bool(
+        unit.id
+        and not getattr(unit, "lifecycle_status", None)
+        and (unit.status or "").lower() == "assigned"
+        and not unit.assigned_to_admin_id
+    )
+
+
+def prime_open_deployments(units) -> None:
+    """Look up open location deployments for many units at once; resolve_unit_lifecycle reuses it."""
+    from flask import g, has_request_context
+
+    if not has_request_context():
+        return
+    ids = sorted({int(u.id) for u in units if _needs_open_deploy_check(u)})
+    deployed = set()
+    for start in range(0, len(ids), 1000):
+        chunk = ids[start:start + 1000]
+        deployed.update(
+            row[0]
+            for row in db.session.query(ITOfficeStockDeployment.asset_unit_id)
+            .filter(
+                ITOfficeStockDeployment.asset_unit_id.in_(chunk),
+                ITOfficeStockDeployment.quantity > 0,
+            )
+            .distinct()
+        )
+    checked, known = g.setdefault(_OPEN_DEPLOY_KEY, (set(), set()))
+    checked.update(ids)
+    known.update(deployed)
+
+
+def _has_open_deploy(unit_id: int) -> bool:
+    from flask import g, has_request_context
+
+    primed = g.get(_OPEN_DEPLOY_KEY) if has_request_context() else None
+    if primed is not None and unit_id in primed[0]:
+        return unit_id in primed[1]
+    return (
+        ITOfficeStockDeployment.query.filter(
+            ITOfficeStockDeployment.asset_unit_id == unit_id,
+            ITOfficeStockDeployment.quantity > 0,
+        ).first()
+        is not None
+    )
+
+
 def _should_apply(config=None, require: Optional[bool] = None) -> bool:
     enabled = lifecycle_enabled(config)
     if require is None:
@@ -57,13 +108,7 @@ def resolve_unit_lifecycle(
     # Location deploy rows mark Deployed even when legacy status is "assigned".
     open_deploy = False
     if unit.id and (unit.status or "").lower() == "assigned" and not has_emp:
-        open_deploy = (
-            ITOfficeStockDeployment.query.filter(
-                ITOfficeStockDeployment.asset_unit_id == unit.id,
-                ITOfficeStockDeployment.quantity > 0,
-            ).first()
-            is not None
-        )
+        open_deploy = _has_open_deploy(int(unit.id))
 
     life = canonical_status(
         unit.status,

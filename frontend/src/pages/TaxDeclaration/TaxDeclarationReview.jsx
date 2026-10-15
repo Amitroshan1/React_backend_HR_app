@@ -16,7 +16,7 @@ import { notifyError, notifySuccess } from "../../utils/notify";
 import { TdsSettingsPanel } from "./TdsSettingsPanel";
 import "./TaxDeclaration.css";
 
-export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpenDetail }) {
+export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpenDetail, showCompanySettings = true }) {
     const [financialYear, setFinancialYear] = useState(defaultFinancialYear);
     const [statusFilter, setStatusFilter] = useState("all");
     const [declarations, setDeclarations] = useState([]);
@@ -288,7 +288,7 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                     </div>
                 </section>
 
-                <TdsSettingsPanel apiBase={apiBase} onSaved={loadDeadline} />
+                {showCompanySettings ? <TdsSettingsPanel apiBase={apiBase} onSaved={loadDeadline} /> : null}
 
                 {loading ? (
                     <p className="tax-decl-muted">Loading declarations…</p>

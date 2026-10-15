@@ -49,6 +49,19 @@
   min-height: 36px;
 }
 
+.rr-search {
+  flex: 1 1 240px;
+  max-width: 360px;
+  margin-left: auto;
+  border: 1px solid #dbe2ea;
+  border-radius: 999px;
+  padding: 8px 14px;
+  min-height: 36px;
+  font-family: inherit;
+  font-size: 13px;
+  background: #fff;
+}
+
 .rr-chip.active {
   background: #2563eb;
   color: #fff;
@@ -229,6 +242,12 @@
   .rr-chip {
     flex: 1 1 calc(50% - 6px);
     text-align: center;
+  }
+
+  .rr-search {
+    flex: 1 1 100%;
+    max-width: none;
+    margin-left: 0;
   }
 
   .rr-table-wrap.it-m-scroll--cards {
