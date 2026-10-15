@@ -173,13 +173,21 @@ The frontend proxies `/api` and `/static` to the Flask backend (default: `http:/
    ```
    App runs at `http://localhost:5173` with API proxy to backend
 
-### Production Build
+### Production / go live (manual pull on the server)
+
+Cursor and localhost are **not** production. On the live host:
+
+1. `git pull`
+2. Merge new keys from `backend_HRMS/.env.example` into the server’s `.env` (keep secrets)
+3. `pip install -r requirements.txt` and `cd frontend && npm ci && npm run build`
+4. Run `gunicorn -c gunicorn.conf.py wsgi:app` (set Redis / `BACKGROUND_JOBS` there)
+
+Full checklist: **[deploy/GO_LIVE.md](deploy/GO_LIVE.md)**.
 
 ```bash
-# Frontend
+# Frontend build (on the live server)
 cd frontend && npm run build
-
-# Serve the `frontend/dist` folder (e.g. via nginx) and ensure API/static are proxied to the Flask backend.
+# Serve frontend/dist via nginx; proxy /api and /static/uploads to gunicorn
 ```
 
 ---
@@ -210,4 +218,6 @@ cd frontend && npm run build
 | Frontend | React 19, Vite, React Router, Tailwind, React Toastify |
 | Backend  | Flask, SQLAlchemy, Flask-Migrate, JWT, Bcrypt, CORS   |
 | DB       | MySQL (via PyMySQL)                    |
-| Jobs     | Flask-APScheduler                      |
+| Jobs     | Flask-APScheduler + optional background job worker |
+| Cache    | Optional Redis (`CACHE_REDIS_URL`)     |
+| Prod web | gunicorn (`gunicorn.conf.py`)          |

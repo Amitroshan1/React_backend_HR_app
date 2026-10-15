@@ -185,7 +185,7 @@ def build_env_template(
         f"UPLOADS_ROOT={uploads}",
         "API_PAGINATION_V1=1",
         "",
-        "# Phase 5–6 (optional Redis + background jobs + gunicorn)",
+        "# Live performance (see deploy/GO_LIVE.md). Safe defaults without Redis.",
         "# CACHE_REDIS_URL=redis://127.0.0.1:6379/0",
         "RATE_LIMIT_BACKEND=auto",
         "CACHE_DEFAULT_TIMEOUT=300",
