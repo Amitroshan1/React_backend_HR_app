@@ -315,9 +315,8 @@ def create_app():
         return user
 
 
-    # ---------------------------
-    # Create tables (DEV ONLY — set RUN_DB_CREATE_ALL=0 on production/test servers)
-    # ---------------------------
+    # Full create_all is optional. Missing tables/columns are aligned later
+    # (SCHEMA_ALIGN_ON_START, additive only — existing production rows stay).
     if os.getenv("RUN_DB_CREATE_ALL", "0").strip() == "1":
         with app.app_context():
             try:
@@ -2945,6 +2944,20 @@ def create_app():
         except Exception:
             pass
         db.session.remove()
+        try:
+            if os.getenv("SCHEMA_ALIGN_ON_START", "1").strip() != "0":
+                from .schema_align import align_schema
+
+                summary = align_schema(db, logger=app.logger)
+                if summary.get("created_tables") or summary.get("added_columns"):
+                    app.logger.info(
+                        "schema align created=%s added=%s errors=%s",
+                        summary.get("created_tables") or [],
+                        summary.get("added_columns") or [],
+                        len(summary.get("errors") or []),
+                    )
+        except Exception as e:
+            app.logger.warning("schema align skipped: %s", e)
         try:
             _ensure_upload_doc_identity_columns()
             _ensure_ctc_breakup_columns()
