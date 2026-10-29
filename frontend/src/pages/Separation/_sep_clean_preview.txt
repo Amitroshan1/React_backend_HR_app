@@ -1,0 +1,80 @@
+import React, { useState, useEffect } from 'react';
+import { useUser } from '../../components/layout/UserContext';
+import { Toast } from '../Wfh/ui/Toast';
+import './Separation.css';
+import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { formatDate } from '../../utils/dateFormat';
+
+const API_BASE_URL = "/api/leave";
+const SUBMIT_ENABLE_CHARS = 10;
+const NOTICE_CHARS = 500;
+const EMPTY_NOTICE = {
+notice_active: false,
+notice_period_days: 90,
+notice_start_date: null,
+notice_end_date: null,
+days_left: 0,
+can_revoke: false,
+};
+
+const toDateInputValue = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const mth = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mth}-${day}`;
+};
+
+function Button({ children, variant = "primary", className = "", ...props }) {
+return (
+<button
+type="button"
+className={["btn", variant, className].filter(Boolean).join(" ")}
+{...props}
+>
+{children}
+</button>
+);
+}
+
+function DownloadNocButton({ apiBase }) {
+const [downloading, setDownloading] = useState(false);
+const handleDownload = async () => {
+const token = localStorage.getItem('token');
+if (!token) return;
+setDownloading(true);
+try {
+const res = await fetch(`${apiBase}/noc-document`, { headers: { Authorization: `Bearer ${token}` } });
+if (!res.ok) throw new Error('Download failed');
+const blob = await res.blob();
+const url = window.URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = res.headers.get('Content-Disposition')?.split('filename=')?.[1]?.replace(/"/g, '') || 'NOC-document';
+document.body.appendChild(a);
+a.click();
+a.remove();
+window.URL.revokeObjectURL(url);
+} catch (e) {
+console.error(e);
+alert('Could not download NOC. Please try again.');
+} finally {
+setDownloading(false);
+}
+};
+return (
+<button type="button" className="btn-download-noc" onClick={handleDownload} disabled={downloading}>
+{downloading ? 'Downloading...' : 'Download NOC'}
+</button>
+);
+}
+
+function DownloadExperienceLetterButton({ apiBase }) {
+const [downloading, setDownloading] = useState(false);
+const handleDownload = async () => {
+const token = localStorage.getItem('token');
+if (!token) return;
+setDownloading(true);
+try {

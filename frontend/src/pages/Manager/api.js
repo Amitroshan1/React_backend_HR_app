@@ -191,6 +191,7 @@ export async function fetchPendingCounts() {
         claim: Number(result.counts.claim || 0),
         resignation: Number(result.counts.resignation || 0),
         noc: Number(result.counts.noc || 0),
+        purchase: Number(result.counts.purchase || 0),
       };
     }
   } catch {
@@ -212,6 +213,7 @@ export async function fetchPendingCounts() {
     claim: claim.length,
     resignation: resignation.length,
     noc: noc.length,
+    purchase: 0,
   };
 }
 

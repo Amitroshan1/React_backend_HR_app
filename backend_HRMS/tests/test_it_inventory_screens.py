@@ -13,7 +13,7 @@ from it_perf_support import count_queries, it_headers, make_app, normalize, seed
 from website import db
 from website.models.it_models import ITAssetUnit, ITDeletedAssetLog, ITInventoryItem, ITRemovedAsset
 
-TABS = ("IT Assets", "Office Assets", "Transport Assets", "Infrastructure Assets")
+TABS = ("IT Assets", "Fixed Assets", "Transport Assets", "Infrastructure Assets")
 CHIPS = ("All", "Hardware", "Accessories", "Consumables", "Stock", "Vehicle", "Equipment")
 
 
@@ -29,8 +29,8 @@ def _seed_screens():
 
     db.session.add_all([
         item(30, "Keyboard", "Accessories", "IT Assets", total_quantity=9, not_working_quantity=3, repair_quantity=2),
-        item(31, "Pens", "Consumable", "Office Assets", total_quantity=5, not_working_quantity=1, repair_quantity=2),
-        item(32, "Desks", "Stock", "Office Assets", total_quantity=8, not_working_quantity=2, repair_quantity=1),
+        item(31, "Pens", "Consumable", "Fixed Assets", total_quantity=5, not_working_quantity=1, repair_quantity=2),
+        item(32, "Desks", "Stock", "Fixed Assets", total_quantity=8, not_working_quantity=2, repair_quantity=1),
         item(33, "Lost stock", "Stock", "IT Assets", total_quantity=4, not_working_quantity=5, repair_quantity=1),
         item(34, "UPS", "Equipment", "", total_quantity=3, repair_quantity=1),
         item(35, "Toner", "Consumables", "IT Assets", total_quantity=6, not_working_quantity=2),
@@ -87,7 +87,7 @@ def _seed_screens():
         item(43, "Pixel", "Hardware", "IT Assets", hw_type="Mobile"),
         item(44, "ThinkPad", "Hardware", "IT Assets", hw_type="Laptop", total_quantity=3, available_quantity=1, assigned_quantity=2),
         item(45, "Cables", "Accessory", "IT Assets", hw_type="cable", total_quantity=4, available_quantity=4),
-        item(46, "Shelves", "Stock", "Office Assets", total_quantity=2, assigned_quantity=2),
+        item(46, "Shelves", "Stock", "Fixed Assets", total_quantity=2, assigned_quantity=2),
     ])
     db.session.flush()
     db.session.add_all([
@@ -153,7 +153,7 @@ def _resolve(item):
     if cat == "equipment":
         return "Infrastructure Assets"
     if cat == "stock":
-        return explicit if explicit in ("Office Assets", "Infrastructure Assets", "Transport Assets") else ""
+        return explicit if explicit in ("Fixed Assets", "Infrastructure Assets", "Transport Assets") else ""
     if cat in _IT_LINES:
         return explicit if explicit in TABS else "IT Assets"
     return explicit if explicit in TABS else ""
@@ -231,13 +231,14 @@ class Browser:
         if cat == "equipment":
             return tab == "Infrastructure Assets"
         if cat == "stock":
-            return tab == "Office Assets"
+            return tab == "Fixed Assets"
         return tab == "IT Assets" and cat in _IT_LINES
 
     def cards(self, tab):
         items = [i for i in self.inventory if _resolve(i) == tab and str(i["category"] or "").strip().lower() != "software"]
         return {
             "total": sum(i["totalQuantity"] for i in items),
+            "records": len(items),
             "not-working": sum(i["notWorkingQuantity"] for i in items),
             "in-repair": sum(i["repairQuantity"] for i in items),
             "removed-assets": sum(1 for d in self.deleted if self._log_in_tab(d, tab)),
@@ -457,7 +458,7 @@ def test_status_rows_match_browser(on, browser, status, tab):
 def test_status_rows_cover_edge_cases(browser):
     assert len(browser.not_working("IT Assets")) >= 6
     assert any(r[0] == "qty" for r in browser.repair("IT Assets"))
-    assert browser.repair("Office Assets") and browser.not_working("Transport Assets")
+    assert browser.repair("Fixed Assets") and browser.not_working("Transport Assets")
 
 
 def test_status_rows_search_matches_browser(on, browser):

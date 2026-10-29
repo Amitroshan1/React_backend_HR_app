@@ -18,6 +18,16 @@ _EXTENDED_EMP_TYPES = frozenset(
         "it",
         "it department",
         "inventory",
+        "finance",
+        "finance department",
+        "finance team",
+        "admin",
+        "administrator",
+        "administration",
+        "super admin",
+        "superadmin",
+        "manager",
+        "managers",
     }
 )
 

@@ -39,10 +39,10 @@ def send_outbox_row(item: DailyCheckoutOutbox):
         cc = list(managers)
         if employee and employee.lower() != (to_email or "").lower():
             cc.append(employee)
-        subject = f"Day-use request {code}"
+        subject = f"Loan assets request {code}"
         body = (
-            f"<p>{name} requested day-use assets: <strong>{items_summary}</strong> ({code}).</p>"
-            f"<p>Open the IT Day-use Assets inbox to approve.</p>"
+            f"<p>{name} requested loan assets: <strong>{items_summary}</strong> ({code}).</p>"
+            f"<p>Open the IT Loan assets inbox to approve.</p>"
         )
     elif event == "REJECTED":
         to_email = employee
@@ -50,40 +50,40 @@ def send_outbox_row(item: DailyCheckoutOutbox):
         if it_mailbox:
             cc.append(it_mailbox)
         reason = (row.rejection_reason or (item.payload_json or {}).get("reason") or "").strip()
-        subject = f"Day-use request {code} rejected"
-        body = f"<p>Dear {name},</p><p>Your day-use request <strong>{code}</strong> was rejected.</p><p>Reason: {reason or '—'}</p>"
+        subject = f"Loan assets request {code} rejected"
+        body = f"<p>Dear {name},</p><p>Your loan assets request <strong>{code}</strong> was rejected.</p><p>Reason: {reason or '—'}</p>"
     elif event == "ASSIGNED":
         to_email = employee
         cc = list(managers)
         if it_mailbox:
             cc.append(it_mailbox)
         asset = (item.payload_json or {}).get("asset_name") or hw
-        subject = f"Day-use asset assigned — {code}"
+        subject = f"Loan asset assigned — {code}"
         body = (
-            f"<p>Dear {name},</p><p><strong>{asset}</strong> has been assigned for day-use ({code}).</p>"
-            f"<p>Please collect the device(s), open Day-use Assets, and click Acknowledge to download the Acceptance PDF.</p>"
+            f"<p>Dear {name},</p><p><strong>{asset}</strong> has been assigned on loan ({code}).</p>"
+            f"<p>Please collect the device(s), open Loan assets, and click Acknowledge to download the Acceptance PDF.</p>"
         )
     elif event == "RETURN_REQUESTED":
         to_email = it_mailbox or employee
         cc = list(managers)
         if employee and employee.lower() != (to_email or "").lower():
             cc.append(employee)
-        subject = f"Day-use return requested — {code}"
-        body = f"<p>{name} requested return of day-use asset {code}. Please verify the device in the IT inbox.</p>"
+        subject = f"Loan asset return requested — {code}"
+        body = f"<p>{name} requested return of loan asset {code}. Please verify the device in the IT inbox.</p>"
     elif event == "RETURNED":
         to_email = employee
         cc = list(managers)
         if it_mailbox:
             cc.append(it_mailbox)
-        subject = f"Day-use asset returned — {code}"
-        body = f"<p>Dear {name},</p><p>Your day-use asset ({code}) has been received by IT.</p>"
+        subject = f"Loan asset returned — {code}"
+        body = f"<p>Dear {name},</p><p>Your loan asset ({code}) has been received by IT.</p>"
     elif event == "OVERDUE":
         to_email = employee
         cc = list(managers)
         if it_mailbox:
             cc.append(it_mailbox)
-        subject = f"Day-use asset overdue — {code}"
-        body = f"<p>Dear {name},</p><p>Day-use request <strong>{code}</strong> is overdue for return. Please return the asset to IT today.</p>"
+        subject = f"Loan asset overdue — {code}"
+        body = f"<p>Dear {name},</p><p>Loan assets request <strong>{code}</strong> is overdue for return. Please return the asset to IT today.</p>"
     else:
         item.status = "failed"
         item.last_error = f"Unknown event {event}"
@@ -100,7 +100,7 @@ def send_outbox_row(item: DailyCheckoutOutbox):
         body=body,
         recipient_email=to_email,
         cc_emails=cc or None,
-        from_name="Day-use Assets",
+        from_name="Loan assets",
     )
     if ok:
         item.status = "sent"

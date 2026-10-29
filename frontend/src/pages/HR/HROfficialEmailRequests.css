@@ -1,0 +1,46 @@
+.oer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.oer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--obx-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.oer-field input,
+.oer-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--obx-border);
+  border-radius: 8px;
+  background: var(--obx-surface);
+  color: var(--obx-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.oer-field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.oer-field input:focus,
+.oer-field textarea:focus {
+  outline: 2px solid rgba(19, 135, 127, 0.25);
+  border-color: var(--obx-primary);
+}
+
+@media (max-width: 720px) {
+  .oer-grid {
+    grid-template-columns: 1fr;
+  }
+}

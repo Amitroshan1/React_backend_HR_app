@@ -20,18 +20,20 @@ export function isPayView(view) {
 
 export const HR_MODULE_DISPLAY_NAMES = {
   'Sign Up': 'Recruitment',
+  'Generate Official Email': 'Generate email ID',
   'Update_SignUp': 'Edit employee profile',
   'Request to Admin': 'Request to Admin',
+  'Request History': 'Request history',
   'Leave Application Updation': 'Leave requests (admin)',
   'Bulk Employee Import': 'Bulk employee import',
   'Ex-Employee Document Sharing': 'Ex-employee documents',
   'Leave Accrual Monitor': 'Leave accrual monitor',
   'Circle Transfer History': 'Circle transfers',
   'Offboarding Dashboard': 'Offboarding',
+  'NOC Requests': 'NOC requests',
   'Workforce Planning': 'Workforce planning',
   'Assessment Invite': 'Assessment invite',
   'Probation Reviews': 'Probation reviews',
-  'NOC Requests': 'NOC requests',
   'Add Locations': 'Office locations',
   'Geo Analytics': 'Geo monitoring',
   'News Feed': 'News feed',
@@ -77,6 +79,7 @@ export const HR_MODULE_GROUPS = [
     description: 'Recruitment, onboarding, assessments, and probation confirmation',
     titles: [
       'Sign Up',
+      'Generate Official Email',
       'Bulk Employee Import',
       'Assessment Invite',
       'Probation Reviews',
@@ -89,6 +92,7 @@ export const HR_MODULE_GROUPS = [
     titles: [
       'Update_SignUp',
       'Request to Admin',
+      'Request History',
       'Update Manager',
       'Organization Chart',
       'Circle Transfer History',
@@ -117,10 +121,10 @@ export const HR_MODULE_GROUPS = [
   {
     id: 'exit',
     fullLabel: 'Exit & offboarding',
-    description: 'NOC, separation pipeline, exit via offboarding, and ex-employee docs',
+    description: 'Separation requests, NOC clearances, exit handling, and ex-employee docs',
     titles: [
-      'NOC Requests',
       'Offboarding Dashboard',
+      'NOC Requests',
       'Ex-Employee Document Sharing',
     ],
   },

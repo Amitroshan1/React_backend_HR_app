@@ -2232,7 +2232,7 @@ const selectScreenMeta = (body) => ({
 const findAvailableRow = (row) =>
   buildAvailableData().find((a) => String(a.id) === String(row.id));
 
-export default function AssetsDashboard() {
+export default function AssetsDashboard({ embedded = false }) {
   const navigate = useNavigate();
 
   const [mainFilter, setMainFilter] = useState("Available");
@@ -2453,14 +2453,16 @@ export default function AssetsDashboard() {
   );
 
   return (
-    <div className="am-page">
+    <div className={`am-page${embedded ? " am-page--embedded" : ""}`}>
       <div className="am-container">
         {/* Top bar */}
         <div className="am-topbar">
-          <button type="button" className="am-back-btn" onClick={() => navigate("/it")}>
-            ← Back
-          </button>
-          <h1 className="am-title">Asset Management</h1>
+          {embedded ? null : (
+            <button type="button" className="am-back-btn" onClick={() => navigate("/it")}>
+              ← Back
+            </button>
+          )}
+          <h1 className="am-title">{embedded ? "Available assets" : "Asset Management"}</h1>
           <div className="am-topbar-right">
             <div className="am-action-btns">
               <button

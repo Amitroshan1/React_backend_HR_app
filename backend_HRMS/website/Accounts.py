@@ -6,7 +6,16 @@
 
 from flask import Blueprint, request, current_app, jsonify,json, send_from_directory, send_file
 from flask_jwt_extended import jwt_required, get_jwt
-from .email import send_email_via_zeptomail,send_welcome_email,send_payslip_uploaded_email,send_form16_uploaded_email,send_claim_line_item_decision_email
+from .email import (
+    send_email_via_zeptomail,
+    send_welcome_email,
+    send_payslip_uploaded_email,
+    send_form16_uploaded_email,
+    send_claim_line_item_decision_email,
+    send_payroll_batch_finance_request_email,
+    send_payroll_batch_decision_email,
+)
+from . import payroll_batch_service as payroll_batch
 from .models.Admin_models import Admin
 from .tenant_context import (
     admin_id_in_tenant,
@@ -166,10 +175,10 @@ def accounts_department_required(fn):
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        claims = get_jwt()
-        emp_type = (claims.get("emp_type") or "").strip().lower().replace("-", " ")
-        emp_type = " ".join(emp_type.split())
-        if emp_type not in {"account", "accounts", "accountant"}:
+        from .plan_features import is_accounts_role, jwt_is_module_staff
+
+        claims = get_jwt() or {}
+        if not jwt_is_module_staff(is_accounts_role, claims):
             return jsonify({"success": False, "message": "Accounts access required"}), 403
         return fn(*args, **kwargs)
 
@@ -177,6 +186,10 @@ def accounts_department_required(fn):
 
 
 def _accounts_can_access_any_profile(admin):
+    from .plan_features import is_platform_super_admin
+
+    if is_platform_super_admin():
+        return True
     t = (getattr(admin, "emp_type", None) or "").strip().lower()
     return t in ("account", "accounts", "accountant", "hr", "human resource", "admin")
 
@@ -445,7 +458,9 @@ from .commands.ctc_breakup_logic import (
     annual_ctc_from_monthly,
     apply_allowance_caps,
     basic_pct_of_monthly_ctc,
+    employee_esic_monthly,
     employer_costs_summary,
+    employer_esic_monthly,
     monthly_components,
     normalize_allowance_heads,
     pf_wage_monthly,
@@ -482,30 +497,45 @@ from . import traces_import_service as traces_svc
 from . import form16_variance_service as form16_variance_svc
 from . import tax_savings_service as tax_savings
 
-_CTC_RULES = {
-    "hra": {"min_pct": 5.0, "max_pct": 50.0},
-    "epf": {"mandatory_pct": 12.0, "basic_threshold": 15000.0, "min_amount_if_above_threshold": 1800.0},
-    "ptax": {
-        "basis": "monthly_gross",
-        "state": "Maharashtra",
-        "male": {
-            "upto_7500": 0.0,
-            "7501_to_10000": 175.0,
-            "above_10000": 200.0,
-            "february": 300.0,
+def _ctc_rules_for(as_of=None):
+    from .commands.statutory_pack import epf_employee_rules, pack_for_date
+
+    pack = pack_for_date(as_of)
+    epf = epf_employee_rules(as_of)
+    return {
+        "hra": {"min_pct": 5.0, "max_pct": 50.0},
+        "epf": {
+            "mandatory_pct": epf["mandatory_pct"],
+            "basic_threshold": epf["basic_threshold"],
+            "min_amount_if_above_threshold": epf["min_amount_if_above_threshold"],
         },
-        "female": {
-            "upto_25000": 0.0,
-            "above_25000": 200.0,
-            "february": 300.0,
+        "statutory_pack": pack,
+        "ptax": _CTC_RULES_PTAX,
+        "esic": {
+            "gross_threshold": pack["esic_gross_cap"],
+            "employee_pct": pack["esic_employee_pct"],
+            "employer_pct": pack["esic_employer_pct"],
         },
+    }
+
+
+_CTC_RULES_PTAX = {
+    "basis": "monthly_gross",
+    "state": "Maharashtra",
+    "male": {
+        "upto_7500": 0.0,
+        "7501_to_10000": 175.0,
+        "above_10000": 200.0,
+        "february": 300.0,
     },
-    "esic": {
-        "gross_threshold": 21001.0,
-        "employee_pct": 0.75,
-        "employer_pct": 3.25,
+    "female": {
+        "upto_25000": 0.0,
+        "above_25000": 200.0,
+        "february": 300.0,
     },
 }
+
+_CTC_RULES = _ctc_rules_for()
 
 
 _CTC_ALLOWANCE_FIELDS = (
@@ -533,6 +563,7 @@ def _parse_ctc_allowances(data):
         lta_allowance=heads["lta_allowance"],
         conveyance_cap_monthly=policy.get("conveyance_cap_monthly"),
         medical_cap_monthly=policy.get("medical_cap_monthly"),
+        medical_cap_is_annual=policy.get("medical_cap_is_annual"),
     )
     return heads, total
 
@@ -561,6 +592,46 @@ def _sync_ctc_allowance_heads(row):
     elif row.other_allowance and float(row.other_allowance or 0) > 0:
         if not float(row.special_allowance or 0):
             row.special_allowance = float(row.other_allowance or 0)
+
+
+def _can_edit_employee_ctc(admin) -> bool:
+    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
+    return emp_type_lower in (
+        "account",
+        "accounts",
+        "accountant",
+        "hr",
+        "human resource",
+        "admin",
+    )
+
+
+def _as_of_from_ctc(data=None, row=None):
+    from .commands.statutory_pack import parse_as_of
+
+    raw = None
+    if data:
+        raw = data.get("as_of") or data.get("effective_from") or data.get("month") or data.get("ptax_month")
+    if not raw and row is not None:
+        raw = getattr(row, "effective_from", None) or getattr(row, "ptax_month", None)
+    return parse_as_of(raw)
+
+
+def _ctc_stat_kwargs(data=None, row=None):
+    policy = load_ctc_settings()
+    as_of = _as_of_from_ctc(data, row)
+    unrestricted = bool(policy.get("pf_unrestricted", False))
+    once = bool(policy.get("esi_once_covered_default", False))
+    if data and data.get("esic_covered") is not None:
+        once = _parse_ctc_bool(data.get("esic_covered"), once)
+    elif row is not None and getattr(row, "esic_covered", None) is not None:
+        once = bool(row.esic_covered)
+    return dict(
+        as_of=as_of,
+        unrestricted_pf=unrestricted,
+        esic_once_covered=once,
+        apply_bonus_eligibility=bool(policy.get("apply_bonus_eligibility", True)),
+    )
 
 
 def _parse_ctc_bool(val, default=True):
@@ -894,6 +965,10 @@ def _ctc_calculate(
     reimbursement_monthly=0,
     is_metro_hra=False,
     ptax_state="MH",
+    as_of=None,
+    unrestricted_pf=False,
+    esic_once_covered=False,
+    apply_bonus_eligibility=True,
 ):
     """
     Indian CTC breakup:
@@ -941,13 +1016,21 @@ def _ctc_calculate(
         **component_kw,
     )
     pf_wage = pf_wage_monthly(basic, da)
+    calc_as_of = as_of or month
+    rules = _ctc_rules_for(calc_as_of)
+    stat_kw = dict(
+        as_of=calc_as_of,
+        unrestricted_pf=unrestricted_pf,
+        esic_once_covered=esic_once_covered,
+        apply_bonus_eligibility=apply_bonus_eligibility,
+    )
 
-    # EPF on Basic + DA
+    # EPF on Basic + DA (threshold = current statutory ceiling)
     epf_amount = 0.0
-    if pf_wage < _CTC_RULES["epf"]["basic_threshold"]:
-        epf_amount = pf_wage * (_CTC_RULES["epf"]["mandatory_pct"] / 100.0)
+    if pf_wage < rules["epf"]["basic_threshold"]:
+        epf_amount = pf_wage * (rules["epf"]["mandatory_pct"] / 100.0)
         epf_mode_effective = "mandatory_12pct"
-        epf_pct_effective = _CTC_RULES["epf"]["mandatory_pct"]
+        epf_pct_effective = rules["epf"]["mandatory_pct"]
     else:
         mode = (epf_mode or "min").strip().lower()
         if mode not in ("min", "percent", "percentage"):
@@ -960,7 +1043,7 @@ def _ctc_calculate(
             epf_mode_effective = "percent"
             epf_pct_effective = pct
         else:
-            epf_amount = float(_CTC_RULES["epf"]["min_amount_if_above_threshold"])
+            epf_amount = float(rules["epf"]["min_amount_if_above_threshold"])
             epf_mode_effective = "min"
             epf_pct_effective = None
 
@@ -971,7 +1054,12 @@ def _ctc_calculate(
         vpf_monthly=vpf_monthly,
     )
     epf_amount = epf_statutory + vpf_amount
-    eps_split = employer_pf_eps_split(basic_salary=basic, dearness_allowance=da)
+    eps_split = employer_pf_eps_split(
+        basic_salary=basic,
+        dearness_allowance=da,
+        as_of=calc_as_of,
+        unrestricted=unrestricted_pf,
+    )
     hra_hint = hra_exemption_hint_old_regime(
         is_metro=bool(is_metro_hra),
         basic_monthly=basic,
@@ -982,11 +1070,11 @@ def _ctc_calculate(
 
     esic_employee_amount = 0.0
     esic_employer_amount = 0.0
-    esic_threshold = float(_CTC_RULES["esic"]["gross_threshold"])
-    esic_applicable = gross < esic_threshold
-    if esic_applicable:
-        esic_employee_amount = gross * (_CTC_RULES["esic"]["employee_pct"] / 100.0)
-        esic_employer_amount = gross * (_CTC_RULES["esic"]["employer_pct"] / 100.0)
+    esic_threshold = float(rules["esic"]["gross_threshold"])
+    esic_applicable = gross < esic_threshold or bool(esic_once_covered)
+    if esic_applicable and gross > 0:
+        esic_employee_amount = employee_esic_monthly(gross, once_covered=esic_once_covered)
+        esic_employer_amount = employer_esic_monthly(gross, once_covered=esic_once_covered)
 
     deductions = epf_amount + ptax_amount + esic_employee_amount
     policy = load_ctc_settings()
@@ -997,7 +1085,7 @@ def _ctc_calculate(
     )
     deductions += lwf_amount
     net = gross - deductions
-    employer_costs = employer_costs_summary(basic, gross, mediclaim, da, **employer_kw)
+    employer_costs = employer_costs_summary(basic, gross, mediclaim, da, **employer_kw, **stat_kw)
     fixed_ctc = annual_ctc_from_monthly(
         basic,
         hra_pct_val,
@@ -1005,6 +1093,7 @@ def _ctc_calculate(
         mediclaim,
         dearness_allowance=da,
         **employer_kw,
+        **stat_kw,
     )
     variable = max(0.0, float(variable_ctc_annual or 0))
 
@@ -1050,7 +1139,11 @@ def _ctc_calculate(
             "ptax_amount": _round2(ptax_amount),
             "lwf_amount": _round2(lwf_amount),
             "esic_applicable": esic_applicable,
+            "esic_covered": bool(esic_once_covered or (gross > 0 and gross < esic_threshold)),
             "esic_wage_ceiling": esic_threshold,
+            "pf_wage_cap_monthly": rules["epf"]["basic_threshold"],
+            "statutory_pack_id": rules["statutory_pack"]["id"],
+            "statutory_pack_label": rules["statutory_pack"]["label"],
             "ptax_gender_unknown": not bool(gender and str(gender).strip()),
             "esic_employee_amount": _round2(esic_employee_amount),
             "esic_employer_amount": _round2(esic_employer_amount),
@@ -1092,7 +1185,7 @@ def _ctc_calculate(
             "variable_ctc_annual": _round2(variable),
             "total_ctc_annual": _round2(total_ctc_annual(fixed_ctc, variable)),
         },
-        "rules": _CTC_RULES,
+        "rules": rules,
     }
 
 
@@ -1124,6 +1217,10 @@ def _ctc_reverse_from_annual(
     reimbursement_monthly=0,
     is_metro_hra=False,
     ptax_state="MH",
+    as_of=None,
+    unrestricted_pf=False,
+    esic_once_covered=False,
+    apply_bonus_eligibility=True,
 ):
     """
     Derive Basic from fixed annual CTC including employer PF, ESIC, mediclaim, gratuity.
@@ -1185,6 +1282,10 @@ def _ctc_reverse_from_annual(
         lwf_employer_yearly_amount=lwf_employer_yearly_amount,
         include_nps_in_ctc=include_nps_in_ctc,
         nps_employer_pct=nps_employer_pct,
+        as_of=as_of,
+        unrestricted_pf=unrestricted_pf,
+        esic_once_covered=esic_once_covered,
+        apply_bonus_eligibility=apply_bonus_eligibility,
     )
     result["computed"]["annual_ctc_total"] = _round2(solved.get("annual_ctc_computed") or 0)
     result["computed"]["fixed_ctc_annual"] = _round2(solved.get("annual_ctc_computed") or 0)
@@ -1212,6 +1313,72 @@ def _ctc_reverse_from_annual(
         "employer_costs": solved.get("employer_costs", {}),
     }
     return result
+
+
+def _recompute_saved_ctc_row(row, data=None):
+    """Server-side statutory recompute — ignore client employer/deduction amounts."""
+    data = data or {}
+    heads, _total = _parse_ctc_allowances({
+        "special_allowance": row.special_allowance,
+        "conveyance_allowance": row.conveyance_allowance,
+        "medical_allowance": row.medical_allowance,
+        "lta_allowance": row.lta_allowance,
+        "other_allowance": row.other_allowance,
+    })
+    row.special_allowance = heads["special_allowance"]
+    row.conveyance_allowance = heads["conveyance_allowance"]
+    row.medical_allowance = heads["medical_allowance"]
+    row.lta_allowance = heads["lta_allowance"]
+    _sync_ctc_allowance_heads(row)
+    if not float(row.basic_salary or 0) and not float(row.dearness_allowance or 0):
+        return
+    include_pf, include_edli = _ctc_include_flags_from_row(row)
+    include_bonus, include_lwf, bonus_pct, lwf_y = _ctc_bonus_lwf_from_row(row)
+    vpf, include_nps, nps_pct, reimb = _ctc_advanced_from_row(row)
+    stat = _ctc_stat_kwargs(data, row)
+    gender = _resolve_employee_gender(row.admin_id, data=data)
+    result = _ctc_calculate(
+        basic_salary=row.basic_salary,
+        dearness_allowance=row.dearness_allowance,
+        special_allowance=row.special_allowance,
+        conveyance_allowance=row.conveyance_allowance,
+        medical_allowance=row.medical_allowance,
+        lta_allowance=row.lta_allowance,
+        other_allowance=row.other_allowance,
+        hra_pct=row.hra_pct,
+        epf_mode=row.epf_mode or data.get("epf_mode"),
+        epf_pct=row.epf_pct if row.epf_pct is not None else data.get("epf_pct"),
+        month=row.ptax_month or data.get("month") or data.get("ptax_month"),
+        gender=gender,
+        mediclaim_yearly=row.mediclaim_yearly,
+        variable_ctc_annual=row.variable_ctc_annual,
+        include_pf_admin_in_ctc=include_pf,
+        include_edli_in_ctc=include_edli,
+        include_statutory_bonus_in_ctc=include_bonus,
+        statutory_bonus_pct=bonus_pct,
+        include_lwf_in_ctc=include_lwf,
+        lwf_employer_yearly_amount=lwf_y,
+        include_nps_in_ctc=include_nps,
+        nps_employer_pct=nps_pct,
+        vpf_monthly=vpf,
+        reimbursement_monthly=reimb,
+        is_metro_hra=_resolve_metro_hra(row.admin_id, data=data, row=row),
+        ptax_state=_resolve_ptax_state(row.admin_id, data=data, row=row),
+        **stat,
+    )
+    computed = result["computed"]
+    row.hra = computed.get("hra_amount")
+    row.gross_salary = computed.get("gross_salary")
+    row.net_salary = computed.get("net_salary")
+    row.epf = computed.get("epf_amount")
+    row.esic = computed.get("esic_employee_amount")
+    row.esic_employer = computed.get("esic_employer_amount")
+    row.ptax = computed.get("ptax_amount")
+    row.deductions_total = computed.get("deductions_total")
+    row.annual_ctc_computed = computed.get("fixed_ctc_annual")
+    if computed.get("esic_covered"):
+        row.esic_covered = True
+    _apply_employer_costs_to_row(row, computed)
 
 
 def _sync_annual_ctc_computed(row):
@@ -1889,13 +2056,15 @@ def get_ctc_breakup(admin_id):
             "message": "Employee not found"
         }), 404
 
+    from . import ctc_approval_service as ctc_appr
+
     row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
-    if row:
-        _sync_annual_ctc_computed(row)
-        db.session.commit()
+    pending = ctc_appr.pending_for_employee(admin_id)
     return jsonify({
         "success": True,
-        "ctc_breakup": _ctc_dict_with_advanced(row) if row else None
+        "ctc_breakup": _ctc_dict_with_advanced(row) if row else None,
+        "pending_request": pending.to_dict() if pending else None,
+        "approval": ctc_appr.approval_settings(),
     }), 200
 
 
@@ -1977,9 +2146,87 @@ def ctc_policy():
     data = request.get_json(silent=True) or {}
     try:
         saved = save_ctc_settings(data, admin_id=admin.id)
-        return jsonify({"success": True, "policy": {**saved, "ptax_states": ctc_policy_payload()["ptax_states"]}}), 200
+        return jsonify({"success": True, "policy": ctc_policy_payload()}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 400
+
+
+@Accounts.route("/ctc-policy/recalc-candidates", methods=["GET"])
+@jwt_required()
+def ctc_recalc_candidates():
+    admin = current_admin()
+    if not admin or not _can_edit_employee_ctc(admin):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    from . import ctc_approval_service as ctc_appr
+    return jsonify({"success": True, "candidates": ctc_appr.recalc_candidates()}), 200
+
+
+@Accounts.route("/ctc-policy/adopt-pack", methods=["POST"])
+@jwt_required()
+def ctc_adopt_pack():
+    admin = current_admin()
+    if not admin or not _can_edit_employee_ctc(admin):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    from . import ctc_approval_service as ctc_appr
+    data = request.get_json(silent=True) or {}
+    pack_id = (data.get("pack_id") or "").strip()
+    if not pack_id:
+        return jsonify({"success": False, "message": "pack_id is required"}), 400
+    try:
+        req, applied = ctc_appr.submit_statutory_adopt(
+            actor=admin,
+            pack_id=pack_id,
+            include_recalc=bool(data.get("include_recalc")),
+            note=data.get("note"),
+        )
+        if applied:
+            _apply_approved_change_request(req, admin.id)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+    return jsonify({
+        "success": True,
+        "applied": applied,
+        "pending_request": req.to_dict(),
+        "message": "Statutory pack published" if applied else f"Pack adopt submitted — {req.status.replace('_', ' ')}",
+        "policy": ctc_policy_payload(),
+    }), 200
+
+
+@Accounts.route("/ctc-approvals/<int:req_id>/decide", methods=["POST"])
+@jwt_required()
+def ctc_accounts_decide(req_id):
+    admin = current_admin()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    from . import ctc_approval_service as ctc_appr
+    from .models.ctc_change_request import CTCChangeRequest
+    req = CTCChangeRequest.query.get(req_id)
+    if not req:
+        return jsonify({"success": False, "message": "Request not found"}), 404
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "cancel").strip().lower()
+    step = "hr"
+    if action == "cancel":
+        step = "hr"
+    elif req.status == "pending_admin":
+        step = "admin"
+    elif req.status == "pending_hr":
+        step = "hr"
+    else:
+        return jsonify({"success": False, "message": "Use Finance to approve this request"}), 403
+    try:
+        req, apply_now = ctc_appr.decide(
+            req, actor=admin, action=action, reason=data.get("reason"), step=step
+        )
+        if apply_now:
+            _apply_approved_change_request(req, admin.id)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+    return jsonify({"success": True, "request": req.to_dict()}), 200
 
 
 @Accounts.route("/tds-settings", methods=["GET", "PUT"])
@@ -2078,6 +2325,7 @@ def calculate_ctc_breakup():
             reimbursement_monthly=reimb_m,
             is_metro_hra=is_metro,
             ptax_state=ptax_state,
+            **_ctc_stat_kwargs(data),
         )
         return jsonify({"success": True, "data": result}), 200
     except Exception as e:
@@ -2171,10 +2419,108 @@ def reverse_calculate_ctc_breakup():
             reimbursement_monthly=reimb_m,
             is_metro_hra=is_metro,
             ptax_state=ptax_state,
+            **_ctc_stat_kwargs(data),
         )
         return jsonify({"success": True, "data": result}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 400
+
+
+def _apply_payload_to_ctc_row(admin_id, data, actor_id):
+    """Write approved payload onto the live CTC row + revision snapshot."""
+    row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+    if not row:
+        row = CTCBreakup(admin_id=admin_id)
+        db.session.add(row)
+    amount_fields = (
+        "basic_salary",
+        "dearness_allowance",
+        "hra",
+        "hra_pct",
+        "special_allowance",
+        "conveyance_allowance",
+        "medical_allowance",
+        "lta_allowance",
+        "other_allowance",
+        "gross_salary",
+        "net_salary",
+        "epf",
+        "epf_pct",
+        "esic",
+        "esic_employer",
+        "ptax",
+        "deductions_total",
+        "annual_ctc",
+        "annual_ctc_computed",
+        "variable_ctc_annual",
+        "mediclaim_yearly",
+        "vpf_monthly",
+        "nps_employer_pct",
+        "reimbursement_monthly",
+    )
+    for field in amount_fields:
+        if field in data:
+            row.__setattr__(field, _parse_amount(data.get(field)))
+    if "epf_mode" in data:
+        row.epf_mode = (data.get("epf_mode") or "").strip() or None
+    if "ptax_month" in data:
+        row.ptax_month = (data.get("ptax_month") or "").strip() or None
+    if "ptax_state" in data:
+        row.ptax_state = str(data.get("ptax_state") or "").strip().upper()[:2] or None
+    if "include_pf_admin_in_ctc" in data:
+        row.include_pf_admin_in_ctc = _parse_ctc_bool(data.get("include_pf_admin_in_ctc"), True)
+    if "include_edli_in_ctc" in data:
+        row.include_edli_in_ctc = _parse_ctc_bool(data.get("include_edli_in_ctc"), True)
+    if "include_statutory_bonus_in_ctc" in data:
+        row.include_statutory_bonus_in_ctc = _parse_ctc_bool(
+            data.get("include_statutory_bonus_in_ctc"), False
+        )
+    if "include_lwf_in_ctc" in data:
+        row.include_lwf_in_ctc = _parse_ctc_bool(data.get("include_lwf_in_ctc"), False)
+    if "include_nps_in_ctc" in data:
+        row.include_nps_in_ctc = _parse_ctc_bool(data.get("include_nps_in_ctc"), False)
+    if "is_metro_hra" in data:
+        val = data.get("is_metro_hra")
+        row.is_metro_hra = None if val is None or str(val).strip() == "" else _parse_ctc_bool(val, False)
+    if "esic_covered" in data:
+        row.esic_covered = _parse_ctc_bool(data.get("esic_covered"), False)
+    effective_from = ctc_rev.parse_effective_from(data.get("effective_from"))
+    revision_note = (data.get("revision_note") or data.get("note") or "").strip() or None
+    _sync_ctc_allowance_heads(row)
+    _recompute_saved_ctc_row(row, data)
+    row.effective_from = effective_from
+    snapshot = ctc_rev.snapshot_from_row(row)
+    ctc_rev.save_ctc_revision(
+        admin_id=admin_id,
+        effective_from=effective_from,
+        snapshot=snapshot,
+        note=revision_note,
+        created_by_admin_id=actor_id,
+    )
+    row.updated_at = datetime.now()
+    return row
+
+
+def _apply_approved_change_request(req, actor_id):
+    from .ctc_settings import save_ctc_settings
+
+    payload = req.payload if isinstance(req.payload, dict) else {}
+    if req.kind == "employee_ctc" and req.admin_id:
+        return _apply_payload_to_ctc_row(req.admin_id, payload, actor_id)
+    if req.kind == "statutory_adopt":
+        pack_id = payload.get("pack_id")
+        save_ctc_settings({"active_statutory_pack_id": pack_id}, admin_id=actor_id)
+        if payload.get("include_recalc"):
+            for emp_id in payload.get("recalc_admin_ids") or []:
+                live = CTCBreakup.query.filter_by(admin_id=int(emp_id)).first()
+                if not live:
+                    continue
+                recalc = live.to_dict()
+                recalc["revision_note"] = f"Statutory pack {pack_id} recalc"
+                recalc["effective_from"] = date.today().isoformat()
+                _apply_payload_to_ctc_row(int(emp_id), recalc, actor_id)
+        return None
+    return None
 
 
 @Accounts.route("/ctc-breakup", methods=["PUT"])
@@ -2203,12 +2549,10 @@ def upsert_ctc_breakup():
             "message": "Invalid admin_id"
         }), 400
 
-    emp_type_lower = (getattr(admin, "emp_type", None) or "").strip().lower()
-    can_edit_any = emp_type_lower in ("account", "accounts", "accountant", "hr", "human resource", "admin")
-    if not can_edit_any and admin_id != admin.id:
+    if not _can_edit_employee_ctc(admin):
         return jsonify({
             "success": False,
-            "message": "You can only update your own CTC breakup"
+            "message": "Only Accounts, HR, or Admin can save CTC breakup",
         }), 403
 
     target_admin = get_admin_in_tenant(admin_id)
@@ -2218,106 +2562,28 @@ def upsert_ctc_breakup():
             "message": "Employee not found"
         }), 404
 
-    row = CTCBreakup.query.filter_by(admin_id=admin_id).first()
-    if not row:
-        row = CTCBreakup(admin_id=admin_id)
-        db.session.add(row)
+    from . import ctc_approval_service as ctc_appr
 
     try:
-        arrears_preview = None
-        amount_fields = (
-            "basic_salary",
-            "dearness_allowance",
-            "hra",
-            "hra_pct",
-            "special_allowance",
-            "conveyance_allowance",
-            "medical_allowance",
-            "lta_allowance",
-            "other_allowance",
-            "gross_salary",
-            "net_salary",
-            "epf",
-            "epf_pct",
-            "esic",
-            "esic_employer",
-            "ptax",
-            "deductions_total",
-            "annual_ctc",
-            "annual_ctc_computed",
-            "variable_ctc_annual",
-            "mediclaim_yearly",
-            "gratuity_yearly",
-            "gratuity_monthly",
-            "employer_pf_yearly",
-            "employer_pf_monthly",
-            "employer_esic_yearly",
-            "employer_esic_monthly",
-            "pf_admin_yearly",
-            "pf_admin_monthly",
-            "edli_yearly",
-            "edli_monthly",
-            "statutory_bonus_yearly",
-            "statutory_bonus_monthly",
-            "lwf_employer_yearly",
-            "lwf_employee_yearly",
-            "vpf_monthly",
-            "nps_employer_pct",
-            "reimbursement_monthly",
-        )
-        for field in amount_fields:
-            if field in data:
-                row.__setattr__(field, _parse_amount(data.get(field)))
-
-        if "epf_mode" in data:
-            row.epf_mode = (data.get("epf_mode") or "").strip() or None
-        if "ptax_month" in data:
-            row.ptax_month = (data.get("ptax_month") or "").strip() or None
-        if "ptax_state" in data:
-            row.ptax_state = str(data.get("ptax_state") or "").strip().upper()[:2] or None
-        if "include_pf_admin_in_ctc" in data:
-            row.include_pf_admin_in_ctc = _parse_ctc_bool(data.get("include_pf_admin_in_ctc"), True)
-        if "include_edli_in_ctc" in data:
-            row.include_edli_in_ctc = _parse_ctc_bool(data.get("include_edli_in_ctc"), True)
-        if "include_statutory_bonus_in_ctc" in data:
-            row.include_statutory_bonus_in_ctc = _parse_ctc_bool(
-                data.get("include_statutory_bonus_in_ctc"), False
-            )
-        if "include_lwf_in_ctc" in data:
-            row.include_lwf_in_ctc = _parse_ctc_bool(data.get("include_lwf_in_ctc"), False)
-        if "include_nps_in_ctc" in data:
-            row.include_nps_in_ctc = _parse_ctc_bool(data.get("include_nps_in_ctc"), False)
-        if "is_metro_hra" in data:
-            val = data.get("is_metro_hra")
-            row.is_metro_hra = None if val is None or str(val).strip() == "" else _parse_ctc_bool(val, False)
-
         effective_from = ctc_rev.parse_effective_from(data.get("effective_from"))
-        revision_note = (data.get("revision_note") or "").strip() or None
-
-        _sync_ctc_allowance_heads(row)
-        _sync_annual_ctc_computed(row)
-
-        row.effective_from = effective_from
-        snapshot = ctc_rev.snapshot_from_row(row)
-        ctc_rev.save_ctc_revision(
+        data["effective_from"] = effective_from.isoformat() if effective_from else None
+        data["revision_note"] = (data.get("revision_note") or "").strip() or None
+        req, applied = ctc_appr.submit_employee_ctc(
+            actor=admin,
             admin_id=admin_id,
+            payload=data,
+            note=data.get("revision_note"),
             effective_from=effective_from,
-            snapshot=snapshot,
-            note=revision_note,
-            created_by_admin_id=admin.id,
         )
-
-        row.updated_at = datetime.now()
+        live = CTCBreakup.query.filter_by(admin_id=admin_id).first()
+        if applied:
+            live = _apply_payload_to_ctc_row(admin_id, data, admin.id)
         db.session.commit()
-
         arrears_preview = None
-        if data.get("include_arrears_preview"):
+        if applied and data.get("include_arrears_preview") and live:
             today = date.today()
             arrears_preview = _ctc_arrears_preview(
-                admin_id,
-                effective_from,
-                today.year,
-                today.month,
+                admin_id, effective_from, today.year, today.month
             )
     except Exception as e:
         db.session.rollback()
@@ -2326,10 +2592,17 @@ def upsert_ctc_breakup():
             "message": str(e)
         }), 500
 
+    live = CTCBreakup.query.filter_by(admin_id=admin_id).first()
     payload = {
         "success": True,
-        "message": "CTC breakup saved",
-        "ctc_breakup": row.to_dict(),
+        "message": (
+            "CTC breakup approved and published"
+            if applied
+            else f"CTC submitted — {req.status.replace('_', ' ')}"
+        ),
+        "applied": applied,
+        "pending_request": req.to_dict(),
+        "ctc_breakup": live.to_dict() if live else None,
     }
     if arrears_preview is not None:
         payload["arrears_preview"] = arrears_preview
@@ -2553,8 +2826,16 @@ def tds_projection():
     if not target_admin:
         return jsonify({"success": False, "message": "Employee not found"}), 404
 
+    from . import ctc_approval_service as ctc_appr
+
+    projection_mode = payroll_tds.normalize_projection_mode(
+        data.get("projection_mode"),
+        allow_what_if=can_view_any,
+    )
+    pending = ctc_appr.pending_for_employee(admin_id)
     ctc = CTCBreakup.query.filter_by(admin_id=admin_id).first()
-    if not ctc or not float(ctc.gross_salary or 0):
+    amounts = payroll_tds.ctc_amounts_for_projection(ctc, pending, projection_mode)
+    if amounts["monthly_gross"] <= 0:
         return jsonify({
             "success": False,
             "message": "CTC breakup not found or gross salary is zero. Save CTC first.",
@@ -2573,27 +2854,42 @@ def tds_projection():
 
     ytd_gross, ytd_tds = _tds_ytd_gross_and_tds(admin_id, financial_year)
 
-    monthly_ptax = float(ctc.ptax or 0)
+    monthly_ptax = amounts["monthly_ptax"]
     ptax_annual = monthly_ptax * 12
 
     use_declaration = data.get("use_declaration", True)
     if isinstance(use_declaration, str):
         use_declaration = use_declaration.strip().lower() not in ("0", "false", "no")
 
-    tds_inputs = tax_decl.resolved_tds_inputs_for_projection(
-        admin_id,
-        financial_year,
-        profile,
-        data,
-        use_declaration=bool(use_declaration),
-    )
+    if projection_mode == "payroll_ready":
+        tds_inputs = payroll_tds.resolved_tds_inputs_for_payroll(admin_id, financial_year, profile)
+        use_declaration = True
+    else:
+        request_data = dict(data)
+        override_keys = (
+            "rent_paid_annual",
+            "section_80c_extra",
+            "section_80d",
+            "is_metro",
+            "previous_employer_tds",
+            "tax_regime",
+        )
+        if any(request_data.get(k) not in (None, "") for k in override_keys if k in request_data):
+            request_data["override_declaration"] = True
+        tds_inputs = tax_decl.resolved_tds_inputs_for_projection(
+            admin_id,
+            financial_year,
+            profile,
+            request_data,
+            use_declaration=bool(use_declaration),
+        )
 
     try:
         projection = run_tds_projection(
-            monthly_gross=float(ctc.gross_salary or 0),
-            monthly_basic=float(ctc.basic_salary or 0),
-            monthly_hra=float(ctc.hra or 0),
-            monthly_epf=float(ctc.epf or 0),
+            monthly_gross=amounts["monthly_gross"],
+            monthly_basic=amounts["monthly_basic"],
+            monthly_hra=amounts["monthly_hra"],
+            monthly_epf=amounts["monthly_epf"],
             tax_regime=tds_inputs.get("tax_regime"),
             financial_year=financial_year,
             pan=profile.get("pan"),
@@ -2616,6 +2912,7 @@ def tds_projection():
             new_regime_deductions=tds_inputs.get("new_regime_deductions") or 0,
             ptax_annual=ptax_annual,
             as_of=as_of,
+            **payroll_tds.statutory_projection_extras(tds_inputs, amounts, admin_id=admin_id),
         )
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400
@@ -2657,10 +2954,10 @@ def tds_projection():
         admin_id, financial_year, projection
     )
     projection["tax_savings"] = tax_savings.build_tax_savings_comparison(
-        monthly_gross=float(ctc.gross_salary or 0),
-        monthly_basic=float(ctc.basic_salary or 0),
-        monthly_hra=float(ctc.hra or 0),
-        monthly_epf=float(ctc.epf or 0),
+        monthly_gross=amounts["monthly_gross"],
+        monthly_basic=amounts["monthly_basic"],
+        monthly_hra=amounts["monthly_hra"],
+        monthly_epf=amounts["monthly_epf"],
         tax_regime=tds_inputs.get("tax_regime"),
         financial_year=financial_year,
         pan=profile.get("pan"),
@@ -2672,8 +2969,32 @@ def tds_projection():
         declaration_inputs=_savings_declaration_inputs(
             admin_id, financial_year, profile, tds_inputs
         ),
+        employer_nps_annual=amounts.get("employer_nps_annual") or 0,
+        monthly_da=amounts.get("monthly_da") or 0,
+        date_of_birth=payroll_tds.employee_dob(admin_id),
     )
 
+    basis = payroll_tds.build_tds_basis(
+        projection_mode=projection_mode,
+        ctc_basis=amounts["ctc_basis"],
+        declaration_source=tds_inputs.get("declaration_source"),
+        rules_version=projection.get("rules_version"),
+        pending=pending,
+    )
+    projection["tds_basis"] = basis
+
+    if pending and amounts["ctc_basis"] == "approved":
+        projection.setdefault("warnings", []).append(
+            "A CTC draft is waiting on Finance. This number uses the last approved CTC — same as payroll."
+        )
+    if amounts["ctc_basis"] == "pending_what_if":
+        projection.setdefault("warnings", []).append(
+            "What-if uses the pending CTC draft. Payroll will not change until Finance publishes it."
+        )
+    if projection_mode == "what_if" and not basis["payroll_would_use"]["uses_this_declaration"]:
+        projection.setdefault("warnings", []).append(
+            "What-if declaration is not payroll-ready. Payslip TDS uses submitted or approved values only."
+        )
     if use_declaration and not tds_inputs.get("declaration_source", {}).get("found"):
         projection.setdefault("warnings", []).append(
             "No tax declaration found for this FY — projection uses CTC and profile only. "
@@ -3609,6 +3930,7 @@ def list_expense_claims():
                 "travel_from_date": row.travel_from_date.isoformat() if row.travel_from_date else None,
                 "travel_to_date": row.travel_to_date.isoformat() if row.travel_to_date else None,
                 "status": derived_status,
+                "payout_status": (getattr(row, "payout_status", None) or "to_pay"),
                 "line_items": items_out,
                 "total_amount": sum(i["amount"] for i in items_out),
             }
@@ -3849,6 +4171,7 @@ def payroll_generate():
     else:
         try:
             payroll_gov.assert_payroll_regeneratable(row)
+            payroll_batch.assert_row_not_batch_frozen(row)
         except ValueError as e:
             return jsonify({"success": False, "message": str(e)}), 409
 
@@ -3924,6 +4247,7 @@ def payroll_deductions_update():
 
     try:
         payroll_gov.assert_payroll_editable(row)
+        payroll_batch.assert_row_not_batch_frozen(row)
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 409
 
@@ -3931,27 +4255,6 @@ def payroll_deductions_update():
     prev_awd = float(row.actual_working_days or 0)
     working_days_changed = False
 
-    # Optional overrides; if omitted, keep existing values
-    if "epf_final" in data:
-        row.epf_final = float(data.get("epf_final") or 0.0)
-    if "esic_final" in data:
-        row.esic_final = float(data.get("esic_final") or 0.0)
-    if "ptax_final" in data:
-        row.ptax_final = float(data.get("ptax_final") or 0.0)
-    if "lwf_final" in data:
-        row.lwf_final = float(data.get("lwf_final") or 0.0)
-    if "arrears_gross_final" in data:
-        row.arrears_gross_final = float(data.get("arrears_gross_final") or 0.0)
-        row.arrears_gross_computed = row.arrears_gross_final
-    if "leave_encashment_final" in data:
-        row.leave_encashment_final = float(data.get("leave_encashment_final") or 0.0)
-        row.leave_encashment_computed = row.leave_encashment_final
-    if "loan_recovery_final" in data:
-        row.loan_recovery_final = float(data.get("loan_recovery_final") or 0.0)
-        row.loan_recovery_computed = row.loan_recovery_final
-    if "reimbursement_final" in data:
-        row.reimbursement_final = float(data.get("reimbursement_final") or 0.0)
-        row.reimbursement_computed = row.reimbursement_final
     if "actual_working_days" in data:
         calendar_days = int(
             row.calendar_days or calendar.monthrange(year_int, month_num)[1]
@@ -3988,6 +4291,28 @@ def payroll_deductions_update():
             ),
         )
 
+    # Screen values win after any day-based recalculation.
+    if "epf_final" in data:
+        row.epf_final = float(data.get("epf_final") or 0.0)
+    if "esic_final" in data:
+        row.esic_final = float(data.get("esic_final") or 0.0)
+    if "ptax_final" in data:
+        row.ptax_final = float(data.get("ptax_final") or 0.0)
+    if "lwf_final" in data:
+        row.lwf_final = float(data.get("lwf_final") or 0.0)
+    if "arrears_gross_final" in data:
+        row.arrears_gross_final = float(data.get("arrears_gross_final") or 0.0)
+        row.arrears_gross_computed = row.arrears_gross_final
+    if "leave_encashment_final" in data:
+        row.leave_encashment_final = float(data.get("leave_encashment_final") or 0.0)
+        row.leave_encashment_computed = row.leave_encashment_final
+    if "loan_recovery_final" in data:
+        row.loan_recovery_final = float(data.get("loan_recovery_final") or 0.0)
+        row.loan_recovery_computed = row.loan_recovery_final
+    if "reimbursement_final" in data:
+        row.reimbursement_final = float(data.get("reimbursement_final") or 0.0)
+        row.reimbursement_computed = row.reimbursement_final
+
     requested_tds = None
     if "tds_final" in data:
         requested_tds = float(data.get("tds_final") or 0.0)
@@ -4011,6 +4336,7 @@ def payroll_deductions_update():
             field_changes=changes,
         )
 
+    payroll_batch.mark_accounts_saved(payroll_batch.batch_for_payroll_row(row))
     db.session.commit()
     return jsonify({"success": True, "payroll": row.to_dict()}), 200
 
@@ -4058,6 +4384,7 @@ def payroll_status_update():
             errors.append({"admin_id": admin_id, "message": "Payroll row not found"})
             continue
         try:
+            payroll_batch.assert_legacy_status_allowed(row)
             payroll_gov.transition_payroll_status(
                 row, to_status, viewer.id, comment=comment
             )
@@ -4113,6 +4440,7 @@ def payroll_statutory_bonus_run():
             errors.append({"admin_id": admin_id, "message": "Payroll row not found"})
             continue
         try:
+            payroll_batch.assert_row_not_batch_frozen(row)
             amount = payroll_gov.apply_statutory_bonus_to_row(
                 row,
                 payout_mode=payout_mode,
@@ -4175,6 +4503,8 @@ def payroll_list():
     admin_ids = data.get("admin_ids") or []
     month_val = data.get("month")
     year_val = data.get("year")
+    circle = (data.get("circle") or "").strip()
+    emp_type = (data.get("emp_type") or "").strip()
 
     if not isinstance(admin_ids, list) or not admin_ids:
         return jsonify({"success": False, "message": "admin_ids list is required"}), 400
@@ -4201,14 +4531,34 @@ def payroll_list():
 
     payrolls = []
     rows_to_create = []
-
-    # Fetch existing rows
+    batch = None
+    force_refresh = bool(data.get("refresh_attendance"))
     existing_rows = MonthlyPayroll.query.filter(
         MonthlyPayroll.admin_id.in_(admin_ids),
         MonthlyPayroll.month_num == month_num,
         MonthlyPayroll.year == year_str,
     ).all()
     existing_by_admin = {r.admin_id: r for r in existing_rows}
+    if circle and emp_type and _accounts_can_access_any_profile(viewer):
+        batch = payroll_batch.get_or_create_draft_batch(
+            tenant_id=get_current_tenant_id(),
+            circle=circle,
+            emp_type=emp_type,
+            month=month_name,
+            month_num=month_num,
+            year=year_str,
+        )
+        if force_refresh and payroll_batch.is_frozen_batch(batch):
+            force_refresh = False
+        if (
+            batch.status in ("draft", "rejected")
+            and not batch.accounts_saved
+            and any(float(r.gross_salary_for_month or 0) > 0 or float(r.actual_working_days or 0) > 0 for r in existing_rows)
+        ):
+            batch.accounts_saved = True
+    overwrite_finals = bool(
+        force_refresh or payroll_batch.should_overwrite_computed(batch)
+    ) and not payroll_batch.is_frozen_batch(batch)
 
     # Create missing rows using computed values
     for admin_id in admin_ids:
@@ -4217,7 +4567,10 @@ def payroll_list():
             if payroll_gov.normalize_payroll_status(getattr(row, "status", None)) in payroll_gov.REGENERATE_BLOCKED_STATUSES:
                 payrolls.append(row)
                 continue
-            if float(row.actual_working_days or 0) < 0 or float(row.gross_salary_for_month or 0) < 0:
+            if payroll_batch.is_frozen_batch(payroll_batch.batch_for_payroll_row(row) or batch):
+                payrolls.append(row)
+                continue
+            if overwrite_finals or float(row.actual_working_days or 0) < 0 or float(row.gross_salary_for_month or 0) < 0:
                 computed = calculate_monthly_payroll_from_ctc_and_attendance(
                     admin_id=admin_id,
                     year=year_int,
@@ -4248,11 +4601,17 @@ def payroll_list():
         rows_to_create.append(new_row)
         payrolls.append(new_row)
 
+    db.session.flush()
+    if batch is not None and payroll_batch.is_editable_batch(batch):
+        payroll_batch.sync_batch_members(batch, payrolls)
+        if force_refresh:
+            batch.accounts_saved = False
     db.session.commit()
 
     # Return only the columns your UI needs
     return jsonify({
         "success": True,
+        "batch": payroll_batch.batch_public_payload(batch) if batch else None,
         "payrolls": [
             {
                 "admin_id": p.admin_id,
@@ -4379,6 +4738,15 @@ def download_payroll_slip(payroll_id):
 
     if not _accounts_can_access_any_profile(viewer) and payroll.admin_id != viewer.id:
         return jsonify({"success": False, "message": "Access denied"}), 403
+    if (
+        payroll.admin_id == viewer.id
+        and not _accounts_can_access_any_profile(viewer)
+        and not payroll_batch.employee_may_see_payroll_row(payroll)
+    ):
+        return jsonify({
+            "success": False,
+            "message": "This month is waiting on Finance approval and is not available yet.",
+        }), 403
 
     blocked = require_sensitive_for_employee(viewer, payroll.admin_id)
     if blocked:
@@ -4563,7 +4931,11 @@ def download_payroll_slip(payroll_id):
     y -= 13
     c.drawCentredString(width / 2, y, "CIN: AAP-6504")
     y -= 18
-    c.drawCentredString(width / 2, y, "E-Mail : finance@saffotech.com")
+    from .company_mailbox import company_mailbox
+
+    finance_email = company_mailbox("EMAIL_FINANCE") or company_mailbox("EMAIL_ACCOUNTS") or ""
+    if finance_email:
+        c.drawCentredString(width / 2, y, f"E-Mail : {finance_email}")
     c.setLineWidth(0.7)
     c.line(left_margin + 40, y - 4, right_margin - 40, y - 4)
 
@@ -4792,6 +5164,174 @@ def download_payroll_slip(payroll_id):
 
     filename = f"payroll-slip-{emp_no}-{payroll.month}-{payroll.year}.pdf".replace(" ", "-")
     return send_file(buffer, mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+def _batch_or_404(batch_id):
+    row = db.session.get(payroll_batch.PayrollBatch, int(batch_id)) if batch_id else None
+    if not row or int(row.tenant_id) != int(get_current_tenant_id()):
+        return None
+    return row
+
+
+@Accounts.route("/payroll-batches", methods=["GET"])
+@jwt_required()
+def payroll_batches_list():
+    viewer = current_admin()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    month_val = request.args.get("month")
+    year_val = request.args.get("year")
+    if month_val is None or year_val is None:
+        return jsonify({"success": False, "message": "month and year are required"}), 400
+    try:
+        year_int = int(year_val)
+        month_num = _parse_month_to_num(month_val)
+    except Exception:
+        return jsonify({"success": False, "message": "Invalid month/year"}), 400
+    rows = payroll_batch.list_batches_for_month(
+        tenant_id=get_current_tenant_id(),
+        month_num=month_num,
+        year=year_int,
+    )
+    return jsonify({
+        "success": True,
+        "batches": [payroll_batch.batch_public_payload(b) for b in rows],
+    }), 200
+
+
+@Accounts.route("/payroll-batches/<int:batch_id>", methods=["GET"])
+@jwt_required()
+def payroll_batch_detail(batch_id):
+    viewer = current_admin()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    batch = _batch_or_404(batch_id)
+    if not batch:
+        return jsonify({"success": False, "message": "Batch not found"}), 404
+    members = []
+    for member in batch.members or []:
+        if not member.included:
+            continue
+        payroll = member.payroll or db.session.get(MonthlyPayroll, member.payroll_id)
+        admin = get_admin_in_tenant(member.admin_id)
+        if not payroll:
+            continue
+        members.append({
+            **payroll.to_dict(),
+            "name": getattr(admin, "first_name", None) if admin else None,
+            "empId": getattr(admin, "emp_id", None) if admin else None,
+            "has_payslip": bool(
+                payroll_batch.existing_payslip(member.admin_id, batch.month, batch.year)
+            ),
+        })
+    return jsonify({
+        "success": True,
+        "batch": payroll_batch.batch_public_payload(batch),
+        "members": members,
+    }), 200
+
+
+@Accounts.route("/payroll-batches/<int:batch_id>/submit", methods=["POST"])
+@jwt_required()
+def payroll_batch_submit(batch_id):
+    viewer = current_admin()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    batch = _batch_or_404(batch_id)
+    if not batch:
+        return jsonify({"success": False, "message": "Batch not found"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        warnings = payroll_batch.submit_batch(
+            batch,
+            actor_admin_id=viewer.id,
+            include_admin_ids=data.get("include_admin_ids"),
+        )
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 409
+    submitted_on = (batch.submitted_at.date().isoformat() if batch.submitted_at else "")
+    try:
+        send_payroll_batch_finance_request_email(
+            circle=batch.circle,
+            emp_type=batch.emp_type,
+            month=batch.month,
+            year=batch.year,
+            submitted_on=submitted_on,
+        )
+    except Exception:
+        current_app.logger.warning("Payroll batch finance request email failed")
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "batch": payroll_batch.batch_public_payload(batch),
+        "warnings": warnings,
+    }), 200
+
+
+@Accounts.route("/payroll-batches/<int:batch_id>/generate-payslips", methods=["POST"])
+@jwt_required()
+def payroll_batch_generate_payslips(batch_id):
+    viewer = current_admin()
+    if not viewer:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+    if not _accounts_can_access_any_profile(viewer):
+        return jsonify({"success": False, "message": "Access denied"}), 403
+    batch = _batch_or_404(batch_id)
+    if not batch:
+        return jsonify({"success": False, "message": "Batch not found"}), 404
+    data = request.get_json(silent=True) or {}
+    if not data.get("confirm_salary_credited"):
+        return jsonify({
+            "success": False,
+            "message": "Confirm that salary has been credited before generating payslips.",
+        }), 400
+    try:
+        payroll_batch.confirm_salary_credited(batch, actor_admin_id=viewer.id)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 409
+
+    created = 0
+    skipped = 0
+    mailed = 0
+    for member in batch.members or []:
+        if not member.included:
+            continue
+        payroll = member.payroll or db.session.get(MonthlyPayroll, member.payroll_id)
+        admin = get_admin_in_tenant(member.admin_id)
+        if not payroll or not admin:
+            continue
+        if payroll_batch.existing_payslip(member.admin_id, batch.month, batch.year):
+            skipped += 1
+            continue
+        rel_path = payroll_batch.write_generated_payslip_pdf(payroll, admin)
+        db.session.add(PaySlip(
+            admin_id=member.admin_id,
+            month=batch.month,
+            year=batch.year,
+            file_path=rel_path,
+        ))
+        created += 1
+        try:
+            ok, _ = send_payslip_uploaded_email(admin, batch.month, batch.year)
+            if ok:
+                mailed += 1
+        except Exception:
+            current_app.logger.warning("Payslip mail failed for batch member %s", member.admin_id)
+    payroll_batch.mark_payslips_issued(batch)
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "batch": payroll_batch.batch_public_payload(batch),
+        "created": created,
+        "skipped": skipped,
+        "mailed": mailed,
+    }), 200
 
 
 @Accounts.route("/employee-accounts-profile", methods=["GET"])

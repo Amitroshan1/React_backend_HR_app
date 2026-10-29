@@ -1,16 +1,30 @@
 import { useEffect, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import AdminSidebar from './AdminSidebar';
 import { clearAdminDepartmentVisit } from './adminVisit';
+import { canManageCustomerRegistry } from './customerRegistryAccess';
+import { useUser } from '../../components/layout/UserContext';
+import { isPlatformSuperAdmin } from '../../utils/planFeatures';
 import './AdminLayout.css';
+
+const PLATFORM_ONLY = ['/admin/crm', '/admin/customers', '/admin/customers/register', '/admin/analytics'];
 
 /** Platform-admin shell. Navigation is the sidebar; the top bar is only the mobile menu. */
 export default function AdminLayout() {
   const location = useLocation();
+  const { userData } = useUser();
+  const user = userData?.user;
   const [navOpen, setNavOpen] = useState(false);
+  const [platform, setPlatform] = useState(isPlatformSuperAdmin(user));
   const path = (location.pathname || '').replace(/\/$/, '') || '/';
   const isCommandCenter = path === '/admin';
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    canManageCustomerRegistry({ Authorization: `Bearer ${token}` }).then(setPlatform);
+  }, []);
 
   useEffect(() => {
     if (isCommandCenter) {
@@ -30,7 +44,7 @@ export default function AdminLayout() {
         aria-label="Close admin menu"
         onClick={() => setNavOpen(false)}
       />
-      <AdminSidebar onNavigate={() => setNavOpen(false)} />
+      <AdminSidebar onNavigate={() => setNavOpen(false)} platform={platform} user={user} />
       <div className="admin-platform__main">
         <header className="admin-platform__bar">
           <button
@@ -44,7 +58,11 @@ export default function AdminLayout() {
           </button>
         </header>
         <div className="admin-platform__content">
-          <Outlet />
+          {PLATFORM_ONLY.includes(path) && !platform && !isPlatformSuperAdmin(user) ? (
+            <Navigate to="/admin" replace />
+          ) : (
+            <Outlet />
+          )}
         </div>
       </div>
     </div>

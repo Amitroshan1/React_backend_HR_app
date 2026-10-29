@@ -34,7 +34,6 @@ ZZ	Glossary	Done	—	—
 Related docs (do not duplicate)
 Topic	Location
 Shared-DB multi-tenancy design	../SHARED_DB_MULTI_TENANCY.md
-New customer / onboarding	../NEW_CUSTOMER_DEPLOYMENT.md
 Deployment env keys	../DEPLOYMENT_GUIDE_ENV.md
 Attendance SSE / nginx	../ATTENDANCE_SSE.md
 ITAM P0–P3	../itam/

@@ -105,6 +105,25 @@
   color: var(--side-active-text);
 }
 
+.admin-side__link-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-side__badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 20px;
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   .admin-side {
     position: absolute;

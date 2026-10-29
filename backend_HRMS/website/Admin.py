@@ -57,15 +57,16 @@ def _norm(value):
 
 
 def _admin_required(fn):
-    """Decorator: JWT required and emp_type must be Admin/Administrator/Administration or Super Admin."""
+    """Decorator: company Admin, or platform Super Admin on tenant 1."""
     from functools import wraps
+    from .plan_features import is_org_admin
+
     @wraps(fn)
     def wrapper(*args, **kwargs):
         claims = get_jwt()
         if not claims:
             return jsonify({"success": False, "message": "Unauthorized"}), 401
-        emp_type = _norm(claims.get("emp_type") or "")
-        if emp_type not in ADMIN_EMP_TYPES and "super" not in emp_type:
+        if not is_org_admin(claims):
             return jsonify({
                 "success": False,
                 "message": "Admin access required"
@@ -74,22 +75,21 @@ def _admin_required(fn):
     return wrapper
 
 
-def _deployment_guide_enabled():
+def _customer_registry_enabled():
     return bool(current_app.config.get("SHOW_DEPLOYMENT_GUIDE"))
 
 
-def _can_view_deployment_guide(claims=None):
-    """Vendor ops: Admin role of the platform tenant on instance with SHOW_DEPLOYMENT_GUIDE=1."""
-    if not _deployment_guide_enabled():
+def _can_manage_customer_registry(claims=None):
+    """Only the application-owner Super Admin on tenant 1 can register companies / CRM."""
+    from .plan_features import is_platform_super_admin
+
+    if not _customer_registry_enabled():
         return False
     if claims is None:
         claims = get_jwt() or {}
-    emp_type = _norm(claims.get("emp_type") or "")
-    if emp_type not in ADMIN_EMP_TYPES and "super" not in emp_type:
+    if not is_platform_super_admin(claims):
         return False
-    if not require_same_tenant(DEFAULT_TENANT_ID, claims_tenant_id=claims.get("tenant_id") or DEFAULT_TENANT_ID):
-        return False
-    raw = (os.getenv("DEPLOYMENT_GUIDE_EMAILS") or "").strip()
+    raw = (os.getenv("CUSTOMER_REGISTRY_EMAILS") or os.getenv("DEPLOYMENT_GUIDE_EMAILS") or "").strip()
     if not raw:
         return True
     allowed = {e.strip().lower() for e in raw.split(",") if e.strip()}
@@ -331,6 +331,7 @@ def get_dashboard():
         pass
 
     claims = get_jwt() or {}
+    from .plan_features import can_access_it_panel
 
     return jsonify({
         "success": True,
@@ -344,11 +345,13 @@ def get_dashboard():
         "pending_leaves": pending_leaves,
         "pending_queries": pending_queries,
         "pending_claims": pending_claims,
-        "it_inventory_access": True,
+        "it_inventory_access": can_access_it_panel(claims),
         "total_inventory_assets": total_inventory_assets,
         "open_tickets": open_tickets,
         "pending_return_requests": pending_return_requests,
-        "can_view_deployment_guide": _can_view_deployment_guide(claims),
+        "can_manage_customers": _can_manage_customer_registry(claims),
+        # Compatibility for dashboard clients served by an older frontend during rollout.
+        "can_view_deployment_guide": _can_manage_customer_registry(claims),
     }), 200
 
 
@@ -953,32 +956,17 @@ def get_employee_punches(admin_id):
 
 
 # --------------------------------------------------
-# New customer deployment guide (vendor master instance only)
+# Customer registry access (vendor master instance only)
 # --------------------------------------------------
 @admin_bp.route("/deployment-guide/access", methods=["GET"])
+@admin_bp.route("/customers/access", methods=["GET"])
 @jwt_required()
 @_admin_required
-def deployment_guide_access():
+def customer_registry_access():
     return jsonify({
         "success": True,
-        "can_view_deployment_guide": _can_view_deployment_guide(),
-    }), 200
-
-
-@admin_bp.route("/deployment-guide", methods=["GET"])
-@jwt_required()
-@_admin_required
-def deployment_guide_content():
-    if not _can_view_deployment_guide():
-        return jsonify({
-            "success": False,
-            "message": "Deployment guide is not available on this instance",
-        }), 403
-    from .deployment_guide_data import DEPLOYMENT_GUIDE
-    return jsonify({
-        "success": True,
-        "guide": DEPLOYMENT_GUIDE,
-        "doc_path": "docs/NEW_CUSTOMER_DEPLOYMENT.md",
+        "can_manage_customers": _can_manage_customer_registry(),
+        "can_view_deployment_guide": _can_manage_customer_registry(),
     }), 200
 
 
@@ -994,14 +982,17 @@ def _customers_access_denied():
 @_admin_required
 def company_mailboxes():
     """The signed-in admin's own company mailboxes. Other companies are not addressable."""
-    from .models.tenant import TENANT_MAILBOX_COLUMNS, Tenant
+    from .models.tenant import Tenant
 
     tenant = db.session.get(Tenant, get_current_tenant_id())
     if tenant is None:
         return jsonify({"success": False, "message": "Company not found"}), 404
+    from .company_mailbox import display_mailboxes, mailbox_columns_for_plan
+
+    allowed = mailbox_columns_for_plan(tenant.plan)
     if request.method == "PUT":
         data = request.get_json(silent=True) or {}
-        mailboxes, mailbox_error = _parse_tenant_mailboxes(data)
+        mailboxes, mailbox_error = _parse_tenant_mailboxes(data, plan=tenant.plan, restrict_to_plan=True)
         if mailbox_error:
             return jsonify({"success": False, "message": mailbox_error}), 400
         for column, value in mailboxes.items():
@@ -1010,8 +1001,39 @@ def company_mailboxes():
     return jsonify({
         "success": True,
         "company": tenant.name,
+        "plan": (tenant.plan or "essential").lower(),
+        "allowed": allowed,
         "uses_env_fallback": tenant.id == DEFAULT_TENANT_ID,
-        "mailboxes": {key: getattr(tenant, key) or "" for key in TENANT_MAILBOX_COLUMNS},
+        "mailboxes": display_mailboxes(tenant),
+    }), 200
+
+
+@admin_bp.route("/notice-settings", methods=["GET", "PUT"])
+@jwt_required()
+@_admin_required
+def company_notice_settings():
+    from .cache import active_master_names
+    from .notice_settings import circle_employee_counts, load_notice_settings, save_notice_settings
+
+    tid = get_current_tenant_id()
+    if request.method == "PUT":
+        data = request.get_json(silent=True) or {}
+        admin = current_admin()
+        try:
+            saved = save_notice_settings(data, tid, admin_id=admin.id if admin else None)
+        except ValueError as exc:
+            return jsonify({"success": False, "message": str(exc)}), 400
+        return jsonify({
+            "success": True,
+            "notice": saved,
+            "circles": active_master_names(tid, "circle"),
+            "circle_counts": circle_employee_counts(tid),
+        }), 200
+    return jsonify({
+        "success": True,
+        "notice": load_notice_settings(tid),
+        "circles": active_master_names(tid, "circle"),
+        "circle_counts": circle_employee_counts(tid),
     }), 200
 
 
@@ -1103,7 +1125,7 @@ def _unique_tenant_slug(desired: str, *, exclude_id=None) -> str:
         n += 1
 
 
-def _sync_tenant_from_customer(row, *, create=False):
+def _sync_tenant_from_customer(row, *, create=False, update_country=False):
     """
     Bridge: DeployedCustomer create/update → Tenant (shared-DB source of truth).
     Returns the Tenant row (created or updated).
@@ -1130,6 +1152,7 @@ def _sync_tenant_from_customer(row, *, create=False):
             plan=plan,
             status=status,
             contact_email=row.contact_email,
+            country=row.country,
             notes=row.notes,
         )
         db.session.add(tenant)
@@ -1144,22 +1167,23 @@ def _sync_tenant_from_customer(row, *, create=False):
         tenant.status = status
         if row.contact_email is not None:
             tenant.contact_email = row.contact_email
+        if update_country:
+            tenant.country = row.country
         if row.notes is not None:
             tenant.notes = row.notes
         tenant.updated_at = utc_now()
     return tenant
 
 
-def _parse_tenant_mailboxes(data):
-    """
-    ``mailbox_hr`` / ``mailbox_accounts`` / ``mailbox_it`` / ``mailbox_admin`` present in
-    the payload as {column: value or None}, or (None, error message).
-    """
+def _parse_tenant_mailboxes(data, plan=None, restrict_to_plan=False):
+    """Mailbox columns present in the payload as {column: value or None}."""
+    from .company_mailbox import mailbox_columns_for_plan
     from .models.tenant import TENANT_MAILBOX_COLUMNS
 
+    allowed = set(mailbox_columns_for_plan(plan)) if restrict_to_plan else set(TENANT_MAILBOX_COLUMNS)
     out = {}
     for column in TENANT_MAILBOX_COLUMNS:
-        if column not in data:
+        if column not in data or column not in allowed:
             continue
         value = (data.get(column) or "").strip().lower() or None
         if value and ("@" not in value or len(value) > 200):
@@ -1172,7 +1196,7 @@ FIRST_TENANT_ADMIN_EMP_ID = "ADM0001"
 
 
 def _seed_tenant_admin(tenant, *, email, first_name, mobile, performed_by):
-    """First Super Admin of a newly registered tenant (logs in with email OTP)."""
+    """First company Admin of a newly registered tenant (logs in with email OTP)."""
     from .models.Admin_models import AuditLog
     from .models.attendance import LeaveBalance
 
@@ -1182,7 +1206,7 @@ def _seed_tenant_admin(tenant, *, email, first_name, mobile, performed_by):
         first_name=first_name or "Company Admin",
         mobile=mobile,
         emp_id=FIRST_TENANT_ADMIN_EMP_ID,
-        emp_type="Super Admin",
+        emp_type="Admin",
         doj=date.today(),
         is_active=True,
         is_exited=False,
@@ -1210,11 +1234,7 @@ def _seed_tenant_admin(tenant, *, email, first_name, mobile, performed_by):
 
 
 def _registry_meta():
-    from .deployment_guide_data import DEPLOYMENT_GUIDE
-
-    plans = DEPLOYMENT_GUIDE.get("plans") or [
-        {"id": k, "label": v, "notes": ""} for k, v in PLAN_LABELS.items()
-    ]
+    plans = [{"id": k, "label": v, "notes": ""} for k, v in PLAN_LABELS.items()]
     statuses = [{"id": s, "label": STATUS_LABELS[s]} for s in STATUS_ORDER]
     return plans, statuses
 
@@ -1226,7 +1246,7 @@ def _registry_meta():
 @jwt_required()
 @_admin_required
 def list_deployed_customers():
-    if not _can_view_deployment_guide():
+    if not _can_manage_customer_registry():
         return _customers_access_denied()
     rows = (
         DeployedCustomer.query.order_by(
@@ -1259,7 +1279,7 @@ def create_deployed_customer():
     Platform admin: register company + plan.
     Creates a Tenant row in the shared DB (primary path). DeployedCustomer is a UI bridge.
     """
-    if not _can_view_deployment_guide():
+    if not _can_manage_customer_registry():
         return _customers_access_denied()
     data = request.get_json(silent=True) or {}
     company_name = (data.get("company_name") or "").strip()
@@ -1308,7 +1328,10 @@ def create_deployed_customer():
         return jsonify({"success": False, "message": "Admin email is required to create the company admin"}), 400
     if admin_email and ("@" not in admin_email or len(admin_email) > 120):
         return jsonify({"success": False, "message": "Invalid admin email"}), 400
-    mailboxes, mailbox_error = _parse_tenant_mailboxes(data)
+    country = (data.get("country") or "").strip()
+    if len(country) > 100:
+        return jsonify({"success": False, "message": "Country must be 100 characters or fewer"}), 400
+    mailboxes, mailbox_error = _parse_tenant_mailboxes(data, plan=plan)
     if mailbox_error:
         return jsonify({"success": False, "message": mailbox_error}), 400
 
@@ -1319,13 +1342,14 @@ def create_deployed_customer():
         app_url=(data.get("app_url") or "").strip() or None,
         database_name=db_name,
         contact_email=contact,
+        country=country or None,
         notes=(data.get("notes") or "").strip() or None,
         status=status,
         go_live_date=_parse_date(data.get("go_live_date")),
     )
     db.session.add(row)
     db.session.flush()
-    tenant = _sync_tenant_from_customer(row, create=True)
+    tenant = _sync_tenant_from_customer(row, create=True, update_country=True)
     for column, value in mailboxes.items():
         setattr(tenant, column, value)
     tenant_admin = None
@@ -1366,7 +1390,7 @@ def create_deployed_customer():
 @jwt_required()
 @_admin_required
 def get_deployed_customer(customer_id):
-    if not _can_view_deployment_guide():
+    if not _can_manage_customer_registry():
         return _customers_access_denied()
     row = DeployedCustomer.query.get(customer_id)
     if not row:
@@ -1391,7 +1415,7 @@ def get_deployed_customer(customer_id):
 @jwt_required()
 @_admin_required
 def update_deployed_customer(customer_id):
-    if not _can_view_deployment_guide():
+    if not _can_manage_customer_registry():
         return _customers_access_denied()
     row = DeployedCustomer.query.get(customer_id)
     if not row:
@@ -1441,6 +1465,11 @@ def update_deployed_customer(customer_id):
         if contact and "@" not in contact:
             return jsonify({"success": False, "message": "Invalid contact email"}), 400
         row.contact_email = contact
+    if "country" in data:
+        country = (data.get("country") or "").strip()
+        if len(country) > 100:
+            return jsonify({"success": False, "message": "Country must be 100 characters or fewer"}), 400
+        row.country = country or None
     if "notes" in data:
         row.notes = (data.get("notes") or "").strip() or None
 
@@ -1465,11 +1494,11 @@ def update_deployed_customer(customer_id):
     if "go_live_date" in data:
         row.go_live_date = _parse_date(data.get("go_live_date"))
 
-    mailboxes, mailbox_error = _parse_tenant_mailboxes(data)
+    mailboxes, mailbox_error = _parse_tenant_mailboxes(data, plan=row.plan)
     if mailbox_error:
         return jsonify({"success": False, "message": mailbox_error}), 400
 
-    tenant = _sync_tenant_from_customer(row)
+    tenant = _sync_tenant_from_customer(row, update_country="country" in data)
     for column, value in mailboxes.items():
         setattr(tenant, column, value)
     db.session.commit()
@@ -1488,7 +1517,7 @@ def update_deployed_customer(customer_id):
 @_admin_required
 def customer_env_template(customer_id):
     """Legacy silo: download generated .env (requires SILO_PROVISION_LEGACY=1)."""
-    if not _can_view_deployment_guide():
+    if not _can_manage_customer_registry():
         return _customers_access_denied()
     if not _silo_provision_legacy_enabled():
         return jsonify({
@@ -1516,7 +1545,7 @@ def provision_deployed_customer(customer_id):
 
     Primary path is shared-DB: register company → Tenant row (no MySQL CREATE).
     """
-    if not _can_view_deployment_guide():
+    if not _can_manage_customer_registry():
         return _customers_access_denied()
     if not _silo_provision_legacy_enabled():
         return jsonify({

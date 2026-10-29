@@ -1,5 +1,5 @@
 """
-Offboarding reminders: LWD approaching (7/3/1 days) and NOC SLA overdue.
+Offboarding reminders: LWD approaching (7/3/1 days).
 Run daily via scheduler or: flask offboarding-reminders [--run-date] [--dry-run]
 """
 from __future__ import annotations
@@ -7,12 +7,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import click
-from flask import current_app
 from sqlalchemy import func
 
 from .. import db
 from ..datetime_utils import utc_now
-from ..email import send_lwd_approaching_reminder, send_noc_sla_reminder
+from ..email import send_lwd_approaching_reminder
 from ..models.Admin_models import Admin, EmployeeExitHistory
 from ..models.offboarding_reminder import OffboardingReminderLog
 from ..models.seperation import Resignation
@@ -22,15 +21,9 @@ from ..tenant_jobs import (
     merge_tenant_summaries,
     run_in_each_tenant_scope,
 )
-from ..offboarding_service import (
-    NOC_SLA_DAYS,
-    _admin_display_name,
-    get_noc_sla_overdue_items,
-)
+from ..offboarding_service import _admin_display_name
 
 LWD_REMINDER_DAYS = (7, 3, 1)
-NOC_SLA_DAYS = 5
-NOTICE_PERIOD_DAYS = 90
 
 
 def _claim_reminder(reminder_key: str, *, dry_run: bool) -> bool:
@@ -93,7 +86,9 @@ def _lwd_targets_for_offset(run_date, days_before: int, tenant_id=None) -> list[
             continue
         if not res.resignation_date:
             continue
-        notice_end = res.resignation_date + timedelta(days=NOTICE_PERIOD_DAYS)
+        from ..notice_settings import notice_period_days_for
+
+        notice_end = res.resignation_date + timedelta(days=notice_period_days_for(admin))
         if notice_end != target_lwd:
             continue
         seen.add(admin.id)
@@ -136,16 +131,11 @@ def _lwd_targets_for_offset(run_date, days_before: int, tenant_id=None) -> list[
     return out
 
 
-def _noc_sla_overdue(run_date, tenant_id=None) -> list[dict]:
-    return get_noc_sla_overdue_items(run_date, tenant_id=tenant_id)
-
-
 def run_offboarding_reminders(run_date, *, dry_run: bool = False, tenant_id=None) -> dict:
-    """LWD approaching and NOC SLA reminders for one tenant, or all when tenant_id is None."""
+    """LWD approaching reminders for one tenant, or all when tenant_id is None."""
     summary = {
         "run_date": run_date.isoformat(),
         "lwd_reminders_sent": 0,
-        "noc_sla_reminders_sent": 0,
         "skipped": 0,
     }
 
@@ -173,28 +163,6 @@ def run_offboarding_reminders(run_date, *, dry_run: bool = False, tenant_id=None
                 db.session.commit()
                 summary["skipped"] += 1
 
-    for item in _noc_sla_overdue(run_date, tenant_id):
-        key = f"noc_sla:{item['noc_id']}"
-        if not _claim_reminder(key, dry_run=dry_run):
-            summary["skipped"] += 1
-            continue
-        if dry_run:
-            summary["noc_sla_reminders_sent"] += 1
-            continue
-        ok = send_noc_sla_reminder(
-            department_key=item.get("department_key"),
-            employee_name=item.get("employee_name"),
-            employee_email=item.get("employee_email"),
-            days_pending=item.get("days_pending"),
-        )
-        if ok:
-            summary["noc_sla_reminders_sent"] += 1
-            db.session.commit()
-        else:
-            _release_reminder(key)
-            db.session.commit()
-            summary["skipped"] += 1
-
     return summary
 
 
@@ -203,7 +171,7 @@ def register_offboarding_reminders_command(app):
     @click.option("--run-date", default=None, help="YYYY-MM-DD (IST calendar date)")
     @click.option("--dry-run", is_flag=True, help="Count only; do not send or persist")
     def offboarding_reminders_cmd(run_date, dry_run):
-        """Send LWD approaching and NOC SLA overdue reminders."""
+        """Send LWD approaching reminders."""
         from zoneinfo import ZoneInfo
 
         if run_date:

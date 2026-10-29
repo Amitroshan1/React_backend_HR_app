@@ -16,9 +16,9 @@ import { notifyError, notifySuccess } from "../../utils/notify";
 import { TdsSettingsPanel } from "./TdsSettingsPanel";
 import "./TaxDeclaration.css";
 
-export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpenDetail, showCompanySettings = true }) {
+export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpenDetail, showCompanySettings = true, queue = "accounts" }) {
     const [financialYear, setFinancialYear] = useState(defaultFinancialYear);
-    const [statusFilter, setStatusFilter] = useState("all");
+    const [statusFilter, setStatusFilter] = useState(queue === "finance" ? "finance_open" : "accounts_open");
     const [declarations, setDeclarations] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fyOptions, setFyOptions] = useState(() => financialYearOptions());
@@ -222,8 +222,12 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
                         >
+                            <option value="accounts_open">Accounts queue</option>
+                            <option value="finance_open">Finance queue</option>
                             <option value="all">All</option>
-                            <option value="submitted">Submitted (pending)</option>
+                            <option value="submitted">Waiting on Accounts</option>
+                            <option value="verified">Waiting on Finance</option>
+                            <option value="returned_to_accounts">Returned to Accounts</option>
                             <option value="approved">Approved</option>
                             <option value="rejected">Rejected</option>
                             <option value="draft">Draft</option>
@@ -342,12 +346,10 @@ export function TaxDeclarationReview({ apiBase = "/api/accounts", onBack, onOpen
                                                     className="tax-decl-btn tax-decl-btn--secondary tax-decl-btn--sm"
                                                     onClick={() => handleOpenDetail(row.id)}
                                                 >
-                                                    {row.status === "submitted"
+                                                    {row.status === "submitted" || row.status === "returned_to_accounts" || row.status === "verified" || row.final_proof_status === "submitted" || row.final_proof_status === "verified" || row.final_proof_status === "returned"
                                                         ? "Review"
-                                                        : row.final_proof_status === "submitted"
-                                                          ? "Review final"
-                                                          : row.status === "approved"
-                                                            ? "Amend"
+                                                        : row.status === "approved"
+                                                            ? "View"
                                                             : "View"}
                                                 </button>
                                             </td>

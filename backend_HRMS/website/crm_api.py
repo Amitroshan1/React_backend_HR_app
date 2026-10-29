@@ -25,13 +25,16 @@ ADMIN_EMP_TYPES = {"admin", "administrator", "administration"}
 
 def _admin_required(fn):
     from functools import wraps
+    from .plan_features import is_platform_super_admin
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
         claims = get_jwt() or {}
-        emp_type = (claims.get("emp_type") or "").strip().lower()
-        if emp_type not in ADMIN_EMP_TYPES and "super" not in emp_type:
-            return jsonify({"success": False, "message": "Admin access required"}), 403
+        if not is_platform_super_admin(claims):
+            return jsonify({
+                "success": False,
+                "message": "CRM is available only to the application Super Admin.",
+            }), 403
         return fn(*args, **kwargs)
 
     return wrapper

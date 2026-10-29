@@ -43,6 +43,7 @@ class TestComplianceExportLogic(unittest.TestCase):
             payable_days=30,
             calendar_days=30,
             epf_employee_paid=1800,
+            as_of="2026-08-01",
         )
         self.assertEqual(out["epf_wages"], 15000)
         self.assertEqual(out["eps_contribution_er"], 1250)

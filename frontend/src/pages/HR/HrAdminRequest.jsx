@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import EmployeeChangeRequests from '../Admin/EmployeeChangeRequests';
 import './HrAdminRequest.css';
 
 const HR_API_BASE = '/api/HumanResource';
@@ -11,19 +10,6 @@ export default function HrAdminRequest({ onBack }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [showHistory, setShowHistory] = useState(false);
-
-  if (showHistory) {
-    return (
-      <EmployeeChangeRequests
-        mode="hr"
-        onBack={() => setShowHistory(false)}
-        backLabel="Back to request"
-        title="Request history"
-        description="Every request HR has sent, including written requests, signups, exits, rehires, and profile changes."
-      />
-    );
-  }
 
   const submit = async (event) => {
     event.preventDefault();
@@ -64,11 +50,11 @@ export default function HrAdminRequest({ onBack }) {
       <header className="hr-admin-request__head">
         <div>
           <h1>Request to Admin</h1>
-          <p>Write what you need. Admin sees it under Requests for approval and can approve or reject it.</p>
+          <p>
+            Write what you need. Admin sees it under Requests for approval and can approve or reject it.
+            Check outcomes on the Request History card.
+          </p>
         </div>
-        <button type="button" className="hr-admin-request__history" onClick={() => setShowHistory(true)}>
-          History
-        </button>
       </header>
       {error ? <p className="hr-admin-request__banner hr-admin-request__banner--error" role="alert">{error}</p> : null}
       {notice ? <p className="hr-admin-request__banner hr-admin-request__banner--ok" role="status">{notice}</p> : null}

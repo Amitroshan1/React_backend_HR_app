@@ -64,6 +64,7 @@ def test_defaults_require_approval(app):
         assert approval_required("exit") is True
         assert approval_required("general") is True
         assert approval_required("leave_unlock") is True
+        assert approval_required("probation") is True
 
 
 def test_admin_can_load_and_toggle(app):

@@ -5,20 +5,41 @@
   "standard_deduction": 50000,
   "section_80c_cap": 150000,
   "section_80ccd1b_cap": 50000,
+  "section_80ccd2_pct_of_salary": 10,
   "section_80d_self_cap": 25000,
-  "section_80d_parents_cap": 50000,
+  "section_80d_self_senior_cap": 50000,
+  "section_80d_parents_cap": 25000,
+  "section_80d_parents_senior_cap": 50000,
   "section_24_cap": 200000,
   "section_80tta_cap": 10000,
   "section_80ttb_cap": 50000,
   "section_lta_cap": 0,
   "rebate_87a": {
     "income_limit": 500000,
-    "max_rebate": 12500
+    "max_rebate": 12500,
+    "marginal_relief": true
   },
   "cess_pct": 4,
+  "surcharge": [
+    { "above": 5000000, "rate": 10 },
+    { "above": 10000000, "rate": 15 },
+    { "above": 20000000, "rate": 25 },
+    { "above": 50000000, "rate": 37 }
+  ],
   "slabs": [
     { "upto": 250000, "rate": 0 },
     { "upto": 500000, "rate": 5 },
+    { "upto": 1000000, "rate": 20 },
+    { "upto": null, "rate": 30 }
+  ],
+  "slabs_senior": [
+    { "upto": 300000, "rate": 0 },
+    { "upto": 500000, "rate": 5 },
+    { "upto": 1000000, "rate": 20 },
+    { "upto": null, "rate": 30 }
+  ],
+  "slabs_super_senior": [
+    { "upto": 500000, "rate": 0 },
     { "upto": 1000000, "rate": 20 },
     { "upto": null, "rate": 30 }
   ],

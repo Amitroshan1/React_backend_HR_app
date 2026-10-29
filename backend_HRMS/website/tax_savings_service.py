@@ -40,6 +40,9 @@ def build_tax_savings_comparison(
     ptax_annual: float,
     as_of: date,
     declaration_inputs: dict,
+    employer_nps_annual: float = 0,
+    monthly_da: float = 0,
+    date_of_birth=None,
 ) -> dict:
     """
     Compare projected tax with declaration inputs vs CTC/profile baseline (no deductions).
@@ -58,6 +61,9 @@ def build_tax_savings_comparison(
         ytd_tds=ytd_tds,
         ptax_annual=ptax_annual,
         as_of=as_of,
+        employer_nps_annual=employer_nps_annual,
+        monthly_da=monthly_da,
+        date_of_birth=date_of_birth,
     )
 
     zero = _zero_tds_inputs()
@@ -96,6 +102,10 @@ def build_tax_savings_comparison(
         other_deductions=decl.get("other_deductions") or 0,
         other_income=decl.get("other_income") or 0,
         new_regime_deductions=decl.get("new_regime_deductions") or 0,
+        section_80d_self=decl.get("section_80d_self") or 0,
+        section_80d_parents=decl.get("section_80d_parents") or 0,
+        parents_senior=bool(decl.get("parents_senior")),
+        section_80g_pct=decl.get("section_80g_pct") or 50,
     )
 
     tax_without = float(without.get("tax", {}).get("annual_tax") or 0)

@@ -11,25 +11,28 @@ export function InventoryPanel({
   children,
   footer,
   variant,
+  hideHero = false,
 }) {
   return (
     <section
-      className={`inv-overview-panel${variant ? ` inv-overview-panel--${variant}` : ""}`}
+      className={`inv-overview-panel${variant ? ` inv-overview-panel--${variant}` : ""}${hideHero ? " inv-overview-panel--plain" : ""}`}
     >
-      <header className="inv-overview-panel__hero">
-        <div className="inv-overview-panel__title-block">
-          {eyebrow ? <span className="inv-overview-panel__eyebrow">{eyebrow}</span> : null}
-          <h2 className="inv-overview-panel__title">{title}</h2>
-          {subtitle ? <p className="inv-overview-panel__subtitle">{subtitle}</p> : null}
-          {filterBadge}
-        </div>
-        {recordCount != null ? (
-          <div className="inv-overview-panel__stat">
-            <span className="inv-overview-panel__stat-num">{recordCount}</span>
-            <span className="inv-overview-panel__stat-label">{recordLabel}</span>
+      {hideHero ? null : (
+        <header className="inv-overview-panel__hero">
+          <div className="inv-overview-panel__title-block">
+            {eyebrow ? <span className="inv-overview-panel__eyebrow">{eyebrow}</span> : null}
+            <h2 className="inv-overview-panel__title">{title}</h2>
+            {subtitle ? <p className="inv-overview-panel__subtitle">{subtitle}</p> : null}
+            {filterBadge}
           </div>
-        ) : null}
-      </header>
+          {recordCount != null ? (
+            <div className="inv-overview-panel__stat">
+              <span className="inv-overview-panel__stat-num">{recordCount}</span>
+              <span className="inv-overview-panel__stat-label">{recordLabel}</span>
+            </div>
+          ) : null}
+        </header>
+      )}
       {filters}
       <div className="inv-overview-panel__body">{children}</div>
       {footer ? <div className="inv-overview-panel__footer">{footer}</div> : null}

@@ -4,11 +4,18 @@
   "label": "New Tax Regime (FY 2026-27)",
   "standard_deduction": 75000,
   "section_80c_cap": 0,
+  "section_80ccd2_pct_of_salary": 14,
   "rebate_87a": {
     "income_limit": 1200000,
-    "max_rebate": 60000
+    "max_rebate": 60000,
+    "marginal_relief": true
   },
   "cess_pct": 4,
+  "surcharge": [
+    { "above": 5000000, "rate": 10 },
+    { "above": 10000000, "rate": 15 },
+    { "above": 20000000, "rate": 25 }
+  ],
   "slabs": [
     { "upto": 400000, "rate": 0 },
     { "upto": 800000, "rate": 5 },

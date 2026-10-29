@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { Search } from "lucide-react";
 import { useRefreshOnNavigate } from "../../../hooks/useRefreshOnNavigate";
 import {
   getEmployees,
@@ -404,7 +405,6 @@ export default function ActiveDevice({ onBack }) {
 
   const [activeTab, setActiveTab] = useState("All");
   const [search, setSearch] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [detailView, setDetailView] = useState(null);
 
@@ -430,8 +430,8 @@ export default function ActiveDevice({ onBack }) {
       activeTab === "All"
         ? allDevices
         : allDevices.filter((a) => a.category === activeTab);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
       r = r.filter(
         (a) =>
           String(a.id ?? "").toLowerCase().includes(q) ||
@@ -442,12 +442,7 @@ export default function ActiveDevice({ onBack }) {
       );
     }
     return r;
-  }, [allDevices, activeTab, searchQuery]);
-
-  const handleSearch = () => setSearchQuery(search);
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") handleSearch();
-  };
+  }, [allDevices, activeTab, search]);
 
   const handleView = (empId, assetRow) => {
     if (!assetRow) return;
@@ -551,7 +546,6 @@ export default function ActiveDevice({ onBack }) {
                   onClick={() => {
                     setActiveTab(cat);
                     setSearch("");
-                    setSearchQuery("");
                   }}
                 >
                   <span className="asd-tab-icon">{CAT_ICONS[cat]}</span>
@@ -562,29 +556,28 @@ export default function ActiveDevice({ onBack }) {
           </div>
 
           <div className="asd-search-row">
-            <div className="asd-search-wrap">
+            <label className="asd-search-wrap" htmlFor="asd-search">
+              <Search className="asd-search-icon" size={16} aria-hidden />
               <input
+                id="asd-search"
                 className="asd-search-input"
-                placeholder="Search by Asset ID / Serial No. / Asset Name"
+                type="search"
+                placeholder="Search asset ID, serial, name, or employee…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={handleKeyDown}
+                autoComplete="off"
               />
-              {search && (
+              {search ? (
                 <button
+                  type="button"
                   className="asd-search-clear"
-                  onClick={() => {
-                    setSearch("");
-                    setSearchQuery("");
-                  }}
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
                 >
                   ×
                 </button>
-              )}
-            </div>
-            <button className="asd-search-btn" onClick={handleSearch}>
-              Search
-            </button>
+              ) : null}
+            </label>
           </div>
         </div>
 
@@ -624,11 +617,11 @@ export default function ActiveDevice({ onBack }) {
                       <div className="asd-empty-inner">
                         <span>🔍</span>
                         <p>No assets found</p>
-                        {searchQuery && (
+                        {search.trim() ? (
                           <span className="asd-empty-hint">
                             Try clearing the search
                           </span>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                   </tr>

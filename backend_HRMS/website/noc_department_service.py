@@ -1,6 +1,6 @@
 """
 Shared list/upload/download logic for per-department NOC clearance rows (NocDepartmentRequest).
-Scopes: manager | hr | accounts | it
+Scopes: manager | hr | accounts | it | inventory
 """
 
 import os
@@ -21,6 +21,7 @@ NOC_DEPT_LABELS = {
     "ACCOUNTS": "Accounts",
     "MANAGER": "Reporting Manager",
     "IT": "IT Department",
+    "INVENTORY": "Inventory",
 }
 
 
@@ -157,6 +158,21 @@ def _can_access_row(scope, approver, row):
             return False
         et = " ".join(_norm(approver.emp_type or "").split())
         return et in ("it", "it department", "information technology")
+    if scope == "inventory":
+        if dk != "INVENTORY":
+            return False
+        from .plan_features import can_access_it_panel, is_inventory_department, is_org_admin
+
+        claims = {}
+        try:
+            from flask_jwt_extended import get_jwt
+
+            claims = get_jwt() or {}
+        except Exception:
+            claims = {}
+        if can_access_it_panel(claims) or is_org_admin(claims):
+            return True
+        return is_inventory_department(approver.emp_type or "")
     return False
 
 

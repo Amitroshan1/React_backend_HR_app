@@ -31,7 +31,7 @@ from .noc_department_service import (
 from .commands.probation import dedupe_probation_review_rows
 from .models.probation import ProbationReview
 from .models.manager_model import ManagerContact
-from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email, send_probation_review_received_employee_email
+from .email import send_leave_decision_email, send_wfh_decision_email, send_probation_review_submitted_email
 from .employee_photo import photo_url_for_admin
 from .punch_aggregate import ensure_punch_sessions_backfill, recompute_punch_aggregate, serialize_punch_sessions
 from .expense_utils import claim_attach_storage_name
@@ -1009,6 +1009,21 @@ def pending_request_counts():
         current_app.logger.exception("pending_request_counts: noc count failed")
         noc_count = 0
 
+    purchase_count = 0
+    try:
+        from .inventory_purchase import _can_manager_act
+        from .models.inventory_purchase_request import InventoryPurchaseRequest
+        from .tenant_context import get_current_tenant_id
+
+        pending_prs = InventoryPurchaseRequest.query.filter(
+            InventoryPurchaseRequest.tenant_id == get_current_tenant_id(),
+            InventoryPurchaseRequest.status == "pending_manager",
+        ).all()
+        purchase_count = sum(1 for row in pending_prs if _can_manager_act(admin, row))
+    except Exception:
+        current_app.logger.exception("pending_request_counts: purchase count failed")
+        purchase_count = 0
+
     return jsonify({
         "success": True,
         "counts": {
@@ -1017,6 +1032,7 @@ def pending_request_counts():
             "claim": claim_count,
             "resignation": resignation_count,
             "noc": noc_count,
+            "purchase": purchase_count,
         },
     }), 200
 
@@ -1484,17 +1500,13 @@ def submit_probation_review():
         return jsonify({"success": False, "message": str(e)}), 500
 
     manager_name = (getattr(admin, "first_name", None) or "").strip() or admin.email or "Manager"
+    # Notify HR only — employee is emailed after Admin approves confirm/extend.
     send_probation_review_submitted_email(
         target,
         manager_name,
         feedback_preview=feedback,
         rating=rating,
         recommendation=manager_recommendation,
-    )
-    send_probation_review_received_employee_email(
-        target,
-        manager_name,
-        probation_end_date=pr.probation_end_date,
     )
     pr.hr_notified_at = utc_now()
     db.session.commit()

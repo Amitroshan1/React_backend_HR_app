@@ -125,6 +125,99 @@ class TestTdsLogic(unittest.TestCase):
         tax_saved = base["tax"]["annual_tax"] - with_decl["tax"]["annual_tax"]
         self.assertGreater(tax_saved, 0)
 
+    def test_previous_employer_taxable_increases_taxable(self):
+        base = logic.run_tds_projection(
+            monthly_gross=80000,
+            monthly_basic=40000,
+            monthly_hra=16000,
+            monthly_epf=1800,
+            tax_regime="New Tax Regime",
+            financial_year="2026-27",
+            pan="ABCDE1234F",
+            as_of=date(2026, 10, 1),
+        )
+        with_prev = logic.run_tds_projection(
+            monthly_gross=80000,
+            monthly_basic=40000,
+            monthly_hra=16000,
+            monthly_epf=1800,
+            tax_regime="New Tax Regime",
+            financial_year="2026-27",
+            pan="ABCDE1234F",
+            previous_employer_taxable=400000,
+            previous_employer_tds=20000,
+            as_of=date(2026, 10, 1),
+        )
+        self.assertGreater(with_prev["taxable_income"], base["taxable_income"])
+        self.assertEqual(with_prev["income"]["previous_employer_taxable"], 400000)
+
+    def test_employer_nps_autofill_new_regime(self):
+        without = logic.run_tds_projection(
+            monthly_gross=100000,
+            monthly_basic=50000,
+            monthly_hra=20000,
+            monthly_epf=1800,
+            tax_regime="New Tax Regime",
+            financial_year="2026-27",
+            pan="ABCDE1234F",
+            as_of=date(2026, 10, 1),
+        )
+        with_nps = logic.run_tds_projection(
+            monthly_gross=100000,
+            monthly_basic=50000,
+            monthly_hra=20000,
+            monthly_epf=1800,
+            tax_regime="New Tax Regime",
+            financial_year="2026-27",
+            pan="ABCDE1234F",
+            employer_nps_annual=60000,
+            as_of=date(2026, 10, 1),
+        )
+        self.assertGreater(with_nps["deductions"]["section_80ccd2"], 0)
+        self.assertLessEqual(with_nps["deductions"]["section_80ccd2"], 50000 * 12 * 0.14)
+        self.assertLess(with_nps["taxable_income"], without["taxable_income"])
+
+    def test_87a_marginal_relief_new_regime(self):
+        just_over = logic.compute_annual_tax(1200100, logic.load_tax_rules("2026-27", "new"))
+        at_limit = logic.compute_annual_tax(1200000, logic.load_tax_rules("2026-27", "new"))
+        self.assertEqual(at_limit["annual_tax"], 0)
+        extra = 1200100 - 1200000
+        self.assertLessEqual(just_over["tax_after_rebate"], extra + 1)
+
+    def test_80d_caps_and_80g_pct(self):
+        result = logic.run_tds_projection(
+            monthly_gross=150000,
+            monthly_basic=75000,
+            monthly_hra=30000,
+            monthly_epf=1800,
+            tax_regime="Old Tax regime",
+            financial_year="2026-27",
+            pan="ABCDE1234F",
+            section_80d_self=80000,
+            section_80d_parents=80000,
+            parents_senior=True,
+            section_80g=10000,
+            section_80g_pct=100,
+            as_of=date(2026, 10, 1),
+        )
+        self.assertEqual(result["deductions"]["section_80d"], 25000 + 50000)
+        self.assertEqual(result["deductions"]["section_80g"], 10000)
+
+    def test_old_regime_senior_slab(self):
+        junior = logic.compute_annual_tax(
+            520000, logic.load_tax_rules("2026-27", "old"), age=40
+        )
+        senior = logic.compute_annual_tax(
+            520000, logic.load_tax_rules("2026-27", "old"), age=62
+        )
+        self.assertGreater(junior["annual_tax"], senior["annual_tax"])
+        self.assertGreater(senior["annual_tax"], 0)
+
+    def test_surcharge_applies_above_50l(self):
+        mid = logic.compute_annual_tax(6000000, logic.load_tax_rules("2026-27", "new"))
+        self.assertGreater(mid["surcharge"], 0)
+        self.assertEqual(mid["surcharge_rate_pct"], 10)
+
 
 if __name__ == "__main__":
     unittest.main()

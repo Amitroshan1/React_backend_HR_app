@@ -35,7 +35,6 @@ import {
 } from "../Data";
 import { isPagedScreenEnabled } from "../../../utils/pagedScreens";
 import { useDebounced, usePagedList } from "../../../hooks/usePagedList";
-import Pager from "../../../components/Pager";
 import { useITCacheGate } from "../useITCacheGate";
 import { useTransitionRemark } from "../itam/TransitionRemarkModal";
 import { actionCodeForStatusChange, remarkPayload } from "../itam/transitionUi";
@@ -44,6 +43,10 @@ import { AssetReviewsModal } from "../itam/AssetReviewsPanel";
 import { isItamFlagEnabled } from "../../../utils/itamFlags";
 import { unitCustodyLabel, unitStatusLabel } from "../itam/lifecycleUi";
 
+import InventoryLayout from "./InventoryLayout";
+import InventoryPurchase from "./InventoryPurchase";
+import InventoryNocRequests from "./InventoryNocRequests";
+import AssetDetailPage, { inventoryAssetPath } from "./AssetDetailPage";
 import AddNewAssets    from "./AddnewAssets";
 import NotWorking      from "./NotWorking";
 import InRepair        from "./InRepair";
@@ -53,8 +56,8 @@ import Parcel          from "./Parcel/ParcelDashboard";
 import AddImported     from "./Parcel/AddImportedAssets";
 import ReadyExport     from "./Parcel/ExportedAssets";
 import ActivityLogPage from "../itam/ActivityLogPage";
+import RepairBills from "./RepairBills";
 import {
-  INV_CATEGORIES,
   deletedLogBelongsToInventoryCategory,
   filterInventoryByCategory,
   getAssignedColumnLabel,
@@ -78,6 +81,7 @@ import {
   getHwTypesForCategory,
   subscribeHwTypesChange,
   INVENTORY_CATEGORY_CONFIG,
+  INV_CATEGORIES,
 } from "../inventoryCategories";
 import { OfficeIssueModal, OfficeReturnModal } from "./OfficeStockModals";
 import { formatDate } from "../../../utils/dateFormat";
@@ -268,6 +272,7 @@ function readLiveCounts(inventoryCategory = null) {
 
   return {
     total:            Math.max(0, total),
+    records:          inventory.filter((i) => !isSoftware(i)).length,
     "not-working":    Math.max(0, notWorking || (inventoryCategory ? 0 : counts.notWorking) || 0),
     "in-repair":      Math.max(0, inRepair || (inventoryCategory ? 0 : counts.inRepair) || 0),
     "removed-assets": inventoryCategory
@@ -316,7 +321,18 @@ function getMappedInventory(inventoryCategory = null) {
 
 // ─── Server-paged Overview / Total Assets ────────────────────────────────────
 
-const OVERVIEW_PER_PAGE = 25;
+const OVERVIEW_PAGE_SIZE = 10;
+
+function useOverviewShowMore(resetKey) {
+  const [visibleCount, setVisibleCount] = useState(OVERVIEW_PAGE_SIZE);
+  useEffect(() => {
+    setVisibleCount(OVERVIEW_PAGE_SIZE);
+  }, [resetKey]);
+  return {
+    visibleCount,
+    showMore: () => setVisibleCount((count) => count + OVERVIEW_PAGE_SIZE),
+  };
+}
 
 const selectOverviewItems = (body) =>
   (body?.items || []).map((item) =>
@@ -508,11 +524,16 @@ function filterITOverviewAssets(assets, {
     })
     .filter((a) => {
       if (!q) return true;
-      return (
-        a.name.toLowerCase().includes(q) ||
-        (a.hwType ?? "").toLowerCase().includes(q) ||
-        (a.category ?? "").toLowerCase().includes(q)
-      );
+      return [
+        a.name,
+        a.hwType,
+        a.category,
+        a.brand,
+        a.make,
+        a.model,
+        a.vendor,
+        a.serialNumber,
+      ].some((part) => String(part ?? "").toLowerCase().includes(q));
     })
     .filter((a) => {
       if (statusFilter === "Available") return Number(a.available) > 0;
@@ -914,7 +935,7 @@ function ViewActionGroup({
   return (
     <div className="inv-action-group">
       <button type="button" className="inv-action-btn" onClick={() => onViewAsset(row)}>
-        View
+        View / Edit
       </button>
       {inventoryDeploy && deployable && (
         <>
@@ -1892,72 +1913,16 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
   );
 
   return (
-    <div className={`inv-root${fromAdmin ? ' inv-root--admin-visit' : ''}`}>
-      {!fromAdmin ? (
-        <nav className="inv-tab-bar" ref={navRef}>
-          {INV_CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              className={category === cat ? 'inv-tab--active' : 'inv-tab'}
-              onClick={() => {
-                setCategory(cat);
-                navigate(`${BASE}?cat=${encodeURIComponent(cat)}`);
-              }}
-            >
-              {cat}
-            </button>
-          ))}
-        </nav>
-      ) : null}
-
-      <header className={`inv-header${fromAdmin ? ' inv-header--admin-visit' : ''}`} ref={headerRef}>
-        {!fromAdmin ? (
-          <div className="inv-header-left">
-            <button type="button" className="inv-back-btn" onClick={() => navigate('/dashboard')}>← Back</button>
-            <div className="inv-logo-group">
-              <div className="inv-logo">
-                <span className="inv-logo-dot" />
-                <span className="inv-logo-text">INVENTORY</span>
-              </div>
-              <span className="inv-header-sub">Asset Management System</span>
-            </div>
+    <div className={`inv-root inv-root--platform${fromAdmin ? ' inv-root--admin-visit' : ''}`}>
+      <header className="inv-header inv-header--platform" ref={headerRef}>
+        <div className="inv-logo-group">
+          <div className="inv-logo">
+            <span className="inv-logo-dot" />
+            <span className="inv-logo-text">{category}</span>
           </div>
-        ) : null}
-        <div className="inv-header-right">
-          <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/activity-log`)}>
-            Log
-          </button>
-          <button type="button" className="inv-btn-outline" onClick={() => navigate(`${BASE}/parcels`)}>
-            📦 Parcels
-          </button>
-          <button
-            type="button"
-            className="inv-btn-primary"
-            onClick={() => navigate(`${BASE}/add-assets?inv=${encodeURIComponent(category)}`)}
-          >
-            + Add Assets
-          </button>
+          <span className="inv-header-sub">Inventory overview</span>
         </div>
       </header>
-
-      {fromAdmin ? (
-        <nav className="inv-tab-bar inv-tab-bar--page" ref={navRef}>
-          {INV_CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              className={category === cat ? 'inv-tab--active' : 'inv-tab'}
-              onClick={() => {
-                setCategory(cat);
-                navigate(`${BASE}?cat=${encodeURIComponent(cat)}`);
-              }}
-            >
-              {cat}
-            </button>
-          ))}
-        </nav>
-      ) : null}
 
       <section className="inv-cards-grid inv-cards-grid--sticky" style={{ top: stickyTop }}>
         {visibleCards.map((card) => {
@@ -1984,6 +1949,11 @@ export function InventoryShell({ children, category, setCategory, activeSegment 
               >
                 {count}
               </span>
+              {card.segment === "total" ? (
+                <span className="inv-card-records">
+                  {Number(counts.records || 0)} record{Number(counts.records || 0) === 1 ? "" : "s"}
+                </span>
+              ) : null}
               <div className="inv-card-bar" style={{ background: card.color }} />
             </button>
           );
@@ -2120,7 +2090,7 @@ function ITOverviewFilterBar({
               id="inv-overview-search"
               className="inv-search-input"
               type="search"
-              placeholder="Search brand, type…"
+              placeholder="Search name, brand, type…"
               value={searchQuery}
               onChange={(e) => onSearchQueryChange(e.target.value)}
             />
@@ -2252,12 +2222,16 @@ function AssetTable({
                 <td className="td-name" data-label="Asset name">
                   {row.hwType && !row.isStock && !row.isSoftware ? (
                     <div className="td-name-wrap">
-                      <span className="td-name-brand">{row.name}</span>
+                      <button type="button" className="td-name-brand td-name-link" onClick={() => onViewAsset(row)}>
+                        {row.name}
+                      </button>
                       <span className="td-name-sub">{row.hwType}</span>
                     </div>
                   ) : (
                     <div className="td-name-wrap">
-                      <span className="td-name-brand">{row.name}</span>
+                      <button type="button" className="td-name-brand td-name-link" onClick={() => onViewAsset(row)}>
+                        {row.name}
+                      </button>
                       {row.isStock && row.vendor && row.vendor !== "—" && (
                         <span className="td-name-sub">{row.vendor}</span>
                       )}
@@ -2398,10 +2372,10 @@ function TotalAssetsFilterBar({
 // ─── TotalAssetsPage ──────────────────────────────────────────────────────────
 
 function TotalAssetsPage({ category }) {
+  const navigate = useNavigate();
   const showTypeFilter = category === "IT Assets";
   const [categoryTypeFilter, setCategoryTypeFilter] = useState("All");
   const [subTypeFilter, setSubTypeFilter] = useState("All");
-  const [detailAsset,   setDetailAsset]   = useState(null);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
   const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
@@ -2411,6 +2385,8 @@ function TotalAssetsPage({ category }) {
   const assignedLabel = getAssignedColumnLabel(category);
 
   const paged = useMemo(() => isPagedScreenEnabled("itTotalAssets"), []);
+  const showMoreResetKey = `${category}|${categoryTypeFilter}|${subTypeFilter}`;
+  const { visibleCount, showMore } = useOverviewShowMore(showMoreResetKey);
   const listFilters = useMemo(
     () =>
       chosenFilters({
@@ -2425,7 +2401,7 @@ function TotalAssetsPage({ category }) {
     select: selectOverviewItems,
     selectMeta: selectOverviewMeta,
     filters: listFilters,
-    perPage: OVERVIEW_PER_PAGE,
+    perPage: visibleCount,
     skip: !paged,
   });
   const { reload: reloadList, error: listError } = list;
@@ -2508,7 +2484,9 @@ function TotalAssetsPage({ category }) {
       });
   }, [category, categoryTypeFilter, subTypeFilter, refreshKey, paged]);
 
-  const filteredAssets = paged ? list.rows : localAssets;
+  const filteredAssets = paged ? list.rows : localAssets.slice(0, visibleCount);
+  const tableTotal = paged ? list.total : localAssets.length;
+  const canShowMore = visibleCount < tableTotal;
 
   const filterBadgeParts = [
     categoryTypeFilter !== "All" ? categoryTypeFilter : null,
@@ -2521,9 +2499,10 @@ function TotalAssetsPage({ category }) {
       {preparing && <div className="inv-toast">Loading asset details…</div>}
 
       <InventoryPanel
+        hideHero
         eyebrow={category}
         title="Total Assets"
-        recordCount={paged ? list.total : filteredAssets.length}
+        recordCount={paged ? list.total : localAssets.length}
         filterBadge={
           filterBadgeParts.length > 0 ? (
             <span className="inv-table-filter-badge">{filterBadgeParts.join(" · ")}</span>
@@ -2544,7 +2523,7 @@ function TotalAssetsPage({ category }) {
         <AssetTable
           assets={filteredAssets}
           filter="All"
-          onViewAsset={withCache(setDetailAsset)}
+          onViewAsset={(row) => navigate(inventoryAssetPath(row.id, category))}
           onReviews={withCache((row) => setReviewTarget(buildReviewTarget(row)))}
           hideAssigned={hideAssignedColumnForCategory(category)}
           assignedColumnLabel={assignedLabel}
@@ -2554,34 +2533,15 @@ function TotalAssetsPage({ category }) {
           onOfficeReturn={withCache(setOfficeReturnTarget)}
           responsive
         />
-        {paged ? (
-          <Pager
-            page={list.page}
-            pages={list.pages}
-            total={list.total}
-            perPage={list.perPage}
-            onPage={list.setPage}
-            loading={list.loading}
-            noun="assets"
-          />
+        {canShowMore ? (
+          <div className="inv-show-more">
+            <button type="button" disabled={list.loading} onClick={showMore}>
+              {list.loading ? "Loading…" : "Show more"}
+            </button>
+          </div>
         ) : null}
       </InventoryPanel>
 
-      {detailAsset && (
-        detailAsset.isSoftware ? (
-          <SoftwareAssetDetailModal
-            asset={detailAsset}
-            onClose={() => setDetailAsset(null)}
-          />
-        ) : (
-          <AssetDetailModal
-            asset={detailAsset}
-            onClose={() => setDetailAsset(null)}
-            onStatusChange={handleStatusChange}
-            inventoryCategory={category}
-          />
-        )
-      )}
       {reviewTarget && (
         <AssetReviewsModal
           target={reviewTarget}
@@ -2619,13 +2579,13 @@ function TotalAssetsPage({ category }) {
 // ─── OverviewPage ─────────────────────────────────────────────────────────────
 
 function OverviewPage({ category }) {
+  const navigate = useNavigate();
   const showItFilters = category === "IT Assets";
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [hwSubFilter, setHwSubFilter] = useState("All");
   const [projectNameFilter, setProjectNameFilter] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
-  const [detailAsset, setDetailAsset] = useState(null);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [officeIssueTarget, setOfficeIssueTarget] = useState(null);
   const [officeReturnTarget, setOfficeReturnTarget] = useState(null);
@@ -2636,14 +2596,17 @@ function OverviewPage({ category }) {
 
   const paged = useMemo(() => isPagedScreenEnabled("itInventoryOverview"), []);
   const search = useDebounced(searchQuery.trim(), 300);
+  const showMoreResetKey = `${category}|${statusFilter}|${categoryFilter}|${hwSubFilter}|${projectNameFilter}|${search}`;
+  const { visibleCount, showMore } = useOverviewShowMore(showMoreResetKey);
   const listFilters = useMemo(
     () =>
       chosenFilters({
         inventory_category: category,
         view: "overview",
         status: statusFilter,
+        q: search,
         ...(showItFilters
-          ? { category: categoryFilter, hw_type: hwSubFilter, project: projectNameFilter, q: search }
+          ? { category: categoryFilter, hw_type: hwSubFilter, project: projectNameFilter }
           : {}),
       }),
     [category, statusFilter, showItFilters, categoryFilter, hwSubFilter, projectNameFilter, search],
@@ -2653,7 +2616,7 @@ function OverviewPage({ category }) {
     select: selectOverviewItems,
     selectMeta: selectOverviewMeta,
     filters: listFilters,
-    perPage: OVERVIEW_PER_PAGE,
+    perPage: visibleCount,
     skip: !paged,
   });
   const { reload: reloadList, error: listError } = list;
@@ -2757,13 +2720,13 @@ function OverviewPage({ category }) {
 
   const localAssets = useMemo(() => {
     if (!showItFilters) {
-      if (statusFilter === "Available") {
-        return baseAssets.filter((a) => Number(a.available) > 0);
-      }
-      if (statusFilter === "Assigned") {
-        return baseAssets.filter((a) => Number(a.assigned) > 0);
-      }
-      return baseAssets;
+      return filterITOverviewAssets(baseAssets, {
+        categoryFilter: "All",
+        hwSubFilter: "All",
+        projectNameFilter: "All",
+        searchQuery,
+        statusFilter,
+      });
     }
     return filterITOverviewAssets(baseAssets, {
       categoryFilter,
@@ -2774,7 +2737,9 @@ function OverviewPage({ category }) {
     });
   }, [baseAssets, showItFilters, categoryFilter, hwSubFilter, projectNameFilter, searchQuery, statusFilter]);
 
-  const assets = paged ? list.rows : localAssets;
+  const assets = paged ? list.rows : localAssets.slice(0, visibleCount);
+  const tableTotal = paged ? list.total : localAssets.length;
+  const canShowMore = visibleCount < tableTotal;
 
   const handleCategoryFilterChange = useCallback((next) => {
     setCategoryFilter(next);
@@ -2795,9 +2760,10 @@ function OverviewPage({ category }) {
       {preparing && <div className="inv-toast">Loading asset details…</div>}
 
       <InventoryPanel
+        hideHero
         eyebrow={category}
         title="Asset Overview"
-        recordCount={paged ? list.total : assets.length}
+        recordCount={paged ? list.total : localAssets.length}
         filterBadge={
           showItFilters &&
           (categoryFilter !== "All" ||
@@ -2865,7 +2831,7 @@ function OverviewPage({ category }) {
         <AssetTable
           assets={assets}
           filter={statusFilter}
-          onViewAsset={withCache(setDetailAsset)}
+          onViewAsset={(row) => navigate(inventoryAssetPath(row.id, category))}
           onReviews={withCache((row) => setReviewTarget(buildReviewTarget(row)))}
           hideAssigned={hideAssignedColumnForCategory(category)}
           assignedColumnLabel={assignedLabel}
@@ -2875,34 +2841,15 @@ function OverviewPage({ category }) {
           onOfficeReturn={withCache(setOfficeReturnTarget)}
           responsive
         />
-        {paged ? (
-          <Pager
-            page={list.page}
-            pages={list.pages}
-            total={list.total}
-            perPage={list.perPage}
-            onPage={list.setPage}
-            loading={list.loading}
-            noun="assets"
-          />
+        {canShowMore ? (
+          <div className="inv-show-more">
+            <button type="button" disabled={list.loading} onClick={showMore}>
+              {list.loading ? "Loading…" : "Show more"}
+            </button>
+          </div>
         ) : null}
       </InventoryPanel>
 
-      {detailAsset && (
-        detailAsset.isSoftware ? (
-          <SoftwareAssetDetailModal
-            asset={detailAsset}
-            onClose={() => setDetailAsset(null)}
-          />
-        ) : (
-          <AssetDetailModal
-            asset={detailAsset}
-            onClose={() => setDetailAsset(null)}
-            onStatusChange={handleStatusChange}
-            inventoryCategory={category}
-          />
-        )
-      )}
       {reviewTarget && (
         <AssetReviewsModal
           target={reviewTarget}
@@ -2939,14 +2886,85 @@ function OverviewPage({ category }) {
 
 // ─── InventoryRoot + default export ──────────────────────────────────────────
 
+const CATEGORY_CARD_META = {
+  "IT Assets": { color: "#0f766e", hint: "Laptops, mobiles, desktops, accessories" },
+  "Fixed Assets": { color: "#1d4ed8", hint: "Furniture, electronics, and other fixed stock" },
+  "Transport Assets": { color: "#b45309", hint: "Cars, bikes, and fleet vehicles" },
+  "Infrastructure Assets": { color: "#7c3aed", hint: "Networking, power, cooling, security" },
+};
+
+function InventoryCategoryHub() {
+  const navigate = useNavigate();
+  const fromAdmin = isAdminVisitActive();
+  const [counts, setCounts] = useState(() =>
+    Object.fromEntries(INV_CATEGORIES.map((cat) => [cat, readLiveCounts(cat)]))
+  );
+
+  const loadCounts = useCallback(() => {
+    Promise.all(
+      INV_CATEGORIES.map((cat) =>
+        fetchInventorySummaryAPI(cat)
+          .then((summary) => [cat, summary || readLiveCounts(cat)])
+          .catch(() => [cat, readLiveCounts(cat)])
+      )
+    ).then((rows) => {
+      setCounts(Object.fromEntries(rows));
+    });
+  }, []);
+
+  useRefreshOnNavigate(loadCounts);
+
+  return (
+    <div className={`inv-root inv-root--platform${fromAdmin ? " inv-root--admin-visit" : ""}`}>
+      <header className="inv-header inv-header--platform">
+        <div className="inv-logo-group">
+          <div className="inv-logo">
+            <span className="inv-logo-dot" />
+            <span className="inv-logo-text">Inventory</span>
+          </div>
+          <span className="inv-header-sub">Choose an asset type</span>
+        </div>
+      </header>
+      <section className="inv-cards-grid inv-category-hub" aria-label="Asset types">
+        {INV_CATEGORIES.map((cat) => {
+          const meta = CATEGORY_CARD_META[cat] || { color: "#13877f" };
+          const total = Number(counts[cat]?.total || 0);
+          const records = Number(counts[cat]?.records || 0);
+          return (
+            <button
+              key={cat}
+              type="button"
+              className="inv-card inv-category-card"
+              style={{ borderColor: "#e2e8f0" }}
+              onClick={() => navigate(`${BASE}?cat=${encodeURIComponent(cat)}`)}
+            >
+              <span className="inv-card-label">{cat}</span>
+              <span className="inv-card-count" style={{ color: total === 0 ? "#94a3b8" : "#0f172a" }}>
+                {total}
+              </span>
+              <span className="inv-card-records">
+                {records} record{records === 1 ? "" : "s"}
+              </span>
+              <span className="inv-category-card__hint">{meta.hint}</span>
+              <div className="inv-card-bar" style={{ background: meta.color }} />
+            </button>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
 function InventoryRoot() {
   const [searchParams, setSearchParams] = useSearchParams();
   const catParam = searchParams.get("cat");
+  const hasCat = isValidInventoryCategory(catParam);
   const [category, setCategoryState] = useState(
-    isValidInventoryCategory(catParam) ? catParam : "IT Assets",
+    hasCat ? catParam : "IT Assets",
   );
   const location  = useLocation();
   const segment   = location.pathname.replace(BASE, "").replace(/^\//, "");
+  const isOverview = !segment;
 
   useEffect(() => {
     if (isValidInventoryCategory(catParam)) setCategoryState(catParam);
@@ -2956,6 +2974,10 @@ function InventoryRoot() {
     setCategoryState(cat);
     setSearchParams({ cat }, { replace: true });
   }, [setSearchParams]);
+
+  if (isOverview && !hasCat) {
+    return <InventoryCategoryHub />;
+  }
 
   return (
     <InventoryShell category={category} setCategory={setCategory} activeSegment={segment}>
@@ -2973,13 +2995,20 @@ function InventoryRoot() {
 
 const InventoryDashboard = () => (
   <Routes>
-    <Route path="activity-log" element={<ActivityLogPage defaultScope="inventory" />} />
-    <Route path="add-assets"   element={<AddNewAssets />} />
-    <Route path="parcels"      element={<Parcel />} />
-    <Route path="parcel-log"   element={<Navigate to="/it/inventory/parcels?tab=log" replace />} />
-    <Route path="add-import"   element={<AddImported />} />
-    <Route path="ready-export" element={<ReadyExport />} />
-    <Route path="/*"           element={<InventoryRoot />} />
+    <Route element={<InventoryLayout />}>
+      <Route path="activity-log" element={<ActivityLogPage defaultScope="inventory" />} />
+      <Route path="repair-bills" element={<RepairBills />} />
+      <Route path="purchase"     element={<InventoryPurchase />} />
+      <Route path="noc-requests" element={<InventoryNocRequests />} />
+      <Route path="add-assets"   element={<AddNewAssets />} />
+      <Route path="item/:itemId" element={<AssetDetailPage />} />
+      <Route path="parcels"      element={<Parcel />} />
+      <Route path="parcel-log"   element={<Navigate to="/it/inventory/parcels?tab=log" replace />} />
+      <Route path="parcel-history" element={<Navigate to="/it/inventory/parcels?tab=history" replace />} />
+      <Route path="add-import"   element={<AddImported />} />
+      <Route path="ready-export" element={<ReadyExport />} />
+      <Route path="/*"           element={<InventoryRoot />} />
+    </Route>
   </Routes>
 );
 

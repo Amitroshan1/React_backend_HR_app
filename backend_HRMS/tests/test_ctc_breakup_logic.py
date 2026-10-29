@@ -74,9 +74,19 @@ class CtcBreakupLogicTests(unittest.TestCase):
         self.assertEqual(logic.total_ctc_annual(200000, 50000), 250000)
 
     def test_pf_admin_and_edli_on_capped_wage(self):
-        # PF wage cap 15000 => admin 75/mo, edli 75/mo yearly 900 each
-        self.assertAlmostEqual(logic.pf_admin_yearly(20000), 900.0, places=0)
-        self.assertAlmostEqual(logic.edli_yearly(20000), 900.0, places=0)
+        # Before 17 Sep 2026: cap 15000 => 75/mo, yearly 900
+        self.assertAlmostEqual(
+            logic.pf_admin_yearly(20000, as_of="2026-08-01"), 900.0, places=0
+        )
+        self.assertAlmostEqual(logic.edli_yearly(20000, as_of="2026-08-01"), 900.0, places=0)
+        # After cutover: cap 25000, wage 20000 uncapped at 20000 => 100/mo, yearly 1200
+        self.assertAlmostEqual(
+            logic.pf_admin_yearly(20000, as_of="2026-10-01"), 1200.0, places=0
+        )
+        # Wage 30000 after cutover caps at 25000 => 125/mo, yearly 1500
+        self.assertAlmostEqual(
+            logic.pf_admin_yearly(30000, as_of="2026-10-01"), 1500.0, places=0
+        )
 
     def test_pf_admin_excluded_from_ctc_when_disabled(self):
         with_admin = logic._annual_ctc_raw(13000, 0, 40, 0, 0, True, True)
@@ -152,18 +162,19 @@ class CtcBreakupLogicTests(unittest.TestCase):
 
     def test_statutory_bonus_in_fixed_ctc(self):
         without = logic.annual_ctc_from_monthly(
-            50000, 40, 10000, 0,
+            15000, 40, 10000, 0,
             dearness_allowance=0,
             include_statutory_bonus_in_ctc=False,
         )
         with_bonus = logic.annual_ctc_from_monthly(
-            50000, 40, 10000, 0,
+            15000, 40, 10000, 0,
             dearness_allowance=0,
             include_statutory_bonus_in_ctc=True,
             statutory_bonus_pct=8.33,
         )
-        expected_bonus = logic.statutory_bonus_yearly(50000, 0, 8.33)
+        expected_bonus = logic.statutory_bonus_yearly(15000, 0, 8.33)
         self.assertAlmostEqual(with_bonus - without, expected_bonus, places=1)
+        self.assertEqual(logic.statutory_bonus_yearly(50000, 0, 8.33), 0.0)
 
     def test_lwf_in_fixed_ctc(self):
         without = logic.annual_ctc_from_monthly(

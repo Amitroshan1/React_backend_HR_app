@@ -4,7 +4,7 @@ import { isAdminVisitActive } from "../../hooks/useAdminVisitNav";
 import "./ReturnRequests.css";
 import "./ITNocRequests.css";
 
-/** IT department NOC clearance queue (same list/upload flow as other department panels). */
+/** IT department NOC clearance queue only. Inventory has its own page. */
 export default function ITNocRequests() {
   const navigate = useNavigate();
   const fromAdmin = isAdminVisitActive();
@@ -21,17 +21,14 @@ export default function ITNocRequests() {
         <header className="it-noc-hero">
           <div className="it-noc-hero__main">
             <h1>NOC Requests</h1>
-            <p>
-              Separation NOC requests routed to IT. Upload clearance documents when status is
-              Pending.
-            </p>
+            <p>Separation NOC requests routed to IT. Upload clearance documents when status is Pending.</p>
           </div>
           <span className="it-noc-hero__badge">IT Clearance</span>
         </header>
 
         <div className="it-noc-body">
           <div className="it-noc-panel">
-            <DepartmentNocPanel apiBase="/api/it" statusFilter="All" variant="table" />
+            <DepartmentNocPanel apiBase="/api/it" statusFilter="All" variant="table" ownOnly />
           </div>
         </div>
       </div>

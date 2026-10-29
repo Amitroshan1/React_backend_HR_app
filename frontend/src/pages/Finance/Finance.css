@@ -13,11 +13,37 @@
   color: var(--fin-text);
 }
 
+.finx-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .finx-head h1 {
   margin: 2px 0 0;
   font-size: 28px;
   letter-spacing: -0.04em;
   line-height: 1.1;
+}
+
+.finx-policy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #0e3c4f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.finx-policy-btn:hover {
+  background: #13877f;
 }
 
 .finx-kicker {
@@ -109,7 +135,7 @@
 
 .finx-queue {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -212,6 +238,21 @@
   color: var(--fin-muted);
   flex: none;
   margin-top: 2px;
+}
+
+.finx-module-count {
+  flex: none;
+  min-width: 2ch;
+  margin-left: auto;
+  font-size: 28px;
+  font-weight: 750;
+  line-height: 1;
+  color: #0f172a;
+  letter-spacing: -0.03em;
+}
+
+.finx-module-count.is-zero {
+  color: #94a3b8;
 }
 
 .finx-back {
@@ -405,22 +446,44 @@
   align-items: flex-end;
 }
 
+.finx-form--client {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+}
+
 .finx-form label {
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
   font-weight: 700;
+  min-width: 0;
 }
 
 .finx-form select,
 .finx-form input {
   min-width: 180px;
+  width: 100%;
+  height: 42px;
   padding: 10px 12px;
   border: 1px solid var(--fin-border);
   border-radius: 10px;
   background: #fff;
   color: var(--fin-text);
+}
+
+.finx-form--client button {
+  height: 42px;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+  .finx-form--client {
+    grid-template-columns: 1fr;
+  }
 }
 
 .finx button:disabled {
@@ -1119,6 +1182,44 @@
   .fc-amount {
     align-items: flex-start;
   }
+}
+
+.finx-reject-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--fin-muted);
+}
+
+.finx-reject-label input {
+  border: 1px solid var(--fin-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--fin-text);
+}
+
+.finx-ctc-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.finx-ctc-actions button {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--fin-primary);
+  color: #fff;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.finx-ctc-actions button:last-child {
+  background: #9a3412;
 }
 
 @media (max-width: 980px) {

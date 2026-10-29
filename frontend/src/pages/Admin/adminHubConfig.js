@@ -81,14 +81,6 @@ export const ADMIN_PLATFORM_SECTION = {
       route: "/admin/customers",
       accent: "blue",
     },
-    {
-      id: "deployment-guide",
-      title: "Deployment Guide",
-      description: "Checklist and environment keys",
-      icon: "🚀",
-      route: "/admin/deployment-guide",
-      accent: "teal",
-    },
   ],
 };
 

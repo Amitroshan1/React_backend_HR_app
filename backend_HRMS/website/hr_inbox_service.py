@@ -8,10 +8,10 @@ from .datetime_utils import isoformat_api
 from .models.Admin_models import Admin
 from .models.attendance import LeaveApplication, WorkFromHomeApplication
 from .models.probation import ProbationReview
-from .models.seperation import NocDepartmentRequest
+from .models.seperation import NocDepartmentRequest, NocApplicationRequest
 from .offboarding_service import build_offboarding_dashboard
-from .probation_api import _serialize_probation_review, infer_status_from_row
-from .probation_utils import TERMINAL_STATUSES, is_probation_review_row_active
+from .probation_api import _serialize_probation_review
+from .probation_utils import TERMINAL_STATUSES, infer_status_from_row, is_probation_review_row_active
 from .tenant_context import admin_tenant_clause, tenant_admin_ids, tenant_id_for_admin
 
 
@@ -101,6 +101,43 @@ def build_hr_inbox(*, hr_admin) -> dict:
                 "created_at": row.get("requested_at"),
             }
         )
+
+    # Employee NOC / bonafide applications addressed to HR. No-dues applications
+    # appear here only when HR was one of the employee's selected departments.
+    noc_application_rows = (
+        NocApplicationRequest.query.filter(NocApplicationRequest.admin_id.in_(tenant_ids))
+        .filter(db.func.lower(NocApplicationRequest.status) == "pending")
+        .filter(NocApplicationRequest.request_type != "exit_no_dues")
+        .order_by(NocApplicationRequest.created_at.desc(), NocApplicationRequest.id.desc())
+        .limit(100).all()
+    )
+    noc_application_count = 0
+    for application in noc_application_rows:
+        employee = Admin.query.get(application.admin_id)
+        request_labels = {
+            "exit_no_dues": "No dues clearance (Exit)",
+            "banking_bonafide": "Bonafide letter for banking purpose",
+            "travel_bonafide": "Bonafide letter for visa (personal holiday)",
+            "other": "Other reason",
+        }
+        request_label = request_labels.get(application.request_type, application.request_type)
+        detail = application.other_reason or application.details or request_label
+        noc_application_count += 1
+        items.append({
+            "type": "noc_application",
+            "id": f"noc-application-{application.id}",
+            "ref_id": application.id,
+            "admin_id": application.admin_id,
+            "title": f"{request_label} — {employee.first_name if employee else 'Employee'}",
+            "subtitle": detail[:180],
+            "employee_name": employee.first_name if employee else None,
+            "emp_id": employee.emp_id if employee else None,
+            "due_at": None,
+            "priority": "normal",
+            "deep_link_view": "noc_application_requests",
+            "created_at": isoformat_api(application.created_at),
+            **_inbox_employee_fields(employee),
+        })
 
     # Exit pipeline (active separations)
     offboarding = build_offboarding_dashboard(tenant_id=tenant_id)
@@ -238,10 +275,11 @@ def build_hr_inbox(*, hr_admin) -> dict:
         "summary": {
             "probation": probation_count,
             "noc_pending": noc_count,
+            "noc_applications": noc_application_count,
             "exit_pipeline": exit_count,
             "leave_pending": leave_count,
             "salary_revision": salary_pending,
-            "total": probation_count + noc_count + exit_count + leave_count + salary_pending,
+            "total": probation_count + noc_count + noc_application_count + exit_count + leave_count + salary_pending,
         },
         "items": items[:200],
     }

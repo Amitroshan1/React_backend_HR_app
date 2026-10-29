@@ -1,4 +1,4 @@
-"""Dedup log for offboarding reminder emails (LWD, NOC SLA)."""
+"""Dedup log for offboarding reminder emails (LWD approaching)."""
 from .. import db
 from ..datetime_utils import utc_now
 

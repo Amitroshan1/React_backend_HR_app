@@ -88,6 +88,7 @@ class DeployedCustomer(db.Model):
     app_url = db.Column(db.String(500), nullable=True)
     database_name = db.Column(db.String(120), nullable=True)
     contact_email = db.Column(db.String(200), nullable=True)
+    country = db.Column(db.String(100), nullable=True)
     notes = db.Column(db.Text, nullable=True)
     # provisioning | active | suspended | cancelled
     status = db.Column(db.String(32), nullable=False, default="provisioning")
@@ -130,6 +131,7 @@ class DeployedCustomer(db.Model):
             "app_url": self.app_url or "",
             "database_name": self.database_name or "",
             "contact_email": self.contact_email or "",
+            "country": self.country or "",
             "notes": self.notes or "",
             "status": status,
             "status_label": self.status_label(),

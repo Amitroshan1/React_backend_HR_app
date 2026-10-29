@@ -11,7 +11,7 @@ from website.models.education import Education, UploadDoc
 from website.models.attendance import LeaveApplication, Punch,WorkFromHomeApplication,Punch,LeaveBalance,Location,AttendanceRegularization
 from website.models.news_feed import PaySlip, Form16
 from website.models.query import Query, QueryReply  
-from website.models.seperation import Resignation,Noc,Noc_Upload,NocDepartmentRequest
+from website.models.seperation import Resignation,Noc,Noc_Upload,NocDepartmentRequest,NocApplicationRequest
 from website.models.expense import ExpenseClaimHeader   
 from website.models.Performance import EmployeePerformance
 

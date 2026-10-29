@@ -88,7 +88,7 @@ def app():
 
 
 def _admin(app, tenant_id):
-    admin_id, emp_type = (1, "Admin") if tenant_id == 1 else (3, "Super Admin")
+    admin_id, emp_type = (1, "Super Admin") if tenant_id == 1 else (3, "Admin")
     with app.app_context():
         token = create_access_token(
             identity=str(admin_id),

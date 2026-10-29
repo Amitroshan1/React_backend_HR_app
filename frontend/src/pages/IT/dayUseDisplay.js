@@ -1,4 +1,4 @@
-/** Shared Day-use request display helpers. */
+/** Shared Loan assets request display helpers. */
 
 export function dayUseItemsLabel(row) {
   if (row?.items_summary) return row.items_summary;

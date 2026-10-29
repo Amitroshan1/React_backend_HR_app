@@ -236,6 +236,25 @@ def ensure_tenant_mailbox_columns(engine, logger) -> list[str]:
     return added
 
 
+def ensure_company_country_columns(engine, logger) -> dict[str, bool]:
+    """Add nullable country fields to existing shared-DB company registry tables."""
+    tables = set(inspect(engine).get_table_names())
+    result: dict[str, bool] = {}
+    for table in ("tenants", "deployed_customers"):
+        if table not in tables:
+            continue
+        columns = {column["name"] for column in inspect(engine).get_columns(table)}
+        if "country" in columns:
+            result[table] = False
+            continue
+        quoted_table = _q(engine.dialect.name, table)
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN country VARCHAR(100) NULL"))
+        result[table] = True
+        logger.info("Added %s.country", table)
+    return result
+
+
 def ensure_manager_contact_tenant_id(engine, logger) -> dict:
     """manager_contacts.tenant_id from the linked L1, then L2, then L3 manager's tenant."""
     t = "manager_contacts"

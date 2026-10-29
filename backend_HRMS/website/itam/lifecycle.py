@@ -139,6 +139,7 @@ LEGACY_STATUS_MAP: dict[str, str] = {
 
 ASSIGNED_LOCATION_HINT_CATEGORIES = frozenset(
     {
+        "Fixed Assets",
         "Office Assets",
         "Transport Assets",
         "Infrastructure Assets",

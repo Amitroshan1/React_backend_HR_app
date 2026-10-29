@@ -1,16 +1,60 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { GRADIENT_HEADER_STYLE } from '../../utils/gradientStyles';
 import { Info } from '../common/Info';
 import { ProgressCircle } from '../common/ProgressCircle';
 import { ProfileSectionHints } from '../common/ProfileSectionHints';
 import { ProfileSummaryCard } from './ProfileSummaryCard';
 import { formatDateForDisplay, shouldShowReportingManager } from '../../utils/profileUtils';
-import { DOCUMENT_LABELS, documentPreviewUrl } from '../../utils/profileApi';
+import { DOCUMENT_LABELS, documentPreviewUrl, toProfileDocContentUrl, uploadDocFileUrl } from '../../utils/profileApi';
+import { fetchAndOpenAuthenticatedFile } from '../../../../utils/openBlobFile';
 import {
     maskAadhaar,
     maskPan,
     maskBankAccount,
 } from '../../utils/documentIdentity';
+
+const OpenStoredDocument = ({ field, path, children }) => {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const stored = typeof path === 'string' ? path : '';
+    if (!documentPreviewUrl(stored) && !stored) return null;
+
+    const handleOpen = async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        setError('');
+        try {
+            const fileName = stored.split('/').pop() || 'document';
+            const url = field ? uploadDocFileUrl(field) : toProfileDocContentUrl(stored);
+            if (!url) throw new Error('Unable to open file');
+            await fetchAndOpenAuthenticatedFile(url, { fileName });
+        } catch (err) {
+            const raw = String(err.message || '');
+            setError(
+                /not found/i.test(raw)
+                    ? 'File is missing on the server. Upload it again from Edit profile.'
+                    : (raw || 'Unable to open file')
+            );
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <span className="profile-doc-open-wrap">
+            <button
+                type="button"
+                className="profile-doc-link"
+                onClick={handleOpen}
+                disabled={busy}
+            >
+                {busy ? 'Opening…' : children}
+            </button>
+            {error ? <span className="profile-doc-missing">{error}</span> : null}
+        </span>
+    );
+};
 
 const formatAddressBlock = (addr) => {
     if (!addr) return '—';
@@ -266,14 +310,9 @@ export const ProfileViewLayout = ({
                                                 <td>{row.marks || '—'}</td>
                                                 <td>
                                                     {row.certificate ? (
-                                                        <a
-                                                            href={documentPreviewUrl(row.certificate)}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="profile-doc-link"
-                                                        >
+                                                        <OpenStoredDocument path={row.certificate}>
                                                             View
-                                                        </a>
+                                                        </OpenStoredDocument>
                                                     ) : (
                                                         '—'
                                                     )}
@@ -308,19 +347,14 @@ export const ProfileViewLayout = ({
                         <ul className="profile-doc-list">
                             {Object.entries(DOCUMENT_LABELS).map(([key, label]) => {
                                 const path = files?.[key];
-                                const url = documentPreviewUrl(path);
+                                const canOpen = Boolean(documentPreviewUrl(path) || (typeof path === 'string' && path.trim()));
                                 return (
                                     <li key={key} className="profile-doc-list-item">
                                         <span className="profile-doc-list-label">{label}</span>
-                                        {url ? (
-                                            <a
-                                                href={url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="profile-doc-link"
-                                            >
+                                        {canOpen ? (
+                                            <OpenStoredDocument field={key} path={path}>
                                                 Uploaded — open
-                                            </a>
+                                            </OpenStoredDocument>
                                         ) : (
                                             <span className="profile-doc-missing">Not uploaded</span>
                                         )}

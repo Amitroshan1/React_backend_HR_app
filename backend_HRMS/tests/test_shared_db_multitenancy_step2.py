@@ -186,7 +186,7 @@ def test_register_company_seeds_first_admin(app):
     with app.app_context():
         seeded = Admin.query.filter_by(email="admin@gamma.com").one()
         assert seeded.tenant_id == tenant_id
-        assert seeded.emp_type == "Super Admin"
+        assert seeded.emp_type == "Admin"
         assert seeded.emp_id == "ADM0001"
         assert seeded.is_onboarded()
         assert LeaveBalance.query.filter_by(admin_id=seeded.id).count() == 1

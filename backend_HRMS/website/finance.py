@@ -117,6 +117,22 @@ def _rupee(value) -> float:
     return round(float(value or 0), 2)
 
 
+def _ctc_pending_count() -> int:
+    try:
+        from .ctc_approval_service import pending_count
+        return pending_count()
+    except Exception:
+        return 0
+
+
+def _payroll_batch_pending_count() -> int:
+    try:
+        from .payroll_batch_service import pending_finance_count
+        return pending_finance_count()
+    except Exception:
+        return 0
+
+
 @finance_bp.route("/summary", methods=["GET"])
 @jwt_required()
 def finance_summary():
@@ -164,17 +180,48 @@ def finance_summary():
         else:
             to_pay += 1
 
-    from .models.employee_tax_declaration import EmployeeTaxDeclaration
+    tax_pending = 0
+    try:
+        from .models.employee_tax_declaration import EmployeeTaxDeclaration
 
-    tax_pending = EmployeeTaxDeclaration.query.filter(
-        EmployeeTaxDeclaration.admin_id.in_(tenant_admin_ids()),
-        EmployeeTaxDeclaration.status == "submitted",
-    ).count()
+        tax_pending = EmployeeTaxDeclaration.query.filter(
+            EmployeeTaxDeclaration.admin_id.in_(tenant_admin_ids()),
+            or_(
+                EmployeeTaxDeclaration.status == "verified",
+                func.lower(func.coalesce(EmployeeTaxDeclaration.final_proof_status, "")) == "verified",
+            ),
+        ).count()
+    except Exception:
+        tax_pending = 0
+
+    claims_pending_review = 0
+    for claim in approved_claims:
+        lines = claim.expenses or []
+        if any(str(getattr(item, "status", "") or "").strip().lower() == "pending" for item in lines):
+            claims_pending_review += 1
 
     fnf_open = FnfSettlement.query.filter(
         FnfSettlement.admin_id.in_(tenant_admin_ids()),
         FnfSettlement.status.notin_(tuple(FNF_CLOSED)),
     ).count()
+
+    purchase_pending = 0
+    purchase_waiting_manager = 0
+    try:
+        from .models.inventory_purchase_request import InventoryPurchaseRequest
+        from .tenant_context import get_current_tenant_id
+
+        purchase_pending = InventoryPurchaseRequest.query.filter(
+            InventoryPurchaseRequest.tenant_id == get_current_tenant_id(),
+            InventoryPurchaseRequest.status == "pending_finance",
+        ).count()
+        purchase_waiting_manager = InventoryPurchaseRequest.query.filter(
+            InventoryPurchaseRequest.tenant_id == get_current_tenant_id(),
+            InventoryPurchaseRequest.status == "pending_manager",
+        ).count()
+    except Exception:
+        purchase_pending = 0
+        purchase_waiting_manager = 0
 
     return jsonify({
         "success": True,
@@ -189,9 +236,15 @@ def finance_summary():
             "net": _rupee(net),
             "claims_to_pay": to_pay,
             "claims_on_hold": on_hold,
+            "claims_pending_review": claims_pending_review,
+            "claims_open": claims_pending_review + to_pay,
             "ytd_expenses": _ytd_claim_amount(now.year),
             "tax_pending": tax_pending,
             "fnf_open": fnf_open,
+            "purchase_pending": purchase_pending,
+            "purchase_waiting_manager": purchase_waiting_manager,
+            "ctc_pending": _ctc_pending_count(),
+            "payroll_batch_pending": _payroll_batch_pending_count(),
             "extra_payments": _extra_payment_count(now.year, month_num),
         },
     }), 200
@@ -358,17 +411,18 @@ def finance_client_options():
         Admin.is_active == True,
         or_(Admin.is_exited == False, Admin.is_exited.is_(None)),
     ).distinct().all()
-    departments = {}
+    departments = set()
+    circles = set()
     for emp_type, circle in results:
-        dept = emp_type or "Not assigned"
-        departments.setdefault(dept, set())
+        if emp_type:
+            departments.add(emp_type)
         if circle:
-            departments[dept].add(circle)
-    data = [
-        {"department": dept, "circles": sorted(circles)}
-        for dept, circles in sorted(departments.items())
-    ]
-    return jsonify({"success": True, "departments": data}), 200
+            circles.add(circle)
+    return jsonify({
+        "success": True,
+        "departments": sorted(departments),
+        "circles": sorted(circles),
+    }), 200
 
 
 @finance_bp.route("/extra-payments", methods=["GET"])
@@ -410,3 +464,138 @@ def finance_extra_payments():
             "approved_on": stamp_date.isoformat(),
         })
     return jsonify({"success": True, "items": items}), 200
+
+
+@finance_bp.route("/ctc-approvals", methods=["GET"])
+@jwt_required()
+def finance_ctc_approvals():
+    viewer, err = _viewer()
+    if err:
+        return err
+    from .ctc_approval_service import list_queue
+
+    status = (request.args.get("status") or "").strip() or None
+    rows = list_queue(status)
+    return jsonify({
+        "success": True,
+        "items": [row.to_dict() for row in rows],
+    }), 200
+
+
+@finance_bp.route("/ctc-approvals/<int:req_id>/decide", methods=["POST"])
+@jwt_required()
+def finance_ctc_decide(req_id):
+    viewer, err = _viewer()
+    if err:
+        return err
+    from .ctc_approval_service import decide
+    from .models.ctc_change_request import CTCChangeRequest
+    from .Accounts import _apply_approved_change_request
+
+    req = CTCChangeRequest.query.get(req_id)
+    if not req:
+        return jsonify({"success": False, "message": "Request not found"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        req, apply_now = decide(
+            req,
+            actor=viewer,
+            action=data.get("action") or "approve",
+            reason=data.get("reason"),
+            step="finance",
+        )
+        if apply_now:
+            _apply_approved_change_request(req, viewer.id)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 400
+    return jsonify({"success": True, "request": req.to_dict()}), 200
+
+
+@finance_bp.route("/payroll-batches", methods=["GET"])
+@jwt_required()
+def finance_payroll_batches():
+    viewer, err = _viewer()
+    if err:
+        return err
+    from .payroll_batch_service import batch_public_payload, list_pending_finance_batches
+
+    rows = list_pending_finance_batches()
+    return jsonify({
+        "success": True,
+        "items": [batch_public_payload(b) for b in rows],
+    }), 200
+
+
+@finance_bp.route("/payroll-batches/<int:batch_id>", methods=["GET"])
+@jwt_required()
+def finance_payroll_batch_detail(batch_id):
+    viewer, err = _viewer()
+    if err:
+        return err
+    from .models.monthly_payroll import MonthlyPayroll
+    from .payroll_batch_service import PayrollBatch, batch_public_payload
+    from .tenant_context import get_current_tenant_id
+
+    batch = db.session.get(PayrollBatch, batch_id)
+    if not batch or int(batch.tenant_id) != int(get_current_tenant_id()):
+        return jsonify({"success": False, "message": "Batch not found"}), 404
+    members = []
+    for member in batch.members or []:
+        if not member.included:
+            continue
+        payroll = member.payroll or db.session.get(MonthlyPayroll, member.payroll_id)
+        admin = db.session.get(Admin, member.admin_id)
+        if not payroll:
+            continue
+        members.append({
+            **payroll.to_dict(),
+            "name": getattr(admin, "first_name", None) if admin else None,
+            "empId": getattr(admin, "emp_id", None) if admin else None,
+        })
+    return jsonify({
+        "success": True,
+        "batch": batch_public_payload(batch),
+        "members": members,
+    }), 200
+
+
+@finance_bp.route("/payroll-batches/<int:batch_id>/decide", methods=["POST"])
+@jwt_required()
+def finance_payroll_batch_decide(batch_id):
+    viewer, err = _viewer()
+    if err:
+        return err
+    from .email import send_payroll_batch_decision_email
+    from .payroll_batch_service import PayrollBatch, batch_public_payload, decide_batch
+    from .tenant_context import get_current_tenant_id
+
+    batch = db.session.get(PayrollBatch, batch_id)
+    if not batch or int(batch.tenant_id) != int(get_current_tenant_id()):
+        return jsonify({"success": False, "message": "Batch not found"}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        status = decide_batch(
+            batch,
+            action=data.get("action") or "approve",
+            actor_admin_id=viewer.id,
+            comment=data.get("reason") or data.get("comment"),
+        )
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({"success": False, "message": str(e)}), 409
+    try:
+        decided_on = batch.decided_at.date().isoformat() if batch.decided_at else ""
+        send_payroll_batch_decision_email(
+            circle=batch.circle,
+            emp_type=batch.emp_type,
+            month=batch.month,
+            year=batch.year,
+            decision=status,
+            decided_on=decided_on,
+        )
+    except Exception:
+        pass
+    return jsonify({"success": True, "batch": batch_public_payload(batch)}), 200

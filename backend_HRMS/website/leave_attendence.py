@@ -9,14 +9,14 @@ from .models.attendance import Punch, WorkFromHomeApplication, LeaveApplication,
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from .models.expense import ExpenseClaimHeader, ExpenseLineItem
 from .models.Admin_models import Admin
-from .tenant_context import current_admin, tenant_id_for_admin, tenant_scope
-from .models.seperation import Resignation, Noc_Upload, NocDepartmentRequest
+from .tenant_context import current_admin, tenant_id_for_admin, tenant_scope, tenant_admin_ids
+from .models.seperation import Resignation, Noc_Upload, NocDepartmentRequest, NocApplicationRequest
 from .models.holiday_calendar import HolidayCalendar
 from .master_data_tenancy import holiday_query
 from .models.manager_model import ManagerContact
 from sqlalchemy import or_, func
-from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email,send_noc_request_email
-from .manager_utils import find_manager_contact, get_manager_emails
+from .email import send_wfh_approval_email_to_managers,send_claim_submission_email,send_resignation_email,send_resignation_revoked_email,send_leave_applied_email,send_noc_request_email,send_noc_application_department_email
+from .manager_utils import find_manager_contact
 from .upload_tenancy import tenant_upload_path
 from .utility import generate_attendance_excel, send_excel_file
 from .attendance_engine import (
@@ -41,7 +41,10 @@ import logging
 leave = Blueprint('leave', __name__)
 logger = logging.getLogger(__name__)
 
-NOTICE_PERIOD_DAYS = 90
+def _notice_period_days(admin):
+    from .notice_settings import notice_period_days_for
+
+    return notice_period_days_for(admin)
 
 
 def _is_weekend_non_working_for_emp(emp_type: str, d: date) -> bool:
@@ -228,11 +231,13 @@ def _resolve_admin_from_jwt():
     return current_admin()
 
 
-def _serialize_notice(resignation):
+def _serialize_notice(resignation, admin=None):
+    admin = admin or getattr(resignation, "admin", None)
+    notice_period_days = _notice_period_days(admin)
     if not resignation or not resignation.resignation_date:
         return {
             "notice_active": False,
-            "notice_period_days": NOTICE_PERIOD_DAYS,
+            "notice_period_days": notice_period_days,
             "notice_start_date": None,
             "notice_end_date": None,
             "days_left": 0,
@@ -240,14 +245,14 @@ def _serialize_notice(resignation):
         }
 
     notice_start = resignation.resignation_date
-    notice_end = notice_start + timedelta(days=NOTICE_PERIOD_DAYS)
+    notice_end = notice_start + timedelta(days=notice_period_days)
     days_left = max((notice_end - date.today()).days, 0)
     status = (resignation.status or "").strip()
     active = _is_active_resignation_status(status) and days_left > 0
 
     return {
         "notice_active": active,
-        "notice_period_days": NOTICE_PERIOD_DAYS,
+        "notice_period_days": notice_period_days,
         "notice_start_date": notice_start.isoformat(),
         "notice_end_date": notice_end.isoformat(),
         "days_left": days_left,
@@ -305,6 +310,7 @@ _NOC_KEY_LABELS = {
     "ACCOUNTS": "Accounts",
     "MANAGER": "Reporting Manager(s)",
     "IT": "IT Department",
+    "INVENTORY": "Inventory",
 }
 
 
@@ -320,15 +326,18 @@ def _normalize_noc_department_key(raw):
         return "MANAGER"
     if x in ("it", "it department"):
         return "IT"
+    if x in ("inventory", "stores", "store"):
+        return "INVENTORY"
     return None
 
 
-def _admin_emails_for_emp_type_tokens(lower_tokens):
+def _admin_emails_for_emp_type_tokens(admin, lower_tokens):
     if not lower_tokens:
         return []
     filters = [func.lower(func.coalesce(Admin.emp_type, "")) == t for t in lower_tokens]
     rows = (
-        Admin.query.filter(or_(*filters))
+        Admin.query.filter(Admin.id.in_(tenant_admin_ids(tenant_id_for_admin(admin))))
+        .filter(or_(*filters))
         .filter(or_(Admin.is_exited == False, Admin.is_exited.is_(None)))
         .all()
     )
@@ -346,7 +355,30 @@ def _manager_emails_for_noc(admin):
     mc = find_manager_contact(admin)
     if not mc:
         return []
-    return get_manager_emails(mc, exclude_email=admin.email)
+    # Notify the highest available reporting level first, then work down the
+    # chain. ManagerContact's generic helper uses L1 -> L2 -> L3, but NOC
+    # clearance should reach L3, L2 and L1 in that order when they exist.
+    tenant_ids = tenant_admin_ids(tenant_id_for_admin(admin))
+    manager_ids = [
+        getattr(mc, f"{level}_admin_id", None)
+        for level in ("l3", "l2", "l1")
+    ]
+    rows = {
+        manager.id: manager
+        for manager in Admin.query.filter(Admin.id.in_(tenant_ids)).filter(
+            Admin.id.in_([mid for mid in manager_ids if mid])
+        ).all()
+    }
+    excluded = (admin.email or "").strip().lower()
+    emails, seen = [], set()
+    for manager_id in manager_ids:
+        manager = rows.get(manager_id)
+        email = (getattr(manager, "email", None) or "").strip() if manager else ""
+        normalized = email.lower()
+        if email and normalized != excluded and normalized not in seen:
+            seen.add(normalized)
+            emails.append(email)
+    return emails
 
 
 def _expand_noc_email_recipients(admin, ordered_keys):
@@ -359,13 +391,15 @@ def _expand_noc_email_recipients(admin, ordered_keys):
         labels.append(_NOC_KEY_LABELS.get(nk, nk))
         chunk = []
         if nk == "HR":
-            chunk = _admin_emails_for_emp_type_tokens(
+            chunk = _admin_emails_for_emp_type_tokens(admin,
                 ["human resource", "human resources", "hr"]
             )
         elif nk == "ACCOUNTS":
-            chunk = _admin_emails_for_emp_type_tokens(["accounts"])
+            chunk = _admin_emails_for_emp_type_tokens(admin, ["account", "accounts", "accountant"])
         elif nk == "IT":
-            chunk = _admin_emails_for_emp_type_tokens(["it", "it department"])
+            chunk = _admin_emails_for_emp_type_tokens(admin, ["it", "it department", "information technology"])
+        elif nk == "INVENTORY":
+            chunk = _admin_emails_for_emp_type_tokens(admin, ["inventory", "stores", "store"])
         elif nk == "MANAGER":
             chunk = _manager_emails_for_noc(admin)
 
@@ -1351,176 +1385,96 @@ def get_expense_claims():
 @leave.route("/seperation", methods=["POST"])
 @jwt_required()
 def submit_resignation():
+    return _create_separation_request(request.get_json(silent=True) or {})
+
+
+def _create_separation_request(data):
     admin = _resolve_admin_from_jwt()
-
     if not admin:
-        return jsonify({
-            "success": False,
-            "message": "Employee not found"
-        }), 404
+        return jsonify({"success": False, "message": "Employee not found"}), 404
 
-    # Prevent duplicate active resignation, but allow re-apply after revoke/reject.
-    latest_resignation = Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
-    if latest_resignation and _is_active_resignation_status(latest_resignation.status):
-        return jsonify({
-            "success": False,
-            "message": "You have already submitted a resignation request."
-        }), 409
-
-    data = request.get_json() or {}
+    latest = Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
+    if latest and _is_active_resignation_status(latest.status):
+        return jsonify({"success": False, "message": "You have already submitted a resignation request."}), 409
 
     resignation_date = data.get("resignation_date")
-    reason = data.get("reason")
-
+    reason = (data.get("reason") or "").strip()
     if not resignation_date or not reason:
-        return jsonify({
-            "success": False,
-            "message": "Resignation date and reason are required"
-        }), 400
-
+        return jsonify({"success": False, "message": "Resignation date and reason are required"}), 400
     try:
-        resignation_date_obj = datetime.strptime(
-            resignation_date, "%Y-%m-%d"
-        ).date()
+        resignation_date_obj = datetime.strptime(str(resignation_date)[:10], "%Y-%m-%d").date()
     except ValueError:
-        return jsonify({
-            "success": False,
-            "message": "Invalid date format. Use YYYY-MM-DD"
-        }), 400
+        return jsonify({"success": False, "message": "Invalid date format. Use YYYY-MM-DD"}), 400
 
     resignation = Resignation(
         admin_id=admin.id,
         resignation_date=resignation_date_obj,
         reason=reason,
-        status="Pending"
+        status="Pending",
     )
-
     try:
         db.session.add(resignation)
         db.session.commit()
-
-        # 🔔 Email (NON-BLOCKING)
-        success, _ = send_resignation_email(admin, resignation)
-
-        return jsonify({
-            "success": True,
-            "message": "Resignation submitted successfully",
-            "email_sent": success
-        }), 201
-
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Resignation Error: {e}")
-        return jsonify({
-            "success": False,
-            "message": "Unable to submit resignation. Please try again later."
-        }), 500
+        current_app.logger.exception("Separation request persist failed: %s", e)
+        return jsonify({"success": False, "message": "Unable to submit separation. Please try again later."}), 500
+
+    email_sent = False
+    email_message = ""
+    try:
+        email_sent, email_message = send_resignation_email(admin, resignation)
+    except Exception as mail_err:
+        current_app.logger.warning("Separation email failed after submit: %s", mail_err)
+        email_message = str(mail_err)
+
+    message = "Separation submitted successfully."
+    message += " Manager and HR have been notified." if email_sent else " Separation was saved, but Manager/HR notification could not be sent."
+    return jsonify({
+        "success": True,
+        "resignation_id": resignation.id,
+        "email_sent": bool(email_sent),
+        "separation_email_sent": bool(email_sent),
+        "separation_email_message": email_message or None,
+        "message": message,
+    }), 201
 
 
-@leave.route("/seperation/noc-request", methods=["POST"])
-@jwt_required()
-def submit_noc_request_email():
-    """Employee applies for NOC: email selected departments + CC chain."""
-    email_claim = get_jwt().get("email")
-    admin = current_admin()
-    if not admin:
-        return jsonify({"success": False, "message": "Employee not found"}), 404
-
-    data = request.get_json() or {}
-    raw_deps = data.get("departments") or data.get("department")
-
+def _parse_noc_department_keys(raw_deps):
+    """Return (normalized_ordered_keys, error_message)."""
     if isinstance(raw_deps, str):
         raw_deps = [raw_deps]
     elif not isinstance(raw_deps, list):
         raw_deps = []
-
     if not raw_deps:
-        return jsonify({"success": False, "message": "Select at least one department"}), 400
-
-    resignation = (
-        Resignation.query.filter_by(admin_id=admin.id).order_by(Resignation.id.desc()).first()
-    )
-    if not resignation or not _is_active_resignation_status(resignation.status):
-        return jsonify(
-            {
-                "success": False,
-                "message": "No active resignation found. Submit your resignation first.",
-            }
-        ), 400
-
-    noc_date_obj = resignation.resignation_date
-    if noc_date_obj is None:
-        return jsonify(
-            {"success": False, "message": "Resignation date is missing. Contact HR."}
-        ), 400
-
+        return None, "Select at least one department for NOC"
     normalized_ordered = []
     seen_k = set()
     for raw in raw_deps:
         nk = _normalize_noc_department_key(raw)
         if nk is None:
-            return jsonify({"success": False, "message": f"Invalid department: {raw}"}), 400
+            return None, f"Invalid department: {raw}"
         if nk not in seen_k:
             seen_k.add(nk)
             normalized_ordered.append(nk)
+    return normalized_ordered, None
 
-    labels, recipients = _expand_noc_email_recipients(admin, normalized_ordered)
-    if not recipients:
-        return jsonify(
-            {
-                "success": False,
-                "mail_sent": False,
-                "message": "Mail could not be sent to the selected departments. Please contact HR.",
-            }
-        ), 200
 
-    # In-app queue rows for selected departments (HR, Accounts, Manager, IT).
-    try:
-        NocDepartmentRequest.query.filter(
-            NocDepartmentRequest.admin_id == admin.id,
-            NocDepartmentRequest.resignation_id == resignation.id,
-            NocDepartmentRequest.department_key.in_(normalized_ordered),
-            NocDepartmentRequest.status == "Pending",
-        ).delete(synchronize_session=False)
-        now_ts = datetime.now()
-        for nk in normalized_ordered:
-            db.session.add(
-                NocDepartmentRequest(
-                    admin_id=admin.id,
-                    resignation_id=resignation.id,
-                    department_key=nk,
-                    noc_date=noc_date_obj,
-                    status="Pending",
-                    requested_at=now_ts,
-                )
-            )
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        logger.exception("NOC department request persist failed: %s", e)
-        return jsonify(
-            {"success": False, "message": "Unable to record NOC department requests. Please try again."}
-        ), 500
+@leave.route("/seperation/finalize", methods=["POST"])
+@jwt_required()
+def finalize_separation():
+    """Backward-compatible endpoint; finalizes only the separation request."""
+    return _create_separation_request(request.get_json(silent=True) or {})
 
-    ok, _mail_msg = send_noc_request_email(
-        admin, resignation, noc_date_obj, labels, recipients
-    )
-    if not ok:
-        return jsonify(
-            {
-                "success": False,
-                "mail_sent": False,
-                "message": "Mail could not be sent to the selected departments. Please try again later or contact HR.",
-            }
-        ), 200
 
-    return jsonify(
-        {
-            "success": True,
-            "mail_sent": True,
-            "message": "NOC request email sent.",
-        }
-    ), 200
+@leave.route("/seperation/noc-request", methods=["POST"])
+@jwt_required()
+def submit_noc_request_email():
+    """Retained as a compatibility response; employee separations no longer request NOC."""
+    return jsonify({
+        "success": False,
+        "message": "NOC requests are no longer submitted from this page. Please apply for separation only.",
+    }), 410
 
 
 @leave.route("/seperation", methods=["GET"])
@@ -1571,6 +1525,7 @@ def get_resignation_status():
                     "resignation_date": resignation.resignation_date.isoformat(),
                     "reason": resignation.reason,
                     "status": resignation.status,
+                    "hr_remarks": getattr(resignation, "hr_remarks", None) or "",
                     "created_at": created_at_str
                 },
                 "notice": notice_info,
@@ -1586,7 +1541,7 @@ def get_resignation_status():
         return jsonify({
             "success": True,
             "already_submitted": False,
-            "notice": _serialize_notice(None),
+                "notice": _serialize_notice(None, admin),
             "today": date.today().isoformat(),
             "employee": {
                 "name": admin.first_name,
@@ -1605,6 +1560,394 @@ def get_resignation_status():
             "success": False,
             "message": str(e) or "Failed to fetch resignation status"
         }), 500
+
+
+NOC_APPLICATION_TYPES = {
+    "exit_no_dues": "No dues clearance (Exit)",
+    "banking_bonafide": "Bonafide letter for banking purpose",
+    "travel_bonafide": "Bonafide letter for visa (personal holiday)",
+    "other": "Other reason",
+}
+
+
+def _serialize_noc_application(row, department_rows=None, final_noc=None):
+    department_rows = department_rows or []
+    department_keys = [(department_row.department_key or "").upper() for department_row in department_rows]
+    if not department_keys and row.request_type != "exit_no_dues":
+        department_keys = ["HR"]
+    return {
+        "id": row.id,
+        "request_type": row.request_type,
+        "request_label": NOC_APPLICATION_TYPES.get(row.request_type, row.request_type),
+        "other_reason": row.other_reason,
+        "details": row.details,
+        "status": row.status,
+        "hr_remarks": getattr(row, "hr_remarks", None) or "",
+        "hr_document": ({
+            "filename": os.path.basename(row.hr_document_path),
+            "download_url": f"/api/leave/noc-applications/{row.id}/document",
+        } if getattr(row, "hr_document_path", None)
+        and (row.request_type == "exit_no_dues" or (row.status or "").strip().lower() == "approved")
+        else None),
+        "created_at": isoformat_api(row.created_at) if row.created_at else None,
+        "separation_id": row.separation_id,
+        "department_keys": department_keys,
+        "department_labels": [_NOC_KEY_LABELS.get(key, key) for key in department_keys],
+        "department_requests": [{
+            "id": department_row.id,
+            "department_key": (department_row.department_key or "").upper(),
+            "department_label": _NOC_KEY_LABELS.get(
+                (department_row.department_key or "").upper(),
+                department_row.department_key or "Department",
+            ),
+            "status": _effective_noc_row_status(department_row, department_row.resignation),
+            "requested_at": isoformat_api(department_row.requested_at) if department_row.requested_at else None,
+            "filename": os.path.basename(department_row.file_path) if department_row.file_path else None,
+            "download_url": f"/api/leave/noc-department-requests/{department_row.id}/download"
+                if department_row.file_path else None,
+        } for department_row in department_rows],
+        "final_noc": final_noc,
+    }
+
+
+def _noc_application_department_admins(admin, department_key):
+    """Resolve in-tenant employee accounts that should receive an in-app notice."""
+    ids = tenant_admin_ids(tenant_id_for_admin(admin))
+    if department_key == "MANAGER":
+        contact = find_manager_contact(admin)
+        target_ids = [getattr(contact, f"{level}_admin_id", None) for level in ("l1", "l2", "l3")] if contact else []
+        q = Admin.query.filter(Admin.id.in_(ids), Admin.id.in_([i for i in target_ids if i]))
+    else:
+        tokens = {
+            "HR": ["human resource", "human resources", "hr"],
+            "ACCOUNTS": ["account", "accounts", "accountant"],
+            "IT": ["it", "it department", "information technology"],
+            "INVENTORY": ["inventory", "store", "stores"],
+        }.get(department_key, [])
+        q = Admin.query.filter(
+            Admin.id.in_(ids),
+            func.lower(func.coalesce(Admin.emp_type, "")).in_(tokens),
+        )
+    return [recipient for recipient in q.all() if recipient.id != admin.id]
+
+
+def _noc_application_department_emails(admin, department_key):
+    label = _NOC_KEY_LABELS.get(department_key, department_key)
+    from .company_mailbox import company_mailbox
+
+    # Match the recipient aliases used by the other HRMS department emails.
+    # Try the tenant mailbox first, then the app's .env defaults. Inventory
+    # shares the IT inbox. Manager notices remain individually addressed to
+    # the employee's configured L1/L2/L3 managers.
+    mailbox_keys = {
+        "HR": ("ZEPTO_CC_HR", "EMAIL_HR"),
+        "ACCOUNTS": ("ZEPTO_CC_ACCOUNT", "EMAIL_ACCOUNTS"),
+        "IT": ("ZEPTO_CC_IT", "EMAIL_IT"),
+        "INVENTORY": ("ZEPTO_CC_INVENTORY", "EMAIL_INVENTORY", "ZEPTO_CC_IT", "EMAIL_IT"),
+    }.get(department_key)
+    if not mailbox_keys:
+        _, recipients = _expand_noc_email_recipients(admin, [department_key])
+        return label, recipients
+
+    tenant_id = tenant_id_for_admin(admin)
+    mailbox = ""
+    for key in mailbox_keys:
+        mailbox = (company_mailbox(key, tenant_id) or "").strip()
+        if mailbox:
+            break
+    if not mailbox:
+        for key in mailbox_keys:
+            mailbox = (current_app.config.get(key) or "").strip()
+            if mailbox:
+                break
+    if mailbox:
+        return label, [mailbox]
+    return label, []
+
+
+@leave.route("/noc-applications", methods=["GET", "POST"])
+@jwt_required()
+def employee_noc_applications():
+    admin = _resolve_admin_from_jwt()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    # Ensure this additive feature works even where startup schema checks ran
+    # before the new model was deployed or were skipped by the host.
+    try:
+        NocApplicationRequest.__table__.create(bind=db.engine, checkfirst=True)
+    except Exception:
+        current_app.logger.exception("NOC application table is unavailable")
+        return jsonify({
+            "success": False,
+            "message": "NOC requests are temporarily unavailable because their storage is not ready.",
+        }), 503
+
+    latest_separation = (
+        Resignation.query.filter_by(admin_id=admin.id)
+        .order_by(Resignation.id.desc())
+        .first()
+    )
+    active_separation = (
+        latest_separation
+        if latest_separation and _is_active_resignation_status(latest_separation.status)
+        else None
+    )
+
+    if request.method == "GET":
+        rows = (
+            NocApplicationRequest.query.filter_by(admin_id=admin.id)
+            .order_by(NocApplicationRequest.created_at.desc(), NocApplicationRequest.id.desc())
+            .all()
+        )
+        final_noc_upload = Noc_Upload.query.filter_by(admin_id=admin.id).order_by(Noc_Upload.id.desc()).first()
+        department_rows = NocDepartmentRequest.query.filter_by(
+            admin_id=admin.id,
+        ).order_by(NocDepartmentRequest.requested_at.desc(), NocDepartmentRequest.id.desc()).all()
+        department_rows_by_separation = {}
+        for department_row in department_rows:
+            department_rows_by_separation.setdefault(department_row.resignation_id, []).append(department_row)
+        latest_exit_request_by_separation = {}
+        latest_exit_request_id = None
+        for request_row in rows:
+            if request_row.request_type == "exit_no_dues":
+                latest_exit_request_id = latest_exit_request_id or request_row.id
+                if request_row.separation_id:
+                    latest_exit_request_by_separation.setdefault(request_row.separation_id, request_row.id)
+        final_noc_target_id = latest_exit_request_id or (rows[0].id if rows else None)
+
+        final_noc = ({
+            "filename": os.path.basename(final_noc_upload.file_path),
+            "download_url": "/api/leave/noc-document",
+        } if final_noc_upload and final_noc_upload.file_path else None)
+        request_payloads = []
+        for request_row in rows:
+            is_latest_for_separation = (
+                request_row.request_type == "exit_no_dues"
+                and latest_exit_request_by_separation.get(request_row.separation_id) == request_row.id
+            )
+            request_payloads.append(_serialize_noc_application(
+                request_row,
+                department_rows_by_separation.get(request_row.separation_id, []) if is_latest_for_separation else [],
+                final_noc if request_row.id == final_noc_target_id else None,
+            ))
+
+        represented_separations = {
+            request_row.separation_id
+            for request_row in rows
+            if request_row.request_type == "exit_no_dues" and request_row.separation_id
+        }
+        legacy_noc_separations = [
+            separation_id for separation_id in department_rows_by_separation
+            if separation_id not in represented_separations
+        ]
+        legacy_final_noc_separation = (
+            legacy_noc_separations[0] if legacy_noc_separations and final_noc_target_id is None else None
+        )
+        for separation_id in legacy_noc_separations:
+            clearance_rows = department_rows_by_separation[separation_id]
+            resignation = clearance_rows[0].resignation
+            request_payloads.append({
+                "id": f"legacy-separation-{separation_id}",
+                "request_type": "exit_no_dues",
+                "request_label": NOC_APPLICATION_TYPES["exit_no_dues"],
+                "other_reason": None,
+                "details": (resignation.reason or "Department no-dues clearance request") if resignation else "Department no-dues clearance request",
+                "hr_remarks": (getattr(resignation, "hr_remarks", None) or "") if resignation else "",
+                "status": "Pending",
+                "created_at": isoformat_api(clearance_rows[0].requested_at) if clearance_rows[0].requested_at else None,
+                "separation_id": separation_id,
+                "department_keys": [(clearance.department_key or "").upper() for clearance in clearance_rows],
+                "department_labels": [
+                    _NOC_KEY_LABELS.get((clearance.department_key or "").upper(), clearance.department_key or "Department")
+                    for clearance in clearance_rows
+                ],
+                "department_requests": [{
+                    "id": clearance.id,
+                    "department_key": (clearance.department_key or "").upper(),
+                    "department_label": _NOC_KEY_LABELS.get(
+                        (clearance.department_key or "").upper(), clearance.department_key or "Department"
+                    ),
+                    "status": _effective_noc_row_status(clearance, clearance.resignation),
+                    "requested_at": isoformat_api(clearance.requested_at) if clearance.requested_at else None,
+                    "filename": os.path.basename(clearance.file_path) if clearance.file_path else None,
+                    "download_url": f"/api/leave/noc-department-requests/{clearance.id}/download"
+                        if clearance.file_path else None,
+                } for clearance in clearance_rows],
+                "final_noc": final_noc if separation_id == legacy_final_noc_separation else None,
+            })
+        request_payloads.sort(
+            key=lambda item: (item.get("created_at") or "", str(item.get("id") or "")),
+            reverse=True,
+        )
+        return jsonify({
+            "success": True,
+            "today": date.today().isoformat(),
+            "employee": {
+                "name": (admin.first_name or admin.user_name or "").strip(),
+                "email": admin.email or "",
+                "employee_id": admin.emp_id or "",
+                "circle": admin.circle or "",
+            },
+            "separation": ({
+                "id": active_separation.id,
+                "date": active_separation.resignation_date.isoformat() if active_separation.resignation_date else None,
+                "reason": active_separation.reason or "",
+                "status": active_separation.status or "Pending",
+            } if active_separation else None),
+            "requests": request_payloads,
+            "request_types": NOC_APPLICATION_TYPES,
+        }), 200
+
+    data = request.get_json(silent=True) or {}
+    request_type = str(data.get("request_type") or "").strip().lower()
+    details = str(data.get("details") or "").strip()
+    other_reason = str(data.get("other_reason") or "").strip()
+    if request_type not in NOC_APPLICATION_TYPES:
+        return jsonify({"success": False, "message": "Choose a valid request type."}), 400
+    if request_type == "exit_no_dues":
+        department_keys, department_error = _parse_noc_department_keys(data.get("department_keys"))
+        if department_error:
+            return jsonify({"success": False, "message": department_error}), 400
+    else:
+        department_keys = ["HR"]
+    if request_type == "exit_no_dues" and not active_separation:
+        return jsonify({
+            "success": False,
+            "message": "Apply for separation first before requesting no-dues clearance for exit.",
+            "separation_required": True,
+        }), 400
+    if request_type == "other" and not other_reason:
+        return jsonify({"success": False, "message": "Please enter the reason for this request."}), 400
+    if len(other_reason) > 255:
+        return jsonify({"success": False, "message": "Other reason must be 255 characters or fewer."}), 400
+    if not details:
+        return jsonify({"success": False, "message": "Please provide the additional request details."}), 400
+    if len(details) > 5000:
+        return jsonify({"success": False, "message": "Request details must be 5000 characters or fewer."}), 400
+
+    row = NocApplicationRequest(
+        admin_id=admin.id,
+        separation_id=active_separation.id if request_type == "exit_no_dues" else None,
+        request_type=request_type,
+        other_reason=other_reason or None,
+        details=details,
+        status="Pending",
+    )
+    db.session.add(row)
+    try:
+        db.session.flush()
+        if request_type == "exit_no_dues":
+            existing = {
+                (item.department_key or "").upper()
+                for item in NocDepartmentRequest.query.filter_by(
+                    admin_id=admin.id,
+                    resignation_id=active_separation.id,
+                ).all()
+            }
+            for department_key in department_keys:
+                if department_key not in existing:
+                    db.session.add(NocDepartmentRequest(
+                        admin_id=admin.id,
+                        resignation_id=active_separation.id,
+                        department_key=department_key,
+                        noc_date=active_separation.resignation_date,
+                        status="Pending",
+                    ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("NOC application save failed")
+        return jsonify({"success": False, "message": "Unable to submit this request. Please try again."}), 500
+
+    notification_admins = {}
+    try:
+        from .models.notification import Notification
+        for department_key in department_keys:
+            recipients = _noc_application_department_admins(admin, department_key)
+            notification_admins[department_key] = recipients
+            for recipient in recipients:
+                db.session.add(Notification(
+                    recipient_admin_id=recipient.id,
+                    notif_type="noc_application",
+                    title=f"New {NOC_APPLICATION_TYPES[request_type]} request",
+                    body=(
+                        f"{admin.first_name or admin.email} ({admin.emp_id or 'no employee ID'}; "
+                        f"{admin.email or 'no email'}) submitted a request for {_NOC_KEY_LABELS.get(department_key, department_key)}: {details[:180]}"
+                    ),
+                    entity_type="noc_application",
+                    entity_id=row.id,
+                ))
+        if any(notification_admins.values()):
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("NOC application notification failed after save")
+
+    email_results = []
+    for department_key in department_keys:
+        label, recipients = _noc_application_department_emails(admin, department_key)
+        if not recipients:
+            email_results.append((department_key, False, "No department recipient is configured"))
+            continue
+        for recipient_email in recipients:
+            sent, email_message = send_noc_application_department_email(
+                admin=admin,
+                request_type=request_type,
+                request_label=NOC_APPLICATION_TYPES[request_type],
+                details=details,
+                other_reason=other_reason or None,
+                department_label=label,
+                recipient_email=recipient_email,
+                resignation=active_separation if request_type == "exit_no_dues" else None,
+            )
+            email_results.append((department_key, sent, email_message))
+
+    all_email_sent = bool(email_results) and all(result[1] for result in email_results)
+    response_departments = [key for key in department_keys]
+    message = "Your request was submitted successfully."
+    message += " Department emails were sent." if all_email_sent else " The request was saved, but one or more department emails could not be sent."
+    return jsonify({
+        "success": True,
+        "message": message,
+        "email_sent": all_email_sent,
+        "departments": response_departments,
+        "request": _serialize_noc_application(row, response_departments),
+    }), 201
+
+
+@leave.route("/noc-applications/<int:application_id>/document", methods=["GET"])
+@jwt_required()
+def download_my_noc_application_document(application_id):
+    admin = _resolve_admin_from_jwt()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+    application = NocApplicationRequest.query.filter_by(
+        id=application_id,
+        admin_id=admin.id,
+    ).first()
+    if not application or not application.hr_document_path:
+        return jsonify({"success": False, "message": "NOC document not found"}), 404
+    if (
+        application.request_type != "exit_no_dues"
+        and (application.status or "").strip().lower() != "approved"
+    ):
+        return jsonify({
+            "success": False,
+            "message": "This document will be available after Admin approval.",
+        }), 403
+
+    uploads_root = os.path.realpath(os.path.join(current_app.root_path, "static", "uploads"))
+    file_path = os.path.realpath(os.path.join(uploads_root, application.hr_document_path))
+    if os.path.commonpath([uploads_root, file_path]) != uploads_root or not os.path.isfile(file_path):
+        return jsonify({"success": False, "message": "NOC document not found"}), 404
+
+    from .pdf_watermark import send_download_file
+    return send_download_file(
+        path=file_path,
+        download_name=os.path.basename(application.hr_document_path),
+        as_attachment=True,
+    )
 
 
 @leave.route("/seperation/revoke", methods=["POST"])
@@ -1724,6 +2067,35 @@ def revoke_resignation():
             "success": False,
             "message": str(e) or "Failed to revoke resignation",
         }), 500
+
+
+@leave.route("/noc-department-requests/<int:department_request_id>/download", methods=["GET"])
+@jwt_required()
+def download_my_department_noc_document(department_request_id):
+    """Allow an employee to download a clearance file uploaded for their NOC."""
+    admin = _resolve_admin_from_jwt()
+    if not admin:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    department_request = NocDepartmentRequest.query.filter_by(
+        id=department_request_id,
+        admin_id=admin.id,
+    ).first()
+    if not department_request or not department_request.file_path:
+        return jsonify({"success": False, "message": "Department NOC file not found"}), 404
+
+    uploads_root = os.path.realpath(os.path.join(current_app.root_path, "static", "uploads"))
+    file_path = os.path.realpath(os.path.join(uploads_root, department_request.file_path))
+    if os.path.commonpath([uploads_root, file_path]) != uploads_root or not os.path.isfile(file_path):
+        return jsonify({"success": False, "message": "Department NOC file not found"}), 404
+
+    from .pdf_watermark import send_download_file
+
+    return send_download_file(
+        path=file_path,
+        download_name=os.path.basename(department_request.file_path),
+        as_attachment=True,
+    )
 
 
 @leave.route("/noc-document", methods=["GET"])

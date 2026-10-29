@@ -1,5 +1,5 @@
 """
-Indian salary TDS projection (Section 192) — pure functions, no Flask.
+Indian salary TDS projection (s.392 / erstwhile s.192) — pure functions, no Flask.
 
 Rules are loaded from JSON per financial year + regime so Accounts can update
 when government slabs change without rewriting core logic.
@@ -175,30 +175,97 @@ def compute_tax_on_slabs(taxable: float, slabs: list[dict]) -> tuple[float, list
     return _round2(tax), breakdown
 
 
-def compute_annual_tax(taxable_income: float, rules: dict) -> dict[str, Any]:
-    taxable = max(0.0, float(taxable_income))
-    base_tax, slab_breakdown = compute_tax_on_slabs(taxable, rules.get("slabs", []))
+def age_years(date_of_birth: date | None, as_of: date | None = None) -> int | None:
+    if not date_of_birth:
+        return None
+    as_of = as_of or date.today()
+    years = as_of.year - date_of_birth.year
+    if (as_of.month, as_of.day) < (date_of_birth.month, date_of_birth.day):
+        years -= 1
+    return max(years, 0)
 
+
+def resolve_slabs(rules: dict, age: int | None = None) -> list[dict]:
+    if age is not None and age >= 80 and rules.get("slabs_super_senior"):
+        return rules["slabs_super_senior"]
+    if age is not None and age >= 60 and rules.get("slabs_senior"):
+        return rules["slabs_senior"]
+    return rules.get("slabs") or []
+
+
+def _tax_after_rebate_only(taxable: float, rules: dict, slabs: list[dict]) -> tuple[float, float, float, list[dict]]:
+    base_tax, slab_breakdown = compute_tax_on_slabs(taxable, slabs)
     rebate_cfg = rules.get("rebate_87a") or {}
     income_limit = float(rebate_cfg.get("income_limit", 0))
     max_rebate = float(rebate_cfg.get("max_rebate", 0))
     rebate = min(base_tax, max_rebate) if taxable <= income_limit else 0.0
-    rebate = _round2(rebate)
+    tax_after = max(0.0, base_tax - rebate)
+    marginal = 0.0
+    if (
+        taxable > income_limit
+        and income_limit > 0
+        and rebate_cfg.get("marginal_relief", True)
+    ):
+        tax_at_limit, _ = compute_tax_on_slabs(income_limit, slabs)
+        tax_at_limit = max(0.0, tax_at_limit - min(tax_at_limit, max_rebate))
+        capped = tax_at_limit + (taxable - income_limit)
+        if tax_after > capped:
+            marginal = _round2(tax_after - capped)
+            tax_after = capped
+            rebate = _round2(rebate + marginal)
+    return _round2(base_tax), _round2(rebate), _round2(tax_after), slab_breakdown
 
-    tax_after_rebate = max(0.0, base_tax - rebate)
+
+def compute_surcharge(taxable: float, tax_after_rebate: float, rules: dict, slabs: list[dict]) -> tuple[float, float]:
+    bands = rules.get("surcharge") or []
+    if not bands or tax_after_rebate <= 0:
+        return 0.0, 0.0
+    ordered = sorted(bands, key=lambda b: float(b.get("above", 0)))
+    rate = 0.0
+    threshold = 0.0
+    for band in ordered:
+        above = float(band.get("above", 0))
+        if taxable > above:
+            rate = float(band.get("rate", 0))
+            threshold = above
+    if rate <= 0:
+        return 0.0, 0.0
+    surcharge = _round2(tax_after_rebate * rate / 100.0)
+    _, _, tax_at_threshold, _ = _tax_after_rebate_only(threshold, rules, slabs)
+    prev_rate = 0.0
+    for band in ordered:
+        above = float(band.get("above", 0))
+        if above < threshold:
+            prev_rate = float(band.get("rate", 0))
+    surcharge_at_threshold = _round2(tax_at_threshold * prev_rate / 100.0)
+    max_allowed = tax_at_threshold + surcharge_at_threshold + (taxable - threshold)
+    if tax_after_rebate + surcharge > max_allowed:
+        surcharge = max(0.0, _round2(max_allowed - tax_after_rebate))
+    return surcharge, rate
+
+
+def compute_annual_tax(taxable_income: float, rules: dict, age: int | None = None) -> dict[str, Any]:
+    taxable = max(0.0, float(taxable_income))
+    slabs = resolve_slabs(rules, age)
+    base_tax, rebate, tax_after_rebate, slab_breakdown = _tax_after_rebate_only(taxable, rules, slabs)
+    surcharge, surcharge_rate = compute_surcharge(taxable, tax_after_rebate, rules, slabs)
     cess_pct = float(rules.get("cess_pct", 4))
-    cess = _round2(tax_after_rebate * (cess_pct / 100.0))
-    annual_tax = _round2(tax_after_rebate + cess)
+    cess_base = tax_after_rebate + surcharge
+    cess = _round2(cess_base * (cess_pct / 100.0))
+    annual_tax = _round2(cess_base + cess)
 
     return {
         "taxable_income": _round2(taxable),
         "tax_before_rebate": _round2(base_tax),
         "rebate_87a": rebate,
         "tax_after_rebate": _round2(tax_after_rebate),
+        "surcharge": surcharge,
+        "surcharge_rate_pct": surcharge_rate,
         "cess_pct": cess_pct,
         "cess": cess,
         "annual_tax": annual_tax,
         "slab_breakdown": slab_breakdown,
+        "age_years": age,
     }
 
 
@@ -273,6 +340,13 @@ def run_tds_projection(
     other_deductions: float = 0,
     other_income: float = 0,
     new_regime_deductions: float = 0,
+    employer_nps_annual: float = 0,
+    section_80d_self: float = 0,
+    section_80d_parents: float = 0,
+    parents_senior: bool = False,
+    section_80g_pct: float = 50,
+    monthly_da: float = 0,
+    date_of_birth: date | None = None,
     ptax_annual: float = 0,
     as_of: date | None = None,
     rules_override: dict | None = None,
@@ -290,21 +364,48 @@ def run_tds_projection(
         as_of=as_of,
     )
     projected_gross = gross_proj["projected_annual_gross"]
+    prev_taxable = max(0.0, float(previous_employer_taxable or 0))
     basic_annual = monthly_basic * 12
+    da_annual = max(0.0, float(monthly_da or 0)) * 12
+    salary_for_nps = basic_annual + da_annual
     hra_annual = monthly_hra * 12
     epf_annual = monthly_epf * 12
+    age = age_years(date_of_birth, as_of)
 
     standard_deduction = float(rules.get("standard_deduction", 0))
     hra_exemption = 0.0
     section_80c = 0.0
     section_80d_allowed = 0.0
     section_80ccd1b_allowed = 0.0
+    section_80ccd2_allowed = 0.0
     section_24_allowed = 0.0
     lta_allowed = 0.0
     section_80e_allowed = 0.0
     section_80g_allowed = 0.0
     other_ded_allowed = 0.0
     new_regime_allowed = 0.0
+
+    ccd2_pct = float(rules.get("section_80ccd2_pct_of_salary") or (14 if regime == "new" else 10))
+    nps_cap = salary_for_nps * ccd2_pct / 100.0 if salary_for_nps > 0 else 0.0
+    declared_nps = 0.0
+    declared_other_new = 0.0
+    if regime == "new":
+        declared_nps = max(0.0, float(new_regime_deductions or 0))
+        # Declaration total may mix NPS + other; CTC auto-fill is the NPS floor.
+        auto_nps = max(0.0, float(employer_nps_annual or 0))
+        if declared_nps <= auto_nps:
+            section_80ccd2_allowed = min(nps_cap, auto_nps)
+            declared_other_new = 0.0
+        else:
+            section_80ccd2_allowed = min(nps_cap, auto_nps)
+            declared_other_new = max(0.0, declared_nps - auto_nps)
+        if auto_nps <= 0:
+            section_80ccd2_allowed = min(nps_cap, declared_nps)
+            declared_other_new = 0.0
+        new_regime_allowed = _round2(section_80ccd2_allowed + declared_other_new)
+    else:
+        auto_nps = max(0.0, float(employer_nps_annual or 0))
+        section_80ccd2_allowed = min(nps_cap, auto_nps)
 
     if regime == "old":
         hra_exemption = compute_hra_exemption(
@@ -316,7 +417,18 @@ def run_tds_projection(
         )
         cap_80c = float(rules.get("section_80c_cap", 150000))
         section_80c = min(cap_80c, epf_annual + max(0.0, section_80c_extra))
-        section_80d_allowed = max(0.0, section_80d)
+        self_cap = float(rules.get("section_80d_self_cap", 25000))
+        parents_cap = float(rules.get("section_80d_parents_cap", 25000))
+        if age is not None and age >= 60:
+            self_cap = float(rules.get("section_80d_self_senior_cap", 50000))
+        if parents_senior:
+            parents_cap = float(rules.get("section_80d_parents_senior_cap", 50000))
+        self_amt = max(0.0, float(section_80d_self or 0))
+        parents_amt = max(0.0, float(section_80d_parents or 0))
+        if self_amt or parents_amt:
+            section_80d_allowed = min(self_cap, self_amt) + min(parents_cap, parents_amt)
+        else:
+            section_80d_allowed = min(self_cap + parents_cap, max(0.0, float(section_80d or 0)))
         section_80ccd1b_allowed = min(
             float(rules.get("section_80ccd1b_cap", 50000)),
             max(0.0, section_80ccd1b),
@@ -330,10 +442,11 @@ def run_tds_projection(
         if lta_cap > 0:
             lta_allowed = min(lta_allowed, lta_cap)
         section_80e_allowed = max(0.0, section_80e)
-        section_80g_allowed = max(0.0, section_80g) * 0.5
+        g_pct = float(section_80g_pct or 50)
+        if g_pct not in (50.0, 100.0):
+            g_pct = 50.0 if g_pct < 75 else 100.0
+        section_80g_allowed = max(0.0, section_80g) * (g_pct / 100.0)
         other_ded_allowed = max(0.0, other_deductions)
-    else:
-        new_regime_allowed = max(0.0, new_regime_deductions)
 
     chapter_via_a = (
         section_80ccd1b_allowed
@@ -350,13 +463,14 @@ def run_tds_projection(
         + section_80d_allowed
         + chapter_via_a
         + new_regime_allowed
+        + (section_80ccd2_allowed if regime == "old" else 0.0)
     )
     if regime == "old" and ptax_annual > 0:
         total_exemptions += ptax_annual
 
-    gross_with_other = projected_gross + max(0.0, other_income)
+    gross_with_other = projected_gross + max(0.0, other_income) + prev_taxable
     taxable_income = max(0.0, gross_with_other - total_exemptions)
-    tax_result = compute_annual_tax(taxable_income, rules)
+    tax_result = compute_annual_tax(taxable_income, rules, age=age)
 
     annual_tax = tax_result["annual_tax"]
     remaining_tax = max(
@@ -406,6 +520,7 @@ def run_tds_projection(
             "basic_annual": _round2(basic_annual),
             "hra_annual": _round2(hra_annual),
             "epf_annual": _round2(epf_annual),
+            "previous_employer_taxable": _round2(prev_taxable),
         },
         "deductions": {
             "standard_deduction": _round2(standard_deduction),
@@ -413,6 +528,7 @@ def run_tds_projection(
             "section_80c": _round2(section_80c),
             "section_80d": _round2(section_80d_allowed),
             "section_80ccd1b": _round2(section_80ccd1b_allowed),
+            "section_80ccd2": _round2(section_80ccd2_allowed),
             "section_24_interest": _round2(section_24_allowed),
             "lta_exemption": _round2(lta_allowed),
             "section_80e": _round2(section_80e_allowed),
@@ -427,6 +543,7 @@ def run_tds_projection(
         "tax": tax_result,
         "tds": {
             "annual_tax": annual_tax,
+            "previous_employer_taxable": _round2(prev_taxable),
             "previous_employer_tds": _round2(float(previous_employer_tds or 0)),
             "ytd_tds": _round2(float(ytd_tds or 0)),
             "remaining_tax": _round2(remaining_tax),

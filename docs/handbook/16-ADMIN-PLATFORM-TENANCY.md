@@ -4,7 +4,7 @@
 **Blueprint:** `website/Admin.py` → **`/api/admin`** (`admin_bp`)  
 **Tenancy:** `models/tenant.py`, `tenant_context.py`  
 **UI:** `/admin/*`, `/employees*` → `pages/Admin/`  
-**Related:** [01 Architecture](./01-ARCHITECTURE.md) · [02 Auth](./02-AUTH-AND-SESSION.md) · [18 Plans](./18-PLANS-FEATURES-ENV.md) (planned) · [SHARED_DB_MULTI_TENANCY.md](../SHARED_DB_MULTI_TENANCY.md) · [NEW_CUSTOMER_DEPLOYMENT.md](../NEW_CUSTOMER_DEPLOYMENT.md)
+**Related:** [01 Architecture](./01-ARCHITECTURE.md) · [02 Auth](./02-AUTH-AND-SESSION.md) · [18 Plans](./18-PLANS-FEATURES-ENV.md) (planned) · [SHARED_DB_MULTI_TENANCY.md](../SHARED_DB_MULTI_TENANCY.md)
 
 > **Locked direction:** one app, one DB, row isolation via `tenant_id`. Silo (DB-per-company) is **legacy exception only**.
 
@@ -13,7 +13,7 @@
 ## 1. Purpose
 
 1. **Org Admin Command Center** — dashboard counts; org-wide leaves / queries / claims / resignations; employee list/detail/punches; deep-links into HR / Accounts / IT  
-2. **Platform vendor ops** — register companies as shared-DB **tenants** + plans; deployment guide  
+2. **Platform vendor ops** — register companies as shared-DB **tenants** + plans
 3. **Tenancy Phase 1** — `tenants` table, `admins.tenant_id`, JWT claim `tenant_id`, plan from `tenants.plan`  
 4. **Legacy silo** — Provision / env-template only when `SILO_PROVISION_LEGACY=1`
 
@@ -26,7 +26,7 @@ HR **signup** creates people inside a company (module **06**). Admin **Customers
 | Role | Gate | Access |
 |------|------|--------|
 | Org Admin | JWT `emp_type` ∈ Admin / Administrator / Administration (or contains `super`) | `/admin/*`, `/employees*`, `/api/admin/*` (except platform-only extras) |
-| Platform Admin | Org Admin **and** `SHOW_DEPLOYMENT_GUIDE=1` (+ optional `DEPLOYMENT_GUIDE_EMAILS`) | Customers registry, deployment guide, Provision UI when legacy on |
+| Platform Admin | Org Admin with customer registry access enabled (`CUSTOMER_REGISTRY_EMAILS`; legacy flag and allow-list names remain supported) | Customers registry, Provision UI when legacy on |
 | HR | HR ops | People hire — **not** tenant create |
 | Plan panels | `plan_features` + `RequirePanel` | HR / Accounts / IT by plan |
 
@@ -116,7 +116,7 @@ All: JWT + `_admin_required`.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/dashboard` | Counts + `can_view_deployment_guide`; optional `circle`, `emp_type` |
+| GET | `/dashboard` | Counts + `can_manage_customers`; optional `circle`, `emp_type` |
 
 ### Employees
 
@@ -135,12 +135,11 @@ All: JWT + `_admin_required`.
 | GET | `/claims` |
 | GET | `/resignations` |
 
-### Platform (also `_can_view_deployment_guide`)
+### Customer registry (also `_can_manage_customer_registry`)
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/deployment-guide/access` | Flag for UI |
-| GET | `/deployment-guide` | Checklist payload |
+| GET | `/customers/access` | Registry visibility and authorization flag |
 | GET/POST | `/customers` | List / register company → Tenant |
 | GET/PATCH | `/customers/<id>` | Detail / update |
 | GET | `/customers/<id>/env-template` | Legacy; needs `SILO_PROVISION_LEGACY` |
@@ -167,7 +166,7 @@ Platform Admin → POST /api/admin/customers
   → Tenant status active (shared DB)
 ```
 
-Onboarding steps: [NEW_CUSTOMER_DEPLOYMENT.md](../NEW_CUSTOMER_DEPLOYMENT.md).
+Register companies through the Admin Customer registry. The registry creates the tenant and its first admin in the shared database.
 
 ### 6.3 HR hire vs Admin customer
 
@@ -190,10 +189,10 @@ SILO_PROVISION_LEGACY=1 + PROVISION_ENABLED
 | Route | Guard | Page |
 |-------|-------|------|
 | `/admin` | `RequirePanel panel="admin"` → `AdminLayout` | Command Center (`Admin.jsx`) |
-| `/admin/customers`, `/deployment-guide`, `/leaves`, `/queries`, `/claims`, `/resignations` | same | Nested under layout |
+| `/admin/customers`, `/leaves`, `/queries`, `/claims`, `/resignations` | same | Nested under layout |
 | `/employees`, `/employee/:id`, `/employee/:id/punches` | `RequirePanel admin` | Outside nested layout |
 
-Hub: `adminHubConfig.js` — department deep-links, time/finance/IT cards, **`ADMIN_PLATFORM_SECTION`** (Customers + Deployment Guide). Platform cards only if dashboard `can_view_deployment_guide`.
+Hub: `adminHubConfig.js` — department deep-links, time/finance/IT cards, and the **`ADMIN_PLATFORM_SECTION`** customer registry card. Platform cards only if dashboard `can_manage_customers`.
 
 `AdminCustomers.jsx`: Provision / `.env` actions only when `silo_provision_legacy: true`. Register and edit forms have a "Company mailboxes" block (`mailbox_hr` / `_accounts` / `_it` / `_admin`); Edit loads current values from `GET /customers/<id>` (`tenant.mailboxes`) and sends mailbox keys only once loaded or typed.
 
@@ -259,7 +258,6 @@ plan_features.py         # plan resolution
 auth.py                  # JWT tenant_id claim
 pages/Admin/             # SPA
 docs/SHARED_DB_*.md      # design freeze
-docs/NEW_CUSTOMER_*.md   # onboarding
 ```
 
 ---
@@ -268,12 +266,12 @@ docs/NEW_CUSTOMER_*.md   # onboarding
 
 - [ ] Non-Admin emp_type → `/api/admin/*` **403**  
 - [ ] Login JWT includes `tenant_id` (default 1 for backfilled admins)  
-- [ ] `SHOW_DEPLOYMENT_GUIDE=0` → no Customers / guide cards  
+- [ ] Customer registry access flag controls visibility and server authorization
 - [ ] POST `/customers` creates Tenant + list shows shared_db / phase 1  
 - [ ] Without `SILO_PROVISION_LEGACY` → provision/env-template **403**; UI hides Provision  
 - [ ] Plan upgrade allowed; downgrade rejected  
 - [ ] HR signup creates person, not a new Tenant  
 - [ ] Admin employee list excludes exited / inactive  
-- [ ] Dashboard `can_view_deployment_guide` matches env + email allow-list  
+- [ ] Dashboard `can_manage_customers` matches registry settings + email allow-list
 - [ ] Client body `tenant_id` ignored for authorization
 - [ ] `pytest tests/test_shared_db_multitenancy_security_audit.py` all green  

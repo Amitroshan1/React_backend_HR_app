@@ -73,7 +73,7 @@ def run_daily_hr_jobs_for_tenant(today, tenant_id, log):
 
     try:
         reminder_summary = run_offboarding_reminders(today, tenant_id=tenant_id)
-        if reminder_summary.get("lwd_reminders_sent") or reminder_summary.get("noc_sla_reminders_sent"):
+        if reminder_summary.get("lwd_reminders_sent"):
             log.info("scheduler: offboarding reminders tenant %s %s", tenant_id, reminder_summary)
     except Exception as e:
         log.exception("scheduler: offboarding-reminders failed for tenant %s: %s", tenant_id, e)

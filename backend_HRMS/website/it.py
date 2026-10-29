@@ -2,6 +2,7 @@ from datetime import datetime
 import uuid
 
 from flask import Blueprint, current_app, jsonify, request, send_file
+from sqlalchemy import extract, func
 from sqlalchemy.orm import defer, load_only, selectinload
 from .datetime_utils import utc_now, isoformat_api
 from flask_jwt_extended import get_jwt_identity, jwt_required, get_jwt
@@ -32,6 +33,7 @@ from .models.it_models import (
     ITAssetAssignment,
     ITAssetReturnRequest,
     ITAssetUnit,
+    ITDeviceType,
     ITDeletedAssetLog,
     ITInventoryItem,
     ITInventoryQuantityAssignment,
@@ -39,6 +41,7 @@ from .models.it_models import (
     ITParcelExport,
     ITParcelExportItem,
     ITParcelImport,
+    ITRepairBill,
     ITRemovedAsset,
     ITSoftwareLicense,
     ITSupportTicket,
@@ -95,6 +98,28 @@ def _allow_self_asset_access_for_non_it():
     return False
 
 
+def _allow_finance_purchase_access(claims):
+    """Finance reviews purchase budget on IT-mounted purchase routes without an IT seat."""
+    from .plan_features import can_access_finance_panel
+
+    if not can_access_finance_panel(claims):
+        return False
+    endpoint = request.endpoint or ""
+    return endpoint in {
+        "it.inventory_purchase_list",
+        "it.inventory_purchase_finance",
+    } and request.method in ("GET", "POST", "OPTIONS")
+
+
+def _allow_manager_purchase_access():
+    """Mapped managers act on purchase requests without an IT seat."""
+    endpoint = request.endpoint or ""
+    return endpoint in {
+        "it.inventory_purchase_list",
+        "it.inventory_purchase_manager",
+    } and request.method in ("GET", "POST", "OPTIONS")
+
+
 @it_bp.before_request
 def _it_plan_guard():
     from flask_jwt_extended import get_jwt, verify_jwt_in_request
@@ -111,6 +136,10 @@ def _it_plan_guard():
     claims = get_jwt() or {}
     if not can_access_it_panel(claims):
         if _allow_self_asset_access_for_non_it():
+            return None
+        if _allow_finance_purchase_access(claims):
+            return None
+        if _allow_manager_purchase_access():
             return None
         return plan_forbidden_response("it_panel")
     return None
@@ -244,6 +273,7 @@ def _ensure_parcel_name_columns_runtime():
         addcol("it_parcel_export_items", "make")
         addcol("it_asset_units", "project_code")
         addcol("it_asset_units", "device_location")
+        addcol("it_asset_units", "device_type")
     except Exception as e:
         current_app.logger.warning("parcel runtime column ensure skipped: %s", e)
 
@@ -292,12 +322,26 @@ def _resolve_admin_by_emp_key(emp_key):
     ).first()
 
 
+def _canonical_inv_cat(value):
+    raw = (value or "").strip()
+    if raw.lower() in ("office assets", "fixed assets"):
+        return "Fixed Assets"
+    return raw
+
+
+def _inv_cat_aliases(value):
+    canon = _canonical_inv_cat(value)
+    if canon == "Fixed Assets":
+        return ("Fixed Assets", "Office Assets")
+    return (canon,) if canon else ()
+
+
 def _is_qty_managed_inventory(category, inventory_category=None):
     cat = (category or "").strip().lower()
     if cat in ("accessories", "consumables", "stock"):
         return True
-    inv = (inventory_category or "").strip()
-    if inv in ("Office Assets", "Infrastructure Assets"):
+    inv = _canonical_inv_cat(inventory_category)
+    if inv in ("Fixed Assets", "Infrastructure Assets"):
         return cat == "stock" or cat in ("accessories", "consumables")
     return False
 
@@ -366,12 +410,12 @@ def _effective_inventory_category(item):
     if cat == "equipment":
         return "Infrastructure Assets"
     if cat == "stock":
-        if ic in ("Office Assets", "Infrastructure Assets", "Transport Assets"):
-            return ic
+        if _canonical_inv_cat(ic) in ("Fixed Assets", "Infrastructure Assets", "Transport Assets"):
+            return _canonical_inv_cat(ic)
         return ic
     if cat in ("hardware", "software", "accessories", "consumables"):
         return "IT Assets"
-    return ic or "IT Assets"
+    return _canonical_inv_cat(ic) or "IT Assets"
 
 
 def _serialize_inventory_item(item, summary=False):
@@ -419,6 +463,7 @@ def _serialize_asset_unit(unit, summary=False):
         "make": unit.make,
         "model": unit.model,
         "serialNumber": unit.serial_number,
+        "deviceType": getattr(unit, "device_type", None),
         "imei1": unit.imei1,
         "imei2": unit.imei2,
         "projectCode": unit.project_code,
@@ -470,6 +515,7 @@ _UNIT_SEARCH = (
     ITAssetUnit.asset_name,
     ITAssetUnit.unit_code,
     ITAssetUnit.serial_number,
+    ITAssetUnit.device_type,
     ITAssetUnit.brand,
     ITAssetUnit.make,
     ITAssetUnit.model,
@@ -892,14 +938,96 @@ def it_summary():
     total_assets = it_query(ITAssetUnit).count()
     open_tickets = it_query(ITSupportTicket).filter(ITSupportTicket.status == "pending").count()
     assigned_assets = it_query(ITAssetUnit).filter(ITAssetUnit.status == "assigned").count()
+    day_use_assets = it_query(ITAssetUnit).filter(
+        db.func.lower(ITAssetUnit.status) == "daily_out"
+    ).count()
+    available_assets = it_query(ITAssetUnit).filter(ITAssetUnit.status == "available").count()
     available_software = it_query(ITSoftwareLicense).filter(ITSoftwareLicense.status == "available").count()
+    pending_returns = it_query(ITAssetReturnRequest).filter(
+        db.func.lower(ITAssetReturnRequest.status) == "pending"
+    ).count()
+
+    pending_emails = 0
+    pending_assignments = 0
+    pending_noc = 0
+    pending_inventory_noc = 0
+    pending_day_use = 0
+    try:
+        from .models.daily_checkout import DailyCheckoutRequest
+        from .daily_checkout.state import OPEN_STATUSES
+
+        pending_day_use = it_query(DailyCheckoutRequest).filter(
+            DailyCheckoutRequest.status.in_(tuple(OPEN_STATUSES))
+        ).count()
+    except Exception:
+        pending_day_use = 0
+    try:
+        from .models.official_email_request import OfficialEmailRequest
+        from .tenant_context import get_current_tenant_id
+
+        tid = get_current_tenant_id()
+        pending_emails = OfficialEmailRequest.query.filter(
+            OfficialEmailRequest.tenant_id == tid,
+            db.func.lower(OfficialEmailRequest.status) == "pending",
+        ).count()
+    except Exception:
+        pending_emails = 0
+    try:
+        from .models.asset_assignment_request import AssetAssignmentRequest
+        from .tenant_context import get_current_tenant_id
+
+        tid = get_current_tenant_id()
+        pending_assignments = AssetAssignmentRequest.query.filter(
+            AssetAssignmentRequest.tenant_id == tid,
+            db.func.lower(AssetAssignmentRequest.status) == "pending",
+        ).count()
+    except Exception:
+        pending_assignments = 0
+    try:
+        admin = _current_admin()
+        if admin:
+            items = list_noc_requests("it", admin, "Pending")
+            pending_noc = len(items or [])
+            inventory_items = list_noc_requests("inventory", admin, "Pending")
+            pending_inventory_noc = len(inventory_items or [])
+    except Exception:
+        pending_noc = 0
+        pending_inventory_noc = 0
+
+    pending_purchase = 0
+    try:
+        from .inventory_purchase import ensure_purchase_table
+        from .models.inventory_purchase_request import InventoryPurchaseRequest
+        from .tenant_context import get_current_tenant_id
+
+        ensure_purchase_table()
+        pending_purchase = InventoryPurchaseRequest.query.filter(
+            InventoryPurchaseRequest.tenant_id == get_current_tenant_id(),
+            InventoryPurchaseRequest.status.in_(("pending_manager", "pending_finance", "finance_approved")),
+        ).count()
+    except Exception:
+        pending_purchase = 0
+
+    pending_requests = (
+        pending_returns + pending_emails + pending_assignments + pending_noc + pending_day_use
+    )
     return _ok(
         {
             "summary": {
                 "total_assets": total_assets,
                 "open_tickets": open_tickets,
                 "assigned_assets": assigned_assets,
+                "day_use_assets": day_use_assets,
+                "available_assets": available_assets,
                 "available_software": available_software,
+                "pending_returns": pending_returns,
+                "pending_emails": pending_emails,
+                "pending_assignments": pending_assignments,
+                "pending_noc": pending_noc,
+                "pending_inventory_noc": pending_inventory_noc,
+                "pending_day_use": pending_day_use,
+                "pending_purchase": pending_purchase,
+                "pending_requests": pending_requests,
             }
         }
     )
@@ -1036,7 +1164,11 @@ def _inventory_items_query():
     if category:
         q = q.filter(ci_equals(ITInventoryItem.category, category))
     if inventory_category:
-        q = q.filter(ci_equals(ITInventoryItem.inventory_category, inventory_category))
+        aliases = _inv_cat_aliases(inventory_category)
+        if len(aliases) > 1:
+            q = q.filter(ITInventoryItem.inventory_category.in_(aliases))
+        else:
+            q = q.filter(ci_equals(ITInventoryItem.inventory_category, inventory_category))
     return q
 
 
@@ -1094,9 +1226,9 @@ def create_inventory_item():
     category = (data.get("category") or "").strip()
     if not name or not category:
         return _err("name and category are required")
-    inventory_category = (data.get("inventory_category") or "IT Assets").strip()
+    inventory_category = _canonical_inv_cat(data.get("inventory_category") or "IT Assets")
     inv_lower = inventory_category.lower()
-    if inv_lower == "office assets" and category.strip().lower() not in (
+    if inv_lower in ("office assets", "fixed assets") and category.strip().lower() not in (
         "accessories",
         "consumables",
         "stock",
@@ -1166,6 +1298,15 @@ def create_inventory_item():
     return _ok({"item": _serialize_inventory_item(item)}, "Inventory item created", 201)
 
 
+@it_bp.route("/inventory/items/<int:item_id>", methods=["GET"])
+@jwt_required()
+def get_inventory_item(item_id):
+    item = it_get(ITInventoryItem, item_id)
+    if not item:
+        return _err("Inventory item not found", 404)
+    return _ok({"item": _serialize_inventory_item(item)})
+
+
 @it_bp.route("/inventory/items/<int:item_id>", methods=["PATCH"])
 @jwt_required()
 def update_inventory_item(item_id):
@@ -1189,6 +1330,8 @@ def update_inventory_item(item_id):
         if err:
             return err
         item.photos_json = photos
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(item, "photos_json")
     if "receipts" in data:
         receipts, err = _stored_media(data.get("receipts") or [], "receipts")
         if err:
@@ -1307,6 +1450,75 @@ def unit_options():
     })
 
 
+DEFAULT_DEVICE_TYPES = ("EVT", "DVT", "PVT", "DV")
+
+
+def _normalize_device_type(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text[:40]
+
+
+def _remember_device_type(name):
+    """Persist a custom / selected device type so later dropdowns can reuse it."""
+    cleaned = _normalize_device_type(name)
+    if not cleaned:
+        return None
+    existing = (
+        it_query(ITDeviceType)
+        .filter(db.func.lower(ITDeviceType.name) == cleaned.casefold())
+        .first()
+    )
+    if existing:
+        return existing
+    row = ITDeviceType(tenant_id=get_current_tenant_id(), name=cleaned)
+    db.session.add(row)
+    return row
+
+
+def _device_type_names():
+    names = list(DEFAULT_DEVICE_TYPES)
+    seen = {n.casefold() for n in names}
+    catalog = it_query(ITDeviceType).order_by(ITDeviceType.name.asc()).all()
+    for row in catalog:
+        label = (row.name or "").strip()
+        if label and label.casefold() not in seen:
+            names.append(label)
+            seen.add(label.casefold())
+    used = (
+        it_query(ITAssetUnit)
+        .with_entities(ITAssetUnit.device_type)
+        .filter(ITAssetUnit.device_type.isnot(None))
+        .distinct()
+        .all()
+    )
+    for (label,) in used:
+        text = (label or "").strip()
+        if text and text.casefold() not in seen:
+            names.append(text)
+            seen.add(text.casefold())
+    return names
+
+
+@it_bp.route("/device-types", methods=["GET"])
+@jwt_required()
+def list_device_types():
+    return _ok({"deviceTypes": _device_type_names()})
+
+
+@it_bp.route("/device-types", methods=["POST"])
+@jwt_required()
+def create_device_type():
+    data = request.get_json(silent=True) or {}
+    name = _normalize_device_type(data.get("name") or data.get("device_type"))
+    if not name:
+        return _err("Device type name is required")
+    _remember_device_type(name)
+    db.session.commit()
+    return _ok({"deviceTypes": _device_type_names(), "name": name}, "Device type saved", 201)
+
+
 def _is_mobile_tablet_hw(hw_type) -> bool:
     return str(hw_type or "").strip().lower() in ("mobile", "tablet")
 
@@ -1394,6 +1606,7 @@ def create_units_bulk():
             make=row.get("make"),
             model=row.get("model"),
             serial_number=row.get("serial_number"),
+            device_type=_normalize_device_type(row.get("device_type") or row.get("deviceType")),
             imei1=row.get("imei1"),
             imei2=row.get("imei2"),
             project_code=(row.get("project_code") or row.get("projectCode") or "").strip() or None,
@@ -1404,6 +1617,8 @@ def create_units_bulk():
         unit_notes = (row.get("notes") or row.get("remark") or "").strip() or None
         if unit_notes and len(unit_notes) > 500:
             unit_notes = unit_notes[:500]
+        if unit.device_type:
+            _remember_device_type(unit.device_type)
         db.session.add(unit)
         created.append((unit, unit_notes))
 
@@ -1514,6 +1729,48 @@ def update_unit_status(unit_id):
     return _ok({"unit": _serialize_asset_unit(unit)}, "Unit status updated")
 
 
+@it_bp.route("/units/<int:unit_id>", methods=["PATCH"])
+@jwt_required()
+def update_unit(unit_id):
+    """Update identity fields on a unit. Status / assignment stay on their own endpoints."""
+    unit = it_get(ITAssetUnit, unit_id)
+    if not unit:
+        return _err("Unit not found", 404)
+    data = request.get_json(silent=True) or {}
+    for key, attr in (
+        ("asset_name", "asset_name"),
+        ("brand", "brand"),
+        ("make", "make"),
+        ("model", "model"),
+        ("serial_number", "serial_number"),
+        ("device_type", "device_type"),
+        ("deviceType", "device_type"),
+        ("imei1", "imei1"),
+        ("imei2", "imei2"),
+        ("project_code", "project_code"),
+        ("device_location", "device_location"),
+    ):
+        if key in data:
+            raw = data.get(key)
+            value = None if raw is None else str(raw).strip()
+            setattr(unit, attr, value or None)
+    if "photos" in data:
+        photos, err = _stored_media(data.get("photos") or [], "units")
+        if err:
+            return err
+        unit.photos_json = photos
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(unit, "photos_json")
+    if not (unit.asset_name or "").strip():
+        return _err("asset_name is required")
+    if "device_type" in data or "deviceType" in data:
+        unit.device_type = _normalize_device_type(unit.device_type)
+        if unit.device_type:
+            _remember_device_type(unit.device_type)
+    db.session.commit()
+    return _ok({"unit": _serialize_asset_unit(unit)}, "Unit updated")
+
+
 @it_bp.route("/units/<int:unit_id>", methods=["DELETE"])
 @jwt_required()
 def delete_unit(unit_id):
@@ -1604,11 +1861,11 @@ def assign_unit():
     if unit.status == "assigned":
         return _err("Unit is already assigned")
     if (unit.status or "").lower() == "daily_out":
-        return _err("Unit is on Day-use checkout")
+        return _err("Unit is on loan checkout")
     from .models.daily_checkout import DailyUnitHold
 
     if DailyUnitHold.query.get(unit.id):
-        return _err("Unit is on Day-use checkout")
+        return _err("Unit is on loan checkout")
 
     from .itam.transition_service import extract_remark_fields
 
@@ -2529,7 +2786,7 @@ def assign_inventory_quantity():
 
 
 _DEPLOY_INVENTORY_CATEGORIES = frozenset(
-    {"Office Assets", "Transport Assets", "Infrastructure Assets"}
+    {"Fixed Assets", "Office Assets", "Transport Assets", "Infrastructure Assets"}
 )
 
 
@@ -2539,7 +2796,7 @@ def _inventory_deploy_mode(item):
     if inv_cat not in _DEPLOY_INVENTORY_CATEGORIES:
         return None
     item_cat = (item.category or "").strip().lower()
-    if inv_cat == "Office Assets":
+    if _canonical_inv_cat(inv_cat) == "Fixed Assets":
         return "stock" if _is_qty_managed_inventory(item.category, item.inventory_category) else None
     if inv_cat == "Infrastructure Assets":
         if item_cat == "stock":
@@ -2587,7 +2844,7 @@ def _list_stock_deployments_impl():
     if inventory_category:
         if inventory_category not in _DEPLOY_INVENTORY_CATEGORIES:
             return _err("Invalid inventory_category", 400)
-        q = q.filter(ITInventoryItem.inventory_category == inventory_category)
+        q = q.filter(ITInventoryItem.inventory_category.in_(_inv_cat_aliases(inventory_category)))
     if inventory_item_id:
         try:
             iid = int(inventory_item_id)
@@ -3215,6 +3472,115 @@ def list_parcel_exports():
     )
 
 
+_MONTH_SHORT = ("", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _parse_summary_year():
+    raw = request.args.get("year")
+    if raw in (None, ""):
+        return utc_now().year, None
+    try:
+        year = int(raw)
+    except (TypeError, ValueError):
+        return None, _err("year must be a number")
+    if year < 2000 or year > 2100:
+        return None, _err("year must be between 2000 and 2100")
+    return year, None
+
+
+def _month_int(value):
+    try:
+        month = int(value)
+    except (TypeError, ValueError):
+        return None
+    if month < 1 or month > 12:
+        return None
+    return month
+
+
+def _parcel_monthly_buckets(year):
+    start = datetime(year, 1, 1)
+    end = datetime(year + 1, 1, 1)
+    months = [
+        {
+            "month": f"{year}-{str(i).zfill(2)}",
+            "label": f"{_MONTH_SHORT[i]} {year}",
+            "imports": {"shipments": 0, "quantity": 0},
+            "exports": {"shipments": 0, "units": 0},
+        }
+        for i in range(1, 13)
+    ]
+
+    import_month = extract("month", ITParcelImport.received_at)
+    import_rows = (
+        it_query(ITParcelImport)
+        .with_entities(
+            import_month,
+            func.count(ITParcelImport.id),
+            func.coalesce(func.sum(ITParcelImport.count), 0),
+        )
+        .filter(ITParcelImport.received_at >= start, ITParcelImport.received_at < end)
+        .group_by(import_month)
+        .all()
+    )
+    for month_val, shipments, quantity in import_rows:
+        month = _month_int(month_val)
+        if month is None:
+            continue
+        months[month - 1]["imports"]["shipments"] = int(shipments or 0)
+        months[month - 1]["imports"]["quantity"] = int(quantity or 0)
+
+    export_month = extract("month", ITParcelExport.exported_at)
+    export_rows = (
+        it_query(ITParcelExport)
+        .with_entities(export_month, func.count(ITParcelExport.id))
+        .filter(ITParcelExport.exported_at >= start, ITParcelExport.exported_at < end)
+        .group_by(export_month)
+        .all()
+    )
+    for month_val, shipments in export_rows:
+        month = _month_int(month_val)
+        if month is None:
+            continue
+        months[month - 1]["exports"]["shipments"] = int(shipments or 0)
+
+    unit_rows = (
+        it_query(ITParcelExport)
+        .join(ITParcelExportItem, ITParcelExportItem.parcel_export_id == ITParcelExport.id)
+        .with_entities(export_month, func.count(ITParcelExportItem.id))
+        .filter(ITParcelExport.exported_at >= start, ITParcelExport.exported_at < end)
+        .group_by(export_month)
+        .all()
+    )
+    for month_val, units in unit_rows:
+        month = _month_int(month_val)
+        if month is None:
+            continue
+        months[month - 1]["exports"]["units"] = int(units or 0)
+
+    totals = {
+        "imports": {
+            "shipments": sum(m["imports"]["shipments"] for m in months),
+            "quantity": sum(m["imports"]["quantity"] for m in months),
+        },
+        "exports": {
+            "shipments": sum(m["exports"]["shipments"] for m in months),
+            "units": sum(m["exports"]["units"] for m in months),
+        },
+    }
+    return months, totals
+
+
+@it_bp.route("/parcels/monthly-summary", methods=["GET"])
+@jwt_required()
+def parcel_monthly_summary():
+    year, err = _parse_summary_year()
+    if err:
+        return err
+    months, totals = _parcel_monthly_buckets(year)
+    return _ok({"year": year, "months": months, "totals": totals})
+
+
 @it_bp.route("/parcels/exports", methods=["POST"])
 @jwt_required()
 def create_parcel_export():
@@ -3345,18 +3711,22 @@ def create_parcel_export():
     return _ok({"export": _serialize_parcel_export(row)}, "Parcel export created", 201)
 
 
-def _norm_emp_type_label(s):
-    return " ".join(((s or "").strip().lower().replace("-", " ")).split())
-
-
 def _ensure_it_staff_admin():
     admin = current_admin()
     if not admin:
         return None, _err("Employee not found", 404)
-    et = _norm_emp_type_label(admin.emp_type or "")
-    if et not in ("it", "it department", "information technology"):
-        return None, _err("IT access required", 403)
-    return admin, None
+    from flask_jwt_extended import get_jwt
+    from .plan_features import is_it_role, jwt_is_module_staff
+
+    claims = get_jwt() or {}
+    if jwt_is_module_staff(is_it_role, claims):
+        return admin, None
+    return None, _err("IT or Inventory access required", 403)
+
+
+def _noc_scope_for_department_admin(admin):
+    from .plan_features import is_inventory_department
+    return "inventory" if is_inventory_department(admin.emp_type or "") else "it"
 
 
 @it_bp.route("/noc-requests", methods=["GET"])
@@ -3409,6 +3779,126 @@ def it_download_noc_department_document(req_id):
         download_name=out["download_name"],
         as_attachment=True,
     )
+
+
+@it_bp.route("/inventory/noc-requests", methods=["GET"])
+@jwt_required()
+def inventory_list_noc_department_requests():
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    status_raw = (request.args.get("status") or "All").strip()
+    try:
+        items = list_noc_requests("inventory", admin, status_raw)
+        return _ok({"requests": items})
+    except Exception:
+        current_app.logger.exception("inventory_list_noc_department_requests")
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Unable to load inventory NOC requests.",
+                }
+            ),
+            500,
+        )
+
+
+@it_bp.route("/inventory/noc-requests/<int:req_id>/upload", methods=["POST"])
+@jwt_required()
+def inventory_upload_noc_department_document(req_id):
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    file = request.files.get("file")
+    out = upload_noc_document("inventory", admin, req_id, file)
+    code = out.pop("http", 200)
+    return jsonify({k: v for k, v in out.items()}), code
+
+
+@it_bp.route("/inventory/noc-requests/<int:req_id>/download", methods=["GET"])
+@jwt_required()
+def inventory_download_noc_department_document(req_id):
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    out = download_noc_document("inventory", admin, req_id)
+    if not out.get("success"):
+        return jsonify({"success": False, "message": out.get("message", "Error")}), out.get("http", 400)
+    from .pdf_watermark import send_download_file
+    return send_download_file(
+        path=out["path"],
+        download_name=out["download_name"],
+        as_attachment=True,
+    )
+
+
+@it_bp.route("/official-email-requests", methods=["GET"])
+@jwt_required()
+def it_list_official_email_requests():
+    """IT queue: HR requests to generate official emails."""
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    from .official_email_service import list_official_email_requests
+
+    status = (request.args.get("status") or "all").strip()
+    return _ok(list_official_email_requests(get_current_tenant_id(), status_filter=status))
+
+
+@it_bp.route("/official-email-requests/<int:request_id>/respond", methods=["POST"])
+@jwt_required()
+def it_respond_official_email_request(request_id):
+    """IT generates the official email and replies to HR."""
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    from .official_email_service import respond_official_email_request
+
+    data = request.get_json(silent=True) or {}
+    result, message, code = respond_official_email_request(
+        request_id,
+        admin,
+        generated_email=data.get("generated_email") or "",
+        it_remarks=data.get("it_remarks") or "",
+    )
+    if result is None:
+        return _err(message, code)
+    return _ok(result, message=result.get("message", "OK"), code=code)
+
+
+@it_bp.route("/asset-assignment-requests", methods=["GET"])
+@jwt_required()
+def it_list_asset_assignment_requests():
+    """IT queue: asset assignment requests for newly approved employees."""
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    from .asset_assignment_service import list_asset_assignment_requests
+
+    status = (request.args.get("status") or "all").strip()
+    return _ok(list_asset_assignment_requests(get_current_tenant_id(), status_filter=status))
+
+
+@it_bp.route("/asset-assignment-requests/<int:request_id>/complete", methods=["POST"])
+@jwt_required()
+def it_complete_asset_assignment_request(request_id):
+    """IT marks assets as assigned; HR is informed by email."""
+    admin, err = _ensure_it_staff_admin()
+    if err:
+        return err
+    from .asset_assignment_service import complete_asset_assignment_request
+
+    data = request.get_json(silent=True) or {}
+    result, message, code = complete_asset_assignment_request(
+        request_id,
+        admin,
+        assigned_assets=data.get("assigned_assets") or "",
+        it_remarks=data.get("it_remarks") or "",
+    )
+    if result is None:
+        return _err(message, code)
+    return _ok(result, message=result.get("message", "OK"), code=code)
 
 
 @it_bp.route("/itam/meta", methods=["GET"])
@@ -3847,5 +4337,340 @@ def itam_backfill_lifecycle():
     return _ok(stats, "Lifecycle backfill completed")
 
 
+def _opt_text(value, limit=None):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text[:limit] if limit else text
+
+
+def _opt_date(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _opt_amount(value):
+    if value is None or value == "":
+        return None
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_int(value):
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _repair_bill_row(row):
+    admin = get_admin_in_tenant(row.created_by_admin_id) if row.created_by_admin_id else None
+    date_val = row.date_of_repairing.isoformat() if row.date_of_repairing else None
+    amount = float(row.bill_amount) if row.bill_amount is not None else None
+    return {
+        "id": row.id,
+        "engineer_name": row.engineer_name or "",
+        "laptop_code": row.laptop_code or "",
+        "issue_type": row.issue_type or "",
+        "date_of_repairing": date_val,
+        "amount_status": row.amount_status or "",
+        "working_status": row.working_status or "",
+        "bill_amount": amount,
+        "repair_count": row.repair_count,
+        "remarks": row.remarks or "",
+        "file_url": present_itam_media(row.file_key) if row.file_key else None,
+        "file_name": row.file_name or "",
+        "created_by": (admin.full_name if admin and getattr(admin, "full_name", None) else None)
+        or (admin.first_name if admin else None)
+        or "",
+        "created_at": isoformat_api(row.created_at) if row.created_at else None,
+    }
+
+
+def _ensure_repair_bills_table():
+    from sqlalchemy import inspect, text
+
+    with db.engine.begin() as conn:
+        conn.execute(text("SET SESSION lock_wait_timeout=5"))
+        names = inspect(conn).get_table_names()
+        if "it_repair_bills" in set(names):
+            return
+        ITRepairBill.__table__.create(bind=conn, checkfirst=True)
+
+
+def _repair_bills_filtered(month=None, q=None):
+    query = it_query(ITRepairBill)
+    month = str(month or "").strip()
+    if month and len(month) >= 7:
+        try:
+            year_n = int(month[:4])
+            month_n = int(month[5:7])
+            query = query.filter(
+                db.or_(
+                    db.and_(
+                        extract("year", ITRepairBill.date_of_repairing) == year_n,
+                        extract("month", ITRepairBill.date_of_repairing) == month_n,
+                    ),
+                    db.and_(
+                        ITRepairBill.date_of_repairing.is_(None),
+                        extract("year", ITRepairBill.created_at) == year_n,
+                        extract("month", ITRepairBill.created_at) == month_n,
+                    ),
+                )
+            )
+        except ValueError:
+            pass
+    q = str(q or "").strip()
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                ITRepairBill.engineer_name.ilike(like),
+                ITRepairBill.laptop_code.ilike(like),
+                ITRepairBill.issue_type.ilike(like),
+                ITRepairBill.amount_status.ilike(like),
+                ITRepairBill.working_status.ilike(like),
+                ITRepairBill.remarks.ilike(like),
+            )
+        )
+    return query.order_by(ITRepairBill.created_at.desc(), ITRepairBill.id.desc())
+
+
+def _prior_repair_count(laptop_code):
+    code = _opt_text(laptop_code, 80)
+    if not code:
+        return 0
+    return (
+        it_query(ITRepairBill)
+        .filter(func.lower(ITRepairBill.laptop_code) == code.lower())
+        .count()
+    )
+
+
+@it_bp.route("/repair-bills", methods=["GET"])
+@jwt_required()
+def list_repair_bills():
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
+    try:
+        _ensure_repair_bills_table()
+    except (OperationalError, ProgrammingError, Exception):
+        pass
+    month = request.args.get("month")
+    q = request.args.get("q")
+    try:
+        rows = _repair_bills_filtered(month=month, q=q).all()
+    except (OperationalError, ProgrammingError):
+        db.session.rollback()
+        return _ok({
+            "bills": [],
+            "count": 0,
+            "kpis": {
+                "total_bills": 0,
+                "total_amount": 0,
+                "paid_amount": 0,
+                "unpaid_count": 0,
+            },
+        })
+    paid = 0.0
+    unpaid_count = 0
+    total_amount = 0.0
+    for row in rows:
+        amt = float(row.bill_amount) if row.bill_amount is not None else 0.0
+        total_amount += amt
+        status = (row.amount_status or "").strip().lower()
+        if status == "paid":
+            paid += amt
+        elif status in ("unpaid", "partial", ""):
+            unpaid_count += 1
+    return _ok({
+        "bills": [_repair_bill_row(r) for r in rows],
+        "count": len(rows),
+        "kpis": {
+            "total_bills": len(rows),
+            "total_amount": round(total_amount, 2),
+            "paid_amount": round(paid, 2),
+            "unpaid_count": unpaid_count,
+        },
+    })
+
+
+@it_bp.route("/repair-bills/laptop-codes", methods=["GET"])
+@jwt_required()
+def repair_bill_laptop_codes():
+    q = str(request.args.get("q") or "").strip()
+    codes = set()
+    bill_q = it_query(ITRepairBill).filter(ITRepairBill.laptop_code.isnot(None))
+    if q:
+        bill_q = bill_q.filter(ITRepairBill.laptop_code.ilike(f"%{q}%"))
+    for (code,) in bill_q.with_entities(ITRepairBill.laptop_code).distinct().limit(40):
+        if code:
+            codes.add(code)
+    unit_q = it_query(ITAssetUnit).filter(ITAssetUnit.unit_code.isnot(None))
+    if q:
+        unit_q = unit_q.filter(ITAssetUnit.unit_code.ilike(f"%{q}%"))
+    for (code,) in unit_q.with_entities(ITAssetUnit.unit_code).distinct().limit(40):
+        if code:
+            codes.add(code)
+    return _ok({"codes": sorted(codes)[:40]})
+
+
+@it_bp.route("/repair-bills/prior-count", methods=["GET"])
+@jwt_required()
+def repair_bill_prior_count():
+    code = request.args.get("laptop_code") or request.args.get("q")
+    return _ok({"laptop_code": _opt_text(code, 80) or "", "prior_count": _prior_repair_count(code)})
+
+
+@it_bp.route("/repair-bills", methods=["POST"])
+@jwt_required()
+def create_repair_bill():
+    _ensure_repair_bills_table()
+    data = request.get_json(silent=True) or {}
+    laptop_code = _opt_text(data.get("laptop_code"), 80)
+    repair_count = _opt_int(data.get("repair_count"))
+    if repair_count is None and laptop_code:
+        repair_count = _prior_repair_count(laptop_code) + 1
+    file_raw = data.get("file") or data.get("attachment")
+    file_name = _opt_text(data.get("file_name"), 220)
+    file_key = None
+    if file_raw:
+        try:
+            file_key = persist_itam_media(file_raw, "repair-bills")
+        except ValueError as exc:
+            return _err(str(exc), 400)
+    row = ITRepairBill(
+        engineer_name=_opt_text(data.get("engineer_name"), 160),
+        laptop_code=laptop_code,
+        issue_type=_opt_text(data.get("issue_type"), 120),
+        date_of_repairing=_opt_date(data.get("date_of_repairing")),
+        amount_status=_opt_text(data.get("amount_status"), 40),
+        working_status=_opt_text(data.get("working_status"), 40),
+        bill_amount=_opt_amount(data.get("bill_amount")),
+        repair_count=repair_count,
+        remarks=_opt_text(data.get("remarks")),
+        file_key=file_key,
+        file_name=file_name,
+        created_by_admin_id=(current_admin().id if current_admin() else None),
+    )
+    db.session.add(row)
+    db.session.commit()
+    return _ok({"bill": _repair_bill_row(row)}, "Repair bill saved")
+
+
+@it_bp.route("/repair-bills.xlsx", methods=["GET"])
+@jwt_required()
+def repair_bills_xlsx():
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from .utility import send_excel_file
+
+    month = request.args.get("month")
+    q = request.args.get("q")
+    rows = _repair_bills_filtered(month=month, q=q).all()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Repair bills"
+    headers = [
+        "Engineer Name",
+        "Laptop Code",
+        "Issue Type",
+        "Date of Repairing",
+        "Amount Status",
+        "Working Status",
+        "Bill Amount",
+        "Repair Count",
+        "Remarks",
+        "File",
+        "Created By",
+        "Created At",
+    ]
+    ws.append(headers)
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="13877F")
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(vertical="center")
+    for row in rows:
+        item = _repair_bill_row(row)
+        ws.append([
+            item["engineer_name"],
+            item["laptop_code"],
+            item["issue_type"],
+            item["date_of_repairing"] or "",
+            item["amount_status"],
+            item["working_status"],
+            item["bill_amount"] if item["bill_amount"] is not None else "",
+            item["repair_count"] if item["repair_count"] is not None else "",
+            item["remarks"],
+            item["file_name"] or ("Yes" if item["file_url"] else ""),
+            item["created_by"],
+            (item["created_at"] or "")[:19],
+        ])
+    import io
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    label = (month or "all").replace("/", "-")
+    return send_excel_file(buf, f"repair-bills-{label}.xlsx")
+
+
 from . import it_inventory_screens  # noqa: E402,F401  (registers the inventory screen routes on it_bp)
 from . import it_assets_screen  # noqa: E402,F401  (registers the Asset Management screen route on it_bp)
+from .inventory_purchase import (  # noqa: E402
+    cancel_request as cancel_inventory_purchase,
+    create_request as create_inventory_purchase,
+    finance_action as finance_inventory_purchase,
+    list_requests as list_inventory_purchases,
+    manager_action as manager_inventory_purchase,
+    receive_request as receive_inventory_purchase,
+)
+
+it_bp.add_url_rule(
+    "/inventory/purchase",
+    endpoint="inventory_purchase_list",
+    view_func=list_inventory_purchases,
+    methods=["GET"],
+    strict_slashes=False,
+)
+it_bp.add_url_rule(
+    "/inventory/purchase",
+    endpoint="inventory_purchase_create",
+    view_func=create_inventory_purchase,
+    methods=["POST"],
+    strict_slashes=False,
+)
+it_bp.add_url_rule(
+    "/inventory/purchase/<int:request_id>/manager-action",
+    endpoint="inventory_purchase_manager",
+    view_func=manager_inventory_purchase,
+    methods=["POST"],
+)
+it_bp.add_url_rule(
+    "/inventory/purchase/<int:request_id>/finance-action",
+    endpoint="inventory_purchase_finance",
+    view_func=finance_inventory_purchase,
+    methods=["POST"],
+)
+it_bp.add_url_rule(
+    "/inventory/purchase/<int:request_id>/receive",
+    endpoint="inventory_purchase_receive",
+    view_func=receive_inventory_purchase,
+    methods=["POST"],
+)
+it_bp.add_url_rule(
+    "/inventory/purchase/<int:request_id>/cancel",
+    endpoint="inventory_purchase_cancel",
+    view_func=cancel_inventory_purchase,
+    methods=["POST"],
+)

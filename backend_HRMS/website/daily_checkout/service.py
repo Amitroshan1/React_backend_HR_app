@@ -487,7 +487,7 @@ def create_request(admin, *, hw_type=None, notes=None, items=None, expected_retu
         {"hw_type": primary_hw, "items_summary": summary, "request_code": row.request_code},
     )
     notify_it_staff(
-        "Day-use request",
+        "Loan assets request",
         f"{row.requester_name_snapshot or 'Employee'} requested {summary or primary_hw} ({row.request_code})",
         row.id,
     )
@@ -813,9 +813,9 @@ def assign_unit(
         if (unit.status or "").lower() != "available":
             raise DailyCheckoutError(f"Unit for {slot['hw_type']} is not available")
         if (unit.category or "").strip().lower() == "software":
-            raise DailyCheckoutError("Cannot assign software seats via Day-use")
+            raise DailyCheckoutError("Cannot assign software seats via Loan assets")
         if DailyUnitHold.query.get(unit.id):
-            raise DailyCheckoutError(f"Unit for {slot['hw_type']} is already on Day-use checkout", 409)
+            raise DailyCheckoutError(f"Unit for {slot['hw_type']} is already on loan checkout", 409)
         want = (slot["hw_type"] or "").strip().lower()
         got = (unit.hw_type or "").strip().lower()
         if want and got and want != got:
@@ -848,7 +848,7 @@ def assign_unit(
                 touched_inventory.add(unit.inventory_item_id)
     except IntegrityError:
         db.session.rollback()
-        raise DailyCheckoutError("One or more units are already on Day-use checkout", 409)
+        raise DailyCheckoutError("One or more units are already on loan checkout", 409)
 
     for inv_id in touched_inventory:
         _recalc_inventory_counts(inv_id)
@@ -934,9 +934,9 @@ def request_return(admin, request_id):
     if not row:
         raise DailyCheckoutError("Request not found", 404)
     if int(row.requester_admin_id) != int(admin.id):
-        raise DailyCheckoutError("You can only return your own Day-use asset", 403)
+        raise DailyCheckoutError("You can only return your own loan asset", 403)
     if not can_employee_request_return(row.status):
-        raise DailyCheckoutError("No assigned Day-use asset to return")
+        raise DailyCheckoutError("No assigned loan asset to return")
     prev = row.status
     if not can_transition(prev, "return_requested"):
         raise DailyCheckoutError("Invalid status transition")
@@ -958,7 +958,7 @@ def request_return(admin, request_id):
     )
     _enqueue_email(row, "RETURN_REQUESTED", {"request_code": row.request_code})
     notify_it_staff(
-        "Day-use return",
+        "Loan assets return",
         f"{row.requester_name_snapshot or 'Employee'} requested return of {row.request_code}",
         row.id,
     )
@@ -1022,9 +1022,9 @@ def set_daily_pool(unit_id, enabled):
     if not unit:
         raise DailyCheckoutError("Unit not found", 404)
     if (unit.category or "Hardware").strip().lower() != "hardware":
-        raise DailyCheckoutError("Day-use pool is hardware-only")
+        raise DailyCheckoutError("Loan assets pool is hardware-only")
     if DailyUnitHold.query.get(unit.id) and not enabled:
-        raise DailyCheckoutError("Cannot remove a unit that is currently on Day-use")
+        raise DailyCheckoutError("Cannot remove a unit that is currently on loan")
     unit.is_daily_pool = bool(enabled)
     db.session.commit()
     return unit
@@ -1045,7 +1045,7 @@ def mark_overdue_and_notify():
         _add_event(row.id, "OVERDUE", role="system", from_status="assigned", to_status="overdue")
         _enqueue_email(row, "OVERDUE", {"request_code": row.request_code})
         notify_it_staff(
-            "Day-use overdue",
+            "Loan assets overdue",
             f"{row.request_code} is overdue for return",
             row.id,
         )

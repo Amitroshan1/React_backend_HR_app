@@ -109,6 +109,14 @@ def _validate_row(row: dict) -> list[str]:
         errors.append(f"Invalid employee type: {row['emp_type']}")
     if row.get("circle") and not _is_allowed_master_value(MASTER_TYPE_CIRCLE, row["circle"]):
         errors.append(f"Invalid circle: {row['circle']}")
+    from .plan_features import reserved_platform_role_error
+    from .tenant_context import get_current_tenant_id
+
+    reserved_err = reserved_platform_role_error(get_current_tenant_id(), row.get("emp_type") or "") or reserved_platform_role_error(
+        get_current_tenant_id(), row.get("circle") or ""
+    )
+    if reserved_err:
+        errors.append(reserved_err)
     if row.get("designation") and not _is_valid_profile_designation(row["designation"]):
         errors.append("Invalid designation (2–100 chars)")
 

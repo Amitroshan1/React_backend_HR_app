@@ -22,6 +22,8 @@ REQUEST_LABELS = {
     "leave_update": "Leave change by HR",
     "wfh_update": "WFH change by HR",
     "leave_on_behalf": "Leave applied by HR",
+    "probation": "Probation decision",
+    "noc_application": "NOC / letter",
 }
 DECISION_KINDS = {
     "signup": "new employee signup",
@@ -32,8 +34,12 @@ DECISION_KINDS = {
     "leave_update": "leave change by HR",
     "wfh_update": "WFH change by HR",
     "leave_on_behalf": "leave applied by HR",
+    "probation": "probation decision",
+    "noc_application": "NOC / letter request",
 }
 LEAVE_REQUEST_TYPES = ("leave_update", "wfh_update", "leave_on_behalf")
+# These do not block profile/exit/rehire staging for the same employee.
+NON_BLOCKING_REQUEST_TYPES = LEAVE_REQUEST_TYPES + ("probation", "noc_application")
 GATED_FIELDS = ("emp_type", "circle", "designation", "employment_status")
 FIELD_LABELS = {
     "emp_type": "Department",
@@ -96,7 +102,7 @@ def pending_for_employee(admin):
             employee_admin_id=admin.id,
             status="pending",
         )
-        .filter(db.or_(request_type.is_(None), request_type.notin_(LEAVE_REQUEST_TYPES)))
+        .filter(db.or_(request_type.is_(None), request_type.notin_(NON_BLOCKING_REQUEST_TYPES)))
         .order_by(EmployeeProfileChangeRequest.id.desc())
         .first()
     )
@@ -382,7 +388,11 @@ def serialize_change_request(row) -> dict:
     changes = _load_changes(row)
     fields = []
     request_type = (getattr(row, "request_type", None) or "profile_change").strip() or "profile_change"
-    signup = _signup_payload(row) if request_type in ("signup", "exit", "rehire", "general", "leave_unlock") else {}
+    signup = (
+        _signup_payload(row)
+        if request_type in ("signup", "exit", "rehire", "general", "leave_unlock", "probation", "noc_application")
+        else {}
+    )
     if request_type == "exit":
         for key, label in (
             ("exit_type", "Exit type"),
@@ -391,6 +401,9 @@ def serialize_change_request(row) -> dict:
             ("resignation_date", "Resignation date"),
             ("exit_reason", "Reason"),
             ("notice_shortfall_days", "Notice shortfall (days)"),
+            ("manager_status", "Manager status"),
+            ("hr_remarks", "HR remarks"),
+            ("source", "Source"),
         ):
             value = signup.get(key)
             if value in (None, ""):
@@ -398,15 +411,49 @@ def serialize_change_request(row) -> dict:
             fields.append({
                 "field": key,
                 "label": label,
-                "from": "Active",
-                "to": _display_value(key, value),
+                "from": "Active" if key != "hr_remarks" else "—",
+                "to": _display_value(key, value) if key != "hr_remarks" else _clean(value),
             })
+        noc_summary = signup.get("noc_summary") or []
+        if isinstance(noc_summary, list) and noc_summary:
+            bits = []
+            for n in noc_summary:
+                if not isinstance(n, dict):
+                    continue
+                bits.append(
+                    f"{_clean(n.get('department'))}: {_clean(n.get('status'))}"
+                    + (" (file)" if n.get("has_file") else "")
+                )
+            if bits:
+                fields.append({
+                    "field": "noc_summary",
+                    "label": "NOC clearances",
+                    "from": "—",
+                    "to": "; ".join(bits),
+                })
         if signup.get("force_override"):
             fields.append({
                 "field": "force_override",
                 "label": "Force override",
                 "from": "—",
                 "to": _clean(signup.get("force_override_reason")) or "Yes",
+            })
+    elif request_type == "noc_application":
+        for key, label in (
+            ("noc_request_label", "Request"),
+            ("details", "Employee details"),
+            ("other_reason", "Other reason"),
+            ("hr_remarks", "HR remarks"),
+            ("hr_document_filename", "HR document"),
+        ):
+            value = signup.get(key)
+            if value in (None, ""):
+                continue
+            fields.append({
+                "field": key,
+                "label": label,
+                "from": "—",
+                "to": _clean(value),
             })
     elif request_type == "rehire":
         fields.append({
@@ -440,6 +487,42 @@ def serialize_change_request(row) -> dict:
             "from": "—",
             "to": _clean(signup.get("details")) or "—",
         })
+    elif request_type == "probation":
+        decision_label = _clean(signup.get("decision_label")) or _clean(signup.get("decision")) or "—"
+        fields.append({
+            "field": "decision",
+            "label": "HR proposed decision",
+            "from": "Awaiting Admin",
+            "to": decision_label,
+        })
+        if signup.get("extended_until"):
+            fields.append({
+                "field": "extended_until",
+                "label": "Extend until",
+                "from": _clean(signup.get("probation_end_date")) or "—",
+                "to": _clean(signup.get("extended_until")),
+            })
+        if signup.get("manager_recommendation"):
+            fields.append({
+                "field": "manager_recommendation",
+                "label": "Manager recommendation",
+                "from": "—",
+                "to": _clean(signup.get("manager_recommendation")),
+            })
+        if signup.get("manager_rating"):
+            fields.append({
+                "field": "manager_rating",
+                "label": "Manager rating",
+                "from": "—",
+                "to": _clean(signup.get("manager_rating")),
+            })
+        if signup.get("notes"):
+            fields.append({
+                "field": "notes",
+                "label": "HR notes",
+                "from": "—",
+                "to": _clean(signup.get("notes")),
+            })
     elif request_type == "signup":
         for key, label in (
             ("first_name", "Full name"),
@@ -508,6 +591,45 @@ def list_change_requests(tenant_id, status=None):
         query = query.filter(EmployeeProfileChangeRequest.status == status.lower())
     rows = query.order_by(EmployeeProfileChangeRequest.created_at.desc(), EmployeeProfileChangeRequest.id.desc()).limit(300).all()
     return [serialize_change_request(row) for row in rows]
+
+
+def request_history_summary(tenant_id, *, since=None) -> dict:
+    """
+    Counts for the HR Request History card badge.
+
+    new_decisions = approved/rejected with decided_at after ``since``
+    (or in the last 30 days when ``since`` is omitted).
+    """
+    from datetime import datetime, timedelta, timezone
+
+    tid = int(tenant_id)
+    base = EmployeeProfileChangeRequest.query.filter_by(tenant_id=tid)
+    pending = base.filter_by(status="pending").count()
+
+    decided = base.filter(EmployeeProfileChangeRequest.status.in_(("approved", "rejected")))
+    cutoff = None
+    if since:
+        raw = _clean(since)
+        try:
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            cutoff = datetime.fromisoformat(raw)
+            if cutoff.tzinfo is not None:
+                cutoff = cutoff.astimezone(timezone.utc).replace(tzinfo=None)
+        except ValueError:
+            cutoff = None
+    if cutoff is None:
+        cutoff = datetime.utcnow() - timedelta(days=30)
+
+    new_decisions = decided.filter(
+        EmployeeProfileChangeRequest.decided_at.isnot(None),
+        EmployeeProfileChangeRequest.decided_at > cutoff,
+    ).count()
+    return {
+        "pending": pending,
+        "new_decisions": new_decisions,
+        "since": cutoff.isoformat() + "Z",
+    }
 
 
 def get_change_request(tenant_id, request_id):
@@ -709,6 +831,7 @@ def decide_profile_change(row, decision: str, note: str = ""):
     welcome_admin = None
     welcome_payload = None
     exit_notice = None
+    probation_result = None
     try:
         request_type = (row.request_type or "profile_change").strip() or "profile_change"
         if status == "approved" and request_type == "signup":
@@ -732,6 +855,10 @@ def decide_profile_change(row, decision: str, note: str = ""):
             if employee is None:
                 return None, "Employee record was not found.", 404
             _apply_rehire(employee, decider_email or decider_name)
+        elif request_type == "noc_application":
+            from .noc_application_admin_service import apply_noc_application_decision
+
+            apply_noc_application_decision(row, status)
         elif status == "approved" and request_type == "general":
             pass
         elif status == "approved" and request_type == "leave_unlock":
@@ -752,6 +879,10 @@ def decide_profile_change(row, decision: str, note: str = ""):
             if not ok:
                 db.session.rollback()
                 return None, message, code
+        elif status == "approved" and request_type == "probation":
+            probation_result = _apply_probation_decision(row, decider)
+        elif status == "rejected" and request_type == "probation":
+            _revert_probation_pending(row)
         elif status == "approved":
             employee = row.employee
             if employee is None:
@@ -778,6 +909,26 @@ def decide_profile_change(row, decision: str, note: str = ""):
         except Exception as mail_err:
             current_app.logger.warning("Welcome email failed after signup approval: %s", mail_err)
 
+        # Separate professional mail to HR confirming the Admin approval.
+        try:
+            from .email import send_signup_approval_to_hr
+
+            send_signup_approval_to_hr(
+                employee=welcome_admin,
+                decider_name=decider_name,
+                requested_by_email=_clean(row.requested_by_email),
+            )
+        except Exception as mail_err:
+            current_app.logger.warning("Signup approval mail to HR failed: %s", mail_err)
+
+        # Auto-raise the asset assignment request to IT (visible in IT panel + email).
+        try:
+            from .asset_assignment_service import create_asset_assignment_request
+
+            create_asset_assignment_request(row, welcome_admin)
+        except Exception as mail_err:
+            current_app.logger.warning("Asset assignment request to IT failed: %s", mail_err)
+
     if exit_notice:
         try:
             from .offboarding_service import send_exit_employee_notifications
@@ -793,12 +944,86 @@ def decide_profile_change(row, decision: str, note: str = ""):
         except Exception as mail_err:
             current_app.logger.warning("Exit email failed after approval: %s", mail_err)
 
+    if probation_result is not None:
+        try:
+            from .probation_api import send_probation_decision_notifications
+
+            send_probation_decision_notifications(probation_result)
+        except Exception as mail_err:
+            current_app.logger.warning("Probation decision emails failed after approval: %s", mail_err)
+
     email_ok, email_message = _send_decision_email(row, status, decider_name)
     payload = serialize_change_request(row)
     payload["email_sent"] = email_ok
     if email_message:
         payload["email_message"] = email_message
     return payload, "", 200
+
+
+def _apply_probation_decision(row, decider):
+    """Apply HR's staged probation decision after Admin approve."""
+    from datetime import date as date_cls
+
+    from .models.Admin_models import Admin
+    from .models.probation import ProbationReview
+    from .probation_api import execute_probation_decision
+
+    payload = _signup_payload(row)
+    review_id = payload.get("probation_review_id")
+    decision = _clean(payload.get("decision")).lower()
+    if not review_id or not decision:
+        raise ValueError("Probation request is missing decision details.")
+
+    review = ProbationReview.query.get(int(review_id))
+    if not review:
+        raise ValueError("Probation review was not found.")
+
+    extended_until = None
+    raw_ext = _clean(payload.get("extended_until"))[:10]
+    if raw_ext:
+        extended_until = date_cls.fromisoformat(raw_ext)
+
+    # Attribute the HR decision to the requester; Admin is the approver on the request row.
+    hr_actor = None
+    if row.requested_by_admin_id:
+        hr_actor = Admin.query.get(row.requested_by_admin_id)
+    if hr_actor is None:
+        hr_actor = decider
+    if hr_actor is None:
+        # Minimal stand-in so emails still have a name.
+        class _HrProxy:
+            id = row.requested_by_admin_id
+            email = row.requested_by_email
+            first_name = row.requested_by_name or "HR"
+
+        hr_actor = _HrProxy()
+
+    return execute_probation_decision(
+        review,
+        decision=decision,
+        notes=_clean(payload.get("notes")),
+        extended_until=extended_until,
+        decided_by_admin=hr_actor,
+        send_employee_mail=True,
+        send_manager_mail=True,
+    )
+
+
+def _revert_probation_pending(row):
+    """When Admin rejects, return the review to Awaiting HR so HR can resubmit."""
+    from .models.probation import ProbationReview
+    from .probation_utils import STATUS_MANAGER_SUBMITTED, STATUS_PENDING_ADMIN, infer_status_from_row
+
+    payload = _signup_payload(row)
+    review_id = payload.get("probation_review_id")
+    if not review_id:
+        return
+    review = ProbationReview.query.get(int(review_id))
+    if not review:
+        return
+    status = infer_status_from_row(review)
+    if status == STATUS_PENDING_ADMIN and not review.hr_decision:
+        review.status = STATUS_MANAGER_SUBMITTED
 
 
 def request_tenant_id():

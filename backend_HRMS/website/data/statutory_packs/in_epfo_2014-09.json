@@ -1,0 +1,18 @@
+{
+  "id": "in_epfo_2014-09",
+  "label": "EPFO wage ceiling ₹15,000 (from Sep 2014)",
+  "effective_from": "2014-09-01",
+  "effective_to": "2026-09-16",
+  "source": "EPFO statutory wage ceiling (pre S.O. 5109(E))",
+  "pf_wage_cap_monthly": 15000,
+  "pf_rate": 12,
+  "eps_rate": 8.33,
+  "eps_contrib_max": 1250,
+  "pf_admin_pct": 0.5,
+  "edli_pct": 0.5,
+  "esic_gross_cap": 21001,
+  "esic_employee_pct": 0.75,
+  "esic_employer_pct": 3.25,
+  "statutory_bonus_wage_cap": 21000,
+  "statutory_bonus_pct": 8.33
+}

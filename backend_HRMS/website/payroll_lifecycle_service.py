@@ -251,8 +251,12 @@ def build_bank_payment_file(
     if emp_type:
         q = q.filter(Admin.emp_type == emp_type)
 
+    from .payroll_batch_service import payroll_ready_for_compliance
+
     lines = []
     for payroll, admin in q.order_by(Admin.first_name.asc(), Admin.emp_id.asc()).all():
+        if not payroll_ready_for_compliance(payroll):
+            continue
         net = float(payroll.net_salary_final or 0)
         if net <= 0:
             continue

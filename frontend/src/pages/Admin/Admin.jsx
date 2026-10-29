@@ -93,7 +93,8 @@ const Admin = () => {
           setLoading(false);
           return;
         }
-        const platform = Boolean(data.can_view_deployment_guide);
+        // Keep compatibility with already-running API instances during rollout.
+        const platform = Boolean(data.can_manage_customers ?? data.can_view_deployment_guide);
         setCanViewCompanies(platform);
         try {
           const pendingRes = await fetch('/api/admin/employee-change-requests?status=pending', { headers });

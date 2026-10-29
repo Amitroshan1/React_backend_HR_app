@@ -70,6 +70,7 @@ class CTCBreakup(db.Model):
     is_metro_hra = db.Column(db.Boolean, nullable=True)
     reimbursement_monthly = db.Column(db.Float, nullable=True)
     ptax_state = db.Column(db.String(2), nullable=True)
+    esic_covered = db.Column(db.Boolean, nullable=True, default=False)
     effective_from = db.Column(db.Date, nullable=True)
 
     created_at = db.Column(db.DateTime, default=utc_now, nullable=True)
@@ -153,6 +154,7 @@ class CTCBreakup(db.Model):
             "include_statutory_bonus_in_ctc": bool(self.include_statutory_bonus_in_ctc),
             "include_lwf_in_ctc": bool(self.include_lwf_in_ctc),
             "ptax_state": self.ptax_state,
+            "esic_covered": bool(self.esic_covered),
             "statutory_bonus_yearly": self.statutory_bonus_yearly,
             "statutory_bonus_monthly": self.statutory_bonus_monthly,
             "lwf_employer_yearly": self.lwf_employer_yearly,

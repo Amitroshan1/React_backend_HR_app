@@ -1,0 +1,203 @@
+.inv-pr {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.inv-pr__head p,
+.inv-pr__head h1,
+.inv-pr__head span,
+.inv-pr__form label,
+.inv-pr__list-head h2 {
+  letter-spacing: 0;
+  word-spacing: normal;
+  white-space: normal;
+}
+
+.inv-pr__head p {
+  margin: 0;
+  color: #0c716a;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.inv-pr__head h1 {
+  margin: 6px 0 8px;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.inv-pr__head span,
+.inv-pr__empty,
+.inv-pr__form em {
+  color: #5b6b7c;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.inv-pr__error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.inv-pr__form,
+.inv-pr__card,
+.inv-pr__list {
+  width: 100%;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #dce6e4;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(16, 42, 40, 0.05);
+}
+
+.inv-pr__form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.inv-pr__form label,
+.inv-pr__form input,
+.inv-pr__form select,
+.inv-pr__form textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.inv-pr__form label {
+  color: #0f3d39;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inv-pr__form input,
+.inv-pr__form select,
+.inv-pr__form textarea {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid #c9d6d3;
+  border-radius: 10px;
+  background: #f7fbfa;
+}
+
+.inv-pr__wide,
+.inv-pr__actions {
+  grid-column: 1 / -1;
+}
+
+.inv-pr__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inv-pr__actions button,
+.inv-pr__card-actions button,
+.inv-pr__filters button {
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: #e8f5f3;
+  color: #0c716a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inv-pr__actions button,
+.inv-pr__primary {
+  background: #13877f;
+  color: #fff;
+}
+
+.inv-pr__list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.inv-pr__list-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.inv-pr__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inv-pr__filters .is-on {
+  background: #13877f;
+  color: #fff;
+}
+
+.inv-pr__card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.inv-pr__card:last-child {
+  margin-bottom: 0;
+}
+
+.inv-pr__card strong,
+.inv-pr__card span,
+.inv-pr__card p,
+.inv-pr__card em {
+  display: block;
+}
+
+.inv-pr__card span,
+.inv-pr__card em {
+  margin-top: 4px;
+  color: #5b6b7c;
+  font-size: 13px;
+}
+
+.inv-pr__card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
+}
+
+.inv-pr__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.inv-pr__files a {
+  color: #0c716a;
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .inv-pr__form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .inv-pr__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .inv-pr__card {
+    flex-direction: column;
+  }
+}

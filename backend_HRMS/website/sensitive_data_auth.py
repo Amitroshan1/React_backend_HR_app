@@ -73,21 +73,21 @@ def require_sensitive_for_employee(admin, target_admin_id: int | None = None):
     """
     Return a Flask response when salary/tax data requires OTP verification.
 
-    - Own data: every role (including HR / Accounts / Admin) must present a valid
-      sensitive OTP session token.
-    - Another employee's data: only privileged salary viewers may access; they do
-      not need the employee OTP session (Accounts / HR payroll workflows).
+    OTP is only for the employee dashboard (own payslip / tax).
+    Accounts, HR, and Admin skip it entirely — including their own CTC in Accounts.
+    Regular employees still need a valid sensitive OTP session for their own data.
     """
     if admin is None:
         return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    if is_privileged_salary_viewer(admin):
+        return None
 
     viewing_other = (
         target_admin_id is not None
         and int(target_admin_id) != int(admin.id)
     )
     if viewing_other:
-        if is_privileged_salary_viewer(admin):
-            return None
         return jsonify({"success": False, "message": "Access denied"}), 403
 
     token = (request.headers.get(SENSITIVE_TOKEN_HEADER) or "").strip()

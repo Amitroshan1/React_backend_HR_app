@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './AdminAnalytics.css';
+import { canManageCustomerRegistry } from './customerRegistryAccess';
 
-const API_ACCESS = '/api/admin/deployment-guide/access';
 const API_CUSTOMERS = '/api/admin/customers';
 
 const PLAN_COLORS = {
@@ -166,9 +166,7 @@ export default function AdminAnalytics() {
     setError('');
     const headers = { Authorization: `Bearer ${token}` };
     try {
-      const accessRes = await fetch(API_ACCESS, { headers });
-      const accessData = await accessRes.json().catch(() => ({}));
-      if (!accessRes.ok || !accessData.can_view_deployment_guide) {
+      if (!await canManageCustomerRegistry(headers)) {
         setBlocked(true);
         setCustomers([]);
         setLoading(false);

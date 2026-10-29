@@ -2203,6 +2203,16 @@
     font-weight: 600;
     font-size: 0.85rem;
     text-decoration: none;
+    border: 0;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.profile-doc-link:disabled {
+    opacity: 0.65;
+    cursor: wait;
 }
 
 .profile-doc-link:hover {
@@ -2289,24 +2299,14 @@
     transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 
-.profile-edit-btn--discard {
+.profile-edit-btn--close {
     background: #fff;
-    color: #dc2626;
-    border-color: #fecaca;
+    color: #334155;
+    border-color: #e2e8f0;
 }
 
-.profile-edit-btn--discard:hover {
-    background: #fef2f2;
-}
-
-.profile-edit-btn--done {
-    background: #059669;
-    color: #fff;
-    border-color: #059669;
-}
-
-.profile-edit-btn--done:hover {
-    background: #047857;
+.profile-edit-btn--close:hover {
+    background: #f8fafc;
 }
 
 .profile-edit-accordion-list {

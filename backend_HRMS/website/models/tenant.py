@@ -13,7 +13,14 @@ TENANT_PLAN_LABELS = {
     "enterprise": "Enterprise",
 }
 TENANT_STATUSES = ("active", "suspended", "cancelled", "provisioning")
-TENANT_MAILBOX_COLUMNS = ("mailbox_hr", "mailbox_accounts", "mailbox_it", "mailbox_admin")
+TENANT_MAILBOX_COLUMNS = (
+    "mailbox_hr",
+    "mailbox_admin",
+    "mailbox_accounts",
+    "mailbox_finance",
+    "mailbox_it",
+    "mailbox_inventory",
+)
 TENANT_STATUS_LABELS = {
     "active": "Active",
     "suspended": "Suspended",
@@ -53,11 +60,14 @@ class Tenant(db.Model):
     plan = db.Column(db.String(32), nullable=False, default="essential")
     status = db.Column(db.String(32), nullable=False, default="active")
     contact_email = db.Column(db.String(200), nullable=True)
+    country = db.Column(db.String(100), nullable=True)
     # Company mailboxes for HRMS emails; empty on the default tenant means "use .env".
     mailbox_hr = db.Column(db.String(200), nullable=True)
-    mailbox_accounts = db.Column(db.String(200), nullable=True)
-    mailbox_it = db.Column(db.String(200), nullable=True)
     mailbox_admin = db.Column(db.String(200), nullable=True)
+    mailbox_accounts = db.Column(db.String(200), nullable=True)
+    mailbox_finance = db.Column(db.String(200), nullable=True)
+    mailbox_it = db.Column(db.String(200), nullable=True)
+    mailbox_inventory = db.Column(db.String(200), nullable=True)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(
@@ -83,6 +93,7 @@ class Tenant(db.Model):
             "status": (self.status or "active").lower(),
             "status_label": self.status_label(),
             "contact_email": self.contact_email or "",
+            "country": self.country or "",
             "mailboxes": {key: getattr(self, key) or "" for key in TENANT_MAILBOX_COLUMNS},
             "notes": self.notes or "",
             "created_at": isoformat_api(self.created_at),

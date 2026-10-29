@@ -49,7 +49,6 @@ Each module doc is written for engineers who need to understand, change, and saf
 | Topic | Location |
 |-------|----------|
 | Shared-DB multi-tenancy design | [../SHARED_DB_MULTI_TENANCY.md](../SHARED_DB_MULTI_TENANCY.md) |
-| New customer / onboarding | [../NEW_CUSTOMER_DEPLOYMENT.md](../NEW_CUSTOMER_DEPLOYMENT.md) |
 | Deployment env keys | [../DEPLOYMENT_GUIDE_ENV.md](../DEPLOYMENT_GUIDE_ENV.md) |
 | Attendance SSE / nginx | [../ATTENDANCE_SSE.md](../ATTENDANCE_SSE.md) |
 | ITAM P0–P3 | [../itam/](../itam/) |

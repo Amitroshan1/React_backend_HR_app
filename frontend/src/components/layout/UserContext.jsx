@@ -1,7 +1,6 @@
 import { createContext, useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react'
 import { setPlanContext, clearPlanContext } from '../../utils/planFeatures';
-import { clearSensitiveToken } from '../../utils/sensitiveDataAuth';
-import { noteSessionEnded } from '../../utils/sessionTimeout';
+import { endSession, noteSessionEnded } from '../../utils/sessionTimeout';
 
 const API_BASE_URL = "/api/auth";
 /** Skip refetching homepage shell data if fetched within this window. */
@@ -53,17 +52,16 @@ export const UserProvider = ({ children }) => {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (response.status === 401) {
-                    await noteSessionEnded(response);
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('lastActivityAt');
-                    clearSensitiveToken();
-                    clearPlanContext();
+                    const reason = await noteSessionEnded(response);
+                    endSession(reason);
                     throw new Error("Unauthorized (token invalid or expired).");
                 }
                 if (!response.ok) throw new Error("Failed to fetch user data.");
                 const result = await response.json();
                 if (result.success) {
-                    setPlanContext(result.plan, result.features);
+                    setPlanContext(result.plan, result.features, {
+                      is_platform_super_admin: result.is_platform_super_admin,
+                    });
                     setUserData({
                         user: result.user || {},
                         employee: result.employee || {},

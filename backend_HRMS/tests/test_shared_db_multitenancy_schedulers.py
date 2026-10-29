@@ -139,7 +139,7 @@ def _platform_token(app):
     with app.app_context():
         token = create_access_token(
             identity="100",
-            additional_claims={"email": "admin@one.com", "emp_type": "Admin", "tenant_id": 1},
+            additional_claims={"email": "admin@one.com", "emp_type": "Super Admin", "tenant_id": 1},
         )
     return {"Authorization": f"Bearer {token}"}
 
@@ -201,12 +201,12 @@ def test_company_admin_edits_only_own_mailboxes(app):
     with app.app_context():
         db.session.add(Admin(
             id=200, tenant_id=2, email="boss@two.com", emp_id="ADM2", first_name="Boss",
-            circle="NHQ", emp_type="Super Admin", doj=TODAY, is_active=True, is_exited=False,
+            circle="NHQ", emp_type="Admin", doj=TODAY, is_active=True, is_exited=False,
         ))
         db.session.commit()
         boss = create_access_token(
             identity="200",
-            additional_claims={"email": "boss@two.com", "emp_type": "Super Admin", "tenant_id": 2},
+            additional_claims={"email": "boss@two.com", "emp_type": "Admin", "tenant_id": 2},
         )
         staff = create_access_token(
             identity="2",
@@ -252,7 +252,12 @@ def test_platform_admin_sets_company_mailboxes(app):
     assert ok.status_code == 200
     mailboxes = ok.get_json()["tenant"]["mailboxes"]
     assert mailboxes == {
-        "mailbox_hr": "", "mailbox_accounts": "acc@two.com", "mailbox_it": "it@two.com", "mailbox_admin": "",
+        "mailbox_hr": "",
+        "mailbox_admin": "",
+        "mailbox_accounts": "acc@two.com",
+        "mailbox_finance": "",
+        "mailbox_it": "it@two.com",
+        "mailbox_inventory": "",
     }
     detail = c.get("/api/admin/customers/2", headers=headers).get_json()
     assert detail["tenant"]["mailboxes"]["mailbox_it"] == "it@two.com"
@@ -266,7 +271,7 @@ def test_mailbox_columns_migration_is_idempotent():
         conn.execute(text("CREATE TABLE tenants (id INTEGER PRIMARY KEY, name VARCHAR(200))"))
     log = logging.getLogger("test")
     assert ensure_tenant_mailbox_columns(engine, log) == [
-        "mailbox_hr", "mailbox_accounts", "mailbox_it", "mailbox_admin",
+        "mailbox_hr", "mailbox_admin", "mailbox_accounts", "mailbox_finance", "mailbox_it", "mailbox_inventory",
     ]
     assert ensure_tenant_mailbox_columns(engine, log) == []
     cols = {c["name"] for c in inspect(engine).get_columns("tenants")}

@@ -265,7 +265,7 @@ def _seed_company_admin(
             email=email,
             first_name=first_name or "Company Admin",
             emp_id=emp_id,
-            emp_type="Super Admin",
+            emp_type="Admin",
             is_active=True,
             is_exited=False,
             doj=date.today(),

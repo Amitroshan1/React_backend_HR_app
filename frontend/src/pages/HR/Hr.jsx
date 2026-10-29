@@ -6,10 +6,9 @@ import {
   Users, UserPlus, UserCheck, Cake, RefreshCw, 
   UserCog, Newspaper, FileText, MapPin, 
   FileCheck, Search, ArrowLeft, ArrowRightLeft, Download, ChevronDown, Clock, Share2, Trash2,
-  TrendingDown, Inbox, Upload, AlertTriangle, BarChart3, ChevronRight
+  TrendingDown, Inbox, Upload, AlertTriangle, BarChart3, ChevronRight, History, MailPlus
 } from 'lucide-react';
 import './Hr.css';
-import './HRNocRequests.css';
 import './SignUp.css'; 
 import { UpdateSignUp } from './UpdateSignUp';
 import { AddNewsFeed } from './AddNewsFeed';
@@ -18,7 +17,9 @@ import { AddLocation } from './AddLocation';
 import { GeoAnalytics } from './GeoAnalytics';
 import ExitEmployee from './ExitEmployee';
 import OffboardingDashboard from './OffboardingDashboard';
+import SeparationDetail from './SeparationDetail';
 import HrAdminRequest from './HrAdminRequest';
+import HrRequestHistory, { getRequestHistorySeenAt, markRequestHistorySeen } from './HrRequestHistory';
 import { LeaveAccrualSummary } from './LeaveAccrualSummary';
 import { HolidayCalendar } from './HolidayCalendar';
 import { LeaveApplicationUpdation } from './LeaveApplicationUpdation';
@@ -28,8 +29,10 @@ import { ExEmployeeDocumentSharing } from './ExEmployeeDocumentSharing';
 import { HRAssessmentInvite } from './HRAssessmentInvite';
 import { CircleTransferHistory } from './CircleTransferHistory';
 import { HRProbationReviews } from './HRProbationReviews';
+import HROfficialEmailRequests from './HROfficialEmailRequests';
 import { AddAssets } from './AddAssets';
 import { HRInbox } from './HRInbox';
+import HRNocApplicationRequests from './HRNocApplicationRequests';
 import { HREmployee360 } from './HREmployee360';
 import { BulkEmployeeImport } from './BulkEmployeeImport';
 import { OrgChart } from './OrgChart';
@@ -38,10 +41,10 @@ import { HRATS } from './HRATS';
 import { HRCompensation } from './HRCompensation';
 import { BiometricAttendance } from './BiometricAttendance';
 import { HRWorkforcePlan } from './HRWorkforcePlan';
+import HRLifecycleReport from './HRLifecycleReport';
 import { HR_MODULE_TABS, HR_SHOW_PAY_MODULES, isPayModuleTitle, isPayView, buildGroupedModules, resolvePinnedModules, enrichModuleOption, groupIdForTitle } from './hrModuleGroups';
 import { recordRecentModule, getRecentModuleTitles, resolveRecentModules, DASHBOARD_RECENT_LIMIT } from './hrModuleRecent';
 import './HrUpdatesShared.css';
-import { DepartmentNocPanel } from '../Manager/comps/DepartmentNocPanel';
 import '../IT/ReturnRequests.css';
 import { hasFeature } from '../../utils/planFeatures';
 import { usePersistedView } from '../../hooks/usePersistedView';
@@ -70,12 +73,17 @@ const HR_PANEL_VIEWS = [
   'geo_analytics',
   'add_assets',
   'noc_requests',
+  'noc_application_requests',
   'exit_employee',
   'offboarding_dashboard',
+  'separation_detail',
   'ex_employee_doc_share',
   'leave_accrual_monitor',
   'holiday_calendar',
   'probation_reviews',
+  'new_hires_report',
+  'generate_official_email',
+  'exits_report',
   'bulk_employee_import',
   'org_chart',
   'policy_center',
@@ -89,6 +97,8 @@ const HR_PANEL_VIEWS = [
   'employee_accounts',
   'add_circle_type',
   'biometric_attendance',
+  'admin_request',
+  'request_history',
 ];
 
 const HR_API_BASE = '/api/HumanResource';
@@ -1281,6 +1291,8 @@ export const Hr = () => {
     defaultView: 'main',
     validViews: HR_PANEL_VIEWS,
   });
+  const [selectedSeparationId, setSelectedSeparationId] = useState(null);
+  const [nocRequestsOrigin, setNocRequestsOrigin] = useState('hr_inbox');
   const initialHrSearch = readHrSearchFromUrl();
   const [showSearchResults, setShowSearchResults] = useState(initialHrSearch.showResults);
   const [selectedCircle, setSelectedCircle] = useState(initialHrSearch.circle || '');
@@ -1310,7 +1322,11 @@ export const Hr = () => {
     probations_ending_30_days: 0,
     profile_completion_pct: 0,
     pending_noc_count: 0,
+    pending_noc_application_count: 0,
     inbox_total: 0,
+    inbox_probation: 0,
+    request_history_new: 0,
+    separations_attention: 0,
   });
   const [birthdays, setBirthdays] = useState([]);
   const [anniversaries, setAnniversaries] = useState([]);
@@ -1505,7 +1521,10 @@ export const Hr = () => {
     } else if (name === 'probation_end_date') {
       setSignupForm((prev) => {
         const start = prev.probation_start_date || prev.doj;
-        const derived = durationMonthsFromDates(start, value);
+        const derivedRaw = durationMonthsFromDates(start, value);
+        const derived = derivedRaw
+          ? (Math.abs(Number(derivedRaw) - 3) <= Math.abs(Number(derivedRaw) - 6) ? '3' : '6')
+          : null;
         return {
           ...prev,
           probation_end_date: value,
@@ -1806,18 +1825,20 @@ export const Hr = () => {
 
   const stats = [
     { title: 'Employees', value: String(counts.enabled_employees ?? counts.total_employees), subtitle: 'Enabled', icon: Users, color: 'blue' },
-    { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green' },
+    { title: 'New Hires', value: String(counts.new_joinees_last_30_days), subtitle: 'Last 30 days', icon: UserPlus, color: 'green', destination: 'new_hires_report' },
     { title: 'Active', value: String(counts.today_punch_in_count), subtitle: 'Punched in', icon: UserCheck, color: 'teal' },
-    { title: 'Exits', value: String(counts.exits_this_month ?? 0), subtitle: 'This month', icon: TrendingDown, color: 'red' },
-    { title: 'Probation', value: String(counts.probations_ending_30_days ?? 0), subtitle: '≤30 days', icon: AlertTriangle, color: 'amber' },
-    { title: 'NOC', value: String(counts.pending_noc_count ?? 0), subtitle: 'Pending', icon: FileCheck, color: 'pink' },
+    { title: 'OffBoard', value: String(counts.exits_this_month ?? 0), subtitle: 'This month', icon: TrendingDown, color: 'red', destination: 'exits_report', notificationCount: counts.separations_attention ?? 0, notificationLabel: 'separation requests awaiting HR action' },
+    { title: 'Probation', value: String(counts.probations_ending_30_days ?? 0), subtitle: '≤30 days', icon: AlertTriangle, color: 'amber', notificationCount: counts.inbox_probation ?? 0, notificationLabel: 'probation reviews awaiting HR action', destination: 'probation_reviews' },
+    { title: 'NOC', value: String((counts.pending_noc_count ?? 0) + (counts.pending_noc_application_count ?? 0)), subtitle: 'Pending', icon: FileCheck, color: 'pink', notificationCount: (counts.pending_noc_count ?? 0) + (counts.pending_noc_application_count ?? 0), notificationLabel: 'NOC requests awaiting HR action', destination: 'noc_requests' },
   ];
 
   const updateOptions = [
     { title: 'Sign Up', icon: UserPlus, description: 'Register a new employee in HRMS' },
+    { title: 'Generate Official Email', icon: MailPlus, description: 'Ask IT to generate an email ID, then Sign Up with it' },
     { title: 'Bulk Employee Import', icon: Upload, description: 'Import employees from CSV template' },
     { title: 'Update_SignUp', icon: UserCog, description: 'Modify signup details' },
     { title: 'Request to Admin', icon: Inbox, description: 'Write a request for Admin to review, such as a new department or circle' },
+    { title: 'Request History', icon: History, description: 'Track Admin approvals and rejections for HR requests' },
     { title: 'Circle Transfer History', icon: ArrowRightLeft, description: 'View circle changes with effective dates' },
     { title: 'News Feed', icon: Newspaper, description: 'Company announcements' },
     { title: 'Leave Application Updation', icon: FileText, description: 'Update leave dates/status with auto balance sync' },
@@ -1830,8 +1851,8 @@ export const Hr = () => {
     { title: 'Workforce Planning', icon: Users, description: 'Headcount budget vs actual by circle and department' },
     { title: 'Add Locations', icon: MapPin, description: 'Add office locations' },
     { title: 'Geo Analytics', icon: BarChart3, description: 'Geo monitoring, audit, config tuning, and troubleshooting' },
-    { title: 'NOC Requests', icon: FileCheck, description: 'HR NOC clearance queue from separating employees' },
-    { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation pipeline, LWD schedule, exit handling, and attrition analytics' },
+    { title: 'Offboarding Dashboard', icon: TrendingDown, description: 'Separation requests, NOC clearances, and Admin exit submit' },
+    { title: 'NOC Requests', icon: FileCheck, description: 'Review employee NOC applications and HR department clearances' },
     { title: 'Ex-Employee Document Sharing', icon: Share2, description: 'Send time-limited document links to former staff' },
     { title: 'Leave Accrual Monitor', icon: FileCheck, description: 'Monitor PL/CL scheduler runs' },
     { title: 'Probation Reviews', icon: UserCheck, description: 'Review manager feedback and record probation decisions' },
@@ -2133,7 +2154,11 @@ export const Hr = () => {
         probations_ending_30_days: 0,
         profile_completion_pct: 0,
         pending_noc_count: 0,
+        pending_noc_application_count: 0,
         inbox_total: 0,
+        inbox_probation: 0,
+        request_history_new: 0,
+        separations_attention: 0,
         ...(data.counts || {}),
       });
       setBirthdays(data.birthdays || []);
@@ -2145,7 +2170,41 @@ export const Hr = () => {
         });
         const inboxData = await inboxRes.json();
         if (inboxRes.ok && inboxData.success) {
-          setCounts((prev) => ({ ...prev, inbox_total: inboxData.summary?.total ?? 0 }));
+          setCounts((prev) => ({
+            ...prev,
+            inbox_total: inboxData.summary?.total ?? 0,
+            inbox_probation: inboxData.summary?.probation ?? 0,
+          }));
+        }
+      } catch {
+        /* optional */
+      }
+      try {
+        const seen = getRequestHistorySeenAt();
+        const summaryQs = seen ? `?since=${encodeURIComponent(seen)}` : '';
+        const histRes = await fetch(`${HR_API_BASE}/employee-change-requests/summary${summaryQs}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const histData = await histRes.json().catch(() => ({}));
+        if (histRes.ok && histData.success) {
+          setCounts((prev) => ({
+            ...prev,
+            request_history_new: histData.summary?.new_decisions ?? 0,
+          }));
+        }
+      } catch {
+        /* optional */
+      }
+      try {
+        const sepRes = await fetch(`${HR_API_BASE}/separations?status=needs_attention`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const sepData = await sepRes.json().catch(() => ({}));
+        if (sepRes.ok && sepData.success) {
+          setCounts((prev) => ({
+            ...prev,
+            separations_attention: sepData.summary?.needs_attention ?? 0,
+          }));
         }
       } catch {
         /* optional */
@@ -2300,6 +2359,9 @@ export const Hr = () => {
       setSignupEditEmail(null);
       setView('signup');
     }
+    else if (title === 'Generate Official Email') {
+      setView('generate_official_email');
+    }
     else if (title === 'Bulk Employee Import') {
       setView('bulk_employee_import');
     }
@@ -2309,6 +2371,11 @@ export const Hr = () => {
     }
     else if (title === 'Request to Admin') {
       setView('admin_request');
+    }
+    else if (title === 'Request History') {
+      markRequestHistorySeen();
+      setCounts((prev) => ({ ...prev, request_history_new: 0 }));
+      setView('request_history');
     }
     else if (title === 'Circle Transfer History') {
       setView('circle_transfer_history');
@@ -2350,6 +2417,7 @@ export const Hr = () => {
     setView('add_assets');
   }
   else if (title === 'NOC Requests') {
+    setNocRequestsOrigin('updates');
     setView('noc_requests');
   }
   else if (title === 'Offboarding Dashboard') {
@@ -2396,10 +2464,17 @@ if (view === 'ex_employee_doc_share') {
             setView('leave_updation');
             return;
           }
+          if (targetView === 'noc_requests' || targetView === 'noc_application_requests') {
+            setNocRequestsOrigin('hr_inbox');
+          }
           setView(targetView);
         }}
       />
     );
+  }
+
+  if (view === 'noc_application_requests') {
+    return <HRNocApplicationRequests onBack={() => setView('hr_inbox')} />;
   }
 
   if (view === 'bulk_employee_import') {
@@ -2408,6 +2483,18 @@ if (view === 'ex_employee_doc_share') {
 
   if (view === 'admin_request') {
     return <HrAdminRequest onBack={() => setView('updates')} />;
+  }
+
+  if (view === 'request_history') {
+    return (
+      <HrRequestHistory
+        onBack={() => {
+          markRequestHistorySeen();
+          setCounts((prev) => ({ ...prev, request_history_new: 0 }));
+          setView('updates');
+        }}
+      />
+    );
   }
 
   if (view === 'org_chart') {
@@ -2531,11 +2618,27 @@ if (view === 'exit_employee') {
   return <ExitEmployee onBack={() => setView('offboarding_dashboard')} />;
 }
 
+if (view === 'separation_detail') {
+  return (
+    <SeparationDetail
+      resignationId={selectedSeparationId}
+      onBack={() => {
+        setSelectedSeparationId(null);
+        setView('offboarding_dashboard');
+      }}
+    />
+  );
+}
+
 if (view === 'offboarding_dashboard') {
   return (
     <OffboardingDashboard
       onBack={() => setView('updates')}
       onOpenExitEmployee={() => setView('exit_employee')}
+      onOpenSeparationDetail={(id) => {
+        setSelectedSeparationId(id);
+        setView('separation_detail');
+      }}
     />
   );
 }
@@ -2544,8 +2647,40 @@ if (view === 'leave_accrual_monitor') {
   return <LeaveAccrualSummary onBack={() => setView('updates')} />;
 }
 
+if (view === 'generate_official_email') {
+  return (
+    <HROfficialEmailRequests
+      onBack={() => setView('updates')}
+      onSignupWithEmail={(row) => {
+        setSignupSuccess(false);
+        setSignupError('');
+        setSignupEditEmail(null);
+        setSignupForm((prev) => ({
+          ...prev,
+          email: row.generated_email || prev.email,
+          first_name: row.candidate_name || prev.first_name,
+          ...(row.designation ? { designation: row.designation } : {}),
+          ...(row.department ? { emp_type: row.department } : {}),
+          ...(row.circle ? { circle: row.circle } : {}),
+        }));
+        setView('signup');
+      }}
+    />
+  );
+}
+
 if (view === 'probation_reviews') {
   return <HRProbationReviews onBack={() => setView('updates')} />;
+}
+
+if (view === 'new_hires_report' || view === 'exits_report') {
+  return (
+    <HRLifecycleReport
+      kind={view === 'exits_report' ? 'exits' : 'new_hires'}
+      onBack={() => setView('main')}
+      onOpenOffboarding={() => setView('offboarding_dashboard')}
+    />
+  );
 }
 
 if (view === 'holiday_calendar') {
@@ -2571,40 +2706,7 @@ if (view === 'add_circle_type') {
   );
 }
 if (view === 'noc_requests') {
-  return (
-    <div className="hr-main-container fade-in hr-noc-page">
-      <div className="hr-noc-shell">
-        <button type="button" className="hr-noc-back" onClick={() => setView('updates')}>
-          <ArrowLeft size={16} strokeWidth={2.25} aria-hidden />
-          <span>Back to Updates</span>
-        </button>
-
-        <header className="hr-noc-hero">
-          <div className="hr-noc-hero__main">
-            <h1>
-              <FileCheck size={22} strokeWidth={2.25} aria-hidden />
-              NOC Requests
-            </h1>
-            <p>
-              Separation NOC requests routed to HR. Upload clearance documents when status is Pending.
-            </p>
-          </div>
-          <span className="hr-noc-hero__badge">Human Resource</span>
-        </header>
-
-        <div className="hr-noc-body">
-          <div className="hr-noc-panel">
-            <DepartmentNocPanel
-              apiBase="/api/HumanResource"
-              statusFilter="All"
-              variant="table"
-              requireResignationApprovedToDownload
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <HRNocApplicationRequests onBack={() => setView(nocRequestsOrigin)} />;
 }
 
   // ----- Search Employee actions: Employee 360, Profile, Attendance, Punch In/Out -----
@@ -2847,15 +2949,15 @@ if (view === 'noc_requests') {
                     <input name="probation_end_date" type="date" value={signupForm.probation_end_date} onChange={handleSignupChange} />
                   </div>
                   <div className="form-group">
-                    <label>Probation Duration (months)</label>
-                    <input
+                    <label>Probation Duration</label>
+                    <select
                       name="probation_duration_months"
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={signupForm.probation_duration_months}
+                      value={['3', '6'].includes(String(signupForm.probation_duration_months)) ? String(signupForm.probation_duration_months) : '6'}
                       onChange={handleSignupChange}
-                    />
+                    >
+                      <option value="3">3 months</option>
+                      <option value="6">6 months</option>
+                    </select>
                   </div>
                 </div>
               ) : null}
@@ -2955,10 +3057,21 @@ if (view === 'noc_requests') {
                 <span className="hr-modules-section__count">{group.modules.length}</span>
               </header>
               <div className="updates-grid">
-                {group.modules.map((option) => (
+                {group.modules.map((option) => {
+                  const cardBadge =
+                    option.title === 'Probation Reviews' && (counts.inbox_probation || 0) > 0
+                      ? counts.inbox_probation
+                      : option.title === 'Request History' && (counts.request_history_new || 0) > 0
+                        ? counts.request_history_new
+                        : option.title === 'NOC Requests' && ((counts.pending_noc_count || 0) + (counts.pending_noc_application_count || 0)) > 0
+                          ? (counts.pending_noc_count || 0) + (counts.pending_noc_application_count || 0)
+                        : option.title === 'Offboarding Dashboard' && (counts.separations_attention || 0) > 0
+                          ? counts.separations_attention
+                          : 0;
+                  return (
                   <div
                     key={option.title}
-                    className={`update-card update-card--${group.id}`}
+                    className={`update-card update-card--${group.id}${cardBadge ? ' update-card--has-badge' : ''}`}
                     onClick={() => handleUpdateCardClick(option.title)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -2969,6 +3082,11 @@ if (view === 'noc_requests') {
                     role="button"
                     tabIndex={0}
                   >
+                    {cardBadge > 0 ? (
+                      <span className="update-card__badge" aria-label={`${cardBadge} pending`}>
+                        {cardBadge > 99 ? '99+' : cardBadge}
+                      </span>
+                    ) : null}
                     <div className="update-icon-box">
                       <option.icon size={22} />
                     </div>
@@ -2977,7 +3095,8 @@ if (view === 'noc_requests') {
                       <p>{option.description}</p>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           ))
@@ -3058,11 +3177,30 @@ if (view === 'noc_requests') {
           <div className="hr-dash-panel__body">
             <div className="hr-stats-grid">
               {stats.map((stat) => (
-                <article key={stat.title} className={`hr-metric-card hr-metric-card--${stat.color}`}>
+                <article
+                  key={stat.title}
+                  className={`hr-metric-card hr-metric-card--${stat.color}${stat.destination ? ' hr-metric-card--actionable' : ''}`}
+                  role={stat.destination ? 'button' : undefined}
+                  tabIndex={stat.destination ? 0 : undefined}
+                  aria-label={stat.destination ? `${stat.title}: ${stat.value}. ${stat.notificationCount} ${stat.notificationLabel}. Open ${stat.destination === 'probation_reviews' ? 'probation reviews' : stat.destination === 'noc_requests' ? 'NOC requests' : 'offboarding'}.` : undefined}
+                  onClick={stat.destination ? () => { if (stat.destination === 'noc_requests') setNocRequestsOrigin('updates'); setView(stat.destination); } : undefined}
+                  onKeyDown={stat.destination ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      if (stat.destination === 'noc_requests') setNocRequestsOrigin('updates');
+                      setView(stat.destination);
+                    }
+                  } : undefined}
+                >
                   <div className="hr-metric-card__top">
                     <p className="hr-metric-card__label">{stat.title}</p>
-                    <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
-                      <stat.icon size={15} strokeWidth={2.25} />
+                    <div className="hr-metric-card__actions">
+                      {stat.notificationCount > 0 && (
+                        <span className="hr-metric-card__notification" aria-hidden="true">{stat.notificationCount}</span>
+                      )}
+                      <div className={`hr-metric-card__icon hr-metric-card__icon--${stat.color}`}>
+                        <stat.icon size={15} strokeWidth={2.25} />
+                      </div>
                     </div>
                   </div>
                   <p className="hr-metric-card__value">{stat.value}</p>
@@ -3220,7 +3358,18 @@ if (view === 'noc_requests') {
                 <p className="hr-shortcuts__label">Recent</p>
               ) : null}
 
-              {dashboardRecentModules.map((option) => (
+              {dashboardRecentModules.map((option) => {
+                const recentBadge =
+                  option.title === 'Probation Reviews' && (counts.inbox_probation || 0) > 0
+                    ? counts.inbox_probation
+                    : option.title === 'Request History' && (counts.request_history_new || 0) > 0
+                      ? counts.request_history_new
+                      : option.title === 'NOC Requests' && ((counts.pending_noc_count || 0) + (counts.pending_noc_application_count || 0)) > 0
+                        ? (counts.pending_noc_count || 0) + (counts.pending_noc_application_count || 0)
+                      : option.title === 'Offboarding Dashboard' && (counts.separations_attention || 0) > 0
+                        ? counts.separations_attention
+                        : 0;
+                return (
                 <button
                   key={`recent-${option.title}`}
                   type="button"
@@ -3233,15 +3382,33 @@ if (view === 'noc_requests') {
                   <div className="hr-shortcut__text">
                     <span className="hr-shortcut__title">{option.label}</span>
                   </div>
-                  <ChevronRight size={16} className="hr-shortcut__arrow" aria-hidden />
+                  {recentBadge > 0 ? (
+                    <span className="hr-shortcut__badge hr-shortcut__badge--alert">
+                      {recentBadge > 99 ? '99+' : recentBadge}
+                    </span>
+                  ) : (
+                    <ChevronRight size={16} className="hr-shortcut__arrow" aria-hidden />
+                  )}
                 </button>
-              ))}
+                );
+              })}
 
               {pinnedModules.length > 0 ? (
                 <p className="hr-shortcuts__label">Pinned</p>
               ) : null}
 
-              {pinnedModules.map((option) => (
+              {pinnedModules.map((option) => {
+                const pinBadge =
+                  option.title === 'Probation Reviews' && (counts.inbox_probation || 0) > 0
+                    ? counts.inbox_probation
+                    : option.title === 'Request History' && (counts.request_history_new || 0) > 0
+                      ? counts.request_history_new
+                      : option.title === 'NOC Requests' && ((counts.pending_noc_count || 0) + (counts.pending_noc_application_count || 0)) > 0
+                        ? (counts.pending_noc_count || 0) + (counts.pending_noc_application_count || 0)
+                      : option.title === 'Offboarding Dashboard' && (counts.separations_attention || 0) > 0
+                        ? counts.separations_attention
+                        : 0;
+                return (
                 <button
                   key={option.title}
                   type="button"
@@ -3255,9 +3422,16 @@ if (view === 'noc_requests') {
                     <span className="hr-shortcut__title">{option.label}</span>
                     <span className="hr-shortcut__desc">{option.description}</span>
                   </div>
-                  <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
+                  {pinBadge > 0 ? (
+                    <span className="hr-shortcut__badge hr-shortcut__badge--alert">
+                      {pinBadge > 99 ? '99+' : pinBadge}
+                    </span>
+                  ) : (
+                    <ChevronRight size={18} className="hr-shortcut__arrow" aria-hidden />
+                  )}
                 </button>
-              ))}
+                );
+              })}
 
             </div>
           </section>

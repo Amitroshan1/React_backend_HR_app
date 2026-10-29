@@ -38,8 +38,8 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
 
     const handleReview = async (action) => {
         if (!declId) return;
-        if (action === "reject" && !reviewComment.trim()) {
-            notifyWarning("Please enter a reason for rejection.");
+        if (["return_employee", "return_accounts", "resubmit_finance"].includes(action) && !reviewComment.trim()) {
+            notifyWarning("Add a remark before sending this back.");
             return;
         }
         setReviewing(true);
@@ -55,7 +55,7 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
             const { ok, data } = await parseApiResponse(res);
             if (!ok || !data.success) throw new Error(data.message || "Review failed");
             notifySuccess(data.message || `Declaration ${action}d.`);
-            if (action === "approve" || action === "reject") {
+            if (["approve", "verify", "return_employee", "return_accounts", "resubmit_finance"].includes(action)) {
                 setTimeout(() => onBack?.(), 800);
             } else {
                 await loadDetail();
@@ -69,8 +69,8 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
 
     const handleFinalProofReview = async (action) => {
         if (!declId) return;
-        if (action === "reject" && !reviewComment.trim()) {
-            notifyWarning("Please enter a reason for rejection.");
+        if (["return_employee", "return_accounts", "resubmit_finance"].includes(action) && !reviewComment.trim()) {
+            notifyWarning("Add a remark before sending this back.");
             return;
         }
         setReviewing(true);
@@ -86,7 +86,7 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
             const { ok, data } = await parseApiResponse(res);
             if (!ok || !data.success) throw new Error(data.message || "Final proof review failed");
             notifySuccess(data.message || `Final proof ${action}d.`);
-            if (action === "approve" || action === "reject") {
+            if (["approve", "verify", "return_employee", "return_accounts", "resubmit_finance"].includes(action)) {
                 setTimeout(() => onBack?.(), 800);
             } else {
                 await loadDetail();
@@ -125,12 +125,18 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
     const decl = detail?.declaration;
     const schema = detail?.schema;
     const employee = detail?.employee;
-    const canReview = decl?.status === "submitted";
+    const caps = detail?.capabilities || {};
+    const financeRemark = detail?.latest_finance_remark || decl?.rejection_reason;
+    const canReview = caps.can_verify || caps.can_return_employee || caps.can_resubmit_finance || caps.can_approve || caps.can_return_accounts;
     const canReviewFinalProof =
-        decl?.status === "approved" && (decl?.final_proof_status || "").toLowerCase() === "submitted";
+        caps.can_verify_final_proof ||
+        caps.can_return_final_employee ||
+        caps.can_resubmit_final_proof ||
+        caps.can_approve_final_proof ||
+        caps.can_return_final_accounts;
     const canAmendUnlock =
         decl?.status === "approved" &&
-        (decl?.final_proof_status || "").toLowerCase() !== "submitted";
+        !["submitted", "verified", "returned"].includes((decl?.final_proof_status || "").toLowerCase());
     const amendPolicy = detail?.amendment_policy;
     const amendRemaining = amendPolicy?.remaining;
     const amendLimitReached =
@@ -138,35 +144,75 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
 
     const reviewFooter = canReview ? (
         <div className="tax-decl-review-actions">
+            {financeRemark && (caps.can_resubmit_finance || caps.can_verify) ? (
+                <p className="tax-decl-banner tax-decl-banner--warn">Finance remark: {financeRemark}</p>
+            ) : null}
             <label className="tax-decl-field tax-decl-field--full">
-                <span className="tax-decl-label">Comment (required for rejection)</span>
+                <span className="tax-decl-label">Remark</span>
                 <textarea
                     className="tax-decl-control tax-decl-control--textarea"
                     rows={3}
                     value={reviewComment}
                     onChange={(e) => setReviewComment(e.target.value)}
-                    placeholder="Optional for approval; required if rejecting"
+                    placeholder="Required when returning. Reply here before sending back to Finance."
                 />
             </label>
             <div className="tax-decl-actions">
-                <button
-                    type="button"
-                    className="tax-decl-btn tax-decl-btn--primary"
-                    disabled={reviewing}
-                    onClick={() => handleReview("approve")}
-                >
-                    <Check size={16} aria-hidden />
-                    {reviewing ? "Processing…" : "Approve"}
-                </button>
-                <button
-                    type="button"
-                    className="tax-decl-btn tax-decl-btn--secondary"
-                    disabled={reviewing}
-                    onClick={() => handleReview("reject")}
-                >
-                    <X size={16} aria-hidden />
-                    Reject
-                </button>
+                {caps.can_verify ? (
+                    <button
+                        type="button"
+                        className="tax-decl-btn tax-decl-btn--primary"
+                        disabled={reviewing}
+                        onClick={() => handleReview("verify")}
+                    >
+                        <Check size={16} aria-hidden />
+                        {reviewing ? "Processing…" : "Verify and send to Finance"}
+                    </button>
+                ) : null}
+                {caps.can_resubmit_finance ? (
+                    <button
+                        type="button"
+                        className="tax-decl-btn tax-decl-btn--primary"
+                        disabled={reviewing}
+                        onClick={() => handleReview("resubmit_finance")}
+                    >
+                        <Check size={16} aria-hidden />
+                        {reviewing ? "Processing…" : "Send back to Finance"}
+                    </button>
+                ) : null}
+                {caps.can_return_employee ? (
+                    <button
+                        type="button"
+                        className="tax-decl-btn tax-decl-btn--secondary"
+                        disabled={reviewing}
+                        onClick={() => handleReview("return_employee")}
+                    >
+                        <X size={16} aria-hidden />
+                        Return to employee
+                    </button>
+                ) : null}
+                {caps.can_approve ? (
+                    <button
+                        type="button"
+                        className="tax-decl-btn tax-decl-btn--primary"
+                        disabled={reviewing}
+                        onClick={() => handleReview("approve")}
+                    >
+                        <Check size={16} aria-hidden />
+                        {reviewing ? "Processing…" : "Approve"}
+                    </button>
+                ) : null}
+                {caps.can_return_accounts ? (
+                    <button
+                        type="button"
+                        className="tax-decl-btn tax-decl-btn--secondary"
+                        disabled={reviewing}
+                        onClick={() => handleReview("return_accounts")}
+                    >
+                        <X size={16} aria-hidden />
+                        Return to Accounts
+                    </button>
+                ) : null}
             </div>
         </div>
     ) : null;
@@ -187,24 +233,36 @@ export function TaxDeclarationReviewDetail({ apiBase = "/api/accounts", declId, 
                 />
             </label>
             <div className="tax-decl-actions">
-                <button
-                    type="button"
-                    className="tax-decl-btn tax-decl-btn--primary"
-                    disabled={reviewing}
-                    onClick={() => handleFinalProofReview("approve")}
-                >
-                    <Check size={16} aria-hidden />
-                    {reviewing ? "Processing…" : "Approve final proof"}
-                </button>
-                <button
-                    type="button"
-                    className="tax-decl-btn tax-decl-btn--secondary"
-                    disabled={reviewing}
-                    onClick={() => handleFinalProofReview("reject")}
-                >
-                    <X size={16} aria-hidden />
-                    Reject final proof
-                </button>
+                {caps.can_verify_final_proof ? (
+                    <button type="button" className="tax-decl-btn tax-decl-btn--primary" disabled={reviewing} onClick={() => handleFinalProofReview("verify")}>
+                        <Check size={16} aria-hidden />
+                        {reviewing ? "Processing…" : "Verify proof and send to Finance"}
+                    </button>
+                ) : null}
+                {caps.can_resubmit_final_proof ? (
+                    <button type="button" className="tax-decl-btn tax-decl-btn--primary" disabled={reviewing} onClick={() => handleFinalProofReview("resubmit_finance")}>
+                        <Check size={16} aria-hidden />
+                        Send proof back to Finance
+                    </button>
+                ) : null}
+                {caps.can_return_final_employee ? (
+                    <button type="button" className="tax-decl-btn tax-decl-btn--secondary" disabled={reviewing} onClick={() => handleFinalProofReview("return_employee")}>
+                        <X size={16} aria-hidden />
+                        Return proof to employee
+                    </button>
+                ) : null}
+                {caps.can_approve_final_proof ? (
+                    <button type="button" className="tax-decl-btn tax-decl-btn--primary" disabled={reviewing} onClick={() => handleFinalProofReview("approve")}>
+                        <Check size={16} aria-hidden />
+                        {reviewing ? "Processing…" : "Approve final proof"}
+                    </button>
+                ) : null}
+                {caps.can_return_final_accounts ? (
+                    <button type="button" className="tax-decl-btn tax-decl-btn--secondary" disabled={reviewing} onClick={() => handleFinalProofReview("return_accounts")}>
+                        <X size={16} aria-hidden />
+                        Return proof to Accounts
+                    </button>
+                ) : null}
             </div>
         </div>
     ) : null;

@@ -399,9 +399,19 @@ def _tenant_selection_payload(value: str, choices: list) -> dict:
 
 def _issue_login_token(admin):
     from .session_timeout import session_expires_delta, session_timeout_minutes
-    from .tenant_context import tenant_id_for_admin
+    from .tenant_context import DEFAULT_TENANT_ID, tenant_id_for_admin
+    from .plan_features import is_super_admin_emp_type, plan_payload
 
     tenant_id = tenant_id_for_admin(admin)
+    # Company tenants cannot remain Super Admin — remapped to company Admin on login.
+    if is_super_admin_emp_type(admin.emp_type or "") and int(tenant_id) != int(DEFAULT_TENANT_ID):
+        admin.emp_type = "Admin"
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            admin.emp_type = "Admin"
+
     access_token = create_access_token(
         identity=str(admin.id),
         additional_claims={
@@ -411,14 +421,17 @@ def _issue_login_token(admin):
         },
         expires_delta=session_expires_delta(admin.emp_type),
     )
-    from .plan_features import plan_payload
-
+    login_claims = {
+        "email": (admin.email or "").strip(),
+        "emp_type": admin.emp_type,
+        "tenant_id": tenant_id,
+    }
     return {
         "success": True,
         "token": access_token,
         "session_timeout_minutes": session_timeout_minutes(admin.emp_type),
         "tenant_id": tenant_id,
-        **plan_payload(tenant_id=tenant_id),
+        **plan_payload(tenant_id=tenant_id, claims=login_claims),
     }
 
 
@@ -925,6 +938,7 @@ def _repair_attendance_for_homepage(admin_id):
 
 def _employee_homepage_impl():
     from .plan_features import plan_payload
+    from .tenant_context import tenant_id_for_admin
 
     try:
         raw_id = get_jwt_identity()
@@ -1134,7 +1148,10 @@ def _employee_homepage_impl():
             .limit(12)
             .all()
         )
+        from .payroll_batch_service import employee_may_see_payroll_row
         for row in payroll_rows:
+            if not employee_may_see_payroll_row(row):
+                continue
             my_payroll_history.append({
                 "id": row.id,
                 "month": row.month,
@@ -1195,6 +1212,7 @@ def _employee_homepage_impl():
             "email": getattr(admin, "email", None),
             "emp_id": getattr(admin, "emp_id", None),
             "emp_type": getattr(admin, "emp_type", None),
+            "tenant_id": tenant_id_for_admin(admin),
             "mobile": getattr(admin, "mobile", None),
             # Prefer employee job title for UI/routing when emp_type is generic (e.g. Super Admin + HR role).
             "designation": (getattr(employee, "designation", None) if employee else None),
@@ -2958,6 +2976,60 @@ def save_previous_companies():
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+_UPLOAD_DOC_FILE_FIELDS = {
+    "aadharFront": "aadhaar_front",
+    "aadharBack": "aadhaar_back",
+    "panFront": "pan_front",
+    "panBack": "pan_back",
+    "appointmentLetter": "appointment_letter",
+    "passbookFront": "passbook_front",
+    "aadhaar_front": "aadhaar_front",
+    "aadhaar_back": "aadhaar_back",
+    "pan_front": "pan_front",
+    "pan_back": "pan_back",
+    "appointment_letter": "appointment_letter",
+    "passbook_front": "passbook_front",
+}
+
+
+@auth.route("/employee/document-file/<field>", methods=["GET"])
+@jwt_required()
+def serve_upload_doc_file(field):
+    """Open a KYC file using the path stored on upload_docs for this employee."""
+    from .secure_file_service import send_resolved_upload
+
+    column = _UPLOAD_DOC_FILE_FIELDS.get(str(field or "").strip())
+    if not column:
+        return jsonify({"success": False, "message": "Unknown document"}), 400
+
+    admin = current_admin()
+    if not admin:
+        return jsonify({"success": False, "message": "Unauthorized user"}), 401
+
+    target_id = admin.id
+    raw_target = request.args.get("admin_id")
+    if raw_target not in (None, ""):
+        try:
+            target_id = int(raw_target)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "message": "Invalid employee"}), 400
+        if target_id != admin.id:
+            emp = (admin.emp_type or "").strip().lower()
+            if emp not in {"human resource", "hr", "admin", "super admin"}:
+                return jsonify({"success": False, "message": "Access denied"}), 403
+
+    target = get_admin_in_tenant(target_id)
+    if not target:
+        return jsonify({"success": False, "message": "Employee not found"}), 404
+
+    row = UploadDoc.query.filter_by(admin_id=target.id).first()
+    stored = (getattr(row, column, None) or "").strip() if row else ""
+    if not stored:
+        return jsonify({"success": False, "message": "No file saved in upload_docs for this document"}), 404
+
+    return send_resolved_upload(stored)
 
 
 @auth.route("/upload-profile-file", methods=["POST"])

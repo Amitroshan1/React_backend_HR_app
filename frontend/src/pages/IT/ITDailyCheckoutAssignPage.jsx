@@ -275,7 +275,7 @@ export default function ITDailyCheckoutAssignPage() {
               ← Inbox
             </button>
             <div className="da-title-block">
-              <p className="da-kicker">IT · Day-use</p>
+              <p className="da-kicker">IT · Loan assets</p>
               <h1 className="da-title">Assign asset</h1>
             </div>
           </header>
@@ -303,7 +303,7 @@ export default function ITDailyCheckoutAssignPage() {
             ← Inbox
           </button>
           <div className="da-title-block">
-            <p className="da-kicker">IT · Day-use</p>
+            <p className="da-kicker">IT · Loan assets</p>
             <h1 className="da-title">Assign · {request.request_code}</h1>
           </div>
           <p className="da-total">

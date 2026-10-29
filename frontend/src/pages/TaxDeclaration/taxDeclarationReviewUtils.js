@@ -25,8 +25,8 @@ export function formatAmount(val) {
 export function statusBadgeClass(status) {
     const s = (status || "").toLowerCase();
     if (s === "approved") return "tax-decl-status tax-decl-status--approved";
-    if (s === "rejected") return "tax-decl-status tax-decl-status--rejected";
-    if (s === "submitted") return "tax-decl-status tax-decl-status--submitted";
+    if (s === "rejected" || s === "returned_to_employee") return "tax-decl-status tax-decl-status--rejected";
+    if (s === "submitted" || s === "verified" || s === "returned_to_accounts") return "tax-decl-status tax-decl-status--submitted";
     return "tax-decl-status tax-decl-status--draft";
 }
 

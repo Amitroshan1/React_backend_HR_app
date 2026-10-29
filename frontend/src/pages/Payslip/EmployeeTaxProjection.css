@@ -345,6 +345,22 @@ select.employee-tax-control {
   background: #f1f5f9;
 }
 
+.employee-tax-decl-banner--ctc {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.employee-tax-basis--pending {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .employee-tax-decl-banner--approved {
   border-color: #86efac;
   background: #f0fdf4;

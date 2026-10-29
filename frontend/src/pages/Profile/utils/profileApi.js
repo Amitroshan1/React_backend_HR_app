@@ -10,7 +10,7 @@ import {
     normalizeBankBranchCode,
 } from './documentIdentity';
 import { normalizePhotoUrl as normalizePhotoUrlShared } from '../../../utils/userPhoto';
-import { isAlreadySignedFileUrl, toPathOnly } from '../../../utils/secureFileUrl';
+import { isAlreadySignedFileUrl, toAuthContentUrl, toPathOnly } from '../../../utils/secureFileUrl';
 
 export const API_BASE_URL = '/api/auth';
 
@@ -435,15 +435,24 @@ export async function postUploadPhoto(blob) {
     return { ok: res.ok, data };
 }
 
-/** Document preview path key (FileUpload loads via authenticated blob). */
+/** Stored document key/url. Never return a relative page path (that 404s in the SPA). */
 export function documentPreviewUrl(path) {
     if (!path || typeof path !== 'string') return null;
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-        return normalizePhotoUrl(path);
-    }
-    const clean = path.startsWith('/') ? path.slice(1) : path;
-    if (clean.startsWith('static/uploads/')) return clean.slice('static/uploads/'.length);
-    if (clean.startsWith('uploads/')) return clean.slice('uploads/'.length);
-    // Return relative upload key — FileUpload / secure helpers auth-fetch it
-    return clean.startsWith('static/') ? `/${clean}` : clean;
+    const clean = path.trim();
+    return clean || null;
+}
+
+/** Auth file URL for a stored upload_docs path (no invented folder). */
+export function toProfileDocContentUrl(path) {
+    const raw = documentPreviewUrl(path);
+    if (!raw) return '';
+    return toAuthContentUrl(raw);
+}
+
+/** Open the file using the path saved on upload_docs for this field. */
+export function uploadDocFileUrl(field, adminId) {
+    const key = encodeURIComponent(String(field || '').trim());
+    if (!key) return '';
+    const qs = adminId ? `?admin_id=${encodeURIComponent(adminId)}` : '';
+    return `${API_BASE_URL}/employee/document-file/${key}${qs}`;
 }

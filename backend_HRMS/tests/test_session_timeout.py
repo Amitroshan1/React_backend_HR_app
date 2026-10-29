@@ -10,14 +10,25 @@ from website.session_timeout import (
 
 
 def test_extended_roles_get_60_minutes():
-    for emp_type in ("HR", "Accounts", "Account", "IT", "Human Resources", "it-department"):
+    for emp_type in (
+        "HR",
+        "Accounts",
+        "Account",
+        "IT",
+        "Human Resources",
+        "it-department",
+        "Finance",
+        "Super Admin",
+        "Admin",
+        "Manager",
+    ):
         assert is_extended_session_emp_type(emp_type) is True
         assert session_timeout_minutes(emp_type) == EXTENDED_SESSION_MINUTES
         assert session_expires_delta(emp_type) == timedelta(minutes=60)
 
 
 def test_other_roles_get_15_minutes():
-    for emp_type in ("Engineering", "Manager", "Sales", "", None, "Admin"):
+    for emp_type in ("Engineering", "Sales", "", None):
         assert is_extended_session_emp_type(emp_type) is False
         assert session_timeout_minutes(emp_type) == DEFAULT_SESSION_MINUTES
         assert session_expires_delta(emp_type) == timedelta(minutes=15)

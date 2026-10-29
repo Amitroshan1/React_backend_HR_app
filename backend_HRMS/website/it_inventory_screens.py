@@ -26,8 +26,8 @@ from .itam.tenancy import it_query
 from .models.it_models import ITAssetUnit, ITDeletedAssetLog, ITInventoryItem, ITRemovedAsset
 from .query_utils import ListParams, ci_equals, list_params, page_slice
 
-INV_CATEGORIES = ("IT Assets", "Office Assets", "Transport Assets", "Infrastructure Assets")
-_STOCK_TABS = ("Office Assets", "Infrastructure Assets", "Transport Assets")
+INV_CATEGORIES = ("IT Assets", "Fixed Assets", "Transport Assets", "Infrastructure Assets")
+_STOCK_TABS = ("Fixed Assets", "Office Assets", "Infrastructure Assets", "Transport Assets")
 _IT_LINE_CATEGORIES = {"hardware", "software", "accessories", "consumables", "consumable", "accessory"}
 _QTY_CATEGORIES = {"accessories", "consumables", "stock"}
 _STATUS_ROWS = ("not_working", "repair")
@@ -47,10 +47,13 @@ def _tab_for(category, explicit=""):
     if cat == "equipment":
         return "Infrastructure Assets"
     if cat == "stock":
-        return explicit if explicit in _STOCK_TABS else ""
+        named = "Fixed Assets" if explicit in ("Office Assets", "Fixed Assets") else explicit
+        return named if named in ("Fixed Assets", "Infrastructure Assets", "Transport Assets") else ""
     if cat in _IT_LINE_CATEGORIES:
-        return explicit if explicit in INV_CATEGORIES else "IT Assets"
-    return explicit if explicit in INV_CATEGORIES else ""
+        named = "Fixed Assets" if explicit in ("Office Assets", "Fixed Assets") else explicit
+        return named if named in INV_CATEGORIES else "IT Assets"
+    named = "Fixed Assets" if explicit in ("Office Assets", "Fixed Assets") else explicit
+    return named if named in INV_CATEGORIES else ""
 
 
 def item_tab(item):
@@ -71,6 +74,8 @@ def _matches(needle, *values):
 
 def _tab_arg():
     tab = (request.args.get("inventory_category") or "").strip()
+    if tab in ("Office Assets", "Fixed Assets"):
+        return "Fixed Assets", None
     if tab not in INV_CATEGORIES:
         return None, _err("inventory_category must be one of: " + ", ".join(INV_CATEGORIES))
     return tab, None
@@ -128,7 +133,7 @@ def _log_matcher(catalog):
             if from_unit:
                 return from_unit == tab
         if (log.category or "Hardware").strip().lower() == "stock":
-            return tab == "Office Assets"
+            return tab == "Fixed Assets"
         return _tab_for(log.category or "Hardware") == tab
 
     return unit_info, belongs
@@ -172,6 +177,7 @@ def inventory_summary():
     return _ok({
         "summary": {
             "total": sum(int(i.total_quantity or 0) for i in items),
+            "records": len(items),
             "not-working": sum(int(i.not_working_quantity or 0) for i in items),
             "in-repair": sum(int(i.repair_quantity or 0) for i in items),
             "removed-assets": len(_dead_log_rows(catalog, tab)),
@@ -324,11 +330,28 @@ def _stock_filter(items, status):
     return items
 
 
+def _item_matches_search(item, needle, first_unit=None):
+    if not needle:
+        return True
+    return _matches(
+        needle,
+        item.name,
+        item.hw_type,
+        item.category or "—",
+        getattr(item, "vendor", None),
+        getattr(first_unit, "brand", None),
+        getattr(first_unit, "make", None),
+        getattr(first_unit, "model", None),
+        getattr(first_unit, "serial_number", None),
+    )
+
+
 def _overview_rows(base, it_tab, args):
     """(rows, counts, projects) for the Asset Overview screen."""
     status = args["status"]
     if not it_tab:
-        return _stock_filter(base, status), {"status": _stock_counts(base)}, ["All"]
+        rows = _stock_filter(base, status)
+        return rows, {"status": _stock_counts(base)}, ["All"]
     chip, hw_type = args["category"], args["hw_type"]
     counts = {"category": _qty_counts_by_category(base), "subType": _qty_counts_by_hw_type(base, chip)}
     rows = [i for i in base if _chip_matches(i.category, chip)]
@@ -352,7 +375,8 @@ def _overview_rows(base, it_tab, args):
             rows = [i for i in rows if any(c.lower() == needle for c in unit_codes.get(i.id, ()))]
     needle = args["q"].lower()
     if needle:
-        rows = [i for i in rows if _matches(needle, i.name, i.hw_type, i.category or "—")]
+        first = _first_units(rows)
+        rows = [i for i in rows if _item_matches_search(i, needle, first.get(i.id))]
     counts["status"] = _stock_counts(rows)
     return _stock_filter(rows, status), counts, projects
 

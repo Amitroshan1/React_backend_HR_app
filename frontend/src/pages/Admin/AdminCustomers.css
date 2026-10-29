@@ -731,6 +731,38 @@
   color: #94a3b8;
 }
 
+.cust-country-field > label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.cust-country-field select,
+.cust-country-field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cust-country-field__toggle {
+  display: inline-flex;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.cust-country-field__toggle:hover {
+  color: #115e59;
+  text-decoration: underline;
+}
+
 .cust-form label,
 .cust-field {
   display: block;

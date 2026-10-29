@@ -1077,6 +1077,7 @@ const _toLocalUnit = (u) => ({
   imei2: u.imei2 || null,
   projectCode: u.projectCode || u.project_code || "",
   deviceLocation: u.deviceLocation || u.device_location || "",
+  deviceType: u.deviceType || u.device_type || "",
   status: u.status || "available",
   assignedTo:
     u.assignedTo == null
@@ -1333,10 +1334,30 @@ export const createInventoryItemAPI = async ({
     },
   });
 
+export const fetchInventoryItemAPI = async (itemId) =>
+  _itFetch(`/inventory/items/${itemId}`);
+
+export const fetchUnitsForInventoryAPI = async (inventoryId) =>
+  _itFetch(`/units?inventory_id=${encodeURIComponent(inventoryId)}&per_page=200`);
+
 export const updateInventoryItemAPI = async (itemId, payload = {}) =>
   _itFetch(`/inventory/items/${itemId}`, {
     method: "PATCH",
     body: payload,
+  });
+
+export const updateAssetUnitAPI = async (unitId, payload = {}) =>
+  _itFetch(`/units/${unitId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+
+export const fetchDeviceTypesAPI = () => _itFetch("/device-types");
+
+export const createDeviceTypeAPI = async (name) =>
+  _itFetch("/device-types", {
+    method: "POST",
+    body: { name },
   });
 
 export const createHardwareUnitsAPI = async ({
@@ -1367,6 +1388,7 @@ export const createHardwareUnitsAPI = async ({
           make: r.make,
           model: modelValue,
           serial_number: r.serialNumber,
+          device_type: r.deviceType || r.device_type || null,
           imei1: r.imei1 || null,
           imei2: r.imei2 || null,
           project_code: r.projectCode || null,
@@ -1627,6 +1649,12 @@ export const syncParcelsFromAPI = async () => {
   _safePersist("pcl_exported", exports);
   notifyInventoryChange();
   return { imports, exports };
+};
+
+export const fetchParcelMonthlySummaryAPI = async (year) => {
+  const y = Number(year);
+  const qs = Number.isFinite(y) ? `?year=${y}` : "";
+  return _itFetch(`/parcels/monthly-summary${qs}`);
 };
 
 export const createRemovedAssetAPI = async (payload) =>
@@ -2086,7 +2114,7 @@ export const fetchDayUseAvailableUnitsAPI = async (hwType, search) => {
   return _itFetch(`${DC_BASE}/available-units${q}`);
 };
 
-/** Day-use picker rows without photos ({ units, pagination? }). */
+/** Loan assets picker rows without photos ({ units, pagination? }). */
 export const fetchDayUseAvailableUnitsPageAPI = async (params = {}) =>
   _itFetch(`${DC_BASE}/available-units${_listQuery({ ...params, fields: "summary" })}`);
 
@@ -2192,3 +2220,54 @@ export const renewSoftwareLicenseAPI = async ({ licenseId, subscriptionEnd }) =>
       subscription_end: subscriptionEnd,
     },
   });
+
+export const fetchRepairBillsAPI = async ({ month, q } = {}) => {
+  const params = new URLSearchParams();
+  if (month) params.set("month", month);
+  if (q) params.set("q", q);
+  const qs = params.toString();
+  return _itFetch(`/repair-bills${qs ? `?${qs}` : ""}`);
+};
+
+export const fetchRepairBillLaptopCodesAPI = async (q = "") => {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  const qs = params.toString();
+  return _itFetch(`/repair-bills/laptop-codes${qs ? `?${qs}` : ""}`);
+};
+
+export const fetchRepairBillPriorCountAPI = async (laptopCode) => {
+  const params = new URLSearchParams();
+  if (laptopCode) params.set("laptop_code", laptopCode);
+  return _itFetch(`/repair-bills/prior-count?${params.toString()}`);
+};
+
+export const createRepairBillAPI = async (payload) =>
+  _itFetch("/repair-bills", { method: "POST", body: payload });
+
+export const downloadRepairBillsExcelAPI = async ({ month, q } = {}) => {
+  const params = new URLSearchParams();
+  if (month) params.set("month", month);
+  if (q) params.set("q", q);
+  const token = localStorage.getItem("token");
+  const qs = params.toString();
+  const res = await fetch(`${IT_API_BASE}/repair-bills.xlsx${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw errorFromApiResponse(res, data);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `repair-bills-${month || "all"}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};

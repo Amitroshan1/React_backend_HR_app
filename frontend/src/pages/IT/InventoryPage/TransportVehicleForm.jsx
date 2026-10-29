@@ -7,8 +7,8 @@ import {
   toastITApiFailure,
   syncITDataFromAPI,
 } from "../Data";
+import { encodeInventoryFiles, isUploadAbort, useInventoryUpload } from "./InventoryUploadLock";
 import {
-  encodeInventoryFiles,
   getFieldMeta,
   InventoryFileCell,
 } from "./inventoryFileUpload";
@@ -79,6 +79,7 @@ function CellInput({ value, onChange, placeholder, error, type = "text", classNa
 
 export default function TransportVehicleForm() {
   const navigate = useNavigate();
+  const { runUpload } = useInventoryUpload();
   const [hwTypes, setHwTypes] = useState(() =>
     getHwTypesForCategory(INV_CAT, { includeAddNew: true }),
   );
@@ -138,7 +139,9 @@ export default function TransportVehicleForm() {
     );
 
     try {
-      const encoded = await encodeInventoryFiles(fileList, { imagesOnly });
+      const encoded = await runUpload("Preparing files…", ({ signal, setProgress }) =>
+        encodeInventoryFiles(fileList, { imagesOnly, signal, onProgress: setProgress }),
+      );
       const dataUrls = encoded.map((e) => e.data);
       const names = encoded.map((e) => e.name);
 
@@ -168,9 +171,9 @@ export default function TransportVehicleForm() {
             : r,
         ),
       );
-      toast.error(err?.message || "Could not read file.");
+      if (!isUploadAbort(err)) toast.error(err?.message || "Could not read file.");
     }
-  }, []);
+  }, [runUpload]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitted(true);

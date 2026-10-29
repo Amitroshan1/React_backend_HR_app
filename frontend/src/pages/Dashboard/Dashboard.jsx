@@ -506,6 +506,8 @@ export const Dashboard = () => {
     const punchTimingRef = useRef({});
     const [newsFeed, setNewsFeed] = useState([]);
     const [newsFeedScrollPaused, setNewsFeedScrollPaused] = useState(false);
+    const [noticeInfo, setNoticeInfo] = useState(null);
+    const [revokingNotice, setRevokingNotice] = useState(false);
     const newsFeedListRef = useRef(null);
     const autoCapPunchOutRef = useRef(false);
     const autoCapRefusedIsoRef = useRef(null);
@@ -1552,6 +1554,83 @@ export const Dashboard = () => {
             () => handlePunchOut("", t, punchMeasurementRef.current),
         );
     };
+    useEffect(() => {
+        const token = localStorage.getItem("token");
+        if (!token) return undefined;
+        let alive = true;
+        const applyNotice = (payload) => {
+            const notice = payload?.notice || {};
+            const resignation = payload?.resignation || {};
+            const status = String(resignation.status || "").trim().toLowerCase();
+            const active = Boolean(notice.notice_active) || status === "pending" || status === "approved";
+            if (!alive) return;
+            setNoticeInfo({
+                active,
+                daysLeft: Number(notice.days_left || 0),
+                periodDays: Number(notice.notice_period_days || 0),
+                start: notice.notice_start_date || resignation.resignation_date || null,
+                end: notice.notice_end_date || null,
+                canRevoke: Boolean(notice.can_revoke),
+                status: resignation.status || "",
+            });
+        };
+        const load = async () => {
+            try {
+                const response = await fetch("/api/leave/seperation", {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                const data = await response.json().catch(() => ({}));
+                if (response.ok && data.success) applyNotice(data);
+            } catch {
+                /* keep dashboard usable without notice */
+            }
+        };
+        load();
+        const onRevoked = (event) => {
+            if (event?.detail) applyNotice(event.detail);
+            else load();
+        };
+        window.addEventListener("resignation-revoked", onRevoked);
+        return () => {
+            alive = false;
+            window.removeEventListener("resignation-revoked", onRevoked);
+        };
+    }, []);
+
+    const handleRevokeNotice = async () => {
+        if (revokingNotice) return;
+        const token = localStorage.getItem("token");
+        if (!token) return;
+        if (!window.confirm("Revoke your resignation request?")) return;
+        setRevokingNotice(true);
+        try {
+            const response = await fetch("/api/leave/seperation/revoke", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: "{}",
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || "Unable to revoke resignation");
+            }
+            const notice = data.notice || {};
+            setNoticeInfo({
+                active: Boolean(notice.notice_active),
+                daysLeft: Number(notice.days_left || 0),
+                periodDays: Number(notice.notice_period_days || 0),
+                start: notice.notice_start_date || null,
+                end: notice.notice_end_date || null,
+                canRevoke: Boolean(notice.can_revoke),
+                status: "",
+            });
+            window.dispatchEvent(new CustomEvent("resignation-revoked", { detail: data }));
+        } catch (err) {
+            alert(err.message || "Unable to revoke resignation");
+        } finally {
+            setRevokingNotice(false);
+        }
+    };
+
     const probation = dynamicData.probation;
     const showProbationCard = probation?.show_on_dashboard;
     const probationCardClass = probation?.status ? `probation-status-card--${probation.status}` : '';
@@ -1751,6 +1830,54 @@ export const Dashboard = () => {
                             </button>
                         </div>
                     </div>
+                    {noticeInfo?.active ? (
+                        <div className="dash-notice-card">
+                            <div className="dash-notice-card__count">
+                                <span>Notice period</span>
+                                <strong>{noticeInfo.daysLeft}</strong>
+                                <em>{noticeInfo.daysLeft === 1 ? "day left" : "days left"}</em>
+                            </div>
+                            <div className="dash-notice-card__body">
+                                <div className="dash-notice-card__head">
+                                    <h3>Separation in progress</h3>
+                                    {noticeInfo.status ? (
+                                        <span className={`dash-notice-card__status is-${String(noticeInfo.status).toLowerCase()}`}>
+                                            {noticeInfo.status}
+                                        </span>
+                                    ) : null}
+                                </div>
+                                <p>
+                                    {noticeInfo.daysLeft > 0
+                                        ? `Your notice period is running. Last working day is ${formatDate(noticeInfo.end)}.`
+                                        : "Today is your last working day."}
+                                </p>
+                                <div className="dash-notice-card__bar" aria-hidden="true">
+                                    <span
+                                        style={{
+                                            width: `${Math.min(100, Math.max(0, noticeInfo.periodDays
+                                                ? ((noticeInfo.periodDays - noticeInfo.daysLeft) / noticeInfo.periodDays) * 100
+                                                : 0))}%`,
+                                        }}
+                                    />
+                                </div>
+                                <div className="dash-notice-card__meta">
+                                    <span>Started {formatDate(noticeInfo.start)}</span>
+                                    <span>{noticeInfo.periodDays} day notice</span>
+                                    <span>Ends {formatDate(noticeInfo.end)}</span>
+                                </div>
+                            </div>
+                            {noticeInfo.canRevoke ? (
+                                <button
+                                    type="button"
+                                    className="dash-notice-card__revoke"
+                                    disabled={revokingNotice}
+                                    onClick={handleRevokeNotice}
+                                >
+                                    {revokingNotice ? "Revoking…" : "Revoke"}
+                                </button>
+                            ) : null}
+                        </div>
+                    ) : null}
                     {showProbationCard && (
                         <div className={`probation-status-card ${probationCardClass}`}>
                             <div className="probation-status-card__content">

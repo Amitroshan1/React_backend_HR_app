@@ -71,6 +71,7 @@ class ITAssetUnit(db.Model):
     make = db.Column(db.String(100), nullable=True)
     model = db.Column(db.String(100), nullable=True)
     serial_number = db.Column(db.String(120), nullable=True, index=True)
+    device_type = db.Column(db.String(40), nullable=True, index=True)
     imei1 = db.Column(db.String(25), nullable=True)
     imei2 = db.Column(db.String(25), nullable=True)
     project_code = db.Column(db.String(120), nullable=True)
@@ -102,6 +103,18 @@ class ITAssetUnit(db.Model):
     assigned_to_admin = db.relationship("Admin", backref=db.backref("it_asset_units_assigned", lazy="dynamic"))
     assignments = db.relationship("ITAssetAssignment", back_populates="asset_unit", cascade="all, delete-orphan")
     parcel_export_items = db.relationship("ITParcelExportItem", back_populates="asset_unit")
+
+
+class ITDeviceType(db.Model):
+    __tablename__ = "it_device_types"
+    __table_args__ = (
+        db.UniqueConstraint("tenant_id", "name", name="uq_it_device_type_tenant_name"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = _tenant_column()
+    name = db.Column(db.String(40), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
 
 class ITSoftwareLicense(db.Model):
@@ -170,8 +183,8 @@ class ITOfficeStockDeployment(db.Model):
     inventory_category = db.Column(
         db.String(60),
         nullable=False,
-        default="Office Assets",
-        server_default="Office Assets",
+        default="Fixed Assets",
+        server_default="Fixed Assets",
         index=True,
     )
     asset_unit_id = db.Column(
@@ -367,6 +380,26 @@ class ITParcelImport(db.Model):
     photos_json = db.Column(db.JSON, nullable=True)
 
     received_by_admin = db.relationship("Admin", backref=db.backref("it_parcel_imports_received", lazy="dynamic"))
+
+
+class ITRepairBill(db.Model):
+    __tablename__ = "it_repair_bills"
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = _tenant_column()
+    engineer_name = db.Column(db.String(160), nullable=True)
+    laptop_code = db.Column(db.String(80), nullable=True, index=True)
+    issue_type = db.Column(db.String(120), nullable=True)
+    date_of_repairing = db.Column(db.Date, nullable=True, index=True)
+    amount_status = db.Column(db.String(40), nullable=True)
+    working_status = db.Column(db.String(40), nullable=True)
+    bill_amount = db.Column(db.Numeric(12, 2), nullable=True)
+    repair_count = db.Column(db.Integer, nullable=True)
+    remarks = db.Column(db.Text, nullable=True)
+    file_key = db.Column(db.String(400), nullable=True)
+    file_name = db.Column(db.String(220), nullable=True)
+    created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
 
 
 class ITAssetReturnRequest(db.Model):

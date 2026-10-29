@@ -23,6 +23,12 @@ from .models.monthly_payroll import MonthlyPayroll
 from . import db
 
 
+def _ready_payroll_rows(q):
+    from .payroll_batch_service import payroll_ready_for_compliance
+
+    return [row for row in q.all() if payroll_ready_for_compliance(row[0])]
+
+
 def _payroll_query(
     year: int,
     month_num: int,
@@ -48,7 +54,7 @@ def _payroll_query(
         q = q.filter(Admin.circle == circle)
     if emp_type:
         q = q.filter(Admin.emp_type == emp_type)
-    return q.order_by(Admin.first_name.asc(), Admin.emp_id.asc())
+    return _ready_payroll_rows(q.order_by(Admin.first_name.asc(), Admin.emp_id.asc()))
 
 
 def _member_name(admin: Admin) -> str:
@@ -76,7 +82,7 @@ def build_pf_ecr_export(
     lines = []
     for payroll, admin, ctc, accounts in _payroll_query(
         year, month_num, tenant_id=tenant_id, circle=circle, emp_type=emp_type
-    ).all():
+    ):
         basic = float(getattr(ctc, "basic_salary", 0) or 0) if ctc else 0.0
         da = float(getattr(ctc, "dearness_allowance", 0) or 0) if ctc else 0.0
         gross = float(payroll.gross_salary_for_month or 0) + float(payroll.arrears_gross_final or 0)
@@ -118,7 +124,7 @@ def build_esic_statement(
     lines = []
     for payroll, admin, ctc, accounts in _payroll_query(
         year, month_num, tenant_id=tenant_id, circle=circle, emp_type=emp_type
-    ).all():
+    ):
         gross = float(payroll.gross_salary_for_month or 0) + float(payroll.arrears_gross_final or 0)
         esic = compute_esic_amounts(gross, float(payroll.esic_final or 0))
         if not esic["applicable"] and float(payroll.esic_final or 0) <= 0:
@@ -161,7 +167,7 @@ def build_pt_summary(
 
     for payroll, admin, ctc, accounts in _payroll_query(
         year, month_num, tenant_id=tenant_id, circle=circle, emp_type=emp_type
-    ).all():
+    ):
         pt = float(payroll.ptax_final or 0)
         if pt <= 0:
             continue
@@ -206,7 +212,7 @@ def build_form_24q_export(
     for y, m in months:
         for payroll, admin, _ctc, accounts in _payroll_query(
             y, m, tenant_id=tenant_id, circle=circle, emp_type=emp_type
-        ).all():
+        ):
             aid = admin.id
             bucket = agg.setdefault(aid, {
                 "pan": (getattr(accounts, "pan", None) or "").strip().upper() if accounts else "",

@@ -90,6 +90,7 @@ def build_chapter_via_schedule(deductions: dict | None) -> list[dict]:
         ("HRA exemption", deductions.get("hra_exemption")),
         ("Section 80C (incl. EPF)", deductions.get("section_80c_total")),
         ("Section 80CCD(1B)", deductions.get("section_80ccd1b")),
+        ("Section 80CCD(2) — employer NPS", deductions.get("section_80ccd2")),
         ("Section 80D", deductions.get("section_80d")),
         ("Section 24(b) — home loan interest", deductions.get("section_24_interest")),
         ("LTA exemption", deductions.get("lta_exemption")),
@@ -267,6 +268,14 @@ def build_form16_summary(admin_id: int, financial_year: str | None = None) -> di
         other_income=tds_inputs.get("other_income") or 0,
         new_regime_deductions=tds_inputs.get("new_regime_deductions") or 0,
         ptax_annual=monthly_ptax,
+        **payroll_tds.statutory_projection_extras(
+            tds_inputs,
+            {
+                "employer_nps_annual": payroll_tds.employer_nps_annual_from_ctc(ctc),
+                "monthly_da": float(ctc.dearness_allowance or 0),
+            },
+            admin_id=admin_id,
+        ),
     )
 
     variance = payroll_tds.build_tds_variance_report(admin_id, fy, {

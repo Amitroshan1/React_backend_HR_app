@@ -1,7 +1,6 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  BookOpen,
   Building2,
   CalendarDays,
   ChartColumn,
@@ -24,6 +23,12 @@ import {
   Wallet,
 } from 'lucide-react';
 import { markAdminDepartmentVisit } from './adminVisit';
+import {
+  canAccessAccountPanel,
+  canAccessFinancePanel,
+  canAccessItPanel,
+  isPlatformSuperAdmin,
+} from '../../utils/planFeatures';
 import './AdminSidebar.css';
 
 const groups = [
@@ -42,7 +47,7 @@ const groups = [
     items: [
       { id: 'customers', to: '/admin/customers', label: 'Customers', icon: Building2 },
       { id: 'register', to: '/admin/customers/register', label: 'Register company', icon: UserPlus },
-      { id: 'mailboxes', to: '/admin/mailboxes', label: 'Company mailboxes', icon: Mail },
+      { id: 'mailboxes', to: '/admin/mailboxes', label: 'Company settings', icon: Mail },
       { id: 'approval-settings', to: '/admin/approval-settings', label: 'Approval settings', icon: ShieldCheck },
     ],
   },
@@ -73,7 +78,6 @@ const groups = [
     id: 'account',
     label: 'Account',
     items: [
-      { id: 'guide', to: '/admin/deployment-guide', label: 'Deployment guide', icon: BookOpen },
       { id: 'profile', to: '/profile', label: 'My Profile', icon: CircleUserRound, external: true },
     ],
   },
@@ -93,9 +97,38 @@ function linkIsActive(item, pathname, isActive) {
   return isActive;
 }
 
-export default function AdminSidebar({ onNavigate }) {
+export default function AdminSidebar({ onNavigate, platform = false, user }) {
   const [collapsed, setCollapsed] = useState({});
   const { pathname } = useLocation();
+  const owner = platform || isPlatformSuperAdmin(user);
+  const visibleGroups = groups
+    .map((group) => {
+      if (group.id === 'overview') {
+        return {
+          ...group,
+          items: group.items.filter((item) => owner || !['analytics', 'crm'].includes(item.id)),
+        };
+      }
+      if (group.id === 'companies') {
+        return {
+          ...group,
+          items: group.items.filter((item) => owner || !['customers', 'register'].includes(item.id)),
+        };
+      }
+      if (group.id === 'workspaces') {
+        return {
+          ...group,
+          items: group.items.filter((item) => {
+            if (item.id === 'accounts') return canAccessAccountPanel(user);
+            if (item.id === 'finance') return canAccessFinancePanel(user);
+            if (item.id === 'it' || item.id === 'inventory') return canAccessItPanel(user);
+            return true;
+          }),
+        };
+      }
+      return group;
+    })
+    .filter((group) => group.items.length > 0);
 
   return (
     <aside className="admin-side" aria-label="Admin navigation">
@@ -113,7 +146,7 @@ export default function AdminSidebar({ onNavigate }) {
         </div>
       </div>
       <div className="admin-side__scroll">
-        {groups.map((group) => {
+        {visibleGroups.map((group) => {
           const isOpen = collapsed[group.id] !== true;
           return (
             <section key={group.id} className="admin-side__group">

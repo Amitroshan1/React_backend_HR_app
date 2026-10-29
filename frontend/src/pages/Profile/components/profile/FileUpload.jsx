@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { fetchAndOpenAuthenticatedFile } from '../../../../utils/openBlobFile';
-import { fetchAuthenticatedObjectUrl, toAuthContentUrl } from '../../../../utils/secureFileUrl';
+import { fetchAuthenticatedObjectUrl } from '../../../../utils/secureFileUrl';
+import { toProfileDocContentUrl, uploadDocFileUrl } from '../../utils/profileApi';
 
 const IMAGE_EXT_PATTERN = /\.(jpe?g|png|gif|webp|bmp|svg)$/i;
 
@@ -39,7 +40,7 @@ function useSecurePreviewUrl(fileData) {
         }
         if (typeof fileData === 'string') {
             (async () => {
-                const result = await fetchAuthenticatedObjectUrl(fileData);
+                const result = await fetchAuthenticatedObjectUrl(toProfileDocContentUrl(fileData) || fileData);
                 if (cancelled) {
                     result.revoke();
                     return;
@@ -166,7 +167,7 @@ export const FileUpload = ({ label, name, onFileChange, fileData, error, adminId
                 return;
             }
             try {
-                await fetchAndOpenAuthenticatedFile(toAuthContentUrl(fileData), {
+                await fetchAndOpenAuthenticatedFile(uploadDocFileUrl(name, adminId) || toProfileDocContentUrl(fileData), {
                     fileName: getDisplayName() || 'download',
                 });
             } catch (err) {

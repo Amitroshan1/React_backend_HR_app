@@ -203,25 +203,86 @@ def has_feature(feature: str, plan: Optional[str] = None) -> bool:
 
 
 ADMIN_EMP_TYPES = frozenset({"admin", "administrator", "administration"})
+PLATFORM_SUPER_ADMIN_NAMES = frozenset({
+    "super admin",
+    "superadmin",
+    "super-admin",
+    "super_admin",
+})
 
 
 def _norm_emp_type(value: str) -> str:
     return (value or "").strip().lower()
 
 
-def is_org_admin(claims: Optional[dict] = None) -> bool:
-    """Organization Admin / Super Admin — full operational access across modules."""
-    if claims is None:
-        try:
-            from flask_jwt_extended import get_jwt
+def _jwt_claims(claims: Optional[dict] = None) -> dict:
+    if claims is not None:
+        return claims
+    try:
+        from flask_jwt_extended import get_jwt
 
-            claims = get_jwt() or {}
-        except Exception:
-            claims = {}
+        return get_jwt() or {}
+    except Exception:
+        return {}
+
+
+def _compact_emp_type(value: str) -> str:
+    return " ".join(_norm_emp_type(value).replace("-", " ").replace("_", " ").split())
+
+
+def is_super_admin_emp_type(emp_type: str) -> bool:
+    """True only for the reserved Super Admin role name (not Supervisor, etc.)."""
+    compact = _compact_emp_type(emp_type)
+    return compact in PLATFORM_SUPER_ADMIN_NAMES or compact.replace(" ", "") == "superadmin"
+
+
+def reserved_platform_role_error(tenant_id, name: str) -> Optional[str]:
+    """Block company tenants from creating/assigning Super Admin as dept or circle."""
+    if not is_super_admin_emp_type(name):
+        return None
+    from .tenant_context import DEFAULT_TENANT_ID
+
+    try:
+        tid = int(tenant_id)
+    except (TypeError, ValueError):
+        tid = None
+    if tid == DEFAULT_TENANT_ID:
+        return None
+    return (
+        "Super Admin is reserved for the application owner and cannot be used "
+        "as a company department or circle."
+    )
+
+
+def is_platform_super_admin(claims: Optional[dict] = None) -> bool:
+    """Application owner: tenant 1 + Super Admin emp_type only."""
+    claims = _jwt_claims(claims)
+    from .tenant_context import DEFAULT_TENANT_ID
+
+    try:
+        tid = int(claims.get("tenant_id"))
+    except (TypeError, ValueError):
+        return False
+    if tid != DEFAULT_TENANT_ID:
+        return False
+    return is_super_admin_emp_type(claims.get("emp_type") or "")
+
+
+def jwt_is_module_staff(role_fn, claims: Optional[dict] = None) -> bool:
+    """Department owner, or platform Super Admin. JWT claims only (never UI flags)."""
+    claims = _jwt_claims(claims)
+    if is_platform_super_admin(claims):
+        return True
+    return bool(role_fn(claims))
+
+
+def is_org_admin(claims: Optional[dict] = None) -> bool:
+    """Company Admin, or the platform Super Admin on tenant 1."""
+    claims = _jwt_claims(claims)
     emp_type = _norm_emp_type(claims.get("emp_type") or "")
     if emp_type in ADMIN_EMP_TYPES:
         return True
-    return "super" in emp_type
+    return is_platform_super_admin(claims)
 
 
 def is_hr_role(claims: Optional[dict] = None) -> bool:
@@ -240,8 +301,11 @@ def is_hr_role(claims: Optional[dict] = None) -> bool:
 
 
 def can_access_hr_operations(claims: Optional[dict] = None) -> bool:
-    """HR endpoints: HR role or org Admin."""
-    return is_hr_role(claims) or is_org_admin(claims)
+    """HR endpoints: HR role or org Admin (HR is on every plan)."""
+    claims = _jwt_claims(claims)
+    if is_platform_super_admin(claims) or is_org_admin(claims):
+        return True
+    return is_hr_role(claims)
 
 
 def is_it_role(claims: Optional[dict] = None) -> bool:
@@ -278,49 +342,34 @@ def is_accounts_role(claims: Optional[dict] = None) -> bool:
     return is_accounts_department(emp_type)
 
 
-def can_access_it_panel(claims: Optional[dict] = None) -> bool:
-    """IT module: must have IT/Inventory role (or org Admin)."""
-    if claims is None:
-        try:
-            from flask_jwt_extended import get_jwt
-            claims = get_jwt() or {}
-        except Exception:
-            claims = {}
-    if is_org_admin(claims):
+def _can_access_plan_panel(feature: str, role_fn, claims: Optional[dict] = None) -> bool:
+    """Platform Super Admin bypasses plan gates; company Admin follows the tenant plan."""
+    claims = _jwt_claims(claims)
+    if is_platform_super_admin(claims):
         return True
-    if not has_feature("it_panel"):
+    tid = None
+    try:
+        tid = int(claims.get("tenant_id"))
+    except (TypeError, ValueError):
+        tid = None
+    if not has_feature(feature, plan=get_plan(tenant_id=tid) if tid is not None else None):
         return False
-    return is_it_role(claims)
+    return bool(role_fn(claims) or is_org_admin(claims))
+
+
+def can_access_it_panel(claims: Optional[dict] = None) -> bool:
+    """IT / Inventory: plan must include it_panel, then IT role or company Admin."""
+    return _can_access_plan_panel("it_panel", is_it_role, claims)
 
 
 def can_access_finance_panel(claims: Optional[dict] = None) -> bool:
-    """Finance module: Finance role (or org Admin). Does not open Accounts data entry."""
-    if claims is None:
-        try:
-            from flask_jwt_extended import get_jwt
-            claims = get_jwt() or {}
-        except Exception:
-            claims = {}
-    if is_org_admin(claims):
-        return True
-    if not has_feature("finance_panel"):
-        return False
-    return is_finance_role(claims)
+    """Finance: plan must include finance_panel, then Finance role or company Admin."""
+    return _can_access_plan_panel("finance_panel", is_finance_role, claims)
 
 
 def can_access_accounts_panel(claims: Optional[dict] = None) -> bool:
-    """Accounts module: must have Accounts role (or org Admin)."""
-    if claims is None:
-        try:
-            from flask_jwt_extended import get_jwt
-            claims = get_jwt() or {}
-        except Exception:
-            claims = {}
-    if is_org_admin(claims):
-        return True
-    if not has_feature("account_panel"):
-        return False
-    return is_accounts_role(claims)
+    """Accounts: plan must include account_panel, then Accounts role or company Admin."""
+    return _can_access_plan_panel("account_panel", is_accounts_role, claims)
 
 
 def can_access_hr_or_accounts_shared(claims: Optional[dict] = None) -> bool:
@@ -444,12 +493,13 @@ def filter_query_departments(departments: list[str]) -> list[str]:
     return ["Human Resource"]
 
 
-def plan_payload(tenant_id: Optional[int] = None) -> dict:
+def plan_payload(tenant_id: Optional[int] = None, claims: Optional[dict] = None) -> dict:
     plan = get_plan(tenant_id=tenant_id)
     return {
         "plan": plan,
         "plan_label": PLAN_LABELS.get(plan, plan.title()),
         "features": features_for_plan(plan),
+        "is_platform_super_admin": is_platform_super_admin(claims),
     }
 
 

@@ -752,7 +752,7 @@ const EmployeeDetails = () => {
         <div className="ea-topbar-right">
           {isSelfAssetsView ? (
             <button type="button" className="ea-dayuse-btn" onClick={() => navigate("/daily-assets")}>
-              Day-use Assets
+              Loan assets
             </button>
           ) : (
             <p className="ea-total">

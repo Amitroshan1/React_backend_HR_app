@@ -106,7 +106,10 @@ export function crumbsForAdminPath(pathname, search = '') {
     return [commandCenterCrumbItem(), { label: 'Resignations' }];
   }
   if (p.startsWith('/admin/mailboxes')) {
-    return [commandCenterCrumbItem(), { label: 'Company mailboxes' }];
+    return [commandCenterCrumbItem(), { label: 'Company settings' }];
+  }
+  if (p.startsWith('/admin/approval-settings')) {
+    return [commandCenterCrumbItem(), { label: 'Approval settings' }];
   }
   if (p.startsWith('/admin/analytics')) {
     return [commandCenterCrumbItem(), { label: 'Platform Analytics' }];
@@ -121,14 +124,6 @@ export function crumbsForAdminPath(pathname, search = '') {
     }
     return [commandCenterCrumbItem(), { label: 'Customers' }];
   }
-  if (p.startsWith('/admin/deployment-guide')) {
-    return [
-      commandCenterCrumbItem(),
-      { label: 'Customers', to: '/admin/customers' },
-      { label: 'Deployment guide' },
-    ];
-  }
-
   if (p.startsWith('/archive-employees')) {
     return [commandCenterCrumbItem(), { label: 'Employee archive' }];
   }

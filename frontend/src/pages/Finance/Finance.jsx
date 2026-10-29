@@ -3,13 +3,16 @@ import {
   ArrowLeft,
   ArrowUpRight,
   BadgeIndianRupee,
+  BookOpen,
   FileSpreadsheet,
   Receipt,
   Scale,
   ScrollText,
-  Wallet,
+  ShieldCheck,
+  ShoppingCart,
 } from "lucide-react";
 import { FinanceClaims } from "./FinanceClaims";
+import { FinanceCtcPolicy } from "./FinanceCtcPolicy";
 import { useRefreshOnNavigate } from "../../hooks/useRefreshOnNavigate";
 import { TaxDeclarationReview } from "../TaxDeclaration/TaxDeclarationReview";
 import { TaxDeclarationReviewDetail } from "../TaxDeclaration/TaxDeclarationReviewDetail";
@@ -77,6 +80,7 @@ export function Finance() {
       {view === "tax" ? (
         <TaxDeclarationReview
           apiBase="/api/accounts"
+          queue="finance"
           showCompanySettings={false}
           onBack={() => open("home")}
           onOpenDetail={(id) => {
@@ -92,10 +96,13 @@ export function Finance() {
           onBack={() => open("tax")}
         />
       ) : null}
-      {view === "expenses" ? <ExpenseView /> : null}
-      {view === "claims" ? <FinanceClaims /> : null}
+      {view === "expenses" || view === "claims" ? <FinanceClaims /> : null}
       {view === "fnf" ? <FnfView /> : null}
       {view === "client" ? <ClientView /> : null}
+      {view === "purchase" ? <PurchaseView /> : null}
+      {view === "ctc" ? <CtcApprovalsView /> : null}
+      {view === "payrollBatches" ? <PayrollBatchQueue /> : null}
+      {view === "ctcPolicy" ? <FinanceCtcPolicy /> : null}
     </div>
   );
 }
@@ -108,100 +115,78 @@ function FinanceHome({ summary, onOpen }) {
   const slipPct = staff > 0 ? Math.round((generated / staff) * 100) : 0;
   const period = summary ? `${s.month || ""} ${s.year || ""}`.trim() : "";
 
-  const queue = [
-    {
-      key: "expenses",
-      title: "Reimbursements",
-      value: summary ? s.claims_to_pay : "—",
-      hint: summary ? `${s.claims_on_hold || 0} on hold` : "Approved claims",
-      icon: <Wallet size={18} />,
-      tone: "teal",
-    },
-    {
-      key: "tax",
-      title: "Tax proofs",
-      value: summary ? s.tax_pending : "—",
-      hint: "Waiting for a decision",
-      icon: <Receipt size={18} />,
-      tone: "blue",
-    },
-    {
-      key: "fnf",
-      title: "Full and final",
-      value: summary ? s.fnf_open : "—",
-      hint: "Not paid yet",
-      icon: <Scale size={18} />,
-      tone: "amber",
-    },
-    {
-      key: "claims",
-      title: "Claims",
-      value: summary ? inr(s.ytd_expenses) : "—",
-      hint: "Year to date",
-      icon: <ScrollText size={18} />,
-      tone: "ink",
-    },
-  ];
-
   const modules = [
+    {
+      key: "ctc",
+      title: "CTC approval queue",
+      text: "Accounts drafts waiting to publish",
+      count: Number(s.ctc_pending || 0),
+      icon: <ShieldCheck size={20} />,
+    },
+    {
+      key: "payrollBatches",
+      title: "Payroll approvals",
+      text: "Batches waiting on Finance",
+      count: Number(s.payroll_batch_pending || 0),
+      icon: <FileSpreadsheet size={20} />,
+    },
     {
       key: "payroll",
       title: "Payroll control",
-      text: "Department cost and late leave payments. Accounts still edits salary.",
+      text: "Late leave payments this month",
+      count: Number(s.extra_payments || 0),
       icon: <BadgeIndianRupee size={20} />,
     },
     {
       key: "tax",
       title: "Tax queue",
-      text: "Approve or reject declarations and year-end proofs.",
+      text: "Verified declarations waiting on Finance",
+      count: Number(s.tax_pending || 0),
       icon: <Receipt size={20} />,
-    },
-    {
-      key: "expenses",
-      title: "Reimbursements",
-      text: "Pay or hold a claim after every line is approved.",
-      icon: <Wallet size={20} />,
     },
     {
       key: "claims",
       title: "Claims",
-      text: "Approve or reject claim lines and download each claim sheet.",
+      text: "Lines to review or claims to pay",
+      count: Number(s.claims_open || 0),
       icon: <ScrollText size={20} />,
     },
     {
       key: "fnf",
       title: "Full and final",
-      text: "Review exit settlements and mark them paid.",
+      text: "Open exit settlements",
+      count: Number(s.fnf_open || 0),
       icon: <Scale size={20} />,
+    },
+    {
+      key: "purchase",
+      title: "Purchase requests",
+      text: Number(s.purchase_waiting_manager || 0)
+        ? `${Number(s.purchase_waiting_manager)} still with manager`
+        : "Budget approvals after manager confirm",
+      count: Number(s.purchase_pending || 0),
+      icon: <ShoppingCart size={20} />,
     },
     {
       key: "client",
       title: "Client sheet",
-      text: "Download the client attendance workbook for a circle.",
+      text: "Download the client attendance workbook",
+      count: null,
       icon: <FileSpreadsheet size={20} />,
     },
   ];
 
   return (
     <>
-      <div className="finx-queue">
-        {queue.map((card) => (
-          <button key={card.title} type="button" className={`finx-queue-card tone-${card.tone}`} onClick={() => onOpen(card.key)}>
-            <span className="finx-queue-icon">{card.icon}</span>
-            <span className="finx-queue-copy">
-              <span className="finx-queue-title">{card.title}</span>
-              <strong>{card.value ?? "—"}</strong>
-              <span className="finx-queue-hint">{card.hint}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-
       <header className="finx-head">
         <div>
           <p className="finx-kicker">Finance</p>
           <h1>{period || "This month"}</h1>
         </div>
+        <button type="button" className="finx-policy-btn" onClick={() => onOpen("ctcPolicy")}>
+          <BookOpen size={16} />
+          CTC Policy
+        </button>
       </header>
 
       <button type="button" className="finx-hero" onClick={() => onOpen("payroll")}>
@@ -233,11 +218,232 @@ function FinanceHome({ summary, onOpen }) {
               <strong>{item.title}</strong>
               <span>{item.text}</span>
             </span>
-            <ArrowUpRight size={16} />
+            {item.count != null ? (
+              <strong className={`finx-module-count${item.count === 0 ? " is-zero" : ""}`}>
+                {item.count}
+              </strong>
+            ) : (
+              <ArrowUpRight size={16} />
+            )}
           </button>
         ))}
       </div>
     </>
+  );
+}
+
+function CtcApprovalsView() {
+  const [items, setItems] = useState([]);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [reason, setReason] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const data = await readJson(await fetch(`${API}/ctc-approvals`, { headers: authHeaders() }));
+      setItems(data.items || []);
+      setError("");
+    } catch (err) {
+      setError(err.message || "Could not load CTC queue");
+    }
+  }, []);
+
+  useRefreshOnNavigate(load);
+
+  const decide = async (id, action) => {
+    try {
+      setBusyId(id);
+      setError("");
+      await readJson(
+        await fetch(`${API}/ctc-approvals/${id}/decide`, {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ action, reason }),
+        })
+      );
+      setReason("");
+      await load();
+    } catch (err) {
+      setError(err.message || "Decision failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="finx-panel">
+      <h2>CTC approval queue</h2>
+      <p className="finx-queue-hint">
+        Approving publishes live CTC for payroll, annexure PDF, and TDS. Rejecting leaves the last approved structure in place.
+      </p>
+      {error ? <p className="finx-error">{error}</p> : null}
+      <label className="finx-reject-label">
+        Reject reason
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Required when you reject" />
+      </label>
+      <table className="finx-table">
+        <thead>
+          <tr>
+            <th>Subject</th>
+            <th>Kind</th>
+            <th>Status</th>
+            <th>Old CTC</th>
+            <th>New CTC</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr><td colSpan={6}>No CTC drafts waiting.</td></tr>
+          ) : items.map((row) => (
+            <tr key={row.id}>
+              <td>
+                {row.kind === "statutory_adopt"
+                  ? `Adopt ${row.pack_id || "pack"}${row.recalc_count ? ` + ${row.recalc_count} recalc` : ""}`
+                  : `${row.employee_name || "Employee"} ${row.emp_id ? `(${row.emp_id})` : ""}`}
+              </td>
+              <td>{String(row.kind || "").replaceAll("_", " ")}</td>
+              <td>{String(row.status || "").replaceAll("_", " ")}</td>
+              <td>{row.old_annual_ctc ? inr(row.old_annual_ctc) : "—"}</td>
+              <td>{row.new_annual_ctc ? inr(row.new_annual_ctc) : "—"}</td>
+              <td>
+                {row.status === "pending_finance" ? (
+                  <span className="finx-ctc-actions">
+                    <button type="button" disabled={busyId === row.id} onClick={() => decide(row.id, "approve")}>
+                      Approve
+                    </button>
+                    <button type="button" disabled={busyId === row.id} onClick={() => decide(row.id, "reject")}>
+                      Reject
+                    </button>
+                  </span>
+                ) : (
+                  <span>Waiting on {String(row.status || "").replaceAll("_", " ")}</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PayrollBatchQueue() {
+  const [items, setItems] = useState([]);
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [reason, setReason] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const data = await readJson(await fetch(`${API}/payroll-batches`, { headers: authHeaders() }));
+      setItems(data.items || []);
+      setError("");
+    } catch (err) {
+      setError(err.message || "Could not load payroll queue");
+    }
+  }, []);
+
+  useRefreshOnNavigate(load);
+
+  const openDetail = async (id) => {
+    try {
+      const data = await readJson(await fetch(`${API}/payroll-batches/${id}`, { headers: authHeaders() }));
+      setDetail(data);
+    } catch (err) {
+      setError(err.message || "Could not load batch");
+    }
+  };
+
+  const decide = async (id, action) => {
+    try {
+      setBusyId(id);
+      setError("");
+      await readJson(
+        await fetch(`${API}/payroll-batches/${id}/decide`, {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ action, reason }),
+        })
+      );
+      setReason("");
+      setDetail(null);
+      await load();
+    } catch (err) {
+      setError(err.message || "Decision failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="finx-panel">
+      <h2>Payroll approval queue</h2>
+      <p className="finx-queue-hint">
+        Approve or reject a circle and department batch. The notice mail does not include employee names or amounts.
+      </p>
+      {error ? <p className="finx-error">{error}</p> : null}
+      <label className="finx-reject-label">
+        Reject comment (stays in the app)
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Optional for reject" />
+      </label>
+      <table className="finx-table">
+        <thead>
+          <tr>
+            <th>Circle</th>
+            <th>Department</th>
+            <th>Month</th>
+            <th>Employees</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr><td colSpan={5}>No payroll batches waiting.</td></tr>
+          ) : items.map((row) => (
+            <tr key={row.id}>
+              <td>{row.circle}</td>
+              <td>{row.emp_type}</td>
+              <td>{row.month} {row.year}</td>
+              <td>{row.member_count}</td>
+              <td>
+                <button type="button" className="finx-btn" onClick={() => openDetail(row.id)}>Open</button>
+                <button type="button" className="finx-btn finx-btn--ok" disabled={busyId === row.id} onClick={() => decide(row.id, "approve")}>Approve</button>
+                <button type="button" className="finx-btn finx-btn--no" disabled={busyId === row.id} onClick={() => decide(row.id, "reject")}>Reject</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {detail?.batch ? (
+        <div style={{ marginTop: 20 }}>
+          <h3>{detail.batch.circle} · {detail.batch.emp_type} · {detail.batch.month} {detail.batch.year}</h3>
+          <table className="finx-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>EmpID</th>
+                <th>Days</th>
+                <th>Gross</th>
+                <th>Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(detail.members || []).map((row) => (
+                <tr key={row.id || row.admin_id}>
+                  <td>{row.name}</td>
+                  <td>{row.empId}</td>
+                  <td>{Number(row.actual_working_days || 0).toFixed(1)}</td>
+                  <td>{inr(row.gross_salary_for_month)}</td>
+                  <td>{inr(row.net_salary_final)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -449,8 +655,101 @@ function FnfView() {
   );
 }
 
+function PurchaseView() {
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const [remarks, setRemarks] = useState({});
+  const [inbox, setInbox] = useState("pending");
+
+  const load = useCallback(async () => {
+    try {
+      const status = inbox === "pending" ? "pending_finance" : inbox === "manager" ? "pending_manager" : "";
+      const query = status ? `?inbox=finance&status=${status}` : "?inbox=finance";
+      const data = await readJson(await fetch(`/api/inventory-purchase${query}`, { headers: authHeaders() }));
+      setRows(data.requests || []);
+      setError("");
+    } catch (err) {
+      setError(err.message || "Could not load purchase requests");
+    }
+  }, [inbox]);
+
+  useRefreshOnNavigate(load, [inbox]);
+
+  const act = async (id, action) => {
+    try {
+      setBusyId(id);
+      await readJson(await fetch(`/api/inventory-purchase/${id}/finance-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ action, remarks: remarks[id] || "" }),
+      }));
+      await load();
+    } catch (err) {
+      setError(err.message || "Could not update this request");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="finx-panel">
+      <h2>Purchase requests</h2>
+      <p>IT and Inventory raise the same queue. You can see manager-pending items, but budget approval is only after the manager confirms.</p>
+      {error ? <p className="finx-error">{error}</p> : null}
+      <div className="finx-form" style={{ marginBottom: 16 }}>
+        <label>
+          Queue
+          <select value={inbox} onChange={(e) => setInbox(e.target.value)}>
+            <option value="pending">Waiting on finance</option>
+            <option value="manager">Waiting on manager</option>
+            <option value="all">All visible</option>
+          </select>
+        </label>
+      </div>
+      {rows.length === 0 ? <p>No purchase requests in this queue.</p> : null}
+      <ul className="finx-list">
+        {rows.map((row) => (
+          <li key={row.id}>
+            <div>
+              <strong>{row.request_no} · {row.title}</strong>
+              <span>{row.source_label || "Inventory"} · {row.requested_by_name} · {row.item_name || row.category} · Qty {row.quantity}</span>
+              <span>{row.estimated_amount != null ? inr(row.estimated_amount) : "No estimate"} · {row.status_label}</span>
+              <span>{row.justification}</span>
+              {row.attachments?.length ? (
+                <span>
+                  {row.attachments.map((file) => (
+                    <a key={file.url || file.name} href={file.url} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>{file.name}</a>
+                  ))}
+                </span>
+              ) : null}
+              {row.status === "pending_finance" ? (
+                <textarea
+                  placeholder="Remark (required to reject)"
+                  value={remarks[row.id] || ""}
+                  onChange={(e) => setRemarks((current) => ({ ...current, [row.id]: e.target.value }))}
+                  rows={2}
+                />
+              ) : null}
+            </div>
+            <div className="finx-list-side">
+              {row.status === "pending_finance" ? (
+                <>
+                  <button type="button" disabled={busyId === row.id} onClick={() => act(row.id, "approve")}>Approve budget</button>
+                  <button type="button" disabled={busyId === row.id} onClick={() => act(row.id, "reject")}>Reject</button>
+                </>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ClientView() {
   const [departments, setDepartments] = useState([]);
+  const [circles, setCircles] = useState([]);
   const [dept, setDept] = useState("");
   const [circle, setCircle] = useState("");
   const [month, setMonth] = useState(() => {
@@ -463,7 +762,14 @@ function ClientView() {
   const load = useCallback(async () => {
     try {
       const data = await readJson(await fetch(`${API}/client-options`, { headers: authHeaders() }));
-      setDepartments(data.departments || []);
+      const deptList = Array.isArray(data.departments) && data.departments.length && typeof data.departments[0] === "string"
+        ? data.departments
+        : (data.departments || []).map((item) => item.department).filter(Boolean);
+      const circleList = Array.isArray(data.circles)
+        ? data.circles
+        : (data.departments || []).flatMap((item) => item.circles || []);
+      setDepartments([...new Set(deptList)]);
+      setCircles([...new Set(circleList)]);
       setError("");
     } catch (err) {
       setError(err.message || "Could not load departments");
@@ -471,8 +777,6 @@ function ClientView() {
   }, []);
 
   useRefreshOnNavigate(load);
-
-  const circles = departments.find((item) => item.department === dept)?.circles || [];
 
   const download = async () => {
     if (!hasFeature("account_for_client")) {
@@ -512,21 +816,21 @@ function ClientView() {
       <h2>Client attendance sheet</h2>
       <p>This is the same sheet Accounts and HR download. Days that were not fully approved stay unpaid.</p>
       {error ? <p className="finx-error">{error}</p> : null}
-      <div className="finx-form">
+      <div className="finx-form finx-form--client">
         <label>
-          Department
-          <select value={dept} onChange={(e) => { setDept(e.target.value); setCircle(""); }}>
-            <option value="">Select</option>
-            {departments.map((item) => (
-              <option key={item.department} value={item.department}>{item.department}</option>
+          Circle
+          <select value={circle} onChange={(e) => setCircle(e.target.value)}>
+            <option value="">Select circle</option>
+            {circles.map((name) => (
+              <option key={name} value={name}>{name}</option>
             ))}
           </select>
         </label>
         <label>
-          Circle
-          <select value={circle} onChange={(e) => setCircle(e.target.value)}>
-            <option value="">Select</option>
-            {circles.map((name) => (
+          Department
+          <select value={dept} onChange={(e) => setDept(e.target.value)}>
+            <option value="">Select department</option>
+            {departments.map((name) => (
               <option key={name} value={name}>{name}</option>
             ))}
           </select>

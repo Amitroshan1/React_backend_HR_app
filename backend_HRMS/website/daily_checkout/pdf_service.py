@@ -25,10 +25,14 @@ COMPANY_ADDRESS_LINES = (
     "Technocity TTC Indl Area, Mhape",
     "Navi Mumbai",
 )
-COMPANY_CONTACT_LINES = (
-    "CIN: AAP-6504",
-    "E-Mail : finance@saffotech.com",
-)
+def _company_contact_lines():
+    from ..company_mailbox import company_mailbox
+
+    email = company_mailbox("EMAIL_FINANCE") or company_mailbox("EMAIL_ACCOUNTS") or ""
+    lines = ["CIN: AAP-6504"]
+    if email:
+        lines.append(f"E-Mail : {email}")
+    return tuple(lines)
 
 
 def document_download_name(row, doc_type) -> str:
@@ -133,7 +137,7 @@ def _draw_header(c, width, left, right, *, include_contact=True):
     c.drawCentredString(width / 2, y, COMPANY_NAME)
     c.setFillColorRGB(0.25, 0.30, 0.36)
     c.setFont("Helvetica", 9)
-    lines = COMPANY_ADDRESS_LINES + (COMPANY_CONTACT_LINES if include_contact else ())
+    lines = COMPANY_ADDRESS_LINES + (_company_contact_lines() if include_contact else ())
     for line in lines:
         y -= 12
         c.drawCentredString(width / 2, y, line)
@@ -256,7 +260,7 @@ def generate_document(request_id, doc_type, actor=None, *, force=False):
 
     is_acceptance = doc_type == DOC_ACCEPTANCE
     y = _draw_header(c, width, left, right, include_contact=not is_acceptance)
-    title = "Day-use Asset Acknowledgement" if is_acceptance else "Day-use Asset Return Acknowledgement"
+    title = "Loan Asset Acknowledgement" if is_acceptance else "Loan Asset Return Acknowledgement"
     c.setFillColorRGB(0.06, 0.16, 0.32)
     c.setFont("Helvetica-Bold", 14)
     c.drawCentredString(width / 2, y, title)
@@ -301,13 +305,13 @@ def generate_document(request_id, doc_type, actor=None, *, force=False):
         paragraph(f"Employee ID: {emp_id}    ·    {dept} / {circle}")
         paragraph(f"Email: {_dash(row.requester_email_snapshot)}")
         y -= 4
-        paragraph("Subject: Acknowledgement of day-use assets issued", bold=True)
+        paragraph("Subject: Acknowledgement of loan assets issued", bold=True)
         paragraph(
             f"Dear {emp_name},"
         )
         paragraph(
             f"This is to acknowledge that the assets listed below have been issued to you by "
-            f"{COMPANY_NAME} for day-use / temporary official use against request {row.request_code}. "
+            f"{COMPANY_NAME} on loan / temporary official use against request {row.request_code}. "
             f"You confirm receipt in good working condition and agree to return the items by {expected}."
         )
         paragraph(
@@ -318,7 +322,7 @@ def generate_document(request_id, doc_type, actor=None, *, force=False):
     else:
         paragraph(f"Dear {emp_name},")
         paragraph(
-            f"This is to acknowledge that the day-use assets issued against request {row.request_code} "
+            f"This is to acknowledge that the loan assets issued against request {row.request_code} "
             f"have been returned to the IT Department and received on {_fmt_dt(ret.completed_at if ret else None)}."
         )
         if ret and (ret.remarks or "").strip():

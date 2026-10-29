@@ -4,13 +4,16 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import ClickableImage from "../../../components/ClickableImage";
 import {
+  createDeviceTypeAPI,
   createHardwareUnitsAPI,
   createInventoryItemAPI,
   createSoftwareLicensesAPI,
-  compressImage,
+  fetchDeviceTypesAPI,
   toastITApiFailure,
   syncITDataFromAPI,
 } from "../Data";
+import { inventoryAssetPath } from "./AssetDetailPage";
+import { encodeInventoryFiles, isUploadAbort, useInventoryUpload } from "./InventoryUploadLock";
 import {
   ASSET_TYPE_TABS,
   INVENTORY_CATEGORY_CONFIG,
@@ -25,6 +28,7 @@ import {
   getMobileTabletHardwareFields,
   hwTypeOptionLabel,
   inventoryCategoryToKey,
+  isOfficeInventoryCategory,
   isValidInventoryCategory,
   isStockInventoryCategory,
   isVehicleInventoryCategory,
@@ -39,12 +43,29 @@ import "./AddnewAssets.css";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BASE = "/it/inventory";
+const DEFAULT_DEVICE_TYPES = ["EVT", "DVT", "PVT", "DV"];
+const ADD_DEVICE_TYPE_VALUE = "__add_device_type__";
+
+function mergeDeviceTypes(extra = []) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of [...DEFAULT_DEVICE_TYPES, ...extra]) {
+    const name = String(raw || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
 
 // ─── Row factories ────────────────────────────────────────────────────────────
 
 const blankHwRow = () => ({
   id: Date.now() + Math.random(),
   brand: "", make: "", model: "", serialNumber: "",
+  deviceType: "",
   remarks: "",
   photos: [], _errors: {},
 });
@@ -147,6 +168,70 @@ function CellInput({ value, onChange, placeholder, error, className = "", label 
   );
 }
 
+function CellDeviceType({
+  value,
+  onChange,
+  types,
+  onAddType,
+  label = "Device Type",
+}) {
+  const [adding, setAdding] = useState(false);
+  const [custom, setCustom] = useState("");
+  const selected = adding ? ADD_DEVICE_TYPE_VALUE : (value || "");
+
+  const confirm = async () => {
+    const saved = await onAddType(custom);
+    if (!saved) return;
+    setCustom("");
+    setAdding(false);
+    onChange(saved);
+  };
+
+  return (
+    <td data-label={label} className="ana-td-device-type">
+      <select
+        className="ana-cell-select"
+        value={selected}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next === ADD_DEVICE_TYPE_VALUE) {
+            setAdding(true);
+            return;
+          }
+          setAdding(false);
+          onChange(next);
+        }}
+      >
+        <option value="">Select (optional)</option>
+        {types.map((type) => (
+          <option key={type} value={type}>{type}</option>
+        ))}
+        <option value={ADD_DEVICE_TYPE_VALUE}>+ Add more…</option>
+      </select>
+      {adding && (
+        <div className="ana-device-type-add">
+          <input
+            className="ana-cell-input"
+            placeholder="New device type"
+            value={custom}
+            maxLength={40}
+            onChange={(e) => setCustom(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                confirm();
+              }
+            }}
+          />
+          <button type="button" className="ana-hwtype-add-btn" onClick={confirm}>
+            Add
+          </button>
+        </div>
+      )}
+    </td>
+  );
+}
+
 function CellRemarks({ value, onChange, error, label = "Remarks", placeholder = "Optional note (min 10 chars if filled)" }) {
   return (
     <td data-label={label} className="ana-td-remarks">
@@ -220,6 +305,7 @@ function PhotoModal({ photos, onClose, onRemovePhoto }) {
 
 function InventoryAssetsForm({ inventoryCategory }) {
   const navigate = useNavigate();
+  const { runUpload, busy } = useInventoryUpload();
   const config = INVENTORY_CATEGORY_CONFIG[inventoryCategory] || INVENTORY_CATEGORY_CONFIG["IT Assets"];
   const itemCategories = config.itemCategories;
   const mobileTabletHwTypes = config.mobileTabletHwTypes || (config.mobileHwType ? [config.mobileHwType] : []);
@@ -255,6 +341,40 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const [submitted,    setSubmitted]    = useState(false);
   const [successMsg,   setSuccessMsg]   = useState("");
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [deviceTypes, setDeviceTypes] = useState(DEFAULT_DEVICE_TYPES);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchDeviceTypesAPI()
+      .then((res) => {
+        if (cancelled) return;
+        setDeviceTypes(mergeDeviceTypes(res?.deviceTypes || []));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const addDeviceTypeOption = useCallback(async (rawName) => {
+    const name = String(rawName || "").trim();
+    if (!name) {
+      toast.error("Enter a device type name.");
+      return "";
+    }
+    if (name.length > 40) {
+      toast.error("Device type must be 40 characters or less.");
+      return "";
+    }
+    try {
+      const res = await createDeviceTypeAPI(name);
+      const saved = res?.name || name;
+      setDeviceTypes((prev) => mergeDeviceTypes([...(res?.deviceTypes || prev), saved]));
+      toast.success(`Device type “${saved}” added`);
+      return saved;
+    } catch (err) {
+      toastITApiFailure(err, "Could not save device type.");
+      return "";
+    }
+  }, []);
 
   useEffect(() => {
     const refresh = () => {
@@ -409,16 +529,19 @@ function InventoryAssetsForm({ inventoryCategory }) {
   const handlePhotoUpload = useCallback(async (rowId, files) => {
     if (!files?.length) return;
     try {
-      const compressed = await Promise.all(Array.from(files).map(compressImage));
+      const encoded = await runUpload("Preparing photos…", ({ signal, setProgress }) =>
+        encodeInventoryFiles(files, { imagesOnly: true, signal, onProgress: setProgress }),
+      );
+      const compressed = encoded.map((e) => e.data);
       setRows((prev) =>
         prev.map((r) =>
           r.id === rowId ? { ...r, photos: [...r.photos, ...compressed] } : r,
         ),
       );
     } catch (err) {
-      console.error("Photo upload failed:", err);
+      if (!isUploadAbort(err)) toast.error(err?.message || "Photo upload failed.");
     }
-  }, []);
+  }, [runUpload]);
 
   const removePhoto = useCallback((rowId, photoIndex) => {
     setRows((prev) =>
@@ -434,6 +557,10 @@ function InventoryAssetsForm({ inventoryCategory }) {
 
   const handleSubmit = useCallback(async () => {
     setSubmitted(true);
+    if (busy) {
+      toast.warn("Please wait for uploads to finish.");
+      return;
+    }
     if (category === "Hardware" && isAddingNewHwType) {
       toast.error("Confirm the new hardware type before saving, or pick an existing type.");
       return;
@@ -465,6 +592,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
         });
 
         let addedCount = 0;
+        const createdIds = [];
         for (const [brandKey, groupRows] of groups.entries()) {
           if (!brandKey) continue;
           const brandName = groupRows[0].brand.trim();
@@ -478,6 +606,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
           });
           const inventoryItemId = invRes?.item?.id;
           if (!inventoryItemId) continue;
+          createdIds.push(inventoryItemId);
 
           await createHardwareUnitsAPI({
             inventoryItemId,
@@ -491,11 +620,17 @@ function InventoryAssetsForm({ inventoryCategory }) {
 
         await syncITDataFromAPI();
         const unitLabel = vehicleMode ? "vehicle" : effectiveHwType;
+        if (createdIds.length === 1) {
+          toast.success(`${addedCount} ${unitLabel}${addedCount !== 1 ? "s" : ""} added. You can edit details here.`);
+          navigate(inventoryAssetPath(createdIds[0], inventoryCategory, { edit: 1 }));
+          return;
+        }
         setSuccessMsg(
           `✅ ${addedCount} ${unitLabel}${addedCount !== 1 ? "s" : ""} added to ${inventoryCategory}.`,
         );
       } else if (category === "Software") {
         let totalLicenses = 0;
+        const createdIds = [];
         for (const row of validated) {
           const qty = parseInt(row.quantity, 10) || 1;
           const invRes = await createInventoryItemAPI({
@@ -506,6 +641,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
           });
           const inventoryItemId = invRes?.item?.id;
           if (!inventoryItemId) continue;
+          createdIds.push(inventoryItemId);
           await createSoftwareLicensesAPI({
             inventoryItemId,
             name: row.name.trim(),
@@ -517,10 +653,16 @@ function InventoryAssetsForm({ inventoryCategory }) {
           totalLicenses += qty;
         }
         await syncITDataFromAPI();
+        if (createdIds.length === 1) {
+          toast.success(`${totalLicenses} Software license${totalLicenses !== 1 ? "s" : ""} added. You can edit details here.`);
+          navigate(inventoryAssetPath(createdIds[0], inventoryCategory, { edit: 1 }));
+          return;
+        }
         setSuccessMsg(`✅ ${totalLicenses} Software license${totalLicenses !== 1 ? "s" : ""} added.`);
       } else if (category === "Accessories") {
+        const createdIds = [];
         for (const row of validated) {
-          await createInventoryItemAPI({
+          const invRes = await createInventoryItemAPI({
             name: row.name.trim(),
             category,
             inventoryCategory,
@@ -529,15 +671,22 @@ function InventoryAssetsForm({ inventoryCategory }) {
             photos: row.photos || [],
             notes: rowNotes(row),
           });
+          if (invRes?.item?.id) createdIds.push(invRes.item.id);
         }
         await syncITDataFromAPI();
         const totalQty = validated.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+        if (createdIds.length === 1) {
+          toast.success(`${effectiveAccType || "Accessories"} added. You can edit details here.`);
+          navigate(inventoryAssetPath(createdIds[0], inventoryCategory, { edit: 1 }));
+          return;
+        }
         setSuccessMsg(
           `✅ ${validated.length} ${effectiveAccType || "Accessories"} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added.`,
         );
       } else if (category === "Consumables") {
+        const createdIds = [];
         for (const row of validated) {
-          await createInventoryItemAPI({
+          const invRes = await createInventoryItemAPI({
             name: row.name.trim(),
             category,
             inventoryCategory,
@@ -546,15 +695,22 @@ function InventoryAssetsForm({ inventoryCategory }) {
             photos: row.photos || [],
             notes: rowNotes(row),
           });
+          if (invRes?.item?.id) createdIds.push(invRes.item.id);
         }
         await syncITDataFromAPI();
         const totalQty = validated.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+        if (createdIds.length === 1) {
+          toast.success(`${effectiveConsType || "Consumables"} added. You can edit details here.`);
+          navigate(inventoryAssetPath(createdIds[0], inventoryCategory, { edit: 1 }));
+          return;
+        }
         setSuccessMsg(
           `✅ ${validated.length} ${effectiveConsType || "Consumables"} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added.`,
         );
       } else {
+        const createdIds = [];
         for (const row of validated) {
-          await createInventoryItemAPI({
+          const invRes = await createInventoryItemAPI({
             name: row.name.trim(),
             category,
             inventoryCategory,
@@ -562,9 +718,15 @@ function InventoryAssetsForm({ inventoryCategory }) {
             photos: row.photos || [],
             notes: rowNotes(row),
           });
+          if (invRes?.item?.id) createdIds.push(invRes.item.id);
         }
         await syncITDataFromAPI();
         const totalQty = validated.reduce((sum, r) => sum + (parseInt(r.quantity, 10) || 0), 0);
+        if (createdIds.length === 1) {
+          toast.success("Asset added. You can edit details here.");
+          navigate(inventoryAssetPath(createdIds[0], inventoryCategory, { edit: 1 }));
+          return;
+        }
         setSuccessMsg(
           `✅ ${validated.length} asset${validated.length !== 1 ? "s" : ""} (qty ${totalQty}) added to ${category}.`,
         );
@@ -593,6 +755,8 @@ function InventoryAssetsForm({ inventoryCategory }) {
     isAddingNewHwType,
     isAddingNewAccType,
     isAddingNewConsType,
+    navigate,
+    busy,
   ]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -829,6 +993,9 @@ function InventoryAssetsForm({ inventoryCategory }) {
                 {rows.length} row{rows.length !== 1 ? "s" : ""}
               </span>
             </div>
+            <p className="ana-required-legend">
+              Fields marked <span className="req">*</span> are required. Device Type is optional.
+            </p>
 
             <div className="ana-table-wrap ana-table-wrap--responsive">
               <table className="ana-table">
@@ -844,6 +1011,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
                           <th>IMEI 1 <span className="req">*</span></th>
                           <th>IMEI 2</th>
                           <th>{hwFields.serialNumber.label} <span className="req">*</span></th>
+                          <th>Device Type</th>
                           <th>Photos</th>
                           <th>{hwFields.deviceLocation.label}</th>
                           <th>{hwFields.remarks?.label || "Comment"}</th>
@@ -854,6 +1022,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
                           <th>{hwFields.make.label} <span className="req">*</span></th>
                           <th>{hwFields.model.label} <span className="req">*</span></th>
                           <th>{hwFields.serialNumber.label} <span className="req">*</span></th>
+                          <th>Device Type</th>
                           <th>Photos</th>
                           <th>Remarks</th>
                         </>
@@ -931,6 +1100,12 @@ function InventoryAssetsForm({ inventoryCategory }) {
                               className="mono"
                               onChange={(e) => updateRow(row.id, "serialNumber", e.target.value)}
                             />
+                            <CellDeviceType
+                              value={row.deviceType || ""}
+                              types={deviceTypes}
+                              onAddType={addDeviceTypeOption}
+                              onChange={(next) => updateRow(row.id, "deviceType", next)}
+                            />
                           </>
                         ) : (
                           <>
@@ -944,6 +1119,12 @@ function InventoryAssetsForm({ inventoryCategory }) {
                             placeholder={hwFields.serialNumber.placeholder}
                             className="mono"
                             onChange={(e) => updateRow(row.id, "serialNumber", e.target.value)}
+                          />
+                          <CellDeviceType
+                            value={row.deviceType || ""}
+                            types={deviceTypes}
+                            onAddType={addDeviceTypeOption}
+                            onChange={(next) => updateRow(row.id, "deviceType", next)}
                           />
                           </>
                         )
@@ -974,10 +1155,11 @@ function InventoryAssetsForm({ inventoryCategory }) {
                                 accept="image/*"
                                 multiple
                                 style={{ display: "none" }}
+                                disabled={busy}
                                 onClick={(e) => { e.target.value = null; }}
                                 onChange={(e) => handlePhotoUpload(row.id, e.target.files)}
                               />
-                              Upload
+                              {busy ? "Uploading…" : "Upload"}
                             </label>
                             {row.photos.length > 0 && (
                               <button
@@ -1059,7 +1241,7 @@ function InventoryAssetsForm({ inventoryCategory }) {
               >
                 Cancel
               </button>
-              <button type="button" className="ana-btn-submit" onClick={handleSubmit}>
+              <button type="button" className="ana-btn-submit" onClick={handleSubmit} disabled={busy}>
                 Save to Inventory
               </button>
             </div>
@@ -1132,7 +1314,7 @@ export default function AddNewAssets() {
 
       <div className="ana-type-content">
         {formEnabled ? (
-          activeInventoryCategory === "Office Assets" ? (
+          isOfficeInventoryCategory(activeInventoryCategory) ? (
             <OfficeStockForm />
           ) : activeInventoryCategory === "Transport Assets" ? (
             <TransportVehicleForm />

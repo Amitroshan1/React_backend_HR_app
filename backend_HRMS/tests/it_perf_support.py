@@ -43,7 +43,7 @@ OTHER_TENANT_ADMIN_ID = 900
 LIST_ENDPOINTS = (
     "/api/it/inventory/items",
     "/api/it/inventory/items?category=hardware",
-    "/api/it/inventory/items?inventory_category=office assets",
+    "/api/it/inventory/items?inventory_category=fixed assets",
     "/api/it/units",
     "/api/it/units?status=available",
     "/api/it/units?status=ASSIGNED",
@@ -163,7 +163,7 @@ def seed(n=3):
         item(10, 1, "Laptop", "Hardware", "IT Assets", hw_type="Laptop"),
         item(11, 1, "Office 365", "Software", "IT Assets"),
         item(12, 1, "Mouse", "Accessories", "IT Assets", total_quantity=50, available_quantity=40),
-        item(13, 1, "Chairs", "Stock", "Office Assets", total_quantity=20, available_quantity=10),
+        item(13, 1, "Chairs", "Stock", "Fixed Assets", total_quantity=20, available_quantity=10),
         item(14, 1, "Van", "Vehicle", "Transport Assets"),
         item(20, 2, "Laptop", "Hardware", "IT Assets", hw_type="Laptop"),
     ])
@@ -250,7 +250,7 @@ def seed(n=3):
             serial_number=f"MS{i}", reason="Lost", deleted_at=_ts(i),
         ))
         db.session.add(ITOfficeStockDeployment(
-            id=_id(900) + i, inventory_item_id=13, inventory_category="Office Assets", quantity=1,
+            id=_id(900) + i, inventory_item_id=13, inventory_category="Fixed Assets", quantity=1,
             deployment_location=f"Floor {i}", custodian_name=f"Emp {aid}", custodian_emp_id=f"E{aid}",
             created_by_admin_id=IT_ADMIN_ID, created_at=_ts(i),
         ))

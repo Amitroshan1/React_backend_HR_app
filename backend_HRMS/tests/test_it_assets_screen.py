@@ -14,7 +14,7 @@ from website import db
 from website.models.it_models import ITAssetUnit, ITInventoryItem, ITInventoryQuantityAssignment
 from website.query_utils import collation_key
 
-TABS = ("IT Assets", "Office Assets", "Transport Assets", "Infrastructure Assets")
+TABS = ("IT Assets", "Fixed Assets", "Transport Assets", "Infrastructure Assets")
 _IT_LINES = ["hardware", "software", "accessories", "consumables", "consumable", "accessory"]
 
 
@@ -35,7 +35,7 @@ def _seed_assets():
         item(64, "_Spare", "Accessories", hw_type="Cable", total_quantity=5, available_quantity=5),
         item(65, "Toner", "Consumables", total_quantity=4, available_quantity=3, assigned_quantity=1),
         item(66, "Loose stock", "Stock", "", total_quantity=2, available_quantity=2),
-        item(67, "Desk", "Stock", "Office Assets", total_quantity=2, available_quantity=2),
+        item(67, "Desk", "Stock", "Fixed Assets", total_quantity=2, available_quantity=2),
         item(68, "Licence", "Software", total_quantity=2, available_quantity=2),
         item(69, "Headset", "accessory", total_quantity=2, available_quantity=1, assigned_quantity=1),
         item(70, "Router", "Equipment", "", total_quantity=1, available_quantity=1),
@@ -121,7 +121,7 @@ def _resolve(item):
     if cat == "equipment":
         return "Infrastructure Assets"
     if cat == "stock":
-        return explicit if explicit in ("Office Assets", "Infrastructure Assets", "Transport Assets") else ""
+        return explicit if explicit in ("Fixed Assets", "Infrastructure Assets", "Transport Assets") else ""
     if cat in _IT_LINES:
         return explicit if explicit in TABS else "IT Assets"
     return explicit if explicit in TABS else ""

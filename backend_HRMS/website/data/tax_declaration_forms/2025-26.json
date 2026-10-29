@@ -64,7 +64,8 @@
       "visible_when": { "regime": "old" },
       "items": [
         { "code": "SELF_HEALTH", "label": "Self & Family Health Insurance", "type": "amount", "cap_scope": "item", "cap_key": "section_80d_self_cap", "document_type": "insurance", "proof_required": true },
-        { "code": "PARENTS_HEALTH", "label": "Parents Health Insurance", "type": "amount", "cap_scope": "item", "cap_key": "section_80d_parents_cap", "document_type": "insurance", "proof_required": true }
+        { "code": "PARENTS_HEALTH", "label": "Parents Health Insurance", "type": "amount", "cap_scope": "item", "cap_key": "section_80d_parents_cap", "document_type": "insurance", "proof_required": true },
+        { "code": "PARENTS_SENIOR", "label": "Parents are senior citizens (60+)", "type": "boolean" }
       ]
     },
     {
@@ -109,6 +110,7 @@
       "visible_when": { "regime": "old" },
       "items": [
         { "code": "DONATION_AMOUNT", "label": "Donation Amount", "type": "amount", "document_type": "donation", "proof_required": true },
+        { "code": "DEDUCTION_PCT", "label": "Eligible deduction % (50 or 100)", "type": "amount" },
         { "code": "INSTITUTION_NAME", "label": "Institution Name", "type": "text" }
       ]
     },

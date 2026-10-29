@@ -2,16 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
 import './AdminCustomers.css';
+import CountryField from './CountryField';
+import { canManageCustomerRegistry } from './customerRegistryAccess';
+import { emptyMailboxes, mailboxFieldsForPlan } from './mailboxPlan';
 
-const API_ACCESS = '/api/admin/deployment-guide/access';
 const API_CUSTOMERS = '/api/admin/customers';
-
-const MAILBOX_FIELDS = [
-  { key: 'mailbox_hr', label: 'HR mailbox', placeholder: 'hr@acme.com' },
-  { key: 'mailbox_accounts', label: 'Accounts mailbox', placeholder: 'accounts@acme.com' },
-  { key: 'mailbox_it', label: 'IT mailbox', placeholder: 'it@acme.com' },
-  { key: 'mailbox_admin', label: 'Admin mailbox', placeholder: 'admin@acme.com' },
-];
 
 const FALLBACK_PLANS = [
   { id: 'basic', label: 'Basic' },
@@ -24,9 +19,6 @@ const FALLBACK_STATUSES = [
   { id: 'active', label: 'Active' },
 ];
 
-const emptyMailboxes = () =>
-  Object.fromEntries(MAILBOX_FIELDS.map((field) => [field.key, '']));
-
 const emptyForm = () => ({
   ...emptyMailboxes(),
   company_name: '',
@@ -34,6 +26,7 @@ const emptyForm = () => ({
   plan: 'essential',
   status: 'active',
   contact_email: '',
+  country: '',
   go_live_date: '',
   notes: '',
   admin_email: '',
@@ -71,9 +64,7 @@ export default function AdminRegisterCompany() {
   const loadMeta = useCallback(async () => {
     setError('');
     try {
-      const accessRes = await fetch(API_ACCESS, { headers: headers() });
-      const accessData = await accessRes.json().catch(() => ({}));
-      if (!accessRes.ok || !accessData.can_view_deployment_guide) {
+      if (!await canManageCustomerRegistry(headers())) {
         navigate('/admin', { replace: true });
         return;
       }
@@ -131,6 +122,7 @@ export default function AdminRegisterCompany() {
         plan: form.plan,
         status: form.status || 'active',
         contact_email: form.contact_email.trim() || undefined,
+        country: form.country.trim(),
         go_live_date: form.go_live_date || undefined,
         notes: form.notes.trim() || undefined,
         admin_email: form.admin_email.trim(),
@@ -139,7 +131,9 @@ export default function AdminRegisterCompany() {
         mailbox_hr: form.mailbox_hr.trim() || undefined,
         mailbox_accounts: form.mailbox_accounts.trim() || undefined,
         mailbox_it: form.mailbox_it.trim() || undefined,
+        mailbox_inventory: form.mailbox_inventory.trim() || undefined,
         mailbox_admin: form.mailbox_admin.trim() || undefined,
+        mailbox_finance: form.mailbox_finance.trim() || undefined,
       };
       const res = await fetch(API_CUSTOMERS, {
         method: 'POST',
@@ -257,13 +251,18 @@ export default function AdminRegisterCompany() {
                     }
                   />
                 </label>
+                <CountryField
+                  value={form.country}
+                  required
+                  onChange={(country) => setForm((current) => ({ ...current, country }))}
+                />
               </div>
             </section>
 
             <section className="cust-form-section cust-form-section--accent">
               <h3 className="cust-form-section__title">First company admin *</h3>
               <p className="cust-form-section__hint">
-                Seeds the Super Admin for this tenant. They sign in on the same login page with OTP.
+                Seeds the company Admin for this tenant. They sign in on the same login page with OTP. They cannot use Super Admin.
               </p>
               <div className="cust-form-section__grid">
                 <label className="cust-field cust-field--full">
@@ -308,7 +307,7 @@ export default function AdminRegisterCompany() {
                 Optional. HRMS emails for this company go to (or CC) these addresses.
               </p>
               <div className="cust-fieldset__grid">
-                {MAILBOX_FIELDS.map((field) => (
+                {mailboxFieldsForPlan(form.plan).map((field) => (
                   <label key={field.key}>
                     {field.label}
                     <input

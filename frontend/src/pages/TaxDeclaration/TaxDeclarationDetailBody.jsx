@@ -69,7 +69,7 @@ export function TaxDeclarationDetailBody({ decl, schema, employee, history, foot
 
             {decl.rejection_reason && (
                 <div className="tax-decl-banner tax-decl-banner--warn">
-                    Rejection reason: {decl.rejection_reason}
+                    Latest remark: {decl.rejection_reason}
                 </div>
             )}
 

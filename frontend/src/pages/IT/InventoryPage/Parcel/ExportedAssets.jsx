@@ -13,6 +13,7 @@ import {
   getInventoryFromStorage,
   saveInventoryToStorage,
 } from "../../Data";
+import { encodeInventoryFiles, isUploadAbort, useInventoryUpload } from "../InventoryUploadLock";
 import ClickableImage from "../../../../components/ClickableImage";
 import { openFirstImageInNewTab } from "../../../../utils/openImageInNewTab";
 import {
@@ -22,13 +23,14 @@ import {
   isMobileTabletHwType,
   getAssetCodeField,
 } from "../../inventoryCategories";
+import ProformaInvoiceForm from "./ProformaInvoiceForm";
 import "./ExportedAssets.css";
 import { formatDate } from "../../../../utils/dateFormat";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ASSET_CATEGORIES = [
   "IT Assets",
-  "Office Assets",
+  "Fixed Assets",
   "Transport Assets",
   "Infrastructure Assets",
 ];
@@ -358,6 +360,7 @@ function ModalAssetRow({ asset, individualPhoto }) {
 
 /** Export confirmation modal — includes Exported By field. */
 function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
+  const { runUpload, busy } = useInventoryUpload();
   const [destination,      setDestination]      = useState("");
   const [destinationError, setDestinationError] = useState("");
   const [exportedBy,       setExportedBy]       = useState("");
@@ -374,14 +377,16 @@ function ExportModal({ selectedAssets, individualPhotos, onSend, onCancel }) {
     return sum + 1;
   }, 0);
   const handlePhotoUpload = useCallback(async (files) => {
-    if (!files?.length) return;
+    if (!files?.length || busy) return;
     try {
-      const results = await readFilesAsDataURLs(files);
-      setParcelPhotos((prev) => [...prev, ...results]);
+      const encoded = await runUpload("Preparing photos…", ({ signal, setProgress }) =>
+        encodeInventoryFiles(files, { imagesOnly: true, signal, onProgress: setProgress }),
+      );
+      setParcelPhotos((prev) => [...prev, ...encoded.map((e) => e.data)]);
     } catch (e) {
-      console.error("[ExportModal] Photo upload failed:", e);
+      if (!isUploadAbort(e)) rtToast.error(e?.message || "Photo upload failed.");
     }
-  }, []);
+  }, [busy, runUpload]);
 
   const removeParcelPhoto = (index) =>
     setParcelPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -547,6 +552,7 @@ function AssetPhotoCell({ asset, photo, onUpload }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ReadyForExport() {
   const navigate = useNavigate();
+  const { runUpload, busy } = useInventoryUpload();
 
   const [allAssets,        setAllAssets]        = useState([]);
   const [activeCat,        setActiveCat]        = useState(ASSET_CATEGORIES[0]);
@@ -708,18 +714,24 @@ export default function ReadyForExport() {
   }, []);
 
   const handleIndividualPhoto = useCallback(async (assetId, files) => {
-    if (!files?.length) return;
+    if (!files?.length || busy) return;
     try {
-      const dataURL = await readAsDataURL(files[0]);
-      setIndividualPhotos((prev) => ({ ...prev, [assetId]: dataURL }));
+      const encoded = await runUpload("Preparing photo…", ({ signal, setProgress }) =>
+        encodeInventoryFiles([files[0]], { imagesOnly: true, signal, onProgress: setProgress }),
+      );
+      setIndividualPhotos((prev) => ({ ...prev, [assetId]: encoded[0].data }));
     } catch (e) {
-      console.error("[ReadyForExport] Individual photo upload failed:", e);
+      if (!isUploadAbort(e)) rtToast.error(e?.message || "Photo upload failed.");
     }
-  }, []);
+  }, [busy, runUpload]);
 
   // ── Export send — receives exportedBy as 4th argument ─────────────────────
   const handleSend = useCallback(
-    async (destination, parcelPhotos, idNo, exportedBy) => {
+    async ({ destination, parcelPhotos = [], idNo = "", exportedBy }) => {
+      if (busy) {
+        rtToast.warn("Please wait for uploads to finish.");
+        return;
+      }
       try {
         const exportLines = expandAssetsForExport(selectedAssets);
         await createParcelExportAPI({
@@ -752,8 +764,19 @@ export default function ReadyForExport() {
         showToast(`⚠️ ${msg}`);
       }
     },
-    [selectedAssets, individualPhotos, activeCat, loadAssets, showToast]
+    [selectedAssets, individualPhotos, activeCat, loadAssets, showToast, busy]
   );
+
+  if (showModal) {
+    return (
+      <ProformaInvoiceForm
+        selectedAssets={selectedAssets}
+        busy={busy}
+        onCancel={() => setShowModal(false)}
+        onExport={handleSend}
+      />
+    );
+  }
 
   return (
     <div className="re-page">
@@ -761,7 +784,7 @@ export default function ReadyForExport() {
 
       <div className="re-topbar">
         <button type="button" className="re-back-btn" onClick={() => navigate(BACK_PATH)}>
-          ← Back to Parcels
+          ← Back to Import/Export
         </button>
         <div>
           <h1 className="re-title">Ready for Export</h1>
@@ -987,14 +1010,6 @@ export default function ReadyForExport() {
         </div>
       </div>
 
-      {showModal && (
-        <ExportModal
-          selectedAssets={selectedAssets}
-          individualPhotos={individualPhotos}
-          onSend={handleSend}
-          onCancel={() => setShowModal(false)}
-        />
-      )}
     </div>
   );
 }

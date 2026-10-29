@@ -74,7 +74,12 @@ class EmployeeTaxDeclaration(db.Model):
     )
 
     def is_locked(self):
-        return self.status in ("submitted", "approved")
+        return (self.status or "").lower() in (
+            "submitted",
+            "verified",
+            "returned_to_accounts",
+            "approved",
+        )
 
     def to_dict(self, include_items=False, include_documents=False):
         payload = {

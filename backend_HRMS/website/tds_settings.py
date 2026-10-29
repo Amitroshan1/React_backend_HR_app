@@ -160,9 +160,7 @@ def payroll_tds_approved_only() -> bool:
 
 
 def payroll_declaration_statuses() -> frozenset[str]:
-    if payroll_tds_approved_only():
-        return frozenset({"approved"})
-    return frozenset({"approved", "submitted"})
+    return frozenset({"approved"})
 
 
 def fy_compact_key(financial_year: str) -> str:

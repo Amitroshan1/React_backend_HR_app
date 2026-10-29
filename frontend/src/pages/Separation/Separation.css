@@ -483,54 +483,6 @@
   margin: 0 0 0.5rem 0;
 }
 
-.separation-page-wrapper .noc-available {
-  font-size: 0.875rem;
-  color: #475569;
-  margin: 0 0 0.75rem 0;
-}
-
-.separation-page-wrapper .noc-pending {
-  font-size: 0.875rem;
-  color: var(--sep-text-muted);
-}
-
-.separation-page-wrapper .dept-noc-status-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.separation-page-wrapper .dept-noc-status {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--sep-border);
-  font-size: 0.875rem;
-}
-
-.separation-page-wrapper .dept-noc-status--cleared,
-.separation-page-wrapper .dept-noc-status--uploaded,
-.separation-page-wrapper .dept-noc-status--approved,
-.separation-page-wrapper .dept-noc-status--completed {
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-}
-
-.separation-page-wrapper .dept-noc-status--pending {
-  background: #fffbeb;
-  border-color: #fde68a;
-}
-
-.separation-page-wrapper .dept-noc-status--rejected {
-  background: #fef2f2;
-  border-color: #fecaca;
-}
-
 .separation-page-wrapper .exit-status-section {
   background: #f8fafc;
   padding: 1rem;

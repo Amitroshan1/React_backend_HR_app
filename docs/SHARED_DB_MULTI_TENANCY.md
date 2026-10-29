@@ -145,7 +145,7 @@ who belongs to several tenants picks the company.
     active today, leaves, queries, claims, resignations, pending counts, IT tickets and
     return requests), the leaves/queries/claims/resignations/employees lists, query detail
     and employee detail/punches are limited to the caller's tenant (by-id 404 across
-    tenants). The customer registry and deployment guide stay cross-tenant but only for
+    tenants). The customer registry stays cross-tenant but only for
     Admins of the platform tenant (id 1). The inventory count uses the tenant's IT stock
     (see IT / ITAM below).
   - [x] **Manager module** (`manager.py`, `manager_utils.py`, manager setup routes in

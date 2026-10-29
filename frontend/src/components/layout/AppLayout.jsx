@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
     hasFeature,
-    clearPlanContext,
     isAdminUser,
     isHrUser,
     canAccessAccountPanel,
@@ -11,13 +10,13 @@ import {
     canAccessHrPanel,
     canViewOwnAssignedAssets,
 } from "../../utils/planFeatures";
-import { clearPersistedPanelViews } from "../../hooks/usePersistedView";
-import { clearSensitiveToken } from "../../utils/sensitiveDataAuth";
 import {
-    ACTIVITY_KEY,
     empTypeFromToken,
-    getIdleTimeoutMs,
-    refreshSessionToken,
+    endSession,
+    ensureActivityStamp,
+    recordUserActivity,
+    refreshIfDue,
+    sessionShouldEnd,
 } from "../../utils/sessionTimeout";
 import { AdminReturnBar } from "./AdminReturnBar";
 import { crumbsForAdminPath } from "./AdminBreadcrumb";
@@ -32,9 +31,6 @@ import { withFileCacheBust } from "../../utils/secureFileUrl";
 import { normalizePhotoUrl } from "../../utils/userPhoto";
 import { TransitionRemarkProvider } from "../../pages/IT/itam/TransitionRemarkModal";
 import { syncItamFlagsFromApi } from "../../utils/itamFlags";
-
-/** How often to re-issue JWT while the user is actively using the app. */
-const SESSION_REFRESH_THROTTLE_MS = 2 * 60 * 1000;
 
 export const AppLayout = () => {
     const navigate = useNavigate();
@@ -177,78 +173,39 @@ export const AppLayout = () => {
     }, [navigate]);
 
     useEffect(() => {
-        const logoutForInactivity = () => {
-            localStorage.setItem("sessionExpired", "1");
-            localStorage.removeItem("token");
-            localStorage.removeItem(ACTIVITY_KEY);
-            clearSensitiveToken();
-            clearPlanContext();
-            clearPersistedPanelViews();
-            navigate("/");
-        };
-
-        const resolveTimeoutMs = () => {
+        const resolveEmpType = () => {
             const token = localStorage.getItem("token");
-            const empType =
+            return (
                 userData?.user?.emp_type
                 || userData?.user?.department
-                || empTypeFromToken(token);
-            return getIdleTimeoutMs(empType);
-        };
-
-        let lastRefreshAt = 0;
-
-        const markActivity = () => {
-            if (!localStorage.getItem("token")) return;
-            localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
-            const now = Date.now();
-            if (now - lastRefreshAt >= SESSION_REFRESH_THROTTLE_MS) {
-                lastRefreshAt = now;
-                refreshSessionToken().then((ok) => {
-                    if (!ok && !localStorage.getItem("token")) {
-                        logoutForInactivity();
-                    }
-                });
-            }
+                || empTypeFromToken(token)
+            );
         };
 
         const checkInactivity = () => {
             const token = localStorage.getItem("token");
             if (!token) return;
-            const raw = localStorage.getItem(ACTIVITY_KEY);
-            const lastActivity = Number(raw);
-            const timeoutMs = resolveTimeoutMs();
-            if (!raw || Number.isNaN(lastActivity) || Date.now() - lastActivity > timeoutMs) {
-                logoutForInactivity();
+            ensureActivityStamp();
+            if (sessionShouldEnd(resolveEmpType())) {
+                endSession("1");
+                return;
             }
+            refreshIfDue();
         };
 
-        // Enforce timeout immediately on refresh/open.
+        ensureActivityStamp();
         checkInactivity();
-        // Slide JWT while idle clock is still valid (e.g. after browser refresh).
-        if (localStorage.getItem("token") && localStorage.getItem(ACTIVITY_KEY)) {
-            const raw = localStorage.getItem(ACTIVITY_KEY);
-            const lastActivity = Number(raw);
-            if (raw && !Number.isNaN(lastActivity) && Date.now() - lastActivity <= resolveTimeoutMs()) {
-                lastRefreshAt = Date.now();
-                refreshSessionToken().then((ok) => {
-                    if (!ok && !localStorage.getItem("token")) {
-                        logoutForInactivity();
-                    }
-                });
-            }
-        }
 
         const activityEvents = ["click", "keydown", "mousemove", "scroll", "touchstart"];
         activityEvents.forEach((eventName) => {
-            window.addEventListener(eventName, markActivity, { passive: true });
+            window.addEventListener(eventName, recordUserActivity, { passive: true });
         });
 
         const intervalId = window.setInterval(checkInactivity, 15000);
 
         return () => {
             activityEvents.forEach((eventName) => {
-                window.removeEventListener(eventName, markActivity);
+                window.removeEventListener(eventName, recordUserActivity);
             });
             window.clearInterval(intervalId);
         };
@@ -297,13 +254,15 @@ export const AppLayout = () => {
     });
     const pathLower = (location.pathname || "").toLowerCase();
     const isInventoryPage = pathLower.startsWith("/it/inventory");
+    const isItShell = pathLower.startsWith("/it") && !isInventoryPage && !pathLower.startsWith("/it/employee");
     const isEmployeesDirectory = pathLower === "/employees" || pathLower.startsWith("/employees/");
-    const isAdminShell = pathLower.startsWith("/admin") || isEmployeesDirectory;
+    const isAdminShell = pathLower.startsWith("/admin") || isEmployeesDirectory || isItShell || isInventoryPage;
     const adminDeptVisit =
         typeof sessionStorage !== "undefined"
         && sessionStorage.getItem("adminDeptVisit") === "1";
     const hasCrumb = Boolean(crumbsForAdminPath(location.pathname, location.search));
-    // Department workspaces (when entered from Admin) + Admin Management subpages
+    // Department workspaces (when entered from Admin). IT / Inventory render
+    // the crumb inside their main column so it sits above the page card.
     const showAdminReturnBar =
         isAdminUser(headerUser)
         && hasCrumb
@@ -316,7 +275,7 @@ export const AppLayout = () => {
             {/* The Header now gets the username and full user object from the centralized context */}
             <Headers username={username} role={empType} user={headerUser} hasManagerAccess={userData.user?.has_manager_access} profilePic={profilePicWithCache} /> 
             
-            <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}${isInventoryPage && showAdminReturnBar ? " content-area--inventory-admin" : ""}${isAdminShell ? " content-area--admin-shell" : ""}`}>
+            <div className={`content-area${isInventoryPage ? " content-area--inventory" : ""}${isAdminShell ? " content-area--admin-shell" : ""}`}>
                 <AdminReturnBar visible={showAdminReturnBar} />
                 <TransitionRemarkProvider>
                     <Outlet />

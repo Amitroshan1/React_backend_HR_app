@@ -210,7 +210,7 @@ export default function DailyAssetsPage() {
       }
       setReturnAt((prev) => prev || toDatetimeLocalValue(data.default_expected_return_at));
     } catch (err) {
-      toastITApiFailure(err, "Unable to load Day-use Assets");
+      toastITApiFailure(err, "Unable to load Loan assets");
     } finally {
       setLoading(false);
     }
@@ -287,7 +287,7 @@ export default function DailyAssetsPage() {
     return (
       <div className="da-page">
         <div className="da-container">
-          <div className="da-loading">Loading Day-use Assets…</div>
+          <div className="da-loading">Loading Loan assets…</div>
         </div>
       </div>
     );
@@ -303,13 +303,13 @@ export default function DailyAssetsPage() {
             </button>
             <div className="da-title-block">
               <p className="da-kicker">My workspace</p>
-              <h1 className="da-title">Day-use Assets</h1>
+              <h1 className="da-title">Loan assets</h1>
             </div>
           </header>
           <div className="da-card da-card--setup">
             <h2>Upload signature</h2>
             <p className="da-card-copy">
-              Upload your signature once before you can request a day-use device. You can replace it later; old documents
+              Upload your signature once before you can request a loan device. You can replace it later; old documents
               keep the old signature.
             </p>
             <label className="da-file">
@@ -339,7 +339,7 @@ export default function DailyAssetsPage() {
           </button>
           <div className="da-title-block">
             <p className="da-kicker">My workspace</p>
-            <h1 className="da-title">Day-use Assets</h1>
+            <h1 className="da-title">Loan assets</h1>
           </div>
           <label className="da-file da-file--small">
             Replace signature
@@ -348,7 +348,7 @@ export default function DailyAssetsPage() {
         </header>
 
         <p className="da-sub">
-          Request devices and accessories for day use or multi-day. Set the expected return date/time on each request
+          Request devices and accessories on loan. Set the expected return date/time on each request
           (default {formatDateTimeDDMMYYYY(me?.default_expected_return_at) || "end of today"}). You can have multiple
           open requests.
         </p>
@@ -406,7 +406,7 @@ export default function DailyAssetsPage() {
         ) : null}
 
         <form className="da-card da-form-card" onSubmit={onCreate}>
-          <h2>New day-use request</h2>
+          <h2>New loan request</h2>
           <p className="da-muted da-form-hint">Add one or more devices and optional accessories in a single submission.</p>
 
           <div className="da-lines-grid">

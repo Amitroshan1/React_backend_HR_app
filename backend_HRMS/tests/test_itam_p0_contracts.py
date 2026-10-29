@@ -146,7 +146,7 @@ def test_canonical_status_legacy_map():
 
 def test_canonical_status_assigned_location_hint():
     assert (
-        canonical_status("assigned", inventory_category="Office Assets")
+        canonical_status("assigned", inventory_category="Fixed Assets")
         == CanonicalStatus.DEPLOYED.value
     )
     assert (

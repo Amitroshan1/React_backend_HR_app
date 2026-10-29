@@ -143,6 +143,67 @@
 .mbox-field--teal { border-top-color: #14b8a6; }
 .mbox-field--indigo { border-top-color: #6366f1; }
 .mbox-field--blue { border-top-color: #3b82f6; }
+.mbox-field--amber { border-top-color: #f59e0b; }
+.mbox-field--slate { border-top-color: #64748b; }
+
+.mbox-notice-info {
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--mbox-muted);
+}
+
+.mbox-notice-info strong {
+  color: var(--mbox-text);
+  font-weight: 700;
+}
+
+.mbox-notice-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 110px auto;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mbox-notice-add select,
+.mbox-notice-add input,
+.mbox-notice-add button,
+.mbox-notice-list button {
+  border: 1px solid var(--mbox-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.mbox-notice-add button,
+.mbox-notice-list button {
+  background: #e8f5f3;
+  color: #0c716a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mbox-notice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mbox-notice-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid #eef2f6;
+  border-radius: 10px;
+}
 
 .mbox-field__label {
   font-size: 0.8125rem;

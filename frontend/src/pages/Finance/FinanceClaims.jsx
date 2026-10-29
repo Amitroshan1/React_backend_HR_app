@@ -37,6 +37,18 @@ function inr(value) {
   return `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
+function linesFullyApproved(claim) {
+  const lines = claim.line_items || [];
+  return lines.length > 0 && lines.every((item) => String(item.status || "").toLowerCase() === "approved");
+}
+
+function payoutLabel(status) {
+  const value = String(status || "to_pay").toLowerCase();
+  if (value === "paid") return "Paid";
+  if (value === "hold") return "On hold";
+  return "To pay";
+}
+
 function initials(name) {
   const parts = String(name || "").replace(/[^a-zA-Z\s]/g, " ").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "E";
@@ -112,6 +124,29 @@ export function FinanceClaims() {
     }
   };
 
+  const payout = async (claimId, action) => {
+    try {
+      setBusyId(`payout-${claimId}`);
+      const response = await fetch(`/api/finance/expense-claims/${claimId}/payout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ action }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || "Could not update payout");
+      }
+      setClaims((prev) => prev.map((claim) => (
+        claim.id === claimId ? { ...claim, payout_status: action } : claim
+      )));
+      setError("");
+    } catch (err) {
+      setError(err.message || "Could not update payout");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const downloadExcel = async (claim) => {
     try {
       setExcelId(claim.id);
@@ -161,7 +196,7 @@ export function FinanceClaims() {
       <header className="fc-head">
         <div>
           <h2>Claims</h2>
-          <p>Review expense claims, approve or reject each line, and download the claim sheet.</p>
+          <p>Review each line, then pay or hold the claim after every line is approved.</p>
         </div>
         <div className="fc-stats">
           <div className="fc-stat">
@@ -236,6 +271,8 @@ export function FinanceClaims() {
           {claims.map((claim) => {
             const open = openId === claim.id;
             const lines = claim.line_items || [];
+            const canPay = linesFullyApproved(claim);
+            const payoutStatus = String(claim.payout_status || "to_pay").toLowerCase();
             return (
               <li key={claim.id} className={`fc-card${open ? " is-open" : ""}`}>
                 <div className="fc-row">
@@ -263,7 +300,34 @@ export function FinanceClaims() {
                     <div className="fc-amount">
                       <strong>{inr(claim.total_amount)}</strong>
                       <span className={`fc-badge ${statusClass(claim.status)}`}>{claim.status}</span>
+                      {canPay ? (
+                        <span className={`fc-badge ${payoutStatus === "paid" ? "is-approved" : payoutStatus === "hold" ? "is-partial" : "is-pending"}`}>
+                          {payoutLabel(payoutStatus)}
+                        </span>
+                      ) : null}
                     </div>
+                    {canPay && payoutStatus !== "paid" ? (
+                      <div className="fc-decide">
+                        <button
+                          type="button"
+                          className="fc-approve"
+                          disabled={busyId === `payout-${claim.id}`}
+                          onClick={() => payout(claim.id, "paid")}
+                        >
+                          Mark paid
+                        </button>
+                        {payoutStatus !== "hold" ? (
+                          <button
+                            type="button"
+                            className="fc-btn is-ghost"
+                            disabled={busyId === `payout-${claim.id}`}
+                            onClick={() => payout(claim.id, "hold")}
+                          >
+                            Hold
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <button type="button" className="fc-btn" disabled={excelId === claim.id} onClick={() => downloadExcel(claim)}>
                       <FileSpreadsheet size={15} />
                       {excelId === claim.id ? "Downloading…" : "Excel"}

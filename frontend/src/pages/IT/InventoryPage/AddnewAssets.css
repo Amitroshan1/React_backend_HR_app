@@ -575,6 +575,132 @@
   background: #fff;
 }
 
+.ana-table-wrap--responsive {
+  overflow: visible;
+  border: none;
+  background: transparent;
+}
+
+.ana-table-wrap--responsive .ana-table {
+  min-width: 0;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.ana-table-wrap--responsive .ana-table thead {
+  display: none;
+}
+
+.ana-table-wrap--responsive .ana-table tbody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ana-table-wrap--responsive .ana-table tr {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  align-items: start;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 14px 16px 16px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+}
+
+.ana-table-wrap--responsive .ana-table tbody tr:hover {
+  background: #ffffff;
+}
+
+.ana-table-wrap--responsive .ana-table tbody tr.row-invalid {
+  border-color: #fecaca;
+  background: #fffbfb;
+}
+
+.ana-table-wrap--responsive .ana-table td {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  vertical-align: top;
+}
+
+.ana-table-wrap--responsive .ana-table td[data-label]:not([data-label=""])::before {
+  content: attr(data-label);
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  line-height: 1.2;
+}
+
+.ana-table-wrap--responsive .ana-table td.ana-td-idx {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid #eef2f7;
+  font-size: 0;
+}
+
+.ana-table-wrap--responsive .ana-table td.ana-td-idx::before {
+  content: "Unit";
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ana-table-wrap--responsive .ana-table td.ana-td-idx::after {
+  content: "#" attr(data-label);
+  font-family: "DM Mono", monospace;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ana-table-wrap--responsive .ana-table td.ana-td-remarks,
+.ana-table-wrap--responsive .ana-table td.ana-td-action {
+  grid-column: 1 / -1;
+}
+
+.ana-table-wrap--responsive .ana-table td.ana-td-action {
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+.ana-table-wrap--responsive .ana-table td.ana-td-action::before {
+  display: none;
+}
+
+.ana-table-wrap--responsive .ana-cell-input,
+.ana-table-wrap--responsive .ana-cell-select,
+.ana-table-wrap--responsive .ana-cell-remarks {
+  min-width: 0;
+  width: 100%;
+}
+
+.ana-table-wrap--responsive .ana-qty-input {
+  max-width: none;
+}
+
+.ana-table-wrap--responsive .ana-td-photos {
+  min-width: 0;
+}
+
+.ana-table-wrap--responsive .ana-cell-remarks {
+  min-height: 72px;
+  resize: vertical;
+}
+
 .ana-table {
   width: 100%;
   border-collapse: collapse;
@@ -666,6 +792,37 @@
   font-family: "DM Mono", "Courier New", monospace;
   font-size: 12px;
   letter-spacing: 0.4px;
+}
+
+.ana-required-legend {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.ana-cell-select {
+  width: 100%;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 8px 11px;
+  font-size: 13px;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+  box-sizing: border-box;
+  min-width: 110px;
+  font-family: "DM Sans", inherit;
+}
+
+.ana-cell-select:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+}
+
+.ana-device-type-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .ana-qty-input {
@@ -1129,94 +1286,9 @@
     margin-top: 0;
   }
 
-  /* Table → stacked unit cards */
-  .ana-table-wrap--responsive {
-    overflow: visible;
-    border: none;
-    background: transparent;
-    margin-bottom: 10px;
-  }
-  .ana-table {
-    min-width: 0;
-  }
-  .ana-table thead {
-    display: none;
-  }
-  .ana-table tbody {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .ana-table tr {
-    display: block;
-    background: #ffffff;
-    border: 1.5px solid #e2e8f0;
-    border-radius: 14px;
-    padding: 4px 14px 12px;
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
-  }
-  .ana-table tr.row-invalid {
-    border-color: #fecaca;
-    background: #fffbfb;
-  }
-  .ana-table td {
-    display: grid;
-    grid-template-columns: minmax(92px, 34%) 1fr;
-    gap: 6px 10px;
-    align-items: start;
-    padding: 10px 0;
-    border-bottom: 1px solid #f1f5f9;
-  }
-  .ana-table td:last-child {
-    border-bottom: none;
-  }
-  .ana-table td[data-label]:not([data-label=""])::before {
-    content: attr(data-label);
-    font-size: 10.5px;
-    font-weight: 700;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.45px;
-    padding-top: 11px;
-    line-height: 1.2;
-  }
-  .ana-table td.ana-td-idx {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    grid-template-columns: unset;
-    border-bottom: 1.5px solid #e2e8f0;
-    padding: 12px 0 10px;
-    margin-bottom: 2px;
-    font-size: 0;
-  }
-  .ana-table td.ana-td-idx::before {
-    content: "Unit";
-    font-size: 10.5px;
-    font-weight: 700;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  .ana-table td.ana-td-idx::after {
-    content: "#" attr(data-label);
-    font-family: "DM Mono", monospace;
-    color: #6366f1;
-    font-size: 13px;
-    font-weight: 700;
-  }
-  .ana-table td.ana-td-action {
-    display: flex;
-    justify-content: flex-end;
-    border: none;
-    padding-top: 6px;
-    grid-template-columns: unset;
-  }
-  .ana-table td.ana-td-action::before {
-    display: none;
-  }
-  .ana-table td.ana-td-photos {
-    grid-template-columns: minmax(92px, 34%) 1fr;
+  .ana-table-wrap--responsive .ana-table tr {
+    grid-template-columns: 1fr;
+    padding: 12px 14px 14px;
   }
   .ana-btn-rm-row {
     width: 36px;

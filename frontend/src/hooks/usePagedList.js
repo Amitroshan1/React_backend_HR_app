@@ -60,7 +60,7 @@ export function usePagedList({
     selectMetaRef.current = selectMeta;
   });
 
-  const requestKey = `${fullKey}|${page}|${search}`;
+  const requestKey = `${fullKey}|${page}|${perPage}|${search}`;
   const haveFullList = result?.mode === "full" && result.fullKey === fullKey;
   const pending = !skip && !haveFullList && result?.key !== requestKey;
 

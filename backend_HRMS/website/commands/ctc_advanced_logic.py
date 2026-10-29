@@ -1,10 +1,13 @@
 """Advanced Indian CTC — VPF, NPS, EPS split, metro HRA (pure functions)."""
 from __future__ import annotations
 
-from .ctc_breakup_logic import PF_RATE, PF_WAGE_CAP_MONTHLY, pf_wage_capped, pf_wage_monthly
+try:
+    from .ctc_breakup_logic import PF_RATE, PF_WAGE_CAP_MONTHLY, pf_wage_capped, pf_wage_monthly
+except ImportError:
+    from ctc_breakup_logic import PF_RATE, PF_WAGE_CAP_MONTHLY, pf_wage_capped, pf_wage_monthly
 
 EPS_RATE = 8.33
-EPS_CONTRIB_MAX = 1250.0
+EPS_CONTRIB_MAX = 2082.5
 NPS_EMPLOYER_PCT_MAX = 10.0
 
 METRO_LOCATION_KEYWORDS = (
@@ -34,10 +37,25 @@ def resolve_is_metro_hra(*, location: str | None = None, explicit: bool | None =
     return any(k in loc for k in METRO_LOCATION_KEYWORDS)
 
 
-def employer_pf_eps_split(*, basic_salary: float = 0, dearness_allowance: float = 0) -> dict:
+def employer_pf_eps_split(
+    *,
+    basic_salary: float = 0,
+    dearness_allowance: float = 0,
+    as_of=None,
+    unrestricted: bool = False,
+) -> dict:
     """Employer PF 12% split into EPS (8.33% capped) + EPF employer balance."""
-    wage = pf_wage_capped(basic_salary, dearness_allowance)
-    eps = min(round(wage * EPS_RATE / 100.0), EPS_CONTRIB_MAX)
+    try:
+        from .ctc_breakup_logic import statutory_pack_for
+    except ImportError:
+        from ctc_breakup_logic import statutory_pack_for
+
+    pack = statutory_pack_for(as_of)
+    eps_max = float(pack.get("eps_contrib_max") or EPS_CONTRIB_MAX)
+    wage = pf_wage_capped(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+    )
+    eps = min(round(wage * EPS_RATE / 100.0, 2), eps_max)
     employer_total = round(wage * PF_RATE / 100.0, 2)
     epf_er = round(max(0.0, employer_total - eps), 2)
     return {

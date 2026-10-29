@@ -120,7 +120,7 @@ import { useState, useRef, useEffect } from "react";
 import { useLocation, Link, NavLink, useNavigate } from 'react-router-dom';
 import { toast } from "react-toastify";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
-import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt } from "react-icons/fa";
+import { FaChevronDown, FaUser, FaSignOutAlt, FaBriefcase, FaHandshake, FaHome, FaChartLine, FaCalendarAlt, FaFileAlt } from "react-icons/fa";
 import "./style/Headers.css";
 import { clearPlanContext, canAccessItPanel, canAccessHrPanel, canAccessAccountPanel, canAccessFinancePanel } from "../utils/planFeatures";
 import { clearPersistedPanelViews } from "../hooks/usePersistedView";
@@ -138,10 +138,10 @@ const getPageInfo = (pathname, firstName) => {
             "in-repair": "In Repair",
             "removed-it": "Removed From IT",
             "removed-assets": "Dead Assets",
-            parcels: "Parcels",
+            parcels: "Import/Export",
             "add-assets": "Add Assets",
-            "add-import": "Import Parcels",
-            "ready-export": "Export Parcels",
+            "add-import": "Import",
+            "ready-export": "Export",
             total: "All Assets",
         };
         return {
@@ -166,6 +166,7 @@ const getPageInfo = (pathname, firstName) => {
         '/queries/inbox': { title: 'Department Query Inbox', subtitle: 'Reply to queries assigned to your department' },
         '/claims': { title: 'Expense Claims', subtitle: 'Submit and track your claims' },
         '/separation': { title: 'Separation', subtitle: 'Resignation and clearance process' },
+        '/noc-application': { title: 'Apply for NOC', subtitle: 'Request exit clearance or a bonafide letter' },
         '/payslip': { title: 'Payslip', subtitle: 'View and download payslips' },
         '/tax-declaration': { title: 'Tax Declaration', subtitle: 'Submit your tax investment declaration for the financial year' },
         '/tax-declaration/final-proof': { title: 'Year-end Final Proof', subtitle: 'Enter actual amounts and upload proof documents' },
@@ -188,8 +189,9 @@ const getPageInfo = (pathname, firstName) => {
         '/manager': { title: 'Manager Panel', subtitle: 'Team Management' },
         '/manager/performance-reviews': { title: 'Performance Review Queue', subtitle: 'Review team self-assessments' },
         '/it': { title: DEPARTMENT_TITLES.it, subtitle: 'System Administration & Support' },
-        '/it/daily-checkout': { title: 'Day-use Assets', subtitle: 'Hardware day-use checkout' },
-        '/daily-assets': { title: 'Day-use Assets', subtitle: 'Request hardware for the day' },
+        '/it/daily-checkout': { title: 'Loan assets', subtitle: 'Hardware loan checkout' },
+        '/it/repair-bills': { title: 'Repair Bill', subtitle: 'Repair work and bills' },
+        '/daily-assets': { title: 'Loan assets', subtitle: 'Request hardware on loan' },
     };
 
     if (pathMap[normalizedPath]) return pathMap[normalizedPath];
@@ -240,12 +242,6 @@ const getPageInfo = (pathname, firstName) => {
 export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [queryUnreadCount, setQueryUnreadCount] = useState(0);
-    const [noticeInfo, setNoticeInfo] = useState({
-        notice_active: false,
-        days_left: 0,
-        can_revoke: false,
-    });
-    const [revokingNotice, setRevokingNotice] = useState(false);
     const dropdownRef = useRef(null);
     const location = useLocation();
     const navigate = useNavigate();
@@ -263,14 +259,19 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
     } catch {
         adminDeptVisit = false;
     }
+    const isAccountPath = pathLower === "/account" || pathLower.startsWith("/account/");
     // Any page opened via Admin / Command Center uses Admin Management (not "Portal")
+    // Account workspace always keeps Accounts Management, even after an Admin visit.
     const forceAdminManagementTitle =
-        pathLower.startsWith("/admin")
-        || pathLower.startsWith("/employees")
-        || pathLower.startsWith("/employee/")
-        || pathLower.startsWith("/archive-employees")
-        || pathLower.startsWith("/exit-employees")
-        || (adminDeptVisit && isAdminDepartmentPath(location.pathname));
+        !isAccountPath
+        && (
+            pathLower.startsWith("/admin")
+            || pathLower.startsWith("/employees")
+            || pathLower.startsWith("/employee/")
+            || pathLower.startsWith("/archive-employees")
+            || pathLower.startsWith("/exit-employees")
+            || (adminDeptVisit && isAdminDepartmentPath(location.pathname))
+        );
 
     const title = forceAdminManagementTitle
         ? DEPARTMENT_TITLES.admin
@@ -511,73 +512,6 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user }) 
         };
     }, []);
 
-    useEffect(() => {
-        let isMounted = true;
-        let timerId = null;
-        const token = localStorage.getItem("token");
-
-        const fetchNoticeInfo = async () => {
-            if (!token) return;
-            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-                return;
-            }
-            try {
-                const response = await fetch("/api/leave/seperation", {
-                    method: "GET",
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (!response.ok) {
-                    const body = await response.text();
-                    console.error("Notice fetch failed:", response.status, body);
-                    return;
-                }
-                let result;
-                try {
-                    result = await response.json();
-                } catch (err) {
-                    console.error("Notice parse error:", err);
-                    return;
-                }
-                if (isMounted && result && result.success) {
-                    const notice = result.notice || {};
-                    setNoticeInfo({
-                        notice_active: Boolean(notice.notice_active),
-                        days_left: Number(notice.days_left || 0),
-                        can_revoke: Boolean(notice.can_revoke),
-                    });
-                }
-            } catch (error) {
-                console.error("Notice period fetch error:", error);
-            }
-        };
-
-        fetchNoticeInfo();
-        timerId = window.setInterval(fetchNoticeInfo, 60000);
-        const onVisibility = () => {
-            if (document.visibilityState === "visible") fetchNoticeInfo();
-        };
-        const onRevoked = (event) => {
-            const notice = event?.detail?.notice;
-            if (notice) {
-                setNoticeInfo({
-                    notice_active: Boolean(notice.notice_active),
-                    days_left: Number(notice.days_left || 0),
-                    can_revoke: Boolean(notice.can_revoke),
-                });
-                return;
-            }
-            fetchNoticeInfo();
-        };
-        document.addEventListener("visibilitychange", onVisibility);
-        window.addEventListener("resignation-revoked", onRevoked);
-        return () => {
-            isMounted = false;
-            if (timerId) window.clearInterval(timerId);
-            document.removeEventListener("visibilitychange", onVisibility);
-            window.removeEventListener("resignation-revoked", onRevoked);
-        };
-    }, []);
-
     const handleLogout = () => {
         toast.info("Logged out successfully");
         clearLoginNotificationsFlag();
@@ -597,67 +531,6 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
     const handleQueryShortcutClick = () => {
         if (!queryShortcutAllowed) return;
         navigate("/queries/inbox?from=notification");
-    };
-
-    const handleRevokeNotice = async () => {
-        if (revokingNotice) return;
-        const token = localStorage.getItem("token");
-        if (!token) {
-            toast.error("Please login again");
-            return;
-        }
-        const ok = window.confirm("Revoke your resignation request?");
-        if (!ok) return;
-
-        setRevokingNotice(true);
-        try {
-            const response = await fetch("/api/leave/seperation/revoke", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                },
-                body: "{}",
-            });
-            const text = await response.text();
-            let result = {};
-            try {
-                result = text ? JSON.parse(text) : {};
-            } catch {
-                throw new Error(
-                    response.ok
-                        ? "Resignation may have been revoked, but the server returned an empty response. Please refresh."
-                        : `Unable to revoke resignation (HTTP ${response.status}). Please try again.`
-                );
-            }
-            if (!result || typeof result !== "object" || Array.isArray(result)) {
-                result = {};
-            }
-            if (!response.ok || !result.success) {
-                const apiMsg = result.message || result.msg || result.error;
-                if (response.status === 401) {
-                    throw new Error(apiMsg || "Session expired. Please login again.");
-                }
-                throw new Error(
-                    apiMsg || `Failed to revoke resignation (HTTP ${response.status || "error"})`
-                );
-            }
-            const notice = result.notice || {};
-            setNoticeInfo({
-                notice_active: Boolean(notice.notice_active),
-                days_left: Number(notice.days_left || 0),
-                can_revoke: Boolean(notice.can_revoke),
-            });
-            toast.success(result.message || "Resignation revoked successfully");
-            window.dispatchEvent(
-                new CustomEvent("resignation-revoked", { detail: result })
-            );
-        } catch (error) {
-            console.error("Revoke resignation error:", error);
-            toast.error(error.message || "Unable to revoke resignation");
-        } finally {
-            setRevokingNotice(false);
-        }
     };
 
     return (
@@ -680,22 +553,6 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                 </div>
 
                 <div className="header-right">
-                    {noticeInfo.notice_active && (
-                        <div className="notice-chip" title="90-day notice period countdown">
-                            <span className="notice-chip-text">Notice: {noticeInfo.days_left}d left</span>
-                            {noticeInfo.can_revoke && (
-                                <button
-                                    className="notice-revoke-btn"
-                                    onClick={handleRevokeNotice}
-                                    disabled={revokingNotice}
-                                    title="Revoke resignation"
-                                >
-                                    {revokingNotice ? "..." : "Revoke"}
-                                </button>
-                            )}
-                        </div>
-                    )}
-
                     {queryShortcutAllowed && (
                         <button
                             type="button"
@@ -710,7 +567,7 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                         </button>
                     )}
                     
-                    {(queryShortcutAllowed || noticeInfo.notice_active) && (
+                    {queryShortcutAllowed && (
                         <div className="divider"></div>
                     )}
 
@@ -759,6 +616,9 @@ const defaultAvatar = `https://ui-avatars.com/api/?name=${username}&background=2
                                 </Link>
                                 <Link to="/separation" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
                                     <FaHandshake className="d-icon" /> <span>Separation</span>
+                                </Link>
+                                <Link to="/noc-application" className="dropdown-item" onClick={() => setIsDropdownOpen(false)}>
+                                    <FaFileAlt className="d-icon" /> <span>Apply NOC</span>
                                 </Link>
 
                                 {/* Divider before Logout */}

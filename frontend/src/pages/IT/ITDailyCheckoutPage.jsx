@@ -99,7 +99,7 @@ export default function ITDailyCheckoutPage() {
           </button>
           <div className="da-title-block">
             <p className="da-kicker">IT · Asset Management</p>
-            <h1 className="da-title">Day-use Assets</h1>
+            <h1 className="da-title">Loan assets</h1>
           </div>
           <p className="da-total">
             {loading ? (

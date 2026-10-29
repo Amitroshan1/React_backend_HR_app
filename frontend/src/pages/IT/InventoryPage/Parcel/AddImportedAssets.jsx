@@ -4,12 +4,11 @@ import { useNavigate } from "react-router-dom";
 import { toast as rtToast } from "react-toastify";
 import ClickableImage from "../../../../components/ClickableImage";
 import { createParcelImportsAPI, toastITApiFailure, syncParcelsFromAPI } from "../../Data";
+import { encodeInventoryFiles, isUploadAbort, useInventoryUpload } from "../InventoryUploadLock";
 import "./AddImportedAssets.css";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
 const BACK_PATH = "/it/inventory/parcels";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 const createBlankRow = () => ({
   id: Date.now() + Math.random(),
   assetName: "",
@@ -34,56 +33,47 @@ const validateRow = (row) => {
 
 const hasErrors = (row) => Object.keys(row._errors).length > 0;
 
-const readFilesAsDataURLs = (files) =>
-  Promise.all(
-    Array.from(files).map(
-      (file) =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload  = (e) => resolve(e.target.result);
-          reader.onerror = () => reject(new Error(`Failed to read: ${file.name}`));
-          reader.readAsDataURL(file);
-        })
-    )
+function Field({ label, required, optional, error, children }) {
+  return (
+    <label className={`ai-field${error ? " has-error" : ""}`}>
+      <span className="ai-field-label">
+        {label}
+        {required ? <span className="req"> *</span> : null}
+        {optional ? <span className="ai-optional">optional</span> : null}
+      </span>
+      {children}
+      {error ? <span className="ai-cell-err">{error}</span> : null}
+    </label>
   );
+}
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-/** Single table cell with an input + optional inline error. */
-const CellInput = ({ value, onChange, placeholder, error, type = "text", ...rest }) => (
-  <td>
-    <input
-      className={`ai-cell-input${error ? " err" : ""}`}
-      type={type}
-      value={value}
-      placeholder={placeholder}
-      onChange={onChange}
-      {...rest}
-    />
-    {error && <span className="ai-cell-err">{error}</span>}
-  </td>
-);
-
-/** Photo upload button + thumbnail strip for a single row. */
-const PhotoCell = ({ rowId, photos, onUpload, onRemove }) => {
+function PhotoField({ rowId, photos, busy, onUpload, onRemove }) {
   const handleChange = (e) => {
     onUpload(rowId, e.target.files);
     e.target.value = null;
   };
 
   return (
-    <td className="ai-td-photos">
-      <label className="ai-photo-btn">
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          style={{ display: "none" }}
-          onChange={handleChange}
-        />
-        + Upload
-      </label>
-
+    <div className="ai-field ai-field-photos">
+      <span className="ai-field-label">
+        Photos <span className="ai-optional">optional</span>
+      </span>
+      <div className="ai-photo-row">
+        <label className={`ai-photo-btn${busy ? " is-busy" : ""}`}>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            disabled={busy}
+            style={{ display: "none" }}
+            onChange={handleChange}
+          />
+          {busy ? "Uploading…" : "+ Upload photos"}
+        </label>
+        {photos.length > 0 && (
+          <span className="ai-photo-count">{photos.length} attached</span>
+        )}
+      </div>
       {photos.length > 0 && (
         <div className="ai-photo-thumbs">
           {photos.map((src, i) => (
@@ -101,90 +91,111 @@ const PhotoCell = ({ rowId, photos, onUpload, onRemove }) => {
           ))}
         </div>
       )}
-    </td>
+    </div>
   );
-};
+}
 
-/** One editable import row. */
-const ImportRow = ({ row, index, isOnly, onUpdate, onRemove, onPhotoUpload, onPhotoRemove }) => (
-  <tr className={hasErrors(row) ? "row-invalid" : ""}>
-    <td className="ai-td-idx">{index + 1}</td>
+function ImportCard({ row, index, isOnly, busy, onUpdate, onRemove, onPhotoUpload, onPhotoRemove }) {
+  const set = (field) => (e) => onUpdate(row.id, field, e.target.value);
 
-    <CellInput
-      value={row.assetName}
-      error={row._errors.assetName}
-      placeholder="e.g. Dell Laptop"
-      onChange={(e) => onUpdate(row.id, "assetName", e.target.value)}
-    />
-    <CellInput
-      value={row.count}
-      error={row._errors.count}
-      placeholder="Qty"
-      type="number"
-      min="1"
-      onChange={(e) => onUpdate(row.id, "count", e.target.value)}
-    />
-    <CellInput
-      value={row.from}
-      error={row._errors.from}
-      placeholder="Supplier / Source"
-      onChange={(e) => onUpdate(row.id, "from", e.target.value)}
-    />
-    <CellInput
-      value={row.date}
-      error={row._errors.date}
-      type="date"
-      onChange={(e) => onUpdate(row.id, "date", e.target.value)}
-    />
-    <CellInput
-      value={row.idNo}
-      placeholder="e.g. INV-2024-001"
-      onChange={(e) => onUpdate(row.id, "idNo", e.target.value)}
-    />
-    <CellInput
-      value={row.receivedBy}
-      error={row._errors.receivedBy}
-      placeholder="Name of receiver"
-      onChange={(e) => onUpdate(row.id, "receivedBy", e.target.value)}
-    />
+  return (
+    <article className={`ai-record${hasErrors(row) ? " is-invalid" : ""}`}>
+      <header className="ai-record-head">
+        <div className="ai-record-title">
+          <span className="ai-record-num">{String(index + 1).padStart(2, "0")}</span>
+          <div>
+            <h3>Import record</h3>
+            <p>{row.assetName.trim() || "Untitled shipment"}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="ai-btn-remove"
+          onClick={() => onRemove(row.id)}
+          disabled={isOnly}
+          title={isOnly ? "At least one record is required" : "Remove record"}
+          aria-label="Remove record"
+        >
+          Remove
+        </button>
+      </header>
 
-    <PhotoCell
-      rowId={row.id}
-      photos={row.photos}
-      onUpload={onPhotoUpload}
-      onRemove={onPhotoRemove}
-    />
+      <div className="ai-record-grid">
+        <Field label="Asset name" required error={row._errors.assetName}>
+          <input
+            className="ai-cell-input"
+            value={row.assetName}
+            placeholder="e.g. Dell Laptop"
+            onChange={set("assetName")}
+          />
+        </Field>
+        <Field label="Count" required error={row._errors.count}>
+          <input
+            className="ai-cell-input ai-input-narrow"
+            type="number"
+            min="1"
+            value={row.count}
+            placeholder="Qty"
+            onChange={set("count")}
+          />
+        </Field>
+        <Field label="From" required error={row._errors.from}>
+          <input
+            className="ai-cell-input"
+            value={row.from}
+            placeholder="Supplier / source"
+            onChange={set("from")}
+          />
+        </Field>
+        <Field label="Date" required error={row._errors.date}>
+          <input
+            className="ai-cell-input"
+            type="date"
+            value={row.date}
+            onChange={set("date")}
+          />
+        </Field>
+        <Field label="ID number" optional>
+          <input
+            className="ai-cell-input"
+            value={row.idNo}
+            placeholder="e.g. INV-2024-001"
+            onChange={set("idNo")}
+          />
+        </Field>
+        <Field label="Received by" required error={row._errors.receivedBy}>
+          <input
+            className="ai-cell-input"
+            value={row.receivedBy}
+            placeholder="Name of receiver"
+            onChange={set("receivedBy")}
+          />
+        </Field>
+        <PhotoField
+          rowId={row.id}
+          photos={row.photos}
+          busy={busy}
+          onUpload={onPhotoUpload}
+          onRemove={onPhotoRemove}
+        />
+      </div>
+    </article>
+  );
+}
 
-    <td>
-      <button
-        type="button"
-        className="ai-btn-remove"
-        onClick={() => onRemove(row.id)}
-        disabled={isOnly}
-        title="Remove row"
-        aria-label="Remove row"
-      >
-        ✕
-      </button>
-    </td>
-  </tr>
-);
-
-// ─── Main Component ───────────────────────────────────────────────────────────
 export default function AddImportedAssets() {
   const navigate = useNavigate();
+  const { runUpload, busy } = useInventoryUpload();
 
   const [rows,        setRows]        = useState([createBlankRow()]);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [toast,       setToast]       = useState("");
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
   const showToast = useCallback((msg) => {
     setToast(msg);
     setTimeout(() => setToast(""), 3000);
   }, []);
 
-  // ── Row management ─────────────────────────────────────────────────────────
   const addRow = () => setRows((prev) => [...prev, createBlankRow()]);
 
   const removeRow = (id) =>
@@ -204,20 +215,22 @@ export default function AddImportedAssets() {
     [isSubmitted]
   );
 
-  // ── Photo management ────────────────────────────────────────────────────────
   const handlePhotoUpload = useCallback(async (rowId, files) => {
-    if (!files?.length) return;
+    if (!files?.length || busy) return;
     try {
-      const dataURLs = await readFilesAsDataURLs(files);
+      const encoded = await runUpload("Preparing photos…", ({ signal, setProgress }) =>
+        encodeInventoryFiles(files, { imagesOnly: true, signal, onProgress: setProgress }),
+      );
+      const dataURLs = encoded.map((e) => e.data);
       setRows((prev) =>
         prev.map((row) =>
           row.id === rowId ? { ...row, photos: [...row.photos, ...dataURLs] } : row
         )
       );
     } catch (e) {
-      console.error("[AddImportedAssets] Photo upload failed:", e);
+      if (!isUploadAbort(e)) rtToast.error(e?.message || "Photo upload failed.");
     }
-  }, []);
+  }, [busy, runUpload]);
 
   const removePhoto = useCallback((rowId, photoIndex) => {
     setRows((prev) =>
@@ -229,8 +242,11 @@ export default function AddImportedAssets() {
     );
   }, []);
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
+    if (busy) {
+      rtToast.warn("Please wait for uploads to finish.");
+      return;
+    }
     setIsSubmitted(true);
 
     const validatedRows = rows.map((r) => ({ ...r, _errors: validateRow(r) }));
@@ -253,7 +269,6 @@ export default function AddImportedAssets() {
       try {
         await syncParcelsFromAPI();
       } catch (syncErr) {
-        // Save already succeeded; listing sync can fail on large photo payloads.
         console.warn("[AddImportedAssets] Sync after save failed:", syncErr);
         try {
           const existing = JSON.parse(localStorage.getItem("pcl_imported") || "[]");
@@ -278,79 +293,77 @@ export default function AddImportedAssets() {
   };
 
   const handleCancel = () => navigate(BACK_PATH);
+  const invalidCount = isSubmitted ? rows.filter(hasErrors).length : 0;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="ai-page">
       {toast && <div className="ai-toast" role="status">{toast}</div>}
 
-      {/* Top Bar */}
       <div className="ai-topbar">
         <button type="button" className="ai-back-btn" onClick={handleCancel}>
-          ← Back to Parcels
+          ← Back to Import/Export
         </button>
-        <div>
+        <div className="ai-topbar-copy">
           <h1 className="ai-title">Add Imported Assets</h1>
+          <p className="ai-subtitle">Record incoming shipments. Fields marked <span className="req">*</span> are required.</p>
         </div>
       </div>
 
-      {/* Table Card */}
-      <div className="ai-card">
-        <div className="ai-card-head">
-          <span className="ai-card-title">Import Records</span>
-          <span className="ai-row-count">
-            {rows.length} row{rows.length !== 1 ? "s" : ""}
-          </span>
-        </div>
+      <main className="ai-main">
+        <section className="ai-card">
+          <div className="ai-card-head">
+            <div>
+              <span className="ai-section-num">01</span>
+              <span className="ai-card-title">Import records</span>
+            </div>
+            <span className="ai-row-count">
+              {rows.length} record{rows.length !== 1 ? "s" : ""}
+            </span>
+          </div>
 
-        <div className="ai-table-wrap ai-table-wrap--scroll">
-          <table className="ai-table">
-            <thead className="ai-thead-sticky">
-              <tr>
-                <th className="ai-th-sticky">#</th>
-                <th className="ai-th-sticky">Assets Name <span className="req">*</span></th>
-                <th className="ai-th-sticky">Count <span className="req">*</span></th>
-                <th className="ai-th-sticky">From <span className="req">*</span></th>
-                <th className="ai-th-sticky">Date <span className="req">*</span></th>
-                <th className="ai-th-sticky">ID No</th>
-                <th className="ai-th-sticky">Received By <span className="req">*</span></th>
-                <th className="ai-th-sticky">Photos</th>
-                <th className="ai-th-sticky" aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => (
-                <ImportRow
-                  key={row.id}
-                  row={row}
-                  index={index}
-                  isOnly={rows.length === 1}
-                  onUpdate={updateRow}
-                  onRemove={removeRow}
-                  onPhotoUpload={handlePhotoUpload}
-                  onPhotoRemove={removePhoto}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <p className="ai-required-legend">
+            Required: Asset name, Count, From, Date, Received by. ID number and photos are optional.
+          </p>
 
-        <button type="button" className="ai-btn-add-row" onClick={addRow}>
-          + Add Row
-        </button>
-      </div>
+          <div className="ai-records">
+            {rows.map((row, index) => (
+              <ImportCard
+                key={row.id}
+                row={row}
+                index={index}
+                isOnly={rows.length === 1}
+                busy={busy}
+                onUpdate={updateRow}
+                onRemove={removeRow}
+                onPhotoUpload={handlePhotoUpload}
+                onPhotoRemove={removePhoto}
+              />
+            ))}
+          </div>
 
-      {/* Footer */}
+          <button type="button" className="ai-btn-add-row" onClick={addRow}>
+            + Add another record
+          </button>
+        </section>
+      </main>
+
       <div className="ai-footer">
-        <button type="button" className="ai-btn-cancel" onClick={handleCancel}>
-          Cancel
-        </button>
-        <button type="button" className="ai-btn-submit" onClick={handleSubmit}>
-          Save Import Records
-        </button>
+        <div className="ai-footer-info">
+          {invalidCount > 0 && (
+            <span className="ai-footer-warn">
+              Fix {invalidCount} record{invalidCount !== 1 ? "s" : ""} before saving
+            </span>
+          )}
+        </div>
+        <div className="ai-footer-actions">
+          <button type="button" className="ai-btn-cancel" onClick={handleCancel}>
+            Cancel
+          </button>
+          <button type="button" className="ai-btn-submit" onClick={handleSubmit} disabled={busy}>
+            Save import records
+          </button>
+        </div>
       </div>
     </div>
   );
 }
-
-

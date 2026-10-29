@@ -22,6 +22,15 @@ _DEFAULTS = {
     "lwf_employee_yearly": 6.0,
     "conveyance_cap_monthly": 1600.0,
     "medical_cap_monthly": 1250.0,
+    "medical_cap_is_annual": False,
+    "pf_unrestricted": False,
+    "esi_once_covered_default": False,
+    "apply_bonus_eligibility": True,
+    "require_finance_approve_ctc": True,
+    "require_hr_prepare": False,
+    "require_admin_if_increment_pct_over": 0.0,
+    "allow_self_approve_if_dual_role": True,
+    "active_statutory_pack_id": "",
 }
 
 _FLOAT_KEYS = (
@@ -35,6 +44,7 @@ _FLOAT_KEYS = (
     "lwf_employee_yearly",
     "conveyance_cap_monthly",
     "medical_cap_monthly",
+    "require_admin_if_increment_pct_over",
 )
 
 _BOOL_KEYS = (
@@ -42,6 +52,17 @@ _BOOL_KEYS = (
     "include_edli_in_ctc",
     "include_statutory_bonus_in_ctc",
     "include_lwf_in_ctc",
+    "medical_cap_is_annual",
+    "pf_unrestricted",
+    "esi_once_covered_default",
+    "apply_bonus_eligibility",
+    "require_finance_approve_ctc",
+    "require_hr_prepare",
+    "allow_self_approve_if_dual_role",
+)
+
+_STRING_KEYS = (
+    "active_statutory_pack_id",
 )
 
 _NAMESPACE = "ctc"
@@ -94,6 +115,9 @@ def save_ctc_settings(updates: dict, tenant_id=None, *, admin_id=None) -> dict:
                 current[key] = max(0.0, float(updates[key]))
             except (TypeError, ValueError):
                 pass
+    for key in _STRING_KEYS:
+        if key in updates:
+            current[key] = str(updates[key] or "").strip()
     store = _company_store()
     if store is not None:
         store.save_settings(_NAMESPACE, store.settings_tenant_id(tenant_id), current, admin_id=admin_id)
@@ -106,9 +130,15 @@ def save_ctc_settings(updates: dict, tenant_id=None, *, admin_id=None) -> dict:
 
 def ctc_policy_payload() -> dict:
     from .commands.professional_tax import list_ptax_states
+    from .commands.statutory_pack import statutory_public_payload
+
+    from .ctc_approval_service import approval_settings
 
     settings = load_ctc_settings()
+    statutory = statutory_public_payload()
     return {
         **settings,
+        **approval_settings(),
         "ptax_states": list_ptax_states(),
+        "statutory": statutory,
     }

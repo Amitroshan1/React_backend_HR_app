@@ -7,8 +7,8 @@ import {
   toastITApiFailure,
   syncITDataFromAPI,
 } from "../Data";
+import { encodeInventoryFiles, isUploadAbort, useInventoryUpload } from "./InventoryUploadLock";
 import {
-  encodeInventoryFiles,
   getFieldMeta,
   InventoryFileCell,
 } from "./inventoryFileUpload";
@@ -59,6 +59,7 @@ function CellInput({ value, onChange, placeholder, error, type = "text", classNa
 
 export default function InfraEquipmentForm({ equipmentType }) {
   const navigate = useNavigate();
+  const { runUpload } = useInventoryUpload();
   const effectiveType = equipmentType || "Equipment";
   const [rows, setRows] = useState([blankRow()]);
   const [submitted, setSubmitted] = useState(false);
@@ -91,7 +92,9 @@ export default function InfraEquipmentForm({ equipmentType }) {
     );
 
     try {
-      const encoded = await encodeInventoryFiles(fileList, { imagesOnly });
+      const encoded = await runUpload("Preparing files…", ({ signal, setProgress }) =>
+        encodeInventoryFiles(fileList, { imagesOnly, signal, onProgress: setProgress }),
+      );
       const dataUrls = encoded.map((e) => e.data);
       const names = encoded.map((e) => e.name);
 
@@ -121,9 +124,9 @@ export default function InfraEquipmentForm({ equipmentType }) {
             : r,
         ),
       );
-      toast.error(err?.message || "Could not process image.");
+      if (!isUploadAbort(err)) toast.error(err?.message || "Could not process image.");
     }
-  }, []);
+  }, [runUpload]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitted(true);

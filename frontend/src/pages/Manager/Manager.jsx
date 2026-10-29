@@ -5,6 +5,7 @@ import { ClaimRequests } from "./comps/LeaveRequests/ClaimRequests";
 import { WFHRequests } from "./comps/LeaveRequests/WFHRequests";
 import { ResignationRequests } from "./comps/LeaveRequests/ResignationRequests";
 import { NocRequests } from "./comps/LeaveRequests/NocRequests";
+import { PurchaseRequests } from "./comps/LeaveRequests/PurchaseRequests";
 import { ManagerPerformanceReviews } from "./ManagerPerformanceReviews";
 import { ManagerProbationReviews } from "./ManagerProbationReviews";
 import { ManagerTeamAttendance } from "./ManagerTeamAttendance";
@@ -21,6 +22,7 @@ const MANAGER_TABS = [
   "claims",
   "resignation",
   "noc",
+  "purchase",
   "performance",
   "probation",
   "attendance",
@@ -32,6 +34,7 @@ const APPROVAL_TABS = [
   { key: "claims", label: "Claims", countKey: "claim" },
   { key: "resignation", label: "Resignation", countKey: "resignation" },
   { key: "noc", label: "NOC Request", countKey: "noc" },
+  { key: "purchase", label: "Purchase", countKey: "purchase" },
 ];
 const PERFORMANCE_TAB = { key: "performance", label: "Performance", countKey: "performance" };
 const PROBATION_TAB = { key: "probation", label: "Probation", countKey: "probation" };
@@ -53,6 +56,7 @@ export const Manager = () => {
     claim: 0,
     resignation: 0,
     noc: 0,
+    purchase: 0,
   });
   const [pendingPerformanceCount, setPendingPerformanceCount] = useState(0);
   const [probationCount, setProbationCount] = useState(0);
@@ -183,6 +187,10 @@ export const Manager = () => {
       setActiveTab("noc");
       return;
     }
+    if ((counts.purchase || 0) > 0) {
+      setActiveTab("purchase");
+      return;
+    }
     if ((pendingPerformanceCount || 0) > 0) {
       setActiveTab("performance");
       return;
@@ -190,7 +198,7 @@ export const Manager = () => {
     if ((probationCount || 0) > 0) {
       setActiveTab("probation");
     }
-  }, [countsLoaded, performanceCountLoaded, probationCountLoaded, counts.leave, counts.wfh, counts.claim, counts.resignation, counts.noc, pendingPerformanceCount, probationCount]);
+  }, [countsLoaded, performanceCountLoaded, probationCountLoaded, counts.leave, counts.wfh, counts.claim, counts.resignation, counts.noc, counts.purchase, pendingPerformanceCount, probationCount]);
 
   const getCount = (countKey) => {
     if (countKey === "performance") return pendingPerformanceCount;
@@ -218,6 +226,8 @@ export const Manager = () => {
         return <ResignationRequests {...panelProps} />;
       case "noc":
         return <NocRequests {...panelProps} />;
+      case "purchase":
+        return <PurchaseRequests {...panelProps} />;
       case "performance":
         return <ManagerPerformanceReviews />;
       case "probation":

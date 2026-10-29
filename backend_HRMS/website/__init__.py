@@ -65,9 +65,13 @@ def create_app():
     app.config["ZEPTO_CC_HR"] = os.getenv("ZEPTO_CC_HR")
     app.config["ZEPTO_CC_ACCOUNT"] = os.getenv("ZEPTO_CC_ACCOUNT")
     app.config["ZEPTO_CC_IT"] = os.getenv("ZEPTO_CC_IT")
+    app.config["ZEPTO_CC_FINANCE"] = os.getenv("ZEPTO_CC_FINANCE")
+    app.config["ZEPTO_CC_INVENTORY"] = os.getenv("ZEPTO_CC_INVENTORY")
     app.config["EMAIL_HR"] = os.getenv("EMAIL_HR")
     app.config["EMAIL_ACCOUNTS"] = os.getenv("EMAIL_ACCOUNTS")
+    app.config["EMAIL_FINANCE"] = os.getenv("EMAIL_FINANCE")
     app.config["EMAIL_IT"] = os.getenv("EMAIL_IT")
+    app.config["EMAIL_INVENTORY"] = os.getenv("EMAIL_INVENTORY")
     app.config["EMAIL_ADMIN"] = os.getenv("EMAIL_ADMIN")
     app.config["DAILY_CHECKOUT_RETURN_HOUR"] = os.getenv("DAILY_CHECKOUT_RETURN_HOUR", "18")
     app.config["DAILY_CHECKOUT_RETURN_MINUTE"] = os.getenv("DAILY_CHECKOUT_RETURN_MINUTE", "0")
@@ -190,19 +194,23 @@ def create_app():
 
     @jwt.unauthorized_loader
     def _jwt_unauthorized(reason):
-        resp = jsonify(success=False, message=reason or "Authorization required")
+        resp = jsonify(success=False, message=reason or "Authorization required", code="auth_required")
         resp.status_code = 401
         return resp
 
     @jwt.invalid_token_loader
     def _jwt_invalid(reason):
-        resp = jsonify(success=False, message=reason or "Invalid session token")
+        resp = jsonify(success=False, message=reason or "Invalid session token", code="invalid_session")
         resp.status_code = 401
         return resp
 
     @jwt.expired_token_loader
     def _jwt_expired(_jwt_header, _jwt_payload):
-        resp = jsonify(success=False, message="Session expired. Please login again.")
+        resp = jsonify(
+            success=False,
+            message="Session expired. Please login again.",
+            code="session_expired",
+        )
         resp.status_code = 401
         return resp
 
@@ -251,18 +259,22 @@ def create_app():
     )
     from .models.ctc_breakup import CTCBreakup
     from .models.ctc_breakup_revision import CTCBreakupRevision
+    from .models.ctc_change_request import CTCChangeRequest  # noqa: F401
     from .models.employee_salary_loan import EmployeeSalaryLoan
     from .models.fnf_settlement import FnfSettlement
     from .models.monthly_payroll import MonthlyPayroll
+    from .models.payroll_batch import PayrollBatch, PayrollBatchMember  # noqa: F401
     from .models.assessment import AssessmentInvite
     from .models.employee_circle_history import EmployeeCircleHistory
     from .models.employee_employment_status_history import EmployeeEmploymentStatusHistory  # noqa: F401
     from .models.otp import OTP  # noqa: F401 — register for db.create_all
+    from .models.inventory_purchase_request import InventoryPurchaseRequest  # noqa: F401
     from .models.it_models import (
         ITInventoryItem,
         ITInventoryQuantityAssignment,
         ITOfficeStockDeployment,
         ITAssetUnit,
+        ITDeviceType,  # noqa: F401 — register for db.create_all
         ITSoftwareLicense,
         ITAssetAssignment,
         ITAssetReturnRequest,
@@ -272,6 +284,7 @@ def create_app():
         ITParcelExport,
         ITParcelExportItem,
         ITParcelImport,
+        ITRepairBill,
         ITAssetTransition,
         ITAssetReview,
     )
@@ -329,6 +342,7 @@ def create_app():
     from .query import query
     from .Accounts import Accounts
     from .finance import finance_bp
+    from .inventory_purchase import purchase_bp
     from .manager import manager
     from .it import it_bp
     from .daily_checkout.views import daily_checkout_bp
@@ -354,6 +368,7 @@ def create_app():
     app.register_blueprint(hr, url_prefix="/api/HumanResource")
     app.register_blueprint(Accounts, url_prefix="/api/accounts")
     app.register_blueprint(finance_bp, url_prefix="/api/finance")
+    app.register_blueprint(purchase_bp, url_prefix="/api/inventory-purchase")
     app.register_blueprint(query, url_prefix="/api/query")
     app.register_blueprint(manager, url_prefix="/api/manager")
     app.register_blueprint(it_bp, url_prefix="/api/it")
@@ -408,6 +423,7 @@ def create_app():
             addcol("it_parcel_export_items", "make")
             addcol("it_asset_units", "project_code")
             addcol("it_asset_units", "device_location")
+            addcol("it_asset_units", "device_type")
         except Exception as e:
             app.logger.warning("Parcel name column migration skipped: %s", e)
 
@@ -996,6 +1012,23 @@ def create_app():
             db.session.rollback()
             app.logger.warning("Zero-qty inventory cleanup skipped: %s", e)
 
+    def _ensure_it_repair_bills_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.it_models import ITRepairBill
+
+            insp = inspect(db.engine)
+            if "it_repair_bills" in set(insp.get_table_names()):
+                return
+            from sqlalchemy import text
+
+            with db.engine.begin() as conn:
+                conn.execute(text("SET SESSION lock_wait_timeout=5"))
+                ITRepairBill.__table__.create(bind=conn, checkfirst=True)
+            app.logger.info("Created table it_repair_bills")
+        except Exception as e:
+            app.logger.warning("IT repair bills table ensure skipped: %s", e)
+
     def _ensure_it_return_request_table():
         try:
             from sqlalchemy import inspect
@@ -1122,14 +1155,14 @@ def create_app():
                         conn.execute(
                             text(
                                 f'ALTER TABLE "{table}" ADD COLUMN inventory_category '
-                                "VARCHAR(60) NOT NULL DEFAULT 'Office Assets'"
+                                "VARCHAR(60) NOT NULL DEFAULT 'Fixed Assets'"
                             )
                         )
                     else:
                         conn.execute(
                             text(
                                 f"ALTER TABLE {table} ADD COLUMN inventory_category "
-                                "VARCHAR(60) NOT NULL DEFAULT 'Office Assets'"
+                                "VARCHAR(60) NOT NULL DEFAULT 'Fixed Assets'"
                             )
                         )
                 if "asset_unit_id" not in existing:
@@ -1148,6 +1181,37 @@ def create_app():
                         )
         except Exception as e:
             app.logger.warning("IT office stock deployment table ensure skipped: %s", e)
+
+    def _rename_office_assets_to_fixed():
+        """Keep stored inventory tabs in step with the Fixed Assets label."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            dialect = db.engine.dialect.name
+            tables = (
+                "it_inventory_items",
+                "it_office_stock_deployments",
+                "it_asset_units",
+                "it_asset_transitions",
+                "it_deleted_asset_logs",
+                "it_removed_assets",
+            )
+            with db.engine.begin() as conn:
+                for table in tables:
+                    if table not in set(insp.get_table_names()):
+                        continue
+                    cols = {c["name"] for c in insp.get_columns(table)}
+                    if "inventory_category" not in cols:
+                        continue
+                    q = (
+                        text(f'UPDATE "{table}" SET inventory_category = :new WHERE inventory_category = :old')
+                        if dialect == "postgresql"
+                        else text(f"UPDATE {table} SET inventory_category = :new WHERE inventory_category = :old")
+                    )
+                    conn.execute(q, {"new": "Fixed Assets", "old": "Office Assets"})
+        except Exception as e:
+            app.logger.warning("Office Assets rename skipped: %s", e)
 
     def _ensure_it_asset_transitions_table():
         """P0: create empty it_asset_transitions table (writes start in P1)."""
@@ -2070,6 +2134,15 @@ def create_app():
                 )
             if "ptax_state" not in existing:
                 additions.append(("ptax_state", "VARCHAR(2) NULL"))
+            if "esic_covered" not in existing:
+                additions.append(
+                    (
+                        "esic_covered",
+                        "BOOLEAN NULL DEFAULT FALSE"
+                        if dialect == "postgresql"
+                        else "TINYINT(1) NULL DEFAULT 0",
+                    )
+                )
             phase3_bool_cols = (
                 "include_statutory_bonus_in_ctc",
                 "include_lwf_in_ctc",
@@ -2232,6 +2305,14 @@ def create_app():
         except Exception as e:
             app.logger.warning("ctc_breakup_revisions table ensure skipped: %s", e)
 
+    def _ensure_ctc_change_request_table():
+        try:
+            from .models.ctc_change_request import CTCChangeRequest
+
+            CTCChangeRequest.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as e:
+            app.logger.warning("ctc_change_requests table ensure skipped: %s", e)
+
     def _ensure_payroll_lifecycle_tables():
         try:
             from .models.employee_salary_loan import EmployeeSalaryLoan
@@ -2325,6 +2406,15 @@ def create_app():
                 app.logger.info("Added column %s.%s", table, col)
         except Exception as e:
             app.logger.warning("phase6 HR columns ensure skipped: %s", e)
+
+    def _ensure_payroll_batch_tables():
+        try:
+            from .models.payroll_batch import PayrollBatch, PayrollBatchMember
+
+            PayrollBatch.__table__.create(bind=db.engine, checkfirst=True)
+            PayrollBatchMember.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as e:
+            app.logger.warning("payroll_batches table ensure skipped: %s", e)
 
     def _ensure_payroll_governance_columns():
         """Phase 8 — payroll status, statutory bonus, audit log."""
@@ -2641,6 +2731,45 @@ def create_app():
         except Exception as e:
             app.logger.warning("offboarding_reminder_logs ensure skipped: %s", e)
 
+    def _ensure_noc_application_requests_table():
+        try:
+            from sqlalchemy import inspect, text
+            from .models.seperation import NocApplicationRequest
+
+            if NocApplicationRequest.__tablename__ not in inspect(db.engine).get_table_names():
+                NocApplicationRequest.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table %s", NocApplicationRequest.__tablename__)
+            columns = {column["name"] for column in inspect(db.engine).get_columns(NocApplicationRequest.__tablename__)}
+            with db.engine.begin() as connection:
+                if "hr_remarks" not in columns:
+                    connection.execute(text("ALTER TABLE noc_application_requests ADD COLUMN hr_remarks TEXT"))
+                if "hr_document_path" not in columns:
+                    connection.execute(text("ALTER TABLE noc_application_requests ADD COLUMN hr_document_path VARCHAR(500)"))
+        except Exception as e:
+            app.logger.warning("noc_application_requests ensure skipped: %s", e)
+
+    def _ensure_official_email_requests_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.official_email_request import OfficialEmailRequest
+
+            if OfficialEmailRequest.__tablename__ not in inspect(db.engine).get_table_names():
+                OfficialEmailRequest.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table %s", OfficialEmailRequest.__tablename__)
+        except Exception as e:
+            app.logger.warning("official_email_requests ensure skipped: %s", e)
+
+    def _ensure_asset_assignment_requests_table():
+        try:
+            from sqlalchemy import inspect
+            from .models.asset_assignment_request import AssetAssignmentRequest
+
+            if AssetAssignmentRequest.__tablename__ not in inspect(db.engine).get_table_names():
+                AssetAssignmentRequest.__table__.create(bind=db.engine, checkfirst=True)
+                app.logger.info("Created table %s", AssetAssignmentRequest.__tablename__)
+        except Exception as e:
+            app.logger.warning("asset_assignment_requests ensure skipped: %s", e)
+
     def _ensure_employee_archive_rehire_columns():
         try:
             from sqlalchemy import inspect, text
@@ -2696,6 +2825,28 @@ def create_app():
                 app.logger.info("Widened resignations.status to VARCHAR(32)")
         except Exception as e:
             app.logger.warning("resignations.status ensure skipped: %s", e)
+
+    def _ensure_resignations_hr_remarks():
+        """HR remarks when submitting separation for Admin exit approval."""
+        try:
+            from sqlalchemy import inspect, text
+
+            insp = inspect(db.engine)
+            table = "resignations"
+            if table not in insp.get_table_names():
+                return
+            cols = {c["name"] for c in insp.get_columns(table)}
+            if "hr_remarks" in cols:
+                return
+            dialect = db.engine.dialect.name
+            with db.engine.begin() as conn:
+                if dialect in ("mysql", "mariadb"):
+                    conn.execute(text("ALTER TABLE resignations ADD COLUMN hr_remarks TEXT NULL"))
+                else:
+                    conn.execute(text("ALTER TABLE resignations ADD COLUMN hr_remarks TEXT"))
+            app.logger.info("Added column resignations.hr_remarks")
+        except Exception as e:
+            app.logger.warning("resignations.hr_remarks ensure skipped: %s", e)
 
     def _ensure_exit_interview_table():
         try:
@@ -2819,10 +2970,12 @@ def create_app():
             _ensure_biometric_log_reprocess_columns()
             _ensure_attendance_realtime_events_table()
             _ensure_biometric_hr_indexes()
+            _ensure_it_repair_bills_table()
             _ensure_it_return_request_table()
             _ensure_it_return_request_columns()
             _ensure_it_inventory_quantity_assignment_table()
             _ensure_it_office_stock_deployment_table()
+            _rename_office_assets_to_fixed()
             _ensure_it_asset_transitions_table()
             _ensure_it_asset_reviews_table()
             _ensure_it_asset_lifecycle_columns()
@@ -2840,6 +2993,9 @@ def create_app():
             _backfill_admin_employment_status()
             _ensure_deployed_customers_table()
             _ensure_tenants_table()
+            from .tenant_migrations import ensure_company_country_columns
+
+            ensure_company_country_columns(db.engine, app.logger)
             _ensure_admin_tenant_id_column()
             _ensure_admin_tenant_uniques()
             _ensure_manager_contact_tenant_id()
@@ -2853,6 +3009,7 @@ def create_app():
             _ensure_form16_parsed_columns()
             _ensure_monthly_payroll_tds_columns()
             _ensure_ctc_revision_table()
+            _ensure_ctc_change_request_table()
             _ensure_payroll_lifecycle_tables()
             _ensure_master_data_tenant_ids()
             _ensure_company_settings_table()
@@ -2863,13 +3020,18 @@ def create_app():
             _ensure_recruitment_tenant_ids()
             _ensure_phase6_hr_columns()
             _ensure_payroll_governance_columns()
+            _ensure_payroll_batch_tables()
             _ensure_leave_application_columns()
             _ensure_attendance_regularization_table()
             _ensure_employee_exit_history_columns()
             _ensure_admin_exit_login_until_column()
             _ensure_offboarding_reminder_table()
+            _ensure_noc_application_requests_table()
+            _ensure_official_email_requests_table()
+            _ensure_asset_assignment_requests_table()
             _ensure_employee_archive_rehire_columns()
             _ensure_resignations_status_varchar()
+            _ensure_resignations_hr_remarks()
             _ensure_exit_interview_table()
             _ensure_comp_off_gain_dedupe_key()
             _cleanup_zero_qty_inventory_rows()

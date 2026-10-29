@@ -19,7 +19,7 @@ _PT_RULES_PATH = Path(__file__).resolve().parents[1] / "data" / "professional_ta
 
 EPS_RATE = 8.33
 PF_RATE = 12.0
-EPS_CONTRIB_MAX = 1250.0
+EPS_CONTRIB_MAX = 2082.5
 
 
 def _load_pt_rules() -> dict:
@@ -65,11 +65,19 @@ def compute_pf_ecr_amounts(
     payable_days: float,
     calendar_days: int,
     epf_employee_paid: float,
+    as_of=None,
+    unrestricted_pf: bool = False,
 ) -> dict:
-    epf_wages = pf_wage_capped(basic, dearness_allowance)
+    from .ctc_breakup_logic import statutory_pack_for
+
+    pack = statutory_pack_for(as_of)
+    eps_max = float(pack.get("eps_contrib_max") or EPS_CONTRIB_MAX)
+    epf_wages = pf_wage_capped(
+        basic, dearness_allowance, as_of=as_of, unrestricted=unrestricted_pf
+    )
     eps_wages = epf_wages
     edli_wages = epf_wages
-    eps_contribution = min(round(epf_wages * EPS_RATE / 100.0), EPS_CONTRIB_MAX)
+    eps_contribution = min(round(epf_wages * EPS_RATE / 100.0, 2), eps_max)
     employer_pf_total = round(epf_wages * PF_RATE / 100.0)
     epf_er_diff = max(0, employer_pf_total - eps_contribution)
     ee_contribution = float(epf_employee_paid or 0)

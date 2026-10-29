@@ -6,10 +6,11 @@ Total Annual CTC = Fixed Annual CTC + Variable pay (bonus / incentive)
 
 Gross (monthly) = Basic + DA + HRA + Special + Conveyance + Medical + LTA
 Gratuity (yearly) = (Basic + DA) / 26 × 15
-Employer PF (yearly) = 12% × min(Basic + DA, 15000) × 12
-PF Admin (yearly) = 0.5% × min(Basic + DA, 15000) × 12  (optional in CTC)
-EDLI (yearly) = 0.5% × min(Basic + DA, 15000) × 12  (optional in CTC)
+Employer PF (yearly) = 12% × min(Basic + DA, statutory PF ceiling) × 12
+  Ceiling ₹15,000 until 16 Sep 2026; ₹25,000 from 17 Sep 2026 (S.O. 5109(E)).
+PF Admin / EDLI (yearly) = 0.5% × capped PF wage × 12  (optional in CTC)
 Employer ESIC (yearly) = 3.25% × Gross × 12  if Gross < 21,001 else 0
+  (or still charged when once-covered).
 
 Basic + DA rule: 40% to 50% of monthly fixed CTC (Indian salary structuring norm).
 """
@@ -17,14 +18,17 @@ Basic + DA rule: 40% to 50% of monthly fixed CTC (Indian salary structuring norm
 DEFAULT_HRA_PCT = 40.0
 BASIC_MIN_PCT_OF_CTC = 40.0
 BASIC_MAX_PCT_OF_CTC = 50.0
-PF_WAGE_CAP_MONTHLY = 15000.0
+# Current (post 17 Sep 2026) defaults. Date-aware values come from statutory_pack.
+PF_WAGE_CAP_MONTHLY = 25000.0
 PF_RATE = 12.0
 PF_ADMIN_PCT = 0.5
 EDLI_EMPLOYER_PCT = 0.5
 STATUTORY_BONUS_PCT_DEFAULT = 8.33
+STATUTORY_BONUS_WAGE_CAP = 21000.0
 ESIC_GROSS_CAP = 21001.0
 ESIC_EMPLOYEE_PCT = 0.75
 ESIC_EMPLOYER_PCT = 3.25
+MEDICAL_CAP_ANNUAL_HINT = 20000.0
 HRA_MIN_PCT = 5.0
 HRA_MAX_PCT = 50.0
 CTC_SOLVE_TOLERANCE = 50.0
@@ -47,9 +51,49 @@ _MONTH_NAME_TO_NUM = {
 }
 
 
+_STATUTORY_MOD = None
+
+
+def _statutory():
+    global _STATUTORY_MOD
+    if _STATUTORY_MOD is not None:
+        return _STATUTORY_MOD
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent / "statutory_pack.py"
+    spec = importlib.util.spec_from_file_location("ctc_statutory_pack", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _STATUTORY_MOD = mod
+    return mod
+
+
+def statutory_pack_for(as_of=None):
+    return _statutory().pack_for_date(as_of)
+
+
+def pf_wage_cap_for(as_of=None, unrestricted=False):
+    if unrestricted:
+        return None
+    return float(_statutory().pf_wage_cap_monthly(as_of, unrestricted=False))
+
+
 def pf_wage_monthly(basic_salary=0, dearness_allowance=0):
     """Statutory wage base for PF, gratuity, and HRA percentage."""
     return max(0.0, float(basic_salary or 0)) + max(0.0, float(dearness_allowance or 0))
+
+
+def resolve_medical_cap_monthly(medical_cap_monthly=None, medical_cap_is_annual=None):
+    """Treat large values (≥ 20,000) as annual unless explicitly monthly."""
+    if medical_cap_monthly is None:
+        return None
+    val = max(0.0, float(medical_cap_monthly))
+    if medical_cap_is_annual is True or (
+        medical_cap_is_annual is None and val >= MEDICAL_CAP_ANNUAL_HINT
+    ):
+        return val / 12.0
+    return val
 
 
 def normalize_allowance_heads(
@@ -176,54 +220,90 @@ def gratuity_monthly(basic_salary=0, dearness_allowance=0):
     return gratuity_yearly(basic_salary, dearness_allowance) / 12.0
 
 
-def pf_wage_capped(basic_salary=0, dearness_allowance=0):
-    return min(pf_wage_monthly(basic_salary, dearness_allowance), PF_WAGE_CAP_MONTHLY)
+def pf_wage_capped(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    wage = pf_wage_monthly(basic_salary, dearness_allowance)
+    if unrestricted:
+        return wage
+    cap = pf_wage_cap_for(as_of, unrestricted=False)
+    if cap is None:
+        return wage
+    return min(wage, cap)
 
 
-def employer_pf_yearly(basic_salary=0, dearness_allowance=0):
-    wage = pf_wage_capped(basic_salary, dearness_allowance)
+def employer_pf_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    wage = pf_wage_capped(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+    )
     return wage * (PF_RATE / 100.0) * 12.0
 
 
-def employer_pf_monthly(basic_salary=0, dearness_allowance=0):
-    return employer_pf_yearly(basic_salary, dearness_allowance) / 12.0
+def employer_pf_monthly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    return employer_pf_yearly(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+    ) / 12.0
 
 
-def pf_admin_yearly(basic_salary=0, dearness_allowance=0):
-    wage = pf_wage_capped(basic_salary, dearness_allowance)
+def pf_admin_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    wage = pf_wage_capped(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+    )
     if wage <= 0:
         return 0.0
     return wage * (PF_ADMIN_PCT / 100.0) * 12.0
 
 
-def pf_admin_monthly(basic_salary=0, dearness_allowance=0):
-    return pf_admin_yearly(basic_salary, dearness_allowance) / 12.0
+def pf_admin_monthly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    return pf_admin_yearly(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+    ) / 12.0
 
 
-def edli_yearly(basic_salary=0, dearness_allowance=0):
-    wage = pf_wage_capped(basic_salary, dearness_allowance)
+def edli_yearly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    wage = pf_wage_capped(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+    )
     if wage <= 0:
         return 0.0
     return wage * (EDLI_EMPLOYER_PCT / 100.0) * 12.0
 
 
-def edli_monthly(basic_salary=0, dearness_allowance=0):
-    return edli_yearly(basic_salary, dearness_allowance) / 12.0
+def edli_monthly(basic_salary=0, dearness_allowance=0, *, as_of=None, unrestricted=False):
+    return edli_yearly(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted
+    ) / 12.0
 
 
 def statutory_bonus_yearly(
     basic_salary=0,
     dearness_allowance=0,
     bonus_pct=STATUTORY_BONUS_PCT_DEFAULT,
+    *,
+    apply_eligibility=True,
+    bonus_wage_cap=STATUTORY_BONUS_WAGE_CAP,
 ):
     wage = pf_wage_monthly(basic_salary, dearness_allowance)
     if wage <= 0:
         return 0.0
+    if apply_eligibility and wage > float(bonus_wage_cap or STATUTORY_BONUS_WAGE_CAP):
+        return 0.0
     return wage * 12.0 * float(bonus_pct or STATUTORY_BONUS_PCT_DEFAULT) / 100.0
 
 
-def statutory_bonus_monthly(basic_salary=0, dearness_allowance=0, bonus_pct=STATUTORY_BONUS_PCT_DEFAULT):
-    return statutory_bonus_yearly(basic_salary, dearness_allowance, bonus_pct) / 12.0
+def statutory_bonus_monthly(
+    basic_salary=0,
+    dearness_allowance=0,
+    bonus_pct=STATUTORY_BONUS_PCT_DEFAULT,
+    *,
+    apply_eligibility=True,
+    bonus_wage_cap=STATUTORY_BONUS_WAGE_CAP,
+):
+    return statutory_bonus_yearly(
+        basic_salary,
+        dearness_allowance,
+        bonus_pct,
+        apply_eligibility=apply_eligibility,
+        bonus_wage_cap=bonus_wage_cap,
+    ) / 12.0
 
 
 def lwf_employer_yearly(lwf_employer_yearly_amount=12.0):
@@ -237,6 +317,7 @@ def apply_allowance_caps(
     lta_allowance=0,
     conveyance_cap_monthly=None,
     medical_cap_monthly=None,
+    medical_cap_is_annual=None,
 ):
     """Cap conveyance / medical per company policy (Indian norms)."""
     heads = {
@@ -250,27 +331,34 @@ def apply_allowance_caps(
             heads["conveyance_allowance"], max(0.0, float(conveyance_cap_monthly))
         )
     if medical_cap_monthly is not None:
+        monthly_cap = resolve_medical_cap_monthly(
+            medical_cap_monthly, medical_cap_is_annual=medical_cap_is_annual
+        )
         heads["medical_allowance"] = min(
-            heads["medical_allowance"], max(0.0, float(medical_cap_monthly))
+            heads["medical_allowance"], max(0.0, float(monthly_cap))
         )
     total = sum(heads.values())
     return heads, total
 
 
-def employer_esic_yearly(monthly_gross):
+def employer_esic_yearly(monthly_gross, *, once_covered=False):
     g = float(monthly_gross or 0)
-    if g <= 0 or g >= ESIC_GROSS_CAP:
+    if g <= 0:
+        return 0.0
+    if g >= ESIC_GROSS_CAP and not once_covered:
         return 0.0
     return g * (ESIC_EMPLOYER_PCT / 100.0) * 12.0
 
 
-def employer_esic_monthly(monthly_gross):
-    return employer_esic_yearly(monthly_gross) / 12.0
+def employer_esic_monthly(monthly_gross, *, once_covered=False):
+    return employer_esic_yearly(monthly_gross, once_covered=once_covered) / 12.0
 
 
-def employee_esic_monthly(monthly_gross):
+def employee_esic_monthly(monthly_gross, *, once_covered=False):
     g = float(monthly_gross or 0)
-    if g <= 0 or g >= ESIC_GROSS_CAP:
+    if g <= 0:
+        return 0.0
+    if g >= ESIC_GROSS_CAP and not once_covered:
         return 0.0
     return g * (ESIC_EMPLOYEE_PCT / 100.0)
 
@@ -289,6 +377,10 @@ def _annual_ctc_raw(
     lwf_employer_yearly_amount=12.0,
     include_nps_in_ctc=False,
     nps_employer_pct_of_basic=10.0,
+    as_of=None,
+    unrestricted_pf=False,
+    esic_once_covered=False,
+    apply_bonus_eligibility=True,
 ):
     wage = pf_wage_monthly(basic_salary, dearness_allowance)
     hra_pct_val = float(hra_pct)
@@ -296,12 +388,18 @@ def _annual_ctc_raw(
     hra = wage * hra_pct_val / 100.0
     gross = wage + hra + other
     extras = 0.0
+    pf_kw = dict(as_of=as_of, unrestricted=unrestricted_pf)
     if include_pf_admin_in_ctc:
-        extras += pf_admin_yearly(basic_salary, dearness_allowance)
+        extras += pf_admin_yearly(basic_salary, dearness_allowance, **pf_kw)
     if include_edli_in_ctc:
-        extras += edli_yearly(basic_salary, dearness_allowance)
+        extras += edli_yearly(basic_salary, dearness_allowance, **pf_kw)
     if include_statutory_bonus_in_ctc:
-        extras += statutory_bonus_yearly(basic_salary, dearness_allowance, statutory_bonus_pct)
+        extras += statutory_bonus_yearly(
+            basic_salary,
+            dearness_allowance,
+            statutory_bonus_pct,
+            apply_eligibility=apply_bonus_eligibility,
+        )
     if include_lwf_in_ctc:
         extras += lwf_employer_yearly(lwf_employer_yearly_amount)
     if include_nps_in_ctc:
@@ -314,9 +412,9 @@ def _annual_ctc_raw(
         )
     return (
         gross * 12.0
-        + employer_pf_yearly(basic_salary, dearness_allowance)
+        + employer_pf_yearly(basic_salary, dearness_allowance, **pf_kw)
         + extras
-        + employer_esic_yearly(gross)
+        + employer_esic_yearly(gross, once_covered=esic_once_covered)
         + float(mediclaim_yearly or 0)
         + gratuity_yearly(basic_salary, dearness_allowance)
     )
@@ -571,6 +669,10 @@ def annual_ctc_from_monthly(
     lwf_employer_yearly_amount=12.0,
     include_nps_in_ctc=False,
     nps_employer_pct_of_basic=10.0,
+    as_of=None,
+    unrestricted_pf=False,
+    esic_once_covered=False,
+    apply_bonus_eligibility=True,
     *,
     other_allowance=None,
     special_allowance=0,
@@ -582,6 +684,10 @@ def annual_ctc_from_monthly(
     nps_kw = dict(
         include_nps_in_ctc=include_nps_in_ctc,
         nps_employer_pct_of_basic=nps_employer_pct_of_basic,
+        as_of=as_of,
+        unrestricted_pf=unrestricted_pf,
+        esic_once_covered=esic_once_covered,
+        apply_bonus_eligibility=apply_bonus_eligibility,
     )
     _, allowance_sum = normalize_allowance_heads(
         special_allowance=special_allowance,
@@ -632,29 +738,51 @@ def employer_costs_summary(
     lwf_employer_yearly_amount=12.0,
     include_nps_in_ctc=False,
     nps_employer_pct_of_basic=10.0,
+    as_of=None,
+    unrestricted_pf=False,
+    esic_once_covered=False,
+    apply_bonus_eligibility=True,
 ):
+    pf_kw = dict(as_of=as_of, unrestricted=unrestricted_pf)
     pf_admin_y = (
-        pf_admin_yearly(basic_salary, dearness_allowance)
+        pf_admin_yearly(basic_salary, dearness_allowance, **pf_kw)
         if include_pf_admin_in_ctc else 0.0
     )
     edli_y = (
-        edli_yearly(basic_salary, dearness_allowance)
+        edli_yearly(basic_salary, dearness_allowance, **pf_kw)
         if include_edli_in_ctc else 0.0
     )
     bonus_y = (
-        statutory_bonus_yearly(basic_salary, dearness_allowance, statutory_bonus_pct)
+        statutory_bonus_yearly(
+            basic_salary,
+            dearness_allowance,
+            statutory_bonus_pct,
+            apply_eligibility=apply_bonus_eligibility,
+        )
         if include_statutory_bonus_in_ctc else 0.0
     )
     lwf_y = (
         lwf_employer_yearly(lwf_employer_yearly_amount)
         if include_lwf_in_ctc else 0.0
     )
-    from .ctc_advanced_logic import employer_pf_eps_split, nps_employer_monthly, nps_employer_yearly
-
-    eps_split = employer_pf_eps_split(
-        basic_salary=basic_salary,
-        dearness_allowance=dearness_allowance,
+    pack = statutory_pack_for(as_of)
+    wage_capped = pf_wage_capped(
+        basic_salary, dearness_allowance, as_of=as_of, unrestricted=unrestricted_pf
     )
+    eps = min(round(wage_capped * float(pack.get("eps_rate") or 8.33) / 100.0, 2), float(pack.get("eps_contrib_max") or 2082.5))
+    employer_pf_m = round(wage_capped * (PF_RATE / 100.0), 2)
+    eps_split = {
+        "eps_contribution_monthly": round(eps, 2),
+        "eps_contribution_yearly": round(eps * 12, 2),
+        "epf_er_contribution_monthly": round(max(0.0, employer_pf_m - eps), 2),
+        "epf_er_contribution_yearly": round(max(0.0, employer_pf_m - eps) * 12, 2),
+    }
+    nps_employer_monthly = nps_employer_yearly = None
+    if include_nps_in_ctc:
+        try:
+            from .ctc_advanced_logic import nps_employer_monthly, nps_employer_yearly
+        except ImportError:
+            from ctc_advanced_logic import nps_employer_monthly, nps_employer_yearly
     nps_m = (
         nps_employer_monthly(
             basic_salary=basic_salary,
@@ -674,8 +802,8 @@ def employer_costs_summary(
     return {
         "gratuity_yearly": round(gratuity_yearly(basic_salary, dearness_allowance), 2),
         "gratuity_monthly": round(gratuity_monthly(basic_salary, dearness_allowance), 2),
-        "employer_pf_yearly": round(employer_pf_yearly(basic_salary, dearness_allowance), 2),
-        "employer_pf_monthly": round(employer_pf_monthly(basic_salary, dearness_allowance), 2),
+        "employer_pf_yearly": round(employer_pf_yearly(basic_salary, dearness_allowance, **pf_kw), 2),
+        "employer_pf_monthly": round(employer_pf_monthly(basic_salary, dearness_allowance, **pf_kw), 2),
         "pf_admin_yearly": round(pf_admin_y, 2),
         "pf_admin_monthly": round(pf_admin_y / 12.0, 2),
         "edli_yearly": round(edli_y, 2),
@@ -684,8 +812,8 @@ def employer_costs_summary(
         "statutory_bonus_monthly": round(bonus_y / 12.0, 2),
         "lwf_employer_yearly": round(lwf_y, 2),
         "lwf_employer_monthly": round(lwf_y / 12.0, 2),
-        "employer_esic_yearly": round(employer_esic_yearly(monthly_gross), 2),
-        "employer_esic_monthly": round(employer_esic_monthly(monthly_gross), 2),
+        "employer_esic_yearly": round(employer_esic_yearly(monthly_gross, once_covered=esic_once_covered), 2),
+        "employer_esic_monthly": round(employer_esic_monthly(monthly_gross, once_covered=esic_once_covered), 2),
         "mediclaim_yearly": round(float(mediclaim_yearly or 0), 2),
         "include_pf_admin_in_ctc": bool(include_pf_admin_in_ctc),
         "include_edli_in_ctc": bool(include_edli_in_ctc),

@@ -52,7 +52,7 @@ def test_deployed_not_checked_out_without_employee():
 
 def test_office_category_assigned_is_deployed():
     assert (
-        _life.canonical_status("assigned", inventory_category="Office Assets")
+        _life.canonical_status("assigned", inventory_category="Fixed Assets")
         == "Deployed"
     )
 

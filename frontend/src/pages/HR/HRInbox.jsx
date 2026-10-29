@@ -9,6 +9,7 @@ const HR_API_BASE = '/api/HumanResource';
 const TYPE_LABELS = {
   probation: 'Probation',
   noc: 'NOC',
+  noc_application: 'NOC application',
   exit: 'Separation',
   leave: 'Leave / WFH',
   salary_revision: 'Salary revision',
@@ -17,6 +18,7 @@ const TYPE_LABELS = {
 const INBOX_FILTERS = [
   { summaryKey: 'probation', filter: 'probation', label: 'Probation', chipClass: 'probation' },
   { summaryKey: 'noc_pending', filter: 'noc', label: 'NOC', chipClass: 'noc' },
+  { summaryKey: 'noc_applications', filter: 'noc_application', label: 'NOC applications', chipClass: 'noc' },
   { summaryKey: 'exit_pipeline', filter: 'exit', label: 'Separations', chipClass: 'exit' },
   { summaryKey: 'leave_pending', filter: 'leave', label: 'Leave', chipClass: 'leave' },
   { summaryKey: 'salary_revision', filter: 'salary_revision', label: 'Salary rev.', chipClass: 'salary_revision' },

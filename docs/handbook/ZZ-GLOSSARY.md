@@ -18,7 +18,7 @@
 | **MasterData** | HR-maintained lists: `department` and `circle` names (`master_type`). |
 | **Org Admin** | `emp_type` ∈ Admin / Administrator / Administration, or contains `super`. Bypasses panel plan gates. |
 | **Manager (access)** | Assignment via `ManagerContact` (L1–L3), not merely `emp_type == Manager`. |
-| **Platform Admin** | Org Admin on vendor master with `SHOW_DEPLOYMENT_GUIDE` (Customers / deployment guide). |
+| **Platform Admin** | Org Admin on vendor master with customer registry access. |
 
 ### emp_type aliases (normalize before compare)
 
@@ -146,7 +146,7 @@ Do not confuse **emp_type** (department) with **employment_status** or **Probati
 | Term | Meaning |
 |------|---------|
 | **ITAM** | Inventory / asset lifecycle (P0–P3+ flags `ITAM_*_V1`). |
-| **Day-use / daily checkout** | Short-term hardware loan (`/api/it/daily-checkout`). |
+| **Loan assets / daily checkout** | Short-term hardware loan (`/api/it/daily-checkout`). |
 | **Parcel** | IT inbound/outbound parcel tracking in IT module. |
 | **NOC** | No Objection Certificate — dept clearance in offboarding. |
 | **LWD** | Last working day; scheduler disables login after `exit_login_until`. |
@@ -186,7 +186,7 @@ Do not confuse **emp_type** (department) with **employment_status** or **Probati
 | This | Is not |
 |------|--------|
 | `emp_type` | `employment_status` |
-| Org Admin (`emp_type`) | Platform vendor ops (needs deployment guide flag) |
+| Org Admin (`emp_type`) | Platform vendor ops (needs customer registry access) |
 | Manager emp_type | ManagerContact assignment |
 | Query / OpenTicket | Separate IT support-ticket product |
 | In-app Notification | Email or SSE |

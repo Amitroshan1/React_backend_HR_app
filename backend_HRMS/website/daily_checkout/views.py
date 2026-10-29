@@ -314,7 +314,7 @@ def daily_pool(unit_id):
         unit = svc.set_daily_pool(unit_id, bool(enabled))
         from ..it import _serialize_asset_unit
 
-        return _ok({"unit": _serialize_asset_unit(unit)}, "Day-use pool updated")
+        return _ok({"unit": _serialize_asset_unit(unit)}, "Loan assets pool updated")
 
     return _handle(_run)
 

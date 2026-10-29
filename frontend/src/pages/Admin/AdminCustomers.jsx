@@ -4,8 +4,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import './AdminCustomers.css';
 import { formatDate } from '../../utils/dateFormat';
 import { matchesListQuery } from './adminListQuery';
+import CountryField from './CountryField';
+import { canManageCustomerRegistry } from './customerRegistryAccess';
+import { emptyMailboxes, mailboxFieldsForPlan } from './mailboxPlan';
 
-const API_ACCESS = '/api/admin/deployment-guide/access';
 const API_CUSTOMERS = '/api/admin/customers';
 
 const PLAN_BADGE_CLASS = {
@@ -14,26 +16,16 @@ const PLAN_BADGE_CLASS = {
   enterprise: 'cust-plan--enterprise',
 };
 
-// Company mailboxes used for that company's HRMS emails (blank = none; tenant 1 falls back to .env).
-const MAILBOX_FIELDS = [
-  { key: 'mailbox_hr', label: 'HR mailbox', placeholder: 'hr@acme.com' },
-  { key: 'mailbox_accounts', label: 'Accounts mailbox', placeholder: 'accounts@acme.com' },
-  { key: 'mailbox_it', label: 'IT mailbox', placeholder: 'it@acme.com' },
-  { key: 'mailbox_admin', label: 'Admin mailbox', placeholder: 'admin@acme.com' },
-];
-
-const emptyMailboxes = () =>
-  Object.fromEntries(MAILBOX_FIELDS.map((f) => [f.key, '']));
-
-function MailboxInputs({ form, setForm }) {
+function MailboxInputs({ form, setForm, plan }) {
+  const fields = mailboxFieldsForPlan(plan || form.plan || 'essential');
   return (
     <fieldset className="cust-fieldset">
       <legend>Company mailboxes</legend>
       <p className="cust-fieldset__hint">
-        Optional. HRMS emails for this company go to (or CC) these addresses.
+        Optional. Only inboxes for this plan are shown.
       </p>
       <div className="cust-fieldset__grid">
-        {MAILBOX_FIELDS.map((f) => (
+        {fields.map((f) => (
           <label key={f.key}>
             {f.label}
             <input
@@ -106,9 +98,7 @@ export default function AdminCustomers() {
     setLoading(true);
     setError('');
     try {
-      const accessRes = await fetch(API_ACCESS, { headers: headers() });
-      const accessData = await accessRes.json().catch(() => ({}));
-      if (!accessRes.ok || !accessData.can_view_deployment_guide) {
+      if (!await canManageCustomerRegistry(headers())) {
         navigate('/admin', { replace: true });
         return;
       }
@@ -159,6 +149,7 @@ export default function AdminCustomers() {
       row.company_name,
       row.slug,
       row.contact_email,
+      row.country,
       row.plan_label,
       row.status_label,
     ])),
@@ -175,6 +166,7 @@ export default function AdminCustomers() {
       company_name: customer.company_name || '',
       slug: customer.slug || '',
       contact_email: customer.contact_email || '',
+      country: customer.country || '',
       go_live_date: (customer.go_live_date || '').slice(0, 10),
       notes: customer.notes || '',
       status: customer.status || 'active',
@@ -196,13 +188,17 @@ export default function AdminCustomers() {
         slug: detail.slug || customer.slug || '',
         contact_email:
           detail.contact_email || tenant.contact_email || customer.contact_email || '',
+        country: detail.country || tenant.country || customer.country || '',
         go_live_date: (detail.go_live_date || customer.go_live_date || '').slice(0, 10),
         notes: detail.notes || tenant.notes || customer.notes || '',
         status: detail.status || customer.status || 'active',
         mailbox_hr: mailboxes.mailbox_hr || '',
-        mailbox_accounts: mailboxes.mailbox_accounts || '',
-        mailbox_it: mailboxes.mailbox_it || '',
         mailbox_admin: mailboxes.mailbox_admin || '',
+        mailbox_accounts: mailboxes.mailbox_accounts || '',
+        mailbox_finance: mailboxes.mailbox_finance || '',
+        mailbox_it: mailboxes.mailbox_it || '',
+        mailbox_inventory: mailboxes.mailbox_inventory || '',
+        plan: detail.plan || customer.plan || 'essential',
       });
     } catch {
       // Keep list-row values; mailboxes may stay empty until retry.
@@ -317,7 +313,7 @@ export default function AdminCustomers() {
     e.preventDefault();
     if (!showProvision) return;
     if (provisionOpts.seed_admin && !String(provisionOpts.admin_email || '').trim()) {
-      setError('Admin email is required to seed the company Super Admin');
+      setError('Admin email is required to seed the company Admin');
       return;
     }
     setSaving(true);
@@ -393,15 +389,6 @@ export default function AdminCustomers() {
           <div className="cust-hero__main">
             <h1>Customer registry</h1>
             <p>{phaseLabel}</p>
-            <div className="cust-hero__meta">
-              <button
-                type="button"
-                className="cust-link-btn"
-                onClick={() => navigate('/admin/deployment-guide')}
-              >
-                Deployment checklist →
-              </button>
-            </div>
           </div>
           <div className="cust-hero__aside">
             <span className="cust-hero__badge">Super Admin</span>
@@ -467,7 +454,7 @@ export default function AdminCustomers() {
                 <input
                   value={companyQuery}
                   onChange={(event) => setCompanyQuery(event.target.value)}
-                  placeholder="Company, slug, contact, plan"
+                  placeholder="Company, slug, country, contact, plan"
                 />
               </label>
             </div>
@@ -478,6 +465,7 @@ export default function AdminCustomers() {
                     <th>Company</th>
                     <th>Plan</th>
                     <th>Contact</th>
+                    <th>Country</th>
                     <th>Go-live</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -486,7 +474,7 @@ export default function AdminCustomers() {
                 <tbody>
                   {visibleCustomers.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="cust-panel__empty">No companies match that search.</td>
+                      <td colSpan={7} className="cust-panel__empty">No companies match that search.</td>
                     </tr>
                   )}
                   {visibleCustomers.map((c) => (
@@ -507,6 +495,7 @@ export default function AdminCustomers() {
                       <td className="cust-table__contact">
                         {c.contact_email || '—'}
                       </td>
+                      <td>{c.country || '—'}</td>
                       <td>{formatDate(c.go_live_date)}</td>
                       <td>
                         <span className={`cust-status cust-status--${c.status}`}>
@@ -673,10 +662,14 @@ export default function AdminCustomers() {
                       }
                     />
                   </label>
+                  <CountryField
+                    value={editForm.country || ''}
+                    onChange={(country) => setEditForm((f) => ({ ...f, country }))}
+                  />
                 </div>
               </section>
 
-              <MailboxInputs form={editForm} setForm={setEditForm} />
+              <MailboxInputs form={editForm} setForm={setEditForm} plan={editForm.plan || showEdit?.plan} />
 
               <label className="cust-field cust-field--full">
                 Notes
@@ -813,7 +806,7 @@ export default function AdminCustomers() {
                     }))
                   }
                 />
-                Seed company Super Admin
+                Seed company Admin
               </label>
               <label className="cust-check">
                 <input
@@ -928,7 +921,7 @@ export default function AdminCustomers() {
             {provisionResult.seed_admin?.password && (
               <div className="cust-seed-box">
                 <p>
-                  <strong>Seed Super Admin</strong> (copy now — shown once)
+                  <strong>Seed company Admin</strong> (copy now — shown once)
                 </p>
                 <p className="cust-mono">
                   {provisionResult.seed_admin.email} / {provisionResult.seed_admin.password}

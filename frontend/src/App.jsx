@@ -25,6 +25,7 @@ import { Queries } from "./pages/Query/Queries";
 import { DepartmentQueryInbox } from "./pages/Query/DepartmentQueryInbox";
 import { Claims } from "./pages/Claims/Claims";
 import { Separation } from "./pages/Separation/Separation";
+import NocApplication from "./pages/Separation/NocApplication";
 import { Hr } from "./pages/HR/Hr";
 import { Account } from "./pages/Account/Account";
 import { Finance } from "./pages/Finance/Finance";
@@ -34,6 +35,7 @@ import AdminCrm from "./pages/Admin/AdminCrm";
 import AdminLayout from "./pages/Admin/AdminLayout";
 import { Manager } from "./pages/Manager/Manager";
 import { ITPanel } from "./pages/IT/ITPanel";
+import ITLayout from "./pages/IT/ITLayout";
 import ArchiveEmployees from "./pages/HR/Archive/Archive";
 import ArchiveEmployeeDetails from "./pages/HR/Archive/ArchiveEmployeeDetails";
 import ExitEmployee from "./pages/HR/ExitEmployee";
@@ -48,6 +50,7 @@ import "./pages/Holiday/HolidayCalendarUser.css";
 // IT Module
 import InventoryDashboard from "./pages/IT/InventoryPage/InventoryDashboard";
 import OpenTicket from "./pages/IT/OpenTicketPage/OpenTicket";
+import OpenTicketDetail from "./pages/IT/OpenTicketPage/OpenTicketDetail";
 import ActiveDevice from "./pages/IT/ActiveDevicePage/ActiveDevice";
 import AssetsDashboard from "./pages/IT/AssetsPage/AssetsDashboard";
 import ActivityLogPage from "./pages/IT/itam/ActivityLogPage";
@@ -58,6 +61,10 @@ import ITDailyCheckoutPage from "./pages/IT/ITDailyCheckoutPage";
 import ITDailyCheckoutAssignPage from "./pages/IT/ITDailyCheckoutAssignPage";
 import ReturnRequests from "./pages/IT/ReturnRequests";
 import ITNocRequests from "./pages/IT/ITNocRequests";
+import ITOfficialEmailRequests from "./pages/IT/ITOfficialEmailRequests";
+import ITAssetAssignmentRequests from "./pages/IT/ITAssetAssignmentRequests";
+import ITPurchase from "./pages/IT/ITPurchase";
+import RepairBills from "./pages/IT/InventoryPage/RepairBills";
 
 // Admin Employee Management
 import Employee from "./pages/Admin/Employee";
@@ -67,7 +74,6 @@ import AdminLeaves from "./pages/Admin/AdminLeaves";
 import AdminQueries from "./pages/Admin/AdminQueries";
 import AdminClaims from "./pages/Admin/AdminClaims";
 import AdminResignations from "./pages/Admin/AdminResignations";
-import AdminDeploymentGuide from "./pages/Admin/AdminDeploymentGuide";
 import AdminCustomers from "./pages/Admin/AdminCustomers";
 import AdminRegisterCompany from "./pages/Admin/AdminRegisterCompany";
 import AdminMailboxes from "./pages/Admin/AdminMailboxes";
@@ -150,6 +156,7 @@ export const App = () => {
         { path: "queries/inbox",                   element: <DepartmentQueryInbox /> },
         { path: "claims",                          element: <Claims /> },
         { path: "separation",                      element: <Separation /> },
+        { path: "noc-application",                 element: <NocApplication /> },
         { path: "wfh",                             element: <Wfh /> },
         { path: "performance",                     element: <EmployeePerformance /> },
         { path: "holiday-calendar",                element: <HolidayCalendarUser /> },
@@ -171,7 +178,6 @@ export const App = () => {
             { path: "customers", element: <AdminCustomers /> },
             { path: "mailboxes", element: <AdminMailboxes /> },
             { path: "approval-settings", element: <AdminApprovalSettings /> },
-            { path: "deployment-guide", element: <AdminDeploymentGuide /> },
             { path: "leaves", element: <AdminLeaves /> },
             { path: "queries", element: <AdminQueries /> },
             { path: "claims", element: <AdminClaims /> },
@@ -184,23 +190,32 @@ export const App = () => {
         { path: "manager",                         element: <RequirePanel panel="manager"><Manager /></RequirePanel> },
         { path: "manager/claims/:claimId",         element: <RequirePanel panel="manager"><ManagerClaimDetails /></RequirePanel> },
         { path: "manager/performance-reviews",     element: <RequirePanel panel="manager"><ManagerPerformanceReviews /></RequirePanel> },
-        { path: "it",                              element: <RequirePanel panel="it"><ITPanel /></RequirePanel> },
-
-        // IT Sub-routes
+        {
+          path: "it",
+          element: <RequirePanel panel="it"><ITLayout /></RequirePanel>,
+          children: [
+            { index: true, element: <ITPanel /> },
+            { path: "OpenTicket", element: <OpenTicket /> },
+            { path: "OpenTicket/:ticketId", element: <OpenTicketDetail /> },
+            { path: "ActiveDevices", element: <ActiveDevice /> },
+            { path: "Assets/activity-log", element: <ActivityLogPage defaultScope="it" /> },
+            { path: "Assets", element: <AssetsDashboard /> },
+            { path: "AssetsPage/AddSoftWare", element: <Navigate to="/it/inventory/add-assets" replace /> },
+            { path: "AssetsPage/AddEmployee", element: <AddEmployee /> },
+            { path: "daily-checkout", element: <ITDailyCheckoutPage /> },
+            { path: "daily-checkout/assign/:requestId", element: <ITDailyCheckoutAssignPage /> },
+            { path: "return-requests", element: <ReturnRequests /> },
+            { path: "repair-bills", element: <RepairBills /> },
+            { path: "noc-requests", element: <ITNocRequests /> },
+            { path: "official-email-requests", element: <ITOfficialEmailRequests /> },
+            { path: "asset-assignment-requests", element: <ITAssetAssignmentRequests /> },
+            { path: "purchase", element: <ITPurchase /> },
+          ],
+        },
         { path: "it/inventory/*",                  element: <RequirePanel panel="it"><InventoryDashboard /></RequirePanel> },
         { path: "it/parcels/*",                    element: <Navigate to="/it/inventory/parcels" replace /> },
-        { path: "it/OpenTicket",                   element: <RequirePanel panel="it"><OpenTicket /></RequirePanel> },
-        { path: "it/ActiveDevices",                element: <RequirePanel panel="it"><ActiveDevice /></RequirePanel> },
-        { path: "it/Assets/activity-log",          element: <RequirePanel panel="it"><ActivityLogPage defaultScope="it" /></RequirePanel> },
-        { path: "it/Assets",                       element: <RequirePanel panel="it"><AssetsDashboard /></RequirePanel> },
-        { path: "it/AssetsPage/AddSoftWare",       element: <Navigate to="/it/inventory/add-assets" replace /> },
-        { path: "it/AssetsPage/AddEmployee",       element: <RequirePanel panel="it"><AddEmployee /></RequirePanel> },
         { path: "it/employee/:empId",              element: <RequireItOrSelfAssets><ITEmployeeDetails /></RequireItOrSelfAssets> },
         { path: "daily-assets",                    element: <RequireMyAssets><DailyAssetsPage /></RequireMyAssets> },
-        { path: "it/daily-checkout",               element: <RequirePanel panel="it"><ITDailyCheckoutPage /></RequirePanel> },
-        { path: "it/daily-checkout/assign/:requestId", element: <RequirePanel panel="it"><ITDailyCheckoutAssignPage /></RequirePanel> },
-        { path: "it/return-requests",              element: <RequirePanel panel="it"><ReturnRequests /></RequirePanel> },
-        { path: "it/noc-requests",                 element: <RequirePanel panel="it"><ITNocRequests /></RequirePanel> },
 
         // Admin Employee Management
         {

@@ -1,0 +1,304 @@
+.adp-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 4px 8px 88px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: #0f172a;
+}
+
+.adp-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.adp-top-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.adp-kicker {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.adp-top-main h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.adp-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.adp-badges span {
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.adp-top-actions,
+.adp-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.adp-back,
+.adp-btn,
+.adp-action,
+.adp-unit,
+.adp-tabs button {
+  border: 1px solid #dbe3ee;
+  background: #fff;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.adp-back,
+.adp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.adp-btn--primary {
+  background: #0f172a;
+  color: #fff;
+  border-color: #0f172a;
+}
+
+.adp-btn--ghost {
+  color: #475569;
+}
+
+.adp-units,
+.adp-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.adp-unit,
+.adp-tabs button {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.adp-unit--on,
+.adp-tabs button.on {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.adp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.8fr);
+  gap: 16px;
+}
+
+.adp-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 18px 20px;
+}
+
+.adp-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+
+.adp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.adp-field strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.adp-field input,
+.adp-field select,
+.adp-field textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.adp-req {
+  color: #ef4444;
+  font-style: normal;
+}
+
+.adp-device-type-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.adp-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.adp-meta,
+.adp-status-line,
+.adp-muted {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.adp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 0 0 14px;
+}
+
+.adp-aside-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.adp-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 140px;
+  border: 1.5px dashed #94a3b8;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.adp-upload input {
+  display: none;
+}
+
+.adp-upload:hover {
+  border-color: #0f766e;
+  background: #ecfdf5;
+}
+
+.adp-upload--inline {
+  min-height: 0;
+  flex-direction: row;
+  margin-top: 10px;
+  padding: 8px 12px;
+}
+
+.adp-photo-main {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f1f5f9;
+  margin-bottom: 8px;
+}
+
+.adp-photo-main img,
+.adp-thumb {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.adp-photo-strip {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.adp-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+}
+
+.adp-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.adp-stats div {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.adp-stats dt {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.adp-stats dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+
+.adp-footer {
+  margin-top: 16px;
+}
+
+.adp-savebar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 12px 0 4px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0), #f8fafc 28%);
+}
+
+.adp-action {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.adp-action--repair { color: #d97706; background: #fffbeb; border-color: #fcd34d; }
+.adp-action--nw { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
+.adp-action--remove { color: #475569; background: #f8fafc; }
+.adp-action--review { color: #0f766e; background: #ecfdf5; border-color: #99f6e4; }
+
+@media (max-width: 800px) {
+  .adp-top { flex-direction: column; }
+  .adp-grid,
+  .adp-fields { grid-template-columns: 1fr; }
+}

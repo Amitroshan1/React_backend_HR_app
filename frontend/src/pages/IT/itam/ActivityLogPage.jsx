@@ -80,7 +80,7 @@ function deviceDetailLines(row) {
   return lines;
 }
 
-export default function ActivityLogPage({ defaultScope = "inventory", embedded = false }) {
+export default function ActivityLogPage({ defaultScope = "inventory", embedded = false, initialMonth = "" }) {
   const navigate = useNavigate();
   const isInventory = defaultScope === "inventory";
   const isParcel = defaultScope === "parcel";
@@ -88,7 +88,9 @@ export default function ActivityLogPage({ defaultScope = "inventory", embedded =
   const backTo = isInventory ? "/it/inventory" : "/it";
 
   const [scope, setScope] = useState(defaultScope);
-  const [month, setMonth] = useState(currentMonthValue);
+  const [month, setMonth] = useState(() =>
+    /^\d{4}-\d{2}$/.test(initialMonth || "") ? initialMonth : currentMonthValue(),
+  );
   const [action, setAction] = useState("");
   const [category, setCategory] = useState("");
   const [q, setQ] = useState("");
@@ -103,6 +105,13 @@ export default function ActivityLogPage({ defaultScope = "inventory", embedded =
   useEffect(() => {
     setScope(defaultScope);
   }, [defaultScope]);
+
+  useEffect(() => {
+    if (/^\d{4}-\d{2}$/.test(initialMonth || "")) {
+      setMonth(initialMonth);
+      setPage(1);
+    }
+  }, [initialMonth]);
 
   const actionOptions = useMemo(() => activityActionsForScope(scope), [scope]);
 
@@ -155,20 +164,20 @@ export default function ActivityLogPage({ defaultScope = "inventory", embedded =
   };
 
   const kicker = isParcel
-    ? "Parcels"
+    ? "Import/Export"
     : isInventory
       ? "Inventory"
       : "IT · Asset Management";
-  const title = isParcel ? "Parcel activity log" : "Activity log";
+  const title = isParcel ? "Import/Export activity log" : "Activity log";
   const subtitle = isParcel
     ? "Import and export movements only — stock and IT assignment events are excluded."
     : isInventory
-      ? "Inventory stock movements for audit — add, assign, repair, remove. Parcel import/export is in Parcel Log."
+      ? "Inventory stock movements for audit — add, assign, repair, remove. Import/export is in Import/Export Log."
       : "Every recorded movement for audit — add, assign, repair, remove.";
   const emptyHint = isParcel
-    ? "No parcel import/export events in this range."
+    ? "No import/export events in this range."
     : isInventory
-      ? "No inventory movements in this range. Parcel import/export events are listed under Parcels → Parcel Log."
+      ? "No inventory movements in this range. Import/export events are listed under Import/Export → Import/Export Log."
       : "No movements in this range. New inventory and IT actions are logged automatically.";
 
   return (
@@ -280,7 +289,7 @@ export default function ActivityLogPage({ defaultScope = "inventory", embedded =
               type="search"
               placeholder={
                 isParcel
-                  ? "Search parcel code, destination, remark…"
+                  ? "Search import/export code, destination, remark…"
                   : "Search remark, action, serial…"
               }
               value={q}

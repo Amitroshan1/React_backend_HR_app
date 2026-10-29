@@ -4,7 +4,7 @@
 **Backend:** `website/plan_features.py`  
 **Frontend:** `utils/planFeatures.js`, `components/security/RequirePanel.jsx`  
 **Config:** `backend_HRMS/.env` via `create_app` in `__init__.py`  
-**Related:** [01 Architecture](./01-ARCHITECTURE.md) · [02 Auth](./02-AUTH-AND-SESSION.md) · [12 Queries](./12-QUERIES.md) · [16 Admin/tenancy](./16-ADMIN-PLATFORM-TENANCY.md) · [DEPLOYMENT_GUIDE_ENV.md](../DEPLOYMENT_GUIDE_ENV.md) · [NEW_CUSTOMER_DEPLOYMENT.md](../NEW_CUSTOMER_DEPLOYMENT.md)
+**Related:** [01 Architecture](./01-ARCHITECTURE.md) · [02 Auth](./02-AUTH-AND-SESSION.md) · [12 Queries](./12-QUERIES.md) · [16 Admin/tenancy](./16-ADMIN-PLATFORM-TENANCY.md) · [DEPLOYMENT_GUIDE_ENV.md](../DEPLOYMENT_GUIDE_ENV.md)
 
 > **Plan ≠ role.** `emp_type` decides *who* can open a panel; `CUSTOMER_PLAN` / `tenants.plan` decides *whether the product includes that module*. Org Admin bypasses panel plan gates.
 
@@ -223,14 +223,15 @@ None. Plan is request-time config. No scheduler reads `CUSTOMER_PLAN` for featur
 | Key | Role |
 |-----|------|
 | `CUSTOMER_PLAN` | `basic` \| `essential` \| `enterprise` (fallback) |
-| `SHOW_DEPLOYMENT_GUIDE` | Vendor Admin Customers + guide |
-| `DEPLOYMENT_GUIDE_EMAILS` | Optional allow-list for guide |
+| `SHOW_DEPLOYMENT_GUIDE` | Legacy flag enabling vendor Admin Customer registry |
+| `CUSTOMER_REGISTRY_EMAILS` | Optional allow-list for customer registry access |
+| `DEPLOYMENT_GUIDE_EMAILS` | Legacy allow-list accepted for customer registry access |
 | `SILO_PROVISION_LEGACY` | Unlock legacy DB-per-company provision |
 | `PROVISION_ENABLED` | Second gate for silo provision |
 | `PROVISION_MYSQL_*` | Host/user/password/port for CREATE DATABASE |
 | `PROVISION_UPLOADS_ROOT` / `PROVISION_ARTIFACTS_DIR` / `PROVISION_BASE_DOMAIN` | Silo artifact paths |
 
-Shared-DB is primary; silo flags default **off**. Details: [16](./16-ADMIN-PLATFORM-TENANCY.md), [NEW_CUSTOMER_DEPLOYMENT.md](../NEW_CUSTOMER_DEPLOYMENT.md).
+Shared-DB is primary; silo flags default **off**. Details: [16](./16-ADMIN-PLATFORM-TENANCY.md).
 
 ### 9.3 Email
 

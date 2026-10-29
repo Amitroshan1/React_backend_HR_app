@@ -84,7 +84,7 @@ export function RequireItOrSelfAssets({ children, fallback = "/dashboard" }) {
   return <Navigate to={fallback} replace />;
 }
 
-/** Day-use Assets: same plan flag as My Assets (any logged-in employee). */
+/** Loan assets: same plan flag as My Assets (any logged-in employee). */
 export function RequireMyAssets({ children, fallback = "/dashboard" }) {
   const { userData, loadingUser } = useUser();
   const user = userData?.user;

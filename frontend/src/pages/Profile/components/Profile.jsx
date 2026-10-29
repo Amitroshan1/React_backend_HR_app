@@ -633,72 +633,6 @@ export const Profile = () => {
         setSaveStatus('Ready');
     }, []);
 
-    const hasNoChanges = useCallback(() => {
-        const s = savedData;
-        const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-        if (!eq(formData, s.formData) || !eq(currentAddress, s.currentAddress) || sameAsCurrent !== s.sameAsCurrent) return false;
-        const perm = sameAsCurrent ? currentAddress : permanentAddress;
-        if (!eq(perm, s.permanentAddress)) return false;
-        if (!eq(previousEmployment, s.previousEmployment) || !eq(educationDetails, s.educationDetails)) return false;
-        if (!eq(documentMeta, s.documentMeta || INITIAL_DOCUMENT_META)) return false;
-        const fileKeys = Object.keys(files || {});
-        const savedKeys = Object.keys(s.files || {});
-        if (fileKeys.length !== savedKeys.length) return false;
-        for (const k of fileKeys) {
-            const f = files[k], sf = s.files[k];
-            const fStr = typeof f === 'string' ? f : (f?.name ?? '');
-            const sfStr = typeof sf === 'string' ? sf : (sf?.name ?? '');
-            if (fStr !== sfStr) return false;
-        }
-        return true;
-    }, [formData, currentAddress, permanentAddress, sameAsCurrent, previousEmployment, educationDetails, files, documentMeta, savedData]);
-
-    const handleDoneEditing = useCallback(async () => {
-        try {
-            if (hasNoChanges()) {
-                exitEditMode();
-                return;
-            }
-            const success = await saveCurrentChanges(true);
-            if (success) {
-                setTimeout(exitEditMode, 350);
-            }
-        } catch (err) {
-            console.error('Done editing failed:', err);
-            showToast('Something went wrong. Please try again.', 'error');
-        }
-    }, [saveCurrentChanges, showToast, hasNoChanges, exitEditMode]);
-
-    const handleUndoChanges = () => {
-        const savedClone = {
-            formData: JSON.parse(JSON.stringify(savedData.formData || {})),
-            currentAddress: JSON.parse(JSON.stringify(savedData.currentAddress || {})),
-            permanentAddress: JSON.parse(JSON.stringify(savedData.permanentAddress || {})),
-            sameAsCurrent: Boolean(savedData.sameAsCurrent),
-            // Preserve File instances; JSON.stringify strips them.
-            files: typeof File !== 'undefined' && Object.values(savedData.files || {}).some((v) => v instanceof File)
-                ? { ...(savedData.files || {}) }
-                : JSON.parse(JSON.stringify(savedData.files || {})),
-            documentMeta: JSON.parse(JSON.stringify(savedData.documentMeta || INITIAL_DOCUMENT_META)),
-            previousEmployment: JSON.parse(JSON.stringify(savedData.previousEmployment || [])),
-            educationDetails: Array.isArray(savedData.educationDetails) && savedData.educationDetails.length > 0
-                ? savedData.educationDetails.map((e) => ({ ...e }))
-                : [{ id: Date.now(), qualification: '', institution: '', university: '', fromDate: '', toDate: '', marks: '', certificate: null }],
-        };
-        setFormData(savedClone.formData);
-        setCurrentAddress(savedClone.currentAddress);
-        setPermanentAddress(savedClone.permanentAddress);
-        setSameAsCurrent(savedClone.sameAsCurrent);
-        setFiles(savedClone.files);
-        setDocumentMeta(savedClone.documentMeta);
-        setPreviousEmployment(savedClone.previousEmployment);
-        setEducationDetails(savedClone.educationDetails);
-        setErrors({});
-        setSaveStatus('Ready');
-        setShowEditCards(false);
-        setExpandedSection(null);
-    };
-
     const handleFormChange = (e) => {
         const target = e?.target ?? e;
         const name = target?.name;
@@ -1300,17 +1234,10 @@ export const Profile = () => {
                 <div className="profile-edit-toolbar__actions">
                     <button
                         type="button"
-                        className="profile-edit-btn profile-edit-btn--discard"
-                        onClick={handleUndoChanges}
+                        className="profile-edit-btn profile-edit-btn--close"
+                        onClick={exitEditMode}
                     >
-                        Discard
-                    </button>
-                    <button
-                        type="button"
-                        className="profile-edit-btn profile-edit-btn--done"
-                        onClick={() => handleDoneEditing().catch(() => {})}
-                    >
-                        Done
+                        Close
                     </button>
                 </div>
             </header>

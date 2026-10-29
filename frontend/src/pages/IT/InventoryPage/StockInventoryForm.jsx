@@ -2,9 +2,10 @@ import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {createInventoryItemAPI, toastITApiFailure, syncITDataFromAPI} from "../Data";
+import { inventoryAssetPath } from "./AssetDetailPage";
+import { encodeInventoryFiles, isUploadAbort, useInventoryUpload } from "./InventoryUploadLock";
 import {
   buildPreviewItems,
-  encodeInventoryFiles,
   FilePreviewModal,
   getFieldMeta,
   InventoryFileCell,
@@ -66,6 +67,7 @@ export default function StockInventoryForm({
   compact = false,
 }) {
   const navigate = useNavigate();
+  const { runUpload, busy } = useInventoryUpload();
   const validateOpts = useMemo(() => ({ requireVendor: true, requirePurchaseDate: true }), []);
   const [rows, setRows] = useState([blankRow()]);
   const [submitted, setSubmitted] = useState(false);
@@ -103,7 +105,9 @@ export default function StockInventoryForm({
     );
 
     try {
-      const encoded = await encodeInventoryFiles(fileList, { imagesOnly });
+      const encoded = await runUpload("Preparing files…", ({ signal, setProgress }) =>
+        encodeInventoryFiles(fileList, { imagesOnly, signal, onProgress: setProgress }),
+      );
       const dataUrls = encoded.map((e) => e.data);
       const names = encoded.map((e) => e.name);
 
@@ -135,9 +139,9 @@ export default function StockInventoryForm({
             : r,
         ),
       );
-      toast.error(err?.message || "Could not read file.");
+      if (!isUploadAbort(err)) toast.error(err?.message || "Could not read file.");
     }
-  }, []);
+  }, [runUpload]);
 
   const removeFile = useCallback((rowId, field, index) => {
     const meta = getFieldMeta(field);
@@ -164,7 +168,7 @@ export default function StockInventoryForm({
     const validated = rows.map((r) => ({ ...r, _errors: validateRow(r, validateOpts) }));
     setRows(validated);
     if (!validated.every((r) => Object.keys(r._errors).length === 0)) return;
-    if (validated.some((r) => r.photoUploading || r.receiptUploading)) {
+    if (busy || validated.some((r) => r.photoUploading || r.receiptUploading)) {
       toast.warn("Please wait for uploads to finish.");
       return;
     }
@@ -172,9 +176,10 @@ export default function StockInventoryForm({
     setSaving(true);
     try {
       let totalQty = 0;
+      const createdIds = [];
       for (const row of validated) {
         const qty = parseInt(row.quantity, 10) || 0;
-        await createInventoryItemAPI({
+        const invRes = await createInventoryItemAPI({
           name: row.itemName.trim(),
           category: stockCategory,
           inventoryCategory,
@@ -186,9 +191,15 @@ export default function StockInventoryForm({
           location: row.location.trim() || null,
           notes: row.notes.trim() || null,
         });
+        if (invRes?.item?.id) createdIds.push(invRes.item.id);
         totalQty += qty;
       }
       await syncITDataFromAPI();
+      if (createdIds.length === 1) {
+        toast.success("Asset added. You can edit details here.");
+        navigate(inventoryAssetPath(createdIds[0], inventoryCategory, { edit: 1 }));
+        return;
+      }
       const msg = `${validated.length} line${validated.length !== 1 ? "s" : ""} saved (qty ${totalQty}).`;
       setSuccessMsg(`✅ ${msg}`);
       toast.success(msg);
@@ -199,7 +210,7 @@ export default function StockInventoryForm({
     } finally {
       setSaving(false);
     }
-  }, [rows, inventoryCategory, stockCategory, saveErrorMessage, validateOpts]);
+  }, [rows, inventoryCategory, stockCategory, saveErrorMessage, validateOpts, navigate, busy]);
 
   const previewRow = preview ? rows.find((r) => r.id === preview.rowId) : null;
   const previewItems = previewRow
@@ -319,7 +330,7 @@ export default function StockInventoryForm({
           >
             Cancel
           </button>
-          <button type="button" className="ana-btn-submit" onClick={handleSubmit} disabled={saving}>
+          <button type="button" className="ana-btn-submit" onClick={handleSubmit} disabled={saving || busy}>
             {saving ? "Saving…" : "Save to Inventory"}
           </button>
         </div>

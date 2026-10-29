@@ -127,7 +127,7 @@ All authenticated SPA traffic is under `/api/...` except biometric device push a
 | URL prefix | Blueprint module | Domain |
 |------------|------------------|--------|
 | `/api/auth` | `auth.py` | Login, OTP, session refresh, homepage, profile, **punch in/out**, location-check, employee tax-self, Form16 summary helpers |
-| `/api/admin` | `Admin.py` | Org admin: employees overview, deployment guide, **customers / tenants bridge** |
+| `/api/admin` | `Admin.py` | Org admin: employees overview, **customers / tenants bridge** |
 | `/api/leave` | `leave_attendence.py` | Leave, WFH, claims submit, separation/NOC, related employee actions |
 | `/api/HumanResource` | `Human_resource.py` | HR panel APIs (employees, holidays, inbox, hire/exit, compensation, …) |
 | `/api/accounts` | `Accounts.py` | Accounts panel: payroll, CTC, expense review, tax review, … |

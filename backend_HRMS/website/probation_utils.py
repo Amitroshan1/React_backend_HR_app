@@ -18,6 +18,7 @@ MANAGER_SUBMITTED_HISTORY_DAYS = 180
 
 STATUS_REMINDER_SENT = "reminder_sent"
 STATUS_MANAGER_SUBMITTED = "manager_submitted"
+STATUS_PENDING_ADMIN = "pending_admin"
 STATUS_HR_CONFIRMED = "hr_confirmed"
 STATUS_HR_EXTENDED = "hr_extended"
 STATUS_HR_FAILED = "hr_failed"
@@ -145,7 +146,12 @@ def _has_pending_hr_decision(admin):
     if not admin:
         return False
     for row in ProbationReview.query.filter_by(admin_id=admin.id).all():
-        if infer_status_from_row(row) == STATUS_MANAGER_SUBMITTED and row.reviewed_at and not row.hr_decision:
+        status = infer_status_from_row(row)
+        if (
+            status in (STATUS_MANAGER_SUBMITTED, STATUS_PENDING_ADMIN)
+            and row.reviewed_at
+            and not row.hr_decision
+        ):
             return True
     return False
 
@@ -196,7 +202,7 @@ def is_probation_review_row_active(row, admin, run_date=None):
     if not end:
         return False
 
-    if status == STATUS_MANAGER_SUBMITTED and row.reviewed_at and not row.hr_decision:
+    if status in (STATUS_MANAGER_SUBMITTED, STATUS_PENDING_ADMIN) and row.reviewed_at and not row.hr_decision:
         return end + timedelta(days=HR_DECISION_GRACE_DAYS) >= run_date
 
     reminder_start = end - timedelta(days=REMINDER_DAYS_BEFORE)
@@ -213,7 +219,7 @@ def is_manager_submitted_review_visible(row, admin, run_date=None):
         return False
 
     status = infer_status_from_row(row)
-    if status == STATUS_MANAGER_SUBMITTED and not row.hr_decision:
+    if status in (STATUS_MANAGER_SUBMITTED, STATUS_PENDING_ADMIN) and not row.hr_decision:
         return is_probation_review_row_active(row, admin, run_date)
 
     if status in TERMINAL_STATUSES:
@@ -235,6 +241,8 @@ def manager_probation_status_label(row):
     status = infer_status_from_row(row)
     if not row or not row.reviewed_at:
         return "Pending manager review"
+    if status == STATUS_PENDING_ADMIN and not row.hr_decision:
+        return "Awaiting Admin approval"
     if status == STATUS_MANAGER_SUBMITTED and not row.hr_decision:
         return "Awaiting HR decision"
     if status == STATUS_HR_CONFIRMED:
@@ -333,9 +341,12 @@ def build_employee_probation_status(admin, run_date=None):
     cycle = _current_cycle_review(admin, effective_end)
     cycle_status = infer_status_from_row(cycle)
 
-    if cycle_status == STATUS_MANAGER_SUBMITTED and cycle and not cycle.hr_decision:
+    if cycle_status == STATUS_PENDING_ADMIN and cycle and not cycle.hr_decision:
         employee_status = "awaiting_hr"
-        message = "Your manager has submitted a probation review. HR will record the final decision soon."
+        message = "Your probation confirmation is under review. You will be notified once a decision is final."
+    elif cycle_status == STATUS_MANAGER_SUBMITTED and cycle and not cycle.hr_decision:
+        employee_status = "awaiting_hr"
+        message = "Your probation confirmation is under review. You will be notified once a decision is final."
     elif cycle_status == STATUS_HR_EXTENDED and cycle and cycle.extended_until:
         employee_status = "extended"
         message = f"Your probation has been extended until {_serialize_date(cycle.extended_until)}."

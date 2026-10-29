@@ -24,6 +24,144 @@ def as_of_date_for_payroll_month(year: int, month_num: int) -> date:
     return min(today, month_end)
 
 
+def normalize_projection_mode(raw, *, allow_what_if: bool) -> str:
+    mode = str(raw or "payroll_ready").strip().lower().replace("-", "_")
+    if mode in ("what_if", "whatif", "draft"):
+        return "what_if" if allow_what_if else "payroll_ready"
+    return "payroll_ready"
+
+
+def pending_ctc_summary(pending) -> dict | None:
+    if pending is None:
+        return None
+    payload = pending.payload if isinstance(getattr(pending, "payload", None), dict) else {}
+    return {
+        "id": pending.id,
+        "status": pending.status,
+        "kind": pending.kind,
+        "new_annual_ctc": payload.get("annual_ctc") or payload.get("annual_ctc_computed"),
+    }
+
+
+def employer_nps_annual_from_values(*, basic, da, include, pct) -> float:
+    if not include:
+        return 0.0
+    from .commands.ctc_advanced_logic import nps_employer_yearly
+
+    try:
+        rate = float(pct if pct is not None else 10)
+    except (TypeError, ValueError):
+        rate = 10.0
+    return float(
+        nps_employer_yearly(
+            basic_salary=float(basic or 0),
+            dearness_allowance=float(da or 0),
+            nps_employer_pct_of_basic=rate,
+        )
+    )
+
+
+def employer_nps_annual_from_ctc(ctc) -> float:
+    if not ctc:
+        return 0.0
+    return employer_nps_annual_from_values(
+        basic=getattr(ctc, "basic_salary", 0),
+        da=getattr(ctc, "dearness_allowance", 0),
+        include=bool(getattr(ctc, "include_nps_in_ctc", False)),
+        pct=getattr(ctc, "nps_employer_pct", None),
+    )
+
+
+def employee_dob(admin_id: int):
+    from .models.emp_detail_models import Employee
+
+    emp = Employee.query.filter_by(admin_id=admin_id).first()
+    return getattr(emp, "dob", None) if emp else None
+
+
+def statutory_projection_extras(tds_inputs: dict | None, amounts: dict, *, admin_id: int | None = None) -> dict:
+    inputs = tds_inputs or {}
+    dob = None
+    if admin_id:
+        dob = employee_dob(admin_id)
+    return {
+        "employer_nps_annual": float(amounts.get("employer_nps_annual") or 0),
+        "monthly_da": float(amounts.get("monthly_da") or 0),
+        "section_80d_self": float(inputs.get("section_80d_self") or 0),
+        "section_80d_parents": float(inputs.get("section_80d_parents") or 0),
+        "parents_senior": bool(inputs.get("parents_senior")),
+        "section_80g_pct": float(inputs.get("section_80g_pct") or 50),
+        "date_of_birth": dob,
+    }
+
+
+def ctc_amounts_for_projection(live, pending, mode: str) -> dict:
+    """Live approved CTC unless Accounts what-if can read a pending employee_ctc payload."""
+    live_da = float(getattr(live, "dearness_allowance", 0) or 0) if live else 0.0
+    live_amounts = {
+        "monthly_gross": float(getattr(live, "gross_salary", 0) or 0) if live else 0.0,
+        "monthly_basic": float(getattr(live, "basic_salary", 0) or 0) if live else 0.0,
+        "monthly_hra": float(getattr(live, "hra", 0) or 0) if live else 0.0,
+        "monthly_epf": float(getattr(live, "epf", 0) or 0) if live else 0.0,
+        "monthly_ptax": float(getattr(live, "ptax", 0) or 0) if live else 0.0,
+        "monthly_da": live_da,
+        "employer_nps_annual": employer_nps_annual_from_ctc(live),
+        "ctc_basis": "approved",
+    }
+    if mode != "what_if" or pending is None or getattr(pending, "kind", None) != "employee_ctc":
+        return live_amounts
+    payload = pending.payload if isinstance(pending.payload, dict) else {}
+    gross = float(payload.get("gross_salary") or 0)
+    basic = float(payload.get("basic_salary") or 0)
+    if gross <= 0 and basic <= 0:
+        return live_amounts
+    da = float(payload.get("dearness_allowance") or live_da or 0)
+    include_nps = payload.get("include_nps_in_ctc")
+    if include_nps is None:
+        include_nps = bool(getattr(live, "include_nps_in_ctc", False)) if live else False
+    return {
+        "monthly_gross": gross or live_amounts["monthly_gross"],
+        "monthly_basic": basic or live_amounts["monthly_basic"],
+        "monthly_hra": float(payload.get("hra") or live_amounts["monthly_hra"] or 0),
+        "monthly_epf": float(payload.get("epf") or live_amounts["monthly_epf"] or 0),
+        "monthly_ptax": float(payload.get("ptax") or live_amounts["monthly_ptax"] or 0),
+        "monthly_da": da,
+        "employer_nps_annual": employer_nps_annual_from_values(
+            basic=basic or live_amounts["monthly_basic"],
+            da=da,
+            include=bool(include_nps),
+            pct=payload.get("nps_employer_pct", getattr(live, "nps_employer_pct", None) if live else None),
+        ),
+        "ctc_basis": "pending_what_if",
+    }
+
+
+def build_tds_basis(
+    *,
+    projection_mode: str,
+    ctc_basis: str,
+    declaration_source: dict | None,
+    rules_version: str | None,
+    pending=None,
+) -> dict:
+    source = declaration_source or {}
+    decl_status = source.get("status")
+    payroll_statuses = sorted(tds_cfg.payroll_declaration_statuses())
+    return {
+        "projection_mode": projection_mode,
+        "ctc_basis": ctc_basis,
+        "declaration_status": decl_status,
+        "rules_version": rules_version,
+        "payroll_would_use": {
+            "ctc": "approved",
+            "declaration_statuses": payroll_statuses,
+            "uses_this_ctc": ctc_basis == "approved",
+            "uses_this_declaration": (decl_status or "") in payroll_statuses,
+        },
+        "pending_ctc": pending_ctc_summary(pending),
+    }
+
+
 def payroll_ytd_before_month(
     admin_id: int,
     financial_year: str,
@@ -241,6 +379,14 @@ def compute_monthly_tds_for_payroll(
         new_regime_deductions=tds_inputs.get("new_regime_deductions") or 0,
         ptax_annual=ptax_annual,
         as_of=as_of,
+        **statutory_projection_extras(
+            tds_inputs,
+            {
+                "employer_nps_annual": employer_nps_annual_from_ctc(ctc),
+                "monthly_da": float(ctc.dearness_allowance or 0),
+            },
+            admin_id=admin_id,
+        ),
     )
 
     monthly_tds = float(projection.get("tds", {}).get("monthly_tds") or 0)
@@ -270,6 +416,12 @@ def compute_monthly_tds_for_payroll(
         },
         "annual_tax": projection.get("tax", {}).get("annual_tax"),
         "remaining_tax": projection.get("tds", {}).get("remaining_tax"),
+        "tds_basis": build_tds_basis(
+            projection_mode="payroll_ready",
+            ctc_basis="approved",
+            declaration_source=tds_inputs.get("declaration_source"),
+            rules_version=projection.get("rules_version"),
+        ),
     }
 
 

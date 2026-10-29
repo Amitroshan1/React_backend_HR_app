@@ -1,6 +1,8 @@
 import ClickableImage from "../../../components/ClickableImage";
 import { openFirstImageInNewTab } from "../../../utils/openImageInNewTab";
-import { compressImage } from "../Data";
+import { useInventoryUpload } from "./InventoryUploadLock";
+
+export { encodeInventoryFiles } from "./InventoryUploadLock";
 
 export const truncateFileName = (name, max = 22) => {
   if (!name) return "";
@@ -15,32 +17,6 @@ export const readFileAsDataURL = (file) =>
     reader.readAsDataURL(file);
   });
 
-/** @returns {{ data: string, name: string, isImage: boolean }[]} */
-export async function encodeInventoryFiles(files, { imagesOnly = false } = {}) {
-  const list = Array.from(files || []);
-  if (!list.length) return [];
-
-  return Promise.all(
-    list.map(async (file) => {
-      const name = file.name || "file";
-      if (file.type?.startsWith("image/")) {
-        try {
-          const data = await compressImage(file);
-          return { data, name, isImage: true };
-        } catch {
-          if (imagesOnly) throw new Error(`Could not process image: ${name}`);
-          const data = await readFileAsDataURL(file);
-          return { data, name, isImage: false };
-        }
-      }
-      if (imagesOnly) {
-        throw new Error(`${name} is not an image.`);
-      }
-      const data = await readFileAsDataURL(file);
-      return { data, name, isImage: false };
-    }),
-  );
-}
 
 const FIELD_META = {
   photos: {
@@ -71,9 +47,10 @@ export function InventoryFileCell({
   onUpload,
   onPreview,
 }) {
+  const { busy } = useInventoryUpload();
   const meta = getFieldMeta(field);
   const names = row[meta.namesKey] || [];
-  const uploading = Boolean(row[meta.uploadingKey]);
+  const uploading = Boolean(row[meta.uploadingKey]) || busy;
   const pending = row[meta.pendingKey] || [];
   const count = (row[field] || []).length;
 

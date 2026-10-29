@@ -30,6 +30,7 @@ const NOC_TABLE_DEPT_LINES = [
   { key: "HR", label: "Human Resource NOC clearance" },
   { key: "ACCOUNTS", label: "Accounts NOC clearance" },
   { key: "IT", label: "IT NOC clearance" },
+  { key: "INVENTORY", label: "Inventory NOC clearance" },
 ];
 
 function nocDeptStatusPillClass(statusText) {
@@ -206,6 +207,10 @@ export const DepartmentNocPanel = ({
   variant = "cards",
   /** If true (HR), show download only when resignation is approved; manager / accounts / IT use uploaded-only. */
   requireResignationApprovedToDownload = false,
+  /** If true (IT), Status shows only this department's own clearance: Approved once uploaded, else Pending. */
+  ownOnly = false,
+  /** If true (Accounts), Status is only reporting-manager; Action is upload or view this department's file. */
+  managerStatusOnly = false,
 }) => {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -312,9 +317,9 @@ export const DepartmentNocPanel = ({
   };
 
   if (loading) {
-    return variant === "table" ? (
-      <div className="rr-table-wrap">
-        <p className="rr-loading">Loading NOC requests…</p>
+    return variant === "table" || variant === "accounts" ? (
+      <div className={variant === "accounts" ? "acc-noc-state" : "rr-table-wrap"}>
+        <p className={variant === "accounts" ? "acc-noc-state__text" : "rr-loading"}>Loading NOC requests…</p>
       </div>
     ) : (
       <p>Loading NOC requests...</p>
@@ -322,9 +327,9 @@ export const DepartmentNocPanel = ({
   }
 
   if (error && !requests.length) {
-    return variant === "table" ? (
-      <div className="rr-table-wrap">
-        <p className="rr-empty">{error}</p>
+    return variant === "table" || variant === "accounts" ? (
+      <div className={variant === "accounts" ? "acc-noc-state" : "rr-table-wrap"}>
+        <p className={variant === "accounts" ? "acc-noc-state__text" : "rr-empty"}>{error}</p>
       </div>
     ) : (
       <p>{error}</p>
@@ -332,9 +337,9 @@ export const DepartmentNocPanel = ({
   }
 
   if (!requests.length) {
-    return variant === "table" ? (
-      <div className="rr-table-wrap">
-        <p className="rr-empty">No NOC requests found.</p>
+    return variant === "table" || variant === "accounts" ? (
+      <div className={variant === "accounts" ? "acc-noc-state" : "rr-table-wrap"}>
+        <p className={variant === "accounts" ? "acc-noc-state__text" : "rr-empty"}>No NOC requests found.</p>
       </div>
     ) : (
       <p>No NOC requests found.</p>
@@ -342,6 +347,84 @@ export const DepartmentNocPanel = ({
   }
 
   const previewModal = <NocPreviewModal preview={preview} onClose={closePreview} />;
+
+  const renderAccountsAction = (req) => {
+    const pending = (req.status || "").toLowerCase() === "pending";
+    const canDl = canDownloadDepartmentNoc(req, requireResignationApprovedToDownload);
+    const uploadedAwaitingApproval =
+      requireResignationApprovedToDownload &&
+      isDepartmentNocUploaded(req) &&
+      !isResignationApproved(req);
+    if (pending) {
+      return (
+        <NocPendingUpload
+          req={req}
+          pendingFile={pendingFiles[req.id]}
+          onSelectFile={handleSelectFile}
+          onClearFile={clearPendingFile}
+          onPreview={openPreview}
+          onConfirmUpload={handleUpload}
+          uploading={uploadingId === req.id}
+          compact
+        />
+      );
+    }
+    if (canDl) {
+      return (
+        <button type="button" className="acc-noc-view" onClick={() => handleDownload(req)}>
+          View file
+        </button>
+      );
+    }
+    if (uploadedAwaitingApproval) {
+      return <span className="acc-noc-hint">On file — view after manager approval</span>;
+    }
+    return <span className="acc-noc-hint">No file</span>;
+  };
+
+  if (variant === "accounts") {
+    return (
+      <>
+        {previewModal}
+        {error ? <p className="manager-noc-inline-error">{error}</p> : null}
+        <div className="acc-noc-list">
+          <div className="acc-noc-list__head" aria-hidden="true">
+            <span>Employee</span>
+            <span>Reporting manager</span>
+            <span>Accounts file</span>
+          </div>
+          {requests.map((req) => {
+            const manager = (req.resignation_status || "Pending").trim();
+            const managerKey = manager.toLowerCase().replace(/\s+/g, "-");
+            return (
+              <article key={req.id} className={`acc-noc-row acc-noc-row--${managerKey}`}>
+                <div className="acc-noc-person">
+                  <span className="acc-noc-avatar" aria-hidden="true">
+                    {(req.employee_name || "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                  <div>
+                    <h3>{req.employee_name || "Employee"}</h3>
+                    <p>
+                      {[req.circle, req.emp_type, req.emp_id].filter(Boolean).join(" · ") || "—"}
+                    </p>
+                    <p className="acc-noc-dates">
+                      Requested {formatShort(req.requested_at)}
+                      {req.noc_date ? ` · NOC ${formatShort(req.noc_date)}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <div className="acc-noc-manager">
+                  <span className="acc-noc-kicker">Reporting manager</span>
+                  <span className={`acc-noc-pill acc-noc-pill--${managerKey}`}>{manager}</span>
+                </div>
+                <div className="acc-noc-file">{renderAccountsAction(req)}</div>
+              </article>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
 
   if (variant === "table") {
     return (
@@ -375,6 +458,43 @@ export const DepartmentNocPanel = ({
                     <td>{req.circle || "—"}</td>
                     <td>{req.emp_type || "—"}</td>
                     <td>
+                      {managerStatusOnly ? (
+                        <div className="noc-table-status-stack">
+                          <div>
+                            <span className="noc-table-status-label">Reporting manager</span>
+                            <span
+                              className={`status-pill status-${(req.resignation_status || "pending").toLowerCase()}`}
+                            >
+                              {req.resignation_status || "Pending"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : ownOnly ? (
+                        <div className="noc-table-status-stack">
+                          <div>
+                            <span className="noc-table-status-label">Manager decision</span>
+                            <span
+                              className={`status-pill status-${(req.resignation_status || "pending").toLowerCase()}`}
+                            >
+                              {req.resignation_status || "Pending"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="noc-table-status-label">
+                              {req.department_label || req.department_key || "Department"} NOC clearance
+                            </span>
+                            {(() => {
+                              const uploaded = isDepartmentNocUploaded(req);
+                              const display = uploaded ? "Approved" : (req.status || "Pending");
+                              return (
+                                <span className={`status-pill status-${display.toLowerCase().replace(/\s+/g, "-")}`}>
+                                  {display}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      ) : (
                       <div className="noc-table-status-stack">
                         <div>
                           <span className="noc-table-status-label">Resignation (reporting manager)</span>
@@ -395,6 +515,7 @@ export const DepartmentNocPanel = ({
                           );
                         })}
                       </div>
+                      )}
                       <span className="noc-table-meta" title="Requested date">
                         Requested: {formatShort(req.requested_at)} · NOC date: {formatShort(req.noc_date)}
                       </span>
@@ -418,7 +539,7 @@ export const DepartmentNocPanel = ({
                             className="btn-link-download"
                             onClick={() => handleDownload(req)}
                           >
-                            Download
+                            {managerStatusOnly ? "View file" : "Download"}
                           </button>
                         ) : uploadedAwaitingApproval ? (
                           <span className="noc-download-gated-hint" title="Reporting manager must approve the resignation first.">

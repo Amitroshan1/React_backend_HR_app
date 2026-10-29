@@ -1,0 +1,122 @@
+.inv-noc {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.inv-noc__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid #dce6e4;
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(19, 135, 127, 0.12), transparent 46%),
+    #fff;
+  box-shadow: 0 10px 24px rgba(16, 42, 40, 0.05);
+}
+
+.inv-noc__head p,
+.inv-noc__head h1,
+.inv-noc__head span {
+  letter-spacing: 0;
+  word-spacing: normal;
+}
+
+.inv-noc__head p {
+  margin: 0;
+  color: #0c716a;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.inv-noc__head h1 {
+  margin: 6px 0 8px;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.inv-noc__head span {
+  color: #5b6b7c;
+  font-size: 13px;
+}
+
+.inv-noc__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inv-noc__filters button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #e8f5f3;
+  color: #0c716a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inv-noc__filters .is-on {
+  background: #13877f;
+  color: #fff;
+}
+
+.inv-noc__body {
+  width: 100%;
+  border: 1px solid #dce6e4;
+  border-radius: 16px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 10px 24px rgba(16, 42, 40, 0.05);
+}
+
+.inv-noc .rr-table-wrap {
+  margin: 0;
+  width: 100%;
+  border: 0;
+  box-shadow: none;
+  overflow: auto;
+}
+
+.inv-noc .rr-empty,
+.inv-noc .rr-loading {
+  margin: 0;
+  padding: 48px 20px;
+  text-align: center;
+  color: #5b6b7c;
+}
+
+.inv-noc .department-noc-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.inv-noc .department-noc-table thead th {
+  background: #f3fafa;
+  color: #0c716a;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.inv-noc .department-noc-table tbody tr:hover {
+  background: #f7fbfa;
+}
+
+.inv-noc .noc-table-status-stack {
+  max-width: none;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 800px) {
+  .inv-noc__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

@@ -43,10 +43,20 @@ class TestCtcAdvancedLogic(unittest.TestCase):
         self.assertFalse(adv.resolve_is_metro_hra(location="Mumbai", explicit=False))
 
     def test_eps_split_capped(self):
-        split = adv.employer_pf_eps_split(basic_salary=15000, dearness_allowance=0)
+        split = adv.employer_pf_eps_split(
+            basic_salary=15000, dearness_allowance=0, as_of="2026-08-01"
+        )
         self.assertEqual(split["employer_pf_total_monthly"], 1800.0)
-        self.assertEqual(split["eps_contribution_monthly"], 1250.0)
-        self.assertEqual(split["epf_er_contribution_monthly"], 550.0)
+        self.assertAlmostEqual(split["eps_contribution_monthly"], 1249.5, places=1)
+        self.assertAlmostEqual(split["epf_er_contribution_monthly"], 550.5, places=1)
+
+    def test_eps_split_after_25000_ceiling(self):
+        split = adv.employer_pf_eps_split(
+            basic_salary=30000, dearness_allowance=0, as_of="2026-10-01"
+        )
+        self.assertEqual(split["employer_pf_total_monthly"], 3000.0)
+        self.assertEqual(split["eps_contribution_monthly"], 2082.5)
+        self.assertEqual(split["epf_er_contribution_monthly"], 917.5)
 
     def test_vpf_monthly(self):
         self.assertEqual(

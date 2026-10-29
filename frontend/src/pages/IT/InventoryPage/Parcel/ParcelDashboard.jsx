@@ -11,6 +11,7 @@ import {
   getParcelAssetDisplayName,
 } from "../../inventoryCategories";
 import ActivityLogPage from "../../itam/ActivityLogPage";
+import ParcelMonthlyHistory from "./ParcelMonthlyHistory";
 import "./ParcelDashboard.css";
 import { formatDate } from "../../../../utils/dateFormat";
 
@@ -20,7 +21,7 @@ const PER_PAGE = 10;
 const EXPORT_CATEGORY_FILTERS = [
   { id: "All", label: "All" },
   { id: "IT Assets", label: "IT" },
-  { id: "Office Assets", label: "Office" },
+  { id: "Fixed Assets", label: "Fixed" },
   { id: "Infrastructure Assets", label: "Infra" },
   { id: "Transport Assets", label: "Transport" },
 ];
@@ -268,8 +269,13 @@ function ImportDetailsModal({ asset, onClose }) {
 export default function Parcel() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const view = searchParams.get("tab") === "log" ? "log" : "parcels";
+  const tabParam = searchParams.get("tab");
+  const view = tabParam === "log" ? "log" : tabParam === "history" ? "history" : "parcels";
   const isLog = view === "log";
+  const isHistory = view === "history";
+  const monthFilter = /^\d{4}-\d{2}$/.test(searchParams.get("month") || "")
+    ? searchParams.get("month")
+    : "";
 
   const [importedData, setImportedData] = useState([]);
   const [exportedData, setExportedData] = useState([]);
@@ -283,20 +289,27 @@ export default function Parcel() {
   const [photoPreview,  setPhotoPreview]  = useState(null);
 
   useEffect(() => {
-    if (isLog) return;
+    if (view !== "parcels") return;
     setActiveTab("imported");
     setExportCategory("All");
     setSearch("");
     setPage(1);
-  }, [isLog]);
+  }, [view]);
 
   const setView = useCallback(
-    (next) => {
-      if (next === "log") setSearchParams({ tab: "log" });
-      else setSearchParams({});
+    (next, extra = {}) => {
+      const params = {};
+      if (next === "log") params.tab = "log";
+      if (next === "history") params.tab = "history";
+      if (extra.month && /^\d{4}-\d{2}$/.test(extra.month)) params.month = extra.month;
+      setSearchParams(params);
     },
     [setSearchParams],
   );
+
+  const clearMonthFilter = useCallback(() => {
+    setView("parcels");
+  }, [setView]);
 
   // ── Data loading ───────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -341,6 +354,9 @@ export default function Parcel() {
 
   const filtered = useMemo(() => {
     let rows = rawData;
+    if (monthFilter) {
+      rows = rows.filter((r) => String(r.date || "").slice(0, 7) === monthFilter);
+    }
     if (activeTab === "exported" && exportCategory !== "All") {
       rows = rows.filter((r) => r.category === exportCategory);
     }
@@ -356,7 +372,7 @@ export default function Parcel() {
         String(r.exportedBy ?? "").toLowerCase().includes(q) ||
         String(r.category ?? "").toLowerCase().includes(q)
     );
-  }, [rawData, search, activeTab, exportCategory]);
+  }, [rawData, search, activeTab, exportCategory, monthFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
   const paginated  = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
@@ -391,42 +407,60 @@ export default function Parcel() {
       {/* Top Bar */}
       <div className="pcl-topbar">
         <button type="button" className="pcl-back-btn" onClick={() => navigate("/it/inventory")}>
-          ← Back to Inventory Management
+          ← Back
         </button>
         <div className="pcl-topbar-right">
           <div className="pcl-title-block">
-            <h1 className="pcl-title">Parcels</h1>
+            <h1 className="pcl-title">Import/Export</h1>
             <p className="pcl-subtitle">
               {isLog
-                ? "Activity log for parcel import and export only"
+                ? "Activity log for import and export only"
+                : isHistory
+                ? "Month-by-month import and export totals"
                 : "Add imports and prepare assets for export"}
             </p>
           </div>
-          <div className="pcl-view-switch" role="tablist" aria-label="Parcels sections">
+          <div className="pcl-view-switch" role="tablist" aria-label="Import/Export sections">
             <button
               type="button"
               role="tab"
-              aria-selected={!isLog}
-              className={`pcl-view-btn${!isLog ? " active" : ""}`}
+              aria-selected={view === "parcels"}
+              className={`pcl-view-btn${view === "parcels" ? " active" : ""}`}
               onClick={() => setView("parcels")}
             >
-              Parcels
+              Import/Export
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isHistory}
+              className={`pcl-view-btn${isHistory ? " active" : ""}`}
+              onClick={() => setView("history")}
+            >
+              Monthly history
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={isLog}
               className={`pcl-view-btn${isLog ? " active" : ""}`}
-              onClick={() => setView("log")}
+              onClick={() => setView("log", monthFilter ? { month: monthFilter } : {})}
             >
-              Parcel Log
+              Import/Export Log
             </button>
           </div>
         </div>
       </div>
 
       {isLog ? (
-        <ActivityLogPage defaultScope="parcel" embedded />
+        <ActivityLogPage defaultScope="parcel" embedded initialMonth={monthFilter} />
+      ) : isHistory ? (
+        <ParcelMonthlyHistory
+          imports={importedData}
+          exports={exportedData}
+          onOpenMonthLog={(month) => setView("log", { month })}
+          onOpenMonthRecords={(month) => setView("parcels", { month })}
+        />
       ) : (
         <>
       {/* Tab + Action Row */}
@@ -486,16 +520,25 @@ export default function Parcel() {
         </div>
       )}
 
+      {monthFilter && (
+        <div className="pcl-month-filter">
+          Showing records from <strong>{monthFilter}</strong>
+          <button type="button" className="pcl-search-clear" onClick={clearMonthFilter}>
+            Clear month
+          </button>
+        </div>
+      )}
+
       {/* Search */}
       <div className="pcl-search-row">
         <div className="pcl-search-wrap">
           <span className="pcl-search-icon" aria-hidden>⌕</span>
           <input
             className="pcl-search-input"
-            placeholder={`Search ${activeTab} parcels...`}
+            placeholder={`Search ${activeTab} import/export...`}
             value={search}
             onChange={handleSearchChange}
-            aria-label="Search parcels"
+            aria-label="Search import/export"
           />
           {search && (
             <button
@@ -539,11 +582,13 @@ export default function Parcel() {
                   <td colSpan={8} className="pcl-empty">
                     {rawData.length === 0
                       ? activeTab === "imported"
-                        ? 'No imported parcels yet. Use "+ Add in Import" to add records.'
-                        : "No exported parcels yet. Export assets to see them here."
+                        ? 'No imports yet. Use "+ Add in Import" to add records.'
+                        : "No exports yet. Export assets to see them here."
+                      : monthFilter
+                        ? `No ${activeTab} records in ${monthFilter}.`
                       : activeTab === "exported" && exportCategory !== "All"
-                        ? `No exported parcels in ${EXPORT_CATEGORY_FILTERS.find((c) => c.id === exportCategory)?.label || exportCategory}.`
-                        : `No ${activeTab} parcels match your search.`}
+                        ? `No exports in ${EXPORT_CATEGORY_FILTERS.find((c) => c.id === exportCategory)?.label || exportCategory}.`
+                        : `No ${activeTab} records match your search.`}
                   </td>
                 </tr>
               ) : (

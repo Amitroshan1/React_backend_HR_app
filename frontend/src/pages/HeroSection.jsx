@@ -4,7 +4,7 @@ import { toast } from "react-toastify";
 import { useUser } from "../components/layout/UserContext";
 import { setPlanContext } from "../utils/planFeatures";
 import { clearLoginNotificationsFlag } from "../hooks/useFloatingNotifications";
-import { SESSION_ENDED_KEY, TENANT_SUSPENDED_CODE } from "../utils/sessionTimeout";
+import { persistSessionTimeoutMinutes, SESSION_ENDED_KEY, TENANT_SUSPENDED_CODE } from "../utils/sessionTimeout";
 
 import "./style/HeroSection.css";
 
@@ -36,7 +36,7 @@ export const HeroSection = () => {
     const wasExpired = localStorage.getItem(SESSION_ENDED_KEY);
     if (wasExpired === "1") {
       setShowLogin(true);
-      setError("Session expired due to inactivity. Please login again.");
+      setError("Your session expired. Please login again.");
       localStorage.removeItem(SESSION_ENDED_KEY);
     } else if (wasExpired === TENANT_SUSPENDED_CODE) {
       setShowLogin(true);
@@ -152,7 +152,10 @@ export const HeroSection = () => {
     clearLoginNotificationsFlag();
     localStorage.setItem("token", data.token);
     localStorage.setItem("lastActivityAt", String(Date.now()));
-    setPlanContext(data.plan, data.features);
+    persistSessionTimeoutMinutes(data.session_timeout_minutes);
+    setPlanContext(data.plan, data.features, {
+      is_platform_super_admin: data.is_platform_super_admin,
+    });
     await refreshUserData({ force: true });
     toast.success("Login successful!");
     navigate("/dashboard", { replace: true });

@@ -50,6 +50,7 @@ export const EmployeeTaxProjection = () => {
         || "User";
 
     const [hasCtcData, setHasCtcData] = useState(false);
+    const [pendingCtc, setPendingCtc] = useState(null);
     const [ctcLoading, setCtcLoading] = useState(true);
     const [tdsProjection, setTdsProjection] = useState(null);
     const [tdsLoading, setTdsLoading] = useState(false);
@@ -70,6 +71,7 @@ export const EmployeeTaxProjection = () => {
                     body: JSON.stringify({
                         admin_id: userId,
                         financial_year: year,
+                        projection_mode: "payroll_ready",
                         use_ytd_gross: true,
                         use_declaration: true,
                     }),
@@ -117,7 +119,9 @@ export const EmployeeTaxProjection = () => {
             const annual = Number(ctc?.annual_ctc_computed ?? ctc?.annual_ctc ?? 0);
             const hasCtc = ctcResult?.success && (annual > 0 || Number(ctc?.basic_salary || 0) > 0);
             setHasCtcData(hasCtc);
+            setPendingCtc(ctcResult?.pending_request || null);
             if (!hasCtc) {
+                setPendingCtc(null);
                 setTdsError("CTC breakup is not available. Contact Accounts if this looks wrong.");
                 return;
             }
@@ -148,6 +152,7 @@ export const EmployeeTaxProjection = () => {
     const schedule = p?.tds?.schedule || [];
     const taxSavings = p?.tax_savings;
     const tdsBasis = declSource?.tds_basis || inputsUsed.tds_basis;
+    const projectionBasis = p?.tds_basis;
 
     const declBannerClass = declSource?.found
         ? declSource.payroll_ready
@@ -214,6 +219,23 @@ export const EmployeeTaxProjection = () => {
                                 >
                                     {tdsLoading ? "Calculating…" : "Recalculate"}
                                 </button>
+                            </div>
+                        </div>
+
+                        <div className="employee-tax-decl-banner employee-tax-decl-banner--ctc">
+                            <div className="employee-tax-decl-banner-text">
+                                <strong>Based on last approved CTC</strong>
+                                <span>
+                                    Same salary payroll uses.
+                                    {projectionBasis?.rules_version
+                                        ? ` Tax rules ${projectionBasis.rules_version}.`
+                                        : ""}
+                                </span>
+                                {(pendingCtc || projectionBasis?.pending_ctc) && (
+                                    <span className="employee-tax-basis employee-tax-basis--pending">
+                                        CTC pending {(pendingCtc || projectionBasis.pending_ctc).status?.replaceAll("_", " ")} — not in this number
+                                    </span>
+                                )}
                             </div>
                         </div>
 

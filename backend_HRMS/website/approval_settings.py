@@ -20,11 +20,13 @@ _DEFAULTS = {
     "leave_on_behalf": True,
     "leave_update": True,
     "wfh_update": True,
+    "probation": True,
     # When HR applies immediately because a switch is off, also email Admin.
     "notify_admin_on_bypass": False,
 }
 
-_ALWAYS_REQUIRED = frozenset({"general", "leave_unlock"})
+# Probation on-role / extend / reject always needs Admin (employee mail only after approve).
+_ALWAYS_REQUIRED = frozenset({"general", "leave_unlock", "probation"})
 _BOOL_KEYS = tuple(_DEFAULTS.keys())
 
 SWITCH_META = (

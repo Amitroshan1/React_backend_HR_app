@@ -2,14 +2,14 @@
 
 export const INV_CATEGORIES = [
   "IT Assets",
-  "Office Assets",
+  "Fixed Assets",
   "Transport Assets",
   "Infrastructure Assets",
 ];
 
 export const ASSET_TYPE_TABS = [
   { label: "IT Assets", key: "it", inventoryCategory: "IT Assets" },
-  { label: "Office Assets", key: "office", inventoryCategory: "Office Assets" },
+  { label: "Fixed Assets", key: "office", inventoryCategory: "Fixed Assets" },
   { label: "Transport Assets", key: "transport", inventoryCategory: "Transport Assets" },
   {
     label: "Infrastructure Assets",
@@ -35,7 +35,7 @@ export const INVENTORY_CATEGORY_CONFIG = {
     mobileHwType: "Mobile",
     itemCategories: ["Hardware", "Accessories", "Consumables"],
   },
-  "Office Assets": {
+  "Fixed Assets": {
     stockMode: true,
     hwTypes: ["Furniture", "Electronics", "Appliances", "Safety Equipment"],
     accessoryTypes: ["Stationery", "Decor", "Kitchen"],
@@ -67,15 +67,21 @@ export const INVENTORY_CATEGORY_CONFIG = {
 };
 
 export function inventoryCategoryToKey(inventoryCategory) {
-  return KEY_BY_CATEGORY[inventoryCategory] || "it";
+  return KEY_BY_CATEGORY[canonicalizeInventoryCategory(inventoryCategory)] || "it";
 }
 
 export function keyToInventoryCategory(key) {
   return CATEGORY_BY_KEY[key] || "IT Assets";
 }
 
+export function canonicalizeInventoryCategory(cat) {
+  const value = String(cat || "").trim();
+  if (value.toLowerCase() === "office assets") return "Fixed Assets";
+  return value;
+}
+
 export function isValidInventoryCategory(cat) {
-  return INV_CATEGORIES.includes(cat);
+  return INV_CATEGORIES.includes(canonicalizeInventoryCategory(cat));
 }
 
 export function isSoftwareCategory(value) {
@@ -98,12 +104,13 @@ export function resolveInventoryCategory(item) {
   if (cat === "equipment") return "Infrastructure Assets";
 
   if (cat === "stock") {
+    const stockCat = canonicalizeInventoryCategory(explicit);
     if (
-      explicit === "Office Assets" ||
-      explicit === "Infrastructure Assets" ||
-      explicit === "Transport Assets"
+      stockCat === "Fixed Assets" ||
+      stockCat === "Infrastructure Assets" ||
+      stockCat === "Transport Assets"
     ) {
-      return explicit;
+      return stockCat;
     }
     return "";
   }
@@ -113,17 +120,20 @@ export function resolveInventoryCategory(item) {
       cat,
     )
   ) {
-    return explicit && INV_CATEGORIES.includes(explicit) ? explicit : "IT Assets";
+    const named = canonicalizeInventoryCategory(explicit);
+    return named && INV_CATEGORIES.includes(named) ? named : "IT Assets";
   }
 
-  if (explicit && INV_CATEGORIES.includes(explicit)) return explicit;
+  const named = canonicalizeInventoryCategory(explicit);
+  if (named && INV_CATEGORIES.includes(named)) return named;
   return "";
 }
 
 export function filterInventoryByCategory(items, inventoryCategory) {
   if (!inventoryCategory) return items;
+  const wanted = canonicalizeInventoryCategory(inventoryCategory);
   return (items || []).filter(
-    (i) => resolveInventoryCategory(i) === inventoryCategory,
+    (i) => resolveInventoryCategory(i) === wanted,
   );
 }
 
@@ -282,7 +292,7 @@ export function getHardwareFields(inventoryCategory, itemCategory = null, hwType
 }
 
 export function isStockInventoryCategory(inventoryCategory) {
-  return Boolean(INVENTORY_CATEGORY_CONFIG[inventoryCategory]?.stockMode);
+  return Boolean(INVENTORY_CATEGORY_CONFIG[canonicalizeInventoryCategory(inventoryCategory)]?.stockMode);
 }
 
 export function isVehicleInventoryCategory(inventoryCategory) {
@@ -295,6 +305,7 @@ export function isNonItInventoryCategory(inventoryCategory) {
 }
 
 const DEPLOY_INVENTORY_CATEGORIES = new Set([
+  "Fixed Assets",
   "Office Assets",
   "Transport Assets",
   "Infrastructure Assets",
@@ -302,7 +313,7 @@ const DEPLOY_INVENTORY_CATEGORIES = new Set([
 
 /** Issue / return (location deploy) for Office, Transport, Infrastructure. */
 export function showInventoryDeploy(inventoryCategory) {
-  return DEPLOY_INVENTORY_CATEGORIES.has(inventoryCategory);
+  return DEPLOY_INVENTORY_CATEGORIES.has(canonicalizeInventoryCategory(inventoryCategory));
 }
 
 /** Show In use / Assigned column on IT and deploy-enabled inventory tabs. */
@@ -312,7 +323,7 @@ export function hideAssignedColumnForCategory(inventoryCategory) {
 }
 
 export function isOfficeInventoryCategory(inventoryCategory) {
-  return inventoryCategory === "Office Assets";
+  return canonicalizeInventoryCategory(inventoryCategory) === "Fixed Assets";
 }
 
 /** @deprecated use showInventoryDeploy */
@@ -376,7 +387,7 @@ export function getDeployModalConfig(inventoryCategory) {
   }
   return {
     ...DEPLOY_LABEL_DEFAULTS,
-    label: "Office",
+    label: "Fixed",
     locationLabel: "Location / department",
     locationPlaceholder: "e.g. 3rd floor pantry, Reception",
     hint: "Move quantity from Available to In use at a location.",
@@ -448,10 +459,12 @@ export function deletedLogBelongsToInventoryCategory(
   if (cat === "vehicle") return inventoryCategory === "Transport Assets";
   if (cat === "equipment") return inventoryCategory === "Infrastructure Assets";
   if (cat === "stock") {
-    if (explicit && INV_CATEGORIES.includes(explicit)) {
-      return explicit === inventoryCategory;
+    const named = canonicalizeInventoryCategory(explicit);
+    const wanted = canonicalizeInventoryCategory(inventoryCategory);
+    if (named && INV_CATEGORIES.includes(named)) {
+      return named === wanted;
     }
-    return inventoryCategory === "Office Assets";
+    return wanted === "Fixed Assets";
   }
   if (
     inventoryCategory === "IT Assets" &&

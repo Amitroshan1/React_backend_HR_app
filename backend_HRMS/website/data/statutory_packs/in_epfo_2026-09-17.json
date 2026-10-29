@@ -1,0 +1,18 @@
+{
+  "id": "in_epfo_2026-09-17",
+  "label": "EPFO wage ceiling ₹25,000 (from 17 Sep 2026)",
+  "effective_from": "2026-09-17",
+  "effective_to": null,
+  "source": "S.O. 5109(E) dated 17 September 2026, Code on Social Security 2020",
+  "pf_wage_cap_monthly": 25000,
+  "pf_rate": 12,
+  "eps_rate": 8.33,
+  "eps_contrib_max": 2082.5,
+  "pf_admin_pct": 0.5,
+  "edli_pct": 0.5,
+  "esic_gross_cap": 21001,
+  "esic_employee_pct": 0.75,
+  "esic_employer_pct": 3.25,
+  "statutory_bonus_wage_cap": 21000,
+  "statutory_bonus_pct": 8.33
+}

@@ -90,6 +90,36 @@ def private_uploads_root() -> str:
     return os.path.abspath(os.path.join(current_app.root_path, "..", "uploads"))
 
 
+def _upload_lookup_keys(rel: str) -> list[str]:
+    """Stored keys plus common profile/tenant prefixes used by older rows."""
+    keys = [rel]
+    base = rel.rsplit("/", 1)[-1]
+    if "/" not in rel:
+        keys.append(f"profile/{base}")
+    tid = None
+    try:
+        from .tenant_context import get_current_tenant_id
+
+        tid = get_current_tenant_id()
+    except Exception:
+        tid = None
+    if tid not in (None, ""):
+        try:
+            tid = int(tid)
+        except (TypeError, ValueError):
+            tid = None
+    if tid is not None:
+        keys.append(f"tenants/{tid}/{rel}")
+        keys.append(f"tenants/{tid}/profile/{base}")
+        if rel.startswith("profile/"):
+            keys.append(f"tenants/{tid}/{rel}")
+    seen = []
+    for key in keys:
+        if key and key not in seen and ".." not in key.split("/"):
+            seen.append(key)
+    return seen
+
+
 def resolve_upload_abs_path(rel: str) -> Optional[str]:
     """
     Find file on disk. Checks private UPLOADS_ROOT first, then legacy static/uploads.
@@ -99,12 +129,13 @@ def resolve_upload_abs_path(rel: str) -> Optional[str]:
     if not rel or ".." in rel.split("/"):
         return None
 
-    candidates = []
     priv = private_uploads_root()
-    candidates.append(os.path.join(priv, *rel.split("/")))
-    # Legacy payslips/form16 may be under private root only
     static_root = static_uploads_root()
-    candidates.append(os.path.join(static_root, *rel.split("/")))
+    candidates = []
+    for key in _upload_lookup_keys(rel):
+        parts = key.split("/")
+        candidates.append(os.path.join(priv, *parts))
+        candidates.append(os.path.join(static_root, *parts))
 
     for abs_path in candidates:
         abs_path = os.path.abspath(abs_path)
@@ -118,6 +149,67 @@ def resolve_upload_abs_path(rel: str) -> Optional[str]:
             continue
         if os.path.isfile(abs_path):
             return abs_path
+
+    # Last resort: find the stored filename under this tenant's upload folders.
+    found = _find_upload_by_basename(rel.rsplit("/", 1)[-1], priv, static_root)
+    if found:
+        return found
+    return None
+
+
+def _safe_under_root(abs_path: str, priv: str, static_root: str) -> bool:
+    abs_path = os.path.abspath(abs_path)
+    return (
+        abs_path.startswith(priv + os.sep)
+        or abs_path.startswith(static_root + os.sep)
+        or abs_path == priv
+        or abs_path == static_root
+    )
+
+
+def _find_upload_by_basename(base: str, priv: str, static_root: str) -> Optional[str]:
+    """Match upload_docs filenames that were stored without their folder prefix."""
+    base = (base or "").strip()
+    if not base or base in {".", ".."} or "/" in base or "\\" in base:
+        return None
+    tid = None
+    try:
+        from .tenant_context import get_current_tenant_id
+
+        tid = get_current_tenant_id()
+        if tid not in (None, ""):
+            tid = int(tid)
+    except Exception:
+        tid = None
+    dirs = [
+        os.path.join(priv, "profile"),
+        os.path.join(static_root, "profile"),
+        priv,
+        static_root,
+    ]
+    if tid is not None:
+        dirs.extend(
+            [
+                os.path.join(priv, "tenants", str(tid), "profile"),
+                os.path.join(static_root, "tenants", str(tid), "profile"),
+                os.path.join(priv, "tenants", str(tid)),
+                os.path.join(static_root, "tenants", str(tid)),
+            ]
+        )
+    stem = os.path.splitext(base)[0]
+    for folder in dirs:
+        if not os.path.isdir(folder):
+            continue
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            if name != base and not name.startswith(stem):
+                continue
+            abs_path = os.path.join(folder, name)
+            if os.path.isfile(abs_path) and _safe_under_root(abs_path, priv, static_root):
+                return os.path.abspath(abs_path)
     return None
 
 
@@ -266,7 +358,7 @@ def authorize_upload_access(admin: Admin, rel: str, claims: Optional[dict] = Non
         return (True, "ok") if privileged else (False, "Access denied")
 
     # --- Expenses / policies / news-style public-ish company docs ---
-    if rel.startswith("expenses/"):
+    if rel.startswith("expenses/") or rel.startswith("inventory_purchase/"):
         # Claimant path is hard to reverse from filename; allow privileged always,
         # and any authenticated user who already knows the path (managers open via UI).
         return True, "ok"

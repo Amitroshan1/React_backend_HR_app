@@ -232,7 +232,7 @@ export const TaxDeclaration = () => {
     const [submissionDeadline, setSubmissionDeadline] = useState(null);
 
     const regime = normalizeRegime(taxRegime);
-    const isLocked = status === "submitted" || status === "approved";
+    const isLocked = ["submitted", "verified", "returned_to_accounts", "approved"].includes(status);
     const submissionClosed = submissionDeadline && submissionDeadline.is_open === false;
     const finalProofEditable =
         status === "approved" &&
@@ -245,7 +245,13 @@ export const TaxDeclaration = () => {
             return "Year-end proof is approved. Open Final proof (top right) to view amounts and documents.";
         }
         if (fps === "submitted") {
-            return "Your year-end proof is under Finance review. Open Final proof (top right) to view what you submitted.";
+            return "Your year-end proof is with Accounts for verification.";
+        }
+        if (fps === "verified") {
+            return "Accounts verified your year-end proof. Finance will approve it next.";
+        }
+        if (fps === "returned") {
+            return "Finance returned the year-end proof to Accounts with remarks.";
         }
         if (fps === "rejected") {
             return "Year-end proof was rejected. Open Final proof (top right) to update amounts and re-upload documents.";
@@ -336,10 +342,14 @@ export const TaxDeclaration = () => {
                 const notifyKey = `${fy}:${decl.status}:${decl.rejection_reason || ""}`;
                 if (statusNotifiedRef.current !== notifyKey) {
                     statusNotifiedRef.current = notifyKey;
-                    if (decl.status === "rejected" && decl.rejection_reason) {
-                        notifyWarning(`Rejected: ${decl.rejection_reason}. Please update and resubmit.`);
+                    if ((decl.status === "rejected" || decl.status === "returned_to_employee") && decl.rejection_reason) {
+                        notifyWarning(`${decl.status === "returned_to_employee" ? "Returned" : "Rejected"}: ${decl.rejection_reason}. Please update and resubmit.`);
                     } else if (decl.status === "submitted") {
-                        notifyInfo("Your declaration is under review. Editing is locked until Finance responds.");
+                        notifyInfo("Your declaration is with Accounts for verification.");
+                    } else if (decl.status === "verified") {
+                        notifyInfo("Accounts verified your declaration. Finance will approve it next.");
+                    } else if (decl.status === "returned_to_accounts") {
+                        notifyInfo("Finance sent remarks to Accounts. Your declaration stays locked until they resubmit.");
                     } else if (decl.status === "approved") {
                         notifyInfo("Your declaration is approved and locked. Contact Finance to amend if needed.");
                     } else if (decl.status === "draft") {
