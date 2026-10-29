@@ -2,7 +2,7 @@ from flask import Flask
 from sqlalchemy import text
 
 from website import db
-from website.schema_align import align_schema
+from website.schema_align import _SKIP_MODEL_MODULES, align_schema
 
 
 def test_align_adds_missing_table_and_nullable_column_without_touching_rows():
@@ -40,3 +40,7 @@ def test_align_adds_missing_table_and_nullable_column_without_touching_rows():
         again = align_schema(db, load_modules=False)
         assert again["added_columns"] == []
         assert again["created_tables"] == []
+
+
+def test_legacy_signup_model_is_not_imported_for_align():
+    assert "confirmation_request" in _SKIP_MODEL_MODULES

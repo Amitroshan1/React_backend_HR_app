@@ -15,11 +15,13 @@ import logging
 from pathlib import Path
 
 from sqlalchemy import inspect, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import NoReferencedTableError, SQLAlchemyError
 
 log = logging.getLogger(__name__)
 
 _SKIP_PK_ON_EXISTING = True
+# Leftover models whose FKs point at tables/classes we no longer ship (e.g. signups).
+_SKIP_MODEL_MODULES = frozenset({"confirmation_request"})
 
 
 def _load_model_modules() -> None:
@@ -28,7 +30,7 @@ def _load_model_modules() -> None:
     models_dir = root / "models"
     if models_dir.is_dir():
         for path in models_dir.glob("*.py"):
-            if path.name.startswith("_"):
+            if path.name.startswith("_") or path.stem in _SKIP_MODEL_MODULES:
                 continue
             modules.append(f"website.models.{path.stem}")
     bio = root / "biometric" / "models.py"
@@ -78,6 +80,14 @@ def _existing_columns(insp, table: str) -> set[str]:
         return set()
 
 
+def _iter_tables(metadata, logger):
+    try:
+        return list(metadata.sorted_tables)
+    except (NoReferencedTableError, SQLAlchemyError) as exc:
+        logger.warning("schema align: table sort skipped (%s); using unsorted metadata", exc)
+        return list(metadata.tables.values())
+
+
 def align_schema(db, *, logger=None, load_modules=True) -> dict:
     """
     Bring the live database up to registered SQLAlchemy metadata.
@@ -104,7 +114,7 @@ def align_schema(db, *, logger=None, load_modules=True) -> dict:
             insp = inspect(conn)
             present = _existing_tables(insp)
 
-            for table in metadata.sorted_tables:
+            for table in _iter_tables(metadata, logger):
                 tname = table.name
                 if tname.lower() not in present:
                     try:
@@ -137,7 +147,7 @@ def align_schema(db, *, logger=None, load_modules=True) -> dict:
                         msg = f"add {tname}.{column.name}: {exc}"
                         errors.append(msg)
                         logger.warning("schema align: %s", msg)
-    except SQLAlchemyError as exc:
+    except Exception as exc:
         errors.append(str(exc))
         logger.warning("schema align aborted: %s", exc)
 

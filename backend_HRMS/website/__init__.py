@@ -329,8 +329,7 @@ def create_app():
                         "db.create_all skipped existing tables: %s", e
                     )
                 else:
-                    app.logger.error("db.create_all failed: %s", e, exc_info=True)
-                    raise
+                    app.logger.warning("db.create_all skipped: %s", e)
 
     # ---------------------------
     # Register Blueprints
