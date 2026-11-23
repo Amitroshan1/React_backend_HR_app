@@ -88,7 +88,7 @@ class Location(db.Model):
 
 
 class CompOffGain(db.Model):
-    """One row = 1 comp-off earned (e.g. by working on Sunday). Valid 30 days from gain_date."""
+    """One row = 1 comp-off earned (Sunday or public-holiday work). Valid 30 days from gain_date."""
     __tablename__ = "comp_off_gains"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -97,7 +97,7 @@ class CompOffGain(db.Model):
     expiry_date = db.Column(db.Date, nullable=False)  # gain_date + 30 days
     used = db.Column(db.Float, default=0.0, nullable=False)  # 0 = full comp available, 1 = fully used
     reminder_sent_at = db.Column(db.DateTime, nullable=True)  # when 7-day expiry reminder was sent
-    # Unique when set (Sunday punch job). NULL for manual/restore rows so multiples are allowed.
+    # Unique when set (Sunday / holiday punch job). NULL for manual/restore rows so multiples are allowed.
     dedupe_key = db.Column(db.String(64), nullable=True, unique=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
 

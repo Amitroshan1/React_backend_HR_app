@@ -86,6 +86,9 @@ def create_app():
         "BASE_URL",
         "https://solviotec.com"
     )
+    app.config["KYB_PUBLIC_BASE_URL"] = (
+        os.getenv("KYB_PUBLIC_BASE_URL") or os.getenv("PUBLIC_APP_URL") or ""
+    ).strip()
     apply_compensation_platform(app)
 
     app.config["ZEPTO_API_KEY"] = os.getenv("ZEPTO_API_KEY")

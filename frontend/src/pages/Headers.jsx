@@ -385,9 +385,9 @@ export const Headers = ({ username, role, profilePic, hasManagerAccess, user, pr
                 panelLinks.push(invLink);
             }
         }
-        if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {
-            panelLinks.push({ display: "Manager", route: "/manager" });
-        }
+    }
+    if (showManagerPanel && !panelLinks.some((p) => p.route === "/manager")) {
+        panelLinks.push({ display: "Manager", route: "/manager" });
     }
     const isSpecialRole = panelLinks.length > 0;
 

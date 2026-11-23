@@ -58,11 +58,12 @@ export default function AdminRegisterCompany() {
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
 
-  const token = () => getAccessToken();
-  const headers = () => ({
-    Authorization: `Bearer ${token()}`,
-    'Content-Type': 'application/json',
-  });
+  const headers = () => {
+    const h = { 'Content-Type': 'application/json' };
+    const access = getAccessToken();
+    if (access) h.Authorization = `Bearer ${access}`;
+    return h;
+  };
 
   const loadMeta = useCallback(async () => {
     setError('');
@@ -116,6 +117,13 @@ export default function AdminRegisterCompany() {
       setError('First admin email is required so the company can sign in');
       return;
     }
+    const kybRecipient = (
+      form.kyb_email.trim() || form.contact_email.trim() || form.admin_email.trim()
+    );
+    if (form.send_kyb_invite && (!kybRecipient || !kybRecipient.includes('@'))) {
+      setError('Enter a real onboarding recipient email. The grey example (ops@acme.com) is only a placeholder.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -126,7 +134,7 @@ export default function AdminRegisterCompany() {
         status: form.send_kyb_invite ? 'provisioning' : (form.status || 'active'),
         send_kyb_invite: Boolean(form.send_kyb_invite),
         skip_kyb: !form.send_kyb_invite,
-        kyb_email: form.kyb_email.trim() || form.contact_email.trim() || form.admin_email.trim() || undefined,
+        kyb_email: kybRecipient || undefined,
         contact_email: form.contact_email.trim() || undefined,
         country: form.country.trim(),
         go_live_date: form.go_live_date || undefined,
@@ -143,6 +151,7 @@ export default function AdminRegisterCompany() {
       };
       const res = await fetch(API_CUSTOMERS, {
         method: 'POST',
+        credentials: 'include',
         headers: headers(),
         body: JSON.stringify(payload),
       });
@@ -158,7 +167,9 @@ export default function AdminRegisterCompany() {
         (tid ? ` — tenant #${tid}` : '') +
         (firstAdmin && !form.send_kyb_invite ? ` — admin ${firstAdmin.email} (${firstAdmin.emp_id}) can log in with OTP` : '') +
         (kyb?.email_sent ? ` — verification link emailed to ${kyb.email}` : '') +
-        (kyb && !kyb.email_sent && kyb.invite_url ? ` — copy onboarding link from Admin (email not sent)` : '');
+        (kyb && !kyb.email_sent
+          ? ` — email was not sent${kyb.email_error ? ` (${kyb.email_error})` : ''}${kyb.invite_url ? `. Copy this link: ${kyb.invite_url}` : ''}`
+          : '');
       navigate('/admin/customers', { state: { message } });
     } catch (err) {
       setError(err.message || 'Failed to register company');
@@ -245,7 +256,13 @@ export default function AdminRegisterCompany() {
                     type="email"
                     value={form.contact_email}
                     onChange={(event) =>
-                      setForm((current) => ({ ...current, contact_email: event.target.value }))
+                      setForm((current) => {
+                        const contact_email = event.target.value;
+                        const kyb_email = current.kyb_email.trim()
+                          ? current.kyb_email
+                          : contact_email;
+                        return { ...current, contact_email, kyb_email };
+                      })
                     }
                     placeholder="ops@acme.com"
                   />
@@ -294,9 +311,12 @@ export default function AdminRegisterCompany() {
                     onChange={(event) =>
                       setForm((current) => ({ ...current, kyb_email: event.target.value }))
                     }
-                    placeholder={form.contact_email || form.admin_email || 'ops@acme.com'}
+                    placeholder="Type the recipient inbox (not the example)"
+                    required={form.send_kyb_invite}
                   />
-                  <span className="cust-field__hint">Defaults to contact or first admin email</span>
+                  <span className="cust-field__hint">
+                    Mail goes only to this address. Fill it — the example text is not sent.
+                  </span>
                 </label>
               ) : (
                 <p className="cust-field__hint">Skip only for internal/demo companies you already know.</p>
@@ -315,7 +335,13 @@ export default function AdminRegisterCompany() {
                     type="email"
                     value={form.admin_email}
                     onChange={(event) =>
-                      setForm((current) => ({ ...current, admin_email: event.target.value }))
+                      setForm((current) => {
+                        const admin_email = event.target.value;
+                        const kyb_email = current.kyb_email.trim()
+                          ? current.kyb_email
+                          : (current.contact_email.trim() || admin_email);
+                        return { ...current, admin_email, kyb_email };
+                      })
                     }
                     required
                     placeholder="admin@acme.com"

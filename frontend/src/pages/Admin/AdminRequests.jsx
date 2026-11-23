@@ -1,19 +1,26 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ClipboardCheck, MapPin } from 'lucide-react';
+import { ArrowLeft, ClipboardCheck, MapPin, UserCheck } from 'lucide-react';
 import { useRefreshOnNavigate } from '../../hooks/useRefreshOnNavigate';
+import { markAdminDepartmentVisit } from './adminVisit';
+import { useUser } from '../../components/layout/UserContext';
 import './AdminDashboard.css';
-import { getAccessToken } from "../../utils/authSession";
+import { getAccessToken, hasSignedInHint } from "../../utils/authSession";
 
 export default function AdminRequests() {
   const navigate = useNavigate();
+  const { userData } = useUser();
+  const showManagerPanel = userData?.user?.has_manager_access === true;
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingManager, setPendingManager] = useState(0);
 
   const loadPending = useCallback(() => {
     const token = getAccessToken();
-    if (!token) return;
+    if (!token && !hasSignedInHint()) return;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
     fetch('/api/admin/employee-change-requests?status=pending', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
+      credentials: 'include',
     })
       .then((res) => res.json().catch(() => ({})))
       .then((data) => {
@@ -21,6 +28,14 @@ export default function AdminRequests() {
         setPendingCount(Number.isFinite(count) ? count : 0);
       })
       .catch(() => setPendingCount(0));
+    fetch('/api/manager/pending-counts', { headers, credentials: 'include' })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        const counts = data.success ? (data.counts || {}) : {};
+        const total = Object.values(counts).reduce((sum, n) => sum + Number(n || 0), 0);
+        setPendingManager(Number.isFinite(total) ? total : 0);
+      })
+      .catch(() => setPendingManager(0));
   }, []);
 
   useRefreshOnNavigate(loadPending);
@@ -59,6 +74,29 @@ export default function AdminRequests() {
             </span>
           ) : null}
         </button>
+        {showManagerPanel ? (
+          <button
+            type="button"
+            className="admin-dash__shortcut"
+            onClick={() => {
+              markAdminDepartmentVisit();
+              navigate('/manager');
+            }}
+          >
+            <span className="admin-dash__shortcut-icon" aria-hidden>
+              <UserCheck size={22} />
+            </span>
+            <span className="admin-dash__shortcut-text">
+              <strong>Manager Panel</strong>
+              <span>Approve or reject team leave, WFH, claims, and other requests for people you manage as L1, L2, or L3</span>
+            </span>
+            {pendingManager > 0 ? (
+              <span className="admin-dash__notify" aria-label={`${pendingManager} pending manager requests`}>
+                {pendingManager}
+              </span>
+            ) : null}
+          </button>
+        ) : null}
       </div>
     </section>
   );

@@ -21,6 +21,18 @@ def sunday_dedupe_key(admin_id, gain_date):
     return f"{int(admin_id)}:{gain_date.isoformat()}:sunday"
 
 
+def holiday_dedupe_key(admin_id, gain_date):
+    """Stable unique key so public-holiday punch job creates at most one gain per employee/date."""
+    return f"{int(admin_id)}:{gain_date.isoformat()}:holiday"
+
+
+def work_gain_dedupe_key(admin_id, gain_date):
+    """Sunday work keeps the historical :sunday suffix; other public holidays use :holiday."""
+    if gain_date is not None and gain_date.weekday() == 6:
+        return sunday_dedupe_key(admin_id, gain_date)
+    return holiday_dedupe_key(admin_id, gain_date)
+
+
 def dedupe_duplicate_sunday_compoff_gains(tenant_id=None):
     """
     Collapse triplicate/duplicate Sunday CompOffGain rows (multi-worker scheduler race).

@@ -17,6 +17,7 @@ import {
   Monitor,
   Package,
   ShieldCheck,
+  UserCheck,
   UserMinus,
   UserPlus,
   Users,
@@ -60,6 +61,7 @@ const groups = [
       { id: 'finance', to: '/finance', label: 'Finance', icon: Landmark, external: true },
       { id: 'it', to: '/it', label: 'IT Management', icon: Monitor, external: true },
       { id: 'inventory', to: '/it/inventory', label: 'Inventory Management', icon: Package, external: true },
+      { id: 'manager', to: '/manager', label: 'Manager Panel', icon: UserCheck, external: true },
     ],
   },
   {
@@ -86,6 +88,7 @@ const groups = [
 function linkIsActive(item, pathname, isActive) {
   if (item.id === 'customers') return pathname === '/admin/customers';
   if (item.id === 'register') return pathname.startsWith('/admin/customers/register');
+  if (item.id === 'manager') return pathname.startsWith('/manager');
   if (item.id === 'it') return pathname.startsWith('/it') && !pathname.startsWith('/it/inventory');
   if (item.id === 'inventory') return pathname.startsWith('/it/inventory');
   if (item.id === 'employees') return pathname.startsWith('/employees') || pathname.startsWith('/employee');
@@ -122,6 +125,7 @@ export default function AdminSidebar({ onNavigate, platform = false, user }) {
             if (item.id === 'accounts') return canAccessAccountPanel(user);
             if (item.id === 'finance') return canAccessFinancePanel(user);
             if (item.id === 'it' || item.id === 'inventory') return canAccessItPanel(user);
+            if (item.id === 'manager') return user?.has_manager_access === true;
             return true;
           }),
         };

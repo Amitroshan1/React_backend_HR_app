@@ -44,8 +44,17 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256((raw or "").encode("utf-8")).hexdigest()
 
 
+def public_site_base() -> str:
+    """Customer-facing origin for KYB links (test or live). Does not change login BASE_URL."""
+    for key in ("KYB_PUBLIC_BASE_URL", "PUBLIC_APP_URL", "BASE_URL"):
+        raw = (current_app.config.get(key) or "").strip().rstrip("/")
+        if raw.startswith(("http://", "https://")):
+            return raw
+    return ""
+
+
 def kyb_link(raw_token: str) -> str:
-    base = (current_app.config.get("BASE_URL") or "").rstrip("/")
+    base = public_site_base()
     return f"{base}/company-kyb?t={raw_token}"
 
 

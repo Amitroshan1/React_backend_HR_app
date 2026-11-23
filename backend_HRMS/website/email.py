@@ -111,6 +111,7 @@ def send_email_via_zeptomail(
     attachments=None,
     from_name=None,
     bcc_emails=None,
+    text_body=None,
 ):
     """
     Sends email using Zoho ZeptoMail API.
@@ -118,27 +119,38 @@ def send_email_via_zeptomail(
     Returns: (success: bool, message: str)
     """
     try:
-        display_name = (from_name or subject or "Notification").strip()
+        to_addr = (recipient_email or "").strip()
+        if not to_addr or "@" not in to_addr:
+            return False, "Recipient email is missing"
+        sender_addr = (sender_email or "").strip()
+        if not sender_addr:
+            return False, "ZEPTO_SENDER_EMAIL is not configured on the server."
+        display_name = (from_name or current_app.config.get("ZEPTO_SENDER_NAME") or "SaffoPeople").strip()
+        if len(display_name) > 80:
+            display_name = display_name[:80].rstrip()
         payload = {
             "from": {
-                "address": sender_email,
+                "address": sender_addr,
                 "name": display_name,
             },
             "to": [
                 {
                     "email_address": {
-                        "address": recipient_email,
+                        "address": to_addr,
                     }
                 }
             ],
             "subject": subject,
             "htmlbody": body,
         }
+        plain = (text_body or "").strip()
+        if plain:
+            payload["textbody"] = plain
 
         bcc_list = _normalize_bcc_list(
             cc_emails=cc_emails,
             bcc_emails=bcc_emails,
-            recipient_email=recipient_email,
+            recipient_email=to_addr,
         )
         if bcc_list:
             payload["bcc"] = [
@@ -4006,28 +4018,71 @@ def send_company_kyb_invite_email(*, to_email, company_name, raw_token, valid_da
     try:
         from .tenant_kyb_service import kyb_link
 
+        to_addr = (to_email or "").strip()
+        if not to_addr or "@" not in to_addr:
+            return False, "Onboarding recipient email is missing"
         sender_email = (current_app.config.get("ZEPTO_SENDER_EMAIL") or "").strip()
         if not sender_email:
             return False, "ZEPTO_SENDER_EMAIL not configured"
         url = kyb_link(raw_token)
         if not url.startswith(("http://", "https://")):
-            return False, "BASE_URL must be set to send the onboarding link"
+            return False, "KYB_PUBLIC_BASE_URL or BASE_URL must be set to send the onboarding link"
         days = max(1, int(valid_days or 7))
-        subject = f"Complete company verification for {company_name or 'your company'}"
-        safe_name = html.escape(company_name or "your company")
+        display = (company_name or "your organisation").strip()
+        safe_name = html.escape(display)
+        safe_url = html.escape(url, quote=True)
+        subject = f"{display} — complete company verification on SaffoPeople"
+        from_name = (current_app.config.get("ZEPTO_SENDER_NAME") or "SaffoPeople").strip()
+        text_body = (
+            f"Dear Sir/Madam,\n\n"
+            f"Your organisation ({display}) has been registered on SaffoPeople HRMS. "
+            f"Please complete company verification (legal name, incorporation, GST and PAN documents) "
+            f"using the secure link below. This form is intended only for an authorised representative.\n\n"
+            f"{url}\n\n"
+            f"The link remains valid for {days} days.\n\n"
+            f"If you did not expect this message, you may ignore it.\n\n"
+            f"Kind regards,\n"
+            f"SaffoPeople Customer Onboarding\n"
+        )
         body = f"""
-        <p>Hello,</p>
-        <p>Please complete company details and legal-entity verification for <strong>{safe_name}</strong>.</p>
-        <p><a href="{html.escape(url, quote=True)}" target="_blank">Open the onboarding form</a></p>
-        <p>This link expires in <strong>{days} days</strong>. Do not forward it to anyone who should not act for the company.</p>
-        <p>Regards,<br><strong>Onboarding</strong></p>
+        <div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.55;color:#1f2937;max-width:640px;">
+          <p style="margin:0 0 16px;">Dear Sir/Madam,</p>
+          <p style="margin:0 0 16px;">
+            Your organisation (<strong>{safe_name}</strong>) has been registered on
+            <strong>SaffoPeople HRMS</strong>. Please complete company verification so we can
+            activate the workspace. You will be asked to confirm legal name, contact details,
+            country, and to upload incorporation, GST and PAN proofs.
+          </p>
+          <p style="margin:24px 0;">
+            <a href="{safe_url}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:600;">
+              Complete company verification
+            </a>
+          </p>
+          <p style="margin:0 0 16px;font-size:13px;color:#4b5563;">
+            If the button does not open, copy this address into your browser:<br>
+            <a href="{safe_url}" style="color:#0f766e;word-break:break-all;">{safe_url}</a>
+          </p>
+          <p style="margin:0 0 16px;">This link is valid for <strong>{days} days</strong> and should be used only by an authorised company representative.</p>
+          <p style="margin:0 0 4px;">Kind regards,</p>
+          <p style="margin:0;"><strong>SaffoPeople Customer Onboarding</strong></p>
+          <p style="margin:20px 0 0;font-size:12px;color:#6b7280;">This message was sent from a no-reply address. If you were not expecting it, you may ignore it.</p>
+        </div>
         """
         ok, provider_msg = send_email_via_zeptomail(
             sender_email=sender_email,
             subject=subject[:200],
             body=body,
-            recipient_email=(to_email or "").strip(),
+            recipient_email=to_addr,
+            from_name=from_name,
+            text_body=text_body,
         )
+        if not ok:
+            current_app.logger.error(
+                "KYB invite email failed to=%s company=%s: %s",
+                to_addr,
+                company_name,
+                provider_msg,
+            )
         return bool(ok), str(provider_msg or "")
     except Exception as e:
         current_app.logger.warning("send_company_kyb_invite_email failed: %s", e)
@@ -4070,18 +4125,41 @@ def send_company_kyb_changes_email(*, to_email, company_name, raw_token, note):
         if not sender_email:
             return False, "ZEPTO_SENDER_EMAIL not configured"
         url = kyb_link(raw_token)
-        subject = f"Update required: {company_name or 'company'} verification"
+        display = (company_name or "your organisation").strip()
+        safe_url = html.escape(url, quote=True)
         safe_note = html.escape((note or "")[:2000])
+        subject = f"{display} — additional details required for SaffoPeople verification"
+        from_name = (current_app.config.get("ZEPTO_SENDER_NAME") or "SaffoPeople").strip()
+        text_body = (
+            f"Dear Sir/Madam,\n\n"
+            f"Please update the company verification pack for {display} on SaffoPeople HRMS.\n\n"
+            f"{(note or '').strip()}\n\n"
+            f"{url}\n\n"
+            f"Kind regards,\nSaffoPeople Customer Onboarding\n"
+        )
         body = f"""
-        <p>Please update the verification pack for <strong>{html.escape(company_name or 'your company')}</strong>.</p>
-        <p>{safe_note}</p>
-        <p><a href="{html.escape(url, quote=True)}" target="_blank">Open the onboarding form</a></p>
+        <div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.55;color:#1f2937;max-width:640px;">
+          <p style="margin:0 0 16px;">Dear Sir/Madam,</p>
+          <p style="margin:0 0 16px;">Please update the company verification pack for <strong>{html.escape(display)}</strong> on SaffoPeople HRMS.</p>
+          <p style="margin:0 0 16px;">{safe_note}</p>
+          <p style="margin:24px 0;">
+            <a href="{safe_url}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:600;">
+              Open verification form
+            </a>
+          </p>
+          <p style="margin:0 0 16px;font-size:13px;color:#4b5563;">
+            <a href="{safe_url}" style="color:#0f766e;word-break:break-all;">{safe_url}</a>
+          </p>
+          <p style="margin:0;">Kind regards,<br><strong>SaffoPeople Customer Onboarding</strong></p>
+        </div>
         """
         return send_email_via_zeptomail(
             sender_email=sender_email,
             subject=subject[:200],
             body=body,
             recipient_email=(to_email or "").strip(),
+            from_name=from_name,
+            text_body=text_body,
         )
     except Exception as e:
         current_app.logger.warning("send_company_kyb_changes_email failed: %s", e)

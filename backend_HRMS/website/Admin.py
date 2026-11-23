@@ -1424,6 +1424,13 @@ def create_deployed_customer():
             company_name=company_name,
             raw_token=kyb_raw,
         )
+        if not kyb_email_sent:
+            current_app.logger.error(
+                "KYB invite not emailed for tenant %s to %s: %s",
+                tenant.id,
+                kyb_email,
+                kyb_email_error,
+            )
     payload = row.to_dict()
     payload["tenant_id"] = tenant.id
     body = {

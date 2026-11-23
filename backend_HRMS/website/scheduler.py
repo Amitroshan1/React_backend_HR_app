@@ -1,5 +1,5 @@
 """
-Daily HR jobs: probation reminder, compoff process, leave accrual.
+Daily HR jobs: probation reminder, Sunday/public-holiday compoff process, leave accrual.
 Scheduled via APScheduler (no manual intervention).
 """
 from datetime import datetime
